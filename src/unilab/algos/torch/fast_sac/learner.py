@@ -500,6 +500,7 @@ class FastSACLearner:
         # Entropy coefficient
         self.log_alpha = torch.tensor([math.log(alpha_init)], requires_grad=True, device=device)
         self.target_entropy = -action_dim * target_entropy_ratio
+        self._zero_metric = torch.zeros((), device=device)
 
         self.obs_normalizer: EmpiricalNormalization | nn.Identity
         if obs_normalization:
@@ -509,6 +510,7 @@ class FastSACLearner:
 
         # fused AdamW requires CUDA; MPS and CPU do not support it
         _fused = isinstance(device, str) and device.startswith("cuda")
+        _optimizer_cuda_kwargs = {"capturable": True} if _fused else {}
 
         # Optimizers (AdamW with holosoma betas)
         self.q_optimizer = optim.AdamW(
@@ -517,6 +519,7 @@ class FastSACLearner:
             weight_decay=weight_decay,
             fused=_fused,
             betas=(0.9, 0.95),
+            **_optimizer_cuda_kwargs,
         )
         self.actor_optimizer = optim.AdamW(
             self.actor.parameters(),
@@ -524,6 +527,7 @@ class FastSACLearner:
             weight_decay=weight_decay,
             fused=_fused,
             betas=(0.9, 0.95),
+            **_optimizer_cuda_kwargs,
         )
         self.alpha_optimizer = optim.AdamW(
             [self.log_alpha],
@@ -531,6 +535,7 @@ class FastSACLearner:
             fused=_fused,
             betas=(0.9, 0.95),
             weight_decay=0.0,
+            **_optimizer_cuda_kwargs,
         )
 
         # Step counter
@@ -791,6 +796,73 @@ class FastSACLearner:
 
         return actor_loss, policy_entropy, action_std
 
+    def _update_critic_capture_candidate(
+        self,
+        critic_obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_obs: torch.Tensor,
+        critic_next_obs: torch.Tensor,
+        dones: torch.Tensor,
+        truncated: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        qf_loss, target_q_max, target_q_min, next_log_probs = self._critic_loss_tensors(
+            critic_obs,
+            actions,
+            rewards,
+            next_obs,
+            critic_next_obs,
+            dones,
+            truncated,
+        )
+
+        self.q_optimizer.zero_grad(set_to_none=True)
+        if self.scaler:
+            self.scaler.scale(qf_loss).backward()
+            self.scaler.unscale_(self.q_optimizer)
+            self._reduce_gradients(self.qnet)
+            if self.max_grad_norm > 0:
+                critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.qnet.parameters(), max_norm=self.max_grad_norm
+                )
+            else:
+                critic_grad_norm = self._zero_metric
+            self.scaler.step(self.q_optimizer)
+            self.scaler.update()
+        else:
+            qf_loss.backward()
+            self._reduce_gradients(self.qnet)
+            if self.max_grad_norm > 0:
+                critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.qnet.parameters(), max_norm=self.max_grad_norm
+                )
+            else:
+                critic_grad_norm = self._zero_metric
+            self.q_optimizer.step()
+
+        alpha_loss = self._zero_metric
+        if self.use_autotune:
+            self.alpha_optimizer.zero_grad(set_to_none=True)
+            alpha_loss = self._alpha_loss_tensor(next_log_probs)
+            alpha_loss.backward()
+            if (
+                self.world_size > 1
+                and self.distributed_sync_mode == "sync_sgd"
+                and self.log_alpha.grad is not None
+            ):
+                dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
+                self.log_alpha.grad /= self.world_size
+            self.alpha_optimizer.step()
+
+        return (
+            qf_loss,
+            critic_grad_norm,
+            target_q_max,
+            target_q_min,
+            alpha_loss,
+            self.log_alpha.exp(),
+        )
+
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
         obs = batch["obs"]
@@ -863,7 +935,7 @@ class FastSACLearner:
                             self.qnet.parameters(), max_norm=self.max_grad_norm
                         )
                 else:
-                    critic_grad_norm = torch.tensor(0.0, device=self.device)
+                    critic_grad_norm = self._zero_metric
                 with _cuda_nvtx_range("critic/q_optimizer_step", self.nvtx_profile_ranges):
                     self.scaler.step(self.q_optimizer)
                 self.scaler.update()
@@ -877,14 +949,14 @@ class FastSACLearner:
                             self.qnet.parameters(), max_norm=self.max_grad_norm
                         )
                 else:
-                    critic_grad_norm = torch.tensor(0.0, device=self.device)
+                    critic_grad_norm = self._zero_metric
                 with _cuda_nvtx_range("critic/q_optimizer_step", self.nvtx_profile_ranges):
                     self.q_optimizer.step()
         else:
-            critic_grad_norm = torch.tensor(0.0, device=self.device)
+            critic_grad_norm = self._zero_metric
 
         # Alpha loss (temperature update) - matching holosoma
-        alpha_loss = torch.tensor(0.0, device=self.device)
+        alpha_loss = self._zero_metric
         if self.use_autotune:
             with _cuda_nvtx_range("critic/alpha_update", self.nvtx_profile_ranges):
                 self.alpha_optimizer.zero_grad(set_to_none=True)
@@ -948,7 +1020,7 @@ class FastSACLearner:
                             self.actor.parameters(), max_norm=self.max_grad_norm
                         )
                 else:
-                    actor_grad_norm = torch.tensor(0.0, device=self.device)
+                    actor_grad_norm = self._zero_metric
                 with _cuda_nvtx_range("actor/optimizer_step", self.nvtx_profile_ranges):
                     self.scaler.step(self.actor_optimizer)
                 self.scaler.update()
@@ -962,11 +1034,11 @@ class FastSACLearner:
                             self.actor.parameters(), max_norm=self.max_grad_norm
                         )
                 else:
-                    actor_grad_norm = torch.tensor(0.0, device=self.device)
+                    actor_grad_norm = self._zero_metric
                 with _cuda_nvtx_range("actor/optimizer_step", self.nvtx_profile_ranges):
                     self.actor_optimizer.step()
         else:
-            actor_grad_norm = torch.tensor(0.0, device=self.device)
+            actor_grad_norm = self._zero_metric
 
         return {
             "actor_loss": actor_loss.item(),

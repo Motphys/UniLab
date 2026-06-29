@@ -9,6 +9,35 @@ import torch
 from unilab.algos.torch.fast_sac.learner import FastSACLearner, SACActor
 
 
+def _small_fast_sac_learner(*, use_autotune: bool = True) -> FastSACLearner:
+    return FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=use_autotune,
+        max_grad_norm=0.0,
+    )
+
+
+def _small_offpolicy_batch(batch_size: int = 4) -> dict[str, torch.Tensor]:
+    return {
+        "obs": torch.linspace(-0.4, 0.7, steps=batch_size * 4).view(batch_size, 4),
+        "critic": torch.linspace(-0.2, 0.9, steps=batch_size * 5).view(batch_size, 5),
+        "actions": torch.linspace(-0.5, 0.5, steps=batch_size * 2).view(batch_size, 2),
+        "rewards": torch.linspace(-0.3, 0.6, steps=batch_size),
+        "next_obs": torch.linspace(0.1, 1.2, steps=batch_size * 4).view(batch_size, 4),
+        "next_critic": torch.linspace(-0.7, 0.4, steps=batch_size * 5).view(batch_size, 5),
+        "dones": torch.tensor([0.0, 1.0, 0.0, 1.0]),
+        "truncated": torch.tensor([0.0, 1.0, 0.0, 0.0]),
+    }
+
+
 def test_fast_sac_compile_targets_training_hot_paths(monkeypatch) -> None:
     calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -43,6 +72,62 @@ def test_fast_sac_compile_targets_training_hot_paths(monkeypatch) -> None:
             {"options": {"triton.cudagraphs": False}},
         ),
     ]
+
+
+def test_fast_sac_cuda_adamw_optimizers_are_capture_ready(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class _FakeAdamW:
+        def __init__(self, _params, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", _FakeAdamW)
+
+    FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cuda",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        use_compile=False,
+    )
+
+    assert len(calls) == 3
+    assert all(call["fused"] for call in calls)
+    assert all(call["capturable"] for call in calls)
+
+
+def test_fast_sac_cpu_adamw_optimizers_keep_default_capturability(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class _FakeAdamW:
+        def __init__(self, _params, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", _FakeAdamW)
+
+    FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        use_compile=False,
+    )
+
+    assert len(calls) == 3
+    assert not any(call["fused"] for call in calls)
+    assert all("capturable" not in call for call in calls)
 
 
 def test_fast_sac_amp_dtype_resolution_and_scaler_rules() -> None:
@@ -173,3 +258,46 @@ def test_sac_actor_tensor_gaussian_sampling_matches_normal_without_tanh() -> Non
     assert reference_log_std.grad is not None
     torch.testing.assert_close(mean.grad, reference_mean.grad)
     torch.testing.assert_close(log_std.grad, reference_log_std.grad)
+
+
+def test_fast_sac_capture_candidate_matches_public_critic_update_for_finite_loss() -> None:
+    public_learner = _small_fast_sac_learner()
+    capture_learner = _small_fast_sac_learner()
+    capture_learner.actor.load_state_dict(public_learner.actor.state_dict())
+    capture_learner.qnet.load_state_dict(public_learner.qnet.state_dict())
+    capture_learner.qnet_target.load_state_dict(public_learner.qnet_target.state_dict())
+    capture_learner.log_alpha.data.copy_(public_learner.log_alpha.data)
+    batch = _small_offpolicy_batch()
+
+    torch.manual_seed(2024)
+    public_metrics = public_learner.update_critic(batch)
+
+    torch.manual_seed(2024)
+    capture_outputs = capture_learner._update_critic_capture_candidate(
+        batch["critic"],
+        batch["actions"],
+        batch["rewards"],
+        batch["next_obs"],
+        batch["next_critic"],
+        batch["dones"],
+        batch["truncated"],
+    )
+    capture_metrics = {
+        "qf_loss": capture_outputs[0].item(),
+        "critic_grad_norm": capture_outputs[1].item(),
+        "target_q_max": capture_outputs[2].item(),
+        "target_q_min": capture_outputs[3].item(),
+        "alpha_loss": capture_outputs[4].item(),
+        "alpha": capture_outputs[5].item(),
+    }
+
+    assert public_metrics.keys() == capture_metrics.keys()
+    for key, public_value in public_metrics.items():
+        assert capture_metrics[key] == pytest.approx(public_value)
+    for public_param, capture_param in zip(
+        public_learner.qnet.parameters(),
+        capture_learner.qnet.parameters(),
+        strict=True,
+    ):
+        torch.testing.assert_close(capture_param, public_param)
+    torch.testing.assert_close(capture_learner.log_alpha, public_learner.log_alpha)
