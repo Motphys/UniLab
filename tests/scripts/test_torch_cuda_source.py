@@ -11,11 +11,15 @@ def test_torch_cuda_source_covers_windows_and_linux() -> None:
 
     torch_sources = data["tool"]["uv"]["sources"]["torch"]
     cu128_sources = [source for source in torch_sources if source.get("index") == "pytorch-cu128"]
+    cu130_sources = [source for source in torch_sources if source.get("index") == "r2-cu130"]
 
-    assert len(cu128_sources) == 1
-    marker = cu128_sources[0]["marker"]
-    assert "sys_platform=='linux'" in marker
-    assert "sys_platform=='win32'" in marker
+    assert {source["marker"] for source in cu128_sources} == {
+        "sys_platform=='linux' and platform_machine=='x86_64'",
+        "sys_platform=='win32'",
+    }
+    assert [source["marker"] for source in cu130_sources] == [
+        "sys_platform=='linux' and platform_machine=='aarch64'"
+    ]
 
 
 def test_windows_lock_uses_cuda_torch() -> None:
@@ -29,7 +33,13 @@ def test_windows_lock_uses_cuda_torch() -> None:
         "name": "torch",
         "version": "2.7.0+cu128",
         "source": {"registry": "https://download.pytorch.org/whl/cu128"},
-        "marker": "sys_platform == 'linux' or sys_platform == 'win32'",
+        "marker": "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'win32'",
+    } in torch_dependencies
+    assert {
+        "name": "torch",
+        "version": "2.9.0+cu130",
+        "source": {"registry": "https://download-r2.pytorch.org/whl/cu130"},
+        "marker": "platform_machine == 'aarch64' and sys_platform == 'linux'",
     } in torch_dependencies
 
     torch_packages = [package for package in lock["package"] if package["name"] == "torch"]
