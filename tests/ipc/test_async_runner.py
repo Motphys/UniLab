@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import unilab.ipc.async_runner as async_runner_module
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.ipc.collector_error import format_collector_death
 
@@ -44,6 +45,36 @@ def _make_runner(rl_cfg=None, **kwargs) -> _StubRunner:
         rl_cfg=rl_cfg or {},
         **kwargs,
     )
+
+
+class _InlineProcess:
+    """Process test double for contract checks that do not need OS spawn."""
+
+    def __init__(self, target, args=(), kwargs=None, daemon=None):
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+        self.daemon = daemon
+        self.exitcode = None
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+        try:
+            self._target(*self._args, **self._kwargs)
+        except BaseException:
+            self.exitcode = 1
+            raise
+        self.exitcode = 0
+
+    def is_alive(self) -> bool:
+        return False
+
+    def join(self, timeout=None) -> None:
+        return None
+
+    def terminate(self) -> None:
+        self.exitcode = -signal.SIGTERM
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +192,7 @@ def _worker_wait_for_stop(stop_event) -> None:
     stop_event.wait(timeout=30)
 
 
+@pytest.mark.slow
 def test_close_joins_running_collector():
     """close() must signal the stop event and reap the collector process.
 
@@ -193,16 +225,16 @@ def _noop_collector(stop_event) -> None:
     stop_event.wait(timeout=30)
 
 
-def _collector_report_kwargs(
+def _collector_record_kwargs(
     stop_event,
-    report_queue,
+    record,
     token: str,
     sim_backend: str = "missing",
 ) -> None:
-    report_queue.put({"sim_backend": sim_backend, "token": token})
-    stop_event.wait(timeout=30)
+    record.append({"sim_backend": sim_backend, "token": token})
 
 
+@pytest.mark.slow
 def test_start_collector_spawns_process():
     """_start_collector() must create and start a subprocess."""
     r = _make_runner()
@@ -212,20 +244,24 @@ def test_start_collector_spawns_process():
     r.close()
 
 
-def test_start_collector_does_not_merge_runner_runtime_fields():
+def test_start_collector_does_not_merge_runner_runtime_fields(monkeypatch):
     r = _make_runner(sim_backend="motrix")
-    report_queue = _SPAWN_CTX.Queue()
-    r._start_collector(
-        target_fn=_collector_report_kwargs,
-        kwargs={
-            "stop_event": r._stop_event,
-            "report_queue": report_queue,
-            "token": "ok",
-        },
-    )
-    payload = report_queue.get(timeout=5)
-    assert payload == {"sim_backend": "missing", "token": "ok"}
-    r.close()
+    record = []
+    monkeypatch.setattr(async_runner_module._SPAWN_CTX, "Process", _InlineProcess)
+    try:
+        r._start_collector(
+            target_fn=_collector_record_kwargs,
+            kwargs={
+                "stop_event": r._stop_event,
+                "record": record,
+                "token": "ok",
+            },
+        )
+        assert record == [{"sim_backend": "missing", "token": "ok"}]
+        assert r._collector_process is not None
+        assert r._collector_process.exitcode == 0
+    finally:
+        r.close()
 
 
 def test_format_collector_death_reports_shell_style_sigbus():
