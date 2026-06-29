@@ -2427,16 +2427,17 @@ def test_offpolicy_g1_rough_terrain_task_composes() -> None:
     assert cfg.training.sim_backend == "mujoco"
 
 
-def test_offpolicy_flashsac_rejects_multi_gpu():
+def test_offpolicy_flashsac_multi_gpu_requires_cuda_device():
     cfg = _offpolicy_cfg(
         [
             "algo=flashsac",
             "task=flashsac/g1_walk_flat/mujoco",
             "training.num_gpus=2",
+            "training.device=cpu",
         ]
     )
 
-    with pytest.raises(ValueError, match="Only SAC supports training.num_gpus > 1"):
+    with pytest.raises(ValueError, match="requires a CUDA device"):
         _offpolicy().build_runner("flashsac", cfg)
 
 

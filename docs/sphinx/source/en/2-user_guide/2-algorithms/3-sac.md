@@ -11,10 +11,12 @@ The off-policy runner decouples CPU simulation from GPU learning through shared
 memory: a collector subprocess fills a CPU-resident replay buffer while the
 learner trains on the GPU.
 
-SAC is also the currently validated replay-buffer multi-GPU algorithm. Enable it
-with `training.num_gpus > 1`; the host side packs and distributes batches in
-parallel, while the GPU learners default to delayed parameter averaging via
-`training.multi_gpu_sync_mode=local_sgd`. See
+The default FastSAC learner is also the currently validated replay-buffer
+multi-GPU SAC implementation. Enable it with `training.num_gpus > 1`; the host
+side packs and distributes batches in parallel, while the GPU learners default
+to delayed parameter averaging via `training.multi_gpu_sync_mode=local_sgd`.
+Custom SAC runtimes must explicitly declare the distributed learner contract
+before they can use this path. See
 {doc}`../1-training/4-multi_gpu` for the full command, strict-sync fallback, and
 constraints.
 

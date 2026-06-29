@@ -134,6 +134,10 @@ class FastTD3Learner:
     - Observation normalization
     """
 
+    supports_multi_gpu = False
+    supports_multi_gpu_symmetry = False
+    supported_multi_gpu_sync_modes: frozenset[str] = frozenset()
+
     def __init__(
         self,
         obs_dim: int,

@@ -10,6 +10,7 @@ import torch
 
 from unilab.algos.torch.flash_sac.learner import FlashSACLearner, RewardNormalizer
 from unilab.algos.torch.flash_sac.update import compute_categorical_td_target
+from unilab.algos.torch.offpolicy.distributed import validate_distributed_learner_capability
 
 
 def _make_batch(batch_size: int = 32) -> dict[str, torch.Tensor]:
@@ -33,12 +34,129 @@ def _make_batch(batch_size: int = 32) -> dict[str, torch.Tensor]:
     }
 
 
+def _make_small_learner(**kwargs: Any) -> FlashSACLearner:
+    defaults = {
+        "obs_dim": 4,
+        "action_dim": 2,
+        "critic_obs_dim": 6,
+        "actor_hidden_dim": 8,
+        "critic_hidden_dim": 8,
+        "actor_num_blocks": 1,
+        "critic_num_blocks": 1,
+        "num_atoms": 5,
+        "device": "cpu",
+        "use_compile": False,
+    }
+    defaults.update(kwargs)
+    return FlashSACLearner(**defaults)
+
+
 def test_flashsac_learner_exposes_expected_dims():
     learner = FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cpu")
 
     assert learner.obs_dim == 98
     assert learner.critic_obs_dim == 101
     assert learner.action_dim == 29
+
+
+def test_flashsac_learner_declares_multi_gpu_contract() -> None:
+    validate_distributed_learner_capability(
+        learner_cls=FlashSACLearner,
+        algo_type="flashsac",
+        learner_kwargs={},
+        num_gpus=2,
+        sync_mode="LOCAL_SGD",
+    )
+
+    learner = _make_small_learner(world_size=2, distributed_sync_mode="LOCAL_SGD")
+
+    assert learner.supports_multi_gpu is True
+    assert learner.supported_multi_gpu_sync_modes == frozenset({"sync_sgd", "local_sgd"})
+    assert learner.world_size == 2
+    assert learner.distributed_sync_mode == "local_sgd"
+
+
+def test_flashsac_parameter_sync_tensors_include_temperature_and_persistent_buffers() -> None:
+    learner = _make_small_learner()
+    tensors = learner._parameter_sync_tensors()
+    ptrs = {tensor.data_ptr() for tensor in tensors}
+
+    assert learner.temperature.log_temp.data_ptr() in ptrs
+    assert learner.actor.embedder.norm.running_mean.data_ptr() in ptrs
+    assert learner.critic.embedder.norm.running_mean.data_ptr() in ptrs
+    assert learner.target_critic.embedder.norm.running_mean.data_ptr() in ptrs
+    assert learner.critic.predictor.support.data_ptr() in ptrs
+
+
+def test_flashsac_reduce_gradients_averages_flat_gradient_payload(monkeypatch) -> None:
+    learner = _make_small_learner(world_size=2, distributed_sync_mode="sync_sgd")
+    for param in learner.actor.parameters():
+        param.grad = torch.ones_like(param)
+
+    calls = []
+
+    def fake_all_reduce(tensor: torch.Tensor, op=None) -> None:
+        del op
+        calls.append(tensor.numel())
+        tensor.mul_(4.0)
+
+    monkeypatch.setattr("unilab.algos.torch.flash_sac.learner.dist.all_reduce", fake_all_reduce)
+
+    assert learner._reduce_gradients(learner.actor) is True
+
+    assert calls == [sum(param.numel() for param in learner.actor.parameters())]
+    for param in learner.actor.parameters():
+        assert param.grad is not None
+        torch.testing.assert_close(param.grad, torch.full_like(param.grad, 2.0))
+
+
+def test_flashsac_reduce_gradients_reports_nonfinite_payload(monkeypatch) -> None:
+    learner = _make_small_learner(world_size=2, distributed_sync_mode="sync_sgd")
+    first_param = next(learner.actor.parameters())
+    first_param.grad = torch.ones_like(first_param)
+
+    def fake_all_reduce(tensor: torch.Tensor, op=None) -> None:
+        del op
+        tensor[0] = float("inf")
+
+    monkeypatch.setattr("unilab.algos.torch.flash_sac.learner.dist.all_reduce", fake_all_reduce)
+
+    assert learner._reduce_gradients(learner.actor) is False
+    assert first_param.grad is not None
+    torch.testing.assert_close(first_param.grad, torch.ones_like(first_param))
+
+
+def test_flashsac_obs_normalizer_uses_cross_rank_moments(monkeypatch) -> None:
+    learner = _make_small_learner(obs_normalization=True, world_size=2)
+
+    monkeypatch.setattr("unilab.algos.torch.flash_sac.learner.dist.is_available", lambda: True)
+    monkeypatch.setattr("unilab.algos.torch.flash_sac.learner.dist.is_initialized", lambda: True)
+
+    def fake_all_reduce(payload: torch.Tensor, op=None) -> None:
+        del op
+        obs_dim = 4
+        payload[:obs_dim] += torch.tensor([10.0, 20.0, 30.0, 40.0])
+        payload[obs_dim : 2 * obs_dim] += torch.tensor([50.0, 200.0, 450.0, 800.0])
+        payload[-1] += 2.0
+
+    monkeypatch.setattr("unilab.algos.torch.flash_sac.learner.dist.all_reduce", fake_all_reduce)
+
+    learner._update_obs_normalizer(
+        torch.tensor(
+            [
+                [1.0, 2.0, 3.0, 4.0],
+                [3.0, 4.0, 5.0, 6.0],
+            ]
+        )
+    )
+
+    normalizer = learner.obs_normalizer
+    assert not isinstance(normalizer, torch.nn.Identity)
+    torch.testing.assert_close(normalizer.count, torch.tensor(4))
+    torch.testing.assert_close(
+        normalizer.mean,
+        torch.tensor([3.5, 6.5, 9.5, 12.5]),
+    )
 
 
 def test_flashsac_compile_targets_training_hot_paths(monkeypatch) -> None:

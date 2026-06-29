@@ -194,6 +194,7 @@ def test_fast_sac_obs_normalization_uses_global_distributed_moments(
 
 
 def test_multi_gpu_offpolicy_runner_rejects_sac_symmetry_capability():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
     from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 
     with pytest.raises(
@@ -202,31 +203,106 @@ def test_multi_gpu_offpolicy_runner_rejects_sac_symmetry_capability():
     ):
         MultiGPUOffPolicyRunner.validate_capabilities(
             algo_type="sac",
+            learner_cls=FastSACLearner,
             learner_kwargs={"use_symmetry": True},
             num_gpus=2,
         )
 
 
 @pytest.mark.parametrize(
-    ("algo_type", "learner_kwargs", "num_gpus"),
+    ("learner_kwargs", "num_gpus"),
     [
-        ("sac", {"use_symmetry": False}, 2),
-        ("sac", {"use_symmetry": True}, 1),
-        ("td3", {"use_symmetry": True}, 2),
+        ({"use_symmetry": False}, 2),
+        ({"use_symmetry": True}, 1),
     ],
 )
 def test_multi_gpu_offpolicy_runner_allows_supported_capabilities(
-    algo_type: str,
     learner_kwargs: dict[str, bool],
     num_gpus: int,
 ):
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
     from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 
     MultiGPUOffPolicyRunner.validate_capabilities(
-        algo_type=algo_type,
+        algo_type="sac",
+        learner_cls=FastSACLearner,
         learner_kwargs=learner_kwargs,
         num_gpus=num_gpus,
     )
+
+
+def test_multi_gpu_offpolicy_runner_rejects_unsupported_learner_capability():
+    from unilab.algos.torch.fast_td3.learner import FastTD3Learner
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    with pytest.raises(ValueError, match="FastTD3Learner.*does not support training.num_gpus"):
+        MultiGPUOffPolicyRunner.validate_capabilities(
+            algo_type="td3",
+            learner_cls=FastTD3Learner,
+            learner_kwargs={},
+            num_gpus=2,
+        )
+
+
+def test_multi_gpu_offpolicy_runner_rejects_unsupported_sync_mode():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    with pytest.raises(ValueError, match="training.multi_gpu_sync_mode must be one of"):
+        MultiGPUOffPolicyRunner.validate_capabilities(
+            algo_type="sac",
+            learner_cls=FastSACLearner,
+            learner_kwargs={"use_symmetry": False},
+            num_gpus=2,
+            sync_mode="bogus",
+        )
+
+
+def test_multi_gpu_offpolicy_runner_normalizes_sync_mode_before_capability_check():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    MultiGPUOffPolicyRunner.validate_capabilities(
+        algo_type="sac",
+        learner_cls=FastSACLearner,
+        learner_kwargs={"use_symmetry": False},
+        num_gpus=2,
+        sync_mode="LOCAL_SGD",
+    )
+
+
+def test_multi_gpu_offpolicy_runner_requires_direct_learner_opt_in():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    class CustomSAC(FastSACLearner):
+        pass
+
+    with pytest.raises(ValueError, match="CustomSAC.*does not support training.num_gpus"):
+        MultiGPUOffPolicyRunner.validate_capabilities(
+            algo_type="custom_sac",
+            learner_cls=CustomSAC,
+            learner_kwargs={"use_symmetry": False},
+            num_gpus=2,
+        )
+
+
+def test_multi_gpu_offpolicy_runner_rejects_missing_distributed_hooks_before_spawn():
+    from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
+
+    class IncompleteLearner:
+        supports_multi_gpu = True
+        supports_multi_gpu_symmetry = False
+        supported_multi_gpu_sync_modes = frozenset({"local_sgd"})
+
+    with pytest.raises(ValueError, match="IncompleteLearner.*sync_initial_parameters"):
+        MultiGPUOffPolicyRunner.validate_capabilities(
+            algo_type="incomplete",
+            learner_cls=IncompleteLearner,
+            learner_kwargs={},
+            num_gpus=2,
+            sync_mode="local_sgd",
+        )
 
 
 def test_fast_sac_local_sgd_skips_per_update_gradient_all_reduce(

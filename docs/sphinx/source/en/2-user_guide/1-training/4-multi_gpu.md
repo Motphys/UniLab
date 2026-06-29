@@ -1,8 +1,10 @@
 # Multi-GPU
 
-The currently validated multi-GPU training path is SAC in replay-buffer mode.
-Use the unified CLI as usual, and enable multiple GPUs with the shared
-off-policy field `training.num_gpus`.
+The currently validated multi-GPU training paths are SAC/FastSAC and FlashSAC
+in replay-buffer mode. Use the unified CLI as usual, and enable multiple GPUs
+with the shared off-policy field `training.num_gpus`. The multi-GPU runner is a
+generic off-policy orchestration layer, but each learner must explicitly opt
+into the distributed learner contract.
 
 The multi-GPU runner keeps algorithm code separate from IPC: a collector fills
 the CPU replay buffer on the host, the runner packs batches for each learner
@@ -27,7 +29,8 @@ this avoids extending communication to AdamW momentum state.
 When `algo.obs_normalization=true`, each learner rank updates its observation
 normalizer from cross-rank global batch moments; rank 0 publishes the matching
 mean/std to the CPU collector at the same synchronization point as actor
-weights.
+weights. FlashSAC reward normalization keeps the replay-order update on rank 0
+and broadcasts the normalizer state to other ranks before learner updates.
 
 For strict per-update gradient averaging, set
 `training.multi_gpu_sync_mode=sync_sgd`. That mode is closer to single-GPU
@@ -53,7 +56,9 @@ single-GPU `algo.batch_size=8192` corresponds to two-GPU
 
 ## Preconditions
 
-- SAC only: `training.num_gpus > 1` rejects TD3, FlashSAC, PPO, MLX PPO, and APPO.
+- FastSAC and FlashSAC learners support this path; `training.num_gpus > 1`
+  rejects TD3, PPO, MLX PPO, APPO, and custom SAC runtimes until their learners
+  declare support.
 - CUDA is required; select physical cards with `CUDA_VISIBLE_DEVICES`.
 - SAC symmetry augmentation is not supported in multi-GPU mode. If the task
   owner enables it by default, set `algo.use_symmetry=false`.
@@ -95,6 +100,16 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 
 Logs still use SAC's default directory: `logs/fast_sac/<TaskName>/`.
 
+FlashSAC uses the same knobs:
+
+```bash
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
+  training.num_gpus=2 \
+  training.multi_gpu_sync_mode=local_sgd
+```
+
+FlashSAC logs still use `logs/flash_sac/<TaskName>/`.
+
 ## Performance Checks
 
 Multi-GPU mainly targets learner update bottlenecks. The collector is still one
@@ -116,7 +131,8 @@ compare steady-state `perf/iter_ms`, `timing/learner_train_ms`,
 
 ## Common Errors
 
-- `Only SAC supports training.num_gpus > 1`: only SAC is validated right now.
+- `<Learner> does not support training.num_gpus > 1`: that learner has not
+  declared and validated the multi-GPU contract yet.
 - `SAC multi-GPU training requires a CUDA device`: CUDA is unavailable, or
   `training.device` was set to CPU.
 - `set training.num_gpus=1 or algo.use_symmetry=false`: multi-GPU SAC does not

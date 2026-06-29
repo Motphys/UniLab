@@ -9,10 +9,11 @@ SAC 通过共享的 off-policy 入口 `scripts/train_offpolicy.py` 选择，TD3 
 off-policy runner 通过 shared memory 把 CPU 仿真与 GPU 学习解耦：collector 子进程
 填充驻留在 CPU 上的 replay buffer，learner 在 GPU 上训练。
 
-SAC 也是当前已验证的 replay-buffer 多 GPU 训练算法。多卡模式通过
+默认 FastSAC learner 也是当前已验证的 replay-buffer 多 GPU SAC 实现。多卡模式通过
 `training.num_gpus > 1` 打开，host 侧并行打包并分发 batch，多张 GPU 上的 learner
-默认使用 `training.multi_gpu_sync_mode=local_sgd` 做 delayed-sync 参数平均。完整命
-令、严格同步回退和限制见 {doc}`../1-training/4-multi_gpu`。
+默认使用 `training.multi_gpu_sync_mode=local_sgd` 做 delayed-sync 参数平均。custom
+SAC runtime 必须显式声明 distributed learner contract 后才能使用这条路径。完整命令、
+严格同步回退和限制见 {doc}`../1-training/4-multi_gpu`。
 
 ## 快速开始
 

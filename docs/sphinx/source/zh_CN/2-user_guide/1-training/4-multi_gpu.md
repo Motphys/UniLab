@@ -1,8 +1,9 @@
 # 多 GPU
 
-当前已验证的多 GPU 训练路径是 SAC 的 replay-buffer 模式。入口仍然是统一 CLI：
-`uv run train --algo sac ...`，多卡由共享 off-policy 配置字段
-`training.num_gpus` 打开。
+当前已验证的多 GPU 训练路径是 SAC/FastSAC 和 FlashSAC 的 replay-buffer 模式。入口
+仍然是统一 CLI，多卡由共享 off-policy 配置字段 `training.num_gpus` 打开。多 GPU
+runner 是通用的 off-policy 编排层，但 learner 必须通过分布式 learner contract 显式声
+明支持。
 
 多 GPU runner 保持算法与 IPC 隔离：collector 在 host 侧填充 CPU replay buffer，
 runner 根据各 learner rank 的请求打包 batch，并通过 pinned-memory pipeline 并行分
@@ -22,7 +23,8 @@ learner iteration 同步一次；增大该值可以进一步减少 4 卡、8 卡
 
 开启 `algo.obs_normalization=true` 时，每个 learner rank 使用跨 rank 聚合后的全局
 batch moments 更新 observation normalizer；rank0 在发布 actor 权重给 CPU
-collector 的同一同步点发布对应 mean/std。
+collector 的同一同步点发布对应 mean/std。FlashSAC 的 reward normalization 保持由
+rank0 按 replay 写入顺序更新，并在 learner update 前广播 normalizer 状态给其它 rank。
 
 如需严格的每次 update 梯度平均，可显式设置
 `training.multi_gpu_sync_mode=sync_sgd`。该模式更接近单卡 global batch 的同步
@@ -44,7 +46,8 @@ batch**，不是跨所有 GPU 的 global batch。`training.num_gpus=N` 时，每
 
 ## 前置条件
 
-- 只支持 SAC：`training.num_gpus > 1` 会拒绝 TD3、FlashSAC、PPO、MLX PPO 和 APPO。
+- FastSAC 与 FlashSAC learner 支持该路径；`training.num_gpus > 1` 会拒绝尚未声明该
+  能力的 TD3、PPO、MLX PPO、APPO 和 custom SAC runtime。
 - 必须使用 CUDA 设备；用 `CUDA_VISIBLE_DEVICES` 选择物理卡。
 - SAC 的对称增强当前不支持多卡；若任务 owner 默认开启，需要设置
   `algo.use_symmetry=false`。
@@ -85,6 +88,16 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 
 日志仍写入 SAC 的默认目录：`logs/fast_sac/<TaskName>/`。
 
+FlashSAC 使用同一组多卡参数：
+
+```bash
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
+  training.num_gpus=2 \
+  training.multi_gpu_sync_mode=local_sgd
+```
+
+FlashSAC 日志仍写入 `logs/flash_sac/<TaskName>/`。
+
 ## 性能检查
 
 多 GPU 主要减少 learner 更新瓶颈。collector 仍是单个 CPU 进程，所以
@@ -103,7 +116,8 @@ ring-buffer 窗口，让 CPU 随机 gather 与下一次 env step 重叠，同时
 
 ## 常见错误
 
-- `Only SAC supports training.num_gpus > 1`：当前只验证 SAC。
+- `<Learner> does not support training.num_gpus > 1`：该 learner 尚未声明并验证多
+  GPU contract。
 - `SAC multi-GPU training requires a CUDA device`：没有可用 CUDA，或
   `training.device` 被设成了 CPU。
 - `set training.num_gpus=1 or algo.use_symmetry=false`：多卡 SAC 暂不支持对称增
