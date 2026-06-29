@@ -29,6 +29,9 @@ COLLECTOR_TIMING_KEYS = (
     "replay_ms",
     "sync_coordination_ms",
 )
+COLLECTOR_ACTIVE_TIMING_KEYS = tuple(
+    key for key in COLLECTOR_TIMING_KEYS if key != "sync_coordination_ms"
+)
 
 
 def resolve_collector_actor_dims(
@@ -110,6 +113,20 @@ def _record_phase_ms(cycle_timing_ms: dict[str, float], key: str, start_ns: int)
     end_ns = time.perf_counter_ns()
     cycle_timing_ms[key] += (end_ns - start_ns) / 1e6
     return end_ns
+
+
+def compute_collector_active_steps_per_sec(
+    collector_timing_ms: dict[str, float],
+    *,
+    num_envs: int,
+) -> float | None:
+    """Return collector active throughput excluding explicit wait/coordination time."""
+    active_ms = sum(
+        float(collector_timing_ms.get(key, 0.0)) for key in COLLECTOR_ACTIVE_TIMING_KEYS
+    )
+    if active_ms <= 0.0:
+        return None
+    return int(num_envs) / (active_ms / 1000.0)
 
 
 def _ranked_entry(collection, rank: int, world_size: int = 1):
@@ -949,11 +966,12 @@ def _run_collector(
                             for k, v in timing_accum_ms.items()
                             if timing_counts[k] > 0
                         }
-                        env_step_ms = msg["collector_timing_ms"].get("env_step_ms", 0.0)
-                        if env_step_ms > 0.0:
-                            msg["collector_active_steps_per_sec"] = num_envs / (
-                                env_step_ms / 1000.0
-                            )
+                        collector_active_steps_per_sec = compute_collector_active_steps_per_sec(
+                            msg["collector_timing_ms"],
+                            num_envs=num_envs,
+                        )
+                        if collector_active_steps_per_sec is not None:
+                            msg["collector_active_steps_per_sec"] = collector_active_steps_per_sec
 
                     if done_count_window > 0:
                         msg["timeout_rate"] = timeout_count_window / done_count_window

@@ -5,6 +5,7 @@ import queue
 import numpy as np
 
 from unilab.algos.torch.appo.worker import (
+    compute_rollout_active_steps_per_sec,
     compute_timeout_bootstrap_correction,
     put_latest_metrics,
 )
@@ -14,6 +15,27 @@ class _FakeCritic:
     def __call__(self, obs):
         policy = obs["policy"]
         return policy.sum(dim=1, keepdim=True)
+
+
+def test_compute_rollout_active_steps_per_sec_uses_full_rollout_time() -> None:
+    steps_per_sec = compute_rollout_active_steps_per_sec(
+        num_envs=16,
+        steps_per_env=4,
+        rollout_ms=8.0,
+    )
+
+    assert steps_per_sec == 8000.0
+
+
+def test_compute_rollout_active_steps_per_sec_returns_none_without_timing() -> None:
+    assert (
+        compute_rollout_active_steps_per_sec(
+            num_envs=16,
+            steps_per_env=4,
+            rollout_ms=0.0,
+        )
+        is None
+    )
 
 
 def test_compute_timeout_bootstrap_correction_uses_final_observation_value():

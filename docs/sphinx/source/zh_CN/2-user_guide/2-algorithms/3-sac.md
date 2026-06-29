@@ -45,8 +45,8 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 - 多 GPU SAC 默认 `training.multi_gpu_sync_mode=local_sgd`，
   `training.multi_gpu_sync_interval=1`。
 
-`scripts/train_offpolicy.py` 中当前的 runner 路径要求同步采集；脚本会拒绝
-`training.no_sync_collection=true`。
+单 GPU SAC 与 TD3 可以在 off-policy double-buffer 路径下使用
+`training.no_sync_collection=true`。多 GPU SAC 与 FlashSAC-B 仍要求同步采集。
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \

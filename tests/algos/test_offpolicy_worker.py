@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from unilab.algos.torch.offpolicy.worker import (
+    compute_collector_active_steps_per_sec,
     resolve_offpolicy_actor_priv_info,
     sample_offpolicy_actions,
 )
@@ -22,6 +23,31 @@ class _DummyActor:
         assert dones is not None
         self.calls.append((obs.clone(), dones.clone(), deterministic))
         return torch.ones(obs.shape[0], 3, dtype=obs.dtype)
+
+
+def test_compute_collector_active_steps_per_sec_includes_active_phases_only() -> None:
+    steps_per_sec = compute_collector_active_steps_per_sec(
+        {
+            "weight_sync_ms": 1.0,
+            "action_select_ms": 2.0,
+            "env_step_ms": 10.0,
+            "replay_ms": 3.0,
+            "sync_coordination_ms": 100.0,
+        },
+        num_envs=32,
+    )
+
+    assert steps_per_sec == pytest.approx(32 / 0.016)
+
+
+def test_compute_collector_active_steps_per_sec_returns_none_without_active_time() -> None:
+    assert (
+        compute_collector_active_steps_per_sec(
+            {"sync_coordination_ms": 100.0},
+            num_envs=32,
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize("algo_type", ["sac", "td3", "flashsac"])
