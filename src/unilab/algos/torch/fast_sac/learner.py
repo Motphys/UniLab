@@ -159,22 +159,32 @@ class SACActor(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actions and compute log probabilities. Returns (action, log_prob, log_std)."""
         _, mean, log_std = self(obs)
+        action, log_prob = self._sample_action_and_log_prob(mean, log_std)
+        return action, log_prob, log_std
+
+    def _sample_action_and_log_prob(
+        self,
+        mean: torch.Tensor,
+        log_std: torch.Tensor,
+        eps: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         std = log_std.exp()
-        dist = torch.distributions.Normal(mean, std)
-        raw_action = dist.rsample()
+        if eps is None:
+            eps = torch.randn_like(mean)
+        raw_action = mean + std * eps
+        log_prob = -0.5 * (
+            ((raw_action - mean) / std).pow(2) + 2.0 * log_std + math.log(2.0 * math.pi)
+        )
 
         if self.use_tanh:
             tanh_action = torch.tanh(raw_action)
             action = tanh_action * self.action_scale + self.action_bias
-            log_prob = dist.log_prob(raw_action)
             log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
             log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             action = raw_action
-            log_prob = dist.log_prob(raw_action)
 
-        log_prob = log_prob.sum(1)
-        return action, log_prob, log_std
+        return action, log_prob.sum(1)
 
     @torch.no_grad()
     def explore(
@@ -202,9 +212,7 @@ class SACActor(nn.Module):
                 return torch.tanh(mean) * self.action_scale + self.action_bias
             return mean
 
-        std = log_std.exp()
-        dist = torch.distributions.Normal(mean, std)
-        raw_action = dist.rsample()
+        raw_action = mean + log_std.exp() * torch.randn_like(mean)
 
         if self.use_tanh:
             return torch.tanh(raw_action) * self.action_scale + self.action_bias
