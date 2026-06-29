@@ -181,8 +181,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
     if num_gpus > 1 and algo_name != "sac":
         raise ValueError("Only SAC supports training.num_gpus > 1 in this validation round")
 
-    if cfg.training.no_sync_collection:
-        raise ValueError("cpu_pinned_double_buffer requires synchronized collection")
+    sync_collection = not bool(cfg.training.no_sync_collection)
 
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
@@ -278,6 +277,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
 
             if not str(_device).startswith("cuda"):
                 raise ValueError("SAC multi-GPU training requires a CUDA device")
+            if not sync_collection:
+                raise ValueError("Multi-GPU off-policy replay requires synchronized collection")
             return MultiGPUOffPolicyRunner(
                 learner=_learner,
                 env_name=cfg.training.task_name,
@@ -294,7 +295,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 learning_starts=cfg.algo.learning_starts,
                 updates_per_step=cfg.algo.updates_per_step,
                 policy_frequency=cfg.algo.policy_frequency,
-                sync_collection=True,
+                sync_collection=sync_collection,
                 env_steps_per_sync=cfg.training.env_steps_per_sync,
                 device=_device,
                 actor_hidden_dim=cfg.algo.actor_hidden_dim,
@@ -321,7 +322,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
-            sync_collection=True,
+            sync_collection=sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             device=_device,
             actor_hidden_dim=cfg.algo.actor_hidden_dim,
@@ -398,7 +399,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
-            sync_collection=True,
+            sync_collection=sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             actor_hidden_dim=cfg.algo.actor_hidden_dim,
             use_layer_norm=False,

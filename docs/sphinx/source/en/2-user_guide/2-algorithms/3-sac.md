@@ -50,8 +50,9 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - Multi-GPU SAC defaults to `training.multi_gpu_sync_mode=local_sgd` and
   `training.multi_gpu_sync_interval=1`.
 
-The current runner path in `scripts/train_offpolicy.py` requires synchronized
-collection; `training.no_sync_collection=true` is rejected by the script.
+Single-GPU SAC and TD3 can run the off-policy double-buffer path with
+`training.no_sync_collection=true`. Multi-GPU SAC and FlashSAC-B still require
+synchronized collection.
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \

@@ -52,6 +52,18 @@ def put_latest_metrics(metrics_queue: Any, msg: dict[str, Any], *, worker_name: 
         print(f"[{worker_name}] metrics enqueue error: {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def compute_rollout_active_steps_per_sec(
+    *,
+    num_envs: int,
+    steps_per_env: int,
+    rollout_ms: float,
+) -> float | None:
+    """Return rollout collector throughput from active rollout wall time."""
+    if rollout_ms <= 0.0:
+        return None
+    return (int(num_envs) * int(steps_per_env)) / (float(rollout_ms) / 1000.0)
+
+
 def compute_timeout_bootstrap_correction(
     critic: Any,
     collector_device: str,
@@ -359,10 +371,13 @@ def appo_collector_fn(
                             "mlp_infer_ms": ema_mlp_infer_ms,
                             "env_step_ms": ema_env_step_ms,
                         }
-                        if ema_env_step_ms > 0.0:
-                            msg["collector_active_steps_per_sec"] = num_envs / (
-                                ema_env_step_ms / 1000.0
-                            )
+                        collector_active_steps_per_sec = compute_rollout_active_steps_per_sec(
+                            num_envs=num_envs,
+                            steps_per_env=steps_per_env,
+                            rollout_ms=ema_rollout_ms,
+                        )
+                        if collector_active_steps_per_sec is not None:
+                            msg["collector_active_steps_per_sec"] = collector_active_steps_per_sec
                         if ep_reward_components:
                             msg["reward_components"] = {
                                 k: statistics.mean(v) for k, v in ep_reward_components.items() if v

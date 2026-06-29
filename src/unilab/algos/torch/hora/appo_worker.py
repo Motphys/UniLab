@@ -12,7 +12,10 @@ import numpy as np
 import torch
 from rsl_rl.utils import resolve_callable
 
-from unilab.algos.torch.appo.worker import put_latest_metrics
+from unilab.algos.torch.appo.worker import (
+    compute_rollout_active_steps_per_sec,
+    put_latest_metrics,
+)
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.registry import ensure_registries
 from unilab.training.seed import apply_training_seed
@@ -377,10 +380,13 @@ def hora_appo_collector_fn(
                             "mlp_infer_ms": ema_mlp_infer_ms,
                             "env_step_ms": ema_env_step_ms,
                         }
-                        if ema_env_step_ms > 0.0:
-                            msg["collector_active_steps_per_sec"] = num_envs / (
-                                ema_env_step_ms / 1000.0
-                            )
+                        collector_active_steps_per_sec = compute_rollout_active_steps_per_sec(
+                            num_envs=num_envs,
+                            steps_per_env=steps_per_env,
+                            rollout_ms=ema_rollout_ms,
+                        )
+                        if collector_active_steps_per_sec is not None:
+                            msg["collector_active_steps_per_sec"] = collector_active_steps_per_sec
                         if ep_reward_components:
                             msg["reward_components"] = {
                                 k: statistics.mean(v) for k, v in ep_reward_components.items() if v

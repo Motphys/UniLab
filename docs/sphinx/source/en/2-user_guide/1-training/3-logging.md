@@ -111,6 +111,10 @@ TensorBoard `timing/collector_*`. SAC / TD3:
 | Replay | `timing/collector_replay_ms` | Replay buffer write and sample packing |
 | Sync Coordination | `timing/collector_sync_coordination_ms` | Synchronous-collection handshake (signal learner, wait for learner) |
 
+`Collector/s` is collector active throughput. For SAC / TD3 it uses
+`num_envs / (Weight Sync + Action Select + Env Step + Replay)` and excludes
+`Sync Coordination`.
+
 APPO uses a ring buffer; the collector reports two **per-step** EMAs plus one **whole-rollout** total:
 
 | Terminal field | TensorBoard / W&B key | Meaning |
@@ -118,6 +122,8 @@ APPO uses a ring buffer; the collector reports two **per-step** EMAs plus one **
 | MLP Infer | `timing/collector_mlp_infer_ms` | EMA of per-step policy inference (**per step**) |
 | Env Step | `timing/collector_env_step_ms` | EMA of a single `env.step()` (**per step**) |
 | Rollout | `timing/collector_rollout_ms` | EMA of the real wall-clock time to produce **one full rollout** (`steps_per_env` steps); shown last in the column as the total |
+
+For APPO, `Collector/s` uses `(num_envs * steps_per_env) / Rollout`.
 
 > Rollout ≈ `steps_per_env` × (MLP Infer + Env Step) + untimed per-step overhead (e.g. the timeout-bootstrap critic forward, obs processing). It and the learner's Collector Wait are **two independent-timeline views**: collection overlaps the learner's compute, so Collector Wait (the time the learner is actually blocked) is normally **smaller** than Rollout, and the two are not meant to reconcile exactly. To see "how much of this iteration waits on the collector," read the percentage on the Collector Wait row (= Collector Wait / Iter Wall). The same percentage format is used for every learner row. The former `env_step_total_ms` (`timing/collector_env_step_total_ms`) is renamed to `Env Step` (`timing/collector_env_step_ms`).
 
