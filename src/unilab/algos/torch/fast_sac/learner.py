@@ -155,11 +155,13 @@ class SACActor(nn.Module):
         return _Wrapper()
 
     def get_actions_and_log_probs(
-        self, obs: torch.Tensor
+        self,
+        obs: torch.Tensor,
+        eps: torch.Tensor | None = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actions and compute log probabilities. Returns (action, log_prob, log_std)."""
         _, mean, log_std = self(obs)
-        action, log_prob = self._sample_action_and_log_prob(mean, log_std)
+        action, log_prob = self._sample_action_and_log_prob(mean, log_std, eps=eps)
         return action, log_prob, log_std
 
     def _sample_action_and_log_prob(
@@ -437,6 +439,7 @@ class FastSACLearner:
         amp_dtype: str = "auto",
         use_compile: bool = False,
         obs_normalization: bool = False,
+        use_cuda_graph_critic: bool = False,
         nvtx_profile_ranges: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
@@ -451,6 +454,11 @@ class FastSACLearner:
         self.use_amp = bool(use_amp) and self._device_type in ("cuda", "xpu")
         self.use_compile = (
             bool(use_compile) and get_torch_compile_for_cuda(self.device, warn=True) is not None
+        )
+        self.use_cuda_graph_critic = (
+            bool(use_cuda_graph_critic)
+            and self._device_type == "cuda"
+            and world_size <= 1
         )
         self.nvtx_profile_ranges = bool(nvtx_profile_ranges) and self._device_type == "cuda"
         self.amp_dtype = amp_dtype
@@ -554,6 +562,18 @@ class FastSACLearner:
                 "FastSACLearner use_symmetry=True requires a symmetry_augmentation contract"
             )
         self.use_symmetry = use_symmetry
+        self._cuda_graph_critic: torch.cuda.CUDAGraph | None = None
+        self._cuda_graph_critic_static_inputs: dict[str, torch.Tensor] | None = None
+        self._cuda_graph_critic_action_noise: torch.Tensor | None = None
+        self._cuda_graph_critic_outputs: tuple[
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+        ] | None = None
+        self._cuda_graph_critic_shapes: dict[str, torch.Size] | None = None
         if self.use_compile:
             self._compile_training_methods()
 
@@ -582,9 +602,10 @@ class FastSACLearner:
             return
 
         compile_kwargs = {"options": {"triton.cudagraphs": False}}
-        self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
-            self._critic_loss_tensors, **compile_kwargs
-        )
+        if not self.use_cuda_graph_critic:
+            self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
+                self._critic_loss_tensors, **compile_kwargs
+            )
         self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
             self._actor_loss_tensors, **compile_kwargs
         )
@@ -711,6 +732,7 @@ class FastSACLearner:
         self,
         actor_obs: torch.Tensor,
         critic_obs: torch.Tensor,
+        eps: torch.Tensor | None = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actor actions for critic targets.
 
@@ -718,7 +740,7 @@ class FastSACLearner:
         preserving the standard SAC update path.
         """
         del critic_obs
-        return self.actor.get_actions_and_log_probs(actor_obs)
+        return self.actor.get_actions_and_log_probs(actor_obs, eps=eps)
 
     def _get_actions_and_log_probs_for_actor(
         self,
@@ -738,6 +760,7 @@ class FastSACLearner:
         critic_next_obs: torch.Tensor,
         dones: torch.Tensor,
         truncated: torch.Tensor,
+        next_action_eps: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         bootstrap = torch.clamp(1.0 - dones.float() + truncated.float(), 0.0, 1.0)
         discount = torch.full_like(dones, self.gamma)
@@ -747,6 +770,7 @@ class FastSACLearner:
                 next_actions, next_log_probs, _ = self._get_actions_and_log_probs_for_critic(
                     next_obs,
                     critic_next_obs,
+                    eps=next_action_eps,
                 )
             adjusted_rewards = (
                 rewards - discount * bootstrap * self.log_alpha.exp() * next_log_probs
@@ -814,6 +838,7 @@ class FastSACLearner:
             critic_next_obs,
             dones,
             truncated,
+            next_action_eps=self._cuda_graph_critic_action_noise,
         )
 
         self.q_optimizer.zero_grad(set_to_none=True)
@@ -862,6 +887,151 @@ class FastSACLearner:
             alpha_loss,
             self.log_alpha.exp(),
         )
+
+    def _critic_graph_input_shapes(self, batch: Dict[str, torch.Tensor]) -> dict[str, torch.Size]:
+        return {
+            "critic": batch["critic"].shape,
+            "actions": batch["actions"].shape,
+            "rewards": batch["rewards"].shape,
+            "next_obs": batch["next_obs"].shape,
+            "next_critic": batch["next_critic"].shape,
+            "dones": batch["dones"].shape,
+            "truncated": batch["truncated"].shape,
+        }
+
+    def _copy_critic_graph_inputs(self, batch: Dict[str, torch.Tensor]) -> None:
+        assert self._cuda_graph_critic_static_inputs is not None
+        for key, tensor in self._cuda_graph_critic_static_inputs.items():
+            tensor.copy_(batch[key])
+        assert self._cuda_graph_critic_action_noise is not None
+        self._cuda_graph_critic_action_noise.copy_(torch.randn_like(self._cuda_graph_critic_action_noise))
+
+    def _materialize_capturable_critic_optimizer_state(
+        self,
+        batch: Dict[str, torch.Tensor],
+    ) -> None:
+        optimizer_lrs = [group["lr"] for group in self.q_optimizer.param_groups]
+        optimizer_weight_decays = [group["weight_decay"] for group in self.q_optimizer.param_groups]
+        alpha_lrs = [group["lr"] for group in self.alpha_optimizer.param_groups]
+        cpu_rng_state = torch.random.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state() if self._device_type == "cuda" else None
+        try:
+            for group in self.q_optimizer.param_groups:
+                group["lr"] = 0.0
+                group["weight_decay"] = 0.0
+            for group in self.alpha_optimizer.param_groups:
+                group["lr"] = 0.0
+            self._update_critic_capture_candidate(
+                batch["critic"],
+                batch["actions"],
+                batch["rewards"],
+                batch["next_obs"],
+                batch["next_critic"],
+                batch["dones"],
+                batch["truncated"],
+            )
+        finally:
+            torch.random.set_rng_state(cpu_rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state(cuda_rng_state)
+            for group, lr, weight_decay in zip(
+                self.q_optimizer.param_groups,
+                optimizer_lrs,
+                optimizer_weight_decays,
+                strict=True,
+            ):
+                group["lr"] = lr
+                group["weight_decay"] = weight_decay
+            for group, lr in zip(self.alpha_optimizer.param_groups, alpha_lrs, strict=True):
+                group["lr"] = lr
+
+        for optimizer in (self.q_optimizer, self.alpha_optimizer):
+            optimizer.zero_grad(set_to_none=True)
+            for state in optimizer.state.values():
+                step = state.get("step")
+                if isinstance(step, torch.Tensor):
+                    step.zero_()
+                elif step is not None:
+                    state["step"] = 0
+                for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                    tensor = state.get(name)
+                    if isinstance(tensor, torch.Tensor):
+                        tensor.zero_()
+
+    def _reset_critic_cuda_graph(self) -> None:
+        self._cuda_graph_critic = None
+        self._cuda_graph_critic_static_inputs = None
+        self._cuda_graph_critic_action_noise = None
+        self._cuda_graph_critic_outputs = None
+        self._cuda_graph_critic_shapes = None
+
+    def _capture_critic_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> None:
+        if not self.use_cuda_graph_critic:
+            return
+        self._cuda_graph_critic_shapes = self._critic_graph_input_shapes(batch)
+        self._cuda_graph_critic_static_inputs = {
+            "critic": batch["critic"].detach().clone(),
+            "actions": batch["actions"].detach().clone(),
+            "rewards": batch["rewards"].detach().clone(),
+            "next_obs": batch["next_obs"].detach().clone(),
+            "next_critic": batch["next_critic"].detach().clone(),
+            "dones": batch["dones"].detach().clone(),
+            "truncated": batch["truncated"].detach().clone(),
+        }
+        self._cuda_graph_critic_action_noise = torch.empty(
+            batch["next_obs"].shape[:-1] + (batch["actions"].shape[-1],),
+            device=batch["next_obs"].device,
+            dtype=batch["next_obs"].dtype,
+        )
+        self._copy_critic_graph_inputs(batch)
+
+        graph = torch.cuda.CUDAGraph()
+        capture_stream = torch.cuda.Stream()
+        capture_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+            self._cuda_graph_critic_outputs = self._update_critic_capture_candidate(
+                self._cuda_graph_critic_static_inputs["critic"],
+                self._cuda_graph_critic_static_inputs["actions"],
+                self._cuda_graph_critic_static_inputs["rewards"],
+                self._cuda_graph_critic_static_inputs["next_obs"],
+                self._cuda_graph_critic_static_inputs["next_critic"],
+                self._cuda_graph_critic_static_inputs["dones"],
+                self._cuda_graph_critic_static_inputs["truncated"],
+            )
+        torch.cuda.current_stream().wait_stream(capture_stream)
+        torch.cuda.synchronize()
+        self._cuda_graph_critic = graph
+
+    def _critic_graph_output_metrics(self) -> Dict[str, float]:
+        assert self._cuda_graph_critic_outputs is not None
+        qf_loss, critic_grad_norm, target_q_max, target_q_min, alpha_loss, alpha = (
+            self._cuda_graph_critic_outputs
+        )
+        return {
+            "qf_loss": qf_loss.item(),
+            "critic_grad_norm": critic_grad_norm.item(),
+            "target_q_max": target_q_max.item(),
+            "target_q_min": target_q_min.item(),
+            "alpha_loss": alpha_loss.item(),
+            "alpha": alpha.item(),
+        }
+
+    def update_critic_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        if not self.use_cuda_graph_critic:
+            return self.update_critic(batch)
+        if self._device_type != "cuda":
+            return self.update_critic(batch)
+        if self.scaler is not None or self.world_size > 1:
+            return self.update_critic(batch)
+        if self._cuda_graph_critic_shapes != self._critic_graph_input_shapes(batch):
+            self._reset_critic_cuda_graph()
+            self._materialize_capturable_critic_optimizer_state(batch)
+            self._capture_critic_cuda_graph(batch)
+            return self._critic_graph_output_metrics()
+        assert self._cuda_graph_critic is not None
+        self._copy_critic_graph_inputs(batch)
+        self._cuda_graph_critic.replay()
+        return self._critic_graph_output_metrics()
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""

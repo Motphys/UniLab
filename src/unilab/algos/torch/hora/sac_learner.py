@@ -76,6 +76,7 @@ class HoraSACLearner(FastSACLearner):
             symmetry_augmentation=None,
             **kwargs,
         )
+        self.use_cuda_graph_critic = False
         self.priv_info_dim = int(priv_info_dim)
         self.actor = HoraSACActor(
             obs_dim=obs_dim,

@@ -577,7 +577,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         batch = {k: v[s:e] for k, v in large_batch.items()}
 
                         _critic_ns = time.perf_counter_ns()
-                        critic_metrics = learner.update_critic(batch)
+                        if getattr(learner, "use_cuda_graph_critic", False) and hasattr(
+                            learner, "update_critic_cuda_graph"
+                        ):
+                            critic_metrics = learner.update_critic_cuda_graph(batch)
+                        else:
+                            critic_metrics = learner.update_critic(batch)
                         if trace_recorder:
                             trace_recorder.add_slice(
                                 "learner/update_critic",

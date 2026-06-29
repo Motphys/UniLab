@@ -35,3 +35,4 @@ algo_params:
   max_grad_norm: 0.0
   amp_dtype: auto
   use_compile: true
+  use_cuda_graph_critic: false

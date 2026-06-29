@@ -27,6 +27,7 @@ class SACAlgoParams:
     max_grad_norm: float = 0.0
     amp_dtype: str = "auto"
     use_compile: bool = True
+    use_cuda_graph_critic: bool = False
 
 
 @dataclass
