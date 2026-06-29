@@ -34,6 +34,9 @@ class _FakeActor:
 
 class _FakeLearner:
     last_instance: "_FakeLearner | None" = None
+    supports_multi_gpu = True
+    supports_multi_gpu_symmetry = False
+    supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
 
     def __init__(self, *args, **kwargs) -> None:
         del args

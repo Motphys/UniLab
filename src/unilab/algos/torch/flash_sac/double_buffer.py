@@ -7,6 +7,7 @@ from typing import Any
 from omegaconf import DictConfig
 
 from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+from unilab.algos.torch.offpolicy.distributed import validate_distributed_learner_capability
 from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 from unilab.training import create_env, ensure_registries
 from unilab.training.seed import apply_training_seed
@@ -22,7 +23,13 @@ def _validate_flashsac_double_buffer_runtime(
 ) -> None:
     _ = device
     if cfg.training.num_gpus > 1:
-        raise ValueError("FlashSAC-B cpu_pinned_double_buffer is single-GPU only")
+        validate_distributed_learner_capability(
+            learner_cls=FlashSACLearner,
+            algo_type="flashsac",
+            learner_kwargs={},
+            num_gpus=int(cfg.training.num_gpus),
+            sync_mode=str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd")),
+        )
     if cfg.training.no_sync_collection:
         raise ValueError("FlashSAC-B cpu_pinned_double_buffer requires synchronized collection")
     if replay_prefetch_mode != "one_tick":

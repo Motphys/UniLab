@@ -28,7 +28,8 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
-`scripts/train_offpolicy.py` 会拒绝 FlashSAC 的 `training.num_gpus > 1`，因此除非实
-现发生变化，否则请保持默认的单 GPU 路径。
+FlashSAC learner 当前没有声明分布式 learner contract，因此
+`training.num_gpus > 1` 会被 capability check 拒绝。除非 FlashSAC 实现并验证多
+GPU 同步语义，否则请保持默认的单 GPU 路径。
 
 日志根目录为 `logs/flash_sac/<task>/`。

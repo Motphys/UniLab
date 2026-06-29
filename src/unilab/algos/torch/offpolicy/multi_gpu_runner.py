@@ -25,6 +25,11 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as tmp  # torch.multiprocessing for spawn
 
+from unilab.algos.torch.offpolicy.distributed import (
+    normalize_distributed_sync_mode,
+    resolve_distributed_learner_hooks,
+    validate_distributed_learner_capability,
+)
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
     build_offpolicy_sample_info,
@@ -41,7 +46,6 @@ from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 
 MULTIGPU_REPLAY_READY_POLL_SEC = 0.001
-MULTIGPU_SYNC_MODES = {"sync_sgd", "local_sgd"}
 
 
 class _CollectorDiedError(RuntimeError):
@@ -56,11 +60,7 @@ def _find_free_port() -> int:
 
 def normalize_multi_gpu_sync_mode(mode: str) -> str:
     """Return a validated multi-GPU learner synchronization mode."""
-    normalized = str(mode).strip().lower()
-    if normalized not in MULTIGPU_SYNC_MODES:
-        supported = ", ".join(sorted(MULTIGPU_SYNC_MODES))
-        raise ValueError(f"training.multi_gpu_sync_mode must be one of: {supported}; got {mode!r}")
-    return normalized
+    return normalize_distributed_sync_mode(mode)
 
 
 def normalize_multi_gpu_sync_interval(interval: int) -> int:
@@ -183,19 +183,16 @@ def _learner_worker(
         replay_buffer.device = device
 
         # 2. Create learner on this device
-        learner_kwargs = dict(learner_kwargs)
-        learner_kwargs["distributed_sync_mode"] = normalize_multi_gpu_sync_mode(
+        sync_mode = normalize_multi_gpu_sync_mode(
             str(runner_kwargs.get("multi_gpu_sync_mode", "local_sgd"))
         )
+        learner_kwargs = dict(learner_kwargs)
+        learner_kwargs["distributed_sync_mode"] = sync_mode
         learner = learner_cls(device=device, world_size=world_size, **learner_kwargs)
 
         # 3. Broadcast rank-0 params so all workers start identically.
-        sync_initial_parameters = getattr(learner, "sync_initial_parameters", None)
-        if not callable(sync_initial_parameters):
-            raise ValueError(
-                "Multi-GPU off-policy learner must implement sync_initial_parameters(src=0)"
-            )
-        sync_initial_parameters(src=0)
+        distributed_hooks = resolve_distributed_learner_hooks(learner, sync_mode=sync_mode)
+        distributed_hooks.sync_initial_parameters(src=0)
 
         # 4. Reconnect to the shared weight-sync buffer
         weight_sync = SharedWeightSync(
@@ -216,9 +213,6 @@ def _learner_worker(
         obs_dim: int = runner_kwargs["obs_dim"]
         action_dim: int = runner_kwargs["action_dim"]
         logger_type: str = runner_kwargs.get("logger_type", "tensorboard")
-        sync_mode = normalize_multi_gpu_sync_mode(
-            str(runner_kwargs.get("multi_gpu_sync_mode", "local_sgd"))
-        )
         sync_interval = normalize_multi_gpu_sync_interval(
             int(runner_kwargs.get("multi_gpu_sync_interval", 1))
         )
@@ -438,12 +432,7 @@ def _learner_worker(
             did_param_sync = False
             if should_param_sync:
                 param_sync_start = time.perf_counter()
-                average_parameters = getattr(learner, "average_distributed_parameters", None)
-                if not callable(average_parameters):
-                    raise ValueError(
-                        "Multi-GPU local_sgd requires learner.average_distributed_parameters()"
-                    )
-                average_parameters()
+                distributed_hooks.average_distributed_parameters()
                 param_sync_time = time.perf_counter() - param_sync_start
                 did_param_sync = True
 
@@ -565,16 +554,18 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
     def validate_capabilities(
         *,
         algo_type: str,
+        learner_cls: Any,
         learner_kwargs: Dict[str, Any],
         num_gpus: int,
+        sync_mode: str = "local_sgd",
     ) -> None:
-        if num_gpus <= 1:
-            return
-        if algo_type == "sac" and bool(learner_kwargs.get("use_symmetry", False)):
-            raise ValueError(
-                "Off-policy symmetry augmentation does not support training.num_gpus > 1; "
-                "set training.num_gpus=1 or algo.use_symmetry=false"
-            )
+        validate_distributed_learner_capability(
+            learner_cls=learner_cls,
+            algo_type=algo_type,
+            learner_kwargs=learner_kwargs,
+            num_gpus=num_gpus,
+            sync_mode=sync_mode,
+        )
 
     def __init__(
         self,
@@ -589,10 +580,13 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         multi_gpu_sync_interval: int = 1,
         **kwargs: Any,
     ) -> None:
+        normalized_sync_mode = normalize_multi_gpu_sync_mode(multi_gpu_sync_mode)
         self.validate_capabilities(
             algo_type=algo_type,
+            learner_cls=learner_cls,
             learner_kwargs=learner_kwargs,
             num_gpus=num_gpus,
+            sync_mode=normalized_sync_mode,
         )
         super().__init__(learner=learner, env_name=env_name, algo_type=algo_type, **kwargs)
         self.num_gpus = num_gpus
@@ -600,7 +594,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         self._learner_cls = learner_cls
         self._learner_kwargs = learner_kwargs
         self.distributed_backend = distributed_backend
-        self.multi_gpu_sync_mode = normalize_multi_gpu_sync_mode(multi_gpu_sync_mode)
+        self.multi_gpu_sync_mode = normalized_sync_mode
         self.multi_gpu_sync_interval = normalize_multi_gpu_sync_interval(
             int(multi_gpu_sync_interval)
         )

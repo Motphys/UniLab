@@ -2436,7 +2436,7 @@ def test_offpolicy_flashsac_rejects_multi_gpu():
         ]
     )
 
-    with pytest.raises(ValueError, match="Only SAC supports training.num_gpus > 1"):
+    with pytest.raises(ValueError, match="FlashSACLearner.*does not support training.num_gpus"):
         _offpolicy().build_runner("flashsac", cfg)
 
 

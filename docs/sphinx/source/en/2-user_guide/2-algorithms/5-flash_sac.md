@@ -30,7 +30,9 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
-`scripts/train_offpolicy.py` rejects `training.num_gpus > 1` for FlashSAC, so
-keep the default single-GPU path unless the implementation changes.
+The FlashSAC learner does not currently declare the distributed learner
+contract, so `training.num_gpus > 1` is rejected by the capability check. Keep
+the default single-GPU path unless FlashSAC implements and validates multi-GPU
+synchronization semantics.
 
 The log root is `logs/flash_sac/<task>/`.

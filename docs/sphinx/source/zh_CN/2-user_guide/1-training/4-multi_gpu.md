@@ -1,8 +1,9 @@
 # 多 GPU
 
-当前已验证的多 GPU 训练路径是 SAC 的 replay-buffer 模式。入口仍然是统一 CLI：
-`uv run train --algo sac ...`，多卡由共享 off-policy 配置字段
-`training.num_gpus` 打开。
+当前已验证的多 GPU 训练路径是 SAC/FastSAC 的 replay-buffer 模式。入口仍然是统一
+CLI：`uv run train --algo sac ...`，多卡由共享 off-policy 配置字段
+`training.num_gpus` 打开。多 GPU runner 是通用的 off-policy 编排层，但 learner 必
+须通过分布式 learner contract 显式声明支持；当前只有 FastSAC 声明并验证了该能力。
 
 多 GPU runner 保持算法与 IPC 隔离：collector 在 host 侧填充 CPU replay buffer，
 runner 根据各 learner rank 的请求打包 batch，并通过 pinned-memory pipeline 并行分
@@ -44,7 +45,8 @@ batch**，不是跨所有 GPU 的 global batch。`training.num_gpus=N` 时，每
 
 ## 前置条件
 
-- 只支持 SAC：`training.num_gpus > 1` 会拒绝 TD3、FlashSAC、PPO、MLX PPO 和 APPO。
+- 当前只有 FastSAC learner 支持：`training.num_gpus > 1` 会拒绝尚未声明该能力的
+  TD3、FlashSAC、PPO、MLX PPO、APPO 和 custom SAC runtime。
 - 必须使用 CUDA 设备；用 `CUDA_VISIBLE_DEVICES` 选择物理卡。
 - SAC 的对称增强当前不支持多卡；若任务 owner 默认开启，需要设置
   `algo.use_symmetry=false`。
@@ -103,7 +105,8 @@ ring-buffer 窗口，让 CPU 随机 gather 与下一次 env step 重叠，同时
 
 ## 常见错误
 
-- `Only SAC supports training.num_gpus > 1`：当前只验证 SAC。
+- `<Learner> does not support training.num_gpus > 1`：该 learner 尚未声明并验证多
+  GPU contract。
 - `SAC multi-GPU training requires a CUDA device`：没有可用 CUDA，或
   `training.device` 被设成了 CPU。
 - `set training.num_gpus=1 or algo.use_symmetry=false`：多卡 SAC 暂不支持对称增

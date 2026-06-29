@@ -169,6 +169,10 @@ def test_sac_multi_gpu_passes_obs_normalization_to_learner_and_runner(
             pass
 
     class _FakeLearner:
+        supports_multi_gpu = True
+        supports_multi_gpu_symmetry = False
+        supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
+
         class actor:
             @staticmethod
             def state_dict():
@@ -179,6 +183,12 @@ def test_sac_multi_gpu_passes_obs_normalization_to_learner_and_runner(
         def __init__(self, *args, **kwargs):
             del args
             self.kwargs = kwargs
+
+        def sync_initial_parameters(self, src=0):
+            del src
+
+        def average_distributed_parameters(self):
+            pass
 
     class _FakeRunner:
         def __init__(self, *args, **kwargs):
@@ -472,7 +482,7 @@ def test_flashsac_double_buffer_multi_gpu_rejected():
             "training.num_gpus=2",
         ]
     )
-    with pytest.raises(ValueError, match="Only SAC supports training.num_gpus > 1"):
+    with pytest.raises(ValueError, match="FlashSACLearner.*does not support training.num_gpus"):
         _offpolicy().build_runner("flashsac", cfg)
 
 
