@@ -955,8 +955,14 @@ class FastSACLearner:
         """Polyak-average update of the target Q-network."""
         with torch.no_grad():
             with _cuda_nvtx_range("target/soft_update_loop", self.nvtx_profile_ranges):
-                for tgt, src in zip(self.qnet_target.parameters(), self.qnet.parameters()):
-                    tgt.data.mul_(1.0 - self.tau).add_(src.data, alpha=self.tau)
+                target_params = list(self.qnet_target.parameters())
+                source_params = list(self.qnet.parameters())
+                try:
+                    torch._foreach_mul_(target_params, 1.0 - self.tau)
+                    torch._foreach_add_(target_params, source_params, alpha=self.tau)
+                except RuntimeError:
+                    for tgt, src in zip(target_params, source_params):
+                        tgt.mul_(1.0 - self.tau).add_(src, alpha=self.tau)
 
     def get_state_dict(self) -> Dict[str, Any]:
         """Save all components."""
