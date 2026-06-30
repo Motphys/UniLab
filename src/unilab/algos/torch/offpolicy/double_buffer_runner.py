@@ -48,7 +48,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
       ReplayBuffer.sample().
     """
 
-    LEARNER_LOG_INTERVAL = 10
     REPLAY_BATCH_READY_POLL_SEC = 0.001
 
     def __init__(
@@ -284,7 +283,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"({self.replay_transfer_backend.get('device_family')})"
             )
         logger.log_status(
-            f"Replay learner lightweight: fixed (log_interval={self.LEARNER_LOG_INTERVAL})"
+            "Replay learner lightweight: fixed (log_interval=1)"
         )
         if self.verbose_metrics:
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
@@ -667,39 +666,34 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 last_mean_reward = float(mean_reward)
                 best_mean_reward = max(best_mean_reward, last_mean_reward)
 
-                if (
-                    iteration == 1
-                    or iteration == max_iterations
-                    or iteration % self.LEARNER_LOG_INTERVAL == 0
-                ):
-                    self._sync_logger_replay_counters(logger, replay_buffer)
-                    logger.log_step(
-                        iteration=iteration,
-                        metrics=avg_metrics,
-                        reward=mean_reward,
-                        reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
-                        reward_components=latest_reward_components,
-                        train_time=train_time,
-                        collector_wait_time=collector_wait_time,
-                        replay_batch_wait_time=replay_batch_wait_time,
-                        learner_replay_sample_time=learner_replay_sample_time,
-                        rank_barrier_time=0.0,
-                        sync_coordination_time=sync_coordination_time,
-                        learner_incremental_h2d_time=learner_incremental_h2d_time,
-                        weight_sync_time=weight_sync_time,
-                        iteration_time=iteration_time,
-                        extra_info={
-                            "throughput_steps": self.num_envs * self.env_steps_per_sync,
-                            "collector_active_steps_per_sec": (
-                                logger._collector_active_steps_per_sec
-                            ),
-                            **build_offpolicy_sample_info(
-                                replay_batch_size_per_rank=self.batch_size,
-                                updates_per_step=self.updates_per_step,
-                                learner=self.learner,
-                            ),
-                        },
-                    )
+                self._sync_logger_replay_counters(logger, replay_buffer)
+                logger.log_step(
+                    iteration=iteration,
+                    metrics=avg_metrics,
+                    reward=mean_reward,
+                    reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
+                    reward_components=latest_reward_components,
+                    train_time=train_time,
+                    collector_wait_time=collector_wait_time,
+                    replay_batch_wait_time=replay_batch_wait_time,
+                    learner_replay_sample_time=learner_replay_sample_time,
+                    rank_barrier_time=0.0,
+                    sync_coordination_time=sync_coordination_time,
+                    learner_incremental_h2d_time=learner_incremental_h2d_time,
+                    weight_sync_time=weight_sync_time,
+                    iteration_time=iteration_time,
+                    extra_info={
+                        "throughput_steps": self.num_envs * self.env_steps_per_sync,
+                        "collector_active_steps_per_sec": (
+                            logger._collector_active_steps_per_sec
+                        ),
+                        **build_offpolicy_sample_info(
+                            replay_batch_size_per_rank=self.batch_size,
+                            updates_per_step=self.updates_per_step,
+                            learner=self.learner,
+                        ),
+                    },
+                )
 
                 if save_interval > 0 and iteration % save_interval == 0:
                     ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
@@ -717,7 +711,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         "pipeline": "cpu_pinned_double_buffer",
                         "replay_h2d_submitter": self.replay_h2d_submitter,
                         "replay_transfer_backend": self.replay_transfer_backend,
-                        "learner_log_interval": self.LEARNER_LOG_INTERVAL,
+                        "learner_log_interval": 1,
                     },
                 )
 
