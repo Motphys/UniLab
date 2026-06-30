@@ -18,9 +18,11 @@
     <default class="foot">
       <geom group="3" priority="1" condim="6"/>
     </default>
-    <!-- Position-actuator gain classes. A2 legs are far stronger than Go2's;
-         hip/thigh kp=100 (forcerange +-120), calf kp=150 (forcerange +-180).
-         kd is supplied per-run by the env via position_actuator_gains. -->
+    <!-- Position-actuator gain classes. The env overrides kp/kd uniformly at
+         init via position_actuator_gains (A2JoystickControlConfig: kp=100,
+         kd=4) across all 12 leg actuators, so the kp here is only the static
+         default. The classes differ only by forcerange, matching the A2 joint
+         torque limits: hip/thigh +-120, calf +-180. -->
     <default class="a2_hip">
       <position kp="100" forcerange="-120 120"/>
     </default>
@@ -28,7 +30,7 @@
       <position kp="100" forcerange="-120 120"/>
     </default>
     <default class="a2_calf">
-      <position kp="150" forcerange="-180 180"/>
+      <position kp="100" forcerange="-180 180"/>
     </default>
   </default>
 
