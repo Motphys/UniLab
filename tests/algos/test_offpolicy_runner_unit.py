@@ -49,6 +49,8 @@ class _FakeLearner:
         self.graph_critic_updates = 0
         self.actor_updates = 0
         self.graph_actor_updates = 0
+        self.graph_critic_read_metrics: list[bool] = []
+        self.graph_actor_read_metrics: list[bool] = []
         self.target_updates = 0
         self.average_parameter_calls = 0
         self.kwargs = dict(kwargs)
@@ -58,16 +60,32 @@ class _FakeLearner:
         self.critic_updates += 1
         return {"critic_loss": float(batch["obs"].shape[0])}
 
-    def update_critic_cuda_graph(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
+    def update_critic_cuda_graph(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> dict[str, float]:
         self.graph_critic_updates += 1
+        self.graph_critic_read_metrics.append(read_metrics)
+        if not read_metrics:
+            return {}
         return {"critic_loss": float(batch["obs"].shape[0])}
 
     def update_actor(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         self.actor_updates += 1
         return {"actor_loss": float(batch["obs"].shape[0])}
 
-    def update_actor_cuda_graph(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
+    def update_actor_cuda_graph(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> dict[str, float]:
         self.graph_actor_updates += 1
+        self.graph_actor_read_metrics.append(read_metrics)
+        if not read_metrics:
+            return {}
         return {"actor_loss": float(batch["obs"].shape[0])}
 
     def soft_update_target(self) -> None:
@@ -849,6 +867,7 @@ def test_offpolicy_runner_uses_cuda_graph_critic_when_learner_opts_in(
     learner = cast(_FakeLearner, runner.learner)
     assert learner.critic_updates == 0
     assert learner.graph_critic_updates == 3
+    assert learner.graph_critic_read_metrics == [False, False, True]
     assert learner.actor_updates == 2
     assert learner.target_updates == 3
 
@@ -881,6 +900,7 @@ def test_offpolicy_runner_uses_cuda_graph_actor_when_learner_opts_in(
 
     learner = cast(_FakeLearner, runner.learner)
     assert learner.graph_actor_updates == 2
+    assert learner.graph_actor_read_metrics == [False, True]
     assert learner.actor_updates == 0
     assert learner.target_updates == 3
 

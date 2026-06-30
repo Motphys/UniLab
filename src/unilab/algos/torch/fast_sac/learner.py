@@ -961,7 +961,7 @@ class FastSACLearner:
         for key, tensor in self._cuda_graph_critic_static_inputs.items():
             tensor.copy_(batch[key])
         assert self._cuda_graph_critic_action_noise is not None
-        self._cuda_graph_critic_action_noise.copy_(torch.randn_like(self._cuda_graph_critic_action_noise))
+        self._cuda_graph_critic_action_noise.normal_()
 
     def _actor_graph_input_shapes(self, batch: Dict[str, torch.Tensor]) -> dict[str, torch.Size]:
         return {
@@ -974,7 +974,7 @@ class FastSACLearner:
         for key, tensor in self._cuda_graph_actor_static_inputs.items():
             tensor.copy_(batch[key])
         assert self._cuda_graph_actor_action_noise is not None
-        self._cuda_graph_actor_action_noise.copy_(torch.randn_like(self._cuda_graph_actor_action_noise))
+        self._cuda_graph_actor_action_noise.normal_()
 
     def _materialize_capturable_critic_optimizer_state(
         self,
@@ -1110,7 +1110,9 @@ class FastSACLearner:
         torch.cuda.synchronize()
         self._cuda_graph_actor = graph
 
-    def _actor_graph_output_metrics(self) -> Dict[str, float]:
+    def _actor_graph_output_metrics(self, *, read_items: bool = True) -> Dict[str, float]:
+        if not read_items:
+            return {}
         assert self._cuda_graph_actor_outputs is not None
         actor_loss, actor_grad_norm, policy_entropy, action_std = self._cuda_graph_actor_outputs
         return {
@@ -1157,7 +1159,9 @@ class FastSACLearner:
         torch.cuda.synchronize()
         self._cuda_graph_critic = graph
 
-    def _critic_graph_output_metrics(self) -> Dict[str, float]:
+    def _critic_graph_output_metrics(self, *, read_items: bool = True) -> Dict[str, float]:
+        if not read_items:
+            return {}
         assert self._cuda_graph_critic_outputs is not None
         qf_loss, critic_grad_norm, target_q_max, target_q_min, alpha_loss, alpha = (
             self._cuda_graph_critic_outputs
@@ -1171,7 +1175,12 @@ class FastSACLearner:
             "alpha": alpha.item(),
         }
 
-    def update_critic_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    def update_critic_cuda_graph(
+        self,
+        batch: Dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> Dict[str, float]:
         if not self.use_cuda_graph_critic:
             return self.update_critic(batch)
         if self._device_type != "cuda":
@@ -1182,13 +1191,25 @@ class FastSACLearner:
             self._reset_critic_cuda_graph()
             self._materialize_capturable_critic_optimizer_state(batch)
             self._capture_critic_cuda_graph(batch)
-            return self._critic_graph_output_metrics()
+            with _cuda_nvtx_range(
+                "critic_graph/output_metrics_item",
+                self.nvtx_profile_ranges,
+            ):
+                return self._critic_graph_output_metrics(read_items=read_metrics)
         assert self._cuda_graph_critic is not None
-        self._copy_critic_graph_inputs(batch)
-        self._cuda_graph_critic.replay()
-        return self._critic_graph_output_metrics()
+        with _cuda_nvtx_range("critic_graph/copy_inputs", self.nvtx_profile_ranges):
+            self._copy_critic_graph_inputs(batch)
+        with _cuda_nvtx_range("critic_graph/replay", self.nvtx_profile_ranges):
+            self._cuda_graph_critic.replay()
+        with _cuda_nvtx_range("critic_graph/output_metrics_item", self.nvtx_profile_ranges):
+            return self._critic_graph_output_metrics(read_items=read_metrics)
 
-    def update_actor_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    def update_actor_cuda_graph(
+        self,
+        batch: Dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> Dict[str, float]:
         if not self.use_cuda_graph_actor:
             return self.update_actor(batch)
         if self._device_type != "cuda":
@@ -1199,11 +1220,18 @@ class FastSACLearner:
             self._reset_actor_cuda_graph()
             self._materialize_capturable_actor_optimizer_state(batch)
             self._capture_actor_cuda_graph(batch)
-            return self._actor_graph_output_metrics()
+            with _cuda_nvtx_range(
+                "actor_graph/output_metrics_item",
+                self.nvtx_profile_ranges,
+            ):
+                return self._actor_graph_output_metrics(read_items=read_metrics)
         assert self._cuda_graph_actor is not None
-        self._copy_actor_graph_inputs(batch)
-        self._cuda_graph_actor.replay()
-        return self._actor_graph_output_metrics()
+        with _cuda_nvtx_range("actor_graph/copy_inputs", self.nvtx_profile_ranges):
+            self._copy_actor_graph_inputs(batch)
+        with _cuda_nvtx_range("actor_graph/replay", self.nvtx_profile_ranges):
+            self._cuda_graph_actor.replay()
+        with _cuda_nvtx_range("actor_graph/output_metrics_item", self.nvtx_profile_ranges):
+            return self._actor_graph_output_metrics(read_items=read_metrics)
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""

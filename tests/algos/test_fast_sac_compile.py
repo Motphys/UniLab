@@ -488,3 +488,162 @@ def test_fast_sac_load_state_dict_resets_cuda_graph_caches() -> None:
     assert learner._cuda_graph_actor_action_noise is None
     assert learner._cuda_graph_actor_outputs is None
     assert learner._cuda_graph_actor_shapes is None
+
+
+def test_fast_sac_cuda_graph_replay_paths_emit_outer_nvtx_ranges(monkeypatch) -> None:
+    learner = _small_fast_sac_learner()
+    batch = _small_offpolicy_batch()
+    pushed: list[str] = []
+    popped = 0
+
+    class _FakeGraph:
+        def replay(self) -> None:
+            pushed.append("graph.replay.called")
+
+    def fake_push(name: str) -> None:
+        pushed.append(name)
+
+    def fake_pop() -> None:
+        nonlocal popped
+        popped += 1
+
+    monkeypatch.setattr(torch.cuda.nvtx, "range_push", fake_push)
+    monkeypatch.setattr(torch.cuda.nvtx, "range_pop", fake_pop)
+
+    learner.use_cuda_graph_critic = True
+    learner.use_cuda_graph_actor = True
+    learner._device_type = "cuda"
+    learner.nvtx_profile_ranges = True
+    learner._cuda_graph_critic_shapes = learner._critic_graph_input_shapes(batch)
+    learner._cuda_graph_critic_static_inputs = {
+        key: tensor.clone()
+        for key, tensor in batch.items()
+        if key in {"critic", "actions", "rewards", "next_obs", "next_critic", "dones", "truncated"}
+    }
+    learner._cuda_graph_critic_action_noise = torch.empty(batch["actions"].shape)
+    learner._cuda_graph_critic_outputs = (torch.zeros(()),) * 6
+    learner._cuda_graph_critic = _FakeGraph()  # type: ignore[assignment]
+    learner._cuda_graph_actor_shapes = learner._actor_graph_input_shapes(batch)
+    learner._cuda_graph_actor_static_inputs = {
+        "obs": batch["obs"].clone(),
+        "critic": batch["critic"].clone(),
+    }
+    learner._cuda_graph_actor_action_noise = torch.empty(batch["actions"].shape)
+    learner._cuda_graph_actor_outputs = (torch.zeros(()),) * 4
+    learner._cuda_graph_actor = _FakeGraph()  # type: ignore[assignment]
+
+    learner.update_critic_cuda_graph(batch)
+    learner.update_actor_cuda_graph(batch)
+
+    assert pushed == [
+        "critic_graph/copy_inputs",
+        "critic_graph/replay",
+        "graph.replay.called",
+        "critic_graph/output_metrics_item",
+        "actor_graph/copy_inputs",
+        "actor_graph/replay",
+        "graph.replay.called",
+        "actor_graph/output_metrics_item",
+    ]
+    assert popped == 6
+
+
+def test_fast_sac_cuda_graph_metrics_can_skip_item_reads(monkeypatch) -> None:
+    learner = _small_fast_sac_learner()
+    calls = 0
+
+    class _Metric:
+        def __init__(self, value: float) -> None:
+            self.value = value
+
+        def item(self) -> float:
+            nonlocal calls
+            calls += 1
+            return self.value
+
+    learner._cuda_graph_critic_outputs = tuple(_Metric(float(i)) for i in range(6))  # type: ignore[assignment]
+    learner._cuda_graph_actor_outputs = tuple(_Metric(float(i)) for i in range(4))  # type: ignore[assignment]
+
+    assert learner._critic_graph_output_metrics(read_items=False) == {}
+    assert learner._actor_graph_output_metrics(read_items=False) == {}
+    assert calls == 0
+
+    assert learner._critic_graph_output_metrics(read_items=True)["qf_loss"] == 0.0
+    assert learner._actor_graph_output_metrics(read_items=True)["actor_loss"] == 0.0
+    assert calls == 10
+
+
+def test_fast_sac_cuda_graph_metric_skip_preserves_replay_updates(monkeypatch) -> None:
+    learner = _small_fast_sac_learner()
+    batch = _small_offpolicy_batch()
+    replay_calls = 0
+    metric_calls = 0
+
+    class _FakeGraph:
+        def replay(self) -> None:
+            nonlocal replay_calls
+            replay_calls += 1
+
+    class _Metric:
+        def item(self) -> float:
+            nonlocal metric_calls
+            metric_calls += 1
+            return 0.0
+
+    learner.use_cuda_graph_critic = True
+    learner.use_cuda_graph_actor = True
+    learner._device_type = "cuda"
+    learner._cuda_graph_critic_shapes = learner._critic_graph_input_shapes(batch)
+    learner._cuda_graph_critic_static_inputs = {
+        key: tensor.clone()
+        for key, tensor in batch.items()
+        if key in {"critic", "actions", "rewards", "next_obs", "next_critic", "dones", "truncated"}
+    }
+    learner._cuda_graph_critic_action_noise = torch.zeros_like(batch["actions"])
+    learner._cuda_graph_critic_outputs = tuple(_Metric() for _ in range(6))  # type: ignore[assignment]
+    learner._cuda_graph_critic = _FakeGraph()  # type: ignore[assignment]
+    learner._cuda_graph_actor_shapes = learner._actor_graph_input_shapes(batch)
+    learner._cuda_graph_actor_static_inputs = {
+        "obs": batch["obs"].clone(),
+        "critic": batch["critic"].clone(),
+    }
+    learner._cuda_graph_actor_action_noise = torch.zeros_like(batch["actions"])
+    learner._cuda_graph_actor_outputs = tuple(_Metric() for _ in range(4))  # type: ignore[assignment]
+    learner._cuda_graph_actor = _FakeGraph()  # type: ignore[assignment]
+
+    assert learner.update_critic_cuda_graph(batch, read_metrics=False) == {}
+    assert learner.update_actor_cuda_graph(batch, read_metrics=False) == {}
+    assert replay_calls == 2
+    assert metric_calls == 0
+
+    learner.update_critic_cuda_graph(batch, read_metrics=True)
+    learner.update_actor_cuda_graph(batch, read_metrics=True)
+    assert replay_calls == 4
+    assert metric_calls == 10
+
+
+def test_fast_sac_cuda_graph_input_copy_fills_static_noise_in_place(monkeypatch) -> None:
+    learner = _small_fast_sac_learner()
+    batch = _small_offpolicy_batch()
+    learner._cuda_graph_critic_static_inputs = {
+        key: tensor.clone()
+        for key, tensor in batch.items()
+        if key in {"critic", "actions", "rewards", "next_obs", "next_critic", "dones", "truncated"}
+    }
+    learner._cuda_graph_actor_static_inputs = {
+        "obs": batch["obs"].clone(),
+        "critic": batch["critic"].clone(),
+    }
+    learner._cuda_graph_critic_action_noise = torch.zeros_like(batch["actions"])
+    learner._cuda_graph_actor_action_noise = torch.zeros_like(batch["actions"])
+
+    def fail_randn_like(_tensor: torch.Tensor) -> torch.Tensor:
+        raise AssertionError("graph input copy should fill static noise buffers in place")
+
+    monkeypatch.setattr(torch, "randn_like", fail_randn_like)
+
+    learner._copy_critic_graph_inputs(batch)
+    learner._copy_actor_graph_inputs(batch)
+
+    assert not torch.equal(learner._cuda_graph_critic_action_noise, torch.zeros_like(batch["actions"]))
+    assert not torch.equal(learner._cuda_graph_actor_action_noise, torch.zeros_like(batch["actions"]))
