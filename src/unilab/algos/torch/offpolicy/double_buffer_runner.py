@@ -282,9 +282,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"{self.replay_transfer_backend.get('backend')} "
                 f"({self.replay_transfer_backend.get('device_family')})"
             )
-        logger.log_status(
-            "Replay learner lightweight: fixed (log_interval=1)"
-        )
+        logger.log_status("Replay learner lightweight: fixed (log_interval=1)")
         if self.verbose_metrics:
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
         self._active_logger = logger
@@ -684,9 +682,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     iteration_time=iteration_time,
                     extra_info={
                         "throughput_steps": self.num_envs * self.env_steps_per_sync,
-                        "collector_active_steps_per_sec": (
-                            logger._collector_active_steps_per_sec
-                        ),
+                        "collector_active_steps_per_sec": (logger._collector_active_steps_per_sec),
                         **build_offpolicy_sample_info(
                             replay_batch_size_per_rank=self.batch_size,
                             updates_per_step=self.updates_per_step,
