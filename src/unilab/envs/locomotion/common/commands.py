@@ -38,6 +38,36 @@ def zero_small_xy_commands(commands: np.ndarray, *, threshold: float = 0.2) -> N
     commands[:, :2] *= moving[:, None]
 
 
+def sample_commands_with_standing(
+    low: np.ndarray,
+    high: np.ndarray,
+    num_samples: int,
+    *,
+    rel_standing_envs: float,
+    zero_xy_threshold: float = 0.08,
+) -> np.ndarray:
+    """Sample velocity commands, zero small xy, then force a standing fraction.
+
+    Single source of truth for the standing-aware command distribution shared by
+    the reset path (DR provider ``_sample_commands`` override) and the
+    mid-episode resampling path (``Go2WalkTask._update_commands``). Mirrors
+    rough.py's provider standing block: uniform sample in ``[low, high]``,
+    ``zero_small_xy_commands`` to suppress tiny lateral drift, then zero the full
+    command for a random ``rel_standing_envs`` fraction of rows so the policy sees
+    genuine zero-command (stand still) samples during training.
+    """
+    low = np.asarray(low, dtype=get_global_dtype())
+    high = np.asarray(high, dtype=get_global_dtype())
+    commands = np.asarray(
+        np.random.uniform(low=low, high=high, size=(num_samples, 3)), dtype=get_global_dtype()
+    )
+    zero_small_xy_commands(commands, threshold=zero_xy_threshold)
+    if rel_standing_envs > 0.0:
+        standing = np.random.uniform(size=(num_samples,)) < min(rel_standing_envs, 1.0)
+        commands[standing] = 0.0
+    return commands
+
+
 def sample_heading_commands(env: Any, num_samples: int) -> np.ndarray:
     """Uniformly sample heading targets from ``env.cfg.commands.heading_range``."""
     heading_range = np.asarray(env.cfg.commands.heading_range, dtype=get_global_dtype())

@@ -32,6 +32,15 @@ class PdControlConfig(ControlConfigBase):
     Kp: float = 35.0
     Kd: float = 0.5
 
+    def position_gains(self) -> dict[str, float | np.ndarray]:
+        """Gains forwarded to the backend's ``position_actuator_gains``.
+
+        Default applies the scalar ``Kp``/``Kd`` uniformly to every actuator.
+        Subclasses with per-joint gains (e.g. A2's stronger calf) override this
+        to return per-actuator arrays in model/actuator order.
+        """
+        return {"kp": self.Kp, "kd": self.Kd}
+
 
 @dataclass
 class BaseNoiseConfig:
