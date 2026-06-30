@@ -111,7 +111,7 @@ uv run scripts/generate_support_matrix.py --write
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | Tested |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
 | FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested |
 
 ### Source Index
 
