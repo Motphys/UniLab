@@ -28,6 +28,7 @@ class SACAlgoParams:
     amp_dtype: str = "auto"
     use_compile: bool = True
     use_cuda_graph_critic: bool = False
+    use_cuda_graph_actor: bool = False
 
 
 @dataclass

@@ -108,9 +108,11 @@ def test_hora_sac_disables_cuda_graph_critic_path() -> None:
         num_atoms=11,
         use_layer_norm=False,
         use_cuda_graph_critic=True,
+        use_cuda_graph_actor=True,
     )
 
     assert not learner.use_cuda_graph_critic
+    assert not learner.use_cuda_graph_actor
 
 
 def test_hora_sac_distilled_student_forward_does_not_require_priv_info() -> None:

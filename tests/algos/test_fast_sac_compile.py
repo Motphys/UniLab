@@ -108,6 +108,40 @@ def test_fast_sac_graph_critic_skips_compiling_critic_loss(monkeypatch) -> None:
     ]
 
 
+def test_fast_sac_graph_actor_skips_compiling_actor_loss(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_compile(fn: Callable, **kwargs):
+        calls.append((fn.__qualname__, kwargs))
+        return fn
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        use_cuda_graph_actor=True,
+    )
+    learner.device = "cuda"
+    learner.use_cuda_graph_actor = True
+    monkeypatch.setattr(torch, "compile", fake_compile)
+
+    learner._compile_training_methods()
+
+    assert calls == [
+        (
+            "FastSACLearner._critic_loss_tensors",
+            {"options": {"triton.cudagraphs": False}},
+        ),
+    ]
+
+
 def test_fast_sac_cuda_adamw_optimizers_are_capture_ready(monkeypatch) -> None:
     calls: list[dict[str, Any]] = []
 
@@ -184,6 +218,28 @@ def test_fast_sac_cuda_graph_critic_is_opt_in_and_cuda_only() -> None:
         use_cuda_graph_critic=True,
     )
     assert cuda_learner.use_cuda_graph_critic
+
+
+def test_fast_sac_cuda_graph_actor_is_opt_in_and_cuda_only() -> None:
+    cpu_learner = _small_fast_sac_learner()
+    assert not cpu_learner.use_cuda_graph_actor
+
+    cuda_learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cuda",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        use_compile=False,
+        use_amp=False,
+        use_cuda_graph_actor=True,
+    )
+    assert cuda_learner.use_cuda_graph_actor
 
 
 def test_fast_sac_amp_dtype_resolution_and_scaler_rules() -> None:
@@ -359,6 +415,41 @@ def test_fast_sac_capture_candidate_matches_public_critic_update_for_finite_loss
     torch.testing.assert_close(capture_learner.log_alpha, public_learner.log_alpha)
 
 
+def test_fast_sac_capture_candidate_matches_public_actor_update_for_finite_loss() -> None:
+    public_learner = _small_fast_sac_learner()
+    capture_learner = _small_fast_sac_learner()
+    capture_learner.actor.load_state_dict(public_learner.actor.state_dict())
+    capture_learner.qnet.load_state_dict(public_learner.qnet.state_dict())
+    capture_learner.qnet_target.load_state_dict(public_learner.qnet_target.state_dict())
+    capture_learner.log_alpha.data.copy_(public_learner.log_alpha.data)
+    batch = _small_offpolicy_batch()
+
+    torch.manual_seed(2025)
+    public_metrics = public_learner.update_actor(batch)
+
+    torch.manual_seed(2025)
+    capture_outputs = capture_learner._update_actor_capture_candidate(
+        batch["obs"],
+        batch["critic"],
+    )
+    capture_metrics = {
+        "actor_loss": capture_outputs[0].item(),
+        "actor_grad_norm": capture_outputs[1].item(),
+        "policy_entropy": capture_outputs[2].item(),
+        "action_std": capture_outputs[3].item(),
+    }
+
+    assert public_metrics.keys() == capture_metrics.keys()
+    for key, public_value in public_metrics.items():
+        assert capture_metrics[key] == pytest.approx(public_value)
+    for public_param, capture_param in zip(
+        public_learner.actor.parameters(),
+        capture_learner.actor.parameters(),
+        strict=True,
+    ):
+        torch.testing.assert_close(capture_param, public_param)
+
+
 def test_fast_sac_cuda_graph_state_materialization_preserves_cpu_rng_state() -> None:
     learner = _small_fast_sac_learner()
     batch = _small_offpolicy_batch()
@@ -368,3 +459,32 @@ def test_fast_sac_cuda_graph_state_materialization_preserves_cpu_rng_state() -> 
     learner._materialize_capturable_critic_optimizer_state(batch)
 
     torch.testing.assert_close(torch.random.get_rng_state(), expected_rng_state)
+
+
+def test_fast_sac_load_state_dict_resets_cuda_graph_caches() -> None:
+    learner = _small_fast_sac_learner()
+    state_dict = learner.get_state_dict()
+    marker = object()
+    learner._cuda_graph_critic = marker  # type: ignore[assignment]
+    learner._cuda_graph_critic_static_inputs = {"obs": torch.zeros(1)}
+    learner._cuda_graph_critic_action_noise = torch.zeros(1)
+    learner._cuda_graph_critic_outputs = (torch.zeros(()),) * 6  # type: ignore[assignment]
+    learner._cuda_graph_critic_shapes = {"obs": torch.Size([1])}
+    learner._cuda_graph_actor = marker  # type: ignore[assignment]
+    learner._cuda_graph_actor_static_inputs = {"obs": torch.zeros(1)}
+    learner._cuda_graph_actor_action_noise = torch.zeros(1)
+    learner._cuda_graph_actor_outputs = (torch.zeros(()),) * 4  # type: ignore[assignment]
+    learner._cuda_graph_actor_shapes = {"obs": torch.Size([1])}
+
+    learner.load_state_dict(state_dict)
+
+    assert learner._cuda_graph_critic is None
+    assert learner._cuda_graph_critic_static_inputs is None
+    assert learner._cuda_graph_critic_action_noise is None
+    assert learner._cuda_graph_critic_outputs is None
+    assert learner._cuda_graph_critic_shapes is None
+    assert learner._cuda_graph_actor is None
+    assert learner._cuda_graph_actor_static_inputs is None
+    assert learner._cuda_graph_actor_action_noise is None
+    assert learner._cuda_graph_actor_outputs is None
+    assert learner._cuda_graph_actor_shapes is None

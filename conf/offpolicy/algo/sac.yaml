@@ -36,3 +36,4 @@ algo_params:
   amp_dtype: auto
   use_compile: true
   use_cuda_graph_critic: false
+  use_cuda_graph_actor: false

@@ -266,6 +266,9 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "use_cuda_graph_critic": bool(
                 getattr(cfg.algo.algo_params, "use_cuda_graph_critic", False)
             ),
+            "use_cuda_graph_actor": bool(
+                getattr(cfg.algo.algo_params, "use_cuda_graph_actor", False)
+            ),
             "nvtx_profile_ranges": bool(getattr(cfg.training, "nvtx_profile_ranges", False)),
             "use_symmetry": cfg.algo.use_symmetry,
             "symmetry_augmentation": _symmetry_aug,

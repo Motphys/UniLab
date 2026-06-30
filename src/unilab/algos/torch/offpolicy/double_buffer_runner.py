@@ -596,7 +596,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
                         if update_idx % self.policy_frequency == 0:
                             _actor_ns = time.perf_counter_ns()
-                            actor_metrics = learner.update_actor(batch)
+                            if getattr(learner, "use_cuda_graph_actor", False) and hasattr(
+                                learner, "update_actor_cuda_graph"
+                            ):
+                                actor_metrics = learner.update_actor_cuda_graph(batch)
+                            else:
+                                actor_metrics = learner.update_actor(batch)
                             if trace_recorder:
                                 trace_recorder.add_slice(
                                     "learner/update_actor",

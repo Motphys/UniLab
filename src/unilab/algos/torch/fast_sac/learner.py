@@ -440,6 +440,7 @@ class FastSACLearner:
         use_compile: bool = False,
         obs_normalization: bool = False,
         use_cuda_graph_critic: bool = False,
+        use_cuda_graph_actor: bool = False,
         nvtx_profile_ranges: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
@@ -457,6 +458,11 @@ class FastSACLearner:
         )
         self.use_cuda_graph_critic = (
             bool(use_cuda_graph_critic)
+            and self._device_type == "cuda"
+            and world_size <= 1
+        )
+        self.use_cuda_graph_actor = (
+            bool(use_cuda_graph_actor)
             and self._device_type == "cuda"
             and world_size <= 1
         )
@@ -574,6 +580,16 @@ class FastSACLearner:
             torch.Tensor,
         ] | None = None
         self._cuda_graph_critic_shapes: dict[str, torch.Size] | None = None
+        self._cuda_graph_actor: torch.cuda.CUDAGraph | None = None
+        self._cuda_graph_actor_static_inputs: dict[str, torch.Tensor] | None = None
+        self._cuda_graph_actor_action_noise: torch.Tensor | None = None
+        self._cuda_graph_actor_outputs: tuple[
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+        ] | None = None
+        self._cuda_graph_actor_shapes: dict[str, torch.Size] | None = None
         if self.use_compile:
             self._compile_training_methods()
 
@@ -606,9 +622,10 @@ class FastSACLearner:
             self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
                 self._critic_loss_tensors, **compile_kwargs
             )
-        self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
-            self._actor_loss_tensors, **compile_kwargs
-        )
+        if not self.use_cuda_graph_actor:
+            self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
+                self._actor_loss_tensors, **compile_kwargs
+            )
 
     def _autocast(self):
         return torch.amp.autocast(  # pyright: ignore[reportPrivateImportUsage]
@@ -746,10 +763,11 @@ class FastSACLearner:
         self,
         actor_obs: torch.Tensor,
         critic_obs: torch.Tensor,
+        eps: torch.Tensor | None = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample actor actions for the actor loss update."""
         del critic_obs
-        return self.actor.get_actions_and_log_probs(actor_obs)
+        return self.actor.get_actions_and_log_probs(actor_obs, eps=eps)
 
     def _critic_loss_tensors(
         self,
@@ -800,11 +818,13 @@ class FastSACLearner:
         self,
         obs: torch.Tensor,
         critic_obs: torch.Tensor,
+        action_eps: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         with self._autocast():
             actions, log_probs, log_std = self._get_actions_and_log_probs_for_actor(
                 obs,
                 critic_obs,
+                eps=action_eps,
             )
 
         with torch.no_grad():
@@ -819,6 +839,43 @@ class FastSACLearner:
             actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
         return actor_loss, policy_entropy, action_std
+
+    def _update_actor_capture_candidate(
+        self,
+        obs: torch.Tensor,
+        critic_obs: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        actor_loss, policy_entropy, action_std = self._actor_loss_tensors(
+            obs,
+            critic_obs,
+            action_eps=self._cuda_graph_actor_action_noise,
+        )
+
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        if self.scaler:
+            self.scaler.scale(actor_loss).backward()
+            self.scaler.unscale_(self.actor_optimizer)
+            self._reduce_gradients(self.actor)
+            if self.max_grad_norm > 0:
+                actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.actor.parameters(), max_norm=self.max_grad_norm
+                )
+            else:
+                actor_grad_norm = self._zero_metric
+            self.scaler.step(self.actor_optimizer)
+            self.scaler.update()
+        else:
+            actor_loss.backward()
+            self._reduce_gradients(self.actor)
+            if self.max_grad_norm > 0:
+                actor_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.actor.parameters(), max_norm=self.max_grad_norm
+                )
+            else:
+                actor_grad_norm = self._zero_metric
+            self.actor_optimizer.step()
+
+        return actor_loss, actor_grad_norm, policy_entropy, action_std
 
     def _update_critic_capture_candidate(
         self,
@@ -906,6 +963,19 @@ class FastSACLearner:
         assert self._cuda_graph_critic_action_noise is not None
         self._cuda_graph_critic_action_noise.copy_(torch.randn_like(self._cuda_graph_critic_action_noise))
 
+    def _actor_graph_input_shapes(self, batch: Dict[str, torch.Tensor]) -> dict[str, torch.Size]:
+        return {
+            "obs": batch["obs"].shape,
+            "critic": batch["critic"].shape,
+        }
+
+    def _copy_actor_graph_inputs(self, batch: Dict[str, torch.Tensor]) -> None:
+        assert self._cuda_graph_actor_static_inputs is not None
+        for key, tensor in self._cuda_graph_actor_static_inputs.items():
+            tensor.copy_(batch[key])
+        assert self._cuda_graph_actor_action_noise is not None
+        self._cuda_graph_actor_action_noise.copy_(torch.randn_like(self._cuda_graph_actor_action_noise))
+
     def _materialize_capturable_critic_optimizer_state(
         self,
         batch: Dict[str, torch.Tensor],
@@ -964,6 +1034,91 @@ class FastSACLearner:
         self._cuda_graph_critic_action_noise = None
         self._cuda_graph_critic_outputs = None
         self._cuda_graph_critic_shapes = None
+
+    def _materialize_capturable_actor_optimizer_state(
+        self,
+        batch: Dict[str, torch.Tensor],
+    ) -> None:
+        optimizer_lrs = [group["lr"] for group in self.actor_optimizer.param_groups]
+        optimizer_weight_decays = [group["weight_decay"] for group in self.actor_optimizer.param_groups]
+        cpu_rng_state = torch.random.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state() if self._device_type == "cuda" else None
+        try:
+            for group in self.actor_optimizer.param_groups:
+                group["lr"] = 0.0
+                group["weight_decay"] = 0.0
+            self._update_actor_capture_candidate(
+                batch["obs"],
+                batch["critic"],
+            )
+        finally:
+            torch.random.set_rng_state(cpu_rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state(cuda_rng_state)
+            for group, lr, weight_decay in zip(
+                self.actor_optimizer.param_groups,
+                optimizer_lrs,
+                optimizer_weight_decays,
+                strict=True,
+            ):
+                group["lr"] = lr
+                group["weight_decay"] = weight_decay
+
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        for state in self.actor_optimizer.state.values():
+            step = state.get("step")
+            if isinstance(step, torch.Tensor):
+                step.zero_()
+            elif step is not None:
+                state["step"] = 0
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                tensor = state.get(name)
+                if isinstance(tensor, torch.Tensor):
+                    tensor.zero_()
+
+    def _reset_actor_cuda_graph(self) -> None:
+        self._cuda_graph_actor = None
+        self._cuda_graph_actor_static_inputs = None
+        self._cuda_graph_actor_action_noise = None
+        self._cuda_graph_actor_outputs = None
+        self._cuda_graph_actor_shapes = None
+
+    def _capture_actor_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> None:
+        if not self.use_cuda_graph_actor:
+            return
+        self._cuda_graph_actor_shapes = self._actor_graph_input_shapes(batch)
+        self._cuda_graph_actor_static_inputs = {
+            "obs": batch["obs"].detach().clone(),
+            "critic": batch["critic"].detach().clone(),
+        }
+        self._cuda_graph_actor_action_noise = torch.empty(
+            batch["obs"].shape[:-1] + (self.actor.action_dim,),
+            device=batch["obs"].device,
+            dtype=batch["obs"].dtype,
+        )
+        self._copy_actor_graph_inputs(batch)
+
+        graph = torch.cuda.CUDAGraph()
+        capture_stream = torch.cuda.Stream()
+        capture_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+            self._cuda_graph_actor_outputs = self._update_actor_capture_candidate(
+                self._cuda_graph_actor_static_inputs["obs"],
+                self._cuda_graph_actor_static_inputs["critic"],
+            )
+        torch.cuda.current_stream().wait_stream(capture_stream)
+        torch.cuda.synchronize()
+        self._cuda_graph_actor = graph
+
+    def _actor_graph_output_metrics(self) -> Dict[str, float]:
+        assert self._cuda_graph_actor_outputs is not None
+        actor_loss, actor_grad_norm, policy_entropy, action_std = self._cuda_graph_actor_outputs
+        return {
+            "actor_loss": actor_loss.item(),
+            "actor_grad_norm": actor_grad_norm.item(),
+            "policy_entropy": policy_entropy.item(),
+            "action_std": action_std.item(),
+        }
 
     def _capture_critic_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> None:
         if not self.use_cuda_graph_critic:
@@ -1032,6 +1187,23 @@ class FastSACLearner:
         self._copy_critic_graph_inputs(batch)
         self._cuda_graph_critic.replay()
         return self._critic_graph_output_metrics()
+
+    def update_actor_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        if not self.use_cuda_graph_actor:
+            return self.update_actor(batch)
+        if self._device_type != "cuda":
+            return self.update_actor(batch)
+        if self.scaler is not None or self.world_size > 1 or self.use_symmetry:
+            return self.update_actor(batch)
+        if self._cuda_graph_actor_shapes != self._actor_graph_input_shapes(batch):
+            self._reset_actor_cuda_graph()
+            self._materialize_capturable_actor_optimizer_state(batch)
+            self._capture_actor_cuda_graph(batch)
+            return self._actor_graph_output_metrics()
+        assert self._cuda_graph_actor is not None
+        self._copy_actor_graph_inputs(batch)
+        self._cuda_graph_actor.replay()
+        return self._actor_graph_output_metrics()
 
     def update_critic(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """One critic update step."""
@@ -1260,6 +1432,8 @@ class FastSACLearner:
         if state_dict.get("obs_normalizer") and hasattr(self.obs_normalizer, "load_state_dict"):
             self.obs_normalizer.load_state_dict(state_dict["obs_normalizer"])
         self.update_count = state_dict.get("update_count", 0)
+        self._reset_critic_cuda_graph()
+        self._reset_actor_cuda_graph()
 
 
 # ---------------------------------------------------------------------------
