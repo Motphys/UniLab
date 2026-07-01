@@ -31,3 +31,7 @@ env:
     push_robots: false
     ball_vel_noise: 0.0
     joint_noise: 0.25 # random sampling of the grasp poses
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

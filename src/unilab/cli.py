@@ -233,15 +233,6 @@ def build_command(
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
 
-    # In eval mode, prefer the decoupled render/play config (`<backend>_play.yaml`)
-    # when one exists for this task, so eval automatically uses the play profile
-    # while train never does. Fall back to the bare backend owner if no `_play`
-    # variant is present. An explicit --profile always takes precedence.
-    if mode == "eval" and profile is None:
-        play_route = build_route(algo, task, sim, "play")
-        if _owner_yaml_path(play_route, selected_root).is_file():
-            route = play_route
-
     owner_yaml = _owner_yaml_path(route, selected_root)
     if not owner_yaml.is_file():
         raise SystemExit(

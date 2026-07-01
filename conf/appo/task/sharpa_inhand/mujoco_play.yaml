@@ -1,8 +1,0 @@
-# @package _global_
-
-defaults:
-  - /task/sharpa_inhand/mujoco
-  - _self_
-
-training:
-  play_only: true

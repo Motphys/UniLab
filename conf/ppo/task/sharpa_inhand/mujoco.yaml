@@ -99,3 +99,7 @@ env:
     joint_noise_scale: 0.02
     contact_latency: 0.005
     contact_sensor_noise: 0.01
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

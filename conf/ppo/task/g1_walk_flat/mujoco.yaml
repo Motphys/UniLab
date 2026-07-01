@@ -1,16 +1,23 @@
 # @package _global_
-# Inherits the shared contract from base.yaml; backend-specific tuning only.
-defaults:
-  - /task/g1_walk_flat/base
-  - _self_
-
-training:
-  task_name: G1WalkFlat
-  sim_backend: mujoco
 algo:
+  empirical_normalization: false
+  obs_groups:
+    actor:
+    - actor
+  policy:
+    actor_hidden_dims:
+    - 512
+    - 256
+    - 128
+    critic_hidden_dims:
+    - 512
+    - 256
+    - 128
   num_envs: 2048
   max_iterations: 2200
 env:
+  control_config:
+    action_scale: 0.25
   curriculum:
     enabled: false
   noise_config:
@@ -18,6 +25,9 @@ env:
     scale_joint_angle: 0.01
     scale_joint_vel: 1.5
     scale_gyro: 0.2
+training:
+  task_name: G1WalkFlat
+  sim_backend: mujoco
 reward:
   scales:
     tracking_lin_vel: 2.0
@@ -36,4 +46,37 @@ reward:
   base_height_target: 0.754
   min_base_height: 0.55
   max_tilt_deg: 25.0
-  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+  pose_weights:
+  - 0.01
+  - 1.0
+  - 5.0
+  - 0.01
+  - 5.0
+  - 5.0
+  - 0.01
+  - 1.0
+  - 5.0
+  - 0.01
+  - 5.0
+  - 5.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+  - 50.0
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

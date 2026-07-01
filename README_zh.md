@@ -134,7 +134,7 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
 ```
 
-这会路由到 `go2_joystick_flat/motrix` 任务 owner 配置，并保持后端选择显式化。eval 模式下，CLI 会在解耦的 play 配置 `<task>/<backend>_play` 存在时自动优先使用它（train 不会），可用 `--profile play` 强制指定。
+这会路由到 `go2_joystick_flat/motrix` 任务 owner 配置，并保持后端选择显式化。每个后端 owner 带一个可选的 `play_profile` 块，在 eval 时（`training.play_only=true`）叠加仅渲染相关的覆盖，不影响训练。
 
 在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 

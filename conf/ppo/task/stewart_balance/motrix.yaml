@@ -46,3 +46,7 @@ reward:
     progress: 0.6
     still: 3.0
   fall_penalty: -6.0
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

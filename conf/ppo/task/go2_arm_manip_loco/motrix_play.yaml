@@ -1,8 +1,0 @@
-# @package _global_
-
-defaults:
-  - /task/go2_arm_manip_loco/motrix
-  - _self_
-
-training:
-  play_only: true

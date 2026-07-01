@@ -329,7 +329,7 @@ def _compose_task(task: str) -> Any:
 
 
 def test_g1_walk_flat_mujoco_inherits_base_contract():
-    # The MuJoCo owner must inherit the shared contract from base.yaml verbatim.
+    # The MuJoCo owner carries the full contract in its standalone owner config.
     mujoco = _compose_task("g1_walk_flat/mujoco")
     assert OmegaConf.select(mujoco, "env.control_config.action_scale") == 0.25
     assert OmegaConf.select(mujoco, "algo.empirical_normalization") is False

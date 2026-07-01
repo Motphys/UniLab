@@ -1,10 +1,55 @@
 # @package _global_
-defaults:
-  - /task/go2w_joystick_flat/base
-  - _self_
-
+algo:
+  num_envs: 1024
+  max_iterations: 151
+  empirical_normalization: true
+  obs_groups:
+    actor:
+    - actor
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    learning_rate: 0.0003
+    entropy_coef: 0.001
+env:
+  commands:
+    vel_limit:
+    - - 0.0
+      - 0.0
+      - -1.0
+    - - 1.0
+      - 0.0
+      - 1.0
+  control_config:
+    action_scale: 0.5
+    wheel_action_scale: 10.0
+    Kp: 50.0
+    Kd: 1.5
+    wheel_Kd: 0.5
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
+  render_offset_mode: zero
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.75
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    base_height: -100.0
+    orientation: -2.0
+    action_rate: -0.005
+    similar_to_default: -0.5
+    torques: -0.0002
+    wheel_vel: 0.0
+    alive: 0.5
+    upward: 1.0
+  tracking_sigma: 0.25
+  base_height_target: 0.4
 training:
   task_name: Go2WJoystickFlat
   sim_backend: motrix
-env:
-  render_offset_mode: zero
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

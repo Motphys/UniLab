@@ -1,8 +1,0 @@
-# @package _global_
-
-defaults:
-  - /task/sac/g1_motion_tracking/motrix
-  - _self_
-
-training:
-  play_only: true

@@ -100,3 +100,7 @@ env:
       - contact_right_pinky_elastomer_force
   disable_tactile_ids: []
   grasp_collection_target: 10000
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
