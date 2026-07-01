@@ -59,7 +59,7 @@ DEFAULT_CASE_TEMPLATES = (
     "flashsac/g1_walk_flat",
 )
 DEFAULT_ALGOS = ("sac", "flashsac", "td3")
-DEFAULT_BACKEND = "mujoco"
+DEFAULT_BACKEND = "motrix"
 BENCHMARK_BACKENDS = ("mujoco", "motrix")
 DEFAULT_COLLECTOR_CPU_THREADS = 8
 COLLECTOR_CPU_THREADS_ENV = "UNILAB_COLLECTOR_TORCH_THREADS"
@@ -1002,6 +1002,10 @@ def _format_ms_pct(ms: float, pct: float) -> str:
     return f"{ms:.3f} ({pct:.1f}%)"
 
 
+def _format_ms_env_active_pct(ms: float, env_pct: float, active_pct: float) -> str:
+    return f"{ms:.3f} ({env_pct:.1f}% env, {active_pct:.1f}% active)"
+
+
 def _format_throughput_table(results: list[CollectorResult]) -> str:
     headers = (
         "Algo",
@@ -1052,11 +1056,9 @@ def _format_env_step_breakdown_table(results: list[CollectorResult]) -> str:
         "Algo",
         "Task",
         "Backend",
-        "Env step ms (% env)",
-        "Physics ms (% env)",
-        "Physics % active",
-        "Env overhead ms (% env)",
-        "Overhead % active",
+        "Env step ms (% env, % active)",
+        "Physics ms (% env, % active)",
+        "Env overhead ms (% env, % active)",
         "Gap ms",
     )
     rows = []
@@ -1067,36 +1069,36 @@ def _format_env_step_breakdown_table(results: list[CollectorResult]) -> str:
         physics = result.physics_ms_per_vector_step
         overhead = result.env_step_overhead_ms_per_vector_step
         if physics is None or overhead is None:
-            physics_env_str = "n/a"
-            physics_active_pct = "n/a"
-            overhead_env_str = "n/a"
-            overhead_active_pct = "n/a"
+            physics_str = "n/a"
+            overhead_str = "n/a"
             gap_ms = "n/a"
         else:
             physics_ms_value = physics.mean_ms
             overhead_ms_value = overhead.mean_ms
             gap_ms_value = env_step.mean_ms - physics_ms_value - overhead_ms_value
-            physics_env_str = _format_ms_pct(
+            physics_str = _format_ms_env_active_pct(
                 physics_ms_value,
                 _env_step_child_env_pct(result, physics_ms_value),
+                _env_step_child_pct(result, physics_ms_value),
             )
-            physics_active_pct = f"{_env_step_child_pct(result, physics_ms_value):.1f}"
-            overhead_env_str = _format_ms_pct(
+            overhead_str = _format_ms_env_active_pct(
                 overhead_ms_value,
                 _env_step_child_env_pct(result, overhead_ms_value),
+                _env_step_child_pct(result, overhead_ms_value),
             )
-            overhead_active_pct = f"{_env_step_child_pct(result, overhead_ms_value):.1f}"
             gap_ms = f"{gap_ms_value:.6f}"
         rows.append(
             (
                 result.case.algo,
                 result.case.task,
                 result.case.runtime_sim_backend,
-                _format_ms_pct(env_step.mean_ms, 100.0),
-                physics_env_str,
-                physics_active_pct,
-                overhead_env_str,
-                overhead_active_pct,
+                _format_ms_env_active_pct(
+                    env_step.mean_ms,
+                    100.0,
+                    _phase_pct(result, "env_step_ms"),
+                ),
+                physics_str,
+                overhead_str,
                 gap_ms,
             )
         )
@@ -1165,7 +1167,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--backend",
         choices=BENCHMARK_BACKENDS,
         default=DEFAULT_BACKEND,
-        help="Backend to benchmark for --cases default/auto. Default: mujoco.",
+        help="Backend to benchmark for --cases default/auto. Default: motrix.",
     )
     parser.add_argument(
         "--all",

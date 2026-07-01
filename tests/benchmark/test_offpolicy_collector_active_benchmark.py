@@ -73,16 +73,16 @@ def test_parse_case_requires_algo_task_sim() -> None:
         bench._parse_case("g1_walk_flat/mujoco")
 
 
-def test_default_cases_cover_mujoco_only_without_sharpa() -> None:
+def test_default_cases_cover_motrix_only_without_sharpa() -> None:
     specs = bench._resolve_case_specs(
         "default",
         algos_arg="sac,flashsac,td3",
-        backends=("mujoco",),
+        backends=("motrix",),
     )
 
-    assert "sac/g1_motion_tracking/mujoco" in specs
-    assert "flashsac/g1_walk_flat/mujoco" in specs
-    assert "sac/g1_motion_tracking/motrix" not in specs
+    assert "sac/g1_motion_tracking/motrix" in specs
+    assert "flashsac/g1_walk_flat/motrix" in specs
+    assert "sac/g1_motion_tracking/mujoco" not in specs
     assert "sac/sharpa_inhand/mujoco_hora" not in specs
 
 
@@ -152,7 +152,7 @@ def test_parse_args_defaults_to_large_env_count_and_longer_measure_window() -> N
 
     assert args.num_envs == 8192
     assert args.measure_steps == 100
-    assert args.backend == "mujoco"
+    assert args.backend == "motrix"
     assert not args.all_backends
 
 
@@ -163,7 +163,7 @@ def test_parse_args_accepts_backend_and_all_backend_modes() -> None:
 
     assert motrix_args.backend == "motrix"
     assert not motrix_args.all_backends
-    assert all_args.backend == "mujoco"
+    assert all_args.backend == "motrix"
     assert all_args.all_backends
     assert legacy_sim_args.backend == "motrix"
 
@@ -206,16 +206,14 @@ def test_env_step_breakdown_table_keeps_subparts_separate() -> None:
         [_make_result(include_env_step_breakdown=True)]
     )
 
-    assert "Env step ms (% env)" in table
-    assert "Physics ms (% env)" in table
-    assert "Physics % active" in table
-    assert "Env overhead ms (% env)" in table
-    assert "Overhead % active" in table
-    assert "1.000 (100.0%)" in table
-    assert "0.750 (75.0%)" in table
-    assert "15.0" in table
-    assert "0.250 (25.0%)" in table
-    assert "5.0" in table
+    assert "Env step ms (% env, % active)" in table
+    assert "Physics ms (% env, % active)" in table
+    assert "Env overhead ms (% env, % active)" in table
+    assert "Physics % active" not in table
+    assert "Overhead % active" not in table
+    assert "1.000 (100.0% env, 20.0% active)" in table
+    assert "0.750 (75.0% env, 15.0% active)" in table
+    assert "0.250 (25.0% env, 5.0% active)" in table
     assert "0.000000" in table
 
 
