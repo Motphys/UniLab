@@ -82,7 +82,32 @@ NP_ENV_STEP_TIMING_KEYS = (
     "update_state_ms",
     "reset_done_ms",
     "env_step_internal_gap_ms",
+    "reset_done_terminal_obs_ms",
+    "reset_done_reset_call_ms",
+    "reset_done_obs_scatter_ms",
+    "reset_done_info_scatter_ms",
+    "reset_done_internal_gap_ms",
+    "dr_reset_total_ms",
+    "dr_reset_plan_ms",
+    "dr_reset_payload_filter_ms",
+    "dr_reset_set_state_ms",
+    "dr_reset_build_observation_ms",
+    "dr_reset_internal_gap_ms",
+    "dr_reset_observation_getters_ms",
+    "dr_reset_obs_get_motion_ms",
+    "dr_reset_obs_get_local_linvel_ms",
+    "dr_reset_obs_get_gyro_ms",
+    "dr_reset_obs_get_gravity_ms",
+    "dr_reset_obs_get_dof_pos_ms",
+    "dr_reset_obs_get_dof_vel_ms",
+    "dr_reset_obs_get_body_pose_ms",
+    "dr_reset_observation_compute_obs_ms",
+    "dr_reset_observation_internal_gap_ms",
 )
+NP_ENV_STEP_COUNT_KEYS = (
+    "reset_done_count",
+)
+NP_ENV_STEP_SAMPLE_KEYS = (*NP_ENV_STEP_TIMING_KEYS, *NP_ENV_STEP_COUNT_KEYS)
 NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("env_step_total_ms", "np_env_step_total_ms"),
     ("apply_action_ms", "np_env_apply_action_ms"),
@@ -90,6 +115,27 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("update_state_ms", "np_env_update_state_ms"),
     ("reset_done_ms", "np_env_reset_done_ms"),
     ("env_step_internal_gap_ms", "np_env_internal_gap_ms"),
+    ("reset_done_terminal_obs_ms", "reset_done_terminal_obs_ms"),
+    ("reset_done_reset_call_ms", "reset_done_reset_call_ms"),
+    ("reset_done_obs_scatter_ms", "reset_done_obs_scatter_ms"),
+    ("reset_done_info_scatter_ms", "reset_done_info_scatter_ms"),
+    ("reset_done_internal_gap_ms", "reset_done_internal_gap_ms"),
+    ("dr_reset_total_ms", "dr_reset_total_ms"),
+    ("dr_reset_plan_ms", "dr_reset_plan_ms"),
+    ("dr_reset_payload_filter_ms", "dr_reset_payload_filter_ms"),
+    ("dr_reset_set_state_ms", "dr_reset_set_state_ms"),
+    ("dr_reset_build_observation_ms", "dr_reset_build_observation_ms"),
+    ("dr_reset_internal_gap_ms", "dr_reset_internal_gap_ms"),
+    ("dr_reset_observation_getters_ms", "dr_reset_observation_getters_ms"),
+    ("dr_reset_obs_get_motion_ms", "dr_reset_obs_get_motion_ms"),
+    ("dr_reset_obs_get_local_linvel_ms", "dr_reset_obs_get_local_linvel_ms"),
+    ("dr_reset_obs_get_gyro_ms", "dr_reset_obs_get_gyro_ms"),
+    ("dr_reset_obs_get_gravity_ms", "dr_reset_obs_get_gravity_ms"),
+    ("dr_reset_obs_get_dof_pos_ms", "dr_reset_obs_get_dof_pos_ms"),
+    ("dr_reset_obs_get_dof_vel_ms", "dr_reset_obs_get_dof_vel_ms"),
+    ("dr_reset_obs_get_body_pose_ms", "dr_reset_obs_get_body_pose_ms"),
+    ("dr_reset_observation_compute_obs_ms", "dr_reset_observation_compute_obs_ms"),
+    ("dr_reset_observation_internal_gap_ms", "dr_reset_observation_internal_gap_ms"),
 )
 
 
@@ -502,7 +548,7 @@ def _run_active_window_case(
         "env_step_overhead_ms": [],
     }
     env_step_timing_samples: dict[str, list[float]] = {
-        key: [] for key in NP_ENV_STEP_TIMING_KEYS
+        key: [] for key in NP_ENV_STEP_SAMPLE_KEYS
     }
     total_active_ns = 0
     total_steps = int(warmup_steps) + int(measure_steps)
@@ -557,13 +603,8 @@ def _run_active_window_case(
         physics_ms = _optional_timing_ms(_timing, "backend_physics_ms")
         env_step_timing_values = {
             key: _optional_timing_ms(_timing, key)
-            for key in (
-                "env_step_total_ms",
-                "apply_action_ms",
-                "step_core_ms",
-                "update_state_ms",
-                "reset_done_ms",
-            )
+            for key in NP_ENV_STEP_SAMPLE_KEYS
+            if key != "env_step_internal_gap_ms"
         }
         internal_children = (
             env_step_timing_values["apply_action_ms"],
@@ -807,6 +848,7 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "bookkeeping_ms",
         "physics_ms",
         "env_step_overhead_ms",
+        "reset_done_count",
         *(field_name for _, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS),
         "action_select_pct",
         "env_step_pct",
@@ -848,6 +890,10 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 result.env_step_overhead_ms_per_vector_step.mean_ms
                 if result.env_step_overhead_ms_per_vector_step is not None
                 else ""
+            )
+            reset_done_count = result.env_step_timing_ms_per_vector_step.get("reset_done_count")
+            row["reset_done_count"] = (
+                reset_done_count.mean_ms if reset_done_count is not None else ""
             )
             for timing_key, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS:
                 stat = result.env_step_timing_ms_per_vector_step.get(timing_key)
@@ -1081,6 +1127,13 @@ def _format_np_env_timing(result: CollectorResult, key: str) -> str:
     )
 
 
+def _format_np_env_value(result: CollectorResult, key: str, *, digits: int = 1) -> str:
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    if stat is None:
+        return "n/a"
+    return f"{stat.mean_ms:.{digits}f}"
+
+
 def _format_throughput_table(results: list[CollectorResult]) -> str:
     headers = (
         "Algo",
@@ -1123,6 +1176,80 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 cpu_str,
                 _format_ms_pct(phase_means["replay_ms"], _phase_pct(result, "replay_ms")),
                 _format_ms_pct(phase_means["bookkeeping_ms"], _phase_pct(result, "bookkeeping_ms")),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_reset_done_timing_table(results: list[CollectorResult]) -> str:
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Reset count/step",
+        "Reset done ms (% env, % active)",
+        "Terminal obs ms (% env, % active)",
+        "Reset call ms (% env, % active)",
+        "Obs scatter ms (% env, % active)",
+        "Info scatter ms (% env, % active)",
+        "Reset gap ms (% env, % active)",
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_value(result, "reset_done_count"),
+                _format_np_env_timing(result, "reset_done_ms"),
+                _format_np_env_timing(result, "reset_done_terminal_obs_ms"),
+                _format_np_env_timing(result, "reset_done_reset_call_ms"),
+                _format_np_env_timing(result, "reset_done_obs_scatter_ms"),
+                _format_np_env_timing(result, "reset_done_info_scatter_ms"),
+                _format_np_env_timing(result, "reset_done_internal_gap_ms"),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_dr_reset_timing_table(results: list[CollectorResult]) -> str:
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "DR reset total ms (% env, % active)",
+        "Plan ms (% env, % active)",
+        "Set state ms (% env, % active)",
+        "Build reset obs ms (% env, % active)",
+        "Motion lookup ms (% env, % active)",
+        "Obs getters ms (% env, % active)",
+        "Body pose getter ms (% env, % active)",
+        "Obs compute ms (% env, % active)",
+        "DR gap ms (% env, % active)",
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_total_ms"),
+                _format_np_env_timing(result, "dr_reset_plan_ms"),
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                _format_np_env_timing(result, "dr_reset_build_observation_ms"),
+                _format_np_env_timing(result, "dr_reset_obs_get_motion_ms"),
+                _format_np_env_timing(result, "dr_reset_observation_getters_ms"),
+                _format_np_env_timing(result, "dr_reset_obs_get_body_pose_ms"),
+                _format_np_env_timing(result, "dr_reset_observation_compute_obs_ms"),
+                _format_np_env_timing(result, "dr_reset_internal_gap_ms"),
             )
         )
     return _format_table(headers, rows)
@@ -1257,12 +1384,26 @@ def _print_result(result: CollectorResult) -> None:
             f"pct_active={_env_step_child_pct(result, upper):5.1f}%"
         )
     if result.env_step_timing_ms_per_vector_step:
+        reset_count = result.env_step_timing_ms_per_vector_step.get("reset_done_count")
+        if reset_count is not None:
+            print(f"  {'reset_done_count':<18} mean={reset_count.mean_ms:8.1f}")
         for key in (
             "apply_action_ms",
             "step_core_ms",
             "update_state_ms",
             "reset_done_ms",
             "env_step_internal_gap_ms",
+            "reset_done_terminal_obs_ms",
+            "reset_done_reset_call_ms",
+            "reset_done_obs_scatter_ms",
+            "reset_done_info_scatter_ms",
+            "dr_reset_plan_ms",
+            "dr_reset_set_state_ms",
+            "dr_reset_build_observation_ms",
+            "dr_reset_obs_get_motion_ms",
+            "dr_reset_observation_getters_ms",
+            "dr_reset_obs_get_body_pose_ms",
+            "dr_reset_observation_compute_obs_ms",
         ):
             stat = result.env_step_timing_ms_per_vector_step.get(key)
             if stat is None:
@@ -1423,6 +1564,10 @@ def main() -> int:
             "\nNpEnv step timing (subparts reported by NpEnv.step; gap = external env_step_ms - listed subparts):"
         )
         print(_format_np_env_step_timing_table(results))
+        print("\nReset done timing (subparts of NpEnv reset_done_ms):")
+        print(_format_reset_done_timing_table(results))
+        print("\nDR reset timing (subparts of reset call; reset obs getters currently read full batch):")
+        print(_format_dr_reset_timing_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1

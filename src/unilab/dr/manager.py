@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import numpy as np
@@ -17,7 +18,12 @@ class DomainRandomizationManager:
         self._provider = provider
         self._capabilities: DomainRandomizationCapabilities = env._backend.get_dr_capabilities()
         self._warned_reset_terms: frozenset[str] = frozenset()
+        self._last_reset_timing_ms: dict[str, float] = {}
         self._provider.validate(env, self._capabilities)
+
+    @property
+    def last_reset_timing_ms(self) -> dict[str, float]:
+        return dict(self._last_reset_timing_ms)
 
     def apply_init_randomization(self) -> bool:
         plan = self._provider.build_init_randomization_plan(self._env)
@@ -27,19 +33,48 @@ class DomainRandomizationManager:
         return True
 
     def reset(self, env_ids: np.ndarray) -> tuple[dict[str, np.ndarray], dict]:
+        reset_t0 = time.perf_counter()
+        self._last_reset_timing_ms = {}
+
+        t0 = time.perf_counter()
         plan = self._provider.build_reset_plan(self._env, env_ids)
+        plan_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         payload = plan.randomization
         if payload is not None:
             payload, unsupported = self._capabilities.filter_reset_payload(payload)
             if unsupported:
                 self._log_unsupported_reset_terms(unsupported)
+        payload_filter_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._env._backend.set_state(
             plan.env_ids,
             plan.qpos,
             plan.qvel,
             randomization=payload,
         )
+        set_state_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         obs = self._provider.build_reset_observation(self._env, plan.env_ids, plan.info_updates)
+        build_observation_ms = (time.perf_counter() - t0) * 1000.0
+
+        total_ms = (time.perf_counter() - reset_t0) * 1000.0
+        measured_ms = plan_ms + payload_filter_ms + set_state_ms + build_observation_ms
+        timing = {
+            "dr_reset_total_ms": total_ms,
+            "dr_reset_plan_ms": plan_ms,
+            "dr_reset_payload_filter_ms": payload_filter_ms,
+            "dr_reset_set_state_ms": set_state_ms,
+            "dr_reset_build_observation_ms": build_observation_ms,
+            "dr_reset_internal_gap_ms": total_ms - measured_ms,
+        }
+        provider_timing = getattr(self._provider, "last_reset_observation_timing_ms", {})
+        if isinstance(provider_timing, dict):
+            timing.update(provider_timing)
+        self._last_reset_timing_ms = timing
         return obs, plan.info_updates
 
     def apply_interval_randomization_if_due(self, step_counter: int) -> None:

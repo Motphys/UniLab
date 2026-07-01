@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import dataclasses
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from os import PathLike
@@ -20,6 +21,32 @@ from unilab.dtype_config import get_global_dtype
 if TYPE_CHECKING:
     from unilab.base.augmentation import SymmetryAugmentation
     from unilab.utils.nan_guard import NanGuard
+
+
+RESET_DONE_DETAIL_TIMING_KEYS = (
+    "reset_done_count",
+    "reset_done_terminal_obs_ms",
+    "reset_done_reset_call_ms",
+    "reset_done_obs_scatter_ms",
+    "reset_done_info_scatter_ms",
+    "reset_done_internal_gap_ms",
+    "dr_reset_total_ms",
+    "dr_reset_plan_ms",
+    "dr_reset_payload_filter_ms",
+    "dr_reset_set_state_ms",
+    "dr_reset_build_observation_ms",
+    "dr_reset_internal_gap_ms",
+    "dr_reset_observation_getters_ms",
+    "dr_reset_obs_get_motion_ms",
+    "dr_reset_obs_get_local_linvel_ms",
+    "dr_reset_obs_get_gyro_ms",
+    "dr_reset_obs_get_gravity_ms",
+    "dr_reset_obs_get_dof_pos_ms",
+    "dr_reset_obs_get_dof_vel_ms",
+    "dr_reset_obs_get_body_pose_ms",
+    "dr_reset_observation_compute_obs_ms",
+    "dr_reset_observation_internal_gap_ms",
+)
 
 
 @dataclass
@@ -102,8 +129,6 @@ class NpEnv(ABEnv):
         return self._state
 
     def step(self, actions: np.ndarray) -> NpEnvState:
-        import time
-
         step_t0 = time.perf_counter()
 
         if self._state is None:
@@ -144,11 +169,14 @@ class NpEnv(ABEnv):
 
         done = self._state.terminated | self._state.truncated
         t0 = time.perf_counter()
-        if self._autoreset and np.any(done):
+        did_reset = self._autoreset and np.any(done)
+        if did_reset:
             self._reset_done_envs()
         reset_done_time = time.perf_counter() - t0
 
         timing = self._state.info.setdefault("timing", {})
+        if not did_reset:
+            self._clear_reset_done_detail_timing(timing)
         timing["env_step_total_ms"] = (time.perf_counter() - step_t0) * 1000.0
         timing["apply_action_ms"] = apply_action_time * 1000.0
         timing["step_core_ms"] = step_core_time * 1000.0
@@ -178,11 +206,17 @@ class NpEnv(ABEnv):
 
     def _reset_done_envs(self) -> None:
         assert self._state is not None
+        reset_t0 = time.perf_counter()
+        detail_timing = {key: 0.0 for key in RESET_DONE_DETAIL_TIMING_KEYS}
         done = self._state.terminated | self._state.truncated
         if not np.any(done):
+            timing = self._state.info.setdefault("timing", {})
+            self._clear_reset_done_detail_timing(timing)
             return
 
+        t0 = time.perf_counter()
         env_indices = np.flatnonzero(done).astype(np.int32)
+        detail_timing["reset_done_count"] = float(len(env_indices))
         self._state.info["steps"][env_indices] = 0
 
         final_observation = self._ensure_final_observation_scratch()
@@ -196,11 +230,20 @@ class NpEnv(ABEnv):
             compat_final_observation[key][env_indices] = final_observation[key][env_indices]
 
         self._state.final_observation = final_observation
+        detail_timing["reset_done_terminal_obs_ms"] = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         new_obs, info1 = self.reset(env_indices)
+        detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - t0) * 1000.0
+        if self._dr_manager is not None:
+            detail_timing.update(self._dr_manager.last_reset_timing_ms)
+
+        t0 = time.perf_counter()
         for key in self._state.obs:
             self._state.obs[key][env_indices] = new_obs[key]
+        detail_timing["reset_done_obs_scatter_ms"] = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         if info1:
             for key, value in info1.items():
                 if key not in self._state.info:
@@ -212,6 +255,23 @@ class NpEnv(ABEnv):
                         self._state.info[key] = value
                 elif isinstance(value, np.ndarray):
                     self._state.info[key][env_indices] = value
+        detail_timing["reset_done_info_scatter_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        reset_done_total_ms = (time.perf_counter() - reset_t0) * 1000.0
+        measured_reset_done_ms = (
+            detail_timing["reset_done_terminal_obs_ms"]
+            + detail_timing["reset_done_reset_call_ms"]
+            + detail_timing["reset_done_obs_scatter_ms"]
+            + detail_timing["reset_done_info_scatter_ms"]
+        )
+        detail_timing["reset_done_internal_gap_ms"] = reset_done_total_ms - measured_reset_done_ms
+        timing = self._state.info.setdefault("timing", {})
+        self._clear_reset_done_detail_timing(timing)
+        timing.update(detail_timing)
+
+    def _clear_reset_done_detail_timing(self, timing: dict[str, Any]) -> None:
+        for key in RESET_DONE_DETAIL_TIMING_KEYS:
+            timing[key] = 0.0
 
     def _nan_guard_model_file(self) -> str:
         scene = getattr(self._cfg, "scene", None)

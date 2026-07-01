@@ -7,6 +7,7 @@ to provide robot-specific behaviour.
 
 from __future__ import annotations
 
+import time
 from typing import Any, cast
 
 import numpy as np
@@ -43,6 +44,10 @@ class LocomotionDRProvider(DomainRandomizationProvider):
     """
 
     # ── shared methods ───────────────────────────────────────────────
+
+    @property
+    def last_reset_observation_timing_ms(self) -> dict[str, float]:
+        return dict(getattr(self, "_last_reset_observation_timing_ms", {}))
 
     def _get_base_actuator_gains(self, env: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Return (base_kp, base_kd) for per-joint kp/kd domain randomization.
@@ -157,15 +162,48 @@ class LocomotionDRProvider(DomainRandomizationProvider):
     def build_reset_observation(
         self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
     ) -> dict[str, np.ndarray]:
+        obs_t0 = time.perf_counter()
+
+        t0 = time.perf_counter()
         linvel = env.get_local_linvel()[env_ids]
+        linvel_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         gyro = env.get_gyro()[env_ids]
+        gyro_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         gravity_sensor = getattr(getattr(env.cfg, "sensor", None), "upvector", "upvector")
         gravity = env._backend.get_sensor_data(gravity_sensor)[env_ids]
+        gravity_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         dof_pos = env.get_dof_pos()[env_ids]
+        dof_pos_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         dof_vel = env.get_dof_vel()[env_ids]
-        return cast(
+        dof_vel_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        obs = cast(
             dict[str, np.ndarray],
             self._compute_reset_obs(
                 env, env_ids, info_updates, linvel, gyro, gravity, dof_pos, dof_vel
             ),
         )
+        compute_obs_ms = (time.perf_counter() - t0) * 1000.0
+
+        total_ms = (time.perf_counter() - obs_t0) * 1000.0
+        getters_ms = linvel_ms + gyro_ms + gravity_ms + dof_pos_ms + dof_vel_ms
+        self._last_reset_observation_timing_ms = {
+            "dr_reset_observation_getters_ms": getters_ms,
+            "dr_reset_obs_get_local_linvel_ms": linvel_ms,
+            "dr_reset_obs_get_gyro_ms": gyro_ms,
+            "dr_reset_obs_get_gravity_ms": gravity_ms,
+            "dr_reset_obs_get_dof_pos_ms": dof_pos_ms,
+            "dr_reset_obs_get_dof_vel_ms": dof_vel_ms,
+            "dr_reset_observation_compute_obs_ms": compute_obs_ms,
+            "dr_reset_observation_internal_gap_ms": total_ms - getters_ms - compute_obs_ms,
+        }
+        return obs

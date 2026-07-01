@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -343,6 +344,11 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         self._base_kd = base_kd
         self._base_geom_friction = base_geom_friction
         self._foot_geom_ids = foot_geom_ids
+        self._last_reset_observation_timing_ms: dict[str, float] = {}
+
+    @property
+    def last_reset_observation_timing_ms(self) -> dict[str, float]:
+        return dict(self._last_reset_observation_timing_ms)
 
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         validate_common_reset_randomization(
@@ -415,20 +421,42 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
     def build_reset_observation(
         self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
     ) -> dict[str, np.ndarray]:
+        obs_t0 = time.perf_counter()
+
+        t0 = time.perf_counter()
         motion_data = env.motion_loader.get_motion_at_frame(
             env.motion_sampler.current_frames[env_ids]
         )
+        motion_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         linvel = env.get_local_linvel()[env_ids]
+        linvel_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         gyro = env.get_gyro()[env_ids]
+        gyro_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         dof_pos = env.get_dof_pos()[env_ids]
+        dof_pos_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         dof_vel = env.get_dof_vel()[env_ids]
+        dof_vel_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         all_pos_w, all_quat_w = env._get_body_pose_w()
+        body_pose_ms = (time.perf_counter() - t0) * 1000.0
+
         obs_info = dict(info_updates)
         default_dof_pos_bias = info_updates.get("default_dof_pos_bias")
         if isinstance(default_dof_pos_bias, np.ndarray):
             obs_info["default_dof_pos_bias"] = default_dof_pos_bias
         obs_info["env_ids"] = env_ids
-        return cast(
+
+        t0 = time.perf_counter()
+        obs = cast(
             dict[str, np.ndarray],
             env._compute_obs(
                 obs_info,
@@ -441,6 +469,24 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
                 all_quat_w[env_ids],
             ),
         )
+        compute_obs_ms = (time.perf_counter() - t0) * 1000.0
+
+        total_ms = (time.perf_counter() - obs_t0) * 1000.0
+        getters_ms = linvel_ms + gyro_ms + dof_pos_ms + dof_vel_ms + body_pose_ms
+        self._last_reset_observation_timing_ms = {
+            "dr_reset_observation_getters_ms": getters_ms,
+            "dr_reset_obs_get_motion_ms": motion_ms,
+            "dr_reset_obs_get_local_linvel_ms": linvel_ms,
+            "dr_reset_obs_get_gyro_ms": gyro_ms,
+            "dr_reset_obs_get_dof_pos_ms": dof_pos_ms,
+            "dr_reset_obs_get_dof_vel_ms": dof_vel_ms,
+            "dr_reset_obs_get_body_pose_ms": body_pose_ms,
+            "dr_reset_observation_compute_obs_ms": compute_obs_ms,
+            "dr_reset_observation_internal_gap_ms": (
+                total_ms - motion_ms - getters_ms - compute_obs_ms
+            ),
+        }
+        return obs
 
 
 @registry.env("G1MotionTracking", sim_backend="mujoco")
