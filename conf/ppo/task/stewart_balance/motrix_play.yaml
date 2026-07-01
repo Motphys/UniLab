@@ -1,0 +1,13 @@
+# @package _global_
+
+defaults:
+  - /task/stewart_balance/motrix
+  - _self_
+
+training:
+  play_only: true
+
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

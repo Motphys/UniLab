@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /task/go1_joystick_flat/mujoco
+  - _self_
+
+training:
+  play_only: true
+
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

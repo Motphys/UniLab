@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /task/sharpa_inhand/motrix
+  - _self_
+
+training:
+  play_only: true

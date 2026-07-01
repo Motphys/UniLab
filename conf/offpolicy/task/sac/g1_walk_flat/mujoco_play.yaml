@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /task/sac/g1_walk_flat/mujoco
+  - _self_
+
+training:
+  play_only: true

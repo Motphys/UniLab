@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  play_only: true

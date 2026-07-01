@@ -132,7 +132,7 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
 ```
 
-This routes through the `go2_joystick_flat/motrix` task owner config and keeps backend selection explicit.
+This routes through the `go2_joystick_flat/motrix` task owner config and keeps backend selection explicit. In eval mode, the CLI automatically prefers the decoupled play config `<task>/<backend>_play` when it exists (train never does); pass `--profile play` to force it.
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
 

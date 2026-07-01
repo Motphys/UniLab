@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /task/g1_wall_flip_tracking/motrix
+  - _self_
+
+training:
+  play_only: true

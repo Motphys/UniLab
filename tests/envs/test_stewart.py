@@ -19,6 +19,7 @@ _ACTION_DIM = 2
 
 
 def _make_env(num_envs: int = 2):
+    pytest.importorskip("motrixsim", reason="motrixsim not installed")
     ensure_registries()
     return registry.make("StewartBalance", sim_backend="motrix", num_envs=num_envs)
 
