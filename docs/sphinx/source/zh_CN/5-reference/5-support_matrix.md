@@ -64,7 +64,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested |
 | PPO (torch) | `g1_box_tracking` (g1 box tracking) | Tested | Tested |
 | PPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | Tested |
-| PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | Registered |
+| PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | Tested |
 | PPO (torch) | `go1_joystick_rough` (go1 joystick rough) | Tested | Tested |
 | PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | Tested |
 | PPO (torch) | `go2_footstand` (go2 footstand) | Tested | - |
@@ -85,7 +85,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | Configured |
 | PPO (mlx) | `g1_box_tracking` (g1 box tracking) | Configured | Configured |
 | PPO (mlx) | `g1_climb_tracking` (g1 climb tracking) | Configured | Configured |
-| PPO (mlx) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Configured | Registered |
+| PPO (mlx) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Configured | Configured |
 | PPO (mlx) | `go1_joystick_rough` (go1 joystick rough) | Configured | Configured |
 | PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | Configured |
 | PPO (mlx) | `go2_footstand` (go2 footstand) | Configured | - |
