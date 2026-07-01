@@ -104,9 +104,7 @@ NP_ENV_STEP_TIMING_KEYS = (
     "dr_reset_observation_compute_obs_ms",
     "dr_reset_observation_internal_gap_ms",
 )
-NP_ENV_STEP_COUNT_KEYS = (
-    "reset_done_count",
-)
+NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
 NP_ENV_STEP_SAMPLE_KEYS = (*NP_ENV_STEP_TIMING_KEYS, *NP_ENV_STEP_COUNT_KEYS)
 NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("env_step_total_ms", "np_env_step_total_ms"),
@@ -547,9 +545,7 @@ def _run_active_window_case(
         "physics_ms": [],
         "env_step_overhead_ms": [],
     }
-    env_step_timing_samples: dict[str, list[float]] = {
-        key: [] for key in NP_ENV_STEP_SAMPLE_KEYS
-    }
+    env_step_timing_samples: dict[str, list[float]] = {key: [] for key in NP_ENV_STEP_SAMPLE_KEYS}
     total_active_ns = 0
     total_steps = int(warmup_steps) + int(measure_steps)
     if total_steps <= 0 or measure_steps <= 0:
@@ -1566,7 +1562,9 @@ def main() -> int:
         print(_format_np_env_step_timing_table(results))
         print("\nReset done timing (subparts of NpEnv reset_done_ms):")
         print(_format_reset_done_timing_table(results))
-        print("\nDR reset timing (subparts of reset call; reset obs getters currently read full batch):")
+        print(
+            "\nDR reset timing (subparts of reset call; reset obs getters currently read full batch):"
+        )
         print(_format_dr_reset_timing_table(results))
     else:
         print("No successful benchmark cases.")
