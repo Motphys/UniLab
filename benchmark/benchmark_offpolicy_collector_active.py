@@ -1003,7 +1003,7 @@ def _format_ms_pct(ms: float, pct: float) -> str:
 
 
 def _format_ms_env_active_pct(ms: float, env_pct: float, active_pct: float) -> str:
-    return f"{ms:.3f} ({env_pct:.1f}% env, {active_pct:.1f}% active)"
+    return f"{ms:.3f} ({env_pct:.1f}%, {active_pct:.1f}%)"
 
 
 def _format_throughput_table(results: list[CollectorResult]) -> str:

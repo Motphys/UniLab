@@ -211,9 +211,9 @@ def test_env_step_breakdown_table_keeps_subparts_separate() -> None:
     assert "Env overhead ms (% env, % active)" in table
     assert "Physics % active" not in table
     assert "Overhead % active" not in table
-    assert "1.000 (100.0% env, 20.0% active)" in table
-    assert "0.750 (75.0% env, 15.0% active)" in table
-    assert "0.250 (25.0% env, 5.0% active)" in table
+    assert "1.000 (100.0%, 20.0%)" in table
+    assert "0.750 (75.0%, 15.0%)" in table
+    assert "0.250 (25.0%, 5.0%)" in table
     assert "0.000000" in table
 
 
