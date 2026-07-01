@@ -29,6 +29,8 @@ class SACAlgoParams:
     use_compile: bool = True
     use_cuda_graph_critic: bool = False
     use_cuda_graph_actor: bool = False
+    use_cuda_graph_critic_packed_staging: bool = False
+    use_cuda_graph_actor_packed_staging: bool = False
 
 
 @dataclass

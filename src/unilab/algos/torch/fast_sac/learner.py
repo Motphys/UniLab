@@ -441,6 +441,8 @@ class FastSACLearner:
         obs_normalization: bool = False,
         use_cuda_graph_critic: bool = False,
         use_cuda_graph_actor: bool = False,
+        use_cuda_graph_critic_packed_staging: bool = False,
+        use_cuda_graph_actor_packed_staging: bool = False,
         nvtx_profile_ranges: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
         world_size: int = 1,
@@ -461,6 +463,10 @@ class FastSACLearner:
             and self._device_type == "cuda"
             and world_size <= 1
         )
+        requested_cuda_graph_critic_packed_staging = bool(
+            use_cuda_graph_critic_packed_staging
+        )
+        requested_cuda_graph_actor_packed_staging = bool(use_cuda_graph_actor_packed_staging)
         self.use_cuda_graph_actor = (
             bool(use_cuda_graph_actor)
             and self._device_type == "cuda"
@@ -561,6 +567,17 @@ class FastSACLearner:
             if self._should_use_grad_scaler(self.use_amp, self._device_type, self._amp_dtype)
             else None
         )
+        self.use_cuda_graph_critic_packed_staging = (
+            requested_cuda_graph_critic_packed_staging
+            and self.use_cuda_graph_critic
+            and self.scaler is None
+        )
+        self.use_cuda_graph_actor_packed_staging = (
+            requested_cuda_graph_actor_packed_staging
+            and self.use_cuda_graph_actor
+            and self.scaler is None
+            and not use_symmetry
+        )
 
         self.symmetry = symmetry_augmentation
         if use_symmetry and symmetry_augmentation is None:
@@ -570,6 +587,9 @@ class FastSACLearner:
         self.use_symmetry = use_symmetry
         self._cuda_graph_critic: torch.cuda.CUDAGraph | None = None
         self._cuda_graph_critic_static_inputs: dict[str, torch.Tensor] | None = None
+        self._cuda_graph_critic_static_packed_input: torch.Tensor | None = None
+        self._cuda_graph_sac_static_packed_input: torch.Tensor | None = None
+        self._cuda_graph_sac_static_source_ptr: int | None = None
         self._cuda_graph_critic_action_noise: torch.Tensor | None = None
         self._cuda_graph_critic_outputs: tuple[
             torch.Tensor,
@@ -582,6 +602,7 @@ class FastSACLearner:
         self._cuda_graph_critic_shapes: dict[str, torch.Size] | None = None
         self._cuda_graph_actor: torch.cuda.CUDAGraph | None = None
         self._cuda_graph_actor_static_inputs: dict[str, torch.Tensor] | None = None
+        self._cuda_graph_actor_static_packed_input: torch.Tensor | None = None
         self._cuda_graph_actor_action_noise: torch.Tensor | None = None
         self._cuda_graph_actor_outputs: tuple[
             torch.Tensor,
@@ -956,25 +977,166 @@ class FastSACLearner:
             "truncated": batch["truncated"].shape,
         }
 
+    @staticmethod
+    def _critic_graph_input_keys() -> tuple[str, ...]:
+        return (
+            "critic",
+            "actions",
+            "rewards",
+            "next_obs",
+            "next_critic",
+            "dones",
+            "truncated",
+        )
+
+    @classmethod
+    def _critic_graph_packed_width(cls, batch: Dict[str, torch.Tensor]) -> int:
+        width = 0
+        for key in cls._critic_graph_input_keys():
+            tensor = batch[key]
+            width += int(tensor.reshape(tensor.shape[0], -1).shape[1])
+        return width
+
+    @classmethod
+    def _critic_graph_static_views_from_packed(
+        cls,
+        packed: torch.Tensor,
+        shapes: dict[str, torch.Size],
+    ) -> dict[str, torch.Tensor]:
+        views: dict[str, torch.Tensor] = {}
+        offset = 0
+        for key in cls._critic_graph_input_keys():
+            shape = shapes[key]
+            width = 1
+            for dim in shape[1:]:
+                width *= int(dim)
+            view = packed.narrow(1, offset, width).view(shape)
+            views[key] = view
+            offset += width
+        return views
+
+    @staticmethod
+    def _sac_graph_offsets(
+        actor_shapes: dict[str, torch.Size],
+        critic_shapes: dict[str, torch.Size],
+    ) -> dict[str, tuple[int, int]]:
+        def width(shape: torch.Size) -> int:
+            value = 1
+            for dim in shape[1:]:
+                value *= int(dim)
+            return value
+
+        widths = {
+            "obs": width(actor_shapes["obs"]),
+            "critic": width(critic_shapes["critic"]),
+            "actions": width(critic_shapes["actions"]),
+            "rewards": width(critic_shapes["rewards"]),
+            "next_obs": width(critic_shapes["next_obs"]),
+            "next_critic": width(critic_shapes["next_critic"]),
+            "dones": width(critic_shapes["dones"]),
+            "truncated": width(critic_shapes["truncated"]),
+        }
+        offsets: dict[str, tuple[int, int]] = {}
+        offset = 0
+        for key in (
+            "obs",
+            "critic",
+            "actions",
+            "rewards",
+            "next_obs",
+            "next_critic",
+            "dones",
+            "truncated",
+        ):
+            width = widths[key]
+            offsets[key] = (offset, width)
+            offset += width
+        return offsets
+
+    @classmethod
+    def _critic_graph_static_views_from_sac_packed(
+        cls,
+        packed: torch.Tensor,
+        critic_shapes: dict[str, torch.Size],
+        actor_shapes: dict[str, torch.Size],
+    ) -> dict[str, torch.Tensor]:
+        offsets = cls._sac_graph_offsets(actor_shapes, critic_shapes)
+        views: dict[str, torch.Tensor] = {}
+        for key in cls._critic_graph_input_keys():
+            offset, width = offsets[key]
+            views[key] = packed.narrow(1, offset, width).view(critic_shapes[key])
+        return views
+
+    @classmethod
+    def _actor_graph_static_views_from_sac_packed(
+        cls,
+        packed: torch.Tensor,
+        actor_shapes: dict[str, torch.Size],
+    ) -> dict[str, torch.Tensor]:
+        batch_size = int(actor_shapes["obs"][0])
+        critic_shapes = {
+            "critic": actor_shapes["critic"],
+            "actions": torch.Size((batch_size, 0)),
+            "rewards": torch.Size((batch_size,)),
+            "next_obs": actor_shapes["obs"],
+            "next_critic": actor_shapes["critic"],
+            "dones": torch.Size((batch_size,)),
+            "truncated": torch.Size((batch_size,)),
+        }
+        offsets = cls._sac_graph_offsets(actor_shapes, critic_shapes)
+        views: dict[str, torch.Tensor] = {}
+        for key in ("obs", "critic"):
+            offset, width = offsets[key]
+            views[key] = packed.narrow(1, offset, width).view(actor_shapes[key])
+        return views
+
     def _copy_critic_graph_inputs(self, batch: Dict[str, torch.Tensor]) -> None:
         assert self._cuda_graph_critic_static_inputs is not None
-        for key, tensor in self._cuda_graph_critic_static_inputs.items():
-            tensor.copy_(batch[key])
+        packed_source = batch.get("sac_graph_packed_source")
+        if packed_source is not None and self._cuda_graph_sac_static_packed_input is not None:
+            self._cuda_graph_sac_static_packed_input.copy_(packed_source)
+            self._cuda_graph_sac_static_source_ptr = int(packed_source.data_ptr())
+        else:
+            self._cuda_graph_sac_static_source_ptr = None
+            packed_source = batch.get("critic_graph_packed_source")
+            if packed_source is not None and self._cuda_graph_critic_static_packed_input is not None:
+                self._cuda_graph_critic_static_packed_input.copy_(packed_source)
+            else:
+                for key, tensor in self._cuda_graph_critic_static_inputs.items():
+                    tensor.copy_(batch[key])
         assert self._cuda_graph_critic_action_noise is not None
         self._cuda_graph_critic_action_noise.normal_()
+
+    def _copy_actor_graph_inputs(self, batch: Dict[str, torch.Tensor]) -> None:
+        assert self._cuda_graph_actor_static_inputs is not None
+        packed_source = batch.get("sac_graph_packed_source")
+        if packed_source is not None:
+            static_packed = self._cuda_graph_actor_static_packed_input
+            if static_packed is None:
+                static_packed = self._cuda_graph_sac_static_packed_input
+            if static_packed is not None:
+                source_ptr = int(packed_source.data_ptr())
+                if (
+                    static_packed is not self._cuda_graph_sac_static_packed_input
+                    or self._cuda_graph_sac_static_source_ptr != source_ptr
+                ):
+                    static_packed.copy_(packed_source)
+                    if static_packed is self._cuda_graph_sac_static_packed_input:
+                        self._cuda_graph_sac_static_source_ptr = source_ptr
+            else:
+                for key, tensor in self._cuda_graph_actor_static_inputs.items():
+                    tensor.copy_(batch[key])
+        else:
+            for key, tensor in self._cuda_graph_actor_static_inputs.items():
+                tensor.copy_(batch[key])
+        assert self._cuda_graph_actor_action_noise is not None
+        self._cuda_graph_actor_action_noise.normal_()
 
     def _actor_graph_input_shapes(self, batch: Dict[str, torch.Tensor]) -> dict[str, torch.Size]:
         return {
             "obs": batch["obs"].shape,
             "critic": batch["critic"].shape,
         }
-
-    def _copy_actor_graph_inputs(self, batch: Dict[str, torch.Tensor]) -> None:
-        assert self._cuda_graph_actor_static_inputs is not None
-        for key, tensor in self._cuda_graph_actor_static_inputs.items():
-            tensor.copy_(batch[key])
-        assert self._cuda_graph_actor_action_noise is not None
-        self._cuda_graph_actor_action_noise.normal_()
 
     def _materialize_capturable_critic_optimizer_state(
         self,
@@ -1031,6 +1193,9 @@ class FastSACLearner:
     def _reset_critic_cuda_graph(self) -> None:
         self._cuda_graph_critic = None
         self._cuda_graph_critic_static_inputs = None
+        self._cuda_graph_critic_static_packed_input = None
+        self._cuda_graph_sac_static_packed_input = None
+        self._cuda_graph_sac_static_source_ptr = None
         self._cuda_graph_critic_action_noise = None
         self._cuda_graph_critic_outputs = None
         self._cuda_graph_critic_shapes = None
@@ -1079,6 +1244,7 @@ class FastSACLearner:
     def _reset_actor_cuda_graph(self) -> None:
         self._cuda_graph_actor = None
         self._cuda_graph_actor_static_inputs = None
+        self._cuda_graph_actor_static_packed_input = None
         self._cuda_graph_actor_action_noise = None
         self._cuda_graph_actor_outputs = None
         self._cuda_graph_actor_shapes = None
@@ -1087,10 +1253,27 @@ class FastSACLearner:
         if not self.use_cuda_graph_actor:
             return
         self._cuda_graph_actor_shapes = self._actor_graph_input_shapes(batch)
-        self._cuda_graph_actor_static_inputs = {
-            "obs": batch["obs"].detach().clone(),
-            "critic": batch["critic"].detach().clone(),
-        }
+        if self.use_cuda_graph_actor_packed_staging and "sac_graph_packed_source" in batch:
+            packed_source = batch["sac_graph_packed_source"]
+            if (
+                self._cuda_graph_sac_static_packed_input is not None
+                and self._cuda_graph_sac_static_packed_input.shape == packed_source.shape
+            ):
+                self._cuda_graph_actor_static_packed_input = self._cuda_graph_sac_static_packed_input
+            else:
+                self._cuda_graph_sac_static_packed_input = packed_source.detach().clone()
+                self._cuda_graph_sac_static_source_ptr = None
+                self._cuda_graph_actor_static_packed_input = self._cuda_graph_sac_static_packed_input
+            self._cuda_graph_actor_static_inputs = self._actor_graph_static_views_from_sac_packed(
+                self._cuda_graph_actor_static_packed_input,
+                self._cuda_graph_actor_shapes,
+            )
+        else:
+            self._cuda_graph_actor_static_packed_input = None
+            self._cuda_graph_actor_static_inputs = {
+                "obs": batch["obs"].detach().clone(),
+                "critic": batch["critic"].detach().clone(),
+            }
         self._cuda_graph_actor_action_noise = torch.empty(
             batch["obs"].shape[:-1] + (self.actor.action_dim,),
             device=batch["obs"].device,
@@ -1126,15 +1309,36 @@ class FastSACLearner:
         if not self.use_cuda_graph_critic:
             return
         self._cuda_graph_critic_shapes = self._critic_graph_input_shapes(batch)
-        self._cuda_graph_critic_static_inputs = {
-            "critic": batch["critic"].detach().clone(),
-            "actions": batch["actions"].detach().clone(),
-            "rewards": batch["rewards"].detach().clone(),
-            "next_obs": batch["next_obs"].detach().clone(),
-            "next_critic": batch["next_critic"].detach().clone(),
-            "dones": batch["dones"].detach().clone(),
-            "truncated": batch["truncated"].detach().clone(),
-        }
+        if self.use_cuda_graph_critic_packed_staging and "sac_graph_packed_source" in batch:
+            packed_source = batch["sac_graph_packed_source"]
+            self._cuda_graph_sac_static_packed_input = packed_source.detach().clone()
+            self._cuda_graph_critic_static_packed_input = None
+            actor_shapes = self._actor_graph_input_shapes(batch)
+            self._cuda_graph_critic_static_inputs = self._critic_graph_static_views_from_sac_packed(
+                self._cuda_graph_sac_static_packed_input,
+                self._cuda_graph_critic_shapes,
+                actor_shapes,
+            )
+        elif self.use_cuda_graph_critic_packed_staging and "critic_graph_packed_source" in batch:
+            packed_source = batch["critic_graph_packed_source"]
+            self._cuda_graph_sac_static_packed_input = None
+            self._cuda_graph_critic_static_packed_input = packed_source.detach().clone()
+            self._cuda_graph_critic_static_inputs = self._critic_graph_static_views_from_packed(
+                self._cuda_graph_critic_static_packed_input,
+                self._cuda_graph_critic_shapes,
+            )
+        else:
+            self._cuda_graph_sac_static_packed_input = None
+            self._cuda_graph_critic_static_packed_input = None
+            self._cuda_graph_critic_static_inputs = {
+                "critic": batch["critic"].detach().clone(),
+                "actions": batch["actions"].detach().clone(),
+                "rewards": batch["rewards"].detach().clone(),
+                "next_obs": batch["next_obs"].detach().clone(),
+                "next_critic": batch["next_critic"].detach().clone(),
+                "dones": batch["dones"].detach().clone(),
+                "truncated": batch["truncated"].detach().clone(),
+            }
         self._cuda_graph_critic_action_noise = torch.empty(
             batch["next_obs"].shape[:-1] + (batch["actions"].shape[-1],),
             device=batch["next_obs"].device,

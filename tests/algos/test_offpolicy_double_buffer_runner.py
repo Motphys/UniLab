@@ -485,6 +485,132 @@ def test_sac_cuda_graph_actor_override_is_passed_to_learner(
     assert runner.kwargs["learner"].kwargs["use_cuda_graph_actor"] is True
 
 
+def test_sac_cuda_graph_critic_packed_staging_override_is_passed_to_learner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import gymnasium as gym
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "training.device=cuda",
+            "algo.use_symmetry=false",
+            "algo.algo_params.use_cuda_graph_critic=true",
+            "algo.algo_params.use_cuda_graph_critic_packed_staging=true",
+        ]
+    )
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def build_symmetry_augmentation(self, device=None):
+            return None
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        class actor:
+            @staticmethod
+            def state_dict():
+                return {"w": MagicMock(shape=(4,))}
+
+        update_count = 0
+
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.fast_sac.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+
+    monkeypatch.setattr(db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert runner.kwargs["learner"].kwargs["use_cuda_graph_critic_packed_staging"] is True
+
+
+def test_sac_cuda_graph_actor_packed_staging_override_is_passed_to_learner(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import gymnasium as gym
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "algo=sac",
+            "training.device=cuda",
+            "algo.use_symmetry=false",
+            "algo.algo_params.use_cuda_graph_actor=true",
+            "algo.algo_params.use_cuda_graph_actor_packed_staging=true",
+        ]
+    )
+
+    class _FakeEnv:
+        obs_groups_spec = {"obs": 4, "critic": 6}
+        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
+
+        def build_symmetry_augmentation(self, device=None):
+            return None
+
+        def close(self):
+            pass
+
+    class _FakeLearner:
+        class actor:
+            @staticmethod
+            def state_dict():
+                return {"w": MagicMock(shape=(4,))}
+
+        update_count = 0
+
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    class _FakeRunner:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    import unilab.algos.torch.fast_sac.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+
+    monkeypatch.setattr(db_mod, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = mod.build_runner("sac", cfg)
+
+    assert runner.kwargs["learner"].kwargs["use_cuda_graph_actor_packed_staging"] is True
+
+
+def test_td3_config_does_not_expose_sac_critic_packed_staging():
+    cfg = _offpolicy_cfg(["algo=td3"])
+
+    assert "use_cuda_graph_critic_packed_staging" not in cfg.algo.algo_params
+
+
+def test_td3_config_does_not_expose_sac_actor_packed_staging():
+    cfg = _offpolicy_cfg(["algo=td3"])
+
+    assert "use_cuda_graph_actor_packed_staging" not in cfg.algo.algo_params
+
+
 def test_sac_async_collection_passes_sync_collection_false(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1300,6 +1426,180 @@ def test_one_tick_loop_waits_when_prefetch_not_ready():
     assert names.count("wait_until_ready") == 2
 
 
+def test_cpu_pinned_pipeline_omits_critic_graph_packed_source_by_default():
+    import queue
+    import torch
+
+    from unilab.ipc.replay_buffer import ReplayBuffer
+    from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
+        CPUPinnedDoubleBufferReplayPipeline,
+    )
+
+    replay_buffer = ReplayBuffer(
+        capacity=8,
+        obs_dim=4,
+        action_dim=2,
+        device="cpu",
+        defer_gpu=True,
+        critic_dim=5,
+        packed_cpu_storage=True,
+    )
+    sample_count = 4
+    slots = [
+        torch.empty((sample_count, replay_buffer._storage.shape[1]), dtype=torch.float32)
+        for _ in range(2)
+    ]
+    pipeline = CPUPinnedDoubleBufferReplayPipeline(
+        replay_buffer,
+        device="cpu",
+        sample_count=sample_count,
+        collector_pack_request_queue=queue.Queue(),
+        collector_pack_ready_queue=queue.Queue(),
+        collector_pack_shared_slots=slots,
+    )
+    try:
+        pipeline._gpu_packed[0].copy_(
+            torch.arange(sample_count * replay_buffer._storage.shape[1], dtype=torch.float32).view(
+                sample_count, replay_buffer._storage.shape[1]
+            )
+        )
+        pipeline._hot = 0
+        pipeline._has_hot_batch = True
+
+        batch = pipeline.sample_large_batch(tick_id=1, sample_count=sample_count)
+
+        assert "critic_graph_packed_source" not in batch
+    finally:
+        pipeline.close()
+
+
+def test_cpu_pinned_pipeline_returns_critic_graph_packed_source_when_enabled():
+    import queue
+    import torch
+
+    from unilab.ipc.replay_buffer import ReplayBuffer
+    from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
+        CPUPinnedDoubleBufferReplayPipeline,
+    )
+
+    replay_buffer = ReplayBuffer(
+        capacity=8,
+        obs_dim=4,
+        action_dim=2,
+        device="cpu",
+        defer_gpu=True,
+        critic_dim=5,
+        packed_cpu_storage=True,
+    )
+    sample_count = 4
+    packed_width = int(replay_buffer._storage.shape[1])
+    critic_graph_width = replay_buffer.critic_graph_packed_width()
+    slots = [torch.empty((sample_count, packed_width), dtype=torch.float32) for _ in range(2)]
+    critic_graph_slots = [
+        torch.empty((sample_count, critic_graph_width), dtype=torch.float32) for _ in range(2)
+    ]
+    pipeline = CPUPinnedDoubleBufferReplayPipeline(
+        replay_buffer,
+        device="cpu",
+        sample_count=sample_count,
+        collector_pack_request_queue=queue.Queue(),
+        collector_pack_ready_queue=queue.Queue(),
+        collector_pack_shared_slots=slots,
+        use_critic_graph_packed_source=True,
+        collector_pack_critic_graph_shared_slots=critic_graph_slots,
+    )
+    try:
+        packed = torch.arange(sample_count * packed_width, dtype=torch.float32).view(
+            sample_count, packed_width
+        )
+        expected = torch.empty((sample_count, critic_graph_width), dtype=torch.float32)
+        replay_buffer.pack_critic_graph_source(packed, out=expected)
+        pipeline._gpu_packed[0].copy_(packed)
+        pipeline._gpu_critic_graph_packed[0].copy_(expected)
+        pipeline._hot = 0
+        pipeline._has_hot_batch = True
+
+        batch = pipeline.sample_large_batch(tick_id=1, sample_count=sample_count)
+
+        source = batch["critic_graph_packed_source"]
+        assert source.is_contiguous()
+        torch.testing.assert_close(source, expected)
+        roundtrip = torch.cat(
+            [
+                batch["critic"].reshape(sample_count, -1),
+                batch["actions"].reshape(sample_count, -1),
+                batch["rewards"].reshape(sample_count, -1),
+                batch["next_obs"].reshape(sample_count, -1),
+                batch["next_critic"].reshape(sample_count, -1),
+                batch["dones"].reshape(sample_count, -1),
+                batch["truncated"].reshape(sample_count, -1),
+            ],
+            dim=1,
+        )
+        torch.testing.assert_close(source, roundtrip)
+    finally:
+        pipeline.close()
+
+
+def test_cpu_pinned_pipeline_sac_graph_layout_uses_primary_h2d_buffer_for_graph_sources():
+    import queue
+    import torch
+
+    from unilab.ipc.replay_buffer import ReplayBuffer
+    from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
+        CPUPinnedDoubleBufferReplayPipeline,
+    )
+
+    replay_buffer = ReplayBuffer(
+        capacity=8,
+        obs_dim=4,
+        action_dim=2,
+        device="cpu",
+        defer_gpu=True,
+        critic_dim=5,
+        packed_cpu_storage=True,
+    )
+    sample_count = 4
+    graph_width = replay_buffer.sac_graph_packed_width()
+    slots = [torch.empty((sample_count, graph_width), dtype=torch.float32) for _ in range(2)]
+    pipeline = CPUPinnedDoubleBufferReplayPipeline(
+        replay_buffer,
+        device="cpu",
+        sample_count=sample_count,
+        collector_pack_request_queue=queue.Queue(),
+        collector_pack_ready_queue=queue.Queue(),
+        collector_pack_shared_slots=slots,
+        pack_layout="sac_graph",
+    )
+    try:
+        standard = torch.arange(
+            sample_count * replay_buffer._storage.shape[1],
+            dtype=torch.float32,
+        ).view(sample_count, replay_buffer._storage.shape[1])
+        graph_packed = torch.empty((sample_count, graph_width), dtype=torch.float32)
+        replay_buffer.pack_sac_graph_source(standard, out=graph_packed)
+        pipeline._gpu_packed[0].copy_(graph_packed)
+        pipeline._hot = 0
+        pipeline._has_hot_batch = True
+
+        batch = pipeline.sample_large_batch(tick_id=1, sample_count=sample_count)
+
+        assert batch["sac_graph_packed_source"].data_ptr() == pipeline._gpu_packed[0].data_ptr()
+        assert "critic_graph_packed_source" not in batch
+        assert not pipeline._gpu_critic_graph_packed
+        torch.testing.assert_close(batch["obs"], standard[:, replay_buffer._obs_sl])
+        torch.testing.assert_close(batch["critic"], standard[:, replay_buffer._critic_sl])
+        torch.testing.assert_close(batch["actions"], standard[:, replay_buffer._act_sl])
+        torch.testing.assert_close(batch["rewards"], standard[:, replay_buffer._rew_col])
+        torch.testing.assert_close(batch["next_obs"], standard[:, replay_buffer._nobs_sl])
+        torch.testing.assert_close(batch["next_critic"], standard[:, replay_buffer._ncritic_sl])
+        torch.testing.assert_close(batch["dones"], standard[:, replay_buffer._done_col])
+        torch.testing.assert_close(batch["truncated"], standard[:, replay_buffer._trunc_col])
+        assert pipeline._h2d_bytes() == graph_packed.numel() * graph_packed.element_size()
+    finally:
+        pipeline.close()
+
+
 def test_one_tick_loop_skips_wait_when_prefetch_ready():
     log, _, _ = _run_fake_loop(max_iterations=2, batch_ready=True)
     names = log.names()
@@ -1502,6 +1802,220 @@ def test_double_buffer_runner_passes_nan_guard_cfg_to_collector(
     assert "nan_guard_cfg" in captured
     assert captured["nan_guard_cfg"] is nan_guard_cfg
     assert captured["nan_guard_cfg"].enabled is True
+
+
+@pytest.mark.parametrize(
+    ("algo_type", "packed_staging_enabled", "expected_enabled"),
+    [
+        ("sac", True, True),
+        ("sac", False, False),
+        ("td3", True, False),
+    ],
+)
+def test_double_buffer_runner_enables_critic_graph_source_only_for_sac_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    algo_type,
+    packed_staging_enabled,
+    expected_enabled,
+):
+    import queue
+
+    import torch
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+    import unilab.algos.torch.offpolicy.runner as runner_mod
+
+    class _FakeActor:
+        def state_dict(self):
+            return {"w": torch.zeros(1)}
+
+    class _FakeLearner:
+        def __init__(self):
+            self.actor = _FakeActor()
+            self.update_count = 0
+            self.use_cuda_graph_critic_packed_staging = packed_staging_enabled
+
+        def get_state_dict(self):
+            return {"update_count": self.update_count}
+
+    class _FakeReplayBuffer:
+        def __init__(self, **kwargs):
+            self.size = torch.zeros(1, dtype=torch.int64)
+            self.ptr = torch.zeros(1, dtype=torch.int64)
+            self._storage = torch.zeros(16, 16)
+            self._critic_dim = 5
+
+        def critic_graph_packed_width(self):
+            return 16
+
+        def close(self):
+            pass
+
+    class _FakeWeightSync:
+        def __init__(self):
+            self.name = "fake-ws"
+            self._lock = None
+
+        @classmethod
+        def from_state_dict(cls, state_dict, create=True):
+            return cls()
+
+        def close(self):
+            pass
+
+    captured_pipeline = {}
+
+    class _FakePipeline:
+        def __init__(self, *args, **kwargs):
+            captured_pipeline.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(db_mod, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(db_mod, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline)
+    monkeypatch.setattr(runner_mod, "get_env_dims", lambda *args, **kwargs: (4, 2, 5))
+    monkeypatch.setattr(db_mod.torch, "save", lambda *args, **kwargs: None)
+
+    learner = _FakeLearner()
+    runner = db_mod.DoubleBufferOffPolicyRunner(
+        learner=learner,
+        env_name="DummyEnv",
+        algo_type=algo_type,
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+    )
+
+    captured_collector = {}
+
+    def capture_start_collector(*, target_fn, kwargs):
+        del target_fn
+        captured_collector.update(kwargs)
+
+    monkeypatch.setattr(runner, "_start_collector", capture_start_collector)
+    monkeypatch.setattr(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(db_mod.time, "sleep", lambda seconds: None)
+
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert (
+        captured_pipeline.get("use_critic_graph_packed_source", False) is expected_enabled
+    )
+    assert (
+        captured_pipeline.get("collector_pack_critic_graph_shared_slots") is not None
+    ) is expected_enabled
+    assert (
+        captured_collector.get("collector_pack_critic_graph_shared_slots") is not None
+    ) is expected_enabled
+
+
+def test_double_buffer_runner_uses_sac_graph_primary_layout_without_extra_graph_slots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    import queue
+
+    import torch
+
+    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
+    import unilab.algos.torch.offpolicy.runner as runner_mod
+
+    class _FakeActor:
+        def state_dict(self):
+            return {"w": torch.zeros(1)}
+
+    class _FakeLearner:
+        def __init__(self):
+            self.actor = _FakeActor()
+            self.update_count = 0
+            self.use_cuda_graph_critic_packed_staging = True
+            self.use_cuda_graph_actor_packed_staging = True
+
+        def get_state_dict(self):
+            return {"update_count": self.update_count}
+
+    class _FakeReplayBuffer:
+        def __init__(self, **kwargs):
+            self.size = torch.zeros(1, dtype=torch.int64)
+            self.ptr = torch.zeros(1, dtype=torch.int64)
+            self._storage = torch.zeros(16, 16)
+            self._critic_dim = 5
+
+        def critic_graph_packed_width(self):
+            return 16
+
+        def sac_graph_packed_width(self):
+            return 16
+
+        def close(self):
+            pass
+
+    class _FakeWeightSync:
+        name = "fake-ws"
+        _lock = None
+
+        @classmethod
+        def from_state_dict(cls, state_dict, create=True):
+            return cls()
+
+        def close(self):
+            pass
+
+    captured_pipeline = {}
+
+    class _FakePipeline:
+        def __init__(self, *args, **kwargs):
+            captured_pipeline.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(db_mod, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(db_mod, "SharedWeightSync", _FakeWeightSync)
+    monkeypatch.setattr(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline)
+    monkeypatch.setattr(runner_mod, "get_env_dims", lambda *args, **kwargs: (4, 2, 5))
+    monkeypatch.setattr(db_mod.torch, "save", lambda *args, **kwargs: None)
+
+    runner = db_mod.DoubleBufferOffPolicyRunner(
+        learner=_FakeLearner(),
+        env_name="DummyEnv",
+        algo_type="sac",
+        num_envs=2,
+        replay_buffer_n=8,
+        batch_size=8,
+        learning_starts=6,
+        updates_per_step=1,
+        policy_frequency=1,
+        sync_collection=False,
+        env_steps_per_sync=1,
+        device="cpu",
+    )
+
+    captured_collector = {}
+
+    def capture_start_collector(*, target_fn, kwargs):
+        del target_fn
+        captured_collector.update(kwargs)
+
+    monkeypatch.setattr(runner, "_start_collector", capture_start_collector)
+    monkeypatch.setattr(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(db_mod.time, "sleep", lambda seconds: None)
+
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert captured_pipeline["pack_layout"] == "sac_graph"
+    assert captured_pipeline.get("use_critic_graph_packed_source", False) is False
+    assert captured_pipeline.get("collector_pack_critic_graph_shared_slots") is None
+    assert captured_collector.get("collector_pack_critic_graph_shared_slots") is None
 
 
 # ---------------------------------------------------------------------------

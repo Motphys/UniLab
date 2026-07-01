@@ -37,3 +37,5 @@ algo_params:
   use_compile: true
   use_cuda_graph_critic: false
   use_cuda_graph_actor: false
+  use_cuda_graph_critic_packed_staging: false
+  use_cuda_graph_actor_packed_staging: false

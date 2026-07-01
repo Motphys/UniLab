@@ -27,6 +27,34 @@ def _make_cpu_replay(capacity: int = 64, obs_dim: int = 4, action_dim: int = 2) 
     return rb
 
 
+def _make_cpu_critic_replay(
+    capacity: int = 64,
+    obs_dim: int = 4,
+    action_dim: int = 2,
+    critic_dim: int = 5,
+) -> ReplayBuffer:
+    rb = ReplayBuffer(
+        capacity=capacity,
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+        device="cpu",
+        critic_dim=critic_dim,
+        packed_cpu_storage=True,
+    )
+    n = min(32, capacity)
+    rb.add(
+        obs=torch.arange(n * obs_dim, dtype=torch.float32).view(n, obs_dim),
+        actions=torch.arange(n * action_dim, dtype=torch.float32).view(n, action_dim) + 100,
+        rewards=torch.arange(n, dtype=torch.float32) + 200,
+        next_obs=torch.arange(n * obs_dim, dtype=torch.float32).view(n, obs_dim) + 300,
+        dones=torch.zeros(n),
+        truncated=torch.ones(n),
+        critic=torch.arange(n * critic_dim, dtype=torch.float32).view(n, critic_dim) + 400,
+        next_critic=torch.arange(n * critic_dim, dtype=torch.float32).view(n, critic_dim) + 500,
+    )
+    return rb
+
+
 def test_collector_pack_shared_batch_writes_expected_packed_rows():
     from unilab.algos.torch.offpolicy.worker import _collector_pack_shared_batch
 
@@ -56,6 +84,103 @@ def test_collector_pack_shared_batch_writes_expected_packed_rows():
     assert ready["shared_slot"] == 1
     assert ready["target_gpu_slot"] == 1
     assert ready["learner_hot_gpu_slot"] == 0
+
+
+def test_collector_pack_shared_batch_writes_critic_graph_source_from_same_rows():
+    from unilab.algos.torch.offpolicy.worker import _collector_pack_shared_batch
+
+    rb = _make_cpu_critic_replay(capacity=64, obs_dim=5, action_dim=3, critic_dim=7)
+    sample_count = 8
+    shared_slots = [
+        torch.empty((sample_count, rb._storage.shape[1])).share_memory_() for _ in range(2)
+    ]
+    critic_graph_slots = [
+        torch.empty((sample_count, rb.critic_graph_packed_width())).share_memory_()
+        for _ in range(2)
+    ]
+    request = {
+        "tick_id": 8,
+        "snapshot_ptr": int(rb.ptr[0]),
+        "snapshot_size": int(rb.size[0]),
+        "sample_seed": 321,
+        "sample_count": sample_count,
+        "shared_slot": 1,
+        "learner_hot_gpu_slot": 0,
+        "target_gpu_slot": 1,
+        "use_critic_graph_packed_source": True,
+    }
+
+    ready = _collector_pack_shared_batch(rb, request, shared_slots, critic_graph_slots)
+
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(321)
+    expected_indices = torch.randint(0, int(rb.size[0]), (sample_count,), generator=gen)
+    expected_packed = rb._storage[expected_indices]
+    expected_graph_source = torch.empty_like(critic_graph_slots[1])
+    rb.pack_critic_graph_source(expected_packed, out=expected_graph_source)
+    torch.testing.assert_close(shared_slots[1], expected_packed)
+    torch.testing.assert_close(critic_graph_slots[1], expected_graph_source)
+    assert ready["tick_id"] == 8
+    assert ready["shared_slot"] == 1
+    assert "critic_graph_shared_slots" not in ready
+
+
+def test_replay_buffer_packs_sac_graph_source_without_changing_width():
+    rb = _make_cpu_critic_replay(capacity=64, obs_dim=5, action_dim=3, critic_dim=7)
+    sample_count = 8
+    packed = rb._storage[:sample_count].clone()
+    out = torch.empty((sample_count, rb.sac_graph_packed_width()))
+
+    result = rb.pack_sac_graph_source(packed, out=out)
+
+    assert result is out
+    assert rb.sac_graph_packed_width() == int(rb._storage.shape[1])
+    expected = torch.cat(
+        [
+            packed[:, rb._obs_sl],
+            packed[:, rb._critic_sl],
+            packed[:, rb._act_sl],
+            packed[:, rb._rew_col : rb._rew_col + 1],
+            packed[:, rb._nobs_sl],
+            packed[:, rb._ncritic_sl],
+            packed[:, rb._done_col : rb._done_col + 1],
+            packed[:, rb._trunc_col : rb._trunc_col + 1],
+        ],
+        dim=1,
+    )
+    torch.testing.assert_close(out, expected)
+
+
+def test_collector_pack_shared_batch_writes_sac_graph_layout_to_primary_slot():
+    from unilab.algos.torch.offpolicy.worker import _collector_pack_shared_batch
+
+    rb = _make_cpu_critic_replay(capacity=64, obs_dim=5, action_dim=3, critic_dim=7)
+    sample_count = 8
+    shared_slots = [
+        torch.empty((sample_count, rb.sac_graph_packed_width())).share_memory_()
+        for _ in range(2)
+    ]
+    request = {
+        "tick_id": 11,
+        "snapshot_ptr": int(rb.ptr[0]),
+        "snapshot_size": int(rb.size[0]),
+        "sample_seed": 456,
+        "sample_count": sample_count,
+        "shared_slot": 1,
+        "learner_hot_gpu_slot": 0,
+        "target_gpu_slot": 1,
+        "pack_layout": "sac_graph",
+    }
+
+    ready = _collector_pack_shared_batch(rb, request, shared_slots)
+
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(456)
+    expected_indices = torch.randint(0, int(rb.size[0]), (sample_count,), generator=gen)
+    expected = torch.empty_like(shared_slots[1])
+    rb.pack_sac_graph_source(rb._storage[expected_indices], out=expected)
+    torch.testing.assert_close(shared_slots[1], expected)
+    assert ready["pack_layout"] == "sac_graph"
 
 
 def test_collector_pack_shared_batch_rejects_hot_gpu_slot_target():

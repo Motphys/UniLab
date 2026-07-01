@@ -186,6 +186,23 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             warn_if_over_budget,
         )
 
+        use_critic_graph_packed_source = (
+            self.algo_type == "sac"
+            and bool(getattr(self.learner, "use_cuda_graph_critic_packed_staging", False))
+            and self.critic_obs_dim > 0
+        )
+        use_sac_graph_pack_layout = (
+            use_critic_graph_packed_source
+            and bool(getattr(self.learner, "use_cuda_graph_actor_packed_staging", False))
+        )
+        use_critic_graph_packed_source = (
+            use_critic_graph_packed_source and not use_sac_graph_pack_layout
+        )
+        critic_graph_staging_width = (
+            self.critic_obs_dim + self.action_dim + 1 + self.obs_dim + self.critic_obs_dim + 1 + 1
+            if use_critic_graph_packed_source
+            else 0
+        )
         mem_est = estimate_offpolicy_bytes(
             num_envs=self.num_envs,
             replay_buffer_n=self.replay_buffer_n,
@@ -194,6 +211,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             critic_dim=self.critic_obs_dim,
             batch_size=self.batch_size,
             updates_per_step=self.updates_per_step,
+            critic_graph_staging_width=critic_graph_staging_width,
         )
         warn_if_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
         raise_if_shared_memory_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
@@ -219,26 +237,52 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         collector_pack_request_queue = _SPAWN_CTX.Queue(maxsize=1)
         collector_pack_ready_queue = _SPAWN_CTX.Queue(maxsize=1)
         packed_width = int(replay_buffer._storage.shape[1])
+        if use_sac_graph_pack_layout:
+            packed_width = int(replay_buffer.sac_graph_packed_width())
         collector_pack_shared_slots = [
             torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
             for _ in range(2)
         ]
+        collector_pack_critic_graph_shared_slots = None
+        if use_critic_graph_packed_source:
+            critic_graph_width = int(replay_buffer.critic_graph_packed_width())
+            collector_pack_critic_graph_shared_slots = [
+                torch.empty(
+                    (sample_count, critic_graph_width),
+                    dtype=torch.float32,
+                ).share_memory_()
+                for _ in range(2)
+            ]
         _verbose_output_dir: str | None = None
         if self.verbose_metrics:
             _vroot = Path(self.trace_output_dir) if self.trace_output_dir else Path(log_dir)
             _verbose_output_dir = str(_vroot)
+        replay_pipeline_kwargs = {
+            "device": self.device,
+            "sample_count": sample_count,
+            "base_seed": int(self.seed or 0),
+            "trace_recorder": trace_recorder,
+            "trace_cuda_events": self.trace_cuda_events,
+            "verbose": self.verbose_metrics,
+            "verbose_output_dir": _verbose_output_dir,
+            "collector_pack_request_queue": collector_pack_request_queue,
+            "collector_pack_ready_queue": collector_pack_ready_queue,
+            "collector_pack_shared_slots": collector_pack_shared_slots,
+        }
+        if use_sac_graph_pack_layout:
+            replay_pipeline_kwargs["pack_layout"] = "sac_graph"
+        if use_critic_graph_packed_source:
+            replay_pipeline_kwargs.update(
+                {
+                    "use_critic_graph_packed_source": True,
+                    "collector_pack_critic_graph_shared_slots": (
+                        collector_pack_critic_graph_shared_slots
+                    ),
+                }
+            )
         replay_pipeline = CPUPinnedDoubleBufferReplayPipeline(
             replay_buffer,
-            device=self.device,
-            sample_count=sample_count,
-            base_seed=int(self.seed or 0),
-            trace_recorder=trace_recorder,
-            trace_cuda_events=self.trace_cuda_events,
-            verbose=self.verbose_metrics,
-            verbose_output_dir=_verbose_output_dir,
-            collector_pack_request_queue=collector_pack_request_queue,
-            collector_pack_ready_queue=collector_pack_ready_queue,
-            collector_pack_shared_slots=collector_pack_shared_slots,
+            **replay_pipeline_kwargs,
         )
         self.replay_h2d_submitter = getattr(
             replay_pipeline,
@@ -340,6 +384,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "collector_pack_ready_queue": collector_pack_ready_queue,
                 "collector_pack_shared_slots": collector_pack_shared_slots,
             }
+            if use_critic_graph_packed_source:
+                collector_kwargs["collector_pack_critic_graph_shared_slots"] = (
+                    collector_pack_critic_graph_shared_slots
+                )
             self._start_collector(
                 target_fn=off_policy_collector_fn,
                 kwargs={"stop_event": self._stop_event, **collector_kwargs},

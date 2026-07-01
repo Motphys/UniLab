@@ -19,6 +19,7 @@ def estimate_offpolicy_bytes(
     critic_dim: int,
     batch_size: int,
     updates_per_step: int,
+    critic_graph_staging_width: int = 0,
 ) -> dict[str, int | str]:
     """Estimate memory for off-policy replay buffer + double-buffer slots."""
     row_width = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
@@ -27,17 +28,21 @@ def estimate_offpolicy_bytes(
 
     sample_count = batch_size * updates_per_step
     slot_bytes = sample_count * row_width * 4 * 2
+    critic_graph_staging_bytes = sample_count * int(critic_graph_staging_width) * 4 * 2
 
-    total = replay_bytes + slot_bytes
+    total = replay_bytes + slot_bytes + critic_graph_staging_bytes
     return {
         "replay_buffer": replay_bytes,
         "double_buffer_slots": slot_bytes,
+        "critic_graph_staging_slots": critic_graph_staging_bytes,
         "total": total,
         "breakdown": (
             f"Replay: {replay_bytes / 1024**2:.0f} MB "
             f"({num_envs} envs × {replay_buffer_n} steps × {row_width} cols × 4B)\n"
             f"  Double-buffer: {slot_bytes / 1024**2:.0f} MB "
             f"({sample_count} samples × {row_width} cols × 4B × 2 slots)\n"
+            f"  Critic graph staging: {critic_graph_staging_bytes / 1024**2:.0f} MB "
+            f"({sample_count} samples × {int(critic_graph_staging_width)} cols × 4B × 2 slots)\n"
             "  Excludes MuJoCo BatchEnvPool/native allocations, CUDA pinned/shared "
             "registration, and driver memory."
         ),

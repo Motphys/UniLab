@@ -43,6 +43,9 @@ class CPUPinnedDoubleBufferReplayPipeline:
         collector_pack_request_queue=None,
         collector_pack_ready_queue=None,
         collector_pack_shared_slots=None,
+        pack_layout: str = "packed",
+        use_critic_graph_packed_source: bool = False,
+        collector_pack_critic_graph_shared_slots=None,
     ) -> None:
         self._replay_buffer = replay_buffer
         self._device = torch.device(device)
@@ -53,7 +56,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._trace_cuda_events = bool(trace_cuda_events) and self._device_type == "cuda"
         self._verbose = bool(verbose)
         self._verbose_output_dir = verbose_output_dir if self._verbose else None
-        self._pack_layout = "packed"
+        self._pack_layout = str(pack_layout)
         self._pack_executor = "collector_thread"
         self._ring_depth = 2
         self._transfer_backend = build_replay_transfer_backend(
@@ -85,14 +88,42 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._collector_pack_request_queue = collector_pack_request_queue
         self._collector_pack_ready_queue = collector_pack_ready_queue
         self._collector_pack_shared_slots = collector_pack_shared_slots
+        if self._pack_layout not in {"packed", "sac_graph"}:
+            raise ValueError("CPUPinnedDoubleBufferReplayPipeline pack_layout must be packed or sac_graph")
+        self._use_critic_graph_packed_source = (
+            bool(use_critic_graph_packed_source) and self._pack_layout != "sac_graph"
+        )
+        self._collector_pack_critic_graph_shared_slots = collector_pack_critic_graph_shared_slots
         self._fields: Dict[str, tuple[torch.Tensor, int]] = {}
-        self._packed_width = int(replay_buffer._storage.shape[1])
+        self._packed_width = (
+            int(replay_buffer.sac_graph_packed_width())
+            if self._pack_layout == "sac_graph"
+            else int(replay_buffer._storage.shape[1])
+        )
+        self._critic_graph_packed_width = (
+            int(replay_buffer.critic_graph_packed_width())
+            if self._use_critic_graph_packed_source
+            else 0
+        )
+        if self._use_critic_graph_packed_source and collector_pack_critic_graph_shared_slots is None:
+            raise ValueError(
+                "critic graph packed source requires collector critic graph shared slots"
+            )
         self._host_packed: list[torch.Tensor] = []
         self._register_collector_shared_slots()
         self._gpu_packed = self._transfer_backend.allocate_device_slots(
             count=self._ring_depth,
             shape=(self._sample_count, self._packed_width),
             dtype=torch.float32,
+        )
+        self._gpu_critic_graph_packed: list[torch.Tensor] = (
+            self._transfer_backend.allocate_device_slots(
+                count=self._ring_depth,
+                shape=(self._sample_count, self._critic_graph_packed_width),
+                dtype=torch.float32,
+            )
+            if self._use_critic_graph_packed_source
+            else []
         )
         self._host: list[Dict[str, torch.Tensor]] = []
         self._gpu: list[Dict[str, torch.Tensor]] = []
@@ -139,6 +170,11 @@ class CPUPinnedDoubleBufferReplayPipeline:
     def _register_collector_shared_slots(self) -> None:
         assert self._collector_pack_shared_slots is not None
         self._transfer_backend.register_host_slots(self._collector_pack_shared_slots)
+        if self._use_critic_graph_packed_source:
+            assert self._collector_pack_critic_graph_shared_slots is not None
+            self._transfer_backend.register_host_slots(
+                self._collector_pack_critic_graph_shared_slots
+            )
         self._host_pinned = self._transfer_backend.host_pinned
         self._direct_pinned_shared = self._transfer_backend.direct_pinned_shared
 
@@ -151,8 +187,41 @@ class CPUPinnedDoubleBufferReplayPipeline:
         assert self._collector_pack_shared_slots is not None
         return self._collector_pack_shared_slots[slot]
 
+    def _critic_graph_h2d_source(self, slot: int) -> torch.Tensor:
+        assert self._collector_pack_critic_graph_shared_slots is not None
+        return self._collector_pack_critic_graph_shared_slots[slot]
+
     def _packed_batch_view(self, packed: torch.Tensor) -> Dict[str, torch.Tensor]:
         rb = self._replay_buffer
+        if self._pack_layout == "sac_graph":
+            c = 0
+            obs_sl = slice(c, c + rb._obs_dim)
+            c += rb._obs_dim
+            critic_sl = slice(c, c + rb._critic_dim)
+            c += rb._critic_dim
+            act_sl = slice(c, c + rb._action_dim)
+            c += rb._action_dim
+            rew_col = c
+            c += 1
+            nobs_sl = slice(c, c + rb._obs_dim)
+            c += rb._obs_dim
+            ncritic_sl = slice(c, c + rb._critic_dim)
+            c += rb._critic_dim
+            done_col = c
+            c += 1
+            trunc_col = c
+            batch = {
+                "obs": packed[:, obs_sl],
+                "next_obs": packed[:, nobs_sl],
+                "actions": packed[:, act_sl],
+                "rewards": packed[:, rew_col],
+                "dones": packed[:, done_col],
+                "truncated": packed[:, trunc_col],
+                "critic": packed[:, critic_sl],
+                "next_critic": packed[:, ncritic_sl],
+                "sac_graph_packed_source": packed,
+            }
+            return batch
         batch = {
             "obs": packed[:, rb._obs_sl],
             "next_obs": packed[:, rb._nobs_sl],
@@ -164,6 +233,12 @@ class CPUPinnedDoubleBufferReplayPipeline:
         if rb._critic_dim > 0:
             batch["critic"] = packed[:, rb._critic_sl]
             batch["next_critic"] = packed[:, rb._ncritic_sl]
+        return batch
+
+    def _large_batch_view(self, slot: int) -> Dict[str, torch.Tensor]:
+        batch = self._packed_batch_view(self._gpu_packed[slot])
+        if self._use_critic_graph_packed_source:
+            batch["critic_graph_packed_source"] = self._gpu_critic_graph_packed[slot]
         return batch
 
     # -- snapshot / H2D --------------------------------------------------------
@@ -182,6 +257,23 @@ class CPUPinnedDoubleBufferReplayPipeline:
             trace_cuda_events=self._trace_cuda_events,
             h2d_bytes=self._h2d_bytes(),
             pack_layout=self._pack_layout,
+            pack_executor=self._pack_executor,
+        )
+
+    def _submit_critic_graph_h2d(
+        self,
+        slot: int,
+        metadata: ReplayTickMetadata | None = None,
+    ) -> float:
+        return self._transfer_backend.submit_h2d(
+            slot=slot,
+            dst=self._gpu_critic_graph_packed[slot],
+            src=self._critic_graph_h2d_source(slot),
+            metadata=metadata,
+            trace_recorder=self._trace_recorder,
+            trace_cuda_events=False,
+            h2d_bytes=self._critic_graph_h2d_bytes(),
+            pack_layout="critic_graph_packed",
             pack_executor=self._pack_executor,
         )
 
@@ -210,6 +302,8 @@ class CPUPinnedDoubleBufferReplayPipeline:
         assert shared_slot is not None
         h2d_submit_ns = time.perf_counter_ns()
         self.last_incremental_h2d_time_s = self._submit_h2d(slot, metadata)
+        if self._use_critic_graph_packed_source:
+            self.last_incremental_h2d_time_s += self._submit_critic_graph_h2d(slot, metadata)
         if self._trace_recorder is not None:
             self._trace_recorder.add_slice(
                 "replay_pipeline/batch_h2d_submit",
@@ -224,6 +318,11 @@ class CPUPinnedDoubleBufferReplayPipeline:
                     "pack_executor": self._pack_executor,
                     "h2d_submitter": self._h2d_submitter,
                     "h2d_bytes": self._h2d_bytes(),
+                    "critic_graph_h2d_bytes": (
+                        self._critic_graph_h2d_bytes()
+                        if self._use_critic_graph_packed_source
+                        else 0
+                    ),
                     "h2d_submitted": True,
                     "pinned_memory": self._host_pinned,
                     "direct_pinned_shared": self._direct_pinned_shared,
@@ -272,6 +371,10 @@ class CPUPinnedDoubleBufferReplayPipeline:
 
     def _h2d_bytes(self) -> int:
         source = self._packed_h2d_source(0)
+        return int(source.numel() * source.element_size())
+
+    def _critic_graph_h2d_bytes(self) -> int:
+        source = self._critic_graph_h2d_source(0)
         return int(source.numel() * source.element_size())
 
     def _clear_ready(self, slot: int) -> None:
@@ -349,6 +452,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
             "target_gpu_slot": slot,
             "pack_layout": self._pack_layout,
             "pack_executor": self._pack_executor,
+            "use_critic_graph_packed_source": self._use_critic_graph_packed_source,
         }
         if self._trace_recorder is not None:
             _req_ns = time.perf_counter_ns()
@@ -416,7 +520,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
                     f"Hot batch tick {self._hot_metadata.tick_id} does not match "
                     f"requested tick {tick_id}"
                 )
-            return self._packed_batch_view(self._gpu_packed[self._hot])
+            return self._large_batch_view(self._hot)
         if not self._has_hot_batch:
             if not self.batch_ready(tick_id, sample_count):
                 self.wait_until_ready(tick_id, sample_count)
@@ -466,7 +570,7 @@ class CPUPinnedDoubleBufferReplayPipeline:
             self._prepared_metadata = None
             self._prepare_tick_id = None
             self._prepare_state = "idle"
-        return self._packed_batch_view(self._gpu_packed[self._hot])
+        return self._large_batch_view(self._hot)
 
     def after_tick(self) -> None:
         self._has_hot_batch = False
@@ -504,3 +608,5 @@ class CPUPinnedDoubleBufferReplayPipeline:
             self._host_packed.clear()
         if hasattr(self, "_gpu_packed"):
             self._gpu_packed.clear()
+        if hasattr(self, "_gpu_critic_graph_packed"):
+            self._gpu_critic_graph_packed.clear()

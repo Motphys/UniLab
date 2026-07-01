@@ -65,6 +65,9 @@ third-party
 temp/
 agent/
 memory/
+tmp/
+issues/
+issue2/
 
 # Motion assets (downloaded from HF at runtime)
 src/unilab/assets/motions/g1/*.npz
