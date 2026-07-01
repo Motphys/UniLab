@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, median, pstdev
@@ -75,6 +75,22 @@ COLLECTOR_PHASES = (
     "replay_ms",
     "bookkeeping_ms",
 )
+NP_ENV_STEP_TIMING_KEYS = (
+    "env_step_total_ms",
+    "apply_action_ms",
+    "step_core_ms",
+    "update_state_ms",
+    "reset_done_ms",
+    "env_step_internal_gap_ms",
+)
+NP_ENV_STEP_TIMING_CSV_FIELDS = (
+    ("env_step_total_ms", "np_env_step_total_ms"),
+    ("apply_action_ms", "np_env_apply_action_ms"),
+    ("step_core_ms", "np_env_step_core_ms"),
+    ("update_state_ms", "np_env_update_state_ms"),
+    ("reset_done_ms", "np_env_reset_done_ms"),
+    ("env_step_internal_gap_ms", "np_env_internal_gap_ms"),
+)
 
 
 @dataclass(frozen=True)
@@ -117,6 +133,8 @@ class CollectorResult:
     phase_ms_per_vector_step: dict[str, TimingStats]
     phase_pct: dict[str, float]
     notes: list[str]
+    # Fine-grained timings reported by NpEnv.step() inside env_step_ms.
+    env_step_timing_ms_per_vector_step: dict[str, TimingStats] = field(default_factory=dict)
     # Backend-internal physics time per vector step (sub-part of env_step_ms).
     # None when the backend does not report it (e.g. motrix).
     physics_ms_per_vector_step: TimingStats | None = None
@@ -138,6 +156,14 @@ def _stats(samples_ms: list[float]) -> TimingStats:
         min_ms=min(samples_ms),
         max_ms=max(samples_ms),
     )
+
+
+def _optional_timing_ms(timing: dict[str, Any], key: str) -> float | None:
+    try:
+        value = float(timing.get(key, float("nan")))
+    except (TypeError, ValueError):
+        return None
+    return value if value == value else None
 
 
 def _read_cpu_times() -> tuple[float, float] | None:
@@ -475,6 +501,9 @@ def _run_active_window_case(
         "physics_ms": [],
         "env_step_overhead_ms": [],
     }
+    env_step_timing_samples: dict[str, list[float]] = {
+        key: [] for key in NP_ENV_STEP_TIMING_KEYS
+    }
     total_active_ns = 0
     total_steps = int(warmup_steps) + int(measure_steps)
     if total_steps <= 0 or measure_steps <= 0:
@@ -525,7 +554,29 @@ def _run_active_window_case(
         # MuJoCo (via backend.step timing); absent for backends that don't
         # report it -> NaN, rendered as "n/a".
         _timing = state.info.get("timing", {}) if isinstance(state.info, dict) else {}
-        physics_ms = float(_timing.get("backend_physics_ms", float("nan")))
+        physics_ms = _optional_timing_ms(_timing, "backend_physics_ms")
+        env_step_timing_values = {
+            key: _optional_timing_ms(_timing, key)
+            for key in (
+                "env_step_total_ms",
+                "apply_action_ms",
+                "step_core_ms",
+                "update_state_ms",
+                "reset_done_ms",
+            )
+        }
+        internal_children = (
+            env_step_timing_values["apply_action_ms"],
+            env_step_timing_values["step_core_ms"],
+            env_step_timing_values["update_state_ms"],
+            env_step_timing_values["reset_done_ms"],
+        )
+        if all(value is not None for value in internal_children):
+            env_step_timing_values["env_step_internal_gap_ms"] = env_step_ms - sum(
+                cast(float, value) for value in internal_children
+            )
+        else:
+            env_step_timing_values["env_step_internal_gap_ms"] = None
 
         phase_start_ns = time.perf_counter_ns()
         next_obs_np, next_critic_np = split_obs_dict(state.obs)
@@ -599,9 +650,12 @@ def _run_active_window_case(
             for key, value in phase_values.items():
                 samples[key].append(value)
             # Env-step breakdown is aux only; env_step_ms is the additive phase.
-            if physics_ms == physics_ms:  # not NaN
+            if physics_ms is not None:
                 aux_samples["physics_ms"].append(physics_ms)
                 aux_samples["env_step_overhead_ms"].append(env_step_ms - physics_ms)
+            for key, value in env_step_timing_values.items():
+                if value is not None:
+                    env_step_timing_samples[key].append(value)
 
     # Measured-window system CPU utilization (see cpu_probe_start comment).
     cpu_util_pct = _cpu_util_pct(cpu_probe_start, _read_cpu_times())
@@ -621,6 +675,9 @@ def _run_active_window_case(
     env_step_overhead_stats = (
         _stats(aux_samples["env_step_overhead_ms"]) if aux_samples["env_step_overhead_ms"] else None
     )
+    env_step_timing_stats = {
+        key: _stats(values) for key, values in env_step_timing_samples.items() if values
+    }
     return CollectorResult(
         case=case,
         warmup_steps=int(warmup_steps),
@@ -630,6 +687,7 @@ def _run_active_window_case(
         phase_ms_per_vector_step=phase_stats,
         phase_pct=phase_pct,
         notes=[],
+        env_step_timing_ms_per_vector_step=env_step_timing_stats,
         physics_ms_per_vector_step=physics_stats,
         env_step_overhead_ms_per_vector_step=env_step_overhead_stats,
         cpu_util_pct=cpu_util_pct,
@@ -715,6 +773,9 @@ def _result_to_dict(result: CollectorResult) -> dict[str, Any]:
     data["phase_ms_per_vector_step"] = {
         key: asdict(value) for key, value in result.phase_ms_per_vector_step.items()
     }
+    data["env_step_timing_ms_per_vector_step"] = {
+        key: asdict(value) for key, value in result.env_step_timing_ms_per_vector_step.items()
+    }
     # physics_ms_per_vector_step / cpu_util_pct are handled by asdict (None /
     # nested dict / float), so no special-casing needed beyond what asdict does.
     return data
@@ -746,6 +807,7 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "bookkeeping_ms",
         "physics_ms",
         "env_step_overhead_ms",
+        *(field_name for _, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS),
         "action_select_pct",
         "env_step_pct",
         "replay_pct",
@@ -753,6 +815,7 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "bookkeeping_pct",
         "physics_pct",
         "env_step_overhead_pct",
+        *(f"{field_name[:-3]}_pct" for _, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS),
         "cpu_util_pct",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -786,6 +849,9 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 if result.env_step_overhead_ms_per_vector_step is not None
                 else ""
             )
+            for timing_key, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS:
+                stat = result.env_step_timing_ms_per_vector_step.get(timing_key)
+                row[field_name] = stat.mean_ms if stat is not None else ""
             for key in COLLECTOR_PHASES:
                 row[key.replace("_ms", "_pct")] = result.phase_pct.get(key, "")
             env_step_mean = result.phase_ms_per_vector_step.get(
@@ -802,6 +868,13 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 if result.env_step_overhead_ms_per_vector_step is not None and env_step_mean > 0.0
                 else ""
             )
+            for timing_key, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS:
+                stat = result.env_step_timing_ms_per_vector_step.get(timing_key)
+                row[f"{field_name[:-3]}_pct"] = (
+                    (stat.mean_ms / env_step_mean) * env_step_pct
+                    if stat is not None and env_step_mean > 0.0
+                    else ""
+                )
             row["cpu_util_pct"] = (
                 result.cpu_util_pct if result.cpu_util_pct == result.cpu_util_pct else ""
             )
@@ -997,6 +1070,17 @@ def _format_ms_env_active_pct(ms: float, env_pct: float, active_pct: float) -> s
     return f"{ms:.3f} ({env_pct:.1f}%, {active_pct:.1f}%)"
 
 
+def _format_np_env_timing(result: CollectorResult, key: str) -> str:
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    if stat is None:
+        return "n/a"
+    return _format_ms_env_active_pct(
+        stat.mean_ms,
+        _env_step_child_env_pct(result, stat.mean_ms),
+        _env_step_child_pct(result, stat.mean_ms),
+    )
+
+
 def _format_throughput_table(results: list[CollectorResult]) -> str:
     headers = (
         "Algo",
@@ -1039,6 +1123,45 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 cpu_str,
                 _format_ms_pct(phase_means["replay_ms"], _phase_pct(result, "replay_ms")),
                 _format_ms_pct(phase_means["bookkeeping_ms"], _phase_pct(result, "bookkeeping_ms")),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_np_env_step_timing_table(results: list[CollectorResult]) -> str:
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Env step ms (% env, % active)",
+        "NpEnv total ms (% env, % active)",
+        "Apply action ms (% env, % active)",
+        "Backend step ms (% env, % active)",
+        "Update state ms (% env, % active)",
+        "Reset done ms (% env, % active)",
+        "Internal gap ms (% env, % active)",
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_ms_env_active_pct(
+                    env_step.mean_ms,
+                    100.0,
+                    _phase_pct(result, "env_step_ms"),
+                ),
+                _format_np_env_timing(result, "env_step_total_ms"),
+                _format_np_env_timing(result, "apply_action_ms"),
+                _format_np_env_timing(result, "step_core_ms"),
+                _format_np_env_timing(result, "update_state_ms"),
+                _format_np_env_timing(result, "reset_done_ms"),
+                _format_np_env_timing(result, "env_step_internal_gap_ms"),
             )
         )
     return _format_table(headers, rows)
@@ -1133,6 +1256,22 @@ def _print_result(result: CollectorResult) -> None:
             f"pct_env={_env_step_child_env_pct(result, upper):5.1f}% "
             f"pct_active={_env_step_child_pct(result, upper):5.1f}%"
         )
+    if result.env_step_timing_ms_per_vector_step:
+        for key in (
+            "apply_action_ms",
+            "step_core_ms",
+            "update_state_ms",
+            "reset_done_ms",
+            "env_step_internal_gap_ms",
+        ):
+            stat = result.env_step_timing_ms_per_vector_step.get(key)
+            if stat is None:
+                continue
+            print(
+                f"  {('np_env_' + key):<18} mean={stat.mean_ms:8.3f} ms  "
+                f"pct_env={_env_step_child_env_pct(result, stat.mean_ms):5.1f}% "
+                f"pct_active={_env_step_child_pct(result, stat.mean_ms):5.1f}%"
+            )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -1280,6 +1419,10 @@ def main() -> int:
             "\nEnv step breakdown (subparts of Env step; do not add Env step together with its subparts):"
         )
         print(_format_env_step_breakdown_table(results))
+        print(
+            "\nNpEnv step timing (subparts reported by NpEnv.step; gap = external env_step_ms - listed subparts):"
+        )
+        print(_format_np_env_step_timing_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1
