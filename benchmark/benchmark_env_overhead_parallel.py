@@ -62,8 +62,8 @@ def make_inputs(num_envs: int, act_dim: int, seed: int = 0) -> dict:
         commands=rng.standard_normal((num_envs, 3)).astype(DTYPE),
         gait_phase=rng.uniform(0, 2 * np.pi, size=(num_envs, 2)).astype(DTYPE),
         pose_weights=np.array(
-            [0.01, 2.0, 5.0, 0.01, 5.0, 5.0, 0.01, 2.0, 5.0, 0.01, 5.0, 5.0]
-            + [50.0] * 17, dtype=DTYPE,
+            [0.01, 2.0, 5.0, 0.01, 5.0, 5.0, 0.01, 2.0, 5.0, 0.01, 5.0, 5.0] + [50.0] * 17,
+            dtype=DTYPE,
         ),
         linvel=rng.standard_normal((num_envs, 3)).astype(DTYPE),
         left_foot_pos=rng.standard_normal((num_envs, 3)).astype(DTYPE),
@@ -79,9 +79,15 @@ def make_inputs(num_envs: int, act_dim: int, seed: int = 0) -> dict:
     )
     # Pre-baked noise buffers — reused every step so RNG never runs in hot path.
     inp["noise_gyro"] = (rng.standard_normal((num_envs, 3)) * NOISE_SCALES["gyro"]).astype(DTYPE)
-    inp["noise_gravity"] = (rng.standard_normal((num_envs, 3)) * NOISE_SCALES["gravity"]).astype(DTYPE)
-    inp["noise_dof_pos"] = (rng.standard_normal((num_envs, act_dim)) * NOISE_SCALES["dof_pos"]).astype(DTYPE)
-    inp["noise_dof_vel"] = (rng.standard_normal((num_envs, act_dim)) * NOISE_SCALES["dof_vel"]).astype(DTYPE)
+    inp["noise_gravity"] = (rng.standard_normal((num_envs, 3)) * NOISE_SCALES["gravity"]).astype(
+        DTYPE
+    )
+    inp["noise_dof_pos"] = (
+        rng.standard_normal((num_envs, act_dim)) * NOISE_SCALES["dof_pos"]
+    ).astype(DTYPE)
+    inp["noise_dof_vel"] = (
+        rng.standard_normal((num_envs, act_dim)) * NOISE_SCALES["dof_vel"]
+    ).astype(DTYPE)
     return inp
 
 
@@ -179,19 +185,18 @@ def numpy_env_overhead(
     r["penalty_action_rate"] = np.sum(np.square(current_actions - last_actions), axis=1)
     r["penalty_action_smooth"] = np.sum(np.square(current_actions), axis=1)
     r["penalty_feet_ori"] = (
-        np.square(left_foot_quat[:, 1]) + np.square(left_foot_quat[:, 2])
-        + np.square(right_foot_quat[:, 1]) + np.square(right_foot_quat[:, 2])
+        np.square(left_foot_quat[:, 1])
+        + np.square(left_foot_quat[:, 2])
+        + np.square(right_foot_quat[:, 1])
+        + np.square(right_foot_quat[:, 2])
     )
     feet_dist = np.linalg.norm(left_foot_pos[:, :2] - right_foot_pos[:, :2], axis=1)
-    r["penalty_close_feet_xy"] = np.where(
-        feet_dist < 0.15, np.square(feet_dist - 0.15), DTYPE(0.0)
-    )
+    r["penalty_close_feet_xy"] = np.where(feet_dist < 0.15, np.square(feet_dist - 0.15), DTYPE(0.0))
     swing_h = 0.09
     lt = _feet_phase_target(gait_phase[:, 0], swing_h)
     rt = _feet_phase_target(gait_phase[:, 1], swing_h)
     r["feet_phase"] = np.exp(
-        -(np.square(left_foot_pos[:, 2] - lt) + np.square(right_foot_pos[:, 2] - rt))
-        / 0.008
+        -(np.square(left_foot_pos[:, 2] - lt) + np.square(right_foot_pos[:, 2] - rt)) / 0.008
     )
     r["feet_phase_contrast"] = np.exp(
         -np.square((left_foot_pos[:, 2] - right_foot_pos[:, 2]) - (lt - rt)) / 0.008
@@ -222,17 +227,30 @@ def numpy_env_overhead(
     noisy_dof_vel = dof_vel + inp["noise_dof_vel"]
     np.concatenate(
         [
-            noisy_gyro * DTYPE(0.25), -noisy_gravity, noisy_diff,
-            noisy_dof_vel * DTYPE(0.05), current_actions, commands, gait_phase,
+            noisy_gyro * DTYPE(0.25),
+            -noisy_gravity,
+            noisy_diff,
+            noisy_dof_vel * DTYPE(0.05),
+            current_actions,
+            commands,
+            gait_phase,
         ],
-        axis=1, out=actor_buf,
+        axis=1,
+        out=actor_buf,
     )
     np.concatenate(
         [
-            gyro * DTYPE(0.25), -gravity, diff, dof_vel * DTYPE(0.05),
-            current_actions, commands, gait_phase, linvel * DTYPE(2.0),
+            gyro * DTYPE(0.25),
+            -gravity,
+            diff,
+            dof_vel * DTYPE(0.05),
+            current_actions,
+            commands,
+            gait_phase,
+            linvel * DTYPE(2.0),
         ],
-        axis=1, out=critic_buf,
+        axis=1,
+        out=critic_buf,
     )
 
     # --- reset-done shape: final_observation copy on 2% of envs ---
@@ -302,19 +320,18 @@ def numpy_shard_worker(
     r["penalty_action_rate"] = np.sum(np.square(current_actions - last_actions), axis=1)
     r["penalty_action_smooth"] = np.sum(np.square(current_actions), axis=1)
     r["penalty_feet_ori"] = (
-        np.square(left_foot_quat[:, 1]) + np.square(left_foot_quat[:, 2])
-        + np.square(right_foot_quat[:, 1]) + np.square(right_foot_quat[:, 2])
+        np.square(left_foot_quat[:, 1])
+        + np.square(left_foot_quat[:, 2])
+        + np.square(right_foot_quat[:, 1])
+        + np.square(right_foot_quat[:, 2])
     )
     feet_dist = np.linalg.norm(left_foot_pos[:, :2] - right_foot_pos[:, :2], axis=1)
-    r["penalty_close_feet_xy"] = np.where(
-        feet_dist < 0.15, np.square(feet_dist - 0.15), DTYPE(0.0)
-    )
+    r["penalty_close_feet_xy"] = np.where(feet_dist < 0.15, np.square(feet_dist - 0.15), DTYPE(0.0))
     swing_h = 0.09
     lt = _feet_phase_target(gait_phase[:, 0], swing_h)
     rt = _feet_phase_target(gait_phase[:, 1], swing_h)
     r["feet_phase"] = np.exp(
-        -(np.square(left_foot_pos[:, 2] - lt) + np.square(right_foot_pos[:, 2] - rt))
-        / 0.008
+        -(np.square(left_foot_pos[:, 2] - lt) + np.square(right_foot_pos[:, 2] - rt)) / 0.008
     )
     r["feet_phase_contrast"] = np.exp(
         -np.square((left_foot_pos[:, 2] - right_foot_pos[:, 2]) - (lt - rt)) / 0.008
@@ -336,9 +353,7 @@ def numpy_shard_worker(
         weighted = rew * DTYPE(scale)
         rew_slice += weighted
         if enable_log:
-            partial_log_sum[name] = partial_log_sum.get(name, 0.0) + float(
-                weighted.sum()
-            )
+            partial_log_sum[name] = partial_log_sum.get(name, 0.0) + float(weighted.sum())
     rew_slice *= DTYPE(CTRL_DT)
 
     noisy_gyro = gyro + inp["noise_gyro"][s]
@@ -347,17 +362,30 @@ def numpy_shard_worker(
     noisy_dof_vel = dof_vel + inp["noise_dof_vel"][s]
     np.concatenate(
         [
-            noisy_gyro * DTYPE(0.25), -noisy_gravity, noisy_diff,
-            noisy_dof_vel * DTYPE(0.05), current_actions, commands, gait_phase,
+            noisy_gyro * DTYPE(0.25),
+            -noisy_gravity,
+            noisy_diff,
+            noisy_dof_vel * DTYPE(0.05),
+            current_actions,
+            commands,
+            gait_phase,
         ],
-        axis=1, out=actor_buf[s],
+        axis=1,
+        out=actor_buf[s],
     )
     np.concatenate(
         [
-            gyro * DTYPE(0.25), -gravity, diff, dof_vel * DTYPE(0.05),
-            current_actions, commands, gait_phase, linvel * DTYPE(2.0),
+            gyro * DTYPE(0.25),
+            -gravity,
+            diff,
+            dof_vel * DTYPE(0.05),
+            current_actions,
+            commands,
+            gait_phase,
+            linvel * DTYPE(2.0),
         ],
-        axis=1, out=critic_buf[s],
+        axis=1,
+        out=critic_buf[s],
     )
 
 
@@ -394,11 +422,20 @@ def run_shard_pool(
         end = min(start + chunk, n)
         if start >= end:
             break
-        futures.append(pool.submit(
-            numpy_shard_worker,
-            inp, start, end, partial_logs[k],
-            reward_buf, actor_buf, critic_buf, term_buf, enable_log,
-        ))
+        futures.append(
+            pool.submit(
+                numpy_shard_worker,
+                inp,
+                start,
+                end,
+                partial_logs[k],
+                reward_buf,
+                actor_buf,
+                critic_buf,
+                term_buf,
+                enable_log,
+            )
+        )
     distribute_ms = (time.perf_counter() - t0) * 1000.0
 
     t0 = time.perf_counter()
@@ -434,15 +471,42 @@ from numba import get_thread_id, njit, prange  # noqa: E402
 
 @njit(parallel=True, cache=True, fastmath=True, boundscheck=False)
 def numba_env_overhead(
-    gyro, gravity, dof_pos, dof_vel, default_angles,
-    last_actions, current_actions, commands, gait_phase,
-    pose_weights, linvel,
-    left_foot_pos, right_foot_pos, left_foot_quat, right_foot_quat,
-    left_contact, right_contact, target_pose, target_lin_vel, target_ang_vel,
+    gyro,
+    gravity,
+    dof_pos,
+    dof_vel,
+    default_angles,
+    last_actions,
+    current_actions,
+    commands,
+    gait_phase,
+    pose_weights,
+    linvel,
+    left_foot_pos,
+    right_foot_pos,
+    left_foot_quat,
+    right_foot_quat,
+    left_contact,
+    right_contact,
+    target_pose,
+    target_lin_vel,
+    target_ang_vel,
     base_height,
-    noise_gyro, noise_gravity, noise_diff, noise_dof_vel,
-    reward_out, actor_out, critic_out, terminated_out, log_thread_sum,
-    sigma, feet_sigma, swing_h, ctrl_dt, max_tilt_rad, min_base_h,
+    noise_gyro,
+    noise_gravity,
+    noise_diff,
+    noise_dof_vel,
+    reward_out,
+    actor_out,
+    critic_out,
+    terminated_out,
+    log_thread_sum,
+    sigma,
+    feet_sigma,
+    swing_h,
+    ctrl_dt,
+    max_tilt_rad,
+    min_base_h,
     obs_dim,
 ):
     """Single fused kernel. log_thread_sum has shape (num_threads, num_terms)
@@ -561,10 +625,21 @@ def numba_env_overhead(
         w_alive = np.float32(10.0) * r_alive
 
         reward_out[i] = ctrl_dt * (
-            w_track_lin + w_track_ang + w_track_pose
-            + w_ang_xy + w_ori + w_ar + w_asm + w_feet_ori
-            + w_close + w_feet_phase + w_feet_phase_contrast
-            + w_feet_phase_contact + w_double_stance + w_bh + w_alive
+            w_track_lin
+            + w_track_ang
+            + w_track_pose
+            + w_ang_xy
+            + w_ori
+            + w_ar
+            + w_asm
+            + w_feet_ori
+            + w_close
+            + w_feet_phase
+            + w_feet_phase_contrast
+            + w_feet_phase_contact
+            + w_double_stance
+            + w_bh
+            + w_alive
         )
 
         # per-thread log accumulation (no false sharing across threads)
@@ -683,9 +758,15 @@ def main() -> None:
     # === Numpy baseline ===
     def run_np() -> None:
         numpy_env_overhead(
-            inp, log_out, True,
-            reward_buf, actor_buf, critic_buf, term_buf,
-            final_obs, done_mask_scratch,
+            inp,
+            log_out,
+            True,
+            reward_buf,
+            actor_buf,
+            critic_buf,
+            term_buf,
+            final_obs,
+            done_mask_scratch,
         )
 
     print(f"benchmarks (N_MEASURE={N_MEASURE}):  [RNG excluded — noise buffers pre-baked]")
@@ -702,17 +783,33 @@ def main() -> None:
         # warmup
         for _ in range(N_WARMUP):
             run_shard_pool(
-                pool, n_shards, inp,
-                reward_buf, actor_buf, critic_buf, term_buf,
-                final_obs, done_mask_scratch, log_out, True,
+                pool,
+                n_shards,
+                inp,
+                reward_buf,
+                actor_buf,
+                critic_buf,
+                term_buf,
+                final_obs,
+                done_mask_scratch,
+                log_out,
+                True,
             )
 
         dist, worker, agg, total = [], [], [], []
         for _ in range(N_MEASURE):
             t = run_shard_pool(
-                pool, n_shards, inp,
-                reward_buf, actor_buf, critic_buf, term_buf,
-                final_obs, done_mask_scratch, log_out, True,
+                pool,
+                n_shards,
+                inp,
+                reward_buf,
+                actor_buf,
+                critic_buf,
+                term_buf,
+                final_obs,
+                done_mask_scratch,
+                log_out,
+                True,
             )
             dist.append(t.distribute_ms)
             worker.append(t.worker_wall_ms)
@@ -723,7 +820,7 @@ def main() -> None:
         print(
             f"  K={n_shards:3d}  total={tt:7.3f} ms  "
             f"[distribute={d:.3f}  worker_wall={w:.3f}  aggregate={a:.3f}]  "
-            f"speedup={ms_np/tt:.2f}x"
+            f"speedup={ms_np / tt:.2f}x"
         )
 
     # === Numba prange fused kernel ===
@@ -734,42 +831,90 @@ def main() -> None:
 
     t0 = time.perf_counter()
     numba_env_overhead(
-        inp["gyro"], inp["gravity"], inp["dof_pos"], inp["dof_vel"],
-        inp["default_angles"], inp["last_actions"], inp["current_actions"],
-        inp["commands"], inp["gait_phase"], inp["pose_weights"], inp["linvel"],
-        inp["left_foot_pos"], inp["right_foot_pos"],
-        inp["left_foot_quat"], inp["right_foot_quat"],
-        inp["left_contact"], inp["right_contact"],
-        inp["target_pose"], inp["target_lin_vel"], inp["target_ang_vel"],
+        inp["gyro"],
+        inp["gravity"],
+        inp["dof_pos"],
+        inp["dof_vel"],
+        inp["default_angles"],
+        inp["last_actions"],
+        inp["current_actions"],
+        inp["commands"],
+        inp["gait_phase"],
+        inp["pose_weights"],
+        inp["linvel"],
+        inp["left_foot_pos"],
+        inp["right_foot_pos"],
+        inp["left_foot_quat"],
+        inp["right_foot_quat"],
+        inp["left_contact"],
+        inp["right_contact"],
+        inp["target_pose"],
+        inp["target_lin_vel"],
+        inp["target_ang_vel"],
         inp["base_height"],
-        inp["noise_gyro"], inp["noise_gravity"],
-        inp["noise_dof_pos"], inp["noise_dof_vel"],
-        reward_buf, actor_buf, critic_buf, term_buf, log_thread_sum,
-        np.float32(0.25), np.float32(0.008), np.float32(0.09),
-        np.float32(CTRL_DT), np.float32(np.deg2rad(65.0)), np.float32(0.3),
+        inp["noise_gyro"],
+        inp["noise_gravity"],
+        inp["noise_dof_pos"],
+        inp["noise_dof_vel"],
+        reward_buf,
+        actor_buf,
+        critic_buf,
+        term_buf,
+        log_thread_sum,
+        np.float32(0.25),
+        np.float32(0.008),
+        np.float32(0.09),
+        np.float32(CTRL_DT),
+        np.float32(np.deg2rad(65.0)),
+        np.float32(0.3),
         OBS_DIM,
     )
-    print(f"  JIT compile + first call: {(time.perf_counter() - t0) * 1000:.1f} ms  "
-          f"(threading layer: {numba.threading_layer()})")
+    print(
+        f"  JIT compile + first call: {(time.perf_counter() - t0) * 1000:.1f} ms  "
+        f"(threading layer: {numba.threading_layer()})"
+    )
 
     def run_nb_full() -> dict:
         t_all = time.perf_counter()
         log_thread_sum.fill(0.0)
         t_k = time.perf_counter()
         numba_env_overhead(
-            inp["gyro"], inp["gravity"], inp["dof_pos"], inp["dof_vel"],
-            inp["default_angles"], inp["last_actions"], inp["current_actions"],
-            inp["commands"], inp["gait_phase"], inp["pose_weights"], inp["linvel"],
-            inp["left_foot_pos"], inp["right_foot_pos"],
-            inp["left_foot_quat"], inp["right_foot_quat"],
-            inp["left_contact"], inp["right_contact"],
-            inp["target_pose"], inp["target_lin_vel"], inp["target_ang_vel"],
+            inp["gyro"],
+            inp["gravity"],
+            inp["dof_pos"],
+            inp["dof_vel"],
+            inp["default_angles"],
+            inp["last_actions"],
+            inp["current_actions"],
+            inp["commands"],
+            inp["gait_phase"],
+            inp["pose_weights"],
+            inp["linvel"],
+            inp["left_foot_pos"],
+            inp["right_foot_pos"],
+            inp["left_foot_quat"],
+            inp["right_foot_quat"],
+            inp["left_contact"],
+            inp["right_contact"],
+            inp["target_pose"],
+            inp["target_lin_vel"],
+            inp["target_ang_vel"],
             inp["base_height"],
-            inp["noise_gyro"], inp["noise_gravity"],
-            inp["noise_dof_pos"], inp["noise_dof_vel"],
-            reward_buf, actor_buf, critic_buf, term_buf, log_thread_sum,
-            np.float32(0.25), np.float32(0.008), np.float32(0.09),
-            np.float32(CTRL_DT), np.float32(np.deg2rad(65.0)), np.float32(0.3),
+            inp["noise_gyro"],
+            inp["noise_gravity"],
+            inp["noise_dof_pos"],
+            inp["noise_dof_vel"],
+            reward_buf,
+            actor_buf,
+            critic_buf,
+            term_buf,
+            log_thread_sum,
+            np.float32(0.25),
+            np.float32(0.008),
+            np.float32(0.09),
+            np.float32(CTRL_DT),
+            np.float32(np.deg2rad(65.0)),
+            np.float32(0.3),
             OBS_DIM,
         )
         kernel_ms = (time.perf_counter() - t_k) * 1000.0
@@ -804,7 +949,7 @@ def main() -> None:
         print(
             f"  nthreads={nthreads:3d}  total={means['total']:7.3f} ms  "
             f"[kernel={means['kernel']:.3f}  agg={means['agg']:.3f}]  "
-            f"speedup={ms_np/means['total']:.2f}x"
+            f"speedup={ms_np / means['total']:.2f}x"
         )
 
 
