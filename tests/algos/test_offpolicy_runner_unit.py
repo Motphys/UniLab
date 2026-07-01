@@ -920,6 +920,9 @@ class _FakeDoubleBufferPipeline:
         collector_pack_request_queue,
         collector_pack_ready_queue,
         collector_pack_shared_slots,
+        pack_layout,
+        use_critic_graph_packed_source,
+        collector_pack_critic_graph_shared_slots,
     ) -> None:
         del (
             replay_buffer,
@@ -931,6 +934,9 @@ class _FakeDoubleBufferPipeline:
             collector_pack_request_queue,
             collector_pack_ready_queue,
             collector_pack_shared_slots,
+            pack_layout,
+            use_critic_graph_packed_source,
+            collector_pack_critic_graph_shared_slots,
         )
         self.sample_count = sample_count
         self.trace_recorder = trace_recorder

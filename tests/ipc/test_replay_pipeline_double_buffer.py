@@ -157,8 +157,7 @@ def test_collector_pack_shared_batch_writes_sac_graph_layout_to_primary_slot():
     rb = _make_cpu_critic_replay(capacity=64, obs_dim=5, action_dim=3, critic_dim=7)
     sample_count = 8
     shared_slots = [
-        torch.empty((sample_count, rb.sac_graph_packed_width())).share_memory_()
-        for _ in range(2)
+        torch.empty((sample_count, rb.sac_graph_packed_width())).share_memory_() for _ in range(2)
     ]
     request = {
         "tick_id": 11,

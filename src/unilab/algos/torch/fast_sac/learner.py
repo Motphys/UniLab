@@ -459,18 +459,12 @@ class FastSACLearner:
             bool(use_compile) and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
         self.use_cuda_graph_critic = (
-            bool(use_cuda_graph_critic)
-            and self._device_type == "cuda"
-            and world_size <= 1
+            bool(use_cuda_graph_critic) and self._device_type == "cuda" and world_size <= 1
         )
-        requested_cuda_graph_critic_packed_staging = bool(
-            use_cuda_graph_critic_packed_staging
-        )
+        requested_cuda_graph_critic_packed_staging = bool(use_cuda_graph_critic_packed_staging)
         requested_cuda_graph_actor_packed_staging = bool(use_cuda_graph_actor_packed_staging)
         self.use_cuda_graph_actor = (
-            bool(use_cuda_graph_actor)
-            and self._device_type == "cuda"
-            and world_size <= 1
+            bool(use_cuda_graph_actor) and self._device_type == "cuda" and world_size <= 1
         )
         self.nvtx_profile_ranges = bool(nvtx_profile_ranges) and self._device_type == "cuda"
         self.amp_dtype = amp_dtype
@@ -591,25 +585,31 @@ class FastSACLearner:
         self._cuda_graph_sac_static_packed_input: torch.Tensor | None = None
         self._cuda_graph_sac_static_source_ptr: int | None = None
         self._cuda_graph_critic_action_noise: torch.Tensor | None = None
-        self._cuda_graph_critic_outputs: tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-        ] | None = None
+        self._cuda_graph_critic_outputs: (
+            tuple[
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+            ]
+            | None
+        ) = None
         self._cuda_graph_critic_shapes: dict[str, torch.Size] | None = None
         self._cuda_graph_actor: torch.cuda.CUDAGraph | None = None
         self._cuda_graph_actor_static_inputs: dict[str, torch.Tensor] | None = None
         self._cuda_graph_actor_static_packed_input: torch.Tensor | None = None
         self._cuda_graph_actor_action_noise: torch.Tensor | None = None
-        self._cuda_graph_actor_outputs: tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-        ] | None = None
+        self._cuda_graph_actor_outputs: (
+            tuple[
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+            ]
+            | None
+        ) = None
         self._cuda_graph_actor_shapes: dict[str, torch.Size] | None = None
         if self.use_compile:
             self._compile_training_methods()
@@ -1048,9 +1048,9 @@ class FastSACLearner:
             "dones",
             "truncated",
         ):
-            width = widths[key]
-            offsets[key] = (offset, width)
-            offset += width
+            key_width = widths[key]
+            offsets[key] = (offset, key_width)
+            offset += key_width
         return offsets
 
     @classmethod
@@ -1099,7 +1099,10 @@ class FastSACLearner:
         else:
             self._cuda_graph_sac_static_source_ptr = None
             packed_source = batch.get("critic_graph_packed_source")
-            if packed_source is not None and self._cuda_graph_critic_static_packed_input is not None:
+            if (
+                packed_source is not None
+                and self._cuda_graph_critic_static_packed_input is not None
+            ):
                 self._cuda_graph_critic_static_packed_input.copy_(packed_source)
             else:
                 for key, tensor in self._cuda_graph_critic_static_inputs.items():
@@ -1205,7 +1208,9 @@ class FastSACLearner:
         batch: Dict[str, torch.Tensor],
     ) -> None:
         optimizer_lrs = [group["lr"] for group in self.actor_optimizer.param_groups]
-        optimizer_weight_decays = [group["weight_decay"] for group in self.actor_optimizer.param_groups]
+        optimizer_weight_decays = [
+            group["weight_decay"] for group in self.actor_optimizer.param_groups
+        ]
         cpu_rng_state = torch.random.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state() if self._device_type == "cuda" else None
         try:
@@ -1259,11 +1264,15 @@ class FastSACLearner:
                 self._cuda_graph_sac_static_packed_input is not None
                 and self._cuda_graph_sac_static_packed_input.shape == packed_source.shape
             ):
-                self._cuda_graph_actor_static_packed_input = self._cuda_graph_sac_static_packed_input
+                self._cuda_graph_actor_static_packed_input = (
+                    self._cuda_graph_sac_static_packed_input
+                )
             else:
                 self._cuda_graph_sac_static_packed_input = packed_source.detach().clone()
                 self._cuda_graph_sac_static_source_ptr = None
-                self._cuda_graph_actor_static_packed_input = self._cuda_graph_sac_static_packed_input
+                self._cuda_graph_actor_static_packed_input = (
+                    self._cuda_graph_sac_static_packed_input
+                )
             self._cuda_graph_actor_static_inputs = self._actor_graph_static_views_from_sac_packed(
                 self._cuda_graph_actor_static_packed_input,
                 self._cuda_graph_actor_shapes,
@@ -1282,7 +1291,7 @@ class FastSACLearner:
         self._copy_actor_graph_inputs(batch)
 
         graph = torch.cuda.CUDAGraph()
-        capture_stream = torch.cuda.Stream()
+        capture_stream = cast(torch.cuda.Stream, torch.cuda.Stream())
         capture_stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
             self._cuda_graph_actor_outputs = self._update_actor_capture_candidate(
@@ -1347,7 +1356,7 @@ class FastSACLearner:
         self._copy_critic_graph_inputs(batch)
 
         graph = torch.cuda.CUDAGraph()
-        capture_stream = torch.cuda.Stream()
+        capture_stream = cast(torch.cuda.Stream, torch.cuda.Stream())
         capture_stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
             self._cuda_graph_critic_outputs = self._update_critic_capture_candidate(
@@ -1625,8 +1634,8 @@ class FastSACLearner:
         """Polyak-average update of the target Q-network."""
         with torch.no_grad():
             with _cuda_nvtx_range("target/soft_update_loop", self.nvtx_profile_ranges):
-                target_params = list(self.qnet_target.parameters())
-                source_params = list(self.qnet.parameters())
+                target_params = cast(list[torch.Tensor], list(self.qnet_target.parameters()))
+                source_params = cast(list[torch.Tensor], list(self.qnet.parameters()))
                 try:
                     torch._foreach_mul_(target_params, 1.0 - self.tau)
                     torch._foreach_add_(target_params, source_params, alpha=self.tau)

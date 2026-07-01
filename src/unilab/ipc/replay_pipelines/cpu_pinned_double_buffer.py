@@ -89,7 +89,9 @@ class CPUPinnedDoubleBufferReplayPipeline:
         self._collector_pack_ready_queue = collector_pack_ready_queue
         self._collector_pack_shared_slots = collector_pack_shared_slots
         if self._pack_layout not in {"packed", "sac_graph"}:
-            raise ValueError("CPUPinnedDoubleBufferReplayPipeline pack_layout must be packed or sac_graph")
+            raise ValueError(
+                "CPUPinnedDoubleBufferReplayPipeline pack_layout must be packed or sac_graph"
+            )
         self._use_critic_graph_packed_source = (
             bool(use_critic_graph_packed_source) and self._pack_layout != "sac_graph"
         )
@@ -105,7 +107,10 @@ class CPUPinnedDoubleBufferReplayPipeline:
             if self._use_critic_graph_packed_source
             else 0
         )
-        if self._use_critic_graph_packed_source and collector_pack_critic_graph_shared_slots is None:
+        if (
+            self._use_critic_graph_packed_source
+            and collector_pack_critic_graph_shared_slots is None
+        ):
             raise ValueError(
                 "critic graph packed source requires collector critic graph shared slots"
             )

@@ -191,9 +191,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             and bool(getattr(self.learner, "use_cuda_graph_critic_packed_staging", False))
             and self.critic_obs_dim > 0
         )
-        use_sac_graph_pack_layout = (
-            use_critic_graph_packed_source
-            and bool(getattr(self.learner, "use_cuda_graph_actor_packed_staging", False))
+        use_sac_graph_pack_layout = use_critic_graph_packed_source and bool(
+            getattr(self.learner, "use_cuda_graph_actor_packed_staging", False)
         )
         use_critic_graph_packed_source = (
             use_critic_graph_packed_source and not use_sac_graph_pack_layout
@@ -257,32 +256,21 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         if self.verbose_metrics:
             _vroot = Path(self.trace_output_dir) if self.trace_output_dir else Path(log_dir)
             _verbose_output_dir = str(_vroot)
-        replay_pipeline_kwargs = {
-            "device": self.device,
-            "sample_count": sample_count,
-            "base_seed": int(self.seed or 0),
-            "trace_recorder": trace_recorder,
-            "trace_cuda_events": self.trace_cuda_events,
-            "verbose": self.verbose_metrics,
-            "verbose_output_dir": _verbose_output_dir,
-            "collector_pack_request_queue": collector_pack_request_queue,
-            "collector_pack_ready_queue": collector_pack_ready_queue,
-            "collector_pack_shared_slots": collector_pack_shared_slots,
-        }
-        if use_sac_graph_pack_layout:
-            replay_pipeline_kwargs["pack_layout"] = "sac_graph"
-        if use_critic_graph_packed_source:
-            replay_pipeline_kwargs.update(
-                {
-                    "use_critic_graph_packed_source": True,
-                    "collector_pack_critic_graph_shared_slots": (
-                        collector_pack_critic_graph_shared_slots
-                    ),
-                }
-            )
         replay_pipeline = CPUPinnedDoubleBufferReplayPipeline(
             replay_buffer,
-            **replay_pipeline_kwargs,
+            device=self.device,
+            sample_count=sample_count,
+            base_seed=int(self.seed or 0),
+            trace_recorder=trace_recorder,
+            trace_cuda_events=self.trace_cuda_events,
+            verbose=self.verbose_metrics,
+            verbose_output_dir=_verbose_output_dir,
+            collector_pack_request_queue=collector_pack_request_queue,
+            collector_pack_ready_queue=collector_pack_ready_queue,
+            collector_pack_shared_slots=collector_pack_shared_slots,
+            pack_layout="sac_graph" if use_sac_graph_pack_layout else "packed",
+            use_critic_graph_packed_source=use_critic_graph_packed_source,
+            collector_pack_critic_graph_shared_slots=collector_pack_critic_graph_shared_slots,
         )
         self.replay_h2d_submitter = getattr(
             replay_pipeline,

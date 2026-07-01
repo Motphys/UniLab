@@ -59,7 +59,9 @@ def _actor_graph_static_inputs(batch: dict[str, torch.Tensor]) -> dict[str, torc
 
 
 def _critic_graph_packed_source(batch: dict[str, torch.Tensor]) -> torch.Tensor:
-    return torch.cat([batch[key].reshape(batch[key].shape[0], -1) for key in _CRITIC_GRAPH_INPUT_KEYS], dim=1)
+    return torch.cat(
+        [batch[key].reshape(batch[key].shape[0], -1) for key in _CRITIC_GRAPH_INPUT_KEYS], dim=1
+    )
 
 
 def _sac_graph_packed_source(batch: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -561,9 +563,7 @@ def test_fast_sac_cuda_graph_static_inputs_keep_addresses_after_copy() -> None:
     actor_static_inputs = learner._cuda_graph_actor_static_inputs
     assert critic_static_inputs is not None
     assert actor_static_inputs is not None
-    critic_ptrs_before = {
-        name: tensor.data_ptr() for name, tensor in critic_static_inputs.items()
-    }
+    critic_ptrs_before = {name: tensor.data_ptr() for name, tensor in critic_static_inputs.items()}
     actor_ptrs_before = {name: tensor.data_ptr() for name, tensor in actor_static_inputs.items()}
 
     learner._copy_critic_graph_inputs(batch)
@@ -928,5 +928,9 @@ def test_fast_sac_cuda_graph_input_copy_fills_static_noise_in_place(monkeypatch)
     learner._copy_critic_graph_inputs(batch)
     learner._copy_actor_graph_inputs(batch)
 
-    assert not torch.equal(learner._cuda_graph_critic_action_noise, torch.zeros_like(batch["actions"]))
-    assert not torch.equal(learner._cuda_graph_actor_action_noise, torch.zeros_like(batch["actions"]))
+    assert not torch.equal(
+        learner._cuda_graph_critic_action_noise, torch.zeros_like(batch["actions"])
+    )
+    assert not torch.equal(
+        learner._cuda_graph_actor_action_noise, torch.zeros_like(batch["actions"])
+    )

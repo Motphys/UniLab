@@ -1428,6 +1428,7 @@ def test_one_tick_loop_waits_when_prefetch_not_ready():
 
 def test_cpu_pinned_pipeline_omits_critic_graph_packed_source_by_default():
     import queue
+
     import torch
 
     from unilab.ipc.replay_buffer import ReplayBuffer
@@ -1475,6 +1476,7 @@ def test_cpu_pinned_pipeline_omits_critic_graph_packed_source_by_default():
 
 def test_cpu_pinned_pipeline_returns_critic_graph_packed_source_when_enabled():
     import queue
+
     import torch
 
     from unilab.ipc.replay_buffer import ReplayBuffer
@@ -1543,6 +1545,7 @@ def test_cpu_pinned_pipeline_returns_critic_graph_packed_source_when_enabled():
 
 def test_cpu_pinned_pipeline_sac_graph_layout_uses_primary_h2d_buffer_for_graph_sources():
     import queue
+
     import torch
 
     from unilab.ipc.replay_buffer import ReplayBuffer
@@ -1907,9 +1910,7 @@ def test_double_buffer_runner_enables_critic_graph_source_only_for_sac_opt_in(
 
     runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
 
-    assert (
-        captured_pipeline.get("use_critic_graph_packed_source", False) is expected_enabled
-    )
+    assert captured_pipeline.get("use_critic_graph_packed_source", False) is expected_enabled
     assert (
         captured_pipeline.get("collector_pack_critic_graph_shared_slots") is not None
     ) is expected_enabled

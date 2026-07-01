@@ -70,15 +70,7 @@ class ReplayBuffer(SharedBufferBase):
         """Return graph-order packed width for FastSAC critic graph inputs."""
         if self._critic_dim <= 0:
             raise RuntimeError("critic_graph_packed_source requires critic replay storage")
-        return (
-            self._critic_dim
-            + self._action_dim
-            + 1
-            + self._obs_dim
-            + self._critic_dim
-            + 1
-            + 1
-        )
+        return self._critic_dim + self._action_dim + 1 + self._obs_dim + self._critic_dim + 1 + 1
 
     def sac_graph_packed_width(self) -> int:
         """Return graph-union packed width for one-H2D FastSAC graph staging."""

@@ -438,7 +438,9 @@ class _CollectorPackService:
         self._started = False
 
     @staticmethod
-    def should_start(request_queue, ready_queue, shared_slots, critic_graph_shared_slots=None) -> bool:
+    def should_start(
+        request_queue, ready_queue, shared_slots, critic_graph_shared_slots=None
+    ) -> bool:
         del critic_graph_shared_slots
         return (
             isinstance(request_queue, list)
