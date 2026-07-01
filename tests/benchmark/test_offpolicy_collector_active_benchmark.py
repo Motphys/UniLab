@@ -55,8 +55,7 @@ def _make_result(
         total_active_ms=1.0,
         collector_active_steps_per_sec=throughput,
         phase_ms_per_vector_step={
-            key: bench.TimingStats([1.0], 1.0, 1.0, 0.0, 1.0, 1.0)
-            for key in bench.COLLECTOR_PHASES
+            key: bench.TimingStats([1.0], 1.0, 1.0, 0.0, 1.0, 1.0) for key in bench.COLLECTOR_PHASES
         },
         phase_pct={key: 20.0 for key in bench.COLLECTOR_PHASES},
         notes=[],
@@ -202,9 +201,7 @@ def test_throughput_table_includes_case_throughput_and_num_env() -> None:
 
 
 def test_env_step_breakdown_table_keeps_subparts_separate() -> None:
-    table = bench._format_env_step_breakdown_table(
-        [_make_result(include_env_step_breakdown=True)]
-    )
+    table = bench._format_env_step_breakdown_table([_make_result(include_env_step_breakdown=True)])
 
     assert "Env step ms (% env, % active)" in table
     assert "Physics ms (% env, % active)" in table

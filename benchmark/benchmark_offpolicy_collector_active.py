@@ -173,9 +173,7 @@ def _read_cpu_times() -> tuple[float, float] | None:
     return None
 
 
-def _cpu_util_pct(
-    start: tuple[float, float] | None, end: tuple[float, float] | None
-) -> float:
+def _cpu_util_pct(start: tuple[float, float] | None, end: tuple[float, float] | None) -> float:
     """System CPU utilization (%) between two _read_cpu_times snapshots."""
     if start is None or end is None:
         return float("nan")
@@ -289,11 +287,7 @@ def _resolve_case_specs(
         return _default_case_specs(backends)
     if cases_arg == "auto":
         algos = [part.strip() for part in algos_arg.split(",") if part.strip()]
-        return [
-            case
-            for backend in backends
-            for case in _discover_cases(algos=algos, sim=backend)
-        ]
+        return [case for backend in backends for case in _discover_cases(algos=algos, sim=backend)]
 
     seen: set[str] = set()
     specs: list[str] = []
@@ -625,9 +619,7 @@ def _run_active_window_case(
     _cleanup()
     physics_stats = _stats(aux_samples["physics_ms"]) if aux_samples["physics_ms"] else None
     env_step_overhead_stats = (
-        _stats(aux_samples["env_step_overhead_ms"])
-        if aux_samples["env_step_overhead_ms"]
-        else None
+        _stats(aux_samples["env_step_overhead_ms"]) if aux_samples["env_step_overhead_ms"] else None
     )
     return CollectorResult(
         case=case,
@@ -806,8 +798,7 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 else ""
             )
             row["env_step_overhead_pct"] = (
-                (result.env_step_overhead_ms_per_vector_step.mean_ms / env_step_mean)
-                * env_step_pct
+                (result.env_step_overhead_ms_per_vector_step.mean_ms / env_step_mean) * env_step_pct
                 if result.env_step_overhead_ms_per_vector_step is not None and env_step_mean > 0.0
                 else ""
             )
@@ -1041,7 +1032,9 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 f"{result.collector_active_steps_per_sec:,.0f}",
                 f"{result.total_active_ms / result.measure_steps:.3f} (100.0%)",
                 _format_ms_pct(phase_means["weight_sync_ms"], _phase_pct(result, "weight_sync_ms")),
-                _format_ms_pct(phase_means["action_select_ms"], _phase_pct(result, "action_select_ms")),
+                _format_ms_pct(
+                    phase_means["action_select_ms"], _phase_pct(result, "action_select_ms")
+                ),
                 _format_ms_pct(phase_means["env_step_ms"], _phase_pct(result, "env_step_ms")),
                 cpu_str,
                 _format_ms_pct(phase_means["replay_ms"], _phase_pct(result, "replay_ms")),
@@ -1107,11 +1100,7 @@ def _format_env_step_breakdown_table(results: list[CollectorResult]) -> str:
 
 def _print_result(result: CollectorResult) -> None:
     case = result.case
-    cpu_str = (
-        f"{result.cpu_util_pct:.1f}%"
-        if result.cpu_util_pct == result.cpu_util_pct
-        else "n/a"
-    )
+    cpu_str = f"{result.cpu_util_pct:.1f}%" if result.cpu_util_pct == result.cpu_util_pct else "n/a"
     print(
         f"{case.algo}/{case.task}/{case.sim}: "
         f"Collector/s={result.collector_active_steps_per_sec:,.0f} "
@@ -1144,7 +1133,6 @@ def _print_result(result: CollectorResult) -> None:
             f"pct_env={_env_step_child_env_pct(result, upper):5.1f}% "
             f"pct_active={_env_step_child_pct(result, upper):5.1f}%"
         )
-
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -1288,7 +1276,9 @@ def main() -> int:
     print("\nTask throughput (active phases; phase percentages add to 100%):")
     if results:
         print(_format_throughput_table(results))
-        print("\nEnv step breakdown (subparts of Env step; do not add Env step together with its subparts):")
+        print(
+            "\nEnv step breakdown (subparts of Env step; do not add Env step together with its subparts):"
+        )
         print(_format_env_step_breakdown_table(results))
     else:
         print("No successful benchmark cases.")
