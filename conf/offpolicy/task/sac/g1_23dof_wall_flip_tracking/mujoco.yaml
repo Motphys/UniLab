@@ -4,7 +4,7 @@ training:
   sim_backend: mujoco
   play_steps: 1000
 algo:
-  num_envs: 2048
+  num_envs: 4096
   max_iterations: 25000
   save_interval: 1000
   gamma: 0.99
