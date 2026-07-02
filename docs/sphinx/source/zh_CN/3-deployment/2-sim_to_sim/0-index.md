@@ -41,6 +41,12 @@
 用证据记录不受支持的后端特性。
 :::
 
+:::{grid-item-card} 配置守卫
+:link: 7-config_guard
+:link-type: doc
+跨后端回放时自动校验策略契约兼容性。
+:::
+
 ::::
 
 ```{toctree}
@@ -52,4 +58,5 @@
 4-reward_parity
 5-playback_and_snapshot_differences
 6-capability_gaps
+7-config_guard
 ```

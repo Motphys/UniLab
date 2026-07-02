@@ -116,3 +116,7 @@ reward:
   feet_gait_max_err: 0.2
   feet_gait_velocity_threshold: 0.5
   feet_gait_command_threshold: 0.1
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

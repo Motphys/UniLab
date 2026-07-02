@@ -42,3 +42,7 @@ reward:
   std_joint_vel: 1.0
   std_object_pos: 0.2
   std_object_ori: 0.3
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

@@ -32,3 +32,7 @@ reward:
   std_body_ang_vel: 3.14
   std_joint_pos: 0.2
   std_joint_vel: 1.0
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

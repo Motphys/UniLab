@@ -44,3 +44,7 @@ reward:
     upward: 1.0
   tracking_sigma: 0.25
   base_height_target: 0.4
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

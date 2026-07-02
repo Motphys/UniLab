@@ -12,3 +12,7 @@ env:
   domain_rand:
     randomize_gravity: false
     randomize_gravity_direction: false
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

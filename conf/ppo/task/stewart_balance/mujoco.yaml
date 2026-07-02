@@ -11,3 +11,7 @@ defaults:
 training:
   task_name: StewartBalance
   sim_backend: mujoco
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

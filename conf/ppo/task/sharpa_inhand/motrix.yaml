@@ -20,3 +20,7 @@ env:
     randomize_gravity: false
     randomize_gravity_direction: true
     randomize_pd_gains: true
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

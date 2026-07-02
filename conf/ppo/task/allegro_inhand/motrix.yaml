@@ -50,3 +50,7 @@ env:
     joint_noise: 0.0
     ball_vel_noise: 0.0
     ball_z_offset: 0.0
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

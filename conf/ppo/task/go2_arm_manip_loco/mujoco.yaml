@@ -106,3 +106,7 @@ env:
     freeze_arm_joints: false
     disable_ee_goal_trajectory: false
     fixed_ee_goal_cart: [0.15, 0.0, 0.25]
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
