@@ -209,6 +209,52 @@ class G1MotionTrackingDeployEnvCfg(G1MotionTrackingCfg):
     pass
 
 
+@dataclass
+class G1MotionTracking23DofCfg(G1MotionTrackingCfg):
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part_23dof.npz"
+    )
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
+        )
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1MotionTracking23Dof")
+@dataclass
+class G1MotionTracking23DofEnvCfg(G1MotionTracking23DofCfg):
+    pass
+
+
+@registry.envcfg("G1MotionTracking23DofDeploy")
+@dataclass
+class G1MotionTracking23DofDeployEnvCfg(G1MotionTracking23DofCfg):
+    pass
+
+
 def _build_motion_reference_state(
     env: Any, env_ids: np.ndarray, motion_data: MotionData
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -1459,3 +1505,14 @@ class G1MotionTrackingDeployEnv(G1MotionTrackingEnv):
             axis=1,
             dtype=get_global_dtype(),
         )
+
+
+# --- 23-DoF env registrations (same env classes, 23-DoF configs) ---
+registry.register_env("G1MotionTracking23Dof", G1MotionTrackingEnv, sim_backend="mujoco")
+registry.register_env("G1MotionTracking23Dof", G1MotionTrackingEnv, sim_backend="motrix")
+registry.register_env(
+    "G1MotionTracking23DofDeploy", G1MotionTrackingDeployEnv, sim_backend="mujoco"
+)
+registry.register_env(
+    "G1MotionTracking23DofDeploy", G1MotionTrackingDeployEnv, sim_backend="motrix"
+)

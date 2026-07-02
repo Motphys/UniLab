@@ -146,3 +146,135 @@ class G1ClimbTrackingEnv(G1MotionTrackingEnv):
     """G1 climb-tracking environment implementation."""
 
     _cfg: G1ClimbTrackingCfg
+
+
+@dataclass
+class G1FlipTracking23DofCfg(G1FlipTrackingCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "flip_360_001__A304_23dof.npz"
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1FlipTracking23Dof")
+@dataclass
+class G1FlipTracking23DofEnvCfg(G1FlipTracking23DofCfg):
+    pass
+
+
+@dataclass
+class G1WallFlipTracking23DofCfg(G1WallFlipTrackingCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof_with_wall.xml")
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "flip_from_wall_104__A304_23dof.npz"
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1WallFlipTracking23Dof")
+@dataclass
+class G1WallFlipTracking23DofEnvCfg(G1WallFlipTracking23DofCfg):
+    pass
+
+
+@dataclass
+class G1ClimbTracking23DofCfg(G1ClimbTrackingCfg):
+    """23-DoF config for the climb_20_z_scale_1 motion clip."""
+
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_climb_20_z_scale_1_23dof.xml")
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "climb_20_z_scale_1.0_23dof.npz"
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1ClimbTracking23Dof")
+@dataclass
+class G1ClimbTracking23DofEnvCfg(G1ClimbTracking23DofCfg):
+    """Registered 23-DoF configuration for G1 box-climb motion tracking."""
+
+    pass
+
+
+registry.register_env("G1ClimbTracking23Dof", G1ClimbTrackingEnv, sim_backend="mujoco")
+registry.register_env("G1ClimbTracking23Dof", G1ClimbTrackingEnv, sim_backend="motrix")
+registry.register_env("G1FlipTracking23Dof", G1FlipTrackingEnv, sim_backend="mujoco")
+registry.register_env("G1FlipTracking23Dof", G1FlipTrackingEnv, sim_backend="motrix")
+registry.register_env("G1WallFlipTracking23Dof", G1WallFlipTrackingEnv, sim_backend="mujoco")
+registry.register_env("G1WallFlipTracking23Dof", G1WallFlipTrackingEnv, sim_backend="motrix")
