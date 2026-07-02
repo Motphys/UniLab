@@ -18,7 +18,12 @@ from dataclasses import dataclass
 
 from unilab.base import registry
 
-from .flip_tracking import G1FlipTrackingCfg, G1WallFlipTrackingCfg
+from .flip_tracking import (
+    G1FlipTracking23DofEnvCfg,
+    G1FlipTrackingCfg,
+    G1WallFlipTracking23DofEnvCfg,
+    G1WallFlipTrackingCfg,
+)
 from .tracking_sac import G1MotionTrackingSACEnv
 
 
@@ -54,3 +59,27 @@ class G1WallFlipTrackingSACEnv(G1MotionTrackingSACEnv):
     """
 
     _cfg: G1WallFlipTrackingSACCfg
+
+
+@registry.envcfg("G1FlipTrackingSAC23Dof")
+@dataclass
+class G1FlipTrackingSAC23DofCfg(G1FlipTracking23DofEnvCfg):
+    pass
+
+
+@registry.env("G1FlipTrackingSAC23Dof", sim_backend="mujoco")
+@registry.env("G1FlipTrackingSAC23Dof", sim_backend="motrix")
+class G1FlipTrackingSAC23DofEnv(G1MotionTrackingSACEnv):
+    _cfg: G1FlipTrackingSAC23DofCfg
+
+
+@registry.envcfg("G1WallFlipTrackingSAC23Dof")
+@dataclass
+class G1WallFlipTrackingSAC23DofCfg(G1WallFlipTracking23DofEnvCfg):
+    pass
+
+
+@registry.env("G1WallFlipTrackingSAC23Dof", sim_backend="mujoco")
+@registry.env("G1WallFlipTrackingSAC23Dof", sim_backend="motrix")
+class G1WallFlipTrackingSAC23DofEnv(G1MotionTrackingSACEnv):
+    _cfg: G1WallFlipTrackingSAC23DofCfg
