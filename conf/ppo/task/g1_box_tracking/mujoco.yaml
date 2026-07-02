@@ -1,17 +1,22 @@
 # @package _global_
 training:
-  play_steps: 1000
   task_name: G1BoxTracking
   sim_backend: mujoco
+  play_steps: 1000
 algo:
   num_envs: 1024
   max_iterations: 30000
   save_interval: 500
   obs_groups:
     actor:
-    - actor
+      - actor
   algorithm:
     entropy_coef: 0.005
+env:
+  sim_dt: 0.005
+  sensor:
+    gyro: pelvis_gyro
+    upvector: pelvis_upvector
 reward:
   scales:
     motion_global_root_pos: 0.5
@@ -37,11 +42,6 @@ reward:
   std_joint_vel: 1.0
   std_object_pos: 0.2
   std_object_ori: 0.3
-env:
-  sim_dt: 0.005
-  sensor:
-    gyro: pelvis_gyro
-    upvector: pelvis_upvector
 play_profile:
   enabled: true
   env:
