@@ -2,7 +2,7 @@
 training:
   task_name: G1MotionTracking23DofDeploy
   sim_backend: motrix
-  play_env_num: 128
+  play_env_num: 16
   play_steps: 1000
 algo:
   num_envs: 1024
@@ -18,6 +18,55 @@ algo:
     scale_joint_angle: 0.01
     scale_joint_vel: 1.5
     scale_gyro: 0.2
+env:
+  sim_dt: 0.005
+  sensor:
+    local_linvel: pelvis_local_linvel
+    gyro: pelvis_gyro
+    upvector: pelvis_upvector
+  domain_rand:
+    random_com: true
+    com_offset_x: [-0.025, 0.025]
+    com_offset_y: [-0.05, 0.05]
+    com_offset_z: [-0.05, 0.05]
+    randomize_base_mass: true
+    added_mass_range: [-1.5, 1.5]
+    push_robots: true
+    push_interval: 750
+    max_force: [1.0, 1.0, 0.5]
+    randomize_joint_default_pos: true
+    joint_default_pos_range: [-0.01, 0.01]
+  noise_config:
+    scale_joint_angle: 0.01
+    scale_joint_vel: 0.5
+    scale_gyro: 0.2
+    scale_linvel: 0.5
+    scale_gravity: 0.05
+  control_config:
+    action_scale:
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
 play_profile:
   enabled: true
   env:

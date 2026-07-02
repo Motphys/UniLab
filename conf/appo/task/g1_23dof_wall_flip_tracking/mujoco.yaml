@@ -10,10 +10,26 @@ algo:
   max_iterations: 7000
   save_interval: 500
   algorithm:
-    entropy_coef: 0.005
     num_learning_epochs: 6
     num_mini_batches: 8
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+    value_loss_coef: 1.0
+    entropy_coef: 0.005
+    learning_rate: 1.0e-3
+    max_grad_norm: 1.0
+    use_clipped_value_loss: true
+    schedule: adaptive
     desired_kl: 0.008
+    adaptive_kl_factor: 2.0
+    adaptive_lr_factor: 1.5
+    optimizer: adam
+    tau: 1.0
+    target_update_freq: 1
+    vtrace_clip_rho: 1.0
+    vtrace_clip_c: 1.0
+    enable_compile: true
 env:
   sampling_mode: start
   truncate_on_clip_end: true
