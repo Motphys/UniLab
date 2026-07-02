@@ -1,25 +1,24 @@
 # @package _global_
+training:
+  task_name: Go2WJoystickFlat
+  sim_backend: mujoco
 algo:
   num_envs: 1024
   max_iterations: 151
   empirical_normalization: true
   obs_groups:
     actor:
-    - actor
+      - actor
   policy:
     init_noise_std: 0.5
   algorithm:
-    learning_rate: 0.0003
-    entropy_coef: 0.001
+    learning_rate: 3.0e-4
+    entropy_coef: 1.0e-3
 env:
   commands:
     vel_limit:
-    - - 0.0
-      - 0.0
-      - -1.0
-    - - 1.0
-      - 0.0
-      - 1.0
+      - [0.0, 0.0, -1.0]
+      - [1.0, 0.0, 1.0]
   control_config:
     action_scale: 0.5
     wheel_action_scale: 10.0
@@ -45,9 +44,6 @@ reward:
     upward: 1.0
   tracking_sigma: 0.25
   base_height_target: 0.4
-training:
-  task_name: Go2WJoystickFlat
-  sim_backend: mujoco
 play_profile:
   enabled: true
   env:

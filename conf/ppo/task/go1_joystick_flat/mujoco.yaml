@@ -1,24 +1,26 @@
 # @package _global_
 training:
+  task_name: Go1JoystickFlat
+  sim_backend: mujoco
   play_steps: 500
   play_env_num: 16
+  render_spacing: 0.0
   cam_tracking: true
   cam_tracking_env_idx: 0
   cam_tracking_extra_envs: 9
-  task_name: Go1JoystickFlat
-  sim_backend: mujoco
-  render_spacing: 0.0
+
 interactive:
   action_mode: policy
   policy_obs_mode: auto
   camera_follow_body: true
   use_env_visual_model: false
+
 algo:
   num_envs: 1024
   max_iterations: 151
   obs_groups:
     actor:
-    - actor
+      - actor
 reward:
   scales:
     tracking_lin_vel: 1.0
@@ -28,8 +30,8 @@ reward:
     base_height: -100.0
     action_rate: -0.005
     similar_to_default: -0.1
-    swing_feet_z: 4.0
     contact: 0.24
+    swing_feet_z: 4.0
   tracking_sigma: 0.25
   base_height_target: 0.3
 play_profile:

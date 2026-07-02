@@ -1,4 +1,7 @@
 # @package _global_
+training:
+  task_name: G1WalkRough
+  sim_backend: mujoco
 algo:
   num_envs: 2048
   learning_starts: 10
@@ -12,7 +15,7 @@ algo:
 env:
   control_config:
     action_scale: 1.0
-  gait_phase_init_mode: offset_phase
+  gait_phase_init_mode: "offset_phase"
   reset_base_qvel_limit: 0.5
   curriculum:
     enabled: true
@@ -48,36 +51,4 @@ reward:
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.04
   close_feet_threshold: 0.15
-  pose_weights:
-  - 0.01
-  - 1.0
-  - 5.0
-  - 0.01
-  - 5.0
-  - 5.0
-  - 0.01
-  - 1.0
-  - 5.0
-  - 0.01
-  - 5.0
-  - 5.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-training:
-  task_name: G1WalkRough
-  sim_backend: mujoco
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
