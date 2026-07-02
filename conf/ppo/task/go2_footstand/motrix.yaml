@@ -1,0 +1,82 @@
+# @package _global_
+training:
+  task_name: Go2FootStand
+  sim_backend: motrix
+  no_play: true
+env:
+  sim_dt: 0.004
+  add_body_sensors: true
+  obs_history_len: 15
+  soft_joint_pos_limit_factor: 0.9
+  energy_termination_threshold: 200.0
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
+    scale_gravity: 0.05
+    scale_linvel: 0.1
+  control_config:
+    action_scale: 0.3
+    clip_actions: 1.0
+    Kd: 0.5
+  domain_rand:
+    randomize_floor_friction: false
+    floor_friction_range: [0.6, 1.0]
+    # Motrix does not implement dof_armature randomization; disabled.
+    randomize_dof_armature: false
+    randomize_link_mass: false
+    link_mass_scale_range: [0.95, 1.05]
+    torso_added_mass_range: [0.0, 0.0]
+    randomize_torso_com: false
+    torso_com_offset_range: [-0.02, 0.02]
+    randomize_reset_joint_qpos: true
+    reset_joint_qpos_range: [-0.02, 0.02]
+algo:
+  empirical_normalization: true
+  num_envs: 1024
+  max_iterations: 10000
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    entropy_coef: 0.005
+reward:
+  scales:
+    height: 2.0
+    orientation: 3.0
+    contact: -1.0
+    action_rate: -0.01
+    termination: -2.0
+    dof_pos_limits: -0.5
+    torques: 0.0
+    pose: -0.1
+    penalty_contact: -0.2
+    tar: 1.3
+    rear_feet_contact: 0.5
+    both_rear_feet_contact: 0.25
+    rear_foot_slip: -1.0
+    rear_foot_anchor: -0.15
+    front_feet_air: 0.0
+    balanced_footstand: 0.0
+    rear_leg_symmetry: -0.2
+    rear_leg_splay: -0.25
+    front_leg_motion: -0.06
+    front_leg_crossing: -2.0
+    upright_stability: -0.2
+    knee_clearance: -0.5
+    stay_still: -0.12
+    energy: -0.003
+    dof_acc: -2.5e-7
+  tracking_sigma: 0.25
+  base_height_target: 0.3
+  knee_height_target: 0.08
+  front_feet_min_separation: 0.18
+  front_feet_side_margin: 0.06
+  rear_hip_abduction_margin: 0.25
+  rear_foot_slip_deadband: 0.012
+  rear_foot_anchor_radius: 0.04
