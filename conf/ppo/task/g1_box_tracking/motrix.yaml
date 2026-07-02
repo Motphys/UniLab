@@ -1,27 +1,38 @@
 # @package _global_
 training:
-  play_steps: 1000
   task_name: G1BoxTracking
   sim_backend: motrix
   play_env_num: 16
+  play_steps: 1000
 algo:
   num_envs: 1024
   max_iterations: 40000
   save_interval: 500
+  empirical_normalization: true
   obs_groups:
     actor:
-    - actor
+      - actor
     critic:
-    - critic
+      - critic
   algorithm:
     entropy_coef: 0.002
     desired_kl: 0.01
-  empirical_normalization: true
   noise_config:
     level: 1.0
     scale_joint_angle: 0.01
     scale_joint_vel: 1.5
     scale_gyro: 0.2
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.5
+  scene:
+    enabled: true
+    source_model_file: src/unilab/assets/robots/g1/scene_flat_with_largebox.xml
+    ground_texture_file: src/unilab/assets/robots/g1/textures/floor.png
+    skybox_rgb1: [0.90, 0.90, 0.91]
+    skybox_rgb2: [0.68, 0.68, 0.70]
+    ground_texrepeat: [0.25, 0.25]
 reward:
   scales:
     motion_global_root_pos: 1.0
@@ -47,22 +58,3 @@ reward:
   std_joint_vel: 1.0
   std_object_pos: 0.12
   std_object_ori: 0.2
-play_profile:
-  enabled: true
-  env:
-    render_spacing: 2.5
-  scene:
-    enabled: true
-    source_model_file: src/unilab/assets/robots/g1/scene_flat_with_largebox.xml
-    ground_texture_file: src/unilab/assets/robots/g1/textures/floor.png
-    skybox_rgb1:
-    - 0.9
-    - 0.9
-    - 0.91
-    skybox_rgb2:
-    - 0.68
-    - 0.68
-    - 0.7
-    ground_texrepeat:
-    - 0.25
-    - 0.25

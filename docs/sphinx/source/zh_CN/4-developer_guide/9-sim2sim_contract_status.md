@@ -10,7 +10,7 @@
 uv run scripts/audit_sim2sim_contracts.py
 ```
 
-该脚本只读，对每个 task 用 hydra `compose` 得到有效配置（展开 `defaults` / `base.yaml` /
+该脚本只读，对每个 task 用 hydra `compose` 得到有效配置（展开 `defaults` /
 `# @package _global_`），再按守卫同一套归一化逐字段比对，输出本页相同的判定。
 
 判定分三档：
@@ -64,11 +64,11 @@ uv run scripts/audit_sim2sim_contracts.py
 
 | 字段 | 是否可仅改 YAML | 说明 |
 |---|---|---|
-| `obs_groups` | 可（多数情况） | 命名差异统一进 `base.yaml`，actor 部署不变 |
+| `obs_groups` | 可（多数情况） | 命名差异在两后端 owner 中统一，actor 部署不变 |
 | `sampling_mode` | 可（取决于 task） | 两后端运行时已同值时只需补齐显式声明 |
 | `action_scale` | **不可** | 改值即改训练动力学，必须 owner 决策 + 重训 |
 | `empirical_normalization` | **不可** | 改变网络结构，必须重训 |
 
-试点示例：`conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`。`base.yaml` 承载共享契约，
-`mujoco.yaml` 直接继承，`motrix.yaml` 为单后端调参 override 了若干契约字段——这种 override
+试点示例：`conf/ppo/task/g1_walk_flat/{mujoco,motrix}.yaml`。每个后端 owner 自包含完整契约，
+`motrix.yaml` 为单后端调参 override 了若干契约字段——这种 override
 即令该 task 在该后端不可 sim2sim 迁移，去掉 override 即可恢复。

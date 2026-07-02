@@ -1,15 +1,15 @@
 # @package _global_
 training:
-  play_steps: 1000
   task_name: G1MotionTracking
   sim_backend: mujoco
+  play_steps: 1000
 algo:
   num_envs: 1024
   max_iterations: 15000
   save_interval: 500
   obs_groups:
     actor:
-    - actor
+      - actor
   algorithm:
     entropy_coef: 0.005
 reward:

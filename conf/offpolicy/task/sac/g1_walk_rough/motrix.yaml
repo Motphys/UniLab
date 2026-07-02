@@ -1,4 +1,7 @@
 # @package _global_
+training:
+  task_name: G1WalkRough
+  sim_backend: motrix
 algo:
   num_envs: 2048
   learning_starts: 1
@@ -10,10 +13,14 @@ algo:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
 env:
+  sim_dt: 0.01
   control_config:
     action_scale: 1.0
-  gait_phase_init_mode: offset_phase
+  gait_phase_init_mode: "offset_phase"
   reset_base_qvel_limit: 0.5
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
   curriculum:
     enabled: true
     initial_scale: 0.5
@@ -22,10 +29,6 @@ env:
     level_down_threshold: 150.0
     level_up_threshold: 750.0
     degree: 0.001
-  sim_dt: 0.01
-  domain_rand:
-    randomize_kp: false
-    randomize_kd: false
 reward:
   scales:
     tracking_lin_vel: 2.2
@@ -45,36 +48,4 @@ reward:
   feet_phase_swing_height: 0.09
   feet_phase_tracking_sigma: 0.008
   close_feet_threshold: 0.15
-  pose_weights:
-  - 0.01
-  - 1.0
-  - 5.0
-  - 0.01
-  - 5.0
-  - 5.0
-  - 0.01
-  - 1.0
-  - 5.0
-  - 0.01
-  - 5.0
-  - 5.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-  - 50.0
-training:
-  task_name: G1WalkRough
-  sim_backend: motrix
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]

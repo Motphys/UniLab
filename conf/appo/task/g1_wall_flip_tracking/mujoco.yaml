@@ -1,11 +1,12 @@
 # @package _global_
 training:
-  play_steps: 1000
   task_name: G1WallFlipTracking
   sim_backend: mujoco
+  play_steps: 1000
   replay_queue_size: 5
 algo:
   num_envs: 1024
+  steps_per_env: 20
   max_iterations: 7000
   save_interval: 500
   algorithm:
@@ -16,7 +17,7 @@ algo:
     lam: 0.95
     value_loss_coef: 1.0
     entropy_coef: 0.005
-    learning_rate: 0.001
+    learning_rate: 1.0e-3
     max_grad_norm: 1.0
     use_clipped_value_loss: true
     schedule: adaptive
@@ -29,7 +30,46 @@ algo:
     vtrace_clip_rho: 1.0
     vtrace_clip_c: 1.0
     enable_compile: true
-  steps_per_env: 20
+env:
+  sampling_mode: start
+  truncate_on_clip_end: true
+  sim_dt: 0.005
+  control_config:
+    action_scale:
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.5475464629911068
+      - 0.35066146637882434
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.5475464629911068
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.07450087032950714
+      - 0.07450087032950714
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.43857731392336724
+      - 0.07450087032950714
+      - 0.07450087032950714
+  anchor_pos_z_threshold: 0.5
+  ee_body_pos_z_threshold: 0.5
+  terminate_on_undesired_contacts: true
+  noise_config:
+    level: 0.0
 reward:
   scales:
     motion_global_root_pos: 0.5
@@ -38,11 +78,11 @@ reward:
     motion_body_ori: 1.5
     motion_body_lin_vel: 1.0
     motion_body_ang_vel: 1.0
+    motion_ee_body_pos_z: 2.0
     motion_joint_pos: 0.0
     motion_joint_vel: 0.0
     action_rate_l2: -0.005
     joint_limit: -10.0
-    motion_ee_body_pos_z: 2.0
   std_root_pos: 0.3
   std_root_ori: 0.4
   std_body_pos: 0.3
@@ -51,43 +91,3 @@ reward:
   std_body_ang_vel: 3.14
   std_joint_pos: 0.2
   std_joint_vel: 1.0
-env:
-  sampling_mode: start
-  truncate_on_clip_end: true
-  sim_dt: 0.005
-  control_config:
-    action_scale:
-    - 0.5475464629911068
-    - 0.35066146637882434
-    - 0.5475464629911068
-    - 0.35066146637882434
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.5475464629911068
-    - 0.35066146637882434
-    - 0.5475464629911068
-    - 0.35066146637882434
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.5475464629911068
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.07450087032950714
-    - 0.07450087032950714
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.43857731392336724
-    - 0.07450087032950714
-    - 0.07450087032950714
-  anchor_pos_z_threshold: 0.5
-  ee_body_pos_z_threshold: 0.5
-  terminate_on_undesired_contacts: true
-  noise_config:
-    level: 0.0

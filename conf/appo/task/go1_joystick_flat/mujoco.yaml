@@ -1,4 +1,7 @@
 # @package _global_
+training:
+  task_name: Go1JoystickFlat
+  sim_backend: mujoco
 algo:
   max_iterations: 150
 reward:
@@ -13,6 +16,3 @@ reward:
     contact: 0.24
   tracking_sigma: 0.25
   base_height_target: 0.3
-training:
-  task_name: Go1JoystickFlat
-  sim_backend: mujoco

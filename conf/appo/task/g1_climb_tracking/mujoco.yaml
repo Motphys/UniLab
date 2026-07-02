@@ -1,8 +1,8 @@
 # @package _global_
 training:
-  play_steps: 1000
   task_name: G1ClimbTracking
   sim_backend: mujoco
+  play_steps: 1000
 algo:
   num_envs: 1024
   max_iterations: 20000

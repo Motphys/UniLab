@@ -42,6 +42,12 @@ Understand renderer and snapshot capability differences.
 Document unsupported backend features with evidence.
 :::
 
+:::{grid-item-card} Config guard
+:link: 7-config_guard
+:link-type: doc
+Auto-check policy contract compatibility on cross-backend replay.
+:::
+
 ::::
 
 ```{toctree}
@@ -53,4 +59,5 @@ Document unsupported backend features with evidence.
 4-reward_parity
 5-playback_and_snapshot_differences
 6-capability_gaps
+7-config_guard
 ```
