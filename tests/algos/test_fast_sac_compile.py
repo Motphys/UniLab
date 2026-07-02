@@ -174,6 +174,9 @@ def test_fast_sac_graph_actor_skips_compiling_actor_loss(monkeypatch) -> None:
 
 
 def test_fast_sac_cuda_adamw_optimizers_are_capture_ready(monkeypatch) -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA-only optimizer kwargs require a CUDA-enabled torch build")
+
     calls: list[dict[str, Any]] = []
 
     class _FakeAdamW:
@@ -233,6 +236,9 @@ def test_fast_sac_cuda_graph_critic_is_opt_in_and_cuda_only() -> None:
     cpu_learner = _small_fast_sac_learner()
     assert not cpu_learner.use_cuda_graph_critic
 
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA graph opt-in requires a CUDA-enabled torch build")
+
     cuda_learner = FastSACLearner(
         obs_dim=4,
         action_dim=2,
@@ -254,6 +260,9 @@ def test_fast_sac_cuda_graph_critic_is_opt_in_and_cuda_only() -> None:
 def test_fast_sac_critic_packed_staging_disabled_when_fp16_scaler_active(
     monkeypatch,
 ) -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA graph staging with fp16 scaler requires a CUDA-enabled torch build")
+
     monkeypatch.setattr(
         FastSACLearner,
         "_should_use_grad_scaler",
@@ -284,6 +293,9 @@ def test_fast_sac_critic_packed_staging_disabled_when_fp16_scaler_active(
 def test_fast_sac_cuda_graph_actor_is_opt_in_and_cuda_only() -> None:
     cpu_learner = _small_fast_sac_learner()
     assert not cpu_learner.use_cuda_graph_actor
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA graph opt-in requires a CUDA-enabled torch build")
 
     cuda_learner = FastSACLearner(
         obs_dim=4,
