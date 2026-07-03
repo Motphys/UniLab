@@ -476,6 +476,9 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
 @registry.envcfg("G1WBTObs23Dof")
 @dataclass
 class G1WBTObs23DofCfg(G1WBTObsCfg):
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part_23dof.npz"
+    )
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
