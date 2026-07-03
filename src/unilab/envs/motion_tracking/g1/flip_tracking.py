@@ -234,7 +234,9 @@ class G1ClimbTracking23DofCfg(G1ClimbTrackingCfg):
 
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
-            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_climb_20_z_scale_1_23dof.xml")
+            model_file=str(
+                ASSETS_ROOT_PATH / "robots" / "g1" / "scene_climb_20_z_scale_1_23dof.xml"
+            )
         )
     )
     motion_file: str | list[str] = str(
