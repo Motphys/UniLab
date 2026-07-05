@@ -477,6 +477,85 @@ def test_g1_motion_tracking_uses_combined_body_pose_query():
     np.testing.assert_array_equal(env._backend.calls[0], np.array([1, 3], dtype=np.int32))
 
 
+def test_g1_motion_tracking_reset_observation_uses_sparse_body_pose_rows():
+    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDomainRandomizationProvider
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.row_calls: list[tuple[np.ndarray, np.ndarray]] = []
+
+        def get_body_pose_w_rows(
+            self, env_ids: np.ndarray, body_ids: np.ndarray
+        ) -> tuple[np.ndarray, np.ndarray]:
+            self.row_calls.append((env_ids.copy(), body_ids.copy()))
+            rows = len(env_ids)
+            bodies = len(body_ids)
+            return (
+                np.full((rows, bodies, 3), 2.0, dtype=np.float32),
+                np.full((rows, bodies, 4), 3.0, dtype=np.float32),
+            )
+
+        def get_body_pose_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            raise AssertionError("reset observation should use sparse body pose rows")
+
+    class FakeMotionLoader:
+        def get_motion_at_frame(self, frames: np.ndarray) -> MotionData:
+            rows = len(frames)
+            return MotionData(
+                joint_pos=np.zeros((rows, 2), dtype=np.float32),
+                joint_vel=np.zeros((rows, 2), dtype=np.float32),
+                body_pos_w=np.zeros((rows, 2, 3), dtype=np.float32),
+                body_quat_w=np.zeros((rows, 2, 4), dtype=np.float32),
+                body_lin_vel_w=np.zeros((rows, 2, 3), dtype=np.float32),
+                body_ang_vel_w=np.zeros((rows, 2, 3), dtype=np.float32),
+            )
+
+    class FakeMotionSampler:
+        current_frames = np.array([10, 11, 12, 13], dtype=np.int32)
+
+    env = SimpleNamespace(
+        _backend=FakeBackend(),
+        body_ids=np.array([1, 3], dtype=np.int32),
+        motion_loader=FakeMotionLoader(),
+        motion_sampler=FakeMotionSampler(),
+        get_local_linvel=lambda: np.zeros((4, 3), dtype=np.float32),
+        get_gyro=lambda: np.zeros((4, 3), dtype=np.float32),
+        get_dof_pos=lambda: np.zeros((4, 2), dtype=np.float32),
+        get_dof_vel=lambda: np.zeros((4, 2), dtype=np.float32),
+    )
+
+    captured: dict[str, np.ndarray] = {}
+
+    def compute_obs(
+        obs_info,
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        robot_body_pos_w,
+        robot_body_quat_w,
+    ):
+        del obs_info, motion_data, linvel, gyro, dof_pos, dof_vel
+        captured["robot_body_pos_w"] = robot_body_pos_w
+        captured["robot_body_quat_w"] = robot_body_quat_w
+        return {"obs": np.zeros((2, 1), dtype=np.float32)}
+
+    env._compute_obs = compute_obs
+    provider = G1MotionTrackingDomainRandomizationProvider()
+    env_ids = np.array([1, 3], dtype=np.int32)
+
+    obs = provider.build_reset_observation(env, env_ids, {})
+
+    assert obs["obs"].shape == (2, 1)
+    assert len(env._backend.row_calls) == 1
+    np.testing.assert_array_equal(env._backend.row_calls[0][0], env_ids)
+    np.testing.assert_array_equal(env._backend.row_calls[0][1], env.body_ids)
+    assert captured["robot_body_pos_w"].shape == (2, 2, 3)
+    assert captured["robot_body_quat_w"].shape == (2, 2, 4)
+
+
 def _compute_g1_motion_tracking_obs_stub(env_cls: type):
     from unilab.envs.motion_tracking.g1.motion_loader import MotionData
 

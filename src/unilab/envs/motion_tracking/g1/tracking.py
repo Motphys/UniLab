@@ -446,7 +446,9 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
         dof_vel_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        all_pos_w, all_quat_w = env._get_body_pose_w()
+        robot_body_pos_w, robot_body_quat_w = env._backend.get_body_pose_w_rows(
+            env_ids, env.body_ids
+        )
         body_pose_ms = (time.perf_counter() - t0) * 1000.0
 
         obs_info = dict(info_updates)
@@ -465,8 +467,8 @@ class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
                 gyro,
                 dof_pos,
                 dof_vel,
-                all_pos_w[env_ids],
-                all_quat_w[env_ids],
+                robot_body_pos_w,
+                robot_body_quat_w,
             ),
         )
         compute_obs_ms = (time.perf_counter() - t0) * 1000.0

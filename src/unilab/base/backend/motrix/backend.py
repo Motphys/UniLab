@@ -60,6 +60,16 @@ def _first_scalar(value: Any) -> float:
     return float(arr.reshape(-1)[0])
 
 
+def _contiguous_slice(indices: np.ndarray) -> slice | None:
+    if indices.size == 0:
+        return None
+    start = int(indices[0])
+    stop = start + int(indices.size)
+    if np.array_equal(indices, np.arange(start, stop, dtype=indices.dtype)):
+        return slice(start, stop)
+    return None
+
+
 @dataclass
 class _MotrixSceneContext:
     model: "mtx.SceneModel"
@@ -185,6 +195,7 @@ class MotrixBackend(SimBackend):
         self._body_floatingbase = self._body.floatingbase
         self._joint_dof_pos_indices = np.asarray(self._model.joint_dof_pos_indices, dtype=np.intp)
         self._joint_dof_vel_indices = np.asarray(self._model.joint_dof_vel_indices, dtype=np.intp)
+        self._joint_dof_pos_slice = _contiguous_slice(self._joint_dof_pos_indices)
         position_actuators: list["mtx.PositionActuator"] = []
         for actuator in self._model.actuators:
             if actuator.typ == "position":
@@ -212,6 +223,11 @@ class MotrixBackend(SimBackend):
                 joint_pos_idx.append(int(joint.dof_pos_index))
             if len(joint_pos_idx) == int(self._model.num_actuators):
                 self._actuator_joint_pos_indices = np.asarray(joint_pos_idx, dtype=np.intp)
+        self._actuator_joint_pos_slice = (
+            _contiguous_slice(self._actuator_joint_pos_indices)
+            if self._actuator_joint_pos_indices is not None
+            else None
+        )
         self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float32)
         self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float32)
         for actuator in self._position_actuators:
@@ -599,16 +615,22 @@ class MotrixBackend(SimBackend):
             self.num_actuators
         ):
             # Fully-actuated model: hold every joint at its reset position (unchanged).
-            ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
+            if self._joint_dof_pos_slice is not None:
+                ctrl = qpos_motrix[:, self._joint_dof_pos_slice]
+            else:
+                ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
         elif self._actuator_joint_pos_indices is not None:
             # Under-actuated / parallel model: hold only the actuated joints.
-            ctrl = qpos_motrix[:, self._actuator_joint_pos_indices]
+            if self._actuator_joint_pos_slice is not None:
+                ctrl = qpos_motrix[:, self._actuator_joint_pos_slice]
+            else:
+                ctrl = qpos_motrix[:, self._actuator_joint_pos_indices]
         else:
             ctrl = np.zeros((len(env_indices), self.num_actuators), dtype=self._np_dtype)
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
 
         self._model.forward_kinematic(data_slice)
-        self._refresh_link_pose_cache(env_indices)
+        self._refresh_link_pose_cache(env_indices, data_slice=data_slice)
         self._invalidate_link_velocity_cache()
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
@@ -985,13 +1007,17 @@ class MotrixBackend(SimBackend):
             qpos_mujoco[..., quat_indices] = qpos[..., quat_indices[[3, 0, 1, 2]]]
         return qpos_mujoco
 
-    def _refresh_link_pose_cache(self, env_indices: np.ndarray | None = None) -> None:
+    def _refresh_link_pose_cache(
+        self, env_indices: np.ndarray | None = None, data_slice: Any | None = None
+    ) -> None:
         if env_indices is None:
             self._link_poses = self._model.get_link_poses(self._data)
         else:
-            mask = np.zeros(self._num_envs, dtype=bool)
-            mask[env_indices] = True
-            self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
+            if data_slice is None:
+                mask = np.zeros(self._num_envs, dtype=bool)
+                mask[env_indices] = True
+                data_slice = self._data[mask]
+            self._link_poses[env_indices] = self._model.get_link_poses(data_slice)
 
     def _refresh_link_velocity_cache(self, env_indices: np.ndarray | None = None) -> None:
         if env_indices is None:
