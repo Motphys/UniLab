@@ -278,6 +278,7 @@ class MotrixBackend(SimBackend):
         self._render_tracking_camera: MotrixTrackingCamera | None = None
         self.backend_type = "motrix"
         self._link_velocity_cache: np.ndarray | None = None
+        self._last_set_state_timing_ms: dict[str, float] = {}
 
         # Pre-cache link objects to avoid repeated get_link() lookups.
         self._link_cache: dict[int, "mtx.Link"] = {}
@@ -316,6 +317,10 @@ class MotrixBackend(SimBackend):
     @property
     def data(self):
         return self._data
+
+    @property
+    def last_set_state_timing_ms(self) -> dict[str, float]:
+        return dict(self._last_set_state_timing_ms)
 
     # ------------------------------------------------------------------ #
     # Model properties                                                   #
@@ -580,21 +585,31 @@ class MotrixBackend(SimBackend):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
-        qpos_motrix = self._mujoco_qpos_to_motrix(qpos)
+        total_t0 = time.perf_counter()
+        self._last_set_state_timing_ms = {}
 
+        t0 = time.perf_counter()
+        qpos_motrix = self._mujoco_qpos_to_motrix(qpos)
+        qpos_convert_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         # Create mask for batch operation
         mask = np.zeros(self._num_envs, dtype=bool)
         mask[env_indices] = True
         data_slice = self._data[mask]
+        slice_ms = (time.perf_counter() - t0) * 1000.0
 
         # Batch set state
+        t0 = time.perf_counter()
         data_slice.reset(self._model)
         self._clear_applied_body_forces(env_indices)
         self._apply_init_geom_size_overrides(data_slice, env_indices)
         self._apply_reset_randomization(data_slice, env_indices, randomization)
         data_slice.set_dof_vel(qvel)
         data_slice.set_dof_pos(qpos_motrix, self._model)
+        data_write_ms = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         if self._supports_position_actuator_gains and len(self._joint_dof_pos_indices) == int(
             self.num_actuators
         ):
@@ -606,10 +621,40 @@ class MotrixBackend(SimBackend):
         else:
             ctrl = np.zeros((len(env_indices), self.num_actuators), dtype=self._np_dtype)
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
+        ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         self._model.forward_kinematic(data_slice)
+        forward_kinematic_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._refresh_link_pose_cache(env_indices)
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._invalidate_link_velocity_cache()
+        invalidate_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        total_ms = (time.perf_counter() - total_t0) * 1000.0
+        measured_ms = (
+            qpos_convert_ms
+            + slice_ms
+            + data_write_ms
+            + ctrl_ms
+            + forward_kinematic_ms
+            + refresh_cache_ms
+            + invalidate_cache_ms
+        )
+        self._last_set_state_timing_ms = {
+            "dr_reset_set_state_qpos_convert_ms": qpos_convert_ms,
+            "dr_reset_set_state_slice_ms": slice_ms,
+            "dr_reset_set_state_data_write_ms": data_write_ms,
+            "dr_reset_set_state_ctrl_ms": ctrl_ms,
+            "dr_reset_set_state_forward_kinematic_ms": forward_kinematic_ms,
+            "dr_reset_set_state_refresh_cache_ms": refresh_cache_ms,
+            "dr_reset_set_state_invalidate_cache_ms": invalidate_cache_ms,
+            "dr_reset_set_state_backend_internal_gap_ms": total_ms - measured_ms,
+        }
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         supported_reset_terms = {

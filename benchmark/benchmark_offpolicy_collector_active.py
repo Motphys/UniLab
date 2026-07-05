@@ -91,6 +91,14 @@ NP_ENV_STEP_TIMING_KEYS = (
     "dr_reset_plan_ms",
     "dr_reset_payload_filter_ms",
     "dr_reset_set_state_ms",
+    "dr_reset_set_state_qpos_convert_ms",
+    "dr_reset_set_state_slice_ms",
+    "dr_reset_set_state_data_write_ms",
+    "dr_reset_set_state_ctrl_ms",
+    "dr_reset_set_state_forward_kinematic_ms",
+    "dr_reset_set_state_refresh_cache_ms",
+    "dr_reset_set_state_invalidate_cache_ms",
+    "dr_reset_set_state_backend_internal_gap_ms",
     "dr_reset_build_observation_ms",
     "dr_reset_internal_gap_ms",
     "dr_reset_observation_getters_ms",
@@ -122,6 +130,17 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("dr_reset_plan_ms", "dr_reset_plan_ms"),
     ("dr_reset_payload_filter_ms", "dr_reset_payload_filter_ms"),
     ("dr_reset_set_state_ms", "dr_reset_set_state_ms"),
+    ("dr_reset_set_state_qpos_convert_ms", "dr_reset_set_state_qpos_convert_ms"),
+    ("dr_reset_set_state_slice_ms", "dr_reset_set_state_slice_ms"),
+    ("dr_reset_set_state_data_write_ms", "dr_reset_set_state_data_write_ms"),
+    ("dr_reset_set_state_ctrl_ms", "dr_reset_set_state_ctrl_ms"),
+    ("dr_reset_set_state_forward_kinematic_ms", "dr_reset_set_state_forward_kinematic_ms"),
+    ("dr_reset_set_state_refresh_cache_ms", "dr_reset_set_state_refresh_cache_ms"),
+    ("dr_reset_set_state_invalidate_cache_ms", "dr_reset_set_state_invalidate_cache_ms"),
+    (
+        "dr_reset_set_state_backend_internal_gap_ms",
+        "dr_reset_set_state_backend_internal_gap_ms",
+    ),
     ("dr_reset_build_observation_ms", "dr_reset_build_observation_ms"),
     ("dr_reset_internal_gap_ms", "dr_reset_internal_gap_ms"),
     ("dr_reset_observation_getters_ms", "dr_reset_observation_getters_ms"),
@@ -1395,6 +1414,10 @@ def _print_result(result: CollectorResult) -> None:
             "reset_done_info_scatter_ms",
             "dr_reset_plan_ms",
             "dr_reset_set_state_ms",
+            "dr_reset_set_state_slice_ms",
+            "dr_reset_set_state_data_write_ms",
+            "dr_reset_set_state_forward_kinematic_ms",
+            "dr_reset_set_state_refresh_cache_ms",
             "dr_reset_build_observation_ms",
             "dr_reset_obs_get_motion_ms",
             "dr_reset_observation_getters_ms",
@@ -1563,7 +1586,7 @@ def main() -> int:
         print("\nReset done timing (subparts of NpEnv reset_done_ms):")
         print(_format_reset_done_timing_table(results))
         print(
-            "\nDR reset timing (subparts of reset call; reset obs getters currently read full batch):"
+            "\nDR reset timing (subparts of reset call; includes reset observation getters):"
         )
         print(_format_dr_reset_timing_table(results))
     else:
