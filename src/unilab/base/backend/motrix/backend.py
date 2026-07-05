@@ -628,7 +628,7 @@ class MotrixBackend(SimBackend):
         forward_kinematic_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        self._refresh_link_pose_cache(env_indices)
+        self._refresh_link_pose_cache(env_indices, data_slice=data_slice)
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
@@ -1030,13 +1030,17 @@ class MotrixBackend(SimBackend):
             qpos_mujoco[..., quat_indices] = qpos[..., quat_indices[[3, 0, 1, 2]]]
         return qpos_mujoco
 
-    def _refresh_link_pose_cache(self, env_indices: np.ndarray | None = None) -> None:
+    def _refresh_link_pose_cache(
+        self, env_indices: np.ndarray | None = None, data_slice: Any | None = None
+    ) -> None:
         if env_indices is None:
             self._link_poses = self._model.get_link_poses(self._data)
         else:
-            mask = np.zeros(self._num_envs, dtype=bool)
-            mask[env_indices] = True
-            self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
+            if data_slice is None:
+                mask = np.zeros(self._num_envs, dtype=bool)
+                mask[env_indices] = True
+                data_slice = self._data[mask]
+            self._link_poses[env_indices] = self._model.get_link_poses(data_slice)
 
     def _refresh_link_velocity_cache(self, env_indices: np.ndarray | None = None) -> None:
         if env_indices is None:
