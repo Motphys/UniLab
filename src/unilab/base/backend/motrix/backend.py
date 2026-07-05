@@ -60,6 +60,16 @@ def _first_scalar(value: Any) -> float:
     return float(arr.reshape(-1)[0])
 
 
+def _contiguous_slice(indices: np.ndarray) -> slice | None:
+    if indices.size == 0:
+        return None
+    start = int(indices[0])
+    stop = start + int(indices.size)
+    if np.array_equal(indices, np.arange(start, stop, dtype=indices.dtype)):
+        return slice(start, stop)
+    return None
+
+
 @dataclass
 class _MotrixSceneContext:
     model: "mtx.SceneModel"
@@ -185,6 +195,7 @@ class MotrixBackend(SimBackend):
         self._body_floatingbase = self._body.floatingbase
         self._joint_dof_pos_indices = np.asarray(self._model.joint_dof_pos_indices, dtype=np.intp)
         self._joint_dof_vel_indices = np.asarray(self._model.joint_dof_vel_indices, dtype=np.intp)
+        self._joint_dof_pos_slice = _contiguous_slice(self._joint_dof_pos_indices)
         position_actuators: list["mtx.PositionActuator"] = []
         for actuator in self._model.actuators:
             if actuator.typ == "position":
@@ -212,6 +223,11 @@ class MotrixBackend(SimBackend):
                 joint_pos_idx.append(int(joint.dof_pos_index))
             if len(joint_pos_idx) == int(self._model.num_actuators):
                 self._actuator_joint_pos_indices = np.asarray(joint_pos_idx, dtype=np.intp)
+        self._actuator_joint_pos_slice = (
+            _contiguous_slice(self._actuator_joint_pos_indices)
+            if self._actuator_joint_pos_indices is not None
+            else None
+        )
         self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float32)
         self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float32)
         for actuator in self._position_actuators:
@@ -599,25 +615,53 @@ class MotrixBackend(SimBackend):
         data_slice = self._data[mask]
         slice_ms = (time.perf_counter() - t0) * 1000.0
 
-        # Batch set state
         t0 = time.perf_counter()
         data_slice.reset(self._model)
+        data_reset_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._clear_applied_body_forces(env_indices)
+        clear_forces_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._apply_init_geom_size_overrides(data_slice, env_indices)
+        geom_overrides_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._apply_reset_randomization(data_slice, env_indices, randomization)
+        randomization_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         data_slice.set_dof_vel(qvel)
+        set_dof_vel_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         data_slice.set_dof_pos(qpos_motrix, self._model)
-        data_write_ms = (time.perf_counter() - t0) * 1000.0
+        set_dof_pos_ms = (time.perf_counter() - t0) * 1000.0
+        data_write_ms = (
+            data_reset_ms
+            + clear_forces_ms
+            + geom_overrides_ms
+            + randomization_ms
+            + set_dof_vel_ms
+            + set_dof_pos_ms
+        )
 
         t0 = time.perf_counter()
         if self._supports_position_actuator_gains and len(self._joint_dof_pos_indices) == int(
             self.num_actuators
         ):
             # Fully-actuated model: hold every joint at its reset position (unchanged).
-            ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
+            if self._joint_dof_pos_slice is not None:
+                ctrl = qpos_motrix[:, self._joint_dof_pos_slice]
+            else:
+                ctrl = qpos_motrix[:, self._joint_dof_pos_indices]
         elif self._actuator_joint_pos_indices is not None:
             # Under-actuated / parallel model: hold only the actuated joints.
-            ctrl = qpos_motrix[:, self._actuator_joint_pos_indices]
+            if self._actuator_joint_pos_slice is not None:
+                ctrl = qpos_motrix[:, self._actuator_joint_pos_slice]
+            else:
+                ctrl = qpos_motrix[:, self._actuator_joint_pos_indices]
         else:
             ctrl = np.zeros((len(env_indices), self.num_actuators), dtype=self._np_dtype)
         data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
@@ -649,6 +693,12 @@ class MotrixBackend(SimBackend):
             "dr_reset_set_state_qpos_convert_ms": qpos_convert_ms,
             "dr_reset_set_state_slice_ms": slice_ms,
             "dr_reset_set_state_data_write_ms": data_write_ms,
+            "dr_reset_set_state_data_reset_ms": data_reset_ms,
+            "dr_reset_set_state_clear_forces_ms": clear_forces_ms,
+            "dr_reset_set_state_geom_overrides_ms": geom_overrides_ms,
+            "dr_reset_set_state_randomization_ms": randomization_ms,
+            "dr_reset_set_state_set_dof_vel_ms": set_dof_vel_ms,
+            "dr_reset_set_state_set_dof_pos_ms": set_dof_pos_ms,
             "dr_reset_set_state_ctrl_ms": ctrl_ms,
             "dr_reset_set_state_forward_kinematic_ms": forward_kinematic_ms,
             "dr_reset_set_state_refresh_cache_ms": refresh_cache_ms,

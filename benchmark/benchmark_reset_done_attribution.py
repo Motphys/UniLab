@@ -67,6 +67,8 @@ class SetStateAttributionResult:
     new_set_state_ms: TimingStats
     old_refresh_cache_ms: TimingStats
     new_refresh_cache_ms: TimingStats
+    old_component_ms: dict[str, TimingStats]
+    new_component_ms: dict[str, TimingStats]
     set_state_speedup: float
     refresh_cache_speedup: float
 
@@ -209,9 +211,30 @@ def _old_refresh_link_pose_cache(self, env_indices: np.ndarray | None = None, da
         self._link_poses[env_indices] = self._model.get_link_poses(self._data[mask])
 
 
+SET_STATE_COMPONENT_KEYS = (
+    "dr_reset_set_state_qpos_convert_ms",
+    "dr_reset_set_state_slice_ms",
+    "dr_reset_set_state_data_write_ms",
+    "dr_reset_set_state_data_reset_ms",
+    "dr_reset_set_state_clear_forces_ms",
+    "dr_reset_set_state_geom_overrides_ms",
+    "dr_reset_set_state_randomization_ms",
+    "dr_reset_set_state_set_dof_vel_ms",
+    "dr_reset_set_state_set_dof_pos_ms",
+    "dr_reset_set_state_ctrl_ms",
+    "dr_reset_set_state_forward_kinematic_ms",
+    "dr_reset_set_state_refresh_cache_ms",
+    "dr_reset_set_state_invalidate_cache_ms",
+    "dr_reset_set_state_backend_internal_gap_ms",
+)
+
+
 def _run_set_state_once(env: Any, env_ids: np.ndarray, qpos: np.ndarray, qvel: np.ndarray) -> dict:
+    t0 = time.perf_counter()
     env._backend.set_state(env_ids, qpos, qvel)
-    return env._backend.last_set_state_timing_ms
+    wall_ms = (time.perf_counter() - t0) * 1000.0
+    timing = env._backend.last_set_state_timing_ms
+    return {"dr_reset_set_state_wall_ms": wall_ms, **timing}
 
 
 def benchmark_set_state_attribution(
@@ -234,6 +257,8 @@ def benchmark_set_state_attribution(
         new_set_state: list[float] = []
         old_refresh: list[float] = []
         new_refresh: list[float] = []
+        old_components: dict[str, list[float]] = {key: [] for key in SET_STATE_COMPONENT_KEYS}
+        new_components: dict[str, list[float]] = {key: [] for key in SET_STATE_COMPONENT_KEYS}
 
         for repeat_idx in range(warmup_repeats + measure_repeats):
             record = repeat_idx >= warmup_repeats
@@ -243,14 +268,18 @@ def benchmark_set_state_attribution(
             )
             timing = _run_set_state_once(env, env_ids, qpos, qvel)
             if record:
-                old_set_state.append(sum(v for k, v in timing.items() if k.startswith("dr_reset_set_state_")))
+                old_set_state.append(float(timing["dr_reset_set_state_wall_ms"]))
                 old_refresh.append(float(timing["dr_reset_set_state_refresh_cache_ms"]))
+                for key, values in old_components.items():
+                    values.append(float(timing.get(key, 0.0)))
 
             env._backend._refresh_link_pose_cache = original_refresh
             timing = _run_set_state_once(env, env_ids, qpos, qvel)
             if record:
-                new_set_state.append(sum(v for k, v in timing.items() if k.startswith("dr_reset_set_state_")))
+                new_set_state.append(float(timing["dr_reset_set_state_wall_ms"]))
                 new_refresh.append(float(timing["dr_reset_set_state_refresh_cache_ms"]))
+                for key, values in new_components.items():
+                    values.append(float(timing.get(key, 0.0)))
 
         env._backend._refresh_link_pose_cache = original_refresh
         old_set_state_stats = _stats(old_set_state)
@@ -266,6 +295,8 @@ def benchmark_set_state_attribution(
             new_set_state_ms=new_set_state_stats,
             old_refresh_cache_ms=old_refresh_stats,
             new_refresh_cache_ms=new_refresh_stats,
+            old_component_ms={key: _stats(values) for key, values in old_components.items()},
+            new_component_ms={key: _stats(values) for key, values in new_components.items()},
             set_state_speedup=_speedup(old_set_state_stats, new_set_state_stats),
             refresh_cache_speedup=_speedup(old_refresh_stats, new_refresh_stats),
         )
@@ -361,6 +392,10 @@ def main(argv: list[str] | None = None) -> int:
                 set_state_result.new_refresh_cache_ms,
                 set_state_result.refresh_cache_speedup,
             )
+            for key in SET_STATE_COMPONENT_KEYS:
+                old = set_state_result.old_component_ms[key]
+                new = set_state_result.new_component_ms[key]
+                print(f"  {key}: old={old.mean_ms:.6f} ms new={new.mean_ms:.6f} ms")
 
     if args.out_json is not None:
         payload = {
