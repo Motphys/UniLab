@@ -71,7 +71,6 @@ class DomainRandomizationManager:
             "dr_reset_build_observation_ms": build_observation_ms,
             "dr_reset_internal_gap_ms": total_ms - measured_ms,
         }
-        timing.update(self._env._backend.last_set_state_timing_ms)
         provider_timing = getattr(self._provider, "last_reset_observation_timing_ms", {})
         if isinstance(provider_timing, dict):
             timing.update(provider_timing)

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
-import pytest
 
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -123,10 +122,6 @@ class _FakeBackend:
     def __post_init__(self) -> None:
         self.last_randomization: ResetRandomizationPayload | None = None
 
-    @property
-    def last_set_state_timing_ms(self) -> dict[str, float]:
-        return {"dr_reset_set_state_forward_kinematic_ms": 1.25}
-
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return self.capabilities
 
@@ -184,8 +179,6 @@ def test_manager_skips_unsupported_reset_terms_with_warning(caplog):
         "motrix backend does not support reset randomization terms: kp; skipping them."
         in caplog.text
     )
-    timing = manager.last_reset_timing_ms
-    assert timing["dr_reset_set_state_forward_kinematic_ms"] == pytest.approx(1.25)
 
 
 def test_manager_keeps_supported_reset_terms_without_warning(caplog):

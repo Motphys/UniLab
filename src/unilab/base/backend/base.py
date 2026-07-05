@@ -281,11 +281,6 @@ class SimBackend(abc.ABC):
             randomization: Optional backend randomization payload.
         """
 
-    @property
-    def last_set_state_timing_ms(self) -> dict[str, float]:
-        """Return backend-internal timing from the most recent ``set_state`` call."""
-        return {}
-
     @abc.abstractmethod
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         """Return supported domain-randomization capabilities for this backend."""
