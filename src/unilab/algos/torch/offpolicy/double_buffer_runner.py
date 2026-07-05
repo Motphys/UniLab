@@ -186,8 +186,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             warn_if_over_budget,
         )
 
+        graph_packed_staging_supported = self.algo_type == "sac" or (
+            self.algo_type == "flashsac"
+            and bool(getattr(self.learner, "supports_cuda_graph_packed_staging", False))
+        )
         use_critic_graph_packed_source = (
-            self.algo_type == "sac"
+            graph_packed_staging_supported
             and bool(getattr(self.learner, "use_cuda_graph_critic_packed_staging", False))
             and self.critic_obs_dim > 0
         )

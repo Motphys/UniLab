@@ -1808,17 +1808,20 @@ def test_double_buffer_runner_passes_nan_guard_cfg_to_collector(
 
 
 @pytest.mark.parametrize(
-    ("algo_type", "packed_staging_enabled", "expected_enabled"),
+    ("algo_type", "supports_graph_staging", "packed_staging_enabled", "expected_enabled"),
     [
-        ("sac", True, True),
-        ("sac", False, False),
-        ("td3", True, False),
+        ("sac", True, True, True),
+        ("sac", True, False, False),
+        ("flashsac", True, True, True),
+        ("flashsac", False, True, False),
+        ("td3", True, True, False),
     ],
 )
-def test_double_buffer_runner_enables_critic_graph_source_only_for_sac_opt_in(
+def test_double_buffer_runner_enables_critic_graph_source_only_for_supported_opt_in(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
     algo_type,
+    supports_graph_staging,
     packed_staging_enabled,
     expected_enabled,
 ):
@@ -1837,6 +1840,7 @@ def test_double_buffer_runner_enables_critic_graph_source_only_for_sac_opt_in(
         def __init__(self):
             self.actor = _FakeActor()
             self.update_count = 0
+            self.supports_cuda_graph_packed_staging = supports_graph_staging
             self.use_cuda_graph_critic_packed_staging = packed_staging_enabled
 
         def get_state_dict(self):
