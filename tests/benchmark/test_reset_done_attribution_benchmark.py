@@ -37,4 +37,5 @@ def test_parse_args_defaults_to_issue_scale() -> None:
     assert args.reset_count == 256
     assert args.measure_repeats == 30
     assert args.body_pose_backends == "motrix,mujoco"
+    assert args.set_state_profile_backends == "motrix,mujoco"
     assert not args.skip_set_state

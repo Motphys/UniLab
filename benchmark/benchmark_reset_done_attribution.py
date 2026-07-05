@@ -73,6 +73,16 @@ class SetStateAttributionResult:
     refresh_cache_speedup: float
 
 
+@dataclass(frozen=True)
+class SetStateProfileResult:
+    backend: str
+    num_envs: int
+    reset_count: int
+    repeats: int
+    set_state_ms: TimingStats
+    component_ms: dict[str, TimingStats]
+
+
 def _stats(samples_ms: list[float]) -> TimingStats:
     if not samples_ms:
         raise ValueError("no samples")
@@ -212,6 +222,10 @@ def _old_refresh_link_pose_cache(self, env_indices: np.ndarray | None = None, da
 
 
 SET_STATE_COMPONENT_KEYS = (
+    "dr_reset_set_state_alloc_state_ms",
+    "dr_reset_set_state_fill_qpos_ms",
+    "dr_reset_set_state_fill_qvel_ms",
+    "dr_reset_set_state_env_ids_ms",
     "dr_reset_set_state_qpos_convert_ms",
     "dr_reset_set_state_slice_ms",
     "dr_reset_set_state_data_write_ms",
@@ -223,6 +237,9 @@ SET_STATE_COMPONENT_KEYS = (
     "dr_reset_set_state_set_dof_pos_ms",
     "dr_reset_set_state_ctrl_ms",
     "dr_reset_set_state_forward_kinematic_ms",
+    "dr_reset_set_state_pool_reset_ms",
+    "dr_reset_set_state_physics_state_scatter_ms",
+    "dr_reset_set_state_sensor_scatter_ms",
     "dr_reset_set_state_refresh_cache_ms",
     "dr_reset_set_state_invalidate_cache_ms",
     "dr_reset_set_state_backend_internal_gap_ms",
@@ -304,6 +321,49 @@ def benchmark_set_state_attribution(
         env.close()
 
 
+def benchmark_set_state_profile(
+    *,
+    backend: str,
+    num_envs: int,
+    reset_count: int,
+    warmup_repeats: int,
+    measure_repeats: int,
+    seed: int,
+) -> SetStateProfileResult:
+    env = _compose_env("flashsac", "g1_walk_flat", backend, num_envs)
+    try:
+        env_ids = _sample_env_ids(num_envs, reset_count, seed)
+        plan = env._dr_manager._provider.build_reset_plan(env, env_ids)
+        qpos = np.asarray(plan.qpos)
+        qvel = np.asarray(plan.qvel)
+        randomization = plan.randomization
+
+        set_state: list[float] = []
+        components: dict[str, list[float]] = {key: [] for key in SET_STATE_COMPONENT_KEYS}
+
+        for repeat_idx in range(warmup_repeats + measure_repeats):
+            record = repeat_idx >= warmup_repeats
+            t0 = time.perf_counter()
+            env._backend.set_state(env_ids, qpos, qvel, randomization=randomization)
+            wall_ms = (time.perf_counter() - t0) * 1000.0
+            timing = env._backend.last_set_state_timing_ms
+            if record:
+                set_state.append(wall_ms)
+                for key, values in components.items():
+                    values.append(float(timing.get(key, 0.0)))
+
+        return SetStateProfileResult(
+            backend=backend,
+            num_envs=num_envs,
+            reset_count=reset_count,
+            repeats=measure_repeats,
+            set_state_ms=_stats(set_state),
+            component_ms={key: _stats(values) for key, values in components.items()},
+        )
+    finally:
+        env.close()
+
+
 def _print_stats(label: str, old: TimingStats, new: TimingStats, speedup: float) -> None:
     print(
         f"  {label}: old={old.mean_ms:.6f} ms new={new.mean_ms:.6f} ms "
@@ -327,6 +387,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--measure-repeats", type=int, default=30)
     parser.add_argument("--seed", type=int, default=673)
     parser.add_argument("--body-pose-backends", default="motrix,mujoco")
+    parser.add_argument("--set-state-profile-backends", default="motrix,mujoco")
     parser.add_argument("--skip-set-state", action="store_true")
     parser.add_argument("--out-json", type=Path, default=None)
     return parser.parse_args(argv)
@@ -367,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     set_state_result = None
+    set_state_profiles: list[SetStateProfileResult] = []
     if not args.skip_set_state:
         set_state_result = _run_safely(
             "set_state/motrix",
@@ -397,6 +459,30 @@ def main(argv: list[str] | None = None) -> int:
                 new = set_state_result.new_component_ms[key]
                 print(f"  {key}: old={old.mean_ms:.6f} ms new={new.mean_ms:.6f} ms")
 
+        for backend in [
+            part.strip() for part in args.set_state_profile_backends.split(",") if part.strip()
+        ]:
+            profile = _run_safely(
+                f"set_state_profile/{backend}",
+                lambda backend=backend: benchmark_set_state_profile(
+                    backend=backend,
+                    num_envs=args.num_envs,
+                    reset_count=args.reset_count,
+                    warmup_repeats=args.warmup_repeats,
+                    measure_repeats=args.measure_repeats,
+                    seed=args.seed,
+                ),
+            )
+            if profile is None:
+                continue
+            set_state_profiles.append(profile)
+            print(f"set_state_profile/{backend}:")
+            print(f"  set_state_ms: current={profile.set_state_ms.mean_ms:.6f} ms")
+            for key in SET_STATE_COMPONENT_KEYS:
+                value = profile.component_ms[key]
+                if value.mean_ms > 0.0:
+                    print(f"  {key}: current={value.mean_ms:.6f} ms")
+
     if args.out_json is not None:
         payload = {
             "device": get_device_info_dict(),
@@ -407,6 +493,7 @@ def main(argv: list[str] | None = None) -> int:
             "seed": args.seed,
             "body_pose": [asdict(result) for result in body_pose_results],
             "set_state": asdict(set_state_result) if set_state_result is not None else None,
+            "set_state_profiles": [asdict(result) for result in set_state_profiles],
         }
         args.out_json.parent.mkdir(parents=True, exist_ok=True)
         args.out_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")

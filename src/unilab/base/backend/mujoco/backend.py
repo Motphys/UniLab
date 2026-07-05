@@ -319,6 +319,7 @@ class MuJoCoBackend(SimBackend):
         self._np_dtype = np_dtype if np_dtype is not None else get_global_dtype()
         self.backend_type = "mujoco"
         self._pending_xfrc_applied = np.zeros((num_envs, 6 * self._model.nbody), dtype=np.float64)
+        self._last_set_state_timing_ms: dict[str, float] = {}
 
         # Thread configuration.
         self._n_threads = min(num_envs, cpu_count() * 2)
@@ -408,6 +409,10 @@ class MuJoCoBackend(SimBackend):
             self._tracked_quat_b_all = _get_sensor_view("track_quat_b", 4)
             self._tracked_linvel_b_all = _get_sensor_view("track_linvel_b", 3)
             self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
+
+    @property
+    def last_set_state_timing_ms(self) -> dict[str, float]:
+        return dict(self._last_set_state_timing_ms)
 
     def _load_base_model(self) -> mujoco.MjModel:
         if isinstance(self._model_file, mujoco.MjModel):
@@ -878,22 +883,71 @@ class MuJoCoBackend(SimBackend):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
+        total_t0 = time.perf_counter()
+        self._last_set_state_timing_ms = {}
         if len(env_indices) == 0:
             return
 
         num_reset = len(env_indices)
+
+        t0 = time.perf_counter()
         state_np = np.zeros((num_reset, self._physics_state.shape[1]), dtype=np.float64)
+        alloc_state_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
+        fill_qpos_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
+        fill_qvel_ms = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
+        env_ids = np.asarray(env_indices, dtype=np.int32)
+        env_ids_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        reset_randomization = self._translate_reset_randomization(randomization, num_reset)
+        randomization_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         state_out, sensor_np = self._pool.reset(  # type: ignore[union-attr]
-            env_ids=np.asarray(env_indices, dtype=np.int32),
+            env_ids=env_ids,
             initial_state=state_np,
-            randomization=self._translate_reset_randomization(randomization, num_reset),
+            randomization=reset_randomization,
         )
+        pool_reset_ms = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         self._physics_state[env_indices] = state_out.astype(self._np_dtype)
+        physics_state_scatter_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
+        sensor_scatter_ms = (time.perf_counter() - t0) * 1000.0
+
+        total_ms = (time.perf_counter() - total_t0) * 1000.0
+        measured_ms = (
+            alloc_state_ms
+            + fill_qpos_ms
+            + fill_qvel_ms
+            + env_ids_ms
+            + randomization_ms
+            + pool_reset_ms
+            + physics_state_scatter_ms
+            + sensor_scatter_ms
+        )
+        self._last_set_state_timing_ms = {
+            "dr_reset_set_state_alloc_state_ms": alloc_state_ms,
+            "dr_reset_set_state_fill_qpos_ms": fill_qpos_ms,
+            "dr_reset_set_state_fill_qvel_ms": fill_qvel_ms,
+            "dr_reset_set_state_env_ids_ms": env_ids_ms,
+            "dr_reset_set_state_randomization_ms": randomization_ms,
+            "dr_reset_set_state_pool_reset_ms": pool_reset_ms,
+            "dr_reset_set_state_physics_state_scatter_ms": physics_state_scatter_ms,
+            "dr_reset_set_state_sensor_scatter_ms": sensor_scatter_ms,
+            "dr_reset_set_state_backend_internal_gap_ms": total_ms - measured_ms,
+        }
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(
