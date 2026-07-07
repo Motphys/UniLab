@@ -30,6 +30,7 @@ env:
     scale_joint_angle: 0.01
     scale_joint_vel: 1.5
     scale_gyro: 0.2
+    seed: null
 reward:
   scales:
     motion_global_root_pos: 1.0

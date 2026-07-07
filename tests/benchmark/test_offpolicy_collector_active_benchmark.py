@@ -139,6 +139,23 @@ def test_auto_discovery_supports_motrixsim_alias() -> None:
     assert "td3/go2_joystick_flat/motrix" in specs
 
 
+def test_noise_seed_override_composes_for_target_g1_profiles() -> None:
+    for spec in (
+        ("sac", "g1_motion_tracking", "mujoco"),
+        ("sac", "g1_walk_flat", "mujoco"),
+        ("sac", "g1_walk_flat", "motrix"),
+        ("flashsac", "g1_walk_flat", "mujoco"),
+        ("flashsac", "g1_walk_flat", "motrix"),
+        ("td3", "g1_walk_flat", "mujoco"),
+    ):
+        cfg = bench._compose_offpolicy_cfg(
+            *spec,
+            extra_overrides=["env.noise_config.seed=123"],
+        )
+
+        assert cfg.env.noise_config.seed == 123
+
+
 def test_stats_reports_distribution() -> None:
     stats = bench._stats([1.0, 2.0, 3.0])
 
