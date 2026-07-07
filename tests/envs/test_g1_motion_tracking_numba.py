@@ -95,6 +95,90 @@ def test_g1_motion_tracking_numba_reward_termination_parity():
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+def test_g1_motion_tracking_numba_update_state_parity_without_noise():
+    n = 512
+    env = _make_env(n, include_undesired=True)
+    env.default_angles = np.linspace(-0.2, 0.2, env._num_action).astype(np.float32)
+    env._actor_obs_width = env._actor_obs_dim(env._num_action)
+    env._critic_base_obs_width = env._critic_base_obs_dim(env._num_action)
+    env._critic_obs_width = env._critic_base_obs_width + env._n_motion_bodies * 9
+    env._motion_anchor_pos_b = np.empty((n, 3), dtype=np.float32)
+    env._motion_anchor_ori_b = np.empty((n, 6), dtype=np.float32)
+    env._joint_pos_rel = np.empty((n, env._num_action), dtype=np.float32)
+    env._motion_command = np.empty((n, env._num_action * 2), dtype=np.float32)
+    env._zero_actions = np.zeros((n, env._num_action), dtype=np.float32)
+    env._body_vec_tmp = np.empty((n, env._n_motion_bodies, 3), dtype=np.float32)
+    env._cfg.noise_config = _NoiseCfg()
+
+    motion_data, robot_state, info = _make_batch(n, seed=2)
+    (
+        robot_body_pos_w,
+        robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        dof_pos,
+        dof_vel,
+    ) = robot_state
+    rng = np.random.default_rng(22)
+    linvel = rng.uniform(-1.0, 1.0, (n, 3)).astype(np.float32)
+    gyro = rng.uniform(-1.0, 1.0, (n, 3)).astype(np.float32)
+
+    env._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
+    reward_np = env._compute_reward(
+        {**info, "log": {}},
+        motion_data,
+        robot_body_pos_w,
+        robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        dof_pos,
+        dof_vel,
+    )
+    terminated_np = env._compute_terminations(motion_data, robot_body_pos_w, robot_body_quat_w)
+    obs_np = env._compute_obs(
+        info,
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        robot_body_pos_w,
+        robot_body_quat_w,
+    )
+
+    accel = G1MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
+    out = accel.compute_update_state(
+        info=info,
+        motion_data=motion_data,
+        linvel=linvel,
+        gyro=gyro,
+        dof_pos=dof_pos,
+        dof_vel=dof_vel,
+        robot_body_pos_w=robot_body_pos_w,
+        robot_body_quat_w=robot_body_quat_w,
+        robot_body_lin_vel_w=robot_body_lin_vel_w,
+        robot_body_ang_vel_w=robot_body_ang_vel_w,
+        ref_body_pos_w=env.body_pos_relative_w,
+        ref_body_quat_w=env.body_quat_relative_w,
+        motion_anchor_pos_b=env._motion_anchor_pos_b,
+        motion_anchor_ori_b=env._motion_anchor_ori_b,
+        joint_pos_rel=env._joint_pos_rel,
+        scales=env._cfg.reward_config.scales,
+        enable_log=True,
+        noise_level=0.0,
+        noise_scale_linvel=0.0,
+        noise_scale_gyro=0.0,
+        noise_scale_joint_angle=0.0,
+        noise_scale_joint_vel=0.0,
+    )
+
+    np.testing.assert_allclose(out.reward, reward_np, rtol=1e-4, atol=1e-5)
+    np.testing.assert_array_equal(out.terminated, terminated_np)
+    np.testing.assert_allclose(out.obs["obs"], obs_np["obs"], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(out.obs["critic"], obs_np["critic"], rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
 def test_g1_motion_tracking_numba_term_py_funcs_match_numpy_math():
     from unilab.envs.motion_tracking.g1 import motion_tracking_numba as T
 
@@ -168,6 +252,15 @@ class _Cfg:
     ee_body_names: tuple[str, ...] = G1MotionTrackingCfg.ee_body_names
     undesired_contact_z_threshold: float = G1MotionTrackingCfg.undesired_contact_z_threshold
     terminate_on_undesired_contacts: bool = False
+
+
+@dataclass
+class _NoiseCfg:
+    level: float = 0.0
+    scale_linvel: float = 0.1
+    scale_gyro: float = 0.1
+    scale_joint_angle: float = 0.02
+    scale_joint_vel: float = 0.3
 
 
 def _make_env(n: int, *, include_undesired: bool) -> Any:

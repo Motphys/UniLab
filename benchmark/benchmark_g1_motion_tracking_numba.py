@@ -5,14 +5,14 @@ This benchmark has two scopes:
 
 * default hot slice: reward plus termination, using deterministic synthetic
   arrays and the real ``G1MotionTrackingEnv`` reward/termination methods;
-* optional ``--e2e``: collector-side A/B through
+* default ``--e2e``: collector-side A/B through
   ``benchmark_offpolicy_collector_active.py`` without learner updates.
 
 Run:
     uv run python -m benchmark.benchmark_g1_motion_tracking_numba
     uv run python benchmark/benchmark_g1_motion_tracking_numba.py
     uv run python -m benchmark.benchmark_g1_motion_tracking_numba --quick
-    uv run python -m benchmark.benchmark_g1_motion_tracking_numba --quick --e2e
+    uv run python -m benchmark.benchmark_g1_motion_tracking_numba --no-e2e
 """
 
 from __future__ import annotations
@@ -134,6 +134,8 @@ class ComponentCase:
     relative_transform_ms: float
     numpy_reward_termination_ms: float
     numba_reward_termination_ms: float
+    numpy_update_state_ms: float
+    numba_update_state_ms: float
     numpy_total_ms: float
     numba_total_ms: float
     speedup_vs_numpy: float
@@ -175,6 +177,8 @@ class SyntheticBatch:
     env: G1MotionTrackingEnv
     info: dict[str, Any]
     motion_data: MotionDataBatch
+    linvel: np.ndarray
+    gyro: np.ndarray
     robot_body_pos_w: np.ndarray
     robot_body_quat_w: np.ndarray
     robot_body_lin_vel_w: np.ndarray
@@ -195,6 +199,15 @@ class SyntheticCfg:
     ee_body_names: tuple[str, ...] = G1MotionTrackingCfg.ee_body_names
     undesired_contact_z_threshold: float = G1MotionTrackingCfg.undesired_contact_z_threshold
     terminate_on_undesired_contacts: bool = G1MotionTrackingCfg.terminate_on_undesired_contacts
+
+
+@dataclass
+class SyntheticNoiseCfg:
+    level: float = 0.0
+    scale_linvel: float = 0.1
+    scale_gyro: float = 0.1
+    scale_joint_angle: float = 0.02
+    scale_joint_vel: float = 0.3
 
 
 def make_profile_specs() -> dict[str, ProfileSpec]:
@@ -241,12 +254,23 @@ def _make_fake_env(num_envs: int, reward_cfg: RewardConfig) -> G1MotionTrackingE
     env._joint_upper = env._joint_range[:, 1]
     dtype = get_global_dtype()
     n_body = env._n_motion_bodies
+    env.default_angles = np.linspace(-0.2, 0.2, NUM_ACTION).astype(dtype)
+    env._actor_obs_width = env._actor_obs_dim(NUM_ACTION)
+    env._critic_base_obs_width = env._critic_base_obs_dim(NUM_ACTION)
+    env._critic_obs_width = env._critic_base_obs_width + n_body * 9
+    env._cfg.noise_config = SyntheticNoiseCfg()
     env.body_pos_relative_w = np.zeros((num_envs, n_body, 3), dtype=dtype)
     env.body_quat_relative_w = np.zeros((num_envs, n_body, 4), dtype=dtype)
     env.body_quat_relative_w[:, :, 0] = 1.0
     env._delta_pos_w = np.empty((num_envs, 3), dtype=dtype)
     env._delta_ori_w = np.empty((num_envs, 4), dtype=dtype)
+    env._motion_anchor_pos_b = np.empty((num_envs, 3), dtype=dtype)
+    env._motion_anchor_ori_b = np.empty((num_envs, 6), dtype=dtype)
+    env._motion_command = np.empty((num_envs, NUM_ACTION * 2), dtype=dtype)
+    env._joint_pos_rel = np.empty((num_envs, NUM_ACTION), dtype=dtype)
+    env._zero_actions = np.zeros((num_envs, NUM_ACTION), dtype=dtype)
     env._body_vec_error = np.empty((num_envs, n_body, 3), dtype=dtype)
+    env._body_vec_tmp = np.empty((num_envs, n_body, 3), dtype=dtype)
     env._env_error = np.empty((num_envs,), dtype=dtype)
     env._env_error2 = np.empty((num_envs,), dtype=dtype)
     env._reward_term = np.empty((num_envs,), dtype=dtype)
@@ -315,6 +339,8 @@ def make_batch(num_envs: int, spec: ProfileSpec, seed: int) -> SyntheticBatch:
     robot_body_ang_vel_w = f32(
         target_ang_vel + 0.1 * rng.standard_normal((num_envs, n_body, 3))
     )
+    linvel = f32(rng.uniform(-1.0, 1.0, (num_envs, 3)))
+    gyro = f32(rng.uniform(-1.0, 1.0, (num_envs, 3)))
     dof_pos = f32(target_joint_pos + 0.05 * rng.standard_normal((num_envs, NUM_ACTION)))
     dof_vel = f32(target_joint_vel + 0.1 * rng.standard_normal((num_envs, NUM_ACTION)))
     current_actions = f32(rng.uniform(-1.0, 1.0, (num_envs, NUM_ACTION)))
@@ -337,6 +363,8 @@ def make_batch(num_envs: int, spec: ProfileSpec, seed: int) -> SyntheticBatch:
         env=env,
         info=info,
         motion_data=motion_data,
+        linvel=linvel,
+        gyro=gyro,
         robot_body_pos_w=robot_body_pos_w,
         robot_body_quat_w=robot_body_quat_w,
         robot_body_lin_vel_w=robot_body_lin_vel_w,
@@ -392,6 +420,72 @@ def compute_relative_transforms(batch: SyntheticBatch) -> None:
     )
 
 
+def compute_numpy_update_state(
+    batch: SyntheticBatch,
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, float]]:
+    env = batch.env
+    info = {**batch.info, "log": {}}
+    env._update_relative_transforms(
+        batch.motion_data, batch.robot_body_pos_w, batch.robot_body_quat_w
+    )
+    terminated = env._compute_terminations(
+        batch.motion_data, batch.robot_body_pos_w, batch.robot_body_quat_w
+    )
+    reward = env._compute_reward(
+        info,
+        batch.motion_data,
+        batch.robot_body_pos_w,
+        batch.robot_body_quat_w,
+        batch.robot_body_lin_vel_w,
+        batch.robot_body_ang_vel_w,
+        batch.dof_pos,
+        batch.dof_vel,
+    )
+    obs = env._compute_obs(
+        info,
+        batch.motion_data,
+        batch.linvel,
+        batch.gyro,
+        batch.dof_pos,
+        batch.dof_vel,
+        batch.robot_body_pos_w,
+        batch.robot_body_quat_w,
+    )
+    return obs, reward, terminated, info.get("log", {})
+
+
+def compute_numba_update_state(
+    batch: SyntheticBatch, accelerator: G1MotionTrackingNumbaAccelerator
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, float]]:
+    info = {**batch.info, "log": {}}
+    noise_cfg = batch.env._cfg.noise_config
+    out = accelerator.compute_update_state(
+        info=info,
+        motion_data=batch.motion_data,
+        linvel=batch.linvel,
+        gyro=batch.gyro,
+        dof_pos=batch.dof_pos,
+        dof_vel=batch.dof_vel,
+        robot_body_pos_w=batch.robot_body_pos_w,
+        robot_body_quat_w=batch.robot_body_quat_w,
+        robot_body_lin_vel_w=batch.robot_body_lin_vel_w,
+        robot_body_ang_vel_w=batch.robot_body_ang_vel_w,
+        ref_body_pos_w=batch.env.body_pos_relative_w,
+        ref_body_quat_w=batch.env.body_quat_relative_w,
+        motion_anchor_pos_b=batch.env._motion_anchor_pos_b,
+        motion_anchor_ori_b=batch.env._motion_anchor_ori_b,
+        joint_pos_rel=batch.env._joint_pos_rel,
+        scales=batch.env._cfg.reward_config.scales,
+        enable_log=True,
+        noise_level=noise_cfg.level,
+        noise_scale_linvel=noise_cfg.scale_linvel,
+        noise_scale_gyro=noise_cfg.scale_gyro,
+        noise_scale_joint_angle=noise_cfg.scale_joint_angle,
+        noise_scale_joint_vel=noise_cfg.scale_joint_vel,
+    )
+    return out.obs, out.reward, out.terminated, out.log
+
+
 def time_call(fn, *, iters: int, warmup: int) -> tuple[float, float, float]:
     for _ in range(warmup):
         fn()
@@ -413,9 +507,23 @@ def check_parity(
     for key, value in log_np.items():
         if key in log_nb:
             np.testing.assert_allclose(log_nb[key], value, rtol=1e-3, atol=1e-6)
+    obs_np, full_reward_np, full_terminated_np, _ = compute_numpy_update_state(batch)
+    obs_nb, full_reward_nb, full_terminated_nb, _ = compute_numba_update_state(batch, accelerator)
+    np.testing.assert_allclose(full_reward_nb, full_reward_np, rtol=1e-4, atol=1e-5)
+    np.testing.assert_array_equal(full_terminated_nb, full_terminated_np)
+    np.testing.assert_allclose(obs_nb["obs"], obs_np["obs"], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(obs_nb["critic"], obs_np["critic"], rtol=1e-5, atol=1e-5)
     return {
         "max_abs_reward_diff": float(np.max(np.abs(reward_nb - reward_np))),
         "termination_mismatch": float(np.count_nonzero(terminated_nb != terminated_np)),
+        "max_abs_update_state_reward_diff": float(
+            np.max(np.abs(full_reward_nb - full_reward_np))
+        ),
+        "update_state_termination_mismatch": float(
+            np.count_nonzero(full_terminated_nb != full_terminated_np)
+        ),
+        "max_abs_actor_obs_diff": float(np.max(np.abs(obs_nb["obs"] - obs_np["obs"]))),
+        "max_abs_critic_obs_diff": float(np.max(np.abs(obs_nb["critic"] - obs_np["critic"]))),
     }
 
 
@@ -432,6 +540,9 @@ def bench_one(
     max_threads = get_num_threads()
     relative_mean, _, _ = time_call(
         lambda: compute_relative_transforms(batch), iters=iters, warmup=warmup
+    )
+    numpy_update_state_mean, _, _ = time_call(
+        lambda: compute_numpy_update_state(batch), iters=iters, warmup=warmup
     )
     numpy_mean, numpy_min, numpy_std = time_call(
         lambda: compute_numpy(batch), iters=iters, warmup=warmup
@@ -453,10 +564,11 @@ def bench_one(
     compile_driver = G1MotionTrackingNumbaAccelerator.from_env(batch.env, num_threads=1)
     t0 = time.perf_counter()
     compute_numba(batch, compile_driver)
+    compute_numba_update_state(batch, compile_driver)
     compile_ms = (time.perf_counter() - t0) * 1e3
     parity = check_parity(batch, compile_driver)
 
-    for threads in [1, *thread_counts]:
+    for threads in dict.fromkeys([1, *thread_counts]):
         if threads > max_threads:
             continue
         accelerator = G1MotionTrackingNumbaAccelerator.from_env(batch.env, num_threads=threads)
@@ -493,8 +605,16 @@ def bench_one(
         (record for record in records if record.path == "numba_accelerator"),
         key=lambda record: record.mean_ms,
     )
-    numpy_total_ms = relative_mean + numpy_mean
-    numba_total_ms = relative_mean + best_numba.mean_ms
+    best_update_accelerator = G1MotionTrackingNumbaAccelerator.from_env(
+        batch.env, num_threads=best_numba.threads
+    )
+    numba_update_state_mean, _, _ = time_call(
+        lambda: compute_numba_update_state(batch, best_update_accelerator),
+        iters=iters,
+        warmup=warmup,
+    )
+    numpy_total_ms = numpy_update_state_mean
+    numba_total_ms = numba_update_state_mean
     component = ComponentCase(
         profile=profile.name,
         num_envs=num_envs,
@@ -502,6 +622,8 @@ def bench_one(
         relative_transform_ms=relative_mean,
         numpy_reward_termination_ms=numpy_mean,
         numba_reward_termination_ms=best_numba.mean_ms,
+        numpy_update_state_ms=numpy_update_state_mean,
+        numba_update_state_ms=numba_update_state_mean,
         numpy_total_ms=numpy_total_ms,
         numba_total_ms=numba_total_ms,
         speedup_vs_numpy=numpy_total_ms / numba_total_ms,
@@ -534,6 +656,8 @@ def _component_case_to_dict(case: ComponentCase) -> dict[str, Any]:
         "relative_transform_ms": case.relative_transform_ms,
         "numpy_reward_termination_ms": case.numpy_reward_termination_ms,
         "numba_reward_termination_ms": case.numba_reward_termination_ms,
+        "numpy_update_state_ms": case.numpy_update_state_ms,
+        "numba_update_state_ms": case.numba_update_state_ms,
         "numpy_total_ms": case.numpy_total_ms,
         "numba_total_ms": case.numba_total_ms,
         "speedup_vs_numpy": case.speedup_vs_numpy,
@@ -744,9 +868,9 @@ def _format_component_table(records: list[ComponentCase]) -> str:
         "rel ms",
         "numpy reward+term ms",
         "numba reward+term ms",
-        "numpy total ms",
-        "numba total ms",
-        "total speedup",
+        "numpy update_state ms",
+        "numba update_state ms",
+        "update_state speedup",
     ]
     rows = [
         [
@@ -756,12 +880,78 @@ def _format_component_table(records: list[ComponentCase]) -> str:
             f"{record.relative_transform_ms:.3f}",
             f"{record.numpy_reward_termination_ms:.3f}",
             f"{record.numba_reward_termination_ms:.3f}",
-            f"{record.numpy_total_ms:.3f}",
-            f"{record.numba_total_ms:.3f}",
+            f"{record.numpy_update_state_ms:.3f}",
+            f"{record.numba_update_state_ms:.3f}",
             f"{record.speedup_vs_numpy:.2f}x",
         ]
         for record in records
     ]
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            widths[idx] = max(widths[idx], len(value))
+
+    def fmt(values: list[str]) -> str:
+        return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    return "\n".join([fmt(headers), "-+-".join("-" * width for width in widths), *map(fmt, rows)])
+
+
+def _format_hot_summary_table(records: list[BenchCase]) -> str:
+    best_by_case = _best_numba_by_case(records)
+    rows = []
+    for profile in sorted({record.profile for record in records}):
+        best_records = [
+            record for key, record in best_by_case.items() if key[0] == profile
+        ]
+        if not best_records:
+            continue
+        envs = sorted(record.num_envs for record in best_records)
+        speedups = [record.speedup_vs_numpy for record in best_records]
+        throughputs = [record.env_per_s / 1e6 for record in best_records]
+        rows.append(
+            [
+                profile,
+                f"{envs[0]}-{envs[-1]}",
+                ",".join(str(thread) for thread in sorted({record.threads for record in best_records})),
+                f"{min(speedups):.2f}x-{max(speedups):.2f}x",
+                f"{max(throughputs):.2f}",
+            ]
+        )
+    headers = ["profile", "env range", "best threads", "hot speedup range", "peak M env/s"]
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            widths[idx] = max(widths[idx], len(value))
+
+    def fmt(values: list[str]) -> str:
+        return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    return "\n".join([fmt(headers), "-+-".join("-" * width for width in widths), *map(fmt, rows)])
+
+
+def _format_parity_summary_table(parity: dict[str, dict[str, float]]) -> str:
+    if not parity:
+        return ""
+    max_reward_diff = max(item["max_abs_reward_diff"] for item in parity.values())
+    max_update_reward_diff = max(
+        item["max_abs_update_state_reward_diff"] for item in parity.values()
+    )
+    max_actor_obs_diff = max(item["max_abs_actor_obs_diff"] for item in parity.values())
+    max_critic_obs_diff = max(item["max_abs_critic_obs_diff"] for item in parity.values())
+    termination_mismatch = sum(item["termination_mismatch"] for item in parity.values())
+    update_termination_mismatch = sum(
+        item["update_state_termination_mismatch"] for item in parity.values()
+    )
+    rows = [
+        ["reward max abs diff", f"{max_reward_diff:.3e}"],
+        ["update_state reward max abs diff", f"{max_update_reward_diff:.3e}"],
+        ["actor obs max abs diff", f"{max_actor_obs_diff:.3e}"],
+        ["critic obs max abs diff", f"{max_critic_obs_diff:.3e}"],
+        ["termination mismatches", f"{termination_mismatch:.0f}"],
+        ["update_state termination mismatches", f"{update_termination_mismatch:.0f}"],
+    ]
+    headers = ["check", "value"]
     widths = [len(h) for h in headers]
     for row in rows:
         for idx, value in enumerate(row):
@@ -1037,9 +1227,9 @@ def save_plots(
                     fontsize=8,
                 )
     ax3.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="break-even")
-    ax3.set_title("Relative transform + reward+termination")
+    ax3.set_title("Full update_state array path")
     ax3.set_xlabel("num_envs")
-    ax3.set_ylabel("Total speedup vs numpy")
+    ax3.set_ylabel("Speedup vs numpy")
     ax3.set_xscale("log", base=2)
     ax3.set_xticks(num_envs)
     ax3.set_xticklabels([str(value) for value in num_envs])
@@ -1080,7 +1270,10 @@ def write_report(
         "measured_threads": getattr(args, "measured_threads", None),
         "skipped_threads": getattr(args, "skipped_threads", None),
         "numba_max_threads": getattr(args, "numba_max_threads", None),
-        "scope": "G1 motion tracking reward+termination hot slice plus component reconciliation; synthetic arrays",
+        "scope": (
+            "G1 motion tracking reward+termination hot slice plus full update_state "
+            "array-path reconciliation; synthetic arrays"
+        ),
         "e2e_enabled": args.e2e,
         "e2e_num_envs": args.e2e_num_envs,
         "e2e_case": args.e2e_case,
@@ -1099,13 +1292,14 @@ def write_report(
     json_path = output_dir / "results.json"
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    best_by_case = _best_numba_by_case(records)
     summary_lines = [
         "# G1 motion tracking Numba benchmark",
         "",
         "Scope: reward plus termination for `G1MotionTrackingEnv.update_state`, using",
-        "deterministic synthetic arrays. Physics stepping, observation assembly, reset,",
-        "policy inference, learner work, and replay are out of scope for the hot slice.",
+        "deterministic synthetic arrays. The component table additionally measures the",
+        "full array portion of `update_state`: relative transforms, reward, termination,",
+        "and actor/critic observation assembly. Backend state getters, motion sampling,",
+        "reset/refresh, policy inference, learner work, and replay remain out of scope.",
         "",
         "## Numba-specific hot slice",
         "",
@@ -1123,24 +1317,23 @@ def write_report(
         "- `full_supported`: synthetic stress profile with every reward term supported by",
         "  `motion_tracking_numba.py` enabled.",
         "",
+        "```text",
+        _format_hot_summary_table(records),
+        "```",
+        "",
+        "Detailed per-env and per-thread data is stored in `results.json`.",
     ]
-    for key in sorted(best_by_case):
-        best = best_by_case[key]
-        summary_lines.append(
-            f"- `{best.profile}` / {best.num_envs} envs: best {best.mean_ms:.3f} ms "
-            f"at {best.threads} threads, {best.speedup_vs_numpy:.2f}x vs numpy "
-            f"({best.env_per_s / 1e6:.2f}M env/s)."
-        )
     if component_records:
         summary_lines.extend(
             [
                 "",
                 "## Component Reconciliation",
                 "",
-                "This table adds `_update_relative_transforms` to the reward+termination",
-                "hot slice. It is still synthetic and still excludes backend state getters,",
-                "observation assembly, motion sampling, reset/refresh, state replacement,",
-                "collector bookkeeping, and learner work.",
+                "This table measures the synthetic full array path of `update_state`:",
+                "`_update_relative_transforms`, reward, termination, motion-anchor",
+                "features, joint-relative features, and actor/critic observation assembly.",
+                "It still excludes backend state getters, motion sampling, reset/refresh,",
+                "state replacement, collector bookkeeping, and learner work.",
                 "",
                 "```text",
                 _format_component_table(component_records),
@@ -1207,31 +1400,24 @@ def write_report(
                 "This collector comparison does not run learner updates.",
             ]
         )
+    parity_summary = _format_parity_summary_table(parity)
     summary_lines.extend(
         [
             "",
-            "## Detailed Results",
-            "",
-            "```text",
-            _format_table(records),
-            "```",
-            "",
-            "## Parity",
+            "## Parity Summary",
             "",
             "Reward is checked with `rtol=1e-4, atol=1e-5`; termination is exact.",
-            "",
-            "```json",
-            json.dumps(parity, indent=2),
+            "```text",
+            parity_summary,
             "```",
             "",
             "## Interpretation",
             "",
             "- `numba 1 thread` isolates fusion/codegen benefit over numpy reward functions.",
             "- Higher thread counts add row-parallel speedup over the same fused kernel.",
-            "- Hot-slice speedup is an upper bound for collector speedup because collector",
-            "  timing also includes backend state getters, relative transforms, observation",
-            "  assembly, motion sampling, reset/RNG, policy inference, replay, and bookkeeping.",
-            "- The optional collector comparison still excludes learner updates.",
+            "- The collector comparison excludes learner updates but includes collector-side",
+            "  Hydra setup, env construction, actor sampling, `env.step`, replay writes, and",
+            "  bookkeeping inside the measured active window.",
         ]
     )
     md_path = output_dir / "report.md"
@@ -1255,8 +1441,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--e2e",
-        action="store_true",
-        help="Also run a real off-policy collector active-window baseline vs numba comparison.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run a real off-policy collector active-window baseline vs numba comparison.",
     )
     parser.add_argument("--e2e-num-envs", nargs="+", type=int, default=DEFAULT_E2E_NUM_ENVS)
     parser.add_argument("--e2e-case", default=DEFAULT_E2E_CASE)
