@@ -57,6 +57,8 @@ from unilab.envs.locomotion.g1.joystick_numba import G1WalkNumbaAccelerator
 NUM_ACTION = 29
 DEFAULT_THREADS = [2, 4, 8, 16, 32, 64]
 QUICK_THREADS = [2, 4]
+DEFAULT_NUM_ENVS = [512, 1024, 2048, 4096, 8192, 16384, 32768]
+DEFAULT_E2E_NUM_ENVS = [1024, 2048, 4096, 8192, 16384, 32768]
 DEFAULT_POSE_WEIGHTS = [
     0.01,
     1.0,
@@ -514,7 +516,7 @@ def _timing_mean_ms(result: Any, key: str) -> float | None:
     return float(stat.mean_ms) if stat is not None else None
 
 
-def _run_e2e_collector_case(
+def _run_e2e_collector_pair(
     *,
     num_envs: int,
     warmup_steps: int,
@@ -525,9 +527,9 @@ def _run_e2e_collector_case(
 
     This mirrors benchmark_offpolicy_collector_active.py: Hydra owner config,
     create_env, actor action sampling, env.step, terminal-observation handling,
-    replay writes, and bookkeeping are all included. It is intentionally optional
-    because it constructs a real MuJoCo env and is much heavier than the synthetic
-    reward+termination hot-slice benchmark above.
+    replay writes, and bookkeeping are all included. Learner updates are excluded.
+    It is intentionally optional because it constructs a real MuJoCo env and is
+    much heavier than the synthetic reward+termination hot-slice benchmark above.
     """
     from benchmark.benchmark_offpolicy_collector_active import _build_and_run_case
 
@@ -590,6 +592,41 @@ def _run_e2e_collector_case(
         )
         if baseline.update_state_ms is not None and record.update_state_ms:
             record.update_state_speedup_vs_numpy = baseline.update_state_ms / record.update_state_ms
+    return records
+
+
+def _best_threads_for_profile(
+    records: list[BenchCase], *, profile: str, num_envs: list[int]
+) -> dict[int, int]:
+    best_by_case = _best_numba_by_case(records)
+    selected: dict[int, int] = {}
+    for env_count in num_envs:
+        best = best_by_case.get((profile, env_count))
+        if best is not None and best.threads is not None:
+            selected[env_count] = int(best.threads)
+    return selected
+
+
+def _run_e2e_collector_sweep(
+    *,
+    num_envs: list[int],
+    warmup_steps: int,
+    measure_steps: int,
+    selected_threads: dict[int, int],
+    fallback_numba_threads: int | None,
+) -> list[EndToEndCase]:
+    records: list[EndToEndCase] = []
+    for env_count in num_envs:
+        numba_threads = selected_threads.get(env_count, fallback_numba_threads)
+        print(f"e2e collector case: num_envs={env_count} numba_threads={numba_threads}")
+        records.extend(
+            _run_e2e_collector_pair(
+                num_envs=env_count,
+                warmup_steps=warmup_steps,
+                measure_steps=measure_steps,
+                numba_threads=numba_threads,
+            )
+        )
     return records
 
 
@@ -858,6 +895,10 @@ def write_report(
         "numba_max_threads": getattr(args, "numba_max_threads", None),
         "scope": "G1 joystick reward+termination hot slice; synthetic backend arrays",
         "e2e_enabled": args.e2e,
+        "e2e_num_envs": args.e2e_num_envs,
+        "e2e_warmup_steps": args.e2e_warmup_steps,
+        "e2e_measure_steps": args.e2e_measure_steps,
+        "e2e_numba_threads_source": "best sac_default hot-slice thread per num_env",
     }
     payload = {
         "meta": meta,
@@ -884,6 +925,15 @@ def write_report(
         "`G1WalkEnv` reward dispatch plus termination inside `update_state`. It excludes",
         "physics, observation assembly, reset/RNG, policy inference, learner work, and replay.",
         "",
+        "Profile meanings:",
+        "",
+        "- `ppo_default`: reward terms and thresholds matching the PPO G1 walk-flat style.",
+        "- `sac_default`: reward terms and thresholds matching the SAC G1 walk-flat owner config;",
+        "  this is also the source used to choose Numba threads for the collector A/B run.",
+        "- `full_supported`: synthetic stress profile with every reward term currently supported",
+        "  by `joystick_numba.py` enabled, used to estimate the upper bound when reward work is",
+        "  heavier than the default training configs.",
+        "",
     ]
     for key in sorted(best_by_case):
         best = best_by_case[key]
@@ -903,12 +953,13 @@ def write_report(
         summary_lines.extend(
             [
                 "",
-                "## End-to-end training-flow comparison",
+                "## End-to-end collector comparison",
                 "",
                 "This section mirrors `benchmark_offpolicy_collector_active.py`: Hydra owner config,",
                 "`create_env`, actor action sampling, `env.step`, terminal-observation handling,",
-                "replay writes, and collector-side bookkeeping are included. It is a collector",
-                "active-window comparison, not a full learner convergence benchmark.",
+                "replay writes, and collector-side bookkeeping are included. Learner updates are",
+                "not run. The Numba variant uses the best `sac_default` hot-slice thread count",
+                "found above for each `num_envs`.",
                 "",
                 "```text",
                 _format_e2e_table(e2e_records),
@@ -919,10 +970,11 @@ def write_report(
         summary_lines.extend(
             [
                 "",
-                "## End-to-end training-flow comparison",
+                "## End-to-end collector comparison",
                 "",
                 "Not run. Pass `--e2e` to add a real off-policy collector active-window A/B",
                 "comparison for `sac/g1_walk_flat/mujoco` with `numba_acceleration=false/true`.",
+                "This collector comparison does not run learner updates.",
             ]
         )
     summary_lines.extend(
@@ -946,8 +998,10 @@ def write_report(
             "",
             "- `numba 1 thread` isolates fusion/codegen benefit over Python reward dispatch.",
             "- Higher thread counts add row-parallel speedup over the same fused kernel.",
-            "- End-to-end training speedup will be lower because this benchmark excludes physics,",
-            "  obs assembly, reset/RNG, policy inference, and learner work.",
+            "- Hot-slice speedup is an upper bound for collector speedup because collector timing",
+            "  also includes physics, observation assembly, reset/RNG, policy inference, replay,",
+            "  and bookkeeping.",
+            "- The optional collector comparison still excludes learner updates.",
         ]
     )
     md_path = output_dir / "report.md"
@@ -968,7 +1022,7 @@ def parse_args() -> argparse.Namespace:
         "--num-envs",
         nargs="+",
         type=int,
-        default=[512, 1024, 2048, 4096, 8192, 16384, 32768],
+        default=DEFAULT_NUM_ENVS,
     )
     parser.add_argument("--threads", nargs="+", type=int, default=None)
     parser.add_argument("--iters", type=int, default=80)
@@ -979,10 +1033,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also run a real off-policy collector active-window baseline vs numba comparison.",
     )
-    parser.add_argument("--e2e-num-envs", type=int, default=512)
+    parser.add_argument("--e2e-num-envs", nargs="+", type=int, default=DEFAULT_E2E_NUM_ENVS)
     parser.add_argument("--e2e-warmup-steps", type=int, default=2)
     parser.add_argument("--e2e-measure-steps", type=int, default=8)
-    parser.add_argument("--e2e-numba-threads", type=int, default=None)
+    parser.add_argument(
+        "--e2e-numba-threads",
+        type=int,
+        default=None,
+        help="Fallback Numba thread count when a requested e2e num_env lacks hot-slice data.",
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -997,6 +1056,7 @@ def parse_args() -> argparse.Namespace:
     if args.quick:
         args.profiles = ["sac_default"]
         args.num_envs = [512, 2048]
+        args.e2e_num_envs = [1024, 2048]
         if args.threads is None:
             args.threads = QUICK_THREADS
         args.iters = 10
@@ -1044,15 +1104,46 @@ def main() -> None:
             print(_format_table(records))
 
     if args.e2e:
+        missing_e2e_hot_slice = [
+            num_envs
+            for num_envs in args.e2e_num_envs
+            if ("sac_default", num_envs) not in _best_numba_by_case(all_records)
+        ]
+        if missing_e2e_hot_slice:
+            print()
+            print("=" * 80)
+            print("Completing sac_default hot-slice data for e2e thread selection")
+            print("=" * 80)
+            spec = specs["sac_default"]
+            for num_envs in missing_e2e_hot_slice:
+                records, parity_result = bench_one(
+                    profile=spec,
+                    num_envs=num_envs,
+                    thread_counts=args.threads,
+                    iters=args.iters,
+                    warmup=args.warmup,
+                    seed=args.seed,
+                )
+                all_records.extend(records)
+                parity[f"sac_default:{num_envs}"] = parity_result
+                print()
+                print(_format_table(records))
+
+        selected_threads = _best_threads_for_profile(
+            all_records, profile="sac_default", num_envs=args.e2e_num_envs
+        )
         print()
         print("=" * 80)
-        print("End-to-end training-flow comparison: off-policy collector active window")
+        print("End-to-end collector comparison: off-policy collector active window")
         print("=" * 80)
-        e2e_records = _run_e2e_collector_case(
+        print(f"e2e num_envs={args.e2e_num_envs}")
+        print(f"e2e numba threads from sac_default hot-slice best: {selected_threads}")
+        e2e_records = _run_e2e_collector_sweep(
             num_envs=args.e2e_num_envs,
             warmup_steps=args.e2e_warmup_steps,
             measure_steps=args.e2e_measure_steps,
-            numba_threads=args.e2e_numba_threads,
+            selected_threads=selected_threads,
+            fallback_numba_threads=args.e2e_numba_threads,
         )
         print(_format_e2e_table(e2e_records))
 
