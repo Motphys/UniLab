@@ -23,7 +23,7 @@ def test_g1_joystick_numba_benchmark_builds_records_and_matches_numpy() -> None:
 
 def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
     record = bench.EndToEndCase(
-        case="sac/g1_walk_flat/mujoco",
+        case=bench.DEFAULT_E2E_CASE,
         path="training_collector_numba",
         num_envs=64,
         warmup_steps=1,
@@ -46,6 +46,7 @@ def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
     assert payload["numba_threads"] == 4
     assert "training_collector_numba" in table
     assert "1.25x" in table
+    assert "motrixsim" in table
 
 
 def test_g1_joystick_numba_benchmark_selects_best_hot_slice_threads() -> None:
