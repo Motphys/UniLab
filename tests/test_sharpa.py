@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from unilab.envs.common.rotation import np_quat_apply
+from unilab.utils.rotation import np_quat_apply
 from unilab.envs.manipulation.sharpa_inhand.base import SharpaDomainRandConfig
 from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
     SharpaInhandRotationGraspCfg,

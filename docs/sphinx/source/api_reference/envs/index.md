@@ -15,7 +15,6 @@ can be selected via `uv run train --algo <algo> --task <name> --sim <backend>`.
 locomotion
 manipulation
 motion_tracking
-common
 ```
 
 ```{eval-rst}
