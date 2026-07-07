@@ -362,7 +362,7 @@ class G1WalkEnv(G1BaseEnv):
         dof_vel = self.get_dof_vel()
 
         if self._numba_accelerator is not None:
-            accel_result = self._numba_accelerator.compute(
+            accel_result = self._numba_accelerator.compute_update_state(
                 env=self,
                 info=state.info,
                 linvel=linvel,
@@ -372,9 +372,11 @@ class G1WalkEnv(G1BaseEnv):
                 dof_vel=dof_vel,
                 scales=self._reward_cfg.scales,
                 enable_log=self._enable_reward_log,
+                noise_level=self._cfg.noise_config.level,
             )
             terminated = accel_result.terminated
             reward = accel_result.reward
+            obs = accel_result.obs
             state.info["log"] = accel_result.log
         else:
             max_tilt_rad = np.deg2rad(self._reward_cfg.max_tilt_deg)
@@ -384,8 +386,8 @@ class G1WalkEnv(G1BaseEnv):
                 self._terrain_relative_base_height() < self._reward_cfg.min_base_height,
             )
             reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
+            obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
 
-        obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         state = state.replace(obs=obs, reward=reward, terminated=terminated)
 
         done = state.terminated | state.truncated

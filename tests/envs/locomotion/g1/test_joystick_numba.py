@@ -49,6 +49,15 @@ class _Backend:
 
 class _Cfg:
     ctrl_dt = 0.02
+    noise_config = None
+
+
+class _NoiseCfg:
+    level = 0.0
+    scale_gyro = 0.1
+    scale_gravity = 0.0
+    scale_joint_angle = 0.02
+    scale_joint_vel = 0.3
 
 
 class _RewardCfg:
@@ -65,13 +74,23 @@ class _RewardCfg:
 class _Env:
     def __init__(self, n: int, n_action: int):
         self.num_envs = n
+        self._num_envs = n
         self._num_action = n_action
         self._cfg = _Cfg()
+        self._cfg.noise_config = _NoiseCfg()
         self._reward_cfg = _RewardCfg()
+        self._enable_reward_log = True
         self.default_angles = np.zeros((n_action,), dtype=np.float32)
         self._pose_weights = np.ones((n_action,), dtype=np.float32)
         self._upper_body_pose_weights = np.ones((n_action,), dtype=np.float32)
         self._backend = _Backend(n)
+
+    @property
+    def obs_groups_spec(self):
+        return {"obs": 98, "critic": 101}
+
+    def _uses_walk_observation_profile(self):
+        return True
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
@@ -162,6 +181,123 @@ def test_g1_walk_numba_basic_reward_parity():
     np.testing.assert_allclose(out.reward, reward, rtol=2e-5, atol=2e-5)
     np.testing.assert_array_equal(out.terminated, terminated)
     assert set(out.log) == {f"reward/{name}" for name in scales}
+
+
+@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+def test_g1_walk_numba_update_state_parity_without_noise():
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+
+    n = 512
+    n_action = 29
+    rng = np.random.default_rng(3)
+    env = _Env(n, n_action)
+    env.default_angles = rng.normal(scale=0.1, size=(n_action,)).astype(np.float32)
+    env._pose_weights = rng.uniform(0.1, 2.0, size=(n_action,)).astype(np.float32)
+    env._upper_body_pose_weights = env._pose_weights.copy()
+    env._upper_body_pose_weights[:12] = 0.0
+    env._reward_cfg.scales = {
+        "tracking_lin_vel": 2.0,
+        "tracking_ang_vel": 1.5,
+        "penalty_orientation": -10.0,
+        "penalty_action_rate": -4.0,
+        "pose": -0.5,
+        "penalty_feet_ori": -20.0,
+        "feet_phase": 5.0,
+        "alive": 10.0,
+    }
+    env._init_reward_functions = G1WalkEnv._init_reward_functions.__get__(env, G1WalkEnv)
+    env._build_reward_context = G1WalkEnv._build_reward_context.__get__(env, G1WalkEnv)
+    env._compute_reward = G1WalkEnv._compute_reward.__get__(env, G1WalkEnv)
+    env._compute_obs = G1WalkEnv._compute_obs.__get__(env, G1WalkEnv)
+    env._gait_reward_gate = G1WalkEnv._gait_reward_gate.__get__(env, G1WalkEnv)
+    env._obs_noise = lambda data, scale: data
+    env._reward_fns = {
+        "tracking_lin_vel": __import__(
+            "unilab.envs.locomotion.common.rewards", fromlist=["tracking_lin_vel"]
+        ).tracking_lin_vel,
+        "tracking_ang_vel": __import__(
+            "unilab.envs.locomotion.common.rewards", fromlist=["tracking_ang_vel"]
+        ).tracking_ang_vel,
+        "penalty_orientation": __import__(
+            "unilab.envs.locomotion.common.rewards", fromlist=["orientation"]
+        ).orientation,
+        "penalty_action_rate": __import__(
+            "unilab.envs.locomotion.common.rewards", fromlist=["action_rate"]
+        ).action_rate,
+        "pose": __import__(
+            "unilab.envs.locomotion.common.rewards", fromlist=["weighted_pose"]
+        ).weighted_pose,
+        "penalty_feet_ori": G1WalkEnv._reward_feet_ori.__get__(env, G1WalkEnv),
+        "feet_phase": G1WalkEnv._reward_feet_phase.__get__(env, G1WalkEnv),
+        "alive": __import__("unilab.envs.locomotion.common.rewards", fromlist=["alive"]).alive,
+    }
+
+    info = {
+        "steps": np.zeros((n,), dtype=np.uint32),
+        "commands": rng.normal(size=(n, 3)).astype(np.float32),
+        "current_actions": rng.normal(size=(n, n_action)).astype(np.float32),
+        "last_actions": rng.normal(size=(n, n_action)).astype(np.float32),
+        "gait_phase": rng.uniform(0.0, 2 * np.pi, size=(n, 2)).astype(np.float32),
+        "log": {},
+    }
+    linvel = rng.normal(size=(n, 3)).astype(np.float32)
+    gyro = rng.normal(size=(n, 3)).astype(np.float32)
+    gravity = np.tile(np.array([0.01, -0.02, 0.99], dtype=np.float32), (n, 1))
+    dof_pos = rng.normal(scale=0.01, size=(n, n_action)).astype(np.float32)
+    dof_vel = rng.normal(size=(n, n_action)).astype(np.float32)
+
+    max_tilt_rad = np.deg2rad(env._reward_cfg.max_tilt_deg)
+    terminated_np = (
+        np.arccos(np.clip(gravity[:, 2], -1.0, 1.0)) > max_tilt_rad
+    ) | (env._backend.get_base_pos()[:, 2] < env._reward_cfg.min_base_height)
+    reward_np = env._compute_reward(
+        {**info, "log": {}}, linvel, gyro, gravity, dof_pos, dof_vel
+    )
+    obs_np = env._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
+
+    accel = G1WalkNumbaAccelerator.from_env(env, num_threads=2)
+    out = accel.compute_update_state(
+        env=env,
+        info=info,
+        linvel=linvel,
+        gyro=gyro,
+        gravity=gravity,
+        dof_pos=dof_pos,
+        dof_vel=dof_vel,
+        scales=env._reward_cfg.scales,
+        enable_log=True,
+        noise_level=0.0,
+    )
+
+    np.testing.assert_allclose(out.reward, reward_np, rtol=5e-5, atol=5e-5)
+    np.testing.assert_array_equal(out.terminated, terminated_np)
+    np.testing.assert_allclose(out.obs["obs"], obs_np["obs"], rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(out.obs["critic"], obs_np["critic"], rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+def test_g1_walk_numba_update_state_rejects_noise():
+    env = _Env(8, 29)
+    accel = G1WalkNumbaAccelerator.from_env(env, num_threads=1)
+    arrays = {
+        "linvel": np.zeros((8, 3), dtype=np.float32),
+        "gyro": np.zeros((8, 3), dtype=np.float32),
+        "gravity": np.tile(np.array([0.0, 0.0, 1.0], dtype=np.float32), (8, 1)),
+        "dof_pos": np.zeros((8, 29), dtype=np.float32),
+        "dof_vel": np.zeros((8, 29), dtype=np.float32),
+    }
+    with pytest.raises(RuntimeError, match="does not support observation noise"):
+        accel.compute_update_state(
+            env=env,
+            info={
+                "steps": np.zeros((8,), dtype=np.uint32),
+                "commands": np.zeros((8, 3), dtype=np.float32),
+            },
+            scales={"tracking_lin_vel": 1.0},
+            enable_log=False,
+            noise_level=1.0,
+            **arrays,
+        )
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
