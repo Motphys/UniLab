@@ -174,8 +174,11 @@ class EndToEndCase:
     numba_threads: int | None
     collector_active_steps_per_sec: float
     total_active_ms: float
+    collector_step_ms: float
     env_step_ms: float
+    physics_step_ms: float | None
     update_state_ms: float | None
+    other_ms: float
     speedup_vs_numpy: float = 1.0
     env_step_speedup_vs_numpy: float | None = None
     update_state_speedup_vs_numpy: float | None = None
@@ -504,8 +507,11 @@ def _e2e_case_to_dict(case: EndToEndCase) -> dict[str, Any]:
         "numba_threads": case.numba_threads,
         "collector_active_steps_per_sec": case.collector_active_steps_per_sec,
         "total_active_ms": case.total_active_ms,
+        "collector_step_ms": case.collector_step_ms,
         "env_step_ms": case.env_step_ms,
+        "physics_step_ms": case.physics_step_ms,
         "update_state_ms": case.update_state_ms,
+        "other_ms": case.other_ms,
         "speedup_vs_numpy": case.speedup_vs_numpy,
         "env_step_speedup_vs_numpy": case.env_step_speedup_vs_numpy,
         "update_state_speedup_vs_numpy": case.update_state_speedup_vs_numpy,
@@ -567,6 +573,18 @@ def _run_e2e_collector_pair(
             **common,
         )
         env_step_ms = float(result.phase_ms_per_vector_step["env_step_ms"].mean_ms)
+        physics_step_ms = (
+            float(result.physics_ms_per_vector_step.mean_ms)
+            if result.physics_ms_per_vector_step is not None
+            else None
+        )
+        update_state_ms = _timing_mean_ms(result, "update_state_ms")
+        collector_step_ms = float(result.total_active_ms) / float(result.measure_steps)
+        other_ms = collector_step_ms
+        if physics_step_ms is not None:
+            other_ms -= physics_step_ms
+        if update_state_ms is not None:
+            other_ms -= update_state_ms
         records.append(
             EndToEndCase(
                 case=case_name,
@@ -578,8 +596,11 @@ def _run_e2e_collector_pair(
                 numba_threads=numba_threads if enabled else None,
                 collector_active_steps_per_sec=float(result.collector_active_steps_per_sec),
                 total_active_ms=float(result.total_active_ms),
+                collector_step_ms=collector_step_ms,
                 env_step_ms=env_step_ms,
-                update_state_ms=_timing_mean_ms(result, "update_state_ms"),
+                physics_step_ms=physics_step_ms,
+                update_state_ms=update_state_ms,
+                other_ms=other_ms,
             )
         )
 
@@ -679,9 +700,12 @@ def _format_e2e_table(records: list[EndToEndCase]) -> str:
         "threads",
         "collector M steps/s",
         "speedup",
+        "collector step ms",
         "env_step ms",
-        "env_step speedup",
+        "physics ms",
         "update_state ms",
+        "other ms",
+        "env_step speedup",
         "update_state speedup",
     ]
     rows = []
@@ -694,13 +718,16 @@ def _format_e2e_table(records: list[EndToEndCase]) -> str:
                 "-" if record.numba_threads is None else str(record.numba_threads),
                 f"{record.collector_active_steps_per_sec / 1e6:.3f}",
                 f"{record.speedup_vs_numpy:.2f}x",
+                f"{record.collector_step_ms:.3f}",
                 f"{record.env_step_ms:.3f}",
+                "-" if record.physics_step_ms is None else f"{record.physics_step_ms:.3f}",
+                "-" if record.update_state_ms is None else f"{record.update_state_ms:.3f}",
+                f"{record.other_ms:.3f}",
                 (
                     "-"
                     if record.env_step_speedup_vs_numpy is None
                     else f"{record.env_step_speedup_vs_numpy:.2f}x"
                 ),
-                "-" if record.update_state_ms is None else f"{record.update_state_ms:.3f}",
                 (
                     "-"
                     if record.update_state_speedup_vs_numpy is None
@@ -964,6 +991,9 @@ def write_report(
                 "replay writes, and collector-side bookkeeping are included. Learner updates are",
                 "not run. The Numba variant uses the best `sac_default` hot-slice thread count",
                 "found above for each `num_envs`.",
+                "`other_ms` is the collector active step remainder after subtracting reported",
+                "`physics_ms` and `update_state_ms`; if the backend does not report physics timing,",
+                "only `update_state_ms` is subtracted.",
                 "",
                 "```text",
                 _format_e2e_table(e2e_records),
