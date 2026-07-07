@@ -14,11 +14,6 @@ from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
-from unilab.utils.rotation import (
-    np_quat_apply_inverse,
-    np_quat_from_euler_xyz,
-    np_quat_mul,
-)
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import (
     Commands,
@@ -57,6 +52,11 @@ from unilab.terrains import (
     pyramid_stairs_inv,
     random_rough,
     wave_terrain,
+)
+from unilab.utils.rotation import (
+    np_quat_apply_inverse,
+    np_quat_from_euler_xyz,
+    np_quat_mul,
 )
 
 # pyright: reportIncompatibleVariableOverride=false, reportAttributeAccessIssue=false, reportCallIssue=false

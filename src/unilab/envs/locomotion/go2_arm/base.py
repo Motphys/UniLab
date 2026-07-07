@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from unilab.base.backend import SimBackend
-from unilab.utils.rotation import np_matrix_from_quat
 from unilab.envs.locomotion.common.base import (
     ControlConfigBase,
     LocomotionBaseCfg,
@@ -13,6 +12,7 @@ from unilab.envs.locomotion.common.base import (
     Sensor,
 )
 from unilab.utils.geometry import np_quat_orientation_error_local
+from unilab.utils.rotation import np_matrix_from_quat
 
 DEFAULT_LEG_ANGLES = np.asarray(
     [

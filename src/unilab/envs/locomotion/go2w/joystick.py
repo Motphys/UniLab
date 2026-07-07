@@ -17,10 +17,6 @@ from unilab.dr.dr_utils import (
     zero_actions,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.utils.rotation import (
-    np_quat_mul,
-    np_yaw_to_quat,
-)
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import (
     Commands,
@@ -42,6 +38,10 @@ from unilab.envs.locomotion.go2w.base import (
     Go2WBaseEnv,
     compute_go2w_motor_ctrl,
     stack_joint_sensors,
+)
+from unilab.utils.rotation import (
+    np_quat_mul,
+    np_yaw_to_quat,
 )
 
 GO2W_HIP_INDICES = np.asarray([0, 3, 6, 9], dtype=np.int32)

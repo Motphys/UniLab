@@ -12,7 +12,6 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import ResetPlan
 from unilab.dtype_config import get_global_dtype
-from unilab.utils.rotation import np_matrix_from_quat, np_quat_from_euler_xyz
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
@@ -27,8 +26,11 @@ from unilab.envs.locomotion.go2_arm.base import (
 )
 from unilab.utils.geometry import (
     np_cartesian_to_spherical as _cart2sphere,
+)
+from unilab.utils.geometry import (
     np_spherical_to_cartesian as _sphere2cart,
 )
+from unilab.utils.rotation import np_matrix_from_quat, np_quat_from_euler_xyz
 
 
 def _default_go2_arm_model_file() -> str:

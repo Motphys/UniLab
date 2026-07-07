@@ -76,9 +76,7 @@ def np_gravity_z_in_body_from_quat(quat_w: np.ndarray) -> np.ndarray:
     return 2.0 * (quat_w[..., 1] * quat_w[..., 1] + quat_w[..., 2] * quat_w[..., 2]) - 1.0
 
 
-def np_quat_orientation_error_local(
-    goal_quat: np.ndarray, curr_quat: np.ndarray
-) -> np.ndarray:
+def np_quat_orientation_error_local(goal_quat: np.ndarray, curr_quat: np.ndarray) -> np.ndarray:
     """Local-frame orientation error as the signed xyz of the relative quaternion.
 
     Both inputs are re-normalized to unit length. Returns the imaginary
