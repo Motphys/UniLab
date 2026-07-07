@@ -161,6 +161,8 @@ class BenchCase:
     env_per_s: float
     speedup_vs_numpy: float
     compile_ms: float | None = None
+    parallel_speedup_vs_numba_1t: float | None = None
+    parallel_efficiency: float | None = None
 
 
 @dataclass
@@ -478,6 +480,16 @@ def bench_one(
             )
         )
     set_num_threads(max_threads)
+    numba_1t = next(
+        record
+        for record in records
+        if record.path == "numba_accelerator" and record.threads == 1
+    )
+    for record in records:
+        if record.path != "numba_accelerator" or record.threads is None:
+            continue
+        record.parallel_speedup_vs_numba_1t = numba_1t.mean_ms / record.mean_ms
+        record.parallel_efficiency = record.parallel_speedup_vs_numba_1t / record.threads
     return records, parity
 
 
@@ -493,6 +505,8 @@ def _case_to_dict(case: BenchCase) -> dict[str, Any]:
         "env_per_s": case.env_per_s,
         "speedup_vs_numpy": case.speedup_vs_numpy,
         "compile_ms": case.compile_ms,
+        "parallel_speedup_vs_numba_1t": case.parallel_speedup_vs_numba_1t,
+        "parallel_efficiency": case.parallel_efficiency,
     }
 
 
@@ -662,7 +676,9 @@ def _format_table(records: list[BenchCase]) -> str:
         "threads",
         "mean_ms",
         "min_ms",
-        "speedup",
+        "vs numpy",
+        "vs numba1T",
+        "parallel eff",
         "M env/s",
     ]
     rows = []
@@ -676,6 +692,12 @@ def _format_table(records: list[BenchCase]) -> str:
                 f"{r.mean_ms:.3f}",
                 f"{r.min_ms:.3f}",
                 f"{r.speedup_vs_numpy:.2f}x",
+                (
+                    "-"
+                    if r.parallel_speedup_vs_numba_1t is None
+                    else f"{r.parallel_speedup_vs_numba_1t:.2f}x"
+                ),
+                "-" if r.parallel_efficiency is None else f"{100.0 * r.parallel_efficiency:.1f}%",
                 f"{r.env_per_s / 1e6:.2f}",
             ]
         )
@@ -690,6 +712,104 @@ def _format_table(records: list[BenchCase]) -> str:
     lines = [fmt(headers), "-+-".join("-" * width for width in widths)]
     lines.extend(fmt(row) for row in rows)
     return "\n".join(lines)
+
+
+def _hot_record_for_threads(
+    records: list[BenchCase], *, profile: str, num_envs: int, threads: int | None
+) -> BenchCase | None:
+    candidates = [
+        record
+        for record in records
+        if record.profile == profile
+        and record.num_envs == num_envs
+        and record.path == "numba_accelerator"
+    ]
+    if not candidates:
+        return None
+    if threads is None:
+        return min(candidates, key=lambda record: record.mean_ms)
+    return next((record for record in candidates if record.threads == threads), None)
+
+
+def _numpy_record(records: list[BenchCase], *, profile: str, num_envs: int) -> BenchCase | None:
+    return next(
+        (
+            record
+            for record in records
+            if record.profile == profile
+            and record.num_envs == num_envs
+            and record.path == "numpy_dispatch"
+        ),
+        None,
+    )
+
+
+def _format_e2e_reconciliation_table(
+    *,
+    hot_records: list[BenchCase],
+    e2e_records: list[EndToEndCase],
+    profile: str = "sac_default",
+) -> str:
+    baseline_by_env = {
+        record.num_envs: record
+        for record in e2e_records
+        if not record.numba_acceleration and record.update_state_ms is not None
+    }
+    rows = []
+    for record in e2e_records:
+        if not record.numba_acceleration or record.update_state_ms is None:
+            continue
+        baseline = baseline_by_env.get(record.num_envs)
+        numpy_hot = _numpy_record(hot_records, profile=profile, num_envs=record.num_envs)
+        numba_hot = _hot_record_for_threads(
+            hot_records,
+            profile=profile,
+            num_envs=record.num_envs,
+            threads=record.numba_threads,
+        )
+        if baseline is None or baseline.update_state_ms is None or numpy_hot is None or numba_hot is None:
+            continue
+        hot_saved_ms = numpy_hot.mean_ms - numba_hot.mean_ms
+        update_saved_ms = baseline.update_state_ms - record.update_state_ms
+        update_base_ms = baseline.update_state_ms
+        rows.append(
+            [
+                str(record.num_envs),
+                "-" if record.numba_threads is None else str(record.numba_threads),
+                f"{numpy_hot.mean_ms:.3f}",
+                f"{numba_hot.mean_ms:.3f}",
+                f"{hot_saved_ms:.3f}",
+                f"{baseline.update_state_ms:.3f}",
+                f"{record.update_state_ms:.3f}",
+                f"{update_saved_ms:.3f}",
+                f"{100.0 * hot_saved_ms / update_base_ms:.1f}%",
+                f"{100.0 * update_saved_ms / update_base_ms:.1f}%",
+            ]
+        )
+    if not rows:
+        return ""
+
+    headers = [
+        "envs",
+        "threads",
+        "hot numpy ms",
+        "hot numba ms",
+        "hot saved ms",
+        "e2e update numpy ms",
+        "e2e update numba ms",
+        "e2e saved ms",
+        "hot saved / update base",
+        "e2e saved / update base",
+    ]
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            widths[idx] = max(widths[idx], len(value))
+
+    def fmt(values: list[str]) -> str:
+        return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    return "\n".join([fmt(headers), "-+-".join("-" * width for width in widths), *map(fmt, rows)])
 
 
 def _format_e2e_table(records: list[EndToEndCase]) -> str:
@@ -759,7 +879,13 @@ def _best_numba_by_case(records: list[BenchCase]) -> dict[tuple[str, int], Bench
     return best_by_case
 
 
-def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) -> list[str]:
+def save_plots(
+    records: list[BenchCase],
+    e2e_records: list[EndToEndCase],
+    output_dir: Path,
+    *,
+    device_info: str,
+) -> list[str]:
     if plt is None or not records:
         print("Plotting skipped: matplotlib is not available.")
         return []
@@ -772,7 +898,6 @@ def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) 
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(21, 6))
     fig.suptitle(f"G1 joystick Numba reward+termination benchmark\n{device_info}", fontsize=13)
 
-    # 1) Best speedup vs env count.
     ax1 = axes[0]
     for profile in profiles:
         x = []
@@ -798,34 +923,17 @@ def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) 
                 fontsize=8,
             )
     ax1.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="break-even")
-    ax1.set_title("Best speedup vs numpy dispatch")
+    ax1.set_title("Reward+termination: best vs numpy")
     ax1.set_xlabel("num_envs")
-    ax1.set_ylabel("Speedup")
+    ax1.set_ylabel("Speedup vs numpy")
     ax1.set_xscale("log", base=2)
     ax1.set_xticks(num_envs)
     ax1.set_xticklabels([str(value) for value in num_envs])
     ax1.grid(True, alpha=0.3)
     ax1.legend(fontsize=8)
 
-    # 2) Latency: numpy dispatch vs best numba.
     ax2 = axes[1]
     for profile in profiles:
-        numpy_subset = sorted(
-            [
-                record
-                for record in records
-                if record.profile == profile and record.path == "numpy_dispatch"
-            ],
-            key=lambda record: record.num_envs,
-        )
-        if numpy_subset:
-            ax2.plot(
-                [record.num_envs for record in numpy_subset],
-                [record.mean_ms for record in numpy_subset],
-                marker="o",
-                linestyle="--",
-                label=f"{profile} numpy",
-            )
         best_subset = [
             best_by_case[(profile, env_count)]
             for env_count in num_envs
@@ -834,56 +942,101 @@ def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) 
         if best_subset:
             ax2.plot(
                 [record.num_envs for record in best_subset],
-                [record.mean_ms for record in best_subset],
+                [
+                    0.0
+                    if record.parallel_speedup_vs_numba_1t is None
+                    else record.parallel_speedup_vs_numba_1t
+                    for record in best_subset
+                ],
                 marker="s",
                 linestyle="-",
-                label=f"{profile} numba best",
+                label=profile,
             )
-    ax2.set_title("Latency: numpy dispatch vs best numba")
+            for record in best_subset:
+                if record.parallel_efficiency is None:
+                    continue
+                ax2.annotate(
+                    f"{100.0 * record.parallel_efficiency:.0f}%",
+                    xy=(record.num_envs, record.parallel_speedup_vs_numba_1t or 0.0),
+                    xytext=(0, 6),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=8,
+                )
+    ax2.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="1T")
+    ax2.set_title("Reward+termination: parallel speedup")
     ax2.set_xlabel("num_envs")
-    ax2.set_ylabel("Mean latency (ms)")
+    ax2.set_ylabel("Speedup vs numba 1T")
     ax2.set_xscale("log", base=2)
-    ax2.set_yscale("log")
     ax2.set_xticks(num_envs)
     ax2.set_xticklabels([str(value) for value in num_envs])
     ax2.grid(True, alpha=0.3)
     ax2.legend(fontsize=7)
 
-    # 3) Throughput: numpy dispatch vs best numba.
     ax3 = axes[2]
-    for profile in profiles:
-        numpy_subset = sorted(
-            [
-                record
-                for record in records
-                if record.profile == profile and record.path == "numpy_dispatch"
-            ],
-            key=lambda record: record.num_envs,
+    e2e_numba = sorted(
+        [
+            record
+            for record in e2e_records
+            if record.numba_acceleration and record.update_state_speedup_vs_numpy is not None
+        ],
+        key=lambda record: record.num_envs,
+    )
+    if e2e_numba:
+        ax3.plot(
+            [record.num_envs for record in e2e_numba],
+            [record.update_state_speedup_vs_numpy or 0.0 for record in e2e_numba],
+            marker="o",
+            linestyle="-",
+            label="collector update_state",
         )
-        if numpy_subset:
-            ax3.plot(
-                [record.num_envs for record in numpy_subset],
-                [record.env_per_s / 1e6 for record in numpy_subset],
-                marker="o",
-                linestyle="--",
-                label=f"{profile} numpy",
+        for record in e2e_numba:
+            ax3.annotate(
+                "-" if record.numba_threads is None else f"{record.numba_threads}T",
+                xy=(record.num_envs, record.update_state_speedup_vs_numpy or 0.0),
+                xytext=(0, 6),
+                textcoords="offset points",
+                ha="center",
+                fontsize=8,
             )
-        best_subset = [
-            best_by_case[(profile, env_count)]
-            for env_count in num_envs
-            if (profile, env_count) in best_by_case
-        ]
-        if best_subset:
-            ax3.plot(
-                [record.num_envs for record in best_subset],
-                [record.env_per_s / 1e6 for record in best_subset],
-                marker="s",
-                linestyle="-",
-                label=f"{profile} numba best",
+        ax3.set_title("Collector update_state speedup")
+        ax3.set_ylabel("Speedup vs numpy collector")
+    else:
+        for profile in profiles:
+            numpy_subset = sorted(
+                [
+                    record
+                    for record in records
+                    if record.profile == profile and record.path == "numpy_dispatch"
+                ],
+                key=lambda record: record.num_envs,
             )
-    ax3.set_title("Throughput: numpy dispatch vs best numba")
+            best_subset = [
+                best_by_case[(profile, env_count)]
+                for env_count in num_envs
+                if (profile, env_count) in best_by_case
+            ]
+            if numpy_subset:
+                ax3.plot(
+                    [record.num_envs for record in numpy_subset],
+                    [record.mean_ms for record in numpy_subset],
+                    marker="o",
+                    linestyle="--",
+                    label=f"{profile} numpy",
+                )
+            if best_subset:
+                ax3.plot(
+                    [record.num_envs for record in best_subset],
+                    [record.mean_ms for record in best_subset],
+                    marker="s",
+                    linestyle="-",
+                    label=f"{profile} numba best",
+                )
+        ax3.set_title("Latency: numpy vs best numba")
+        ax3.set_ylabel("Mean latency (ms)")
+        ax3.set_yscale("log")
+    ax3.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="break-even")
     ax3.set_xlabel("num_envs")
-    ax3.set_ylabel("Throughput (M env/s)")
     ax3.set_xscale("log", base=2)
     ax3.set_xticks(num_envs)
     ax3.set_xticklabels([str(value) for value in num_envs])
@@ -908,7 +1061,7 @@ def write_report(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     device_info_line = get_device_info_line()
-    plot_paths = save_plots(records, output_dir, device_info=device_info_line)
+    plot_paths = save_plots(records, e2e_records, output_dir, device_info=device_info_line)
     meta = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "python": platform.python_version(),
@@ -951,6 +1104,12 @@ def write_report(
         "and policy inference are intentionally out of scope.",
         "",
         "## Numba-specific hot slice",
+        "",
+        "Definitions:",
+        "",
+        "- `vs numpy`: numpy reward+termination time divided by numba reward+termination time.",
+        "- `vs numba1T`: numba 1-thread time divided by numba N-thread time.",
+        "- `parallel eff`: `vs numba1T / N`; this is the only parallel-efficiency column.",
         "",
         "This section measures only the part this task-specific Numba backend accelerates:",
         "`G1WalkEnv` reward dispatch plus termination inside `update_state`. It excludes",
@@ -1000,6 +1159,29 @@ def write_report(
                 "```",
             ]
         )
+        reconciliation_table = _format_e2e_reconciliation_table(
+            hot_records=records,
+            e2e_records=e2e_records,
+            profile="sac_default",
+        )
+        if reconciliation_table:
+            summary_lines.extend(
+                [
+                    "",
+                    "## E2E Reconciliation",
+                    "",
+                    "This compares the synthetic `sac_default` hot-slice milliseconds saved",
+                    "with the collector-measured `update_state_ms` milliseconds saved at the",
+                    "same `num_envs` and Numba thread count. The hot slice is only the",
+                    "reward+termination work replaced by `joystick_numba.py`; collector",
+                    "`update_state_ms` also includes state reads, observation assembly,",
+                    "resets, state replacement, and bookkeeping around that hot slice.",
+                    "",
+                    "```text",
+                    reconciliation_table,
+                    "```",
+                ]
+            )
     else:
         summary_lines.extend(
             [
@@ -1033,8 +1215,8 @@ def write_report(
             "- `numba 1 thread` isolates fusion/codegen benefit over Python reward dispatch.",
             "- Higher thread counts add row-parallel speedup over the same fused kernel.",
             "- Hot-slice speedup is an upper bound for collector speedup because collector timing",
-            "  also includes physics, observation assembly, reset/RNG, policy inference, replay,",
-            "  and bookkeeping.",
+            "  also includes backend state reads, observation assembly, reset/RNG, policy inference,",
+            "  replay, and bookkeeping.",
             "- The optional collector comparison still excludes learner updates.",
         ]
     )
