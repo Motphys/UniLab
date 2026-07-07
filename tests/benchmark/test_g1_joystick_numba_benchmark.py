@@ -46,3 +46,20 @@ def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
     assert payload["numba_threads"] == 4
     assert "training_collector_numba" in table
     assert "1.25x" in table
+
+
+def test_g1_joystick_numba_benchmark_selects_best_hot_slice_threads() -> None:
+    records = [
+        bench.BenchCase("sac_default", 1024, "numpy_dispatch", None, 1.0, 1.0, 0.0, 1000.0, 1.0),
+        bench.BenchCase(
+            "sac_default", 1024, "numba_accelerator", 2, 0.8, 0.8, 0.0, 1250.0, 1.25
+        ),
+        bench.BenchCase(
+            "sac_default", 1024, "numba_accelerator", 4, 0.6, 0.6, 0.0, 1666.0, 1.67
+        ),
+        bench.BenchCase("ppo_default", 1024, "numba_accelerator", 8, 0.5, 0.5, 0.0, 2000.0, 2.0),
+    ]
+
+    assert bench._best_threads_for_profile(records, profile="sac_default", num_envs=[1024]) == {
+        1024: 4
+    }
