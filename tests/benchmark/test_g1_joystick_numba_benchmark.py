@@ -32,8 +32,11 @@ def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
         numba_threads=4,
         collector_active_steps_per_sec=30_000.0,
         total_active_ms=4.2,
+        collector_step_ms=2.1,
         env_step_ms=1.5,
+        physics_step_ms=0.9,
         update_state_ms=0.2,
+        other_ms=1.0,
         speedup_vs_numpy=1.25,
         env_step_speedup_vs_numpy=1.5,
         update_state_speedup_vs_numpy=2.0,
@@ -47,6 +50,7 @@ def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
     assert "training_collector_numba" in table
     assert "1.25x" in table
     assert "motrixsim" in table
+    assert "physics ms" in table
 
 
 def test_g1_joystick_numba_benchmark_selects_best_hot_slice_threads() -> None:
