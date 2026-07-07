@@ -54,6 +54,8 @@ from unilab.envs.locomotion.g1.joystick import (
 from unilab.envs.locomotion.g1.joystick_numba import G1WalkNumbaAccelerator
 
 NUM_ACTION = 29
+DEFAULT_THREADS = [2, 4, 8, 16, 32, 64]
+QUICK_THREADS = [2, 4]
 DEFAULT_POSE_WEIGHTS = [
     0.01,
     1.0,
@@ -677,6 +679,10 @@ def write_report(
         "profiles": args.profiles,
         "num_envs": args.num_envs,
         "threads": args.threads,
+        "requested_threads": args.threads,
+        "measured_threads": getattr(args, "measured_threads", None),
+        "skipped_threads": getattr(args, "skipped_threads", None),
+        "numba_max_threads": getattr(args, "numba_max_threads", None),
         "scope": "G1 joystick reward+termination hot slice; synthetic backend arrays",
     }
     payload = {
@@ -754,7 +760,7 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(make_profile_specs()),
     )
     parser.add_argument("--num-envs", nargs="+", type=int, default=[512, 2048, 8192])
-    parser.add_argument("--threads", nargs="+", type=int, default=[2, 4, 8, 16])
+    parser.add_argument("--threads", nargs="+", type=int, default=None)
     parser.add_argument("--iters", type=int, default=80)
     parser.add_argument("--warmup", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
@@ -772,9 +778,12 @@ def parse_args() -> argparse.Namespace:
     if args.quick:
         args.profiles = ["sac_default"]
         args.num_envs = [512, 2048]
-        args.threads = [2, 4]
+        if args.threads is None:
+            args.threads = QUICK_THREADS
         args.iters = 10
         args.warmup = 2
+    elif args.threads is None:
+        args.threads = DEFAULT_THREADS
     return args
 
 
@@ -783,12 +792,21 @@ def main() -> None:
     specs = make_profile_specs()
     all_records: list[BenchCase] = []
     parity: dict[str, dict[str, float]] = {}
+    max_threads = get_num_threads()
+    args.numba_max_threads = max_threads
+    args.measured_threads = sorted({1, *(threads for threads in args.threads if threads <= max_threads)})
+    args.skipped_threads = sorted({threads for threads in args.threads if threads > max_threads})
 
     print("=" * 80)
     print("G1 joystick Numba benchmark: reward dispatch + termination")
     print("=" * 80)
-    print(f"host numba threads: {get_num_threads()}")
-    print(f"profiles={args.profiles} num_envs={args.num_envs} threads={args.threads}")
+    print(f"host numba threads: {max_threads}")
+    print(
+        f"profiles={args.profiles} num_envs={args.num_envs} "
+        f"requested_threads={args.threads} measured_threads={args.measured_threads}"
+    )
+    if args.skipped_threads:
+        print(f"skipped threads above numba max: {args.skipped_threads}")
     for profile_name in args.profiles:
         spec = specs[profile_name]
         for num_envs in args.num_envs:
