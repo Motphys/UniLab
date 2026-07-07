@@ -59,6 +59,7 @@ DEFAULT_THREADS = [2, 4, 8, 16, 32, 64]
 QUICK_THREADS = [2, 4]
 DEFAULT_NUM_ENVS = [512, 1024, 2048, 4096, 8192, 16384, 32768]
 DEFAULT_E2E_NUM_ENVS = [1024, 2048, 4096, 8192, 16384, 32768]
+DEFAULT_E2E_CASE = "sac/g1_walk_flat/motrixsim"
 DEFAULT_POSE_WEIGHTS = [
     0.01,
     1.0,
@@ -518,6 +519,7 @@ def _timing_mean_ms(result: Any, key: str) -> float | None:
 
 def _run_e2e_collector_pair(
     *,
+    case_name: str,
     num_envs: int,
     warmup_steps: int,
     measure_steps: int,
@@ -533,7 +535,6 @@ def _run_e2e_collector_pair(
     """
     from benchmark.benchmark_offpolicy_collector_active import _build_and_run_case
 
-    case_name = "sac/g1_walk_flat/mujoco"
     common = {
         "warmup_steps": warmup_steps,
         "measure_steps": measure_steps,
@@ -609,6 +610,7 @@ def _best_threads_for_profile(
 
 def _run_e2e_collector_sweep(
     *,
+    case_name: str,
     num_envs: list[int],
     warmup_steps: int,
     measure_steps: int,
@@ -621,6 +623,7 @@ def _run_e2e_collector_sweep(
         print(f"e2e collector case: num_envs={env_count} numba_threads={numba_threads}")
         records.extend(
             _run_e2e_collector_pair(
+                case_name=case_name,
                 num_envs=env_count,
                 warmup_steps=warmup_steps,
                 measure_steps=measure_steps,
@@ -896,6 +899,7 @@ def write_report(
         "scope": "G1 joystick reward+termination hot slice; synthetic backend arrays",
         "e2e_enabled": args.e2e,
         "e2e_num_envs": args.e2e_num_envs,
+        "e2e_case": args.e2e_case,
         "e2e_warmup_steps": args.e2e_warmup_steps,
         "e2e_measure_steps": args.e2e_measure_steps,
         "e2e_numba_threads_source": "best sac_default hot-slice thread per num_env",
@@ -973,7 +977,7 @@ def write_report(
                 "## End-to-end collector comparison",
                 "",
                 "Not run. Pass `--e2e` to add a real off-policy collector active-window A/B",
-                "comparison for `sac/g1_walk_flat/mujoco` with `numba_acceleration=false/true`.",
+                f"comparison for `{args.e2e_case}` with `numba_acceleration=false/true`.",
                 "This collector comparison does not run learner updates.",
             ]
         )
@@ -1034,6 +1038,7 @@ def parse_args() -> argparse.Namespace:
         help="Also run a real off-policy collector active-window baseline vs numba comparison.",
     )
     parser.add_argument("--e2e-num-envs", nargs="+", type=int, default=DEFAULT_E2E_NUM_ENVS)
+    parser.add_argument("--e2e-case", default=DEFAULT_E2E_CASE)
     parser.add_argument("--e2e-warmup-steps", type=int, default=2)
     parser.add_argument("--e2e-measure-steps", type=int, default=8)
     parser.add_argument(
@@ -1136,9 +1141,11 @@ def main() -> None:
         print("=" * 80)
         print("End-to-end collector comparison: off-policy collector active window")
         print("=" * 80)
+        print(f"e2e case={args.e2e_case}")
         print(f"e2e num_envs={args.e2e_num_envs}")
         print(f"e2e numba threads from sac_default hot-slice best: {selected_threads}")
         e2e_records = _run_e2e_collector_sweep(
+            case_name=args.e2e_case,
             num_envs=args.e2e_num_envs,
             warmup_steps=args.e2e_warmup_steps,
             measure_steps=args.e2e_measure_steps,
