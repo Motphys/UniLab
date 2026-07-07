@@ -477,7 +477,9 @@ def _format_table(records: list[BenchCase]) -> str:
                 f"{record.min_ms:.3f}",
                 f"{record.values_per_s / 1.0e6:.1f}",
                 f"{record.speedup_vs_numpy_alloc:.2f}x",
-                "-" if record.deterministic_same_seed is None else str(record.deterministic_same_seed),
+                "-"
+                if record.deterministic_same_seed is None
+                else str(record.deterministic_same_seed),
             ]
         )
     widths = [len(header) for header in headers]
@@ -496,7 +498,9 @@ def _format_table(records: list[BenchCase]) -> str:
 def _format_profile_notes(profiles: list[NoiseProfile]) -> str:
     lines = ["Profiles:"]
     for profile in profiles:
-        fields = ", ".join(f"{field.name}[{field.width}]x{field.scale:g}" for field in profile.fields)
+        fields = ", ".join(
+            f"{field.name}[{field.width}]x{field.scale:g}" for field in profile.fields
+        )
         lines.append(f"- {profile.name}: {profile.owner_config}; {fields}")
     return "\n".join(lines)
 
@@ -561,7 +565,9 @@ def main() -> None:
     print("Numba RNG vs NumPy RNG: UniLab observation-noise buffer benchmark")
     print("=" * 88)
     print(get_device_info_line())
-    print(f"python={platform.python_version()} numpy={np.__version__} numba_available={NUMBA_AVAILABLE}")
+    print(
+        f"python={platform.python_version()} numpy={np.__version__} numba_available={NUMBA_AVAILABLE}"
+    )
     print(f"host numba threads={max_threads}")
     if skipped_threads:
         print(f"skipped numba threads: {skipped_threads}")
@@ -576,7 +582,9 @@ def main() -> None:
         sizes = args.num_envs or sorted({profile.default_num_envs, *num_envs_default})
         for num_envs in sizes:
             print()
-            print(f"profile={profile.name} num_envs={num_envs} values={num_envs * profile.total_width}")
+            print(
+                f"profile={profile.name} num_envs={num_envs} values={num_envs * profile.total_width}"
+            )
             records = bench_one(
                 profile=profile,
                 num_envs=num_envs,

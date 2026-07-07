@@ -743,9 +743,9 @@ def _run_active_window_case(
             next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
             rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
             truncated_np = state.truncated.astype(np.float32, copy=False).ravel()
-            combined_dones = (state.terminated | state.truncated).astype(
-                np.float32, copy=False
-            ).ravel()
+            combined_dones = (
+                (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
+            )
             terminal_contract = resolve_terminal_observation_contract(
                 next_obs_batch_size=next_obs_np.shape[0],
                 final_observation=state.final_observation,

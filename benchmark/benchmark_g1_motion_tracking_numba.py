@@ -333,12 +333,8 @@ def make_batch(num_envs: int, spec: ProfileSpec, seed: int) -> SyntheticBatch:
     )
     robot_body_pos_w = f32(target_pos + 0.06 * rng.standard_normal((num_envs, n_body, 3)))
     robot_body_quat_w = f32(_perturb_quats(rng, target_quat, 0.03))
-    robot_body_lin_vel_w = f32(
-        target_lin_vel + 0.1 * rng.standard_normal((num_envs, n_body, 3))
-    )
-    robot_body_ang_vel_w = f32(
-        target_ang_vel + 0.1 * rng.standard_normal((num_envs, n_body, 3))
-    )
+    robot_body_lin_vel_w = f32(target_lin_vel + 0.1 * rng.standard_normal((num_envs, n_body, 3)))
+    robot_body_ang_vel_w = f32(target_ang_vel + 0.1 * rng.standard_normal((num_envs, n_body, 3)))
     linvel = f32(rng.uniform(-1.0, 1.0, (num_envs, 3)))
     gyro = f32(rng.uniform(-1.0, 1.0, (num_envs, 3)))
     dof_pos = f32(target_joint_pos + 0.05 * rng.standard_normal((num_envs, NUM_ACTION)))
@@ -516,9 +512,7 @@ def check_parity(
     return {
         "max_abs_reward_diff": float(np.max(np.abs(reward_nb - reward_np))),
         "termination_mismatch": float(np.count_nonzero(terminated_nb != terminated_np)),
-        "max_abs_update_state_reward_diff": float(
-            np.max(np.abs(full_reward_nb - full_reward_np))
-        ),
+        "max_abs_update_state_reward_diff": float(np.max(np.abs(full_reward_nb - full_reward_np))),
         "update_state_termination_mismatch": float(
             np.count_nonzero(full_terminated_nb != full_terminated_np)
         ),
@@ -591,9 +585,7 @@ def bench_one(
         )
     set_num_threads(max_threads)
     numba_1t = next(
-        record
-        for record in records
-        if record.path == "numba_accelerator" and record.threads == 1
+        record for record in records if record.path == "numba_accelerator" and record.threads == 1
     )
     for record in records:
         if record.path != "numba_accelerator" or record.threads is None:
@@ -901,9 +893,7 @@ def _format_hot_summary_table(records: list[BenchCase]) -> str:
     best_by_case = _best_numba_by_case(records)
     rows = []
     for profile in sorted({record.profile for record in records}):
-        best_records = [
-            record for key, record in best_by_case.items() if key[0] == profile
-        ]
+        best_records = [record for key, record in best_by_case.items() if key[0] == profile]
         if not best_records:
             continue
         envs = sorted(record.num_envs for record in best_records)
@@ -913,7 +903,9 @@ def _format_hot_summary_table(records: list[BenchCase]) -> str:
             [
                 profile,
                 f"{envs[0]}-{envs[-1]}",
-                ",".join(str(thread) for thread in sorted({record.threads for record in best_records})),
+                ",".join(
+                    str(thread) for thread in sorted({record.threads for record in best_records})
+                ),
                 f"{min(speedups):.2f}x-{max(speedups):.2f}x",
                 f"{max(throughputs):.2f}",
             ]
@@ -1070,7 +1062,12 @@ def _format_e2e_reconciliation_table(
             num_envs=record.num_envs,
             threads=record.numba_threads,
         )
-        if baseline is None or baseline.update_state_ms is None or numpy_hot is None or numba_hot is None:
+        if (
+            baseline is None
+            or baseline.update_state_ms is None
+            or numpy_hot is None
+            or numba_hot is None
+        ):
             continue
         hot_saved_ms = numpy_hot.mean_ms - numba_hot.mean_ms
         update_saved_ms = baseline.update_state_ms - record.update_state_ms
@@ -1131,7 +1128,9 @@ def save_plots(
     best_by_case = _best_numba_by_case(records)
 
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(21, 6))
-    fig.suptitle(f"G1 motion tracking Numba reward+termination benchmark\n{device_info}", fontsize=13)
+    fig.suptitle(
+        f"G1 motion tracking Numba reward+termination benchmark\n{device_info}", fontsize=13
+    )
 
     ax1, ax2, ax3 = axes
     for profile in profiles:
@@ -1488,7 +1487,9 @@ def main() -> None:
     parity: dict[str, dict[str, float]] = {}
     max_threads = get_num_threads()
     args.numba_max_threads = max_threads
-    args.measured_threads = sorted({1, *(threads for threads in args.threads if threads <= max_threads)})
+    args.measured_threads = sorted(
+        {1, *(threads for threads in args.threads if threads <= max_threads)}
+    )
     args.skipped_threads = sorted({threads for threads in args.threads if threads > max_threads})
 
     print("=" * 80)

@@ -263,15 +263,17 @@ if NUMBA_AVAILABLE:
             tid = get_thread_id()
             total = 0.0
 
-            w = motion_global_root_pos_i(
-                motion_body_pos_w, robot_body_pos_w, anchor, std[0], i
-            ) * scale[0]
+            w = (
+                motion_global_root_pos_i(motion_body_pos_w, robot_body_pos_w, anchor, std[0], i)
+                * scale[0]
+            )
             total += w
             log_scratch[tid, 0] += w
 
-            w = motion_global_root_ori_i(
-                motion_body_quat_w, robot_body_quat_w, anchor, std[1], i
-            ) * scale[1]
+            w = (
+                motion_global_root_ori_i(motion_body_quat_w, robot_body_quat_w, anchor, std[1], i)
+                * scale[1]
+            )
             total += w
             log_scratch[tid, 1] += w
 
@@ -283,21 +285,28 @@ if NUMBA_AVAILABLE:
             total += w
             log_scratch[tid, 3] += w
 
-            w = motion_body_lin_vel_i(
-                motion_body_lin_vel_w, robot_body_lin_vel_w, n_body, std[4], i
-            ) * scale[4]
+            w = (
+                motion_body_lin_vel_i(
+                    motion_body_lin_vel_w, robot_body_lin_vel_w, n_body, std[4], i
+                )
+                * scale[4]
+            )
             total += w
             log_scratch[tid, 4] += w
 
-            w = motion_body_ang_vel_i(
-                motion_body_ang_vel_w, robot_body_ang_vel_w, n_body, std[5], i
-            ) * scale[5]
+            w = (
+                motion_body_ang_vel_i(
+                    motion_body_ang_vel_w, robot_body_ang_vel_w, n_body, std[5], i
+                )
+                * scale[5]
+            )
             total += w
             log_scratch[tid, 5] += w
 
-            w = motion_ee_body_pos_z_i(
-                ref_body_pos_w, robot_body_pos_w, ee_indices, std[6], i
-            ) * scale[6]
+            w = (
+                motion_ee_body_pos_z_i(ref_body_pos_w, robot_body_pos_w, ee_indices, std[6], i)
+                * scale[6]
+            )
             total += w
             log_scratch[tid, 6] += w
 
@@ -313,9 +322,10 @@ if NUMBA_AVAILABLE:
             total += w
             log_scratch[tid, 9] += w
 
-            w = joint_limit_i(
-                dof_pos, joint_lower, joint_upper, n_action, has_joint_limits, i
-            ) * scale[10]
+            w = (
+                joint_limit_i(dof_pos, joint_lower, joint_upper, n_action, has_joint_limits, i)
+                * scale[10]
+            )
             total += w
             log_scratch[tid, 10] += w
 
@@ -345,7 +355,6 @@ if NUMBA_AVAILABLE:
                 terminate_on_undesired_contacts,
                 i,
             )
-
 
     @_dev
     def _write_reference_transforms_i(
@@ -435,15 +444,17 @@ if NUMBA_AVAILABLE:
     ):
         total = 0.0
 
-        w = motion_global_root_pos_i(
-            motion_body_pos_w, robot_body_pos_w, anchor, std[0], i
-        ) * scale[0]
+        w = (
+            motion_global_root_pos_i(motion_body_pos_w, robot_body_pos_w, anchor, std[0], i)
+            * scale[0]
+        )
         total += w
         log_scratch[tid, 0] += w
 
-        w = motion_global_root_ori_i(
-            motion_body_quat_w, robot_body_quat_w, anchor, std[1], i
-        ) * scale[1]
+        w = (
+            motion_global_root_ori_i(motion_body_quat_w, robot_body_quat_w, anchor, std[1], i)
+            * scale[1]
+        )
         total += w
         log_scratch[tid, 1] += w
 
@@ -455,19 +466,24 @@ if NUMBA_AVAILABLE:
         total += w
         log_scratch[tid, 3] += w
 
-        w = motion_body_lin_vel_i(
-            motion_body_lin_vel_w, robot_body_lin_vel_w, n_body, std[4], i
-        ) * scale[4]
+        w = (
+            motion_body_lin_vel_i(motion_body_lin_vel_w, robot_body_lin_vel_w, n_body, std[4], i)
+            * scale[4]
+        )
         total += w
         log_scratch[tid, 4] += w
 
-        w = motion_body_ang_vel_i(
-            motion_body_ang_vel_w, robot_body_ang_vel_w, n_body, std[5], i
-        ) * scale[5]
+        w = (
+            motion_body_ang_vel_i(motion_body_ang_vel_w, robot_body_ang_vel_w, n_body, std[5], i)
+            * scale[5]
+        )
         total += w
         log_scratch[tid, 5] += w
 
-        w = motion_ee_body_pos_z_i(ref_body_pos_w, robot_body_pos_w, ee_indices, std[6], i) * scale[6]
+        w = (
+            motion_ee_body_pos_z_i(ref_body_pos_w, robot_body_pos_w, ee_indices, std[6], i)
+            * scale[6]
+        )
         total += w
         log_scratch[tid, 6] += w
 
@@ -483,7 +499,10 @@ if NUMBA_AVAILABLE:
         total += w
         log_scratch[tid, 9] += w
 
-        w = joint_limit_i(dof_pos, joint_lower, joint_upper, n_action, has_joint_limits, i) * scale[10]
+        w = (
+            joint_limit_i(dof_pos, joint_lower, joint_upper, n_action, has_joint_limits, i)
+            * scale[10]
+        )
         total += w
         log_scratch[tid, 10] += w
 
@@ -728,7 +747,6 @@ if NUMBA_AVAILABLE:
             i,
         )
         _write_critic_linvel_tail_i(linvel, critic_obs, tail_offset, i)
-
 
     @njit(parallel=True, fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
     def _compute_update_state_kernel(
@@ -976,8 +994,10 @@ class G1MotionTrackingNumbaAccelerator:
         if default_angles is None:
             default_angles = np.zeros((env._num_action,), dtype=np.float64)
         actor_obs_width = getattr(env, "_actor_obs_width", env._num_action * 5 + 15)
-        critic_obs_width = env.obs_groups_spec["critic"] if hasattr(env, "obs_groups_spec") else (
-            env._num_action * 5 + 15 + len(env._cfg.body_names) * 9
+        critic_obs_width = (
+            env.obs_groups_spec["critic"]
+            if hasattr(env, "obs_groups_spec")
+            else (env._num_action * 5 + 15 + len(env._cfg.body_names) * 9)
         )
         return cls(
             num_envs=env.num_envs,
