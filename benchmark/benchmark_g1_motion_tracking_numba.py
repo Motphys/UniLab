@@ -122,6 +122,21 @@ class BenchCase:
     env_per_s: float
     speedup_vs_numpy: float
     compile_ms: float | None = None
+    parallel_speedup_vs_numba_1t: float | None = None
+    parallel_efficiency: float | None = None
+
+
+@dataclass
+class ComponentCase:
+    profile: str
+    num_envs: int
+    numba_threads: int
+    relative_transform_ms: float
+    numpy_reward_termination_ms: float
+    numba_reward_termination_ms: float
+    numpy_total_ms: float
+    numba_total_ms: float
+    speedup_vs_numpy: float
 
 
 @dataclass
@@ -371,6 +386,12 @@ def compute_numba(
     return out.reward, out.terminated, out.log
 
 
+def compute_relative_transforms(batch: SyntheticBatch) -> None:
+    batch.env._update_relative_transforms(
+        batch.motion_data, batch.robot_body_pos_w, batch.robot_body_quat_w
+    )
+
+
 def time_call(fn, *, iters: int, warmup: int) -> tuple[float, float, float]:
     for _ in range(warmup):
         fn()
@@ -406,9 +427,12 @@ def bench_one(
     iters: int,
     warmup: int,
     seed: int,
-) -> tuple[list[BenchCase], dict[str, float]]:
+) -> tuple[list[BenchCase], ComponentCase, dict[str, float]]:
     batch = make_batch(num_envs, profile, seed)
     max_threads = get_num_threads()
+    relative_mean, _, _ = time_call(
+        lambda: compute_relative_transforms(batch), iters=iters, warmup=warmup
+    )
     numpy_mean, numpy_min, numpy_std = time_call(
         lambda: compute_numpy(batch), iters=iters, warmup=warmup
     )
@@ -454,7 +478,35 @@ def bench_one(
             )
         )
     set_num_threads(max_threads)
-    return records, parity
+    numba_1t = next(
+        record
+        for record in records
+        if record.path == "numba_accelerator" and record.threads == 1
+    )
+    for record in records:
+        if record.path != "numba_accelerator" or record.threads is None:
+            continue
+        record.parallel_speedup_vs_numba_1t = numba_1t.mean_ms / record.mean_ms
+        record.parallel_efficiency = record.parallel_speedup_vs_numba_1t / record.threads
+
+    best_numba = min(
+        (record for record in records if record.path == "numba_accelerator"),
+        key=lambda record: record.mean_ms,
+    )
+    numpy_total_ms = relative_mean + numpy_mean
+    numba_total_ms = relative_mean + best_numba.mean_ms
+    component = ComponentCase(
+        profile=profile.name,
+        num_envs=num_envs,
+        numba_threads=int(best_numba.threads or 1),
+        relative_transform_ms=relative_mean,
+        numpy_reward_termination_ms=numpy_mean,
+        numba_reward_termination_ms=best_numba.mean_ms,
+        numpy_total_ms=numpy_total_ms,
+        numba_total_ms=numba_total_ms,
+        speedup_vs_numpy=numpy_total_ms / numba_total_ms,
+    )
+    return records, component, parity
 
 
 def _case_to_dict(case: BenchCase) -> dict[str, Any]:
@@ -469,6 +521,22 @@ def _case_to_dict(case: BenchCase) -> dict[str, Any]:
         "env_per_s": case.env_per_s,
         "speedup_vs_numpy": case.speedup_vs_numpy,
         "compile_ms": case.compile_ms,
+        "parallel_speedup_vs_numba_1t": case.parallel_speedup_vs_numba_1t,
+        "parallel_efficiency": case.parallel_efficiency,
+    }
+
+
+def _component_case_to_dict(case: ComponentCase) -> dict[str, Any]:
+    return {
+        "profile": case.profile,
+        "num_envs": case.num_envs,
+        "numba_threads": case.numba_threads,
+        "relative_transform_ms": case.relative_transform_ms,
+        "numpy_reward_termination_ms": case.numpy_reward_termination_ms,
+        "numba_reward_termination_ms": case.numba_reward_termination_ms,
+        "numpy_total_ms": case.numpy_total_ms,
+        "numba_total_ms": case.numba_total_ms,
+        "speedup_vs_numpy": case.speedup_vs_numpy,
     }
 
 
@@ -626,7 +694,18 @@ def _run_e2e_collector_sweep(
 
 
 def _format_table(records: list[BenchCase]) -> str:
-    headers = ["profile", "envs", "path", "threads", "mean_ms", "min_ms", "speedup", "M env/s"]
+    headers = [
+        "profile",
+        "envs",
+        "path",
+        "threads",
+        "mean_ms",
+        "min_ms",
+        "vs numpy",
+        "vs numba1T",
+        "parallel eff",
+        "M env/s",
+    ]
     rows = [
         [
             r.profile,
@@ -636,9 +715,52 @@ def _format_table(records: list[BenchCase]) -> str:
             f"{r.mean_ms:.3f}",
             f"{r.min_ms:.3f}",
             f"{r.speedup_vs_numpy:.2f}x",
+            (
+                "-"
+                if r.parallel_speedup_vs_numba_1t is None
+                else f"{r.parallel_speedup_vs_numba_1t:.2f}x"
+            ),
+            "-" if r.parallel_efficiency is None else f"{100.0 * r.parallel_efficiency:.1f}%",
             f"{r.env_per_s / 1e6:.2f}",
         ]
         for r in records
+    ]
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            widths[idx] = max(widths[idx], len(value))
+
+    def fmt(values: list[str]) -> str:
+        return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    return "\n".join([fmt(headers), "-+-".join("-" * width for width in widths), *map(fmt, rows)])
+
+
+def _format_component_table(records: list[ComponentCase]) -> str:
+    headers = [
+        "profile",
+        "envs",
+        "threads",
+        "rel ms",
+        "numpy reward+term ms",
+        "numba reward+term ms",
+        "numpy total ms",
+        "numba total ms",
+        "total speedup",
+    ]
+    rows = [
+        [
+            record.profile,
+            str(record.num_envs),
+            str(record.numba_threads),
+            f"{record.relative_transform_ms:.3f}",
+            f"{record.numpy_reward_termination_ms:.3f}",
+            f"{record.numba_reward_termination_ms:.3f}",
+            f"{record.numpy_total_ms:.3f}",
+            f"{record.numba_total_ms:.3f}",
+            f"{record.speedup_vs_numpy:.2f}x",
+        ]
+        for record in records
     ]
     widths = [len(h) for h in headers]
     for row in rows:
@@ -705,7 +827,111 @@ def _format_e2e_table(records: list[EndToEndCase]) -> str:
     return "\n".join([fmt(headers), "-+-".join("-" * width for width in widths), *map(fmt, rows)])
 
 
-def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) -> list[str]:
+def _hot_record_for_threads(
+    records: list[BenchCase], *, profile: str, num_envs: int, threads: int | None
+) -> BenchCase | None:
+    candidates = [
+        record
+        for record in records
+        if record.profile == profile
+        and record.num_envs == num_envs
+        and record.path == "numba_accelerator"
+    ]
+    if not candidates:
+        return None
+    if threads is None:
+        return min(candidates, key=lambda record: record.mean_ms)
+    return next((record for record in candidates if record.threads == threads), None)
+
+
+def _numpy_record(records: list[BenchCase], *, profile: str, num_envs: int) -> BenchCase | None:
+    return next(
+        (
+            record
+            for record in records
+            if record.profile == profile
+            and record.num_envs == num_envs
+            and record.path == "numpy_dispatch"
+        ),
+        None,
+    )
+
+
+def _format_e2e_reconciliation_table(
+    *,
+    hot_records: list[BenchCase],
+    e2e_records: list[EndToEndCase],
+    profile: str = "sac_default",
+) -> str:
+    baseline_by_env = {
+        record.num_envs: record
+        for record in e2e_records
+        if not record.numba_acceleration and record.update_state_ms is not None
+    }
+    rows = []
+    for record in e2e_records:
+        if not record.numba_acceleration or record.update_state_ms is None:
+            continue
+        baseline = baseline_by_env.get(record.num_envs)
+        numpy_hot = _numpy_record(hot_records, profile=profile, num_envs=record.num_envs)
+        numba_hot = _hot_record_for_threads(
+            hot_records,
+            profile=profile,
+            num_envs=record.num_envs,
+            threads=record.numba_threads,
+        )
+        if baseline is None or baseline.update_state_ms is None or numpy_hot is None or numba_hot is None:
+            continue
+        hot_saved_ms = numpy_hot.mean_ms - numba_hot.mean_ms
+        update_saved_ms = baseline.update_state_ms - record.update_state_ms
+        update_base_ms = baseline.update_state_ms
+        rows.append(
+            [
+                str(record.num_envs),
+                "-" if record.numba_threads is None else str(record.numba_threads),
+                f"{numpy_hot.mean_ms:.3f}",
+                f"{numba_hot.mean_ms:.3f}",
+                f"{hot_saved_ms:.3f}",
+                f"{baseline.update_state_ms:.3f}",
+                f"{record.update_state_ms:.3f}",
+                f"{update_saved_ms:.3f}",
+                f"{100.0 * hot_saved_ms / update_base_ms:.1f}%",
+                f"{100.0 * update_saved_ms / update_base_ms:.1f}%",
+            ]
+        )
+    if not rows:
+        return ""
+
+    headers = [
+        "envs",
+        "threads",
+        "hot numpy ms",
+        "hot numba ms",
+        "hot saved ms",
+        "e2e update numpy ms",
+        "e2e update numba ms",
+        "e2e saved ms",
+        "hot saved / update base",
+        "e2e saved / update base",
+    ]
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            widths[idx] = max(widths[idx], len(value))
+
+    def fmt(values: list[str]) -> str:
+        return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    return "\n".join([fmt(headers), "-+-".join("-" * width for width in widths), *map(fmt, rows)])
+
+
+def save_plots(
+    records: list[BenchCase],
+    component_records: list[ComponentCase],
+    output_dir: Path,
+    *,
+    device_info: str,
+) -> list[str]:
     if plt is None or not records:
         print("Plotting skipped: matplotlib is not available.")
         return []
@@ -739,9 +965,9 @@ def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) 
                     fontsize=8,
                 )
     ax1.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="break-even")
-    ax1.set_title("Best speedup vs numpy")
+    ax1.set_title("Reward+termination: best vs numpy")
     ax1.set_xlabel("num_envs")
-    ax1.set_ylabel("Speedup")
+    ax1.set_ylabel("Speedup vs numpy")
     ax1.set_xscale("log", base=2)
     ax1.set_xticks(num_envs)
     ax1.set_xticklabels([str(value) for value in num_envs])
@@ -749,18 +975,6 @@ def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) 
     ax1.legend(fontsize=8)
 
     for profile in profiles:
-        numpy_subset = sorted(
-            [r for r in records if r.profile == profile and r.path == "numpy_dispatch"],
-            key=lambda r: r.num_envs,
-        )
-        if numpy_subset:
-            ax2.plot(
-                [r.num_envs for r in numpy_subset],
-                [r.mean_ms for r in numpy_subset],
-                marker="o",
-                linestyle="--",
-                label=f"{profile} numpy",
-            )
         best_subset = [
             best_by_case[(profile, env_count)]
             for env_count in num_envs
@@ -769,39 +983,63 @@ def save_plots(records: list[BenchCase], output_dir: Path, *, device_info: str) 
         if best_subset:
             ax2.plot(
                 [r.num_envs for r in best_subset],
-                [r.mean_ms for r in best_subset],
+                [
+                    0.0
+                    if r.parallel_speedup_vs_numba_1t is None
+                    else r.parallel_speedup_vs_numba_1t
+                    for r in best_subset
+                ],
                 marker="s",
                 linestyle="-",
-                label=f"{profile} numba best",
+                label=profile,
             )
-            ax3.plot(
-                [r.num_envs for r in best_subset],
-                [r.env_per_s / 1e6 for r in best_subset],
-                marker="s",
-                linestyle="-",
-                label=f"{profile} numba best",
-            )
-        if numpy_subset:
-            ax3.plot(
-                [r.num_envs for r in numpy_subset],
-                [r.env_per_s / 1e6 for r in numpy_subset],
-                marker="o",
-                linestyle="--",
-                label=f"{profile} numpy",
-            )
-    ax2.set_title("Latency: numpy vs best numba")
+            for record in best_subset:
+                if record.parallel_efficiency is None:
+                    continue
+                ax2.annotate(
+                    f"{100.0 * record.parallel_efficiency:.0f}%",
+                    xy=(record.num_envs, record.parallel_speedup_vs_numba_1t or 0.0),
+                    xytext=(0, 6),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=8,
+                )
+    ax2.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="1T")
+    ax2.set_title("Reward+termination: parallel speedup")
     ax2.set_xlabel("num_envs")
-    ax2.set_ylabel("Mean latency (ms)")
+    ax2.set_ylabel("Speedup vs numba 1T")
     ax2.set_xscale("log", base=2)
-    ax2.set_yscale("log")
     ax2.set_xticks(num_envs)
     ax2.set_xticklabels([str(value) for value in num_envs])
     ax2.grid(True, alpha=0.3)
     ax2.legend(fontsize=7)
 
-    ax3.set_title("Throughput: numpy vs best numba")
+    for profile in profiles:
+        component_subset = sorted(
+            [record for record in component_records if record.profile == profile],
+            key=lambda record: record.num_envs,
+        )
+        if component_subset:
+            ax3.plot(
+                [record.num_envs for record in component_subset],
+                [record.speedup_vs_numpy for record in component_subset],
+                marker="o",
+                linestyle="-",
+                label=profile,
+            )
+            for record in component_subset:
+                ax3.annotate(
+                    f"{record.numba_threads}T",
+                    xy=(record.num_envs, record.speedup_vs_numpy),
+                    xytext=(0, 6),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=8,
+                )
+    ax3.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="break-even")
+    ax3.set_title("Relative transform + reward+termination")
     ax3.set_xlabel("num_envs")
-    ax3.set_ylabel("Throughput (M env/s)")
+    ax3.set_ylabel("Total speedup vs numpy")
     ax3.set_xscale("log", base=2)
     ax3.set_xticks(num_envs)
     ax3.set_xticklabels([str(value) for value in num_envs])
@@ -820,13 +1058,14 @@ def write_report(
     *,
     output_dir: Path,
     records: list[BenchCase],
+    component_records: list[ComponentCase],
     parity: dict[str, dict[str, float]],
     e2e_records: list[EndToEndCase],
     args: argparse.Namespace,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     device_info_line = get_device_info_line()
-    plot_paths = save_plots(records, output_dir, device_info=device_info_line)
+    plot_paths = save_plots(records, component_records, output_dir, device_info=device_info_line)
     meta = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "python": platform.python_version(),
@@ -841,7 +1080,7 @@ def write_report(
         "measured_threads": getattr(args, "measured_threads", None),
         "skipped_threads": getattr(args, "skipped_threads", None),
         "numba_max_threads": getattr(args, "numba_max_threads", None),
-        "scope": "G1 motion tracking reward+termination hot slice; synthetic arrays",
+        "scope": "G1 motion tracking reward+termination hot slice plus component reconciliation; synthetic arrays",
         "e2e_enabled": args.e2e,
         "e2e_num_envs": args.e2e_num_envs,
         "e2e_case": args.e2e_case,
@@ -852,6 +1091,7 @@ def write_report(
     payload = {
         "meta": meta,
         "results": [_case_to_dict(record) for record in records],
+        "component_results": [_component_case_to_dict(record) for record in component_records],
         "end_to_end_results": [_e2e_case_to_dict(record) for record in e2e_records],
         "parity": parity,
         "plots": plot_paths,
@@ -869,6 +1109,12 @@ def write_report(
         "",
         "## Numba-specific hot slice",
         "",
+        "Definitions:",
+        "",
+        "- `vs numpy`: numpy reward+termination time divided by numba reward+termination time.",
+        "- `vs numba1T`: numba 1-thread time divided by numba N-thread time.",
+        "- `parallel eff`: `vs numba1T / N`; this is the only parallel-efficiency column.",
+        "",
         "Profile meanings:",
         "",
         "- `ppo_default`: PPO G1 motion-tracking owner-config reward scales.",
@@ -884,6 +1130,22 @@ def write_report(
             f"- `{best.profile}` / {best.num_envs} envs: best {best.mean_ms:.3f} ms "
             f"at {best.threads} threads, {best.speedup_vs_numpy:.2f}x vs numpy "
             f"({best.env_per_s / 1e6:.2f}M env/s)."
+        )
+    if component_records:
+        summary_lines.extend(
+            [
+                "",
+                "## Component Reconciliation",
+                "",
+                "This table adds `_update_relative_transforms` to the reward+termination",
+                "hot slice. It is still synthetic and still excludes backend state getters,",
+                "observation assembly, motion sampling, reset/refresh, state replacement,",
+                "collector bookkeeping, and learner work.",
+                "",
+                "```text",
+                _format_component_table(component_records),
+                "```",
+            ]
         )
     if plot_paths:
         summary_lines.extend(["", "## Plots", ""])
@@ -912,6 +1174,28 @@ def write_report(
                 "```",
             ]
         )
+        reconciliation_table = _format_e2e_reconciliation_table(
+            hot_records=records,
+            e2e_records=e2e_records,
+            profile="sac_default",
+        )
+        if reconciliation_table:
+            summary_lines.extend(
+                [
+                    "",
+                    "## E2E Reconciliation",
+                    "",
+                    "This compares the synthetic `sac_default` hot-slice milliseconds saved",
+                    "with the collector-measured `update_state_ms` milliseconds saved at the",
+                    "same `num_envs` and Numba thread count. Large hot-slice speedups can",
+                    "translate to small `update_state` speedups when non-accelerated work",
+                    "dominates the update-state baseline.",
+                    "",
+                    "```text",
+                    reconciliation_table,
+                    "```",
+                ]
+            )
     else:
         summary_lines.extend(
             [
@@ -945,8 +1229,8 @@ def write_report(
             "- `numba 1 thread` isolates fusion/codegen benefit over numpy reward functions.",
             "- Higher thread counts add row-parallel speedup over the same fused kernel.",
             "- Hot-slice speedup is an upper bound for collector speedup because collector",
-            "  timing also includes physics, observation assembly, reset/RNG, policy inference,",
-            "  replay, and bookkeeping.",
+            "  timing also includes backend state getters, relative transforms, observation",
+            "  assembly, motion sampling, reset/RNG, policy inference, replay, and bookkeeping.",
             "- The optional collector comparison still excludes learner updates.",
         ]
     )
@@ -1012,6 +1296,7 @@ def main() -> None:
     args = parse_args()
     specs = make_profile_specs()
     all_records: list[BenchCase] = []
+    all_component_records: list[ComponentCase] = []
     e2e_records: list[EndToEndCase] = []
     parity: dict[str, dict[str, float]] = {}
     max_threads = get_num_threads()
@@ -1032,7 +1317,7 @@ def main() -> None:
     for profile_name in args.profiles:
         spec = specs[profile_name]
         for num_envs in args.num_envs:
-            records, parity_result = bench_one(
+            records, component, parity_result = bench_one(
                 profile=spec,
                 num_envs=num_envs,
                 thread_counts=args.threads,
@@ -1041,9 +1326,12 @@ def main() -> None:
                 seed=args.seed,
             )
             all_records.extend(records)
+            all_component_records.append(component)
             parity[f"{profile_name}:{num_envs}"] = parity_result
             print()
             print(_format_table(records))
+            print()
+            print(_format_component_table([component]))
 
     if args.e2e:
         missing_e2e_hot_slice = [
@@ -1057,7 +1345,7 @@ def main() -> None:
             print("Completing sac_default hot-slice data for e2e thread selection")
             print("=" * 80)
             for num_envs in missing_e2e_hot_slice:
-                records, parity_result = bench_one(
+                records, component, parity_result = bench_one(
                     profile=specs["sac_default"],
                     num_envs=num_envs,
                     thread_counts=args.threads,
@@ -1066,9 +1354,12 @@ def main() -> None:
                     seed=args.seed,
                 )
                 all_records.extend(records)
+                all_component_records.append(component)
                 parity[f"sac_default:{num_envs}"] = parity_result
                 print()
                 print(_format_table(records))
+                print()
+                print(_format_component_table([component]))
         selected_threads = _best_threads_for_profile(
             all_records, profile="sac_default", num_envs=args.e2e_num_envs
         )
@@ -1086,6 +1377,7 @@ def main() -> None:
     write_report(
         output_dir=args.output_dir,
         records=all_records,
+        component_records=all_component_records,
         parity=parity,
         e2e_records=e2e_records,
         args=args,

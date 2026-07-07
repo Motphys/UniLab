@@ -19,6 +19,11 @@ def test_g1_joystick_numba_benchmark_builds_records_and_matches_numpy() -> None:
     assert parity["max_abs_reward_diff"] < 1.0e-5
     assert {record.path for record in records} == {"numpy_dispatch", "numba_accelerator"}
     assert any(record.path == "numba_accelerator" and record.threads == 1 for record in records)
+    assert all(
+        record.parallel_speedup_vs_numba_1t is not None
+        for record in records
+        if record.path == "numba_accelerator"
+    )
 
 
 def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
@@ -51,6 +56,76 @@ def test_g1_joystick_numba_benchmark_formats_end_to_end_records() -> None:
     assert "1.25x" in table
     assert "motrixsim" in table
     assert "physics ms" in table
+
+
+def test_g1_joystick_numba_benchmark_formats_e2e_reconciliation() -> None:
+    hot_records = [
+        bench.BenchCase(
+            "sac_default",
+            1024,
+            "numpy_dispatch",
+            None,
+            1.0,
+            1.0,
+            0.0,
+            1024.0,
+            1.0,
+        ),
+        bench.BenchCase(
+            "sac_default",
+            1024,
+            "numba_accelerator",
+            4,
+            0.25,
+            0.25,
+            0.0,
+            4096.0,
+            4.0,
+        ),
+    ]
+    e2e_records = [
+        bench.EndToEndCase(
+            case=bench.DEFAULT_E2E_CASE,
+            path="training_collector_numpy",
+            num_envs=1024,
+            warmup_steps=1,
+            measure_steps=2,
+            numba_acceleration=False,
+            numba_threads=None,
+            collector_active_steps_per_sec=20_000.0,
+            total_active_ms=8.0,
+            collector_step_ms=4.0,
+            env_step_ms=3.0,
+            physics_step_ms=1.0,
+            update_state_ms=2.0,
+            other_ms=1.0,
+        ),
+        bench.EndToEndCase(
+            case=bench.DEFAULT_E2E_CASE,
+            path="training_collector_numba",
+            num_envs=1024,
+            warmup_steps=1,
+            measure_steps=2,
+            numba_acceleration=True,
+            numba_threads=4,
+            collector_active_steps_per_sec=25_000.0,
+            total_active_ms=6.4,
+            collector_step_ms=3.2,
+            env_step_ms=2.2,
+            physics_step_ms=1.0,
+            update_state_ms=1.4,
+            other_ms=0.8,
+        ),
+    ]
+
+    table = bench._format_e2e_reconciliation_table(
+        hot_records=hot_records,
+        e2e_records=e2e_records,
+    )
+
+    assert "hot saved ms" in table
+    assert "0.750" in table
+    assert "30.0%" in table
 
 
 def test_g1_joystick_numba_benchmark_selects_best_hot_slice_threads() -> None:
