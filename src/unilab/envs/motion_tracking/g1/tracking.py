@@ -28,14 +28,18 @@ from unilab.dr.dr_utils import (
 )
 from unilab.dr.types import RESET_TERM_GEOM_FRICTION, ResetRandomizationPayload
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.math import np_sample_uniform
-from unilab.envs.common.rotation import (
+from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
+from unilab.utils.geometry import (
+    np_gravity_z_in_body_from_quat,
+    np_sample_uniform,
+    np_write_relative_anchor_transform_pos_rot6d,
+)
+from unilab.utils.rotation import (
     np_quat_apply,
     np_quat_from_euler_xyz,
     np_quat_inv,
     np_quat_mul,
 )
-from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
 
 from .motion_loader import MotionData, MotionLoader, MotionSampler
 
@@ -273,64 +277,6 @@ def _build_motion_reference_state(
     qvel[:, 3:6] = np_quat_apply(np_quat_inv(root_ori), root_ang_vel)
     qvel[:, 6:] = joint_vel
     return qpos, qvel
-
-
-def _gravity_z_in_body_from_quat_w(quat_w: np.ndarray) -> np.ndarray:
-    """Z component of world gravity ``[0, 0, -1]`` expressed in body frame."""
-    return 2.0 * (quat_w[:, 1] * quat_w[:, 1] + quat_w[:, 2] * quat_w[:, 2]) - 1.0
-
-
-def _write_motion_anchor_transform(
-    robot_anchor_pos_w: np.ndarray,
-    robot_anchor_quat_w: np.ndarray,
-    anchor_pos_w: np.ndarray,
-    anchor_quat_w: np.ndarray,
-    out_pos: np.ndarray,
-    out_ori6: np.ndarray,
-) -> None:
-    aw = robot_anchor_quat_w[:, 0]
-    ax = robot_anchor_quat_w[:, 1]
-    ay = robot_anchor_quat_w[:, 2]
-    az = robot_anchor_quat_w[:, 3]
-
-    vx = anchor_pos_w[:, 0] - robot_anchor_pos_w[:, 0]
-    vy = anchor_pos_w[:, 1] - robot_anchor_pos_w[:, 1]
-    vz = anchor_pos_w[:, 2] - robot_anchor_pos_w[:, 2]
-
-    qx = -ax
-    qy = -ay
-    qz = -az
-    tx = 2 * (qy * vz - qz * vy)
-    ty = 2 * (qz * vx - qx * vz)
-    tz = 2 * (qx * vy - qy * vx)
-    out_pos[:, 0] = vx + aw * tx + qy * tz - qz * ty
-    out_pos[:, 1] = vy + aw * ty + qz * tx - qx * tz
-    out_pos[:, 2] = vz + aw * tz + qx * ty - qy * tx
-
-    bw = anchor_quat_w[:, 0]
-    bx = anchor_quat_w[:, 1]
-    by = anchor_quat_w[:, 2]
-    bz = anchor_quat_w[:, 3]
-    rw = aw * bw + ax * bx + ay * by + az * bz
-    rx = aw * bx - ax * bw - ay * bz + az * by
-    ry = aw * by + ax * bz - ay * bw - az * bx
-    rz = aw * bz - ax * by + ay * bx - az * bw
-
-    xx = rx * rx
-    yy = ry * ry
-    zz = rz * rz
-    xy = rx * ry
-    xz = rx * rz
-    yz = ry * rz
-    wx = rw * rx
-    wy = rw * ry
-    wz = rw * rz
-    out_ori6[:, 0] = 1 - 2 * (yy + zz)
-    out_ori6[:, 1] = 2 * (xy - wz)
-    out_ori6[:, 2] = 2 * (xy + wz)
-    out_ori6[:, 3] = 1 - 2 * (xx + zz)
-    out_ori6[:, 4] = 2 * (xz - wy)
-    out_ori6[:, 5] = 2 * (yz + wx)
 
 
 class G1MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):
@@ -1045,8 +991,8 @@ class G1MotionTrackingEnv(G1BaseEnv):
         if self._cfg.anchor_ori_threshold < 2.0:
             anchor_quat_w = motion_data.body_quat_w[:, self.anchor_body_idx]
             robot_anchor_quat_w = robot_body_quat_w[:, self.anchor_body_idx]
-            motion_gravity_z_b = _gravity_z_in_body_from_quat_w(anchor_quat_w)
-            robot_gravity_z_b = _gravity_z_in_body_from_quat_w(robot_anchor_quat_w)
+            motion_gravity_z_b = np_gravity_z_in_body_from_quat(anchor_quat_w)
+            robot_gravity_z_b = np_gravity_z_in_body_from_quat(robot_anchor_quat_w)
             np.subtract(motion_gravity_z_b, robot_gravity_z_b, out=self._env_error)
             np.abs(self._env_error, out=self._env_error)
             np.greater(self._env_error, self._cfg.anchor_ori_threshold, out=self._env_bool)
@@ -1171,7 +1117,7 @@ class G1MotionTrackingEnv(G1BaseEnv):
             motion_anchor_ori_b = np.empty((num_envs, 6), dtype=dtype)
             joint_pos_rel = np.empty((num_envs, n_action), dtype=dtype)
             zero_actions = np.zeros((num_envs, n_action), dtype=dtype)
-        _write_motion_anchor_transform(
+        np_write_relative_anchor_transform_pos_rot6d(
             robot_anchor_pos_w,
             robot_anchor_quat_w,
             anchor_pos_w,

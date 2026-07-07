@@ -13,8 +13,8 @@ from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.math import np_sample_uniform
-from unilab.envs.common.rotation import (
+from unilab.utils.geometry import np_sample_uniform
+from unilab.utils.rotation import (
     np_matrix_from_quat,
     np_quat_apply,
     np_quat_error_magnitude,

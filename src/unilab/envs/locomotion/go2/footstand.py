@@ -13,7 +13,7 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr import ResetPlan, ResetRandomizationPayload
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_apply, np_quat_apply_inverse
+from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig

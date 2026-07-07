@@ -10,7 +10,7 @@ from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
-from unilab.envs.common.rotation import np_quat_error_magnitude
+from unilab.utils.rotation import np_quat_error_magnitude
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
     SharpaDomainRandConfig,

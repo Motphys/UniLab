@@ -17,7 +17,7 @@ from unilab.dr.dr_utils import (
     zero_actions,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import (
+from unilab.utils.rotation import (
     np_quat_mul,
     np_yaw_to_quat,
 )

@@ -5,18 +5,14 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from unilab.base.backend import SimBackend
-from unilab.envs.common.rotation import (
-    np_matrix_from_quat,
-    np_quat_canonicalize,
-    np_quat_inv,
-    np_quat_mul,
-)
+from unilab.utils.rotation import np_matrix_from_quat
 from unilab.envs.locomotion.common.base import (
     ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
     Sensor,
 )
+from unilab.utils.geometry import np_quat_orientation_error_local
 
 DEFAULT_LEG_ANGLES = np.asarray(
     [
@@ -241,7 +237,7 @@ class Go2ArmBaseEnv(LocomotionBaseEnv):
                         "goal_local_quat and curr_local_quat are required when "
                         "ik.use_orientation=true and ik.orientation_mode='target'"
                     )
-                orn_err = _orientation_error_local(goal_local_quat, curr_local_quat)
+                orn_err = np_quat_orientation_error_local(goal_local_quat, curr_local_quat)
             elif cfg.orientation_mode == "zero_error":
                 orn_err = np.zeros_like(pos_err)
             else:
@@ -264,20 +260,3 @@ class Go2ArmBaseEnv(LocomotionBaseEnv):
         if cfg.dq_clip > 0.0:
             dq = np.clip(dq, -cfg.dq_clip, cfg.dq_clip)
         return dq
-
-
-def _normalize_quat(q: np.ndarray) -> np.ndarray:
-    q = np.asarray(q)
-    if q.ndim == 1:
-        q = q[None, :]
-    norm = np.linalg.norm(q, axis=1, keepdims=True)
-    return q / np.clip(norm, 1.0e-8, None)
-
-
-def _orientation_error_local(goal_quat: np.ndarray, curr_quat: np.ndarray) -> np.ndarray:
-    goal = _normalize_quat(goal_quat)
-    curr = _normalize_quat(curr_quat)
-    rel = np_quat_mul(goal, np_quat_inv(curr))
-    rel = np_quat_canonicalize(rel)
-    sign = np.where(rel[:, 0:1] < 0.0, -1.0, 1.0)
-    return rel[:, 1:] * sign
