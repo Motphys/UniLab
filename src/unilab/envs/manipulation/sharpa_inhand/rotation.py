@@ -30,12 +30,6 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.utils.rotation import (
-    np_quat_apply,
-    np_quat_conjugate,
-    np_quat_mul,
-    np_quat_to_axis_angle,
-)
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
@@ -44,6 +38,12 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     sample_scale_grasp_caches,
 )
 from unilab.utils.geometry import np_sample_uniform_quaternion
+from unilab.utils.rotation import (
+    np_quat_apply,
+    np_quat_conjugate,
+    np_quat_mul,
+    np_quat_to_axis_angle,
+)
 
 
 @dataclass

@@ -23,6 +23,7 @@ from unilab.base.scene import SceneCfg
 from unilab.dr.provider import DomainRandomizationProvider
 from unilab.dr.types import DomainRandomizationCapabilities, ResetPlan
 from unilab.dtype_config import get_global_dtype
+from unilab.utils.geometry import np_roll_pitch_from_quat
 from unilab.utils.rotation import (
     np_quat_apply_batched,
     np_quat_apply_inverse,
@@ -31,7 +32,6 @@ from unilab.utils.rotation import (
     np_quat_mul_batched,
     np_quat_to_axis_angle,
 )
-from unilab.utils.geometry import np_roll_pitch_from_quat
 
 # Leg base / top-connect bodies in actuator order (a0..a5 -> slide00,slide10,
 # slide01,slide11,slide02,slide12), produced by the `replicate count=3` in the XML.

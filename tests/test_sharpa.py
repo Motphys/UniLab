@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from unilab.utils.rotation import np_quat_apply
 from unilab.envs.manipulation.sharpa_inhand.base import SharpaDomainRandConfig
 from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
     SharpaInhandRotationGraspCfg,
@@ -15,6 +14,7 @@ from unilab.envs.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationEnv,
     sample_random_quaternion,
 )
+from unilab.utils.rotation import np_quat_apply
 
 
 def test_sharpa_gravity_direction_randomization_matches_rotated_gravity(
