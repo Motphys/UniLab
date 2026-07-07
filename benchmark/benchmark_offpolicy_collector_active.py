@@ -63,6 +63,7 @@ DEFAULT_BACKEND = "motrix"
 BENCHMARK_BACKENDS = ("mujoco", "motrix")
 DEFAULT_COLLECTOR_CPU_THREADS = 8
 COLLECTOR_CPU_THREADS_ENV = "UNILAB_COLLECTOR_TORCH_THREADS"
+NUMBA_ACCELERATED_TASKS = frozenset({"g1_walk_flat", "g1_motion_tracking"})
 BACKEND_ALIASES = {
     # UniLab's registry/backend contract uses "motrix"; "motrixsim" is the package
     # and benchmark-facing backend family name.
@@ -142,6 +143,9 @@ class CollectorCase:
     algo: str
     task: str
     sim: str
+    variant: str
+    numba_acceleration: bool
+    numba_threads: int | None
     runtime_sim_backend: str
     command: str
     training_task_name: str
@@ -423,6 +427,7 @@ def _build_case(
     algo: str,
     task: str,
     sim: str,
+    variant: str,
     replay_capacity_steps: int,
     actor_algo_type: str,
     use_layer_norm: bool,
@@ -432,10 +437,14 @@ def _build_case(
 ) -> CollectorCase:
     num_envs = int(cfg.algo.num_envs)
     capacity_steps = max(1, int(replay_capacity_steps))
+    numba_threads = OmegaConf.select(cfg, "env.numba_num_threads", default=None)
     return CollectorCase(
         algo=algo,
         task=task,
         sim=sim,
+        variant=variant,
+        numba_acceleration=bool(OmegaConf.select(cfg, "env.numba_acceleration", default=False)),
+        numba_threads=int(numba_threads) if numba_threads is not None else None,
         runtime_sim_backend=str(cfg.training.sim_backend),
         command=f"uv run train --algo {algo} --task {task} --sim {cfg.training.sim_backend}",
         training_task_name=str(cfg.training.task_name),
@@ -739,6 +748,7 @@ def _build_and_run_case(
     replay_capacity_steps: int,
     num_envs: int | None,
     extra_overrides: list[str],
+    variant: str = "default",
 ) -> CollectorResult:
     from unilab.training import BackendAdapter, ensure_registries
     from unilab.training.seed import apply_training_seed
@@ -784,6 +794,7 @@ def _build_and_run_case(
             algo=algo,
             task=task,
             sim=sim,
+            variant=variant,
             replay_capacity_steps=replay_capacity_steps,
             actor_algo_type=actor_algo_type,
             use_layer_norm=use_layer_norm,
@@ -803,6 +814,50 @@ def _build_and_run_case(
         if env is not None:
             env.close()
         _cleanup()
+
+
+def _numba_ab_overrides(*, enabled: bool, numba_threads: int | None) -> list[str]:
+    overrides = [f"++env.numba_acceleration={'true' if enabled else 'false'}"]
+    if enabled and numba_threads is not None:
+        overrides.append(f"++env.numba_num_threads={int(numba_threads)}")
+    return overrides
+
+
+def _build_and_run_numba_ab_case(
+    spec: str,
+    *,
+    warmup_steps: int,
+    measure_steps: int,
+    replay_capacity_steps: int,
+    num_envs: int | None,
+    extra_overrides: list[str],
+    numba_threads: int | None,
+) -> list[CollectorResult]:
+    _algo, task, _sim = _parse_case(spec)
+    if task not in NUMBA_ACCELERATED_TASKS:
+        raise ValueError(
+            f"--numba-ab only supports {sorted(NUMBA_ACCELERATED_TASKS)}, got task={task!r}"
+        )
+    records = []
+    for variant, enabled in (
+        ("numpy_baseline", False),
+        ("numba_accelerated", True),
+    ):
+        records.append(
+            _build_and_run_case(
+                spec,
+                warmup_steps=warmup_steps,
+                measure_steps=measure_steps,
+                replay_capacity_steps=replay_capacity_steps,
+                num_envs=num_envs,
+                extra_overrides=[
+                    *extra_overrides,
+                    *_numba_ab_overrides(enabled=enabled, numba_threads=numba_threads),
+                ],
+                variant=variant,
+            )
+        )
+    return records
 
 
 def _result_to_dict(result: CollectorResult) -> dict[str, Any]:
@@ -829,6 +884,9 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "algo",
         "task",
         "sim",
+        "variant",
+        "numba_acceleration",
+        "numba_threads",
         "runtime_sim_backend",
         "training_task_name",
         "collector_algo_type",
@@ -864,6 +922,11 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 "algo": result.case.algo,
                 "task": result.case.task,
                 "sim": result.case.sim,
+                "variant": result.case.variant,
+                "numba_acceleration": result.case.numba_acceleration,
+                "numba_threads": (
+                    result.case.numba_threads if result.case.numba_threads is not None else ""
+                ),
                 "runtime_sim_backend": result.case.runtime_sim_backend,
                 "training_task_name": result.case.training_task_name,
                 "collector_algo_type": result.case.collector_algo_type,
@@ -1135,6 +1198,8 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
         "Algo",
         "Task",
         "Backend",
+        "Variant",
+        "Numba",
         "num_env",
         "Throughput env/s",
         "Total active ms",
@@ -1161,6 +1226,12 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 result.case.algo,
                 result.case.task,
                 result.case.runtime_sim_backend,
+                result.case.variant,
+                (
+                    f"on/{result.case.numba_threads}T"
+                    if result.case.numba_acceleration
+                    else "off"
+                ),
                 f"{result.case.num_envs:,}",
                 f"{result.collector_active_steps_per_sec:,.0f}",
                 f"{result.total_active_ms / result.measure_steps:.3f} (100.0%)",
@@ -1344,6 +1415,114 @@ def _format_env_step_breakdown_table(results: list[CollectorResult]) -> str:
     return _format_table(headers, rows)
 
 
+def _mean_phase_ms(result: CollectorResult, key: str) -> float | None:
+    stat = result.phase_ms_per_vector_step.get(key)
+    return stat.mean_ms if stat is not None else None
+
+
+def _mean_np_env_ms(result: CollectorResult, key: str) -> float | None:
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    return stat.mean_ms if stat is not None else None
+
+
+def _physics_ms(result: CollectorResult) -> float | None:
+    return (
+        result.physics_ms_per_vector_step.mean_ms
+        if result.physics_ms_per_vector_step is not None
+        else None
+    )
+
+
+def _collector_other_ms(result: CollectorResult) -> float:
+    total = result.total_active_ms / float(result.measure_steps)
+    physics = _physics_ms(result) or 0.0
+    update_state = _mean_np_env_ms(result, "update_state_ms") or 0.0
+    return total - physics - update_state
+
+
+def _format_speedup(new: float, baseline: float) -> str:
+    return f"{baseline / new:.2f}x" if new > 0.0 else "n/a"
+
+
+def _format_saved(new: float, baseline: float) -> str:
+    return f"{baseline - new:.3f}"
+
+
+def _format_numba_ab_table(results: list[CollectorResult]) -> str:
+    baseline_by_case = {
+        (result.case.algo, result.case.task, result.case.sim, result.case.num_envs): result
+        for result in results
+        if result.case.variant == "numpy_baseline"
+    }
+    rows = []
+    for result in results:
+        if result.case.variant != "numba_accelerated":
+            continue
+        key = (result.case.algo, result.case.task, result.case.sim, result.case.num_envs)
+        baseline = baseline_by_case.get(key)
+        if baseline is None:
+            continue
+        base_total = baseline.total_active_ms / float(baseline.measure_steps)
+        new_total = result.total_active_ms / float(result.measure_steps)
+        base_env = _mean_phase_ms(baseline, "env_step_ms")
+        new_env = _mean_phase_ms(result, "env_step_ms")
+        base_update = _mean_np_env_ms(baseline, "update_state_ms")
+        new_update = _mean_np_env_ms(result, "update_state_ms")
+        base_physics = _physics_ms(baseline)
+        new_physics = _physics_ms(result)
+        base_other = _collector_other_ms(baseline)
+        new_other = _collector_other_ms(result)
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                f"{result.case.num_envs:,}",
+                "-" if result.case.numba_threads is None else str(result.case.numba_threads),
+                f"{result.collector_active_steps_per_sec / baseline.collector_active_steps_per_sec:.2f}x",
+                _format_speedup(new_total, base_total),
+                _format_saved(new_total, base_total),
+                "n/a" if base_env is None or new_env is None else _format_speedup(new_env, base_env),
+                "n/a" if base_env is None or new_env is None else _format_saved(new_env, base_env),
+                (
+                    "n/a"
+                    if base_update is None or new_update is None
+                    else _format_speedup(new_update, base_update)
+                ),
+                (
+                    "n/a"
+                    if base_update is None or new_update is None
+                    else _format_saved(new_update, base_update)
+                ),
+                (
+                    "n/a"
+                    if base_physics is None or new_physics is None
+                    else _format_saved(new_physics, base_physics)
+                ),
+                _format_saved(new_other, base_other),
+            )
+        )
+    if not rows:
+        return ""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "num_env",
+        "Numba T",
+        "Collector throughput",
+        "Total step speedup",
+        "Total saved ms",
+        "Env step speedup",
+        "Env saved ms",
+        "Update speedup",
+        "Update saved ms",
+        "Physics saved ms",
+        "Other saved ms",
+    )
+    return _format_table(headers, rows)
+
+
 def _print_result(result: CollectorResult) -> None:
     case = result.case
     cpu_str = f"{result.cpu_util_pct:.1f}%" if result.cpu_util_pct == result.cpu_util_pct else "n/a"
@@ -1475,6 +1654,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=[],
         help="Additional Hydra override. Can be passed more than once.",
     )
+    parser.add_argument(
+        "--numba-ab",
+        action="store_true",
+        help=(
+            "Run numpy baseline and env.numba_acceleration=true variants for supported "
+            "G1 tasks, then print an A/B bottleneck summary."
+        ),
+    )
+    parser.add_argument(
+        "--numba-threads",
+        type=int,
+        default=None,
+        help="Numba thread count used by --numba-ab accelerated variants.",
+    )
     parser.add_argument("--out-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--out-csv", type=Path, default=None)
     parser.add_argument("--continue-on-error", action="store_true")
@@ -1502,16 +1695,30 @@ def main() -> int:
     errors: list[dict[str, str]] = []
     for spec in specs:
         try:
-            result = _build_and_run_case(
-                spec,
-                warmup_steps=int(args.warmup_steps),
-                measure_steps=int(args.measure_steps),
-                replay_capacity_steps=int(args.replay_capacity_steps),
-                num_envs=args.num_envs,
-                extra_overrides=list(args.override),
-            )
-            results.append(result)
-            _print_result(result)
+            if args.numba_ab:
+                case_results = _build_and_run_numba_ab_case(
+                    spec,
+                    warmup_steps=int(args.warmup_steps),
+                    measure_steps=int(args.measure_steps),
+                    replay_capacity_steps=int(args.replay_capacity_steps),
+                    num_envs=args.num_envs,
+                    extra_overrides=list(args.override),
+                    numba_threads=args.numba_threads,
+                )
+            else:
+                case_results = [
+                    _build_and_run_case(
+                        spec,
+                        warmup_steps=int(args.warmup_steps),
+                        measure_steps=int(args.measure_steps),
+                        replay_capacity_steps=int(args.replay_capacity_steps),
+                        num_envs=args.num_envs,
+                        extra_overrides=list(args.override),
+                    )
+                ]
+            results.extend(case_results)
+            for result in case_results:
+                _print_result(result)
         except Exception as exc:
             error = {"case": spec, "type": type(exc).__name__, "message": str(exc)}
             errors.append(error)
@@ -1538,6 +1745,8 @@ def main() -> int:
             "measure_steps": args.measure_steps,
             "replay_capacity_steps": args.replay_capacity_steps,
             "override": args.override,
+            "numba_ab": args.numba_ab,
+            "numba_threads": args.numba_threads,
         },
         "results": [_result_to_dict(result) for result in results],
         "errors": errors,
@@ -1552,6 +1761,12 @@ def main() -> int:
     print("\nTask throughput (active phases; phase percentages add to 100%):")
     if results:
         print(_format_throughput_table(results))
+        if args.numba_ab:
+            print(
+                "\nNumba A/B summary (baseline is env.numba_acceleration=false; positive saved ms means the numba run is faster):"
+            )
+            table = _format_numba_ab_table(results)
+            print(table if table else "No paired Numba A/B results.")
         print(
             "\nEnv step breakdown (subparts of Env step; do not add Env step together with its subparts):"
         )

@@ -24,6 +24,9 @@ def _make_result(
         algo=algo,
         task=task,
         sim=sim,
+        variant="default",
+        numba_acceleration=False,
+        numba_threads=None,
         runtime_sim_backend=runtime_sim_backend,
         command=f"uv run train --algo {algo} --task {task} --sim {runtime_sim_backend}",
         training_task_name="G1WalkFlat",
@@ -153,6 +156,7 @@ def test_parse_args_defaults_to_large_env_count_and_longer_measure_window() -> N
     assert args.measure_steps == 100
     assert args.backend == "motrix"
     assert not args.all_backends
+    assert not args.numba_ab
 
 
 def test_parse_args_accepts_backend_and_all_backend_modes() -> None:
@@ -248,3 +252,53 @@ def test_write_csv_includes_all_phase_columns(tmp_path) -> None:
     assert "env_step_overhead_pct" in header
     for key in bench.COLLECTOR_PHASES:
         assert key in header
+
+
+def test_numba_ab_overrides_enable_and_disable_acceleration() -> None:
+    assert bench._numba_ab_overrides(enabled=False, numba_threads=8) == [
+        "++env.numba_acceleration=false"
+    ]
+    assert bench._numba_ab_overrides(enabled=True, numba_threads=8) == [
+        "++env.numba_acceleration=true",
+        "++env.numba_num_threads=8",
+    ]
+
+
+def test_numba_ab_table_reports_update_state_and_other_saved_ms() -> None:
+    baseline = _make_result(throughput=1000.0, include_env_step_breakdown=True)
+    baseline.case = bench.CollectorCase(
+        **{
+            **baseline.case.__dict__,
+            "variant": "numpy_baseline",
+            "numba_acceleration": False,
+            "numba_threads": None,
+        }
+    )
+    baseline.env_step_timing_ms_per_vector_step["update_state_ms"] = bench.TimingStats(
+        [0.5], 0.5, 0.5, 0.0, 0.5, 0.5
+    )
+
+    accelerated = _make_result(throughput=1250.0, include_env_step_breakdown=True)
+    accelerated.case = bench.CollectorCase(
+        **{
+            **accelerated.case.__dict__,
+            "variant": "numba_accelerated",
+            "numba_acceleration": True,
+            "numba_threads": 8,
+        }
+    )
+    accelerated.total_active_ms = 0.8
+    accelerated.phase_ms_per_vector_step["env_step_ms"] = bench.TimingStats(
+        [0.7], 0.7, 0.7, 0.0, 0.7, 0.7
+    )
+    accelerated.physics_ms_per_vector_step = bench.TimingStats([0.6], 0.6, 0.6, 0.0, 0.6, 0.6)
+    accelerated.env_step_timing_ms_per_vector_step["update_state_ms"] = bench.TimingStats(
+        [0.2], 0.2, 0.2, 0.0, 0.2, 0.2
+    )
+
+    table = bench._format_numba_ab_table([baseline, accelerated])
+
+    assert "Update saved ms" in table
+    assert "Other saved ms" in table
+    assert "0.300" in table
+    assert "1.25x" in table
