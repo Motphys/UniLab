@@ -1,10 +1,10 @@
-"""Benchmark the task-specific Numba backend for G1 joystick rewards.
+"""Benchmark the task-specific Numba backend for G1 joystick update_state.
 
 This benchmark intentionally avoids MuJoCo/Motrix construction. It measures the
 hot slice owned by ``src/unilab/envs/locomotion/g1/joystick.py``:
 
-* baseline: real ``G1WalkEnv._compute_reward`` reward dispatch + termination;
-* accelerated: ``G1WalkNumbaAccelerator.compute``.
+* baseline: real ``G1WalkEnv`` reward, termination, and observation assembly;
+* accelerated: ``G1WalkNumbaAccelerator.compute_update_state``.
 
 Synthetic backend arrays keep the benchmark deterministic while still using the
 same reward functions, reward config fields, sensor names, and accelerator entry
@@ -209,8 +209,17 @@ class SyntheticBatch:
     dof_vel: np.ndarray
 
 
+class _NoiseCfg:
+    level = 0.0
+    scale_gyro = 0.1
+    scale_gravity = 0.0
+    scale_joint_angle = 0.02
+    scale_joint_vel = 0.3
+
+
 class _Cfg:
     ctrl_dt = 0.02
+    noise_config = _NoiseCfg()
 
 
 def make_profile_specs() -> dict[str, ProfileSpec]:
@@ -360,7 +369,9 @@ def make_batch(num_envs: int, spec: ProfileSpec, seed: int) -> SyntheticBatch:
     )
 
 
-def compute_numpy(batch: SyntheticBatch) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+def compute_numpy(
+    batch: SyntheticBatch,
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, float]]:
     env = batch.env
     info = {**batch.info, "log": {}}
     max_tilt_rad = np.deg2rad(env._reward_cfg.max_tilt_deg)
@@ -377,14 +388,15 @@ def compute_numpy(batch: SyntheticBatch) -> tuple[np.ndarray, np.ndarray, dict[s
         batch.dof_pos,
         batch.dof_vel,
     )
-    return reward, terminated, info.get("log", {})
+    obs = env._compute_obs(info, batch.linvel, batch.gyro, batch.gravity, batch.dof_pos, batch.dof_vel)
+    return obs, reward, terminated, info.get("log", {})
 
 
 def compute_numba(
     batch: SyntheticBatch, accelerator: G1WalkNumbaAccelerator
-) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, float]]:
     info = {**batch.info, "log": {}}
-    out = accelerator.compute(
+    out = accelerator.compute_update_state(
         env=batch.env,
         info=info,
         linvel=batch.linvel,
@@ -394,8 +406,9 @@ def compute_numba(
         dof_vel=batch.dof_vel,
         scales=batch.env._reward_cfg.scales,
         enable_log=True,
+        noise_level=0.0,
     )
-    return out.reward, out.terminated, out.log
+    return out.obs, out.reward, out.terminated, out.log
 
 
 def time_call(fn, *, iters: int, warmup: int) -> tuple[float, float, float]:
@@ -410,16 +423,20 @@ def time_call(fn, *, iters: int, warmup: int) -> tuple[float, float, float]:
 
 
 def check_parity(batch: SyntheticBatch, accelerator: G1WalkNumbaAccelerator) -> dict[str, float]:
-    reward_np, terminated_np, log_np = compute_numpy(batch)
-    reward_nb, terminated_nb, log_nb = compute_numba(batch, accelerator)
+    obs_np, reward_np, terminated_np, log_np = compute_numpy(batch)
+    obs_nb, reward_nb, terminated_nb, log_nb = compute_numba(batch, accelerator)
     np.testing.assert_allclose(reward_nb, reward_np, rtol=5e-5, atol=5e-5)
     np.testing.assert_array_equal(terminated_nb, terminated_np)
+    np.testing.assert_allclose(obs_nb["obs"], obs_np["obs"], rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(obs_nb["critic"], obs_np["critic"], rtol=1e-6, atol=1e-6)
     for key, value in log_np.items():
         if key in log_nb:
             np.testing.assert_allclose(log_nb[key], value, rtol=5e-5, atol=5e-5)
     return {
         "max_abs_reward_diff": float(np.max(np.abs(reward_nb - reward_np))),
         "termination_mismatch": float(np.count_nonzero(terminated_nb != terminated_np)),
+        "max_abs_actor_obs_diff": float(np.max(np.abs(obs_nb["obs"] - obs_np["obs"]))),
+        "max_abs_critic_obs_diff": float(np.max(np.abs(obs_nb["critic"] - obs_np["critic"]))),
     }
 
 
@@ -551,7 +568,7 @@ def _run_e2e_collector_pair(
     create_env, actor action sampling, env.step, terminal-observation handling,
     replay writes, and bookkeeping are all included. Learner updates are excluded.
     It is intentionally optional because it constructs a real MuJoCo env and is
-    much heavier than the synthetic reward+termination hot-slice benchmark above.
+    much heavier than the synthetic update_state hot-slice benchmark above.
     """
     from benchmark.benchmark_offpolicy_collector_active import _build_and_run_case
 
@@ -896,7 +913,7 @@ def save_plots(
     best_by_case = _best_numba_by_case(records)
 
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(21, 6))
-    fig.suptitle(f"G1 joystick Numba reward+termination benchmark\n{device_info}", fontsize=13)
+    fig.suptitle(f"G1 joystick Numba update_state benchmark\n{device_info}", fontsize=13)
 
     ax1 = axes[0]
     for profile in profiles:
@@ -923,7 +940,7 @@ def save_plots(
                 fontsize=8,
             )
     ax1.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="break-even")
-    ax1.set_title("Reward+termination: best vs numpy")
+    ax1.set_title("Update_state: best vs numpy")
     ax1.set_xlabel("num_envs")
     ax1.set_ylabel("Speedup vs numpy")
     ax1.set_xscale("log", base=2)
@@ -964,7 +981,7 @@ def save_plots(
                     fontsize=8,
                 )
     ax2.axhline(1.0, color="grey", linestyle=":", linewidth=0.9, label="1T")
-    ax2.set_title("Reward+termination: parallel speedup")
+    ax2.set_title("Update_state: parallel speedup")
     ax2.set_xlabel("num_envs")
     ax2.set_ylabel("Speedup vs numba 1T")
     ax2.set_xscale("log", base=2)
@@ -1076,7 +1093,7 @@ def write_report(
         "measured_threads": getattr(args, "measured_threads", None),
         "skipped_threads": getattr(args, "skipped_threads", None),
         "numba_max_threads": getattr(args, "numba_max_threads", None),
-        "scope": "G1 joystick reward+termination hot slice; synthetic backend arrays",
+        "scope": "G1 joystick update_state hot slice; synthetic backend arrays",
         "e2e_enabled": args.e2e,
         "e2e_num_envs": args.e2e_num_envs,
         "e2e_case": args.e2e_case,
@@ -1099,21 +1116,21 @@ def write_report(
     summary_lines = [
         "# G1 joystick Numba benchmark",
         "",
-        "Scope: reward dispatch plus termination for `G1WalkEnv.update_state`, using",
-        "deterministic synthetic backend arrays. Physics stepping, obs assembly, reset,",
+        "Scope: reward, termination, and observation assembly for `G1WalkEnv.update_state`, using",
+        "deterministic synthetic backend arrays. Physics stepping, reset,",
         "and policy inference are intentionally out of scope.",
         "",
         "## Numba-specific hot slice",
         "",
         "Definitions:",
         "",
-        "- `vs numpy`: numpy reward+termination time divided by numba reward+termination time.",
+        "- `vs numpy`: numpy update_state hot-slice time divided by numba update_state time.",
         "- `vs numba1T`: numba 1-thread time divided by numba N-thread time.",
         "- `parallel eff`: `vs numba1T / N`; this is the only parallel-efficiency column.",
         "",
         "This section measures only the part this task-specific Numba backend accelerates:",
-        "`G1WalkEnv` reward dispatch plus termination inside `update_state`. It excludes",
-        "physics, observation assembly, reset/RNG, policy inference, learner work, and replay.",
+        "`G1WalkEnv` reward, termination, and observation assembly inside `update_state`. It excludes",
+        "physics, reset/RNG, policy inference, learner work, and replay.",
         "",
         "Profile meanings:",
         "",
@@ -1172,10 +1189,10 @@ def write_report(
                     "",
                     "This compares the synthetic `sac_default` hot-slice milliseconds saved",
                     "with the collector-measured `update_state_ms` milliseconds saved at the",
-                    "same `num_envs` and Numba thread count. The hot slice is only the",
-                    "reward+termination work replaced by `joystick_numba.py`; collector",
-                    "`update_state_ms` also includes state reads, observation assembly,",
-                    "resets, state replacement, and bookkeeping around that hot slice.",
+                    "same `num_envs` and Numba thread count. The hot slice is the synthetic",
+                    "full update_state array work replaced by `joystick_numba.py`; collector",
+                    "`update_state_ms` also includes backend state reads, resets, state",
+                    "replacement, and bookkeeping around that hot slice.",
                     "",
                     "```text",
                     reconciliation_table,
@@ -1295,7 +1312,7 @@ def main() -> None:
     args.skipped_threads = sorted({threads for threads in args.threads if threads > max_threads})
 
     print("=" * 80)
-    print("G1 joystick Numba benchmark: reward dispatch + termination")
+    print("G1 joystick Numba benchmark: update_state hot slice")
     print("=" * 80)
     print(f"host numba threads: {max_threads}")
     print(

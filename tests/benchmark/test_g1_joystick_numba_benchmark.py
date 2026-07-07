@@ -17,6 +17,8 @@ def test_g1_joystick_numba_benchmark_builds_records_and_matches_numpy() -> None:
 
     assert parity["termination_mismatch"] == 0.0
     assert parity["max_abs_reward_diff"] < 1.0e-5
+    assert parity["max_abs_actor_obs_diff"] < 1.0e-6
+    assert parity["max_abs_critic_obs_diff"] < 1.0e-6
     assert {record.path for record in records} == {"numpy_dispatch", "numba_accelerator"}
     assert any(record.path == "numba_accelerator" and record.threads == 1 for record in records)
     assert all(
