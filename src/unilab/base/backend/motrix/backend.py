@@ -307,6 +307,11 @@ class MotrixBackend(SimBackend):
         self._link_velocity_cache_valid = False
         self._refresh_link_pose_cache()
 
+        # Scratch buffers reused by set_state() to avoid per-reset allocations.
+        # Sized to the full env count and rewritten in place each call.
+        self._set_state_mask_scratch: np.ndarray = np.zeros(self._num_envs, dtype=bool)
+        self._set_state_qpos_motrix_scratch: np.ndarray | None = None
+
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
         ids: list[int] = []
         for name in names:
@@ -595,22 +600,83 @@ class MotrixBackend(SimBackend):
         qpos: np.ndarray,
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
-    ) -> None:
-        qpos_motrix = self._mujoco_qpos_to_motrix(qpos)
+    ) -> dict | None:
+        timing: dict[str, float] = {
+            "set_state_mask_ms": 0.0,
+            "set_state_data_slice_ms": 0.0,
+            "set_state_data_reset_ms": 0.0,
+            "set_state_clear_forces_ms": 0.0,
+            "set_state_geom_overrides_ms": 0.0,
+            "set_state_reset_rand_ms": 0.0,
+            "set_state_set_dof_vel_ms": 0.0,
+            "set_state_set_dof_pos_ms": 0.0,
+            "set_state_actuator_ctrl_ms": 0.0,
+            "set_state_forward_kinematic_ms": 0.0,
+            "set_state_refresh_pose_cache_ms": 0.0,
+            "set_state_invalidate_velocity_ms": 0.0,
+            "set_state_qpos_convert_ms": 0.0,
+            "set_state_pool_reset_ms": 0.0,
+            "set_state_state_scatter_ms": 0.0,
+            "set_state_internal_gap_ms": 0.0,
+        }
+        outer_t0 = time.perf_counter()
 
-        # Create mask for batch operation
-        mask = np.zeros(self._num_envs, dtype=bool)
-        mask[env_indices] = True
+        # Pre-convert env_indices once; every downstream helper reuses this.
+        env_ids_intp = np.asarray(env_indices, dtype=np.intp)
+
+        t0 = time.perf_counter()
+        # Reuse the scratch qpos buffer when its shape matches; the reset path
+        # feeds a fixed-shape (num_envs, qpos_dim) array so this holds after
+        # the first call.
+        scratch = self._set_state_qpos_motrix_scratch
+        if scratch is None or scratch.shape != qpos.shape or scratch.dtype != qpos.dtype:
+            scratch = np.empty_like(qpos)
+            self._set_state_qpos_motrix_scratch = scratch
+        qpos_motrix = self._mujoco_qpos_to_motrix_into(scratch, qpos)
+        timing["set_state_qpos_convert_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        # Reuse the persistent bool-mask scratch; only the touched entries need
+        # rewriting each call.
+        mask = self._set_state_mask_scratch
+        if mask.shape[0] != self._num_envs:
+            mask = np.zeros(self._num_envs, dtype=bool)
+            self._set_state_mask_scratch = mask
+        mask.fill(False)
+        mask[env_ids_intp] = True
+        timing["set_state_mask_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         data_slice = self._data[mask]
+        timing["set_state_data_slice_ms"] = (time.perf_counter() - t0) * 1000.0
 
-        # Batch set state
+        t0 = time.perf_counter()
         data_slice.reset(self._model)
-        self._clear_applied_body_forces(env_indices)
-        self._apply_init_geom_size_overrides(data_slice, env_indices)
-        self._apply_reset_randomization(data_slice, env_indices, randomization)
-        data_slice.set_dof_vel(qvel)
-        data_slice.set_dof_pos(qpos_motrix, self._model)
+        timing["set_state_data_reset_ms"] = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
+        self._clear_applied_body_forces(env_indices, env_ids_intp=env_ids_intp)
+        timing["set_state_clear_forces_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        self._apply_init_geom_size_overrides(data_slice, env_indices, env_ids_intp=env_ids_intp)
+        timing["set_state_geom_overrides_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        self._apply_reset_randomization(
+            data_slice, env_indices, randomization, env_ids_intp=env_ids_intp
+        )
+        timing["set_state_reset_rand_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        data_slice.set_dof_vel(qvel)
+        timing["set_state_set_dof_vel_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        data_slice.set_dof_pos(qpos_motrix, self._model)
+        timing["set_state_set_dof_pos_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         if self._supports_position_actuator_gains and len(self._joint_dof_pos_indices) == int(
             self.num_actuators
         ):
@@ -627,11 +693,44 @@ class MotrixBackend(SimBackend):
                 ctrl = qpos_motrix[:, self._actuator_joint_pos_indices]
         else:
             ctrl = np.zeros((len(env_indices), self.num_actuators), dtype=self._np_dtype)
-        data_slice.actuator_ctrls = np.ascontiguousarray(ctrl)
+        # Only pay the copy when the underlying slice is non-contiguous; view
+        # slices of a contiguous scratch buffer already satisfy the motrixsim
+        # contiguous requirement.
+        if not ctrl.flags.c_contiguous:
+            ctrl = np.ascontiguousarray(ctrl)
+        data_slice.actuator_ctrls = ctrl
+        timing["set_state_actuator_ctrl_ms"] = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         self._model.forward_kinematic(data_slice)
-        self._refresh_link_pose_cache(env_indices, data_slice=data_slice)
+        timing["set_state_forward_kinematic_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        self._refresh_link_pose_cache(env_indices, data_slice=data_slice, env_ids_intp=env_ids_intp)
+        timing["set_state_refresh_pose_cache_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
         self._invalidate_link_velocity_cache()
+        timing["set_state_invalidate_velocity_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        outer_total_ms = (time.perf_counter() - outer_t0) * 1000.0
+        measured_ms = (
+            timing["set_state_qpos_convert_ms"]
+            + timing["set_state_mask_ms"]
+            + timing["set_state_data_slice_ms"]
+            + timing["set_state_data_reset_ms"]
+            + timing["set_state_clear_forces_ms"]
+            + timing["set_state_geom_overrides_ms"]
+            + timing["set_state_reset_rand_ms"]
+            + timing["set_state_set_dof_vel_ms"]
+            + timing["set_state_set_dof_pos_ms"]
+            + timing["set_state_actuator_ctrl_ms"]
+            + timing["set_state_forward_kinematic_ms"]
+            + timing["set_state_refresh_pose_cache_ms"]
+            + timing["set_state_invalidate_velocity_ms"]
+        )
+        timing["set_state_internal_gap_ms"] = outer_total_ms - measured_ms
+        return {"timing": timing}
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         supported_reset_terms = {
@@ -1000,6 +1099,20 @@ class MotrixBackend(SimBackend):
             qpos_motrix[..., quat_indices] = qpos[..., quat_indices[[1, 2, 3, 0]]]
         return qpos_motrix
 
+    def _mujoco_qpos_to_motrix_into(self, dst: np.ndarray, qpos: np.ndarray) -> np.ndarray:
+        """Hot-path variant that writes into ``dst`` in place.
+
+        Same conversion as :meth:`_mujoco_qpos_to_motrix` but avoids the per-call
+        ``np.array(qpos, copy=True)`` allocation. Returns ``dst`` so callers can
+        chain: ``qpos_motrix = self._mujoco_qpos_to_motrix_into(scratch, qpos)``.
+        ``dst`` must have the same shape as ``qpos``; caller is responsible for
+        sizing the scratch buffer.
+        """
+        np.copyto(dst, qpos, casting="same_kind")
+        for quat_indices in self._floating_base_quat_indices:
+            dst[..., quat_indices] = qpos[..., quat_indices[[1, 2, 3, 0]]]
+        return dst
+
     def _motrix_qpos_to_mujoco(self, qpos: np.ndarray) -> np.ndarray:
         """Convert every Motrix freejoint quaternion slice from xyzw to wxyz."""
         qpos_mujoco = np.array(qpos, copy=True)
@@ -1008,7 +1121,10 @@ class MotrixBackend(SimBackend):
         return qpos_mujoco
 
     def _refresh_link_pose_cache(
-        self, env_indices: np.ndarray | None = None, data_slice: Any | None = None
+        self,
+        env_indices: np.ndarray | None = None,
+        data_slice: Any | None = None,
+        env_ids_intp: np.ndarray | None = None,
     ) -> None:
         if env_indices is None:
             self._link_poses = self._model.get_link_poses(self._data)
@@ -1017,7 +1133,11 @@ class MotrixBackend(SimBackend):
                 mask = np.zeros(self._num_envs, dtype=bool)
                 mask[env_indices] = True
                 data_slice = self._data[mask]
-            self._link_poses[env_indices] = self._model.get_link_poses(data_slice)
+            # Indexing with intp is a hair faster than the arbitrary-dtype
+            # ndarray path; use the pre-converted array when set_state hands
+            # it down.
+            idx = env_indices if env_ids_intp is None else env_ids_intp
+            self._link_poses[idx] = self._model.get_link_poses(data_slice)
 
     def _refresh_link_velocity_cache(self, env_indices: np.ndarray | None = None) -> None:
         if env_indices is None:
@@ -1058,10 +1178,17 @@ class MotrixBackend(SimBackend):
             return arr.reshape(shaped).copy()
         raise ValueError(f"{name} must have shape {shaped} or {flat_shape}, got {arr.shape}")
 
-    def _apply_init_geom_size_overrides(self, data_slice, env_indices: np.ndarray) -> None:
+    def _apply_init_geom_size_overrides(
+        self,
+        data_slice,
+        env_indices: np.ndarray,
+        env_ids_intp: np.ndarray | None = None,
+    ) -> None:
         if not self._init_geom_size_overrides:
             return
-        env_ids = np.asarray(env_indices, dtype=np.intp)
+        env_ids = (
+            env_ids_intp if env_ids_intp is not None else np.asarray(env_indices, dtype=np.intp)
+        )
         for geom_id, values in self._init_geom_size_overrides.items():
             geom = _require_not_none(
                 self._model.get_geom(int(geom_id)),
@@ -1106,10 +1233,16 @@ class MotrixBackend(SimBackend):
                 np.ascontiguousarray(np.asarray(geom_friction[:, geom_id, :], dtype=np.float32)),
             )
 
-    def _clear_applied_body_forces(self, env_indices: np.ndarray) -> None:
+    def _clear_applied_body_forces(
+        self,
+        env_indices: np.ndarray,
+        env_ids_intp: np.ndarray | None = None,
+    ) -> None:
         if not self._applied_body_forces:
             return
-        env_ids = np.asarray(env_indices, dtype=np.intp)
+        env_ids = (
+            env_ids_intp if env_ids_intp is not None else np.asarray(env_indices, dtype=np.intp)
+        )
         for applied_force in self._applied_body_forces.values():
             applied_force[env_ids, :] = 0.0
 
@@ -1339,6 +1472,7 @@ class MotrixBackend(SimBackend):
         data_slice,
         env_indices: np.ndarray,
         randomization: ResetRandomizationPayload | None,
+        env_ids_intp: np.ndarray | None = None,
     ) -> None:
         if randomization is None or randomization.is_empty():
             return
@@ -1351,7 +1485,9 @@ class MotrixBackend(SimBackend):
                 f"{self.backend_type} backend does not support reset randomization terms: {terms}"
             )
 
-        env_ids = np.asarray(env_indices, dtype=np.intp)
+        env_ids = (
+            env_ids_intp if env_ids_intp is not None else np.asarray(env_indices, dtype=np.intp)
+        )
         num_reset = len(env_ids)
         body_mass = None
         if randomization.body_mass is not None:
