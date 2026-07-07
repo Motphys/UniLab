@@ -7,8 +7,10 @@ ALLOWED_UTILS_API = {"get_default_device", "to_numpy", "to_torch"}
 ALLOWED_UTILS_MODULES = {
     "__init__",
     "device",
+    "geometry",
     "nan_guard",
     "numba_geometry",
+    "rotation",
     "support_matrix",
     "tensor",
 }

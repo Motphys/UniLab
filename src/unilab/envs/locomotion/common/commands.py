@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_wrap_to_pi, np_yaw_from_quat
+from unilab.utils.rotation import np_wrap_to_pi, np_yaw_from_quat
 
 
 @dataclass

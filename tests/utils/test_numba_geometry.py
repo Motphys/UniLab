@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from unilab.envs.common.rotation import (
+from unilab.utils.rotation import (
     np_matrix_first_two_cols_from_quat,
     np_subtract_frame_transforms,
 )
