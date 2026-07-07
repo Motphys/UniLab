@@ -185,6 +185,8 @@ class G1MotionTrackingCfg(G1BaseCfg):
     )
     undesired_contact_z_threshold: float = 0.05
     terminate_on_undesired_contacts: bool = False
+    numba_acceleration: bool = False
+    numba_num_threads: int | None = None
 
 
 @registry.envcfg("G1MotionTracking")
@@ -633,6 +635,15 @@ class G1MotionTrackingEnv(G1BaseEnv):
             for name, reward_fn in self._reward_fns.items()
             if self._reward_term_is_active(name)
         }
+        self._numba_accelerator = None
+        if cfg.numba_acceleration:
+            from unilab.envs.motion_tracking.g1.motion_tracking_numba import (
+                G1MotionTrackingNumbaAccelerator,
+            )
+
+            self._numba_accelerator = G1MotionTrackingNumbaAccelerator.from_env(
+                self, num_threads=cfg.numba_num_threads
+            )
         self._clip_end_truncated = np.zeros((num_envs,), dtype=bool)
 
     def _effective_default_angles(self, env_ids: np.ndarray | None = None) -> np.ndarray:
@@ -834,23 +845,44 @@ class G1MotionTrackingEnv(G1BaseEnv):
         # Compute relative body transforms (for observations and rewards)
         self._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
 
-        # Compute terminations
-        terminated = self._compute_terminations(motion_data, robot_body_pos_w, robot_body_quat_w)
+        if self._numba_accelerator is not None:
+            numba_result = self._numba_accelerator.compute(
+                info=state.info,
+                motion_data=motion_data,
+                ref_body_pos_w=self.body_pos_relative_w,
+                ref_body_quat_w=self.body_quat_relative_w,
+                robot_body_pos_w=robot_body_pos_w,
+                robot_body_quat_w=robot_body_quat_w,
+                robot_body_lin_vel_w=robot_body_lin_vel_w,
+                robot_body_ang_vel_w=robot_body_ang_vel_w,
+                dof_pos=dof_pos,
+                dof_vel=dof_vel,
+                scales=self._cfg.reward_config.scales,
+                enable_log=self._enable_reward_log,
+            )
+            terminated = numba_result.terminated
+            reward = numba_result.reward
+            state.info["log"] = numba_result.log
+        else:
+            # Compute terminations
+            terminated = self._compute_terminations(
+                motion_data, robot_body_pos_w, robot_body_quat_w
+            )
+
+            # Compute reward
+            reward = self._compute_reward(
+                state.info,
+                motion_data,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                robot_body_lin_vel_w,
+                robot_body_ang_vel_w,
+                dof_pos,
+                dof_vel,
+            )
 
         # Update failure statistics for adaptive sampling
         self.motion_sampler.update_failure_stats(terminated)
-
-        # Compute reward
-        reward = self._compute_reward(
-            state.info,
-            motion_data,
-            robot_body_pos_w,
-            robot_body_quat_w,
-            robot_body_lin_vel_w,
-            robot_body_ang_vel_w,
-            dof_pos,
-            dof_vel,
-        )
 
         # Compute observations
         obs = self._compute_obs(
