@@ -759,7 +759,12 @@ def parse_args() -> argparse.Namespace:
         default=["ppo_default", "sac_default", "full_supported"],
         choices=sorted(make_profile_specs()),
     )
-    parser.add_argument("--num-envs", nargs="+", type=int, default=[512, 2048, 8192])
+    parser.add_argument(
+        "--num-envs",
+        nargs="+",
+        type=int,
+        default=[512, 1024, 2048, 4096, 8192, 16384, 32768],
+    )
     parser.add_argument("--threads", nargs="+", type=int, default=None)
     parser.add_argument("--iters", type=int, default=80)
     parser.add_argument("--warmup", type=int, default=8)
