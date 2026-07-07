@@ -271,7 +271,7 @@ class SimBackend(abc.ABC):
         qpos: np.ndarray,
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
-    ) -> None:
+    ) -> dict | None:
         """Set physics state for selected environments.
 
         Args:
@@ -279,6 +279,14 @@ class SimBackend(abc.ABC):
             qpos: Position state.
             qvel: Velocity state.
             randomization: Optional backend randomization payload.
+
+        Returns:
+            Optional dictionary. Backends MAY include a ``"timing"`` key with
+            per-substep timings in milliseconds (e.g. ``set_state_mask_ms``,
+            ``set_state_data_slice_ms``, ...). Callers MUST treat ``None`` or
+            missing keys as "not reported" — the outer wall-clock measurement in
+            ``DomainRandomizationManager.reset`` (``dr_reset_set_state_ms``)
+            remains authoritative for total set_state time.
         """
 
     @abc.abstractmethod

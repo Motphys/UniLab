@@ -877,23 +877,58 @@ class MuJoCoBackend(SimBackend):
         qpos: np.ndarray,
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
-    ) -> None:
+    ) -> dict | None:
+        timing: dict[str, float] = {
+            "set_state_mask_ms": 0.0,
+            "set_state_data_slice_ms": 0.0,
+            "set_state_data_reset_ms": 0.0,
+            "set_state_clear_forces_ms": 0.0,
+            "set_state_geom_overrides_ms": 0.0,
+            "set_state_reset_rand_ms": 0.0,
+            "set_state_set_dof_vel_ms": 0.0,
+            "set_state_set_dof_pos_ms": 0.0,
+            "set_state_actuator_ctrl_ms": 0.0,
+            "set_state_forward_kinematic_ms": 0.0,
+            "set_state_refresh_pose_cache_ms": 0.0,
+            "set_state_invalidate_velocity_ms": 0.0,
+            "set_state_qpos_convert_ms": 0.0,
+            "set_state_pool_reset_ms": 0.0,
+            "set_state_state_scatter_ms": 0.0,
+            "set_state_internal_gap_ms": 0.0,
+        }
         if len(env_indices) == 0:
-            return
+            return {"timing": timing}
 
+        outer_t0 = time.perf_counter()
+
+        t0 = time.perf_counter()
         num_reset = len(env_indices)
         state_np = np.zeros((num_reset, self._physics_state.shape[1]), dtype=np.float64)
         state_np[:, self._idx_qpos : self._idx_qpos + self.nq] = qpos
         state_np[:, self._idx_qvel : self._idx_qvel + self.nv] = qvel
+        timing["set_state_qpos_convert_ms"] = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         state_out, sensor_np = self._pool.reset(  # type: ignore[union-attr]
             env_ids=np.asarray(env_indices, dtype=np.int32),
             initial_state=state_np,
             randomization=self._translate_reset_randomization(randomization, num_reset),
         )
+        timing["set_state_pool_reset_ms"] = (time.perf_counter() - t0) * 1000.0
 
+        t0 = time.perf_counter()
         self._physics_state[env_indices] = state_out.astype(self._np_dtype)
         self._sensor_data[env_indices] = sensor_np.astype(self._np_dtype)
+        timing["set_state_state_scatter_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        outer_total_ms = (time.perf_counter() - outer_t0) * 1000.0
+        measured_ms = (
+            timing["set_state_qpos_convert_ms"]
+            + timing["set_state_pool_reset_ms"]
+            + timing["set_state_state_scatter_ms"]
+        )
+        timing["set_state_internal_gap_ms"] = outer_total_ms - measured_ms
+        return {"timing": timing}
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return DomainRandomizationCapabilities(

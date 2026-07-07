@@ -104,6 +104,25 @@ NP_ENV_STEP_TIMING_KEYS = (
     "dr_reset_obs_get_body_pose_ms",
     "dr_reset_observation_compute_obs_ms",
     "dr_reset_observation_internal_gap_ms",
+    # Backend set_state internals (see BACKEND_SET_STATE_DETAIL_TIMING_KEYS in
+    # src/unilab/base/np_env.py). All backends emit the same key set for column
+    # stability; sub-keys that don't apply report 0.0.
+    "set_state_mask_ms",
+    "set_state_data_slice_ms",
+    "set_state_data_reset_ms",
+    "set_state_clear_forces_ms",
+    "set_state_geom_overrides_ms",
+    "set_state_reset_rand_ms",
+    "set_state_set_dof_vel_ms",
+    "set_state_set_dof_pos_ms",
+    "set_state_actuator_ctrl_ms",
+    "set_state_forward_kinematic_ms",
+    "set_state_refresh_pose_cache_ms",
+    "set_state_invalidate_velocity_ms",
+    "set_state_qpos_convert_ms",
+    "set_state_pool_reset_ms",
+    "set_state_state_scatter_ms",
+    "set_state_internal_gap_ms",
 )
 NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
 NP_ENV_STEP_SAMPLE_KEYS = (*NP_ENV_STEP_TIMING_KEYS, *NP_ENV_STEP_COUNT_KEYS)
@@ -135,6 +154,22 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("dr_reset_obs_get_body_pose_ms", "dr_reset_obs_get_body_pose_ms"),
     ("dr_reset_observation_compute_obs_ms", "dr_reset_observation_compute_obs_ms"),
     ("dr_reset_observation_internal_gap_ms", "dr_reset_observation_internal_gap_ms"),
+    ("set_state_mask_ms", "set_state_mask_ms"),
+    ("set_state_data_slice_ms", "set_state_data_slice_ms"),
+    ("set_state_data_reset_ms", "set_state_data_reset_ms"),
+    ("set_state_clear_forces_ms", "set_state_clear_forces_ms"),
+    ("set_state_geom_overrides_ms", "set_state_geom_overrides_ms"),
+    ("set_state_reset_rand_ms", "set_state_reset_rand_ms"),
+    ("set_state_set_dof_vel_ms", "set_state_set_dof_vel_ms"),
+    ("set_state_set_dof_pos_ms", "set_state_set_dof_pos_ms"),
+    ("set_state_actuator_ctrl_ms", "set_state_actuator_ctrl_ms"),
+    ("set_state_forward_kinematic_ms", "set_state_forward_kinematic_ms"),
+    ("set_state_refresh_pose_cache_ms", "set_state_refresh_pose_cache_ms"),
+    ("set_state_invalidate_velocity_ms", "set_state_invalidate_velocity_ms"),
+    ("set_state_qpos_convert_ms", "set_state_qpos_convert_ms"),
+    ("set_state_pool_reset_ms", "set_state_pool_reset_ms"),
+    ("set_state_state_scatter_ms", "set_state_state_scatter_ms"),
+    ("set_state_internal_gap_ms", "set_state_internal_gap_ms"),
 )
 
 
@@ -1193,6 +1228,23 @@ def _format_np_env_value(result: CollectorResult, key: str, *, digits: int = 1) 
     return f"{stat.mean_ms:.{digits}f}"
 
 
+def _format_set_state_sub_ms(result: CollectorResult, key: str) -> str:
+    """Format a backend set_state sub-timing as ``ms (%of set_state)``.
+
+    The percentage is relative to ``dr_reset_set_state_ms`` (the outer
+    wall-clock measurement in DomainRandomizationManager), not to env_step_ms,
+    so a reader can see which sub-step dominates set_state.
+    """
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    if stat is None:
+        return "n/a"
+    outer = result.env_step_timing_ms_per_vector_step.get("dr_reset_set_state_ms")
+    if outer is None or outer.mean_ms <= 0.0:
+        return f"{stat.mean_ms:.3f} (n/a)"
+    pct = 100.0 * stat.mean_ms / outer.mean_ms
+    return f"{stat.mean_ms:.3f} ({pct:.1f}%)"
+
+
 def _format_throughput_table(results: list[CollectorResult]) -> str:
     headers = (
         "Algo",
@@ -1227,11 +1279,7 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 result.case.task,
                 result.case.runtime_sim_backend,
                 result.case.variant,
-                (
-                    f"on/{result.case.numba_threads}T"
-                    if result.case.numba_acceleration
-                    else "off"
-                ),
+                (f"on/{result.case.numba_threads}T" if result.case.numba_acceleration else "off"),
                 f"{result.case.num_envs:,}",
                 f"{result.collector_active_steps_per_sec:,.0f}",
                 f"{result.total_active_ms / result.measure_steps:.3f} (100.0%)",
@@ -1317,6 +1365,90 @@ def _format_dr_reset_timing_table(results: list[CollectorResult]) -> str:
                 _format_np_env_timing(result, "dr_reset_obs_get_body_pose_ms"),
                 _format_np_env_timing(result, "dr_reset_observation_compute_obs_ms"),
                 _format_np_env_timing(result, "dr_reset_internal_gap_ms"),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+_SET_STATE_MOTRIX_KEYS = (
+    ("set_state_qpos_convert_ms", "QPos convert"),
+    ("set_state_mask_ms", "Mask"),
+    ("set_state_data_slice_ms", "Data slice"),
+    ("set_state_data_reset_ms", "Data reset"),
+    ("set_state_clear_forces_ms", "Clear forces"),
+    ("set_state_geom_overrides_ms", "Geom overrides"),
+    ("set_state_reset_rand_ms", "Reset rand"),
+    ("set_state_set_dof_vel_ms", "Set dof vel"),
+    ("set_state_set_dof_pos_ms", "Set dof pos"),
+    ("set_state_actuator_ctrl_ms", "Actuator ctrl"),
+    ("set_state_forward_kinematic_ms", "FK"),
+    ("set_state_refresh_pose_cache_ms", "Refresh pose"),
+    ("set_state_invalidate_velocity_ms", "Inval vel"),
+    ("set_state_internal_gap_ms", "Gap"),
+)
+
+_SET_STATE_MUJOCO_KEYS = (
+    ("set_state_qpos_convert_ms", "QPos convert"),
+    ("set_state_pool_reset_ms", "Pool reset"),
+    ("set_state_state_scatter_ms", "State scatter"),
+    ("set_state_internal_gap_ms", "Gap"),
+)
+
+
+def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
+    """Backend set_state sub-timing table (motrix keyset).
+
+    Renders the 14 motrix-oriented sub-keys next to the outer
+    ``dr_reset_set_state_ms``. Backends that don't populate a key emit 0.0 so
+    columns stay stable across backends. MuJoCo runs will show 0.0 for the
+    motrix-only sub-keys; use :func:`_format_set_state_mujoco_table` for the
+    MuJoCo-oriented view instead.
+    """
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MOTRIX_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MOTRIX_KEYS),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_set_state_mujoco_table(results: list[CollectorResult]) -> str:
+    """Backend set_state sub-timing table (mujoco keyset)."""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MUJOCO_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MUJOCO_KEYS),
             )
         )
     return _format_table(headers, rows)
@@ -1482,7 +1614,9 @@ def _format_numba_ab_table(results: list[CollectorResult]) -> str:
                 f"{result.collector_active_steps_per_sec / baseline.collector_active_steps_per_sec:.2f}x",
                 _format_speedup(new_total, base_total),
                 _format_saved(new_total, base_total),
-                "n/a" if base_env is None or new_env is None else _format_speedup(new_env, base_env),
+                "n/a"
+                if base_env is None or new_env is None
+                else _format_speedup(new_env, base_env),
                 "n/a" if base_env is None or new_env is None else _format_saved(new_env, base_env),
                 (
                     "n/a"
@@ -1781,6 +1915,13 @@ def main() -> int:
             "\nDR reset timing (subparts of reset call; reset obs getters currently read full batch):"
         )
         print(_format_dr_reset_timing_table(results))
+        print(
+            "\nBackend set_state detail — motrix keyset "
+            "(sub-timings sum to dr_reset_set_state_ms; % is share of that outer wall-clock):"
+        )
+        print(_format_set_state_detail_table(results))
+        print("\nBackend set_state detail — mujoco keyset:")
+        print(_format_set_state_mujoco_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1

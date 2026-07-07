@@ -254,6 +254,87 @@ def test_write_csv_includes_all_phase_columns(tmp_path) -> None:
         assert key in header
 
 
+def test_write_csv_includes_backend_set_state_sub_timing_columns(tmp_path) -> None:
+    """CSV headers must expose every backend set_state sub-key so downstream
+    reporting can diff pre/post-optimization runs."""
+    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
+    out_csv = tmp_path / "collector.csv"
+
+    bench._write_csv(out_csv, [result])
+
+    header = out_csv.read_text(encoding="utf-8").splitlines()[0]
+    expected_keys = (
+        "set_state_mask_ms",
+        "set_state_data_slice_ms",
+        "set_state_data_reset_ms",
+        "set_state_clear_forces_ms",
+        "set_state_geom_overrides_ms",
+        "set_state_reset_rand_ms",
+        "set_state_set_dof_vel_ms",
+        "set_state_set_dof_pos_ms",
+        "set_state_actuator_ctrl_ms",
+        "set_state_forward_kinematic_ms",
+        "set_state_refresh_pose_cache_ms",
+        "set_state_invalidate_velocity_ms",
+        "set_state_qpos_convert_ms",
+        "set_state_pool_reset_ms",
+        "set_state_state_scatter_ms",
+        "set_state_internal_gap_ms",
+    )
+    for key in expected_keys:
+        assert key in header, f"CSV header missing {key!r}"
+
+
+def test_format_set_state_detail_table_reports_sub_key_percentages() -> None:
+    """The detail table shows each sub-key next to its share of
+    ``dr_reset_set_state_ms`` (percentages must appear)."""
+    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
+    result.env_step_timing_ms_per_vector_step["dr_reset_set_state_ms"] = bench.TimingStats(
+        [4.0], 4.0, 4.0, 0.0, 4.0, 4.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_forward_kinematic_ms"] = bench.TimingStats(
+        [2.0], 2.0, 2.0, 0.0, 2.0, 2.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_mask_ms"] = bench.TimingStats(
+        [0.1], 0.1, 0.1, 0.0, 0.1, 0.1
+    )
+
+    table = bench._format_set_state_detail_table([result])
+
+    # Header exposes the "FK" and "Mask" sub-columns.
+    assert "FK" in table
+    assert "Mask" in table
+    # 2.0 ms / 4.0 ms = 50%; 0.1 ms / 4.0 ms = 2.5%.
+    assert "2.000 (50.0%)" in table
+    assert "0.100 (2.5%)" in table
+
+
+def test_format_set_state_mujoco_table_covers_mujoco_only_keys() -> None:
+    """The mujoco keyset table exposes pool_reset / state_scatter columns."""
+    result = _make_result(
+        runtime_sim_backend="mujoco",
+        num_envs=2,
+        throughput=2000.0,
+        include_env_step_breakdown=True,
+    )
+    result.env_step_timing_ms_per_vector_step["dr_reset_set_state_ms"] = bench.TimingStats(
+        [5.0], 5.0, 5.0, 0.0, 5.0, 5.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_pool_reset_ms"] = bench.TimingStats(
+        [4.0], 4.0, 4.0, 0.0, 4.0, 4.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_state_scatter_ms"] = bench.TimingStats(
+        [0.75], 0.75, 0.75, 0.0, 0.75, 0.75
+    )
+
+    table = bench._format_set_state_mujoco_table([result])
+
+    assert "Pool reset" in table
+    assert "State scatter" in table
+    assert "4.000 (80.0%)" in table
+    assert "0.750 (15.0%)" in table
+
+
 def test_numba_ab_overrides_enable_and_disable_acceleration() -> None:
     assert bench._numba_ab_overrides(enabled=False, numba_threads=8) == [
         "++env.numba_acceleration=false"
