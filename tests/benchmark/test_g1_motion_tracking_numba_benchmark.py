@@ -69,6 +69,8 @@ def test_g1_motion_tracking_numba_benchmark_formats_component_records() -> None:
         relative_transform_ms=0.5,
         numpy_reward_termination_ms=1.0,
         numba_reward_termination_ms=0.25,
+        numpy_update_state_ms=3.0,
+        numba_update_state_ms=1.5,
         numpy_total_ms=1.5,
         numba_total_ms=0.75,
         speedup_vs_numpy=2.0,
@@ -79,6 +81,7 @@ def test_g1_motion_tracking_numba_benchmark_formats_component_records() -> None:
 
     assert payload["relative_transform_ms"] == 0.5
     assert "rel ms" in table
+    assert "numpy update_state ms" in table
     assert "2.00x" in table
 
 
