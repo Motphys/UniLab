@@ -788,9 +788,10 @@ class G1MotionTrackingEnv(G1BaseEnv):
             robot_body_ang_vel_w,
         ) = self._get_body_state_w()
 
-        if self._numba_accelerator is not None:
+        numba_accelerator = getattr(self, "_numba_accelerator", None)
+        if numba_accelerator is not None:
             noise_cfg = self._cfg.noise_config
-            numba_result = self._numba_accelerator.compute_update_state(
+            numba_result = numba_accelerator.compute_update_state(
                 info=state.info,
                 motion_data=motion_data,
                 linvel=linvel,

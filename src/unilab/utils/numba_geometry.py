@@ -9,7 +9,8 @@ knowledge into shared utilities.
 from __future__ import annotations
 
 import math
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeAlias, cast
 
 try:  # pragma: no cover - exercised when optional numba dependency is installed
     from numba import njit
@@ -24,10 +25,23 @@ def _missing_numba(*_args: Any, **_kwargs: Any) -> None:
     raise RuntimeError("numba_geometry helpers require numba to be installed")
 
 
-if NUMBA_GEOMETRY_AVAILABLE:
+NumbaHelper: TypeAlias = Callable[..., Any]
+quat_angle_sq_at: NumbaHelper
+quat_gravity_z_at: NumbaHelper
+quat_yaw_from_components: NumbaHelper
+rotate_vec_by_inv_quat_components: NumbaHelper
+write_quat_first_two_matrix_cols_from_components: NumbaHelper
+write_yaw_aligned_body_transforms_at: NumbaHelper
+write_relative_anchor_transform_at: NumbaHelper
+write_body_pos_relative_to_anchor_at: NumbaHelper
+write_body_quat_relative_6d_to_anchor_at: NumbaHelper
 
-    def _dev(fn):
-        return njit(inline="always", fastmath=True, cache=True, nogil=True)(fn)
+
+if NUMBA_GEOMETRY_AVAILABLE:
+    _njit = cast(Any, njit)
+
+    def _dev(fn: NumbaHelper) -> NumbaHelper:
+        return cast(NumbaHelper, _njit(inline="always", fastmath=True, cache=True, nogil=True)(fn))
 
     @_dev
     def quat_angle_sq_at(q1, q2, item_idx, i):
@@ -161,12 +175,8 @@ if NUMBA_GEOMETRY_AVAILABLE:
             vx = source_body_pos_w[i, body_idx, 0] - anchor_px
             vy = source_body_pos_w[i, body_idx, 1] - anchor_py
             vz = source_body_pos_w[i, body_idx, 2] - anchor_pz
-            out_body_pos_w[i, body_idx, 0] = (
-                vx - yaw_cross * vy - yaw_z2 * vx + target_anchor_px
-            )
-            out_body_pos_w[i, body_idx, 1] = (
-                vy + yaw_cross * vx - yaw_z2 * vy + target_anchor_py
-            )
+            out_body_pos_w[i, body_idx, 0] = vx - yaw_cross * vy - yaw_z2 * vx + target_anchor_px
+            out_body_pos_w[i, body_idx, 1] = vy + yaw_cross * vx - yaw_z2 * vy + target_anchor_py
             out_body_pos_w[i, body_idx, 2] = vz + anchor_pz
 
     @_dev
@@ -236,7 +246,9 @@ if NUMBA_GEOMETRY_AVAILABLE:
         write_quat_first_two_matrix_cols_from_components(rw, rx, ry, rz, out_rot6d_b, i, 0)
 
     @_dev
-    def write_body_pos_relative_to_anchor_at(body_pos_w, anchor_quat_w, anchor, n_body, out, i, offset):
+    def write_body_pos_relative_to_anchor_at(
+        body_pos_w, anchor_quat_w, anchor, n_body, out, i, offset
+    ):
         anchor_px = body_pos_w[i, anchor, 0]
         anchor_py = body_pos_w[i, anchor, 1]
         anchor_pz = body_pos_w[i, anchor, 2]

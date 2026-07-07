@@ -247,12 +247,10 @@ def test_g1_walk_numba_update_state_parity_without_noise():
     dof_vel = rng.normal(size=(n, n_action)).astype(np.float32)
 
     max_tilt_rad = np.deg2rad(env._reward_cfg.max_tilt_deg)
-    terminated_np = (
-        np.arccos(np.clip(gravity[:, 2], -1.0, 1.0)) > max_tilt_rad
-    ) | (env._backend.get_base_pos()[:, 2] < env._reward_cfg.min_base_height)
-    reward_np = env._compute_reward(
-        {**info, "log": {}}, linvel, gyro, gravity, dof_pos, dof_vel
+    terminated_np = (np.arccos(np.clip(gravity[:, 2], -1.0, 1.0)) > max_tilt_rad) | (
+        env._backend.get_base_pos()[:, 2] < env._reward_cfg.min_base_height
     )
+    reward_np = env._compute_reward({**info, "log": {}}, linvel, gyro, gravity, dof_pos, dof_vel)
     obs_np = env._compute_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
 
     accel = G1WalkNumbaAccelerator.from_env(env, num_threads=2)

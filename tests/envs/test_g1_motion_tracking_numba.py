@@ -190,9 +190,7 @@ def test_g1_motion_tracking_numba_term_py_funcs_match_numpy_math():
     i = 2
 
     diff = motion_data.body_pos_w[i, env.anchor_body_idx] - robot_body_pos_w[i, env.anchor_body_idx]
-    expected_root_pos = np.exp(
-        -np.sum(diff * diff) / (env._cfg.reward_config.std_root_pos**2)
-    )
+    expected_root_pos = np.exp(-np.sum(diff * diff) / (env._cfg.reward_config.std_root_pos**2))
     assert T.motion_global_root_pos_i.py_func(
         motion_data.body_pos_w,
         robot_body_pos_w,
@@ -203,7 +201,9 @@ def test_g1_motion_tracking_numba_term_py_funcs_match_numpy_math():
 
     body_diff = env.body_pos_relative_w[i] - robot_body_pos_w[i]
     expected_body_pos = np.exp(
-        -np.sum(body_diff * body_diff) / body_diff.shape[0] / (env._cfg.reward_config.std_body_pos**2)
+        -np.sum(body_diff * body_diff)
+        / body_diff.shape[0]
+        / (env._cfg.reward_config.std_body_pos**2)
     )
     assert T.motion_body_pos_i.py_func(
         env.body_pos_relative_w,
@@ -315,9 +315,7 @@ def _make_env(n: int, *, include_undesired: bool) -> Any:
     env._joint_error_upper = np.empty((n, env._num_action), dtype=np.float32)
     env._ee_pos_error_z = np.empty((n, env.ee_body_indices.size), dtype=np.float32)
     env._ee_terminated = np.empty((n, env.ee_body_indices.size), dtype=bool)
-    env._undesired_contact_mask = np.empty(
-        (n, env.undesired_contact_body_indices.size), dtype=bool
-    )
+    env._undesired_contact_mask = np.empty((n, env.undesired_contact_body_indices.size), dtype=bool)
     env._enable_reward_log = True
     env._init_reward_functions()
     env._active_reward_fns = {
@@ -354,12 +352,8 @@ def _make_batch(n: int, seed: int):
     motion_data = _MotionData(
         body_pos_w=np.ascontiguousarray(target_pos + 0.03 * rng.standard_normal((n, nb, 3))),
         body_quat_w=np.ascontiguousarray(_perturb_quats(rng, target_quat, 0.02)),
-        body_lin_vel_w=np.ascontiguousarray(
-            target_lin_vel + 0.1 * rng.standard_normal((n, nb, 3))
-        ),
-        body_ang_vel_w=np.ascontiguousarray(
-            target_ang_vel + 0.1 * rng.standard_normal((n, nb, 3))
-        ),
+        body_lin_vel_w=np.ascontiguousarray(target_lin_vel + 0.1 * rng.standard_normal((n, nb, 3))),
+        body_ang_vel_w=np.ascontiguousarray(target_ang_vel + 0.1 * rng.standard_normal((n, nb, 3))),
         joint_pos=np.ascontiguousarray(target_joint_pos + 0.03 * rng.standard_normal((n, na))),
         joint_vel=np.ascontiguousarray(target_joint_vel + 0.05 * rng.standard_normal((n, na))),
     )

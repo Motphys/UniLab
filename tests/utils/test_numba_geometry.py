@@ -3,14 +3,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from unilab.envs.common.rotation import (
-    np_matrix_first_two_cols_from_quat,
-    np_subtract_frame_transforms,
-)
 from unilab.utils.numba_geometry import (
     NUMBA_GEOMETRY_AVAILABLE,
     quat_angle_sq_at,
     write_relative_anchor_transform_at,
+)
+from unilab.utils.rotation import (
+    np_matrix_first_two_cols_from_quat,
+    np_subtract_frame_transforms,
 )
 
 

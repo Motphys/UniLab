@@ -133,12 +133,8 @@ def test_g1_joystick_numba_benchmark_formats_e2e_reconciliation() -> None:
 def test_g1_joystick_numba_benchmark_selects_best_hot_slice_threads() -> None:
     records = [
         bench.BenchCase("sac_default", 1024, "numpy_dispatch", None, 1.0, 1.0, 0.0, 1000.0, 1.0),
-        bench.BenchCase(
-            "sac_default", 1024, "numba_accelerator", 2, 0.8, 0.8, 0.0, 1250.0, 1.25
-        ),
-        bench.BenchCase(
-            "sac_default", 1024, "numba_accelerator", 4, 0.6, 0.6, 0.0, 1666.0, 1.67
-        ),
+        bench.BenchCase("sac_default", 1024, "numba_accelerator", 2, 0.8, 0.8, 0.0, 1250.0, 1.25),
+        bench.BenchCase("sac_default", 1024, "numba_accelerator", 4, 0.6, 0.6, 0.0, 1666.0, 1.67),
         bench.BenchCase("ppo_default", 1024, "numba_accelerator", 8, 0.5, 0.5, 0.0, 2000.0, 2.0),
     ]
 

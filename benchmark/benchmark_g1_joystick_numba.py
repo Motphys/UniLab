@@ -388,7 +388,9 @@ def compute_numpy(
         batch.dof_pos,
         batch.dof_vel,
     )
-    obs = env._compute_obs(info, batch.linvel, batch.gyro, batch.gravity, batch.dof_pos, batch.dof_vel)
+    obs = env._compute_obs(
+        info, batch.linvel, batch.gyro, batch.gravity, batch.dof_pos, batch.dof_vel
+    )
     return obs, reward, terminated, info.get("log", {})
 
 
@@ -498,9 +500,7 @@ def bench_one(
         )
     set_num_threads(max_threads)
     numba_1t = next(
-        record
-        for record in records
-        if record.path == "numba_accelerator" and record.threads == 1
+        record for record in records if record.path == "numba_accelerator" and record.threads == 1
     )
     for record in records:
         if record.path != "numba_accelerator" or record.threads is None:
@@ -784,7 +784,12 @@ def _format_e2e_reconciliation_table(
             num_envs=record.num_envs,
             threads=record.numba_threads,
         )
-        if baseline is None or baseline.update_state_ms is None or numpy_hot is None or numba_hot is None:
+        if (
+            baseline is None
+            or baseline.update_state_ms is None
+            or numpy_hot is None
+            or numba_hot is None
+        ):
             continue
         hot_saved_ms = numpy_hot.mean_ms - numba_hot.mean_ms
         update_saved_ms = baseline.update_state_ms - record.update_state_ms
@@ -1308,7 +1313,9 @@ def main() -> None:
     parity: dict[str, dict[str, float]] = {}
     max_threads = get_num_threads()
     args.numba_max_threads = max_threads
-    args.measured_threads = sorted({1, *(threads for threads in args.threads if threads <= max_threads)})
+    args.measured_threads = sorted(
+        {1, *(threads for threads in args.threads if threads <= max_threads)}
+    )
     args.skipped_threads = sorted({threads for threads in args.threads if threads > max_threads})
 
     print("=" * 80)
