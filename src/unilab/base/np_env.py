@@ -46,6 +46,46 @@ RESET_DONE_DETAIL_TIMING_KEYS = (
     "dr_reset_obs_get_body_pose_ms",
     "dr_reset_observation_compute_obs_ms",
     "dr_reset_observation_internal_gap_ms",
+    # Backend-internal set_state sub-timings. All backends report the same key
+    # set for column stability; sub-keys that don't apply report 0.0.
+    "set_state_mask_ms",
+    "set_state_data_slice_ms",
+    "set_state_data_reset_ms",
+    "set_state_clear_forces_ms",
+    "set_state_geom_overrides_ms",
+    "set_state_reset_rand_ms",
+    "set_state_set_dof_vel_ms",
+    "set_state_set_dof_pos_ms",
+    "set_state_actuator_ctrl_ms",
+    "set_state_forward_kinematic_ms",
+    "set_state_refresh_pose_cache_ms",
+    "set_state_invalidate_velocity_ms",
+    "set_state_qpos_convert_ms",
+    "set_state_pool_reset_ms",
+    "set_state_state_scatter_ms",
+    "set_state_internal_gap_ms",
+)
+
+# Subset of RESET_DONE_DETAIL_TIMING_KEYS that comes from the backend's
+# set_state() timing dict. DR manager merges these keys 1-to-1 from the
+# backend return value.
+BACKEND_SET_STATE_DETAIL_TIMING_KEYS = (
+    "set_state_mask_ms",
+    "set_state_data_slice_ms",
+    "set_state_data_reset_ms",
+    "set_state_clear_forces_ms",
+    "set_state_geom_overrides_ms",
+    "set_state_reset_rand_ms",
+    "set_state_set_dof_vel_ms",
+    "set_state_set_dof_pos_ms",
+    "set_state_actuator_ctrl_ms",
+    "set_state_forward_kinematic_ms",
+    "set_state_refresh_pose_cache_ms",
+    "set_state_invalidate_velocity_ms",
+    "set_state_qpos_convert_ms",
+    "set_state_pool_reset_ms",
+    "set_state_state_scatter_ms",
+    "set_state_internal_gap_ms",
 )
 
 

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import pytest
 
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -135,6 +136,33 @@ class _FakeBackend:
         self.last_randomization = randomization
 
 
+@dataclass
+class _FakeTimedBackend:
+    """Backend that reports set_state sub-timings via the extended contract."""
+
+    capabilities: DomainRandomizationCapabilities
+    timing: dict[str, float]
+    backend_type: str = "motrix"
+
+    def __post_init__(self) -> None:
+        self.last_randomization: ResetRandomizationPayload | None = None
+        self.call_count = 0
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return self.capabilities
+
+    def set_state(
+        self,
+        env_indices: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization: ResetRandomizationPayload | None = None,
+    ) -> dict:
+        self.last_randomization = randomization
+        self.call_count += 1
+        return {"timing": dict(self.timing)}
+
+
 class _FakeProvider(DomainRandomizationProvider):
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         return None
@@ -199,3 +227,65 @@ def test_manager_keeps_supported_reset_terms_without_warning(caplog):
     assert backend.last_randomization.base_mass_delta is not None
     assert backend.last_randomization.kp is not None
     assert "skipping them" not in caplog.text
+
+
+def test_manager_merges_backend_set_state_sub_timings():
+    """Backend-reported ``{"timing": {...}}`` from set_state flows into
+    ``last_reset_timing_ms`` next to ``dr_reset_set_state_ms``."""
+    reported = {
+        "set_state_mask_ms": 0.12,
+        "set_state_data_slice_ms": 0.34,
+        "set_state_forward_kinematic_ms": 2.1,
+        "set_state_internal_gap_ms": 0.05,
+    }
+    backend = _FakeTimedBackend(
+        capabilities=DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_KP})
+        ),
+        timing=reported,
+    )
+    env = SimpleNamespace(_backend=backend)
+    manager = DomainRandomizationManager(env, _FakeProvider())
+
+    obs, _ = manager.reset(np.array([0, 1, 2], dtype=np.int32))
+
+    assert obs["obs"].shape == (3, 1)
+    assert backend.call_count == 1
+    timings = manager.last_reset_timing_ms
+    # Outer wall-clock measurement still present.
+    assert "dr_reset_set_state_ms" in timings
+    # Every reported backend sub-key is merged in.
+    for key, expected in reported.items():
+        assert key in timings
+        assert timings[key] == pytest.approx(expected)
+
+
+def test_manager_tolerates_missing_or_malformed_backend_timing():
+    """Backends may return ``None`` (unchanged behavior) or a dict with
+    non-numeric values; the manager must not crash and must not add spurious
+    sub-keys in either case."""
+    plain_backend = _FakeBackend(
+        capabilities=DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_KP})
+        )
+    )
+    env = SimpleNamespace(_backend=plain_backend)
+    manager = DomainRandomizationManager(env, _FakeProvider())
+    manager.reset(np.array([0], dtype=np.int32))
+    plain_keys = set(manager.last_reset_timing_ms)
+    assert "dr_reset_set_state_ms" in plain_keys
+    assert not any(k.startswith("set_state_") for k in plain_keys)
+
+    malformed_backend = _FakeTimedBackend(
+        capabilities=DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_KP})
+        ),
+        timing={"set_state_mask_ms": "not a number", "set_state_data_slice_ms": 0.5},
+    )
+    env = SimpleNamespace(_backend=malformed_backend)
+    manager = DomainRandomizationManager(env, _FakeProvider())
+    manager.reset(np.array([0], dtype=np.int32))
+    timings = manager.last_reset_timing_ms
+    # Malformed value dropped, well-formed one merged.
+    assert "set_state_mask_ms" not in timings
+    assert timings["set_state_data_slice_ms"] == pytest.approx(0.5)
