@@ -736,4 +736,6 @@ class G1Walk23DofRoughCfg(G1Walk23DofFlatCfg):
 
 
 registry.register_env("G1Walk23DofFlat", G1Walk23DofEnv, sim_backend="mujoco")
+registry.register_env("G1Walk23DofFlat", G1Walk23DofEnv, sim_backend="motrix")
 registry.register_env("G1Walk23DofRough", G1Walk23DofEnv, sim_backend="mujoco")
+registry.register_env("G1Walk23DofRough", G1Walk23DofEnv, sim_backend="motrix")

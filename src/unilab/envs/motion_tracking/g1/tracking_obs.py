@@ -509,3 +509,4 @@ class G1WBTObs23DofCfg(G1WBTObsCfg):
 
 
 registry.register_env("G1WBTObs23Dof", G1WBTObsEnv, sim_backend="mujoco")
+registry.register_env("G1WBTObs23Dof", G1WBTObsEnv, sim_backend="motrix")
