@@ -14,6 +14,7 @@ Run:
     uv run python -m benchmark.benchmark_g1_joystick_numba
     uv run python benchmark/benchmark_g1_joystick_numba.py
     uv run python -m benchmark.benchmark_g1_joystick_numba --quick
+    uv run python -m benchmark.benchmark_g1_joystick_numba --quick --e2e
 """
 
 from __future__ import annotations
@@ -157,6 +158,24 @@ class BenchCase:
     env_per_s: float
     speedup_vs_numpy: float
     compile_ms: float | None = None
+
+
+@dataclass
+class EndToEndCase:
+    case: str
+    path: str
+    num_envs: int
+    warmup_steps: int
+    measure_steps: int
+    numba_acceleration: bool
+    numba_threads: int | None
+    collector_active_steps_per_sec: float
+    total_active_ms: float
+    env_step_ms: float
+    update_state_ms: float | None
+    speedup_vs_numpy: float = 1.0
+    env_step_speedup_vs_numpy: float | None = None
+    update_state_speedup_vs_numpy: float | None = None
 
 
 @dataclass
@@ -471,6 +490,109 @@ def _case_to_dict(case: BenchCase) -> dict[str, Any]:
     }
 
 
+def _e2e_case_to_dict(case: EndToEndCase) -> dict[str, Any]:
+    return {
+        "case": case.case,
+        "path": case.path,
+        "num_envs": case.num_envs,
+        "warmup_steps": case.warmup_steps,
+        "measure_steps": case.measure_steps,
+        "numba_acceleration": case.numba_acceleration,
+        "numba_threads": case.numba_threads,
+        "collector_active_steps_per_sec": case.collector_active_steps_per_sec,
+        "total_active_ms": case.total_active_ms,
+        "env_step_ms": case.env_step_ms,
+        "update_state_ms": case.update_state_ms,
+        "speedup_vs_numpy": case.speedup_vs_numpy,
+        "env_step_speedup_vs_numpy": case.env_step_speedup_vs_numpy,
+        "update_state_speedup_vs_numpy": case.update_state_speedup_vs_numpy,
+    }
+
+
+def _timing_mean_ms(result: Any, key: str) -> float | None:
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    return float(stat.mean_ms) if stat is not None else None
+
+
+def _run_e2e_collector_case(
+    *,
+    num_envs: int,
+    warmup_steps: int,
+    measure_steps: int,
+    numba_threads: int | None,
+) -> list[EndToEndCase]:
+    """Run a real collector active-window A/B test using training construction paths.
+
+    This mirrors benchmark_offpolicy_collector_active.py: Hydra owner config,
+    create_env, actor action sampling, env.step, terminal-observation handling,
+    replay writes, and bookkeeping are all included. It is intentionally optional
+    because it constructs a real MuJoCo env and is much heavier than the synthetic
+    reward+termination hot-slice benchmark above.
+    """
+    from benchmark.benchmark_offpolicy_collector_active import _build_and_run_case
+
+    case_name = "sac/g1_walk_flat/mujoco"
+    common = {
+        "warmup_steps": warmup_steps,
+        "measure_steps": measure_steps,
+        "replay_capacity_steps": max(2, measure_steps + warmup_steps + 1),
+        "num_envs": num_envs,
+    }
+    variants = [
+        (
+            "training_collector_numpy",
+            False,
+            [
+                "++env.numba_acceleration=false",
+            ],
+        ),
+        (
+            "training_collector_numba",
+            True,
+            [
+                "++env.numba_acceleration=true",
+                f"++env.numba_num_threads={numba_threads}" if numba_threads is not None else "",
+            ],
+        ),
+    ]
+
+    records: list[EndToEndCase] = []
+    for path, enabled, overrides in variants:
+        result = _build_and_run_case(
+            case_name,
+            extra_overrides=[override for override in overrides if override],
+            **common,
+        )
+        env_step_ms = float(result.phase_ms_per_vector_step["env_step_ms"].mean_ms)
+        records.append(
+            EndToEndCase(
+                case=case_name,
+                path=path,
+                num_envs=num_envs,
+                warmup_steps=warmup_steps,
+                measure_steps=measure_steps,
+                numba_acceleration=enabled,
+                numba_threads=numba_threads if enabled else None,
+                collector_active_steps_per_sec=float(result.collector_active_steps_per_sec),
+                total_active_ms=float(result.total_active_ms),
+                env_step_ms=env_step_ms,
+                update_state_ms=_timing_mean_ms(result, "update_state_ms"),
+            )
+        )
+
+    baseline = next(record for record in records if not record.numba_acceleration)
+    for record in records:
+        record.speedup_vs_numpy = (
+            record.collector_active_steps_per_sec / baseline.collector_active_steps_per_sec
+        )
+        record.env_step_speedup_vs_numpy = (
+            baseline.env_step_ms / record.env_step_ms if record.env_step_ms > 0.0 else None
+        )
+        if baseline.update_state_ms is not None and record.update_state_ms:
+            record.update_state_speedup_vs_numpy = baseline.update_state_ms / record.update_state_ms
+    return records
+
+
 def _format_table(records: list[BenchCase]) -> str:
     headers = [
         "profile",
@@ -494,6 +616,56 @@ def _format_table(records: list[BenchCase]) -> str:
                 f"{r.min_ms:.3f}",
                 f"{r.speedup_vs_numpy:.2f}x",
                 f"{r.env_per_s / 1e6:.2f}",
+            ]
+        )
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            widths[idx] = max(widths[idx], len(value))
+
+    def fmt(values: list[str]) -> str:
+        return " | ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    lines = [fmt(headers), "-+-".join("-" * width for width in widths)]
+    lines.extend(fmt(row) for row in rows)
+    return "\n".join(lines)
+
+
+def _format_e2e_table(records: list[EndToEndCase]) -> str:
+    headers = [
+        "case",
+        "envs",
+        "path",
+        "threads",
+        "collector M steps/s",
+        "speedup",
+        "env_step ms",
+        "env_step speedup",
+        "update_state ms",
+        "update_state speedup",
+    ]
+    rows = []
+    for record in records:
+        rows.append(
+            [
+                record.case,
+                str(record.num_envs),
+                record.path,
+                "-" if record.numba_threads is None else str(record.numba_threads),
+                f"{record.collector_active_steps_per_sec / 1e6:.3f}",
+                f"{record.speedup_vs_numpy:.2f}x",
+                f"{record.env_step_ms:.3f}",
+                (
+                    "-"
+                    if record.env_step_speedup_vs_numpy is None
+                    else f"{record.env_step_speedup_vs_numpy:.2f}x"
+                ),
+                "-" if record.update_state_ms is None else f"{record.update_state_ms:.3f}",
+                (
+                    "-"
+                    if record.update_state_speedup_vs_numpy is None
+                    else f"{record.update_state_speedup_vs_numpy:.2f}x"
+                ),
             ]
         )
     widths = [len(h) for h in headers]
@@ -664,6 +836,7 @@ def write_report(
     output_dir: Path,
     records: list[BenchCase],
     parity: dict[str, dict[str, float]],
+    e2e_records: list[EndToEndCase],
     args: argparse.Namespace,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -684,10 +857,12 @@ def write_report(
         "skipped_threads": getattr(args, "skipped_threads", None),
         "numba_max_threads": getattr(args, "numba_max_threads", None),
         "scope": "G1 joystick reward+termination hot slice; synthetic backend arrays",
+        "e2e_enabled": args.e2e,
     }
     payload = {
         "meta": meta,
         "results": [_case_to_dict(record) for record in records],
+        "end_to_end_results": [_e2e_case_to_dict(record) for record in e2e_records],
         "parity": parity,
         "plots": plot_paths,
     }
@@ -703,7 +878,11 @@ def write_report(
         "deterministic synthetic backend arrays. Physics stepping, obs assembly, reset,",
         "and policy inference are intentionally out of scope.",
         "",
-        "## Summary",
+        "## Numba-specific hot slice",
+        "",
+        "This section measures only the part this task-specific Numba backend accelerates:",
+        "`G1WalkEnv` reward dispatch plus termination inside `update_state`. It excludes",
+        "physics, observation assembly, reset/RNG, policy inference, learner work, and replay.",
         "",
     ]
     for key in sorted(best_by_case):
@@ -720,6 +899,32 @@ def write_report(
             title = rel_path.removesuffix(".png").replace("_", " ")
             summary_lines.append(f"![{title}]({rel_path})")
             summary_lines.append("")
+    if e2e_records:
+        summary_lines.extend(
+            [
+                "",
+                "## End-to-end training-flow comparison",
+                "",
+                "This section mirrors `benchmark_offpolicy_collector_active.py`: Hydra owner config,",
+                "`create_env`, actor action sampling, `env.step`, terminal-observation handling,",
+                "replay writes, and collector-side bookkeeping are included. It is a collector",
+                "active-window comparison, not a full learner convergence benchmark.",
+                "",
+                "```text",
+                _format_e2e_table(e2e_records),
+                "```",
+            ]
+        )
+    else:
+        summary_lines.extend(
+            [
+                "",
+                "## End-to-end training-flow comparison",
+                "",
+                "Not run. Pass `--e2e` to add a real off-policy collector active-window A/B",
+                "comparison for `sac/g1_walk_flat/mujoco` with `numba_acceleration=false/true`.",
+            ]
+        )
     summary_lines.extend(
         [
             "",
@@ -770,6 +975,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--e2e",
+        action="store_true",
+        help="Also run a real off-policy collector active-window baseline vs numba comparison.",
+    )
+    parser.add_argument("--e2e-num-envs", type=int, default=512)
+    parser.add_argument("--e2e-warmup-steps", type=int, default=2)
+    parser.add_argument("--e2e-measure-steps", type=int, default=8)
+    parser.add_argument("--e2e-numba-threads", type=int, default=None)
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("benchmark/outputs/g1_joystick_numba"),
@@ -796,6 +1010,7 @@ def main() -> None:
     args = parse_args()
     specs = make_profile_specs()
     all_records: list[BenchCase] = []
+    e2e_records: list[EndToEndCase] = []
     parity: dict[str, dict[str, float]] = {}
     max_threads = get_num_threads()
     args.numba_max_threads = max_threads
@@ -828,7 +1043,26 @@ def main() -> None:
             print()
             print(_format_table(records))
 
-    write_report(output_dir=args.output_dir, records=all_records, parity=parity, args=args)
+    if args.e2e:
+        print()
+        print("=" * 80)
+        print("End-to-end training-flow comparison: off-policy collector active window")
+        print("=" * 80)
+        e2e_records = _run_e2e_collector_case(
+            num_envs=args.e2e_num_envs,
+            warmup_steps=args.e2e_warmup_steps,
+            measure_steps=args.e2e_measure_steps,
+            numba_threads=args.e2e_numba_threads,
+        )
+        print(_format_e2e_table(e2e_records))
+
+    write_report(
+        output_dir=args.output_dir,
+        records=all_records,
+        parity=parity,
+        e2e_records=e2e_records,
+        args=args,
+    )
 
 
 if __name__ == "__main__":
