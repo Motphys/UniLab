@@ -74,3 +74,37 @@ def test_offpolicy_logger_stop_live_lets_rich_do_final_refresh() -> None:
     assert live.stop_calls == 1
     assert logger._live is None
     assert logger._last_live_refresh_time is None
+
+
+def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> None:
+    logger = OffPolicyLogger(
+        algo_name="SAC",
+        max_iterations=2,
+        num_envs=8,
+        env_name="Dummy",
+        log_backend="none",
+    )
+    logger.update_collector_timing(
+        {
+            "weight_sync_ms": 0.1,
+            "action_select_ms": 0.2,
+            "env_step_ms": 3.0,
+            "env_step_backend_ms": 1.5,
+            "env_step_update_state_ms": 1.0,
+            "env_step_reset_done_ms": 0.5,
+            "replay_ms": 0.3,
+        }
+    )
+
+    table = logger._build_timing_table()
+    collector_cells = list(table.columns[2].cells)
+
+    assert collector_cells == [
+        "Weight Sync",
+        "Action Select",
+        "Env Step",
+        "  Backend Step",
+        "  Update State",
+        "  Reset Done",
+        "Replay",
+    ]
