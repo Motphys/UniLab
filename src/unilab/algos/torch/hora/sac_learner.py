@@ -76,6 +76,8 @@ class HoraSACLearner(FastSACLearner):
             symmetry_augmentation=None,
             **kwargs,
         )
+        self.use_cuda_graph_critic = False
+        self.use_cuda_graph_actor = False
         self.priv_info_dim = int(priv_info_dim)
         self.actor = HoraSACActor(
             obs_dim=obs_dim,
@@ -103,7 +105,9 @@ class HoraSACLearner(FastSACLearner):
         self,
         actor_obs: torch.Tensor,
         critic_obs: torch.Tensor,
+        eps: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        del eps
         priv_info = derive_priv_info_from_critic_obs(
             actor_obs,
             critic_obs,
@@ -116,7 +120,9 @@ class HoraSACLearner(FastSACLearner):
         self,
         actor_obs: torch.Tensor,
         critic_obs: torch.Tensor,
+        eps: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        del eps
         priv_info = derive_priv_info_from_critic_obs(
             actor_obs,
             critic_obs,

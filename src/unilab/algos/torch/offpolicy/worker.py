@@ -239,7 +239,12 @@ def _replay_write_exclude_ranges(
     return ranges
 
 
-def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> dict:
+def _collector_pack_shared_batch(
+    replay_buffer,
+    request: dict,
+    shared_slots,
+    critic_graph_shared_slots=None,
+) -> dict:
     tick_id = int(request["tick_id"])
     rank = int(request.get("rank", 0))
     world_size = int(request.get("world_size", 1))
@@ -278,7 +283,20 @@ def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> 
     if rank_shared_slots is None:
         raise RuntimeError("collector replay pack request is missing shared slots")
     dst = rank_shared_slots[shared_slot]
-    torch.index_select(replay_buffer._storage, 0, indices, out=dst)
+    pack_layout = str(request.get("pack_layout", "packed"))
+    if pack_layout == "sac_graph":
+        sampled = torch.index_select(replay_buffer._storage, 0, indices)
+        replay_buffer.pack_sac_graph_source(sampled, out=dst)
+    else:
+        torch.index_select(replay_buffer._storage, 0, indices, out=dst)
+    if bool(request.get("use_critic_graph_packed_source", False)):
+        rank_critic_slots = _ranked_entry(critic_graph_shared_slots, rank, world_size)
+        if rank_critic_slots is None:
+            raise RuntimeError("collector replay pack request is missing critic graph slots")
+        replay_buffer.pack_critic_graph_source(
+            dst,
+            out=rank_critic_slots[shared_slot],
+        )
     pack_end_ns = time.perf_counter_ns()
     return {
         "tick_id": tick_id,
@@ -291,7 +309,7 @@ def _collector_pack_shared_batch(replay_buffer, request: dict, shared_slots) -> 
         "shared_slot": shared_slot,
         "target_gpu_slot": target_gpu_slot,
         "learner_hot_gpu_slot": learner_hot_gpu_slot,
-        "pack_layout": "packed",
+        "pack_layout": pack_layout,
         "pack_executor": "collector_thread",
         "pack_begin_ns": pack_begin_ns,
         "pack_end_ns": pack_end_ns,
@@ -303,6 +321,7 @@ def _service_collector_pack_requests(
     request_queue,
     ready_queue,
     shared_slots,
+    critic_graph_shared_slots=None,
     trace_recorder=None,
     *,
     block_timeout: float = 0.0,
@@ -325,7 +344,12 @@ def _service_collector_pack_requests(
     min_snapshot_ptr = int(request.get("min_snapshot_ptr", 0))
     if int(replay_buffer.ptr[0]) < min_snapshot_ptr:
         return False, request
-    ready = _collector_pack_shared_batch(replay_buffer, request, shared_slots)
+    ready = _collector_pack_shared_batch(
+        replay_buffer,
+        request,
+        shared_slots,
+        critic_graph_shared_slots,
+    )
     if trace_recorder:
         trace_recorder.add_slice(
             "collector/cpu_pack_sample_batch",
@@ -362,6 +386,7 @@ def _drain_collector_pack_requests(
     request_queue,
     ready_queue,
     shared_slots,
+    critic_graph_shared_slots=None,
     trace_recorder=None,
     *,
     pending_request: dict | None = None,
@@ -378,6 +403,7 @@ def _drain_collector_pack_requests(
             request_queue,
             ready_queue,
             shared_slots,
+            critic_graph_shared_slots,
             trace_recorder,
             block_timeout=0.0,
             pending_request=pending,
@@ -396,6 +422,7 @@ class _CollectorPackService:
         request_queue,
         ready_queue,
         shared_slots,
+        critic_graph_shared_slots=None,
         trace_recorder=None,
         *,
         stop_event=None,
@@ -404,13 +431,17 @@ class _CollectorPackService:
         self._request_queue = request_queue
         self._ready_queue = ready_queue
         self._shared_slots = shared_slots
+        self._critic_graph_shared_slots = critic_graph_shared_slots
         self._trace_recorder = trace_recorder
         self._stop_event = stop_event
         self._threads: list[threading.Thread] = []
         self._started = False
 
     @staticmethod
-    def should_start(request_queue, ready_queue, shared_slots) -> bool:
+    def should_start(
+        request_queue, ready_queue, shared_slots, critic_graph_shared_slots=None
+    ) -> bool:
+        del critic_graph_shared_slots
         return (
             isinstance(request_queue, list)
             and isinstance(ready_queue, list)
@@ -437,6 +468,7 @@ class _CollectorPackService:
         request_queue = self._request_queue[rank]
         ready_queue = self._ready_queue
         shared_slots = self._shared_slots
+        critic_graph_shared_slots = self._critic_graph_shared_slots
         pending_request = None
         while True:
             if self._stop_event is not None and self._stop_event.is_set():
@@ -446,6 +478,7 @@ class _CollectorPackService:
                 request_queue,
                 ready_queue,
                 shared_slots,
+                critic_graph_shared_slots,
                 self._trace_recorder,
                 block_timeout=0.001,
                 pending_request=pending_request,
@@ -489,6 +522,7 @@ def off_policy_collector_fn(
     collector_pack_request_queue=None,
     collector_pack_ready_queue=None,
     collector_pack_shared_slots=None,
+    collector_pack_critic_graph_shared_slots=None,
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
@@ -530,6 +564,7 @@ def off_policy_collector_fn(
         collector_pack_request_queue=collector_pack_request_queue,
         collector_pack_ready_queue=collector_pack_ready_queue,
         collector_pack_shared_slots=collector_pack_shared_slots,
+        collector_pack_critic_graph_shared_slots=collector_pack_critic_graph_shared_slots,
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
         collector_infer_device_raw=collector_infer_device_raw,
@@ -566,6 +601,7 @@ def _run_collector(
     collector_pack_request_queue,
     collector_pack_ready_queue,
     collector_pack_shared_slots,
+    collector_pack_critic_graph_shared_slots=None,
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
@@ -670,12 +706,14 @@ def _run_collector(
         collector_pack_request_queue,
         collector_pack_ready_queue,
         collector_pack_shared_slots,
+        collector_pack_critic_graph_shared_slots,
     ):
         collector_pack_service = _CollectorPackService(
             replay_buffer,
             collector_pack_request_queue,
             collector_pack_ready_queue,
             collector_pack_shared_slots,
+            collector_pack_critic_graph_shared_slots,
             trace_recorder,
             stop_event=stop_event,
         )
@@ -835,6 +873,7 @@ def _run_collector(
                     collector_pack_request_queue,
                     collector_pack_ready_queue,
                     collector_pack_shared_slots,
+                    collector_pack_critic_graph_shared_slots,
                     trace_recorder,
                     pending_request=pending_collector_pack_request,
                 )
@@ -887,6 +926,7 @@ def _run_collector(
                                 collector_pack_request_queue,
                                 collector_pack_ready_queue,
                                 collector_pack_shared_slots,
+                                collector_pack_critic_graph_shared_slots,
                                 trace_recorder,
                                 pending_request=pending_collector_pack_request,
                             )
@@ -904,6 +944,7 @@ def _run_collector(
                                     collector_pack_request_queue,
                                     collector_pack_ready_queue,
                                     collector_pack_shared_slots,
+                                    collector_pack_critic_graph_shared_slots,
                                     trace_recorder,
                                     pending_request=pending_collector_pack_request,
                                 )

@@ -27,6 +27,23 @@ def test_offpolicy_memory_budget_notes_native_exclusions() -> None:
     assert "driver memory" in breakdown
 
 
+def test_offpolicy_memory_budget_includes_opt_in_critic_graph_staging() -> None:
+    estimate = estimate_offpolicy_bytes(
+        num_envs=10,
+        replay_buffer_n=4,
+        obs_dim=2,
+        action_dim=1,
+        critic_dim=3,
+        batch_size=5,
+        updates_per_step=2,
+        critic_graph_staging_width=9,
+    )
+
+    assert estimate["critic_graph_staging_slots"] == 5 * 2 * 9 * 4 * 2
+    assert int(estimate["total"]) >= int(estimate["critic_graph_staging_slots"])
+    assert "Critic graph staging" in str(estimate["breakdown"])
+
+
 def test_shared_memory_budget_unknown_available_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shutil, "disk_usage", lambda path: (_ for _ in ()).throw(OSError()))
     estimate = {"total": 1024, "breakdown": "test"}

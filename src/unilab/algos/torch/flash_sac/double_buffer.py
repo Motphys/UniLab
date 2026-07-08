@@ -104,6 +104,14 @@ def build_flashsac_double_buffer_runner(
         "use_amp": cfg.training.use_amp,
         "amp_dtype": cfg.algo.algo_params.amp_dtype,
         "use_compile": cfg.algo.algo_params.use_compile,
+        "use_cuda_graph_critic": cfg.algo.algo_params.use_cuda_graph_critic,
+        "use_cuda_graph_actor": cfg.algo.algo_params.use_cuda_graph_actor,
+        "use_cuda_graph_critic_packed_staging": (
+            cfg.algo.algo_params.use_cuda_graph_critic_packed_staging
+        ),
+        "use_cuda_graph_actor_packed_staging": (
+            cfg.algo.algo_params.use_cuda_graph_actor_packed_staging
+        ),
     }
     actor_kwargs = {
         "actor_num_blocks": cfg.algo.algo_params.actor_num_blocks,

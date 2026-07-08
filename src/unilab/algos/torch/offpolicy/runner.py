@@ -554,9 +554,18 @@ class OffPolicyRunner(AsyncRunner):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
                 batch = {k: v[s:e] for k, v in large_batch.items()}
+                read_critic_graph_metrics = update_idx == self.updates_per_step - 1
 
                 _critic_ns = time.perf_counter_ns() if trace_recorder else 0
-                critic_metrics = learner.update_critic(batch)
+                if getattr(learner, "use_cuda_graph_critic", False) and hasattr(
+                    learner, "update_critic_cuda_graph"
+                ):
+                    critic_metrics = learner.update_critic_cuda_graph(
+                        batch,
+                        read_metrics=read_critic_graph_metrics,
+                    )
+                else:
+                    critic_metrics = learner.update_critic(batch)
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "learner/update_critic",
@@ -569,8 +578,18 @@ class OffPolicyRunner(AsyncRunner):
                     iter_metrics[k].append(v)
 
                 if update_idx % self.policy_frequency == 0:
+                    next_actor_update = update_idx + self.policy_frequency
+                    read_actor_graph_metrics = next_actor_update >= self.updates_per_step
                     _actor_ns = time.perf_counter_ns() if trace_recorder else 0
-                    actor_metrics = learner.update_actor(batch)
+                    if getattr(learner, "use_cuda_graph_actor", False) and hasattr(
+                        learner, "update_actor_cuda_graph"
+                    ):
+                        actor_metrics = learner.update_actor_cuda_graph(
+                            batch,
+                            read_metrics=read_actor_graph_metrics,
+                        )
+                    else:
+                        actor_metrics = learner.update_actor(batch)
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/update_actor",

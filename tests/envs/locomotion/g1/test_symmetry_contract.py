@@ -75,10 +75,14 @@ def test_g1_walk_flat_symmetry_can_augment_critic_group():
             actions,
             obs_group="critic",
         )
+        actor_obs_aug = augmentation.augment_obs(obs, obs_group="obs")
+        critic_obs_aug = augmentation.augment_obs(critic, obs_group="critic")
 
         assert actor_aug.shape == (2, env.obs_groups_spec["obs"])
         assert critic_aug.shape == (2, env.obs_groups_spec["critic"])
         assert action_aug.shape == (2, action_dim)
         assert critic_action_aug.shape == (2, action_dim)
+        assert torch.equal(actor_obs_aug, actor_aug)
+        assert torch.equal(critic_obs_aug, critic_aug)
     finally:
         env.close()
