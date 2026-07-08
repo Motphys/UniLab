@@ -22,14 +22,18 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
+from unilab.dtype_config import get_global_dtype
+from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import sample_commands_with_standing
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.go2.base import Asset, ControlConfig
 from unilab.envs.locomotion.go2.joystick import (
     Go2DomainRandConfig,
     Go2JoystickCfg,
     Go2JoystickDomainRandomizationProvider,
     Go2WalkTask,
+    RewardConfig,
 )
 
 # Actuator/keyframe leg order: FL, FR, RL, RR x (hip, thigh, calf).
@@ -135,6 +139,15 @@ class A2JoystickDomainRandomizationProvider(Go2JoystickDomainRandomizationProvid
         return cached
 
 
+@dataclass
+class A2RewardConfig(RewardConfig):
+    # Command norm below which the phase-driven gait rewards (swing_feet_z /
+    # contact) switch to standing behaviour and the gait clock freezes, so the
+    # A2 stands still at zero command instead of marching in place. Set via the
+    # A2 owner YAML; default 0.0 leaves gating off.
+    command_threshold: float = 0.0
+
+
 @registry.envcfg("A2JoystickFlat")
 @dataclass
 class A2JoystickCfg(Go2JoystickCfg):
@@ -147,14 +160,92 @@ class A2JoystickCfg(Go2JoystickCfg):
     domain_rand: A2JoystickDomainRandConfig = field(  # type: ignore[assignment]
         default_factory=A2JoystickDomainRandConfig
     )
+    reward_config: A2RewardConfig | None = None  # type: ignore[assignment]
 
 
 @registry.env("A2JoystickFlat", sim_backend="mujoco")
 class A2JoystickFlatEnv(Go2WalkTask):
-    """Leg-only A2 joystick task. Identical logic to Go2WalkTask; only the
-    config (asset path, standing pose, per-joint gains) differs."""
+    """Leg-only A2 joystick task. Reuses Go2WalkTask locomotion; adds
+    zero-command standstill (phase freeze + gated gait rewards + standing
+    resample) gated by A2RewardConfig.command_threshold."""
 
     _cfg: A2JoystickCfg
+    _reward_cfg: A2RewardConfig
 
     def _make_dr_provider(self) -> LocomotionDRProvider:
         return A2JoystickDomainRandomizationProvider()
+
+    def _advance_phase(self, phase: np.ndarray) -> np.ndarray:
+        """Advance the gait phase, freezing envs whose command is at/below
+        ``command_threshold`` so a standing A2 holds phase instead of swaying."""
+        cmd_norm = np.linalg.norm(self._latest_commands, axis=1)
+        moving = cmd_norm > self._reward_cfg.command_threshold
+        increment = self._cfg.ctrl_dt * self.gait_frequency * moving
+        return np.fmod(phase + increment, 1.0)
+
+    def _init_reward_functions(self) -> None:
+        super()._init_reward_functions()
+        self._reward_fns.update(
+            {
+                "stand_still": rewards.stand_still,
+                "hip_deviation": self._reward_hip_deviation,
+                "stand_feet_air": self._reward_stand_feet_air,
+                "swing_feet_z": self._gated_swing_feet_z,
+                "contact": self._gated_contact,
+            }
+        )
+
+    def _gated_swing_feet_z(self, ctx: RewardContext) -> np.ndarray:
+        """Base swing reward, zeroed while standing (command at/below threshold)."""
+        reward = super()._reward_swing_feet_z(ctx)
+        cmd_norm = np.linalg.norm(ctx.info["commands"], axis=1)
+        active = cmd_norm > self._reward_cfg.command_threshold
+        return reward * active
+
+    def _gated_contact(self, ctx: RewardContext) -> np.ndarray:
+        """Contact reward; while standing every foot is expected planted so a
+        planted robot earns full contact reward (standing branch is interleaved
+        per-foot, so this re-implements rather than wraps the base loop)."""
+        contact = self.feet_force[:, :, 2] > 0.1
+        cmd_norm = np.linalg.norm(ctx.info["commands"], axis=1)
+        standing = cmd_norm <= self._reward_cfg.command_threshold
+        res = np.zeros(self._num_envs, dtype=np.float32)
+        for i in range(len(self._cfg.sensor.feet_force)):
+            is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8) | standing
+            res += (contact[:, i] == is_contact).astype(np.float32)
+        return res / len(self._cfg.sensor.feet_force)
+
+    def _reward_hip_deviation(self, ctx: RewardContext) -> np.ndarray:
+        """L1 deviation of the hip DOFs ([0, 3, 6, 9]) from the default pose."""
+        hip_indices = [0, 3, 6, 9]
+        diff = ctx.dof_pos[:, hip_indices] - self.default_angles[hip_indices]
+        return np.asarray(np.sum(np.abs(diff), axis=1), dtype=get_global_dtype())
+
+    def _reward_stand_feet_air(self, ctx: RewardContext) -> np.ndarray:
+        """Penalize feet leaving the ground while standing (||command|| <= threshold)."""
+        cmd_norm = np.linalg.norm(ctx.info["commands"], axis=1)
+        standing = cmd_norm <= self._reward_cfg.command_threshold
+        in_air = np.sum(self.feet_force[:, :, 2] <= 0.1, axis=1)
+        return np.asarray(in_air * standing, dtype=get_global_dtype())
+
+    def _update_commands(self, info: dict) -> None:
+        """Standing-aware mid-episode resample (gated by ``resampling_time``),
+        then stamp ``self._latest_commands`` for the phase-freeze read."""
+        resampling_time = float(self._cfg.commands.resampling_time)
+        if resampling_time > 0.0:
+            commands_arr = np.asarray(info["commands"], dtype=get_global_dtype())
+            interval_steps = max(int(round(resampling_time / self._cfg.ctrl_dt)), 1)
+            steps = np.asarray(info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32)))
+            resample_mask = (steps > 0) & ((steps % interval_steps) == 0)
+            if np.any(resample_mask):
+                num_resample = int(np.count_nonzero(resample_mask))
+                low = np.asarray(self._cfg.commands.vel_limit[0], dtype=get_global_dtype())
+                high = np.asarray(self._cfg.commands.vel_limit[1], dtype=get_global_dtype())
+                sampled = sample_commands_with_standing(
+                    low, high, num_resample, rel_standing_envs=self._cfg.commands.rel_standing_envs
+                )
+                commands_arr[resample_mask] = sampled
+                if self._cfg.commands.heading_command:
+                    commands_arr[resample_mask, 2] = 0.0
+            info["commands"] = commands_arr
+        self._latest_commands = np.asarray(info["commands"], dtype=get_global_dtype())

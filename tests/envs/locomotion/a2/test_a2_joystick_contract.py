@@ -239,9 +239,9 @@ def test_a2_joystick_yaml_composes_and_targets_a2():
 
 
 def _default_reward_cfg():
-    from unilab.envs.locomotion.go2.joystick import RewardConfig
+    from unilab.envs.locomotion.a2.joystick import A2RewardConfig
 
-    return RewardConfig(
+    return A2RewardConfig(
         scales={
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
@@ -252,9 +252,13 @@ def _default_reward_cfg():
             "similar_to_default": -0.1,
             "contact": 0.24,
             "swing_feet_z": 4.0,
+            "stand_still": -4.0,
+            "hip_deviation": -1.0,
+            "stand_feet_air": -1.0,
         },
         tracking_sigma=0.25,
         base_height_target=0.45,
+        command_threshold=0.1,
     )
 
 
@@ -411,3 +415,89 @@ def test_a2_joystick_domain_rand_fully_configured():
     assert dr.push_body_name == "base_link"
     # bumped budget
     assert cfg.algo.max_iterations == 500
+
+
+# ── zero-command standstill (A2-owned) ───────────────────────────────
+
+
+def test_a2_reward_config_declares_command_threshold():
+    import dataclasses
+
+    from unilab.envs.locomotion.a2.joystick import A2RewardConfig
+
+    names = {f.name for f in dataclasses.fields(A2RewardConfig)}
+    assert "command_threshold" in names
+    assert {"scales", "tracking_sigma", "base_height_target"} <= names
+
+
+def test_a2_cfg_reward_config_annotation_is_a2_type():
+    from typing import get_type_hints
+
+    from unilab.envs.locomotion.a2.joystick import A2JoystickCfg, A2RewardConfig
+
+    hints = get_type_hints(A2JoystickCfg)
+    assert A2RewardConfig in getattr(hints["reward_config"], "__args__", (hints["reward_config"],))
+
+
+def _a2_ctx(commands, dof_pos=None):
+    from unilab.envs.locomotion.common.rewards import RewardContext
+
+    n = commands.shape[0]
+    return RewardContext(
+        info={"commands": commands},
+        linvel=np.zeros((n, 3)),
+        gyro=np.zeros((n, 3)),
+        dof_pos=np.zeros((n, 12)) if dof_pos is None else dof_pos,
+        num_envs=n,
+        default_angles=np.zeros(12),
+        tracking_sigma=0.25,
+        base_height_target=0.4,
+        base_height=np.zeros(n),
+    )
+
+
+def test_a2_advance_phase_freezes_standing_envs():
+    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+
+    stub = SimpleNamespace(
+        _cfg=SimpleNamespace(ctrl_dt=0.02),
+        gait_frequency=2.0,
+        _reward_cfg=SimpleNamespace(command_threshold=0.1),
+        _latest_commands=np.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]),
+    )
+    phase = np.array([0.3, 0.3])
+    out = A2JoystickFlatEnv._advance_phase(stub, phase)
+    assert out[0] == 0.3
+    assert out[1] > 0.3
+
+
+def test_a2_hip_deviation_l1_over_hip_indices():
+    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+
+    dof_pos = np.zeros((1, 12))
+    dof_pos[0, [0, 3, 6, 9]] = [0.1, -0.2, 0.3, -0.4]
+    stub = SimpleNamespace(default_angles=np.zeros(12))
+    out = A2JoystickFlatEnv._reward_hip_deviation(stub, _a2_ctx(np.zeros((1, 3)), dof_pos=dof_pos))
+    assert np.isclose(out[0], 1.0)
+
+
+def test_a2_stand_feet_air_counts_lifted_feet_when_standing():
+    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+
+    stub = SimpleNamespace(
+        _reward_cfg=SimpleNamespace(command_threshold=0.1),
+        feet_force=np.zeros((1, 4, 3)),
+    )
+    out = A2JoystickFlatEnv._reward_stand_feet_air(stub, _a2_ctx(np.zeros((1, 3))))
+    assert out[0] == 4.0
+
+
+def test_a2_stand_feet_air_inactive_during_locomotion():
+    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+
+    stub = SimpleNamespace(
+        _reward_cfg=SimpleNamespace(command_threshold=0.1),
+        feet_force=np.zeros((1, 4, 3)),
+    )
+    out = A2JoystickFlatEnv._reward_stand_feet_air(stub, _a2_ctx(np.array([[0.5, 0.0, 0.0]])))
+    assert out[0] == 0.0

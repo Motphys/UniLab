@@ -14,10 +14,7 @@ from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.base import Sensor
-from unilab.envs.locomotion.common.commands import (
-    Commands,
-    sample_commands_with_standing,
-)
+from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
@@ -48,10 +45,6 @@ class RewardConfig:
     tracking_sigma: float
     base_height_target: float
     target_foot_height: float = 0.1
-    # Command norm below which phase-driven gait rewards (swing_feet_z / contact)
-    # switch to standing behaviour. Default 0.0 keeps gating off so Go2's reward
-    # vector is byte-for-byte unchanged; A2 enables it via its owner YAML.
-    command_threshold: float = 0.0
 
 
 @dataclass
@@ -151,6 +144,10 @@ class Go2WalkTask(Go2BaseEnv):
         inject robot-specific behaviour (e.g. A2's per-joint base gains)."""
         return Go2JoystickDomainRandomizationProvider()
 
+    def _update_commands(self, info: dict) -> None:
+        """Mid-episode command resample hook. No-op for Go2 flat; subclasses
+        (e.g. A2) override to draw standing-aware commands at intervals."""
+
     def get_playback_model(self, env_index: int | None = None) -> Any:
         return super().get_playback_model(env_index)
 
@@ -184,42 +181,18 @@ class Go2WalkTask(Go2BaseEnv):
             "swing_feet_z": self._reward_swing_feet_z,
             "contact": self._reward_contact,
             "foot_drag": self._reward_foot_drag,
-            "stand_still": rewards.stand_still,
-            "hip_deviation": self._reward_hip_deviation,
-            "stand_feet_air": self._reward_stand_feet_air,
         }
 
-    @staticmethod
-    def _advance_phase(
-        phase: np.ndarray,
-        *,
-        ctrl_dt: float,
-        gait_frequency: float,
-        commands: np.ndarray,
-        command_threshold: float,
-    ) -> np.ndarray:
-        """Advance the gait phase, freezing envs whose command is at/below threshold.
+    def _advance_phase(self, phase: np.ndarray) -> np.ndarray:
+        """Advance the gait phase clock one control step.
 
-        The phase clock drives a per-joint oscillation at ``gait_frequency``. While
-        standing (``||command|| <= command_threshold``) that 2 Hz drive shows up as
-        residual body sway even with the feet planted, so those envs hold their phase
-        instead of advancing. With ``command_threshold=0.0`` (Go2 default) any nonzero
-        command advances, so the Go2 path is unchanged. Per-env so a batch with mixed
-        commands freezes only the standing rows."""
-        cmd_norm = np.linalg.norm(commands, axis=1)
-        moving = cmd_norm > command_threshold
-        increment = ctrl_dt * gait_frequency * moving
-        return np.fmod(phase + increment, 1.0)
+        Subclasses override to modulate the advance (e.g. A2 freezes standing
+        envs). The base advance is unconditional, matching the Go2 flat gait."""
+        return np.fmod(phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
         self._update_commands(state.info)
-        self.phase = self._advance_phase(
-            self.phase,
-            ctrl_dt=self._cfg.ctrl_dt,
-            gait_frequency=self.gait_frequency,
-            commands=np.asarray(state.info["commands"]),
-            command_threshold=self._reward_cfg.command_threshold,
-        )
+        self.phase = self._advance_phase(self.phase)
         self.feet_phase[:, 0] = self.phase
         self.feet_phase[:, 3] = self.phase
 
@@ -325,13 +298,7 @@ class Go2WalkTask(Go2BaseEnv):
         height_error = np.square(self.feet_pos[:, :, 2] - target_height)
         swing_rew = np.exp(-height_error / 0.01) * is_swing
         reward: np.ndarray = np.sum(swing_rew, axis=1) / len(self._cfg.sensor.feet_pos)
-        # Gate the phase-driven swing reward by command: at standing (command norm
-        # at/below threshold) the gait clock keeps ticking but the policy should
-        # not be rewarded for lifting feet. With command_threshold=0.0 any nonzero
-        # command keeps active True, so Go2's reward is unchanged.
-        cmd_norm = np.linalg.norm(ctx.info["commands"], axis=1)
-        active = cmd_norm > self._reward_cfg.command_threshold
-        return reward * active
+        return reward
 
     def _reward_foot_drag(self, ctx: RewardContext) -> np.ndarray:
         foot_pos = self.get_foot_pos()
@@ -346,63 +313,8 @@ class Go2WalkTask(Go2BaseEnv):
 
     def _reward_contact(self, ctx: RewardContext) -> np.ndarray:
         contact = self.feet_force[:, :, 2] > 0.1
-        # At standing (command norm at/below threshold) every foot is expected in
-        # contact, so a planted robot earns full reward. With command_threshold=0.0
-        # standing is ``cmd_norm <= 0`` (never true for Go2 commands) -> unchanged.
-        cmd_norm = np.linalg.norm(ctx.info["commands"], axis=1)
-        standing = cmd_norm <= self._reward_cfg.command_threshold
         res = np.zeros(self._num_envs, dtype=np.float32)
         for i in range(len(self._cfg.sensor.feet_force)):
-            is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8) | standing
+            is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8)
             res += (contact[:, i] == is_contact).astype(np.float32)
         return res / len(self._cfg.sensor.feet_force)
-
-    def _reward_hip_deviation(self, ctx: RewardContext) -> np.ndarray:
-        """L1 deviation of the hip DOFs ([0, 3, 6, 9]) from the default pose.
-
-        Constrains the hips specifically (the uniform ``similar_to_default`` L1 is
-        too weak to keep the stance from narrowing/turning inward)."""
-        hip_indices = [0, 3, 6, 9]
-        diff = ctx.dof_pos[:, hip_indices] - self.default_angles[hip_indices]
-        return np.asarray(np.sum(np.abs(diff), axis=1), dtype=get_global_dtype())
-
-    def _reward_stand_feet_air(self, ctx: RewardContext) -> np.ndarray:
-        """Penalize feet leaving the ground while standing (``||command|| <= threshold``).
-
-        Counts feet off the ground (vertical contact force at/below the same 0.1
-        threshold ``_reward_contact`` uses) so residual in-place stepping at zero
-        command is penalized directly. Gated by ``RewardConfig.command_threshold``
-        like the gait rewards, so it is exactly zero during locomotion and costs
-        the walking gait (incl. lateral / yaw tracking) nothing. Default threshold
-        0.0 -> ``standing`` is false for any Go2 command, so this is inert there."""
-        cmd_norm = np.linalg.norm(ctx.info["commands"], axis=1)
-        standing = cmd_norm <= self._reward_cfg.command_threshold
-        in_air = np.sum(self.feet_force[:, :, 2] <= 0.1, axis=1)
-        return np.asarray(in_air * standing, dtype=get_global_dtype())
-
-    def _update_commands(self, info: dict) -> None:
-        """Resample velocity commands mid-episode (gated by ``resampling_time``).
-
-        Mirrors ``Go2JoystickRoughEnv._update_commands``: when
-        ``commands.resampling_time > 0`` the due envs (at interval boundaries) draw
-        a fresh standing-aware command via ``sample_commands_with_standing`` so the
-        same standing fraction applies as at reset. With ``resampling_time == 0``
-        (Go2 flat default) this is a no-op and the command array is untouched."""
-        resampling_time = float(self._cfg.commands.resampling_time)
-        if resampling_time <= 0.0:
-            return
-        commands_arr = np.asarray(info["commands"], dtype=get_global_dtype())
-        interval_steps = max(int(round(resampling_time / self._cfg.ctrl_dt)), 1)
-        steps = np.asarray(info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32)))
-        resample_mask = (steps > 0) & ((steps % interval_steps) == 0)
-        if np.any(resample_mask):
-            num_resample = int(np.count_nonzero(resample_mask))
-            low = np.asarray(self._cfg.commands.vel_limit[0], dtype=get_global_dtype())
-            high = np.asarray(self._cfg.commands.vel_limit[1], dtype=get_global_dtype())
-            sampled = sample_commands_with_standing(
-                low, high, num_resample, rel_standing_envs=self._cfg.commands.rel_standing_envs
-            )
-            commands_arr[resample_mask] = sampled
-            if self._cfg.commands.heading_command:
-                commands_arr[resample_mask, 2] = 0.0
-        info["commands"] = commands_arr
