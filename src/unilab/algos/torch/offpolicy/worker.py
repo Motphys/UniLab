@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from unilab.algos.torch.common.actor_factory import build_actor
+from unilab.algos.torch.offpolicy.thread_budget import apply_torch_thread_runtime
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import get_obs_dims, split_obs_dict
 from unilab.base.registry import ensure_registries
@@ -492,6 +493,7 @@ def off_policy_collector_fn(
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
+    torch_thread_runtime=None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess.
@@ -533,6 +535,7 @@ def off_policy_collector_fn(
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
         collector_infer_device_raw=collector_infer_device_raw,
+        torch_thread_runtime=torch_thread_runtime,
     )
 
 
@@ -569,11 +572,13 @@ def _run_collector(
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
+    torch_thread_runtime=None,
 ):
     del learning_starts
     from unilab.base import registry
     from unilab.ipc import SharedWeightSync
 
+    apply_torch_thread_runtime(torch_thread_runtime, role="collector", torch_module=torch)
     ensure_registries()
     apply_training_seed(seed, torch_runtime=True, cuda=True)
 

@@ -1360,6 +1360,13 @@ def test_double_buffer_runner_passes_nan_guard_cfg_to_collector(
 
     learner = _FakeLearner()
     nan_guard_cfg = NanGuardCfg(enabled=True)
+    torch_thread_runtime = {
+        "enabled": True,
+        "learner": {"num_threads": 6, "num_interop_threads": 1},
+        "collector": {"num_threads": 3, "num_interop_threads": 1},
+        "compile_threads": 2,
+        "set_env_vars": True,
+    }
     runner = db_mod.DoubleBufferOffPolicyRunner(
         learner=learner,
         env_name="DummyEnv",
@@ -1374,6 +1381,7 @@ def test_double_buffer_runner_passes_nan_guard_cfg_to_collector(
         env_steps_per_sync=1,
         device="cpu",
         nan_guard_cfg=nan_guard_cfg,
+        torch_thread_runtime=torch_thread_runtime,
     )
 
     captured = {}
@@ -1391,6 +1399,7 @@ def test_double_buffer_runner_passes_nan_guard_cfg_to_collector(
     assert "nan_guard_cfg" in captured
     assert captured["nan_guard_cfg"] is nan_guard_cfg
     assert captured["nan_guard_cfg"].enabled is True
+    assert captured["torch_thread_runtime"] is torch_thread_runtime
 
 
 # ---------------------------------------------------------------------------

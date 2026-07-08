@@ -20,6 +20,10 @@ from unilab.algos.torch.offpolicy.runner import (
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
 )
+from unilab.algos.torch.offpolicy.thread_budget import (
+    format_torch_thread_runtime,
+    torch_thread_env,
+)
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
@@ -271,6 +275,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
+        logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))
         logger.log_status("Replay pipeline: cpu_pinned_double_buffer")
         logger.log_status(f"Replay prefetch mode: {self.replay_prefetch_mode}")
         logger.log_status(f"Replay pack layout: {self.replay_pack_layout}")
@@ -342,14 +347,16 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "trace_enabled": self.trace_enabled,
                 "trace_thread_time": self.trace_thread_time,
                 "nan_guard_cfg": self.nan_guard_cfg,
+                "torch_thread_runtime": self.torch_thread_runtime,
                 "collector_pack_request_queue": collector_pack_request_queue,
                 "collector_pack_ready_queue": collector_pack_ready_queue,
                 "collector_pack_shared_slots": collector_pack_shared_slots,
             }
-            self._start_collector(
-                target_fn=off_policy_collector_fn,
-                kwargs={"stop_event": self._stop_event, **collector_kwargs},
-            )
+            with torch_thread_env(self.torch_thread_runtime, role="collector"):
+                self._start_collector(
+                    target_fn=off_policy_collector_fn,
+                    kwargs={"stop_event": self._stop_event, **collector_kwargs},
+                )
 
             time.sleep(0.5)
             if self._collector_process:

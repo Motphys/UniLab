@@ -48,6 +48,7 @@ def build_flashsac_double_buffer_runner(
     replay_prefetch_mode: str,
     verbose_metrics: bool,
     nan_guard_cfg: NanGuardCfg | None = None,
+    torch_thread_runtime: dict[str, Any] | None = None,
 ) -> Any:
     """Build FlashSAC with the opt-in CPU-pinned double-buffer replay pipeline."""
     from unilab.base.observations import get_obs_dims
@@ -154,6 +155,7 @@ def build_flashsac_double_buffer_runner(
             trace_cuda_events=cfg.training.trace_cuda_events,
             nan_guard_cfg=nan_guard_cfg,
             collector_infer_device=collector_infer_device,
+            torch_thread_runtime=torch_thread_runtime,
         )
 
     learner = FlashSACLearner(device=device, **learner_kwargs)
@@ -186,4 +188,5 @@ def build_flashsac_double_buffer_runner(
         verbose_metrics=verbose_metrics,
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
+        torch_thread_runtime=torch_thread_runtime,
     )
