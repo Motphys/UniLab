@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from unilab.algos.torch.common.actor_factory import build_actor
+from unilab.algos.torch.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.algos.torch.offpolicy.thread_budget import apply_torch_thread_runtime
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import get_obs_dims, split_obs_dict
@@ -771,6 +772,7 @@ def _run_collector(
                     args={"num_envs": num_envs},
                 )
             phase_start_ns = _record_phase_ms(cycle_timing_ms, "env_step_ms", phase_start_ns)
+            cycle_timing_ms.update(extract_env_step_breakdown_timing_ms(state.info))
 
             # Extract data as numpy
             next_obs_np, next_critic_np = split_obs_dict(state.obs)
@@ -1013,8 +1015,8 @@ def _run_collector(
                 cycle_timing_ms, "sync_coordination_ms", phase_start_ns
             )
 
-            for key in COLLECTOR_TIMING_KEYS:
-                _record_timing_ms(timing_accum_ms, timing_counts, key, cycle_timing_ms[key])
+            for key, value in cycle_timing_ms.items():
+                _record_timing_ms(timing_accum_ms, timing_counts, key, value)
 
     finally:
         if collector_pack_service is not None:
