@@ -19,6 +19,12 @@ from omegaconf import OmegaConf
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 _PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
 _BACKENDS = ("mujoco", "motrix")
+_NUMBA_ACCEL_SUPPORTED_TASK_NAMES = {
+    "G1MotionTracking",
+    "G1MotionTrackingSAC",
+    "G1WalkFlat",
+    "G1WalkRough",
+}
 
 
 def _expected_backend_from_variant(name: str) -> str | None:
@@ -223,6 +229,29 @@ def test_offpolicy_g1_walk_flat_motrix_sac_preserves_backend_overrides():
     assert cfg.reward.scales.tracking_lin_vel == pytest.approx(2.2)
     assert cfg.env.domain_rand.randomize_kp is False
     assert cfg.env.domain_rand.randomize_kd is False
+
+
+def test_numba_accelerated_task_owners_declare_default_disabled_only_for_supported_tasks():
+    matched: list[Path] = []
+
+    for path in sorted(CONF_DIR.glob("*/task/**/*.yaml")):
+        cfg = OmegaConf.load(path)
+        task_name = OmegaConf.select(cfg, "training.task_name")
+        declared = OmegaConf.select(cfg, "env.numba_acceleration")
+        if declared is not None:
+            assert task_name in _NUMBA_ACCEL_SUPPORTED_TASK_NAMES, (
+                "only task owners with direct numba acceleration support may declare "
+                f"env.numba_acceleration: {path.relative_to(CONF_DIR)}"
+            )
+        if task_name not in _NUMBA_ACCEL_SUPPORTED_TASK_NAMES:
+            continue
+        matched.append(path)
+        assert declared is False, (
+            "numba-supported task owners must expose env.numba_acceleration "
+            f"with default false: {path.relative_to(CONF_DIR)}"
+        )
+
+    assert matched, "expected at least one numba-supported owner config"
 
 
 def test_offpolicy_g1_walk_flat_mujoco_td3_uses_td3_task_owner():

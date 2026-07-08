@@ -5,6 +5,7 @@ training:
 algo:
   max_iterations: 100000
 env:
+  numba_acceleration: false
   control_config:
     action_scale: 1.0
   gait_phase_init_mode: "offset_phase"

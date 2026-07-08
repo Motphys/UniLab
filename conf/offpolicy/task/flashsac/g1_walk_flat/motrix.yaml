@@ -17,6 +17,7 @@ algo:
   replay_buffer_n: 256
   tau: 0.05
 env:
+  numba_acceleration: false
   control_config:
     action_scale: 1.0
   gait_phase_init_mode: "offset_phase"
