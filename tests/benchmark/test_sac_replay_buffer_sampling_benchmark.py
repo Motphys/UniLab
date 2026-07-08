@@ -14,6 +14,7 @@ def _tiny_case() -> bench.BenchmarkCase:
         command="uv run train --algo sac --task g1_walk_flat --sim mujoco",
         training_task_name="G1WalkFlat",
         num_envs=2,
+        env_steps_per_sync=1,
         replay_buffer_n=8,
         config_capacity_rows=16,
         configured_batch_size=4,
@@ -40,6 +41,46 @@ def test_sac_default_case_uses_effective_symmetry_batch() -> None:
     assert case.learner_batch_size == case.configured_batch_size // 2
     assert case.sample_count_per_rank == case.learner_batch_size * case.updates_per_step
     assert case.shape.packed_width == 2 * 45 + 29 + 3 + 2 * 48
+
+
+def test_default_compose_targets_motion_tracking_motrix() -> None:
+    cfg = bench._compose_offpolicy_cfg()
+    case = bench._build_case(
+        cfg,
+        task=bench.DEFAULT_TASK,
+        sim=bench.DEFAULT_SIM,
+        shape=bench.ReplayShape(obs_dim=160, action_dim=29, critic_dim=289),
+        symmetry_batch_multiplier=1,
+    )
+
+    assert bench.DEFAULT_TASK == "g1_motion_tracking"
+    assert bench.DEFAULT_SIM == "motrix"
+    assert bench._owner_config_exists("g1_motion_tracking", "motrix")
+    assert case.command == "uv run train --algo sac --task g1_motion_tracking --sim motrix"
+    assert case.training_task_name == "G1MotionTrackingSAC"
+    assert case.num_envs == 2048
+    assert case.env_steps_per_sync == 1
+    assert case.replay_buffer_n == 512
+    assert case.config_capacity_rows == 1_048_576
+    assert case.configured_batch_size == 8192
+    assert case.updates_per_step == 4
+    assert case.learning_starts == 1
+    assert case.shape.packed_width == 930
+    assert case.collector_rows_per_iter == 2048
+    assert case.sample_bytes_per_rank == 121_896_960
+    assert case.collector_bytes_per_iter == 7_618_560
+    assert case.sample_new_ratio_per_rank == 16
+
+
+def test_missing_owner_config_fails_before_hydra_compose() -> None:
+    missing = bench._owner_config_path("not_a_task", "motrix")
+
+    try:
+        bench._compose_offpolicy_cfg("not_a_task", "motrix")
+    except FileNotFoundError as exc:
+        assert str(missing) in str(exc)
+    else:
+        raise AssertionError("expected missing owner config to raise FileNotFoundError")
 
 
 def test_resolve_capacity_rows_from_multipliers_deduplicates() -> None:
@@ -95,6 +136,10 @@ def test_main_no_cuda_writes_skipped_json(tmp_path, monkeypatch) -> None:
 
     rc = bench.main(
         [
+            "--task",
+            "g1_walk_flat",
+            "--sim",
+            "mujoco",
             "--gpu-counts",
             "1,2",
             "--capacity-rows",
