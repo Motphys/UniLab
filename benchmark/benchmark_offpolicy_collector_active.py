@@ -63,6 +63,7 @@ DEFAULT_BACKEND = "motrix"
 BENCHMARK_BACKENDS = ("mujoco", "motrix")
 DEFAULT_COLLECTOR_CPU_THREADS = 8
 COLLECTOR_CPU_THREADS_ENV = "UNILAB_COLLECTOR_TORCH_THREADS"
+NUMBA_ACCELERATED_TASKS = frozenset({"g1_walk_flat", "g1_motion_tracking"})
 BACKEND_ALIASES = {
     # UniLab's registry/backend contract uses "motrix"; "motrixsim" is the package
     # and benchmark-facing backend family name.
@@ -103,9 +104,37 @@ NP_ENV_STEP_TIMING_KEYS = (
     "dr_reset_obs_get_body_pose_ms",
     "dr_reset_observation_compute_obs_ms",
     "dr_reset_observation_internal_gap_ms",
+    # Backend set_state internals (see BACKEND_SET_STATE_DETAIL_TIMING_KEYS in
+    # src/unilab/base/np_env.py). All backends emit the same key set for column
+    # stability; sub-keys that don't apply report 0.0.
+    "set_state_mask_ms",
+    "set_state_data_slice_ms",
+    "set_state_data_reset_ms",
+    "set_state_clear_forces_ms",
+    "set_state_geom_overrides_ms",
+    "set_state_reset_rand_ms",
+    "set_state_set_dof_vel_ms",
+    "set_state_set_dof_pos_ms",
+    "set_state_actuator_ctrl_ms",
+    "set_state_forward_kinematic_ms",
+    "set_state_refresh_pose_cache_ms",
+    "set_state_invalidate_velocity_ms",
+    "set_state_qpos_convert_ms",
+    "set_state_pool_reset_ms",
+    "set_state_state_scatter_ms",
+    "set_state_internal_gap_ms",
 )
 NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
 NP_ENV_STEP_SAMPLE_KEYS = (*NP_ENV_STEP_TIMING_KEYS, *NP_ENV_STEP_COUNT_KEYS)
+NP_RANDOM_PROFILE_FUNCTIONS = (
+    "uniform",
+    "randint",
+    "random",
+    "rand",
+    "randn",
+    "normal",
+    "choice",
+)
 NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("env_step_total_ms", "np_env_step_total_ms"),
     ("apply_action_ms", "np_env_apply_action_ms"),
@@ -134,6 +163,22 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("dr_reset_obs_get_body_pose_ms", "dr_reset_obs_get_body_pose_ms"),
     ("dr_reset_observation_compute_obs_ms", "dr_reset_observation_compute_obs_ms"),
     ("dr_reset_observation_internal_gap_ms", "dr_reset_observation_internal_gap_ms"),
+    ("set_state_mask_ms", "set_state_mask_ms"),
+    ("set_state_data_slice_ms", "set_state_data_slice_ms"),
+    ("set_state_data_reset_ms", "set_state_data_reset_ms"),
+    ("set_state_clear_forces_ms", "set_state_clear_forces_ms"),
+    ("set_state_geom_overrides_ms", "set_state_geom_overrides_ms"),
+    ("set_state_reset_rand_ms", "set_state_reset_rand_ms"),
+    ("set_state_set_dof_vel_ms", "set_state_set_dof_vel_ms"),
+    ("set_state_set_dof_pos_ms", "set_state_set_dof_pos_ms"),
+    ("set_state_actuator_ctrl_ms", "set_state_actuator_ctrl_ms"),
+    ("set_state_forward_kinematic_ms", "set_state_forward_kinematic_ms"),
+    ("set_state_refresh_pose_cache_ms", "set_state_refresh_pose_cache_ms"),
+    ("set_state_invalidate_velocity_ms", "set_state_invalidate_velocity_ms"),
+    ("set_state_qpos_convert_ms", "set_state_qpos_convert_ms"),
+    ("set_state_pool_reset_ms", "set_state_pool_reset_ms"),
+    ("set_state_state_scatter_ms", "set_state_state_scatter_ms"),
+    ("set_state_internal_gap_ms", "set_state_internal_gap_ms"),
 )
 
 
@@ -142,6 +187,9 @@ class CollectorCase:
     algo: str
     task: str
     sim: str
+    variant: str
+    numba_acceleration: bool
+    numba_threads: int | None
     runtime_sim_backend: str
     command: str
     training_task_name: str
@@ -187,6 +235,10 @@ class CollectorResult:
     env_step_overhead_ms_per_vector_step: TimingStats | None = None
     # System-wide CPU utilization (%) over the measured window. NaN if unknown.
     cpu_util_pct: float = float("nan")
+    # NumPy random time measured inside collector env.step() only. This is an
+    # optional benchmark-side monkeypatch used for RNG/noise-buffer profiling.
+    numpy_random_ms_per_vector_step: TimingStats | None = None
+    numpy_random_calls_per_vector_step: TimingStats | None = None
 
 
 def _stats(samples_ms: list[float]) -> TimingStats:
@@ -261,6 +313,54 @@ def _cleanup() -> None:
         torch.cuda.empty_cache()
     if hasattr(torch, "mps") and torch.backends.mps.is_available():
         torch.mps.empty_cache()
+
+
+class _NumpyRandomProfiler:
+    """Measure selected ``np.random`` module calls inside a benchmark window."""
+
+    def __init__(self) -> None:
+        self.enabled = False
+        self.step_ms = 0.0
+        self.step_calls = 0
+        self._originals: dict[str, Any] = {}
+
+    def install(self) -> None:
+        if self._originals:
+            return
+        for name in NP_RANDOM_PROFILE_FUNCTIONS:
+            original = getattr(np.random, name, None)
+            if original is None:
+                continue
+            self._originals[name] = original
+            setattr(np.random, name, self._wrap(original))
+
+    def uninstall(self) -> None:
+        for name, original in self._originals.items():
+            setattr(np.random, name, original)
+        self._originals.clear()
+        self.enabled = False
+
+    def begin_step(self) -> None:
+        self.step_ms = 0.0
+        self.step_calls = 0
+        self.enabled = True
+
+    def end_step(self) -> tuple[float, int]:
+        self.enabled = False
+        return self.step_ms, self.step_calls
+
+    def _wrap(self, fn: Any) -> Any:
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            if not self.enabled:
+                return fn(*args, **kwargs)
+            t0 = time.perf_counter_ns()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                self.step_ms += (time.perf_counter_ns() - t0) / 1e6
+                self.step_calls += 1
+
+        return wrapped
 
 
 def _configure_collector_cpu_threads(cap: int | None = None) -> int:
@@ -423,6 +523,7 @@ def _build_case(
     algo: str,
     task: str,
     sim: str,
+    variant: str,
     replay_capacity_steps: int,
     actor_algo_type: str,
     use_layer_norm: bool,
@@ -432,10 +533,14 @@ def _build_case(
 ) -> CollectorCase:
     num_envs = int(cfg.algo.num_envs)
     capacity_steps = max(1, int(replay_capacity_steps))
+    numba_threads = OmegaConf.select(cfg, "env.numba_num_threads", default=None)
     return CollectorCase(
         algo=algo,
         task=task,
         sim=sim,
+        variant=variant,
+        numba_acceleration=bool(OmegaConf.select(cfg, "env.numba_acceleration", default=False)),
+        numba_threads=int(numba_threads) if numba_threads is not None else None,
         runtime_sim_backend=str(cfg.training.sim_backend),
         command=f"uv run train --algo {algo} --task {task} --sim {cfg.training.sim_backend}",
         training_task_name=str(cfg.training.task_name),
@@ -508,6 +613,7 @@ def _run_active_window_case(
     actor,
     warmup_steps: int,
     measure_steps: int,
+    profile_numpy_random: bool = False,
 ) -> CollectorResult:
     from unilab.algos.torch.offpolicy.worker import (
         resolve_offpolicy_actor_priv_info,
@@ -546,6 +652,9 @@ def _run_active_window_case(
         "env_step_overhead_ms": [],
     }
     env_step_timing_samples: dict[str, list[float]] = {key: [] for key in NP_ENV_STEP_SAMPLE_KEYS}
+    numpy_random_ms_samples: list[float] = []
+    numpy_random_call_samples: list[float] = []
+    random_profiler = _NumpyRandomProfiler() if profile_numpy_random else None
     total_active_ns = 0
     total_steps = int(warmup_steps) + int(measure_steps)
     if total_steps <= 0 or measure_steps <= 0:
@@ -557,142 +666,160 @@ def _run_active_window_case(
     # "160 cores but only 25% utilized" scaling problem.
     cpu_probe_start: tuple[float, float] | None = None
 
-    for step_idx in range(total_steps):
-        record = step_idx >= warmup_steps
-        if record and cpu_probe_start is None:
-            cpu_probe_start = _read_cpu_times()  # begin measured-window CPU sampling
+    if random_profiler is not None:
+        random_profiler.install()
+    try:
+        for step_idx in range(total_steps):
+            record = step_idx >= warmup_steps
+            if record and cpu_probe_start is None:
+                cpu_probe_start = _read_cpu_times()  # begin measured-window CPU sampling
 
-        phase_start_ns = time.perf_counter_ns()
-        # No learner exists in this benchmark, so weight sync is intentionally a
-        # zero-work phase. Keeping it explicit preserves the training collector's
-        # phase schema.
-        weight_sync_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
+            phase_start_ns = time.perf_counter_ns()
+            # No learner exists in this benchmark, so weight sync is intentionally a
+            # zero-work phase. Keeping it explicit preserves the training collector's
+            # phase schema.
+            weight_sync_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
 
-        phase_start_ns = time.perf_counter_ns()
-        with torch.no_grad():
-            obs_torch = torch.from_numpy(obs_np)
-            dones_torch = torch.from_numpy(prev_dones_np)
-            priv_info_np = resolve_offpolicy_actor_priv_info(
-                algo_type=case.collector_algo_type,
-                obs_np=obs_np,
-                critic_np=critic_np,
-                info=info_dict,
-            )
-            priv_info_torch = torch.from_numpy(priv_info_np) if priv_info_np is not None else None
-            actions_torch = sample_offpolicy_actions(
-                actor=actor,
-                algo_type=case.collector_algo_type,
-                obs_torch=obs_torch,
-                prev_dones_torch=dones_torch,
-                priv_info_torch=priv_info_torch,
-            )
-            actions_np = actions_torch.numpy()
-        action_select_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
+            phase_start_ns = time.perf_counter_ns()
+            with torch.no_grad():
+                obs_torch = torch.from_numpy(obs_np)
+                dones_torch = torch.from_numpy(prev_dones_np)
+                priv_info_np = resolve_offpolicy_actor_priv_info(
+                    algo_type=case.collector_algo_type,
+                    obs_np=obs_np,
+                    critic_np=critic_np,
+                    info=info_dict,
+                )
+                priv_info_torch = (
+                    torch.from_numpy(priv_info_np) if priv_info_np is not None else None
+                )
+                actions_torch = sample_offpolicy_actions(
+                    actor=actor,
+                    algo_type=case.collector_algo_type,
+                    obs_torch=obs_torch,
+                    prev_dones_torch=dones_torch,
+                    priv_info_torch=priv_info_torch,
+                )
+                actions_np = actions_torch.numpy()
+            action_select_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
 
-        phase_start_ns = time.perf_counter_ns()
-        state = env.step(actions_np)
-        env_step_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
-        # Backend-internal physics time (sub-part of env_step_ms). Present for
-        # MuJoCo (via backend.step timing); absent for backends that don't
-        # report it -> NaN, rendered as "n/a".
-        _timing = state.info.get("timing", {}) if isinstance(state.info, dict) else {}
-        physics_ms = _optional_timing_ms(_timing, "backend_physics_ms")
-        env_step_timing_values = {
-            key: _optional_timing_ms(_timing, key)
-            for key in NP_ENV_STEP_SAMPLE_KEYS
-            if key != "env_step_internal_gap_ms"
-        }
-        internal_children = (
-            env_step_timing_values["apply_action_ms"],
-            env_step_timing_values["step_core_ms"],
-            env_step_timing_values["update_state_ms"],
-            env_step_timing_values["reset_done_ms"],
-        )
-        if all(value is not None for value in internal_children):
-            env_step_timing_values["env_step_internal_gap_ms"] = env_step_ms - sum(
-                cast(float, value) for value in internal_children
-            )
-        else:
-            env_step_timing_values["env_step_internal_gap_ms"] = None
-
-        phase_start_ns = time.perf_counter_ns()
-        next_obs_np, next_critic_np = split_obs_dict(state.obs)
-        next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
-        next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
-        rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
-        truncated_np = state.truncated.astype(np.float32, copy=False).ravel()
-        combined_dones = (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
-        terminal_contract = resolve_terminal_observation_contract(
-            next_obs_batch_size=next_obs_np.shape[0],
-            final_observation=state.final_observation,
-            done=combined_dones > 0.5,
-            info=state.info,
-            truncated=truncated_np,
-        )
-        replay_buffer.add(
-            torch.from_numpy(obs_np),
-            torch.from_numpy(actions_np),
-            torch.from_numpy(rewards_np),
-            torch.from_numpy(next_obs_np),
-            torch.from_numpy(combined_dones),
-            torch.from_numpy(truncated_np),
-            terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
-            terminal_next_obs=(
-                torch.from_numpy(terminal_contract.terminal_obs)
-                if terminal_contract.terminal_obs is not None
-                else None
-            ),
-            critic=torch.from_numpy(critic_np),
-            next_critic=torch.from_numpy(next_critic_np),
-            terminal_next_critic=(
-                torch.from_numpy(terminal_contract.terminal_critic)
-                if terminal_contract.terminal_critic is not None
-                else None
-            ),
-        )
-        replay_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
-
-        phase_start_ns = time.perf_counter_ns()
-        current_ep_rewards += rewards_np
-        current_ep_lengths += 1
-        reset_indices = np.where(combined_dones > 0.5)[0]
-        if len(reset_indices) > 0:
-            ep_rewards.extend(current_ep_rewards[reset_indices].tolist())
-            ep_lengths.extend(current_ep_lengths[reset_indices].tolist())
-            current_ep_rewards[reset_indices] = 0.0
-            current_ep_lengths[reset_indices] = 0
-
-        log_info = state.info.get("log", {})
-        if log_info:
-            for key, value in log_info.items():
-                if key.startswith("reward/"):
-                    ep_reward_components[key].append(value)
-        bookkeeping_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
-
-        obs_np = next_obs_np
-        critic_np = next_critic_np
-        info_dict = state.info
-        prev_dones_np = combined_dones
-
-        if record:
-            phase_values = {
-                "weight_sync_ms": weight_sync_ms,
-                "action_select_ms": action_select_ms,
-                "env_step_ms": env_step_ms,
-                "replay_ms": replay_ms,
-                "bookkeeping_ms": bookkeeping_ms,
+            phase_start_ns = time.perf_counter_ns()
+            if random_profiler is not None and record:
+                random_profiler.begin_step()
+            try:
+                state = env.step(actions_np)
+            finally:
+                if random_profiler is not None and record:
+                    random_ms, random_calls = random_profiler.end_step()
+                    numpy_random_ms_samples.append(random_ms)
+                    numpy_random_call_samples.append(float(random_calls))
+            env_step_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
+            # Backend-internal physics time (sub-part of env_step_ms). Present for
+            # MuJoCo (via backend.step timing); absent for backends that don't
+            # report it -> NaN, rendered as "n/a".
+            _timing = state.info.get("timing", {}) if isinstance(state.info, dict) else {}
+            physics_ms = _optional_timing_ms(_timing, "backend_physics_ms")
+            env_step_timing_values = {
+                key: _optional_timing_ms(_timing, key)
+                for key in NP_ENV_STEP_SAMPLE_KEYS
+                if key != "env_step_internal_gap_ms"
             }
-            step_active_ns = int(sum(phase_values.values()) * 1e6)
-            total_active_ns += step_active_ns
-            for key, value in phase_values.items():
-                samples[key].append(value)
-            # Env-step breakdown is aux only; env_step_ms is the additive phase.
-            if physics_ms is not None:
-                aux_samples["physics_ms"].append(physics_ms)
-                aux_samples["env_step_overhead_ms"].append(env_step_ms - physics_ms)
-            for key, value in env_step_timing_values.items():
-                if value is not None:
-                    env_step_timing_samples[key].append(value)
+            internal_children = (
+                env_step_timing_values["apply_action_ms"],
+                env_step_timing_values["step_core_ms"],
+                env_step_timing_values["update_state_ms"],
+                env_step_timing_values["reset_done_ms"],
+            )
+            if all(value is not None for value in internal_children):
+                env_step_timing_values["env_step_internal_gap_ms"] = env_step_ms - sum(
+                    cast(float, value) for value in internal_children
+                )
+            else:
+                env_step_timing_values["env_step_internal_gap_ms"] = None
+
+            phase_start_ns = time.perf_counter_ns()
+            next_obs_np, next_critic_np = split_obs_dict(state.obs)
+            next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
+            next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
+            rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
+            truncated_np = state.truncated.astype(np.float32, copy=False).ravel()
+            combined_dones = (
+                (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
+            )
+            terminal_contract = resolve_terminal_observation_contract(
+                next_obs_batch_size=next_obs_np.shape[0],
+                final_observation=state.final_observation,
+                done=combined_dones > 0.5,
+                info=state.info,
+                truncated=truncated_np,
+            )
+            replay_buffer.add(
+                torch.from_numpy(obs_np),
+                torch.from_numpy(actions_np),
+                torch.from_numpy(rewards_np),
+                torch.from_numpy(next_obs_np),
+                torch.from_numpy(combined_dones),
+                torch.from_numpy(truncated_np),
+                terminal_mask=torch.from_numpy(terminal_contract.terminal_mask),
+                terminal_next_obs=(
+                    torch.from_numpy(terminal_contract.terminal_obs)
+                    if terminal_contract.terminal_obs is not None
+                    else None
+                ),
+                critic=torch.from_numpy(critic_np),
+                next_critic=torch.from_numpy(next_critic_np),
+                terminal_next_critic=(
+                    torch.from_numpy(terminal_contract.terminal_critic)
+                    if terminal_contract.terminal_critic is not None
+                    else None
+                ),
+            )
+            replay_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
+
+            phase_start_ns = time.perf_counter_ns()
+            current_ep_rewards += rewards_np
+            current_ep_lengths += 1
+            reset_indices = np.where(combined_dones > 0.5)[0]
+            if len(reset_indices) > 0:
+                ep_rewards.extend(current_ep_rewards[reset_indices].tolist())
+                ep_lengths.extend(current_ep_lengths[reset_indices].tolist())
+                current_ep_rewards[reset_indices] = 0.0
+                current_ep_lengths[reset_indices] = 0
+
+            log_info = state.info.get("log", {})
+            if log_info:
+                for key, value in log_info.items():
+                    if key.startswith("reward/"):
+                        ep_reward_components[key].append(value)
+            bookkeeping_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
+
+            obs_np = next_obs_np
+            critic_np = next_critic_np
+            info_dict = state.info
+            prev_dones_np = combined_dones
+
+            if record:
+                phase_values = {
+                    "weight_sync_ms": weight_sync_ms,
+                    "action_select_ms": action_select_ms,
+                    "env_step_ms": env_step_ms,
+                    "replay_ms": replay_ms,
+                    "bookkeeping_ms": bookkeeping_ms,
+                }
+                step_active_ns = int(sum(phase_values.values()) * 1e6)
+                total_active_ns += step_active_ns
+                for key, value in phase_values.items():
+                    samples[key].append(value)
+                # Env-step breakdown is aux only; env_step_ms is the additive phase.
+                if physics_ms is not None:
+                    aux_samples["physics_ms"].append(physics_ms)
+                    aux_samples["env_step_overhead_ms"].append(env_step_ms - physics_ms)
+                for key, value in env_step_timing_values.items():
+                    if value is not None:
+                        env_step_timing_samples[key].append(value)
+    finally:
+        if random_profiler is not None:
+            random_profiler.uninstall()
 
     # Measured-window system CPU utilization (see cpu_probe_start comment).
     cpu_util_pct = _cpu_util_pct(cpu_probe_start, _read_cpu_times())
@@ -728,6 +855,12 @@ def _run_active_window_case(
         physics_ms_per_vector_step=physics_stats,
         env_step_overhead_ms_per_vector_step=env_step_overhead_stats,
         cpu_util_pct=cpu_util_pct,
+        numpy_random_ms_per_vector_step=(
+            _stats(numpy_random_ms_samples) if numpy_random_ms_samples else None
+        ),
+        numpy_random_calls_per_vector_step=(
+            _stats(numpy_random_call_samples) if numpy_random_call_samples else None
+        ),
     )
 
 
@@ -739,6 +872,8 @@ def _build_and_run_case(
     replay_capacity_steps: int,
     num_envs: int | None,
     extra_overrides: list[str],
+    variant: str = "default",
+    profile_numpy_random: bool = False,
 ) -> CollectorResult:
     from unilab.training import BackendAdapter, ensure_registries
     from unilab.training.seed import apply_training_seed
@@ -784,6 +919,7 @@ def _build_and_run_case(
             algo=algo,
             task=task,
             sim=sim,
+            variant=variant,
             replay_capacity_steps=replay_capacity_steps,
             actor_algo_type=actor_algo_type,
             use_layer_norm=use_layer_norm,
@@ -798,11 +934,58 @@ def _build_and_run_case(
             actor=actor,
             warmup_steps=warmup_steps,
             measure_steps=measure_steps,
+            profile_numpy_random=profile_numpy_random,
         )
     finally:
         if env is not None:
             env.close()
         _cleanup()
+
+
+def _numba_ab_overrides(*, enabled: bool, numba_threads: int | None) -> list[str]:
+    overrides = [f"++env.numba_acceleration={'true' if enabled else 'false'}"]
+    if enabled and numba_threads is not None:
+        overrides.append(f"++env.numba_num_threads={int(numba_threads)}")
+    return overrides
+
+
+def _build_and_run_numba_ab_case(
+    spec: str,
+    *,
+    warmup_steps: int,
+    measure_steps: int,
+    replay_capacity_steps: int,
+    num_envs: int | None,
+    extra_overrides: list[str],
+    numba_threads: int | None,
+    profile_numpy_random: bool = False,
+) -> list[CollectorResult]:
+    _algo, task, _sim = _parse_case(spec)
+    if task not in NUMBA_ACCELERATED_TASKS:
+        raise ValueError(
+            f"--numba-ab only supports {sorted(NUMBA_ACCELERATED_TASKS)}, got task={task!r}"
+        )
+    records = []
+    for variant, enabled in (
+        ("numpy_baseline", False),
+        ("numba_accelerated", True),
+    ):
+        records.append(
+            _build_and_run_case(
+                spec,
+                warmup_steps=warmup_steps,
+                measure_steps=measure_steps,
+                replay_capacity_steps=replay_capacity_steps,
+                num_envs=num_envs,
+                extra_overrides=[
+                    *extra_overrides,
+                    *_numba_ab_overrides(enabled=enabled, numba_threads=numba_threads),
+                ],
+                variant=variant,
+                profile_numpy_random=profile_numpy_random,
+            )
+        )
+    return records
 
 
 def _result_to_dict(result: CollectorResult) -> dict[str, Any]:
@@ -829,6 +1012,9 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "algo",
         "task",
         "sim",
+        "variant",
+        "numba_acceleration",
+        "numba_threads",
         "runtime_sim_backend",
         "training_task_name",
         "collector_algo_type",
@@ -842,6 +1028,8 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "replay_ms",
         "weight_sync_ms",
         "bookkeeping_ms",
+        "numpy_random_ms",
+        "numpy_random_calls",
         "physics_ms",
         "env_step_overhead_ms",
         "reset_done_count",
@@ -864,6 +1052,11 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 "algo": result.case.algo,
                 "task": result.case.task,
                 "sim": result.case.sim,
+                "variant": result.case.variant,
+                "numba_acceleration": result.case.numba_acceleration,
+                "numba_threads": (
+                    result.case.numba_threads if result.case.numba_threads is not None else ""
+                ),
                 "runtime_sim_backend": result.case.runtime_sim_backend,
                 "training_task_name": result.case.training_task_name,
                 "collector_algo_type": result.case.collector_algo_type,
@@ -880,6 +1073,16 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
             row["physics_ms"] = (
                 result.physics_ms_per_vector_step.mean_ms
                 if result.physics_ms_per_vector_step is not None
+                else ""
+            )
+            row["numpy_random_ms"] = (
+                result.numpy_random_ms_per_vector_step.mean_ms
+                if result.numpy_random_ms_per_vector_step is not None
+                else ""
+            )
+            row["numpy_random_calls"] = (
+                result.numpy_random_calls_per_vector_step.mean_ms
+                if result.numpy_random_calls_per_vector_step is not None
                 else ""
             )
             row["env_step_overhead_ms"] = (
@@ -1130,11 +1333,30 @@ def _format_np_env_value(result: CollectorResult, key: str, *, digits: int = 1) 
     return f"{stat.mean_ms:.{digits}f}"
 
 
+def _format_set_state_sub_ms(result: CollectorResult, key: str) -> str:
+    """Format a backend set_state sub-timing as ``ms (%of set_state)``.
+
+    The percentage is relative to ``dr_reset_set_state_ms`` (the outer
+    wall-clock measurement in DomainRandomizationManager), not to env_step_ms,
+    so a reader can see which sub-step dominates set_state.
+    """
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    if stat is None:
+        return "n/a"
+    outer = result.env_step_timing_ms_per_vector_step.get("dr_reset_set_state_ms")
+    if outer is None or outer.mean_ms <= 0.0:
+        return f"{stat.mean_ms:.3f} (n/a)"
+    pct = 100.0 * stat.mean_ms / outer.mean_ms
+    return f"{stat.mean_ms:.3f} ({pct:.1f}%)"
+
+
 def _format_throughput_table(results: list[CollectorResult]) -> str:
     headers = (
         "Algo",
         "Task",
         "Backend",
+        "Variant",
+        "Numba",
         "num_env",
         "Throughput env/s",
         "Total active ms",
@@ -1161,6 +1383,8 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 result.case.algo,
                 result.case.task,
                 result.case.runtime_sim_backend,
+                result.case.variant,
+                (f"on/{result.case.numba_threads}T" if result.case.numba_acceleration else "off"),
                 f"{result.case.num_envs:,}",
                 f"{result.collector_active_steps_per_sec:,.0f}",
                 f"{result.total_active_ms / result.measure_steps:.3f} (100.0%)",
@@ -1246,6 +1470,90 @@ def _format_dr_reset_timing_table(results: list[CollectorResult]) -> str:
                 _format_np_env_timing(result, "dr_reset_obs_get_body_pose_ms"),
                 _format_np_env_timing(result, "dr_reset_observation_compute_obs_ms"),
                 _format_np_env_timing(result, "dr_reset_internal_gap_ms"),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+_SET_STATE_MOTRIX_KEYS = (
+    ("set_state_qpos_convert_ms", "QPos convert"),
+    ("set_state_mask_ms", "Mask"),
+    ("set_state_data_slice_ms", "Data slice"),
+    ("set_state_data_reset_ms", "Data reset"),
+    ("set_state_clear_forces_ms", "Clear forces"),
+    ("set_state_geom_overrides_ms", "Geom overrides"),
+    ("set_state_reset_rand_ms", "Reset rand"),
+    ("set_state_set_dof_vel_ms", "Set dof vel"),
+    ("set_state_set_dof_pos_ms", "Set dof pos"),
+    ("set_state_actuator_ctrl_ms", "Actuator ctrl"),
+    ("set_state_forward_kinematic_ms", "FK"),
+    ("set_state_refresh_pose_cache_ms", "Refresh pose"),
+    ("set_state_invalidate_velocity_ms", "Inval vel"),
+    ("set_state_internal_gap_ms", "Gap"),
+)
+
+_SET_STATE_MUJOCO_KEYS = (
+    ("set_state_qpos_convert_ms", "QPos convert"),
+    ("set_state_pool_reset_ms", "Pool reset"),
+    ("set_state_state_scatter_ms", "State scatter"),
+    ("set_state_internal_gap_ms", "Gap"),
+)
+
+
+def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
+    """Backend set_state sub-timing table (motrix keyset).
+
+    Renders the 14 motrix-oriented sub-keys next to the outer
+    ``dr_reset_set_state_ms``. Backends that don't populate a key emit 0.0 so
+    columns stay stable across backends. MuJoCo runs will show 0.0 for the
+    motrix-only sub-keys; use :func:`_format_set_state_mujoco_table` for the
+    MuJoCo-oriented view instead.
+    """
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MOTRIX_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MOTRIX_KEYS),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_set_state_mujoco_table(results: list[CollectorResult]) -> str:
+    """Backend set_state sub-timing table (mujoco keyset)."""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MUJOCO_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MUJOCO_KEYS),
             )
         )
     return _format_table(headers, rows)
@@ -1344,6 +1652,116 @@ def _format_env_step_breakdown_table(results: list[CollectorResult]) -> str:
     return _format_table(headers, rows)
 
 
+def _mean_phase_ms(result: CollectorResult, key: str) -> float | None:
+    stat = result.phase_ms_per_vector_step.get(key)
+    return stat.mean_ms if stat is not None else None
+
+
+def _mean_np_env_ms(result: CollectorResult, key: str) -> float | None:
+    stat = result.env_step_timing_ms_per_vector_step.get(key)
+    return stat.mean_ms if stat is not None else None
+
+
+def _physics_ms(result: CollectorResult) -> float | None:
+    return (
+        result.physics_ms_per_vector_step.mean_ms
+        if result.physics_ms_per_vector_step is not None
+        else None
+    )
+
+
+def _collector_other_ms(result: CollectorResult) -> float:
+    total = result.total_active_ms / float(result.measure_steps)
+    physics = _physics_ms(result) or 0.0
+    update_state = _mean_np_env_ms(result, "update_state_ms") or 0.0
+    return total - physics - update_state
+
+
+def _format_speedup(new: float, baseline: float) -> str:
+    return f"{baseline / new:.2f}x" if new > 0.0 else "n/a"
+
+
+def _format_saved(new: float, baseline: float) -> str:
+    return f"{baseline - new:.3f}"
+
+
+def _format_numba_ab_table(results: list[CollectorResult]) -> str:
+    baseline_by_case = {
+        (result.case.algo, result.case.task, result.case.sim, result.case.num_envs): result
+        for result in results
+        if result.case.variant == "numpy_baseline"
+    }
+    rows = []
+    for result in results:
+        if result.case.variant != "numba_accelerated":
+            continue
+        key = (result.case.algo, result.case.task, result.case.sim, result.case.num_envs)
+        baseline = baseline_by_case.get(key)
+        if baseline is None:
+            continue
+        base_total = baseline.total_active_ms / float(baseline.measure_steps)
+        new_total = result.total_active_ms / float(result.measure_steps)
+        base_env = _mean_phase_ms(baseline, "env_step_ms")
+        new_env = _mean_phase_ms(result, "env_step_ms")
+        base_update = _mean_np_env_ms(baseline, "update_state_ms")
+        new_update = _mean_np_env_ms(result, "update_state_ms")
+        base_physics = _physics_ms(baseline)
+        new_physics = _physics_ms(result)
+        base_other = _collector_other_ms(baseline)
+        new_other = _collector_other_ms(result)
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                f"{result.case.num_envs:,}",
+                "-" if result.case.numba_threads is None else str(result.case.numba_threads),
+                f"{result.collector_active_steps_per_sec / baseline.collector_active_steps_per_sec:.2f}x",
+                _format_speedup(new_total, base_total),
+                _format_saved(new_total, base_total),
+                "n/a"
+                if base_env is None or new_env is None
+                else _format_speedup(new_env, base_env),
+                "n/a" if base_env is None or new_env is None else _format_saved(new_env, base_env),
+                (
+                    "n/a"
+                    if base_update is None or new_update is None
+                    else _format_speedup(new_update, base_update)
+                ),
+                (
+                    "n/a"
+                    if base_update is None or new_update is None
+                    else _format_saved(new_update, base_update)
+                ),
+                (
+                    "n/a"
+                    if base_physics is None or new_physics is None
+                    else _format_saved(new_physics, base_physics)
+                ),
+                _format_saved(new_other, base_other),
+            )
+        )
+    if not rows:
+        return ""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "num_env",
+        "Numba T",
+        "Collector throughput",
+        "Total step speedup",
+        "Total saved ms",
+        "Env step speedup",
+        "Env saved ms",
+        "Update speedup",
+        "Update saved ms",
+        "Physics saved ms",
+        "Other saved ms",
+    )
+    return _format_table(headers, rows)
+
+
 def _print_result(result: CollectorResult) -> None:
     case = result.case
     cpu_str = f"{result.cpu_util_pct:.1f}%" if result.cpu_util_pct == result.cpu_util_pct else "n/a"
@@ -1378,6 +1796,19 @@ def _print_result(result: CollectorResult) -> None:
             f"  {'env_step_overhead_ms':<18} mean={upper:8.3f} ms  "
             f"pct_env={_env_step_child_env_pct(result, upper):5.1f}% "
             f"pct_active={_env_step_child_pct(result, upper):5.1f}%"
+        )
+    if result.numpy_random_ms_per_vector_step is not None:
+        random_ms = result.numpy_random_ms_per_vector_step.mean_ms
+        random_calls = (
+            result.numpy_random_calls_per_vector_step.mean_ms
+            if result.numpy_random_calls_per_vector_step is not None
+            else 0.0
+        )
+        print(
+            f"  {'numpy_random_ms':<18} mean={random_ms:8.3f} ms  "
+            f"calls={random_calls:5.1f}  "
+            f"pct_env={_env_step_child_env_pct(result, random_ms):5.1f}% "
+            f"pct_active={_env_step_child_pct(result, random_ms):5.1f}%"
         )
     if result.env_step_timing_ms_per_vector_step:
         reset_count = result.env_step_timing_ms_per_vector_step.get("reset_done_count")
@@ -1475,6 +1906,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=[],
         help="Additional Hydra override. Can be passed more than once.",
     )
+    parser.add_argument(
+        "--numba-ab",
+        action="store_true",
+        help=(
+            "Run numpy baseline and env.numba_acceleration=true variants for supported "
+            "G1 tasks, then print an A/B bottleneck summary."
+        ),
+    )
+    parser.add_argument(
+        "--numba-threads",
+        type=int,
+        default=None,
+        help="Numba thread count used by --numba-ab accelerated variants.",
+    )
+    parser.add_argument(
+        "--profile-numpy-random",
+        action="store_true",
+        help=(
+            "Measure selected np.random module calls during measured env.step() "
+            "windows and report their collector active share."
+        ),
+    )
     parser.add_argument("--out-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--out-csv", type=Path, default=None)
     parser.add_argument("--continue-on-error", action="store_true")
@@ -1502,16 +1955,32 @@ def main() -> int:
     errors: list[dict[str, str]] = []
     for spec in specs:
         try:
-            result = _build_and_run_case(
-                spec,
-                warmup_steps=int(args.warmup_steps),
-                measure_steps=int(args.measure_steps),
-                replay_capacity_steps=int(args.replay_capacity_steps),
-                num_envs=args.num_envs,
-                extra_overrides=list(args.override),
-            )
-            results.append(result)
-            _print_result(result)
+            if args.numba_ab:
+                case_results = _build_and_run_numba_ab_case(
+                    spec,
+                    warmup_steps=int(args.warmup_steps),
+                    measure_steps=int(args.measure_steps),
+                    replay_capacity_steps=int(args.replay_capacity_steps),
+                    num_envs=args.num_envs,
+                    extra_overrides=list(args.override),
+                    numba_threads=args.numba_threads,
+                    profile_numpy_random=bool(args.profile_numpy_random),
+                )
+            else:
+                case_results = [
+                    _build_and_run_case(
+                        spec,
+                        warmup_steps=int(args.warmup_steps),
+                        measure_steps=int(args.measure_steps),
+                        replay_capacity_steps=int(args.replay_capacity_steps),
+                        num_envs=args.num_envs,
+                        extra_overrides=list(args.override),
+                        profile_numpy_random=bool(args.profile_numpy_random),
+                    )
+                ]
+            results.extend(case_results)
+            for result in case_results:
+                _print_result(result)
         except Exception as exc:
             error = {"case": spec, "type": type(exc).__name__, "message": str(exc)}
             errors.append(error)
@@ -1538,6 +2007,9 @@ def main() -> int:
             "measure_steps": args.measure_steps,
             "replay_capacity_steps": args.replay_capacity_steps,
             "override": args.override,
+            "numba_ab": args.numba_ab,
+            "numba_threads": args.numba_threads,
+            "profile_numpy_random": args.profile_numpy_random,
         },
         "results": [_result_to_dict(result) for result in results],
         "errors": errors,
@@ -1552,6 +2024,12 @@ def main() -> int:
     print("\nTask throughput (active phases; phase percentages add to 100%):")
     if results:
         print(_format_throughput_table(results))
+        if args.numba_ab:
+            print(
+                "\nNumba A/B summary (baseline is env.numba_acceleration=false; positive saved ms means the numba run is faster):"
+            )
+            table = _format_numba_ab_table(results)
+            print(table if table else "No paired Numba A/B results.")
         print(
             "\nEnv step breakdown (subparts of Env step; do not add Env step together with its subparts):"
         )
@@ -1566,6 +2044,13 @@ def main() -> int:
             "\nDR reset timing (subparts of reset call; reset obs getters currently read full batch):"
         )
         print(_format_dr_reset_timing_table(results))
+        print(
+            "\nBackend set_state detail — motrix keyset "
+            "(sub-timings sum to dr_reset_set_state_ms; % is share of that outer wall-clock):"
+        )
+        print(_format_set_state_detail_table(results))
+        print("\nBackend set_state detail — mujoco keyset:")
+        print(_format_set_state_mujoco_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1

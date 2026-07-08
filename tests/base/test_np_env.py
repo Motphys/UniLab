@@ -579,14 +579,14 @@ class TestRewardSanitization:
         assert np.all(np.isfinite(state.reward))
         np.testing.assert_array_equal(state.reward, [0.0, 0.0, 0.0, 1.0])
 
-    def test_guard_detects_nan_reward_before_sanitization(self):
+    def test_guard_detects_nan_reward_before_sanitization(self, tmp_path):
         from unilab.utils.nan_guard import NanGuard, NanGuardCfg
 
         rewards = np.array([0.0, np.nan, 0.0, 0.0], dtype=np.float32)
         env = _NanRewardStubEnv(num_envs=4, bad_rewards=rewards)
         env.init_state()
 
-        cfg = NanGuardCfg(enabled=True, output_dir="/tmp/unilab_test_sanitize")
+        cfg = NanGuardCfg(enabled=True, output_dir=str(tmp_path / "sanitize"))
         guard = NanGuard(cfg, num_envs=4, supports_state_playback=False)
         env.set_nan_guard(guard)
 
@@ -594,12 +594,12 @@ class TestRewardSanitization:
         assert guard._dumped, "guard should have detected NaN before sanitization"
         assert np.all(np.isfinite(state.reward)), "reward should be clean after step"
 
-    def test_guard_warns_each_step_for_nan_reward(self, caplog):
+    def test_guard_warns_each_step_for_nan_reward(self, caplog, tmp_path):
         from unilab.utils.nan_guard import NanGuard, NanGuardCfg
 
         env = _NanRewardStubEnv(num_envs=4, bad_rewards=np.array([0.0, np.nan, 0.0, 0.0]))
         guard = NanGuard(
-            NanGuardCfg(enabled=True, output_dir="/tmp/unilab_test_warn"),
+            NanGuardCfg(enabled=True, output_dir=str(tmp_path / "warn")),
             num_envs=4,
             supports_state_playback=False,
         )

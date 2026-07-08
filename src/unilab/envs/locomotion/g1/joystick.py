@@ -207,6 +207,8 @@ class G1WalkEnvCfg(G1BaseCfg):
     gait_phase_init_mode: str = "offset_phase"
     reset_base_qvel_limit: float = 0.5
     curriculum: CurriculumConfig = field(default_factory=CurriculumConfig)
+    numba_acceleration: bool = False
+    numba_num_threads: int | None = None
 
 
 class G1WalkDomainRandomizationProvider(LocomotionDRProvider):
@@ -304,6 +306,13 @@ class G1WalkEnv(G1BaseEnv):
             )
 
         self._init_reward_functions()
+        self._numba_accelerator = None
+        if cfg.numba_acceleration:
+            from unilab.envs.locomotion.g1.joystick_numba import G1WalkNumbaAccelerator
+
+            self._numba_accelerator = G1WalkNumbaAccelerator.from_env(
+                self, num_threads=cfg.numba_num_threads
+            )
         if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
             base_kp, base_kd = backend.get_actuator_gains()
             dr_provider = G1WalkDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
@@ -352,15 +361,33 @@ class G1WalkEnv(G1BaseEnv):
         dof_pos = self.get_dof_pos()
         dof_vel = self.get_dof_vel()
 
-        max_tilt_rad = np.deg2rad(self._reward_cfg.max_tilt_deg)
-        tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
-        terminated = np.logical_or(
-            tilt > max_tilt_rad,
-            self._terrain_relative_base_height() < self._reward_cfg.min_base_height,
-        )
+        if self._numba_accelerator is not None:
+            accel_result = self._numba_accelerator.compute_update_state(
+                env=self,
+                info=state.info,
+                linvel=linvel,
+                gyro=gyro,
+                gravity=gravity,
+                dof_pos=dof_pos,
+                dof_vel=dof_vel,
+                scales=self._reward_cfg.scales,
+                enable_log=self._enable_reward_log,
+                noise_level=self._cfg.noise_config.level,
+            )
+            terminated = accel_result.terminated
+            reward = accel_result.reward
+            obs = accel_result.obs
+            state.info["log"] = accel_result.log
+        else:
+            max_tilt_rad = np.deg2rad(self._reward_cfg.max_tilt_deg)
+            tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
+            terminated = np.logical_or(
+                tilt > max_tilt_rad,
+                self._terrain_relative_base_height() < self._reward_cfg.min_base_height,
+            )
+            reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
+            obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
 
-        reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
-        obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
         state = state.replace(obs=obs, reward=reward, terminated=terminated)
 
         done = state.terminated | state.truncated

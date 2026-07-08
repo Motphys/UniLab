@@ -72,6 +72,18 @@ def test_get_joint_dof_vel_indices(backend):
     assert np.all(vel_indices == dof_indices - backend._root_qvel_dim)
 
 
+def test_get_site_jacobian_rejects_invalid_site_id_before_native_call(backend):
+    dof_indices = backend.get_joint_dof_indices(list(ARM_JOINT_NAMES))
+    with pytest.raises(ValueError, match="Invalid site_id"):
+        backend.get_site_jacobian_w(int(backend._model.nsite), dof_indices)
+
+
+def test_get_site_jacobian_rejects_invalid_dof_indices_before_native_call(backend):
+    site_id = int(backend.get_site_ids([EE_SITE_NAME])[0])
+    with pytest.raises(ValueError, match="dof_indices"):
+        backend.get_site_jacobian_w(site_id, np.array([backend.nv], dtype=np.int32))
+
+
 @pytest.mark.slow
 def test_get_site_jacobian_shape(backend):
     site_ids = backend.get_site_ids([EE_SITE_NAME])

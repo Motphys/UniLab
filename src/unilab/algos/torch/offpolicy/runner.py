@@ -11,6 +11,10 @@ from typing import Any, cast
 import torch
 
 from unilab.algos.torch.common.device import get_env_dims
+from unilab.algos.torch.offpolicy.thread_budget import (
+    format_torch_thread_runtime,
+    torch_thread_env,
+)
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
@@ -177,6 +181,7 @@ class OffPolicyRunner(AsyncRunner):
         trace_cuda_events: bool = True,
         nan_guard_cfg: NanGuardCfg | None = None,
         collector_infer_device: str | None = "cpu",
+        torch_thread_runtime: dict[str, Any] | None = None,
     ):
         self.collector_infer_device_raw = str(collector_infer_device or "cpu")
         self.collector_infer_device = resolve_torch_device_alias(
@@ -219,6 +224,7 @@ class OffPolicyRunner(AsyncRunner):
         self.trace_thread_time = trace_thread_time
         self.trace_cuda_events = trace_cuda_events
         self.nan_guard_cfg = nan_guard_cfg
+        self.torch_thread_runtime = torch_thread_runtime
 
         apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
@@ -344,11 +350,13 @@ class OffPolicyRunner(AsyncRunner):
             "trace_enabled": self.trace_enabled,
             "trace_thread_time": self.trace_thread_time,
             "nan_guard_cfg": self.nan_guard_cfg,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
-        self._start_collector(
-            target_fn=off_policy_collector_fn,
-            kwargs={"stop_event": self._stop_event, **collector_kwargs},
-        )
+        with torch_thread_env(self.torch_thread_runtime, role="collector"):
+            self._start_collector(
+                target_fn=off_policy_collector_fn,
+                kwargs={"stop_event": self._stop_event, **collector_kwargs},
+            )
 
         time.sleep(0.5)
         if self._collector_process:
@@ -374,6 +382,7 @@ class OffPolicyRunner(AsyncRunner):
             "Collector infer device: "
             f"{self.collector_infer_device_raw} -> {self.collector_infer_device}"
         )
+        logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))
         self._active_logger = logger
         logger.start()
 

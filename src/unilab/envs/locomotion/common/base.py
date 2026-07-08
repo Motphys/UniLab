@@ -50,6 +50,7 @@ class BaseNoiseConfig:
     scale_gyro: float = 0.2
     scale_gravity: float = 0.05
     scale_linvel: float = 0.1
+    seed: int | None = None
 
 
 @dataclass
@@ -73,6 +74,8 @@ class LocomotionBaseEnv(NpEnv):
         super().__init__(cfg, backend, num_envs)
         self._init_action_space()
         self._num_action = self._action_space.shape[0]
+        self._obs_noise_rng: np.random.Generator | None = None
+        self._obs_noise_seed_override: int | None = None
         self._init_buffers()
         self._spawn: BaseSpawnManager = BaseSpawnManager()
 
@@ -110,13 +113,39 @@ class LocomotionBaseEnv(NpEnv):
         )
         return ctrl
 
+    def seed_observation_noise(self, seed: int | None) -> None:
+        """Reset env-owned observation-noise RNG streams."""
+        if seed is not None and int(seed) < 0:
+            raise ValueError(f"observation noise seed must be non-negative, got {seed}")
+        self._obs_noise_seed_override = int(seed) if seed is not None else None
+        self._obs_noise_rng = None
+
+    def _configured_obs_noise_seed(self) -> int | None:
+        seed = getattr(self, "_obs_noise_seed_override", None)
+        if seed is None:
+            seed = getattr(self._cfg.noise_config, "seed", None)
+        if seed is None:
+            return None
+        seed = int(seed)
+        if seed < 0:
+            raise ValueError(f"observation noise seed must be non-negative, got {seed}")
+        return seed
+
     def _obs_noise(self, data: np.ndarray, scale: float) -> np.ndarray:
         """Apply per-step uniform observation noise scaled by ``noise_config.level``."""
         level = float(self._cfg.noise_config.level)
         if level <= 0.0:
             return data
-        noise = np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype) * level * scale
-        return data + noise
+        seed = self._configured_obs_noise_seed()
+        if seed is None:
+            noise = np.random.uniform(-1.0, 1.0, data.shape).astype(data.dtype)
+        else:
+            rng = getattr(self, "_obs_noise_rng", None)
+            if rng is None:
+                rng = np.random.default_rng(seed)
+                self._obs_noise_rng = rng
+            noise = rng.uniform(-1.0, 1.0, data.shape).astype(data.dtype)
+        return data + noise * level * scale
 
     def get_local_linvel(self) -> np.ndarray:
         local_linvel: np.ndarray = self._backend.get_sensor_data(self._cfg.sensor.local_linvel)

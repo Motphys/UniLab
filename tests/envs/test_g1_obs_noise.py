@@ -14,8 +14,8 @@ class _ConcreteG1Env(G1BaseEnv):
         raise NotImplementedError
 
 
-def _make_env(level: float) -> G1BaseEnv:
-    cfg = G1BaseCfg(noise_config=NoiseConfig(level=level))
+def _make_env(level: float, *, seed: int | None = None) -> G1BaseEnv:
+    cfg = G1BaseCfg(noise_config=NoiseConfig(level=level, seed=seed))
     env = object.__new__(_ConcreteG1Env)
     env._cfg = cfg
     return env
@@ -36,7 +36,8 @@ class TestObsNoise:
         data = np.ones((4, 10), dtype=np.float32)
         cfg = env._cfg.noise_config
 
-        result = env._obs_noise(data.copy(), cfg.scale_joint_angle)
+        result = env._obs_noise(data, cfg.scale_joint_angle)
+        assert result is data
         np.testing.assert_array_equal(result, data)
 
     def test_noise_bounded_by_level_times_scale(self):
@@ -49,19 +50,49 @@ class TestObsNoise:
         assert np.all(result <= scale)
 
     def test_noise_scales_with_level(self):
-        env_half = _make_env(level=0.5)
-        env_full = _make_env(level=1.0)
-        np.random.seed(42)
+        env_half = _make_env(level=0.5, seed=123)
+        env_full = _make_env(level=1.0, seed=123)
         data = np.zeros((1024, 10), dtype=np.float32)
         scale = 1.0
 
-        np.random.seed(0)
         r_half = env_half._obs_noise(data.copy(), scale)
-        np.random.seed(0)
         r_full = env_full._obs_noise(data.copy(), scale)
 
-        # Same random seed: full-level noise should be exactly 2x half-level noise
         np.testing.assert_allclose(r_full, r_half * 2.0)
+
+    def test_configured_seed_is_reproducible_across_fresh_envs(self):
+        env_a = _make_env(level=1.0, seed=11)
+        env_b = _make_env(level=1.0, seed=11)
+        data = np.zeros((32, 10), dtype=np.float32)
+
+        first_a = env_a._obs_noise(data.copy(), 0.25)
+        first_b = env_b._obs_noise(data.copy(), 0.25)
+        second_a = env_a._obs_noise(data.copy(), 0.25)
+
+        np.testing.assert_allclose(first_a, first_b)
+        assert not np.allclose(first_a, second_a)
+
+    def test_seed_observation_noise_resets_stream(self):
+        env = _make_env(level=1.0)
+        data = np.zeros((32, 10), dtype=np.float32)
+
+        env.seed_observation_noise(17)
+        first = env._obs_noise(data.copy(), 0.25)
+        env.seed_observation_noise(17)
+        replayed = env._obs_noise(data.copy(), 0.25)
+
+        np.testing.assert_allclose(first, replayed)
+
+    def test_seed_observation_noise_overrides_configured_seed(self):
+        env = _make_env(level=1.0, seed=11)
+        replay = _make_env(level=1.0, seed=99)
+        data = np.zeros((32, 10), dtype=np.float32)
+
+        env.seed_observation_noise(99)
+        result = env._obs_noise(data.copy(), 0.25)
+        expected = replay._obs_noise(data.copy(), 0.25)
+
+        np.testing.assert_allclose(result, expected)
 
     def test_noise_preserves_dtype(self):
         for dt in [np.float32, np.float64]:

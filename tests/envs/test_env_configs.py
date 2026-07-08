@@ -654,13 +654,13 @@ def test_g1_motion_tracking_critic_uses_clean_beyondmimic_aligned_terms():
 
 
 def test_g1_motion_tracking_anchor_frame_writers_match_reference():
-    from unilab.envs.common.rotation import (
+    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.utils.rotation import (
         np_matrix_from_quat,
         np_quat_apply,
         np_quat_inv,
         np_quat_mul,
     )
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     rng = np.random.default_rng(123)
     num_envs = 4
@@ -704,8 +704,8 @@ def test_g1_motion_tracking_anchor_frame_writers_match_reference():
 
 
 def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
-    from unilab.envs.common.rotation import np_quat_apply, np_quat_inv, np_quat_mul, np_yaw_quat
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.utils.rotation import np_quat_apply, np_quat_inv, np_quat_mul, np_yaw_quat
 
     rng = np.random.default_rng(321)
     num_envs = 4
@@ -761,9 +761,9 @@ def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
 
 
 def test_g1_motion_tracking_reward_fast_path_matches_reference():
-    from unilab.envs.common.rotation import np_quat_error_magnitude
     from unilab.envs.motion_tracking.g1.motion_loader import MotionData
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
+    from unilab.utils.rotation import np_quat_error_magnitude
 
     rng = np.random.default_rng(456)
     num_envs = 3

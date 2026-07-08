@@ -334,6 +334,17 @@ def test_offpolicy_hydra_default_trace_flags():
     assert "replay_h2d_submitter" not in cfg.training
 
 
+def test_offpolicy_hydra_default_torch_thread_budget():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.torch_threads.enabled is True
+    assert cfg.training.torch_threads.learner_num_threads == "auto"
+    assert cfg.training.torch_threads.collector_num_threads == "auto"
+    assert cfg.training.torch_threads.learner_num_interop_threads == 1
+    assert cfg.training.torch_threads.collector_num_interop_threads == 1
+    assert cfg.training.torch_threads.compile_threads == "auto"
+    assert cfg.training.torch_threads.set_env_vars is True
+
+
 def test_offpolicy_hydra_algo_td3():
     cfg = _offpolicy_cfg(["algo=td3"])
     assert cfg.algo.algo == "td3"

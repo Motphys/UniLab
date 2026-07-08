@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from unilab.algos.torch.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.algos.torch.offpolicy.worker import (
     compute_collector_active_steps_per_sec,
     resolve_offpolicy_actor_priv_info,
@@ -38,6 +39,25 @@ def test_compute_collector_active_steps_per_sec_includes_active_phases_only() ->
     )
 
     assert steps_per_sec == pytest.approx(32 / 0.016)
+
+
+def test_extract_env_step_breakdown_timing_ms_maps_env_owned_keys_only() -> None:
+    timing = extract_env_step_breakdown_timing_ms(
+        {
+            "timing": {
+                "step_core_ms": 1.5,
+                "update_state_ms": 2.5,
+                "reset_done_ms": 0.25,
+                "apply_action_ms": 9.0,
+            }
+        }
+    )
+
+    assert timing == {
+        "env_step_backend_ms": 1.5,
+        "env_step_update_state_ms": 2.5,
+        "env_step_reset_done_ms": 0.25,
+    }
 
 
 def test_compute_collector_active_steps_per_sec_returns_none_without_active_time() -> None:
