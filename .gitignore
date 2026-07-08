@@ -107,3 +107,8 @@ val/
 
 # Agent working directory (not committed)
 .sisyphus/
+
+# Internal planning docs (not for upstream)
+G1_23DOF_INIT.md
+G1_23DOF_PR_CHECKLIST.md
+APPO_HARDWARE_TIMING_ANALYSIS.md
