@@ -55,6 +55,7 @@ def build_flashsac_double_buffer_runner(
     ensure_registries()
     apply_training_seed(cfg.algo.seed, torch_runtime=True, cuda=True)
     device = cfg.training.device or get_default_device()
+    collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
     _validate_flashsac_double_buffer_runtime(
         cfg,
         device=device,
@@ -152,6 +153,7 @@ def build_flashsac_double_buffer_runner(
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
             nan_guard_cfg=nan_guard_cfg,
+            collector_infer_device=collector_infer_device,
         )
 
     learner = FlashSACLearner(device=device, **learner_kwargs)
@@ -183,4 +185,5 @@ def build_flashsac_double_buffer_runner(
         replay_prefetch_mode=replay_prefetch_mode,
         verbose_metrics=verbose_metrics,
         nan_guard_cfg=nan_guard_cfg,
+        collector_infer_device=collector_infer_device,
     )

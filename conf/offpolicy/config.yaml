@@ -6,6 +6,7 @@ defaults:
 training:
   task_name: G1WalkFlat
   device: null
+  collector_infer_device: cpu
   logger: tensorboard
   wandb_project: unilab
   wandb_entity: null

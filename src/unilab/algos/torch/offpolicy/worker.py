@@ -490,6 +490,8 @@ def off_policy_collector_fn(
     collector_pack_ready_queue=None,
     collector_pack_shared_slots=None,
     nan_guard_cfg=None,
+    collector_infer_device: str = "cpu",
+    collector_infer_device_raw: str | None = None,
     **kwargs,
 ):
     """Entry point for the off-policy collector subprocess.
@@ -529,6 +531,8 @@ def off_policy_collector_fn(
         collector_pack_ready_queue=collector_pack_ready_queue,
         collector_pack_shared_slots=collector_pack_shared_slots,
         nan_guard_cfg=nan_guard_cfg,
+        collector_infer_device=collector_infer_device,
+        collector_infer_device_raw=collector_infer_device_raw,
     )
 
 
@@ -563,6 +567,8 @@ def _run_collector(
     collector_pack_ready_queue,
     collector_pack_shared_slots,
     nan_guard_cfg=None,
+    collector_infer_device: str = "cpu",
+    collector_infer_device_raw: str | None = None,
 ):
     del learning_starts
     from unilab.base import registry
@@ -601,7 +607,10 @@ def _run_collector(
     weight_sync.trace_recorder = trace_recorder
     weight_sync.trace_thread_time = trace_thread_time
 
-    # Build actor (always on CPU for env interaction)
+    collector_infer_device = str(collector_infer_device or "cpu")
+    collector_infer_device_raw = str(collector_infer_device_raw or collector_infer_device)
+
+    # Build actor on the resolved collector inference device. Env I/O remains numpy.
     obs_dim, action_dim = resolve_collector_actor_dims(
         env,
         obs_dim=obs_dim,
@@ -613,7 +622,7 @@ def _run_collector(
         action_dim,
         actor_hidden_dim,
         use_layer_norm,
-        "cpu",
+        collector_infer_device,
         num_envs,
         **(actor_kwargs or {}),
     )
@@ -635,8 +644,8 @@ def _run_collector(
     from collections import defaultdict
 
     ep_reward_components = defaultdict(list)
-    timing_accum_ms = defaultdict(float)
-    timing_counts = defaultdict(int)
+    timing_accum_ms: defaultdict[str, float] = defaultdict(float)
+    timing_counts: defaultdict[str, int] = defaultdict(int)
     done_count_window = 0
     timeout_count_window = 0
     terminated_count_window = 0
@@ -711,8 +720,8 @@ def _run_collector(
             # Select action
             with torch.no_grad():
                 _t_infer_ns = _time.perf_counter_ns()
-                obs_torch = torch.from_numpy(obs_np_input)
-                dones_torch = torch.from_numpy(prev_dones_np)
+                obs_torch = torch.from_numpy(obs_np_input).to(collector_infer_device)
+                dones_torch = torch.from_numpy(prev_dones_np).to(collector_infer_device)
                 priv_info_np = resolve_offpolicy_actor_priv_info(
                     algo_type=algo_type,
                     obs_np=obs_np,
@@ -720,7 +729,9 @@ def _run_collector(
                     info=info_dict,
                 )
                 priv_info_torch = (
-                    torch.from_numpy(priv_info_np) if priv_info_np is not None else None
+                    torch.from_numpy(priv_info_np).to(collector_infer_device)
+                    if priv_info_np is not None
+                    else None
                 )
                 actions_torch = sample_offpolicy_actions(
                     actor=actor,
@@ -729,13 +740,17 @@ def _run_collector(
                     prev_dones_torch=dones_torch,
                     priv_info_torch=priv_info_torch,
                 )
-                actions_np = actions_torch.numpy()
+                actions_np = actions_torch.detach().cpu().numpy()
                 if trace_recorder:
                     trace_recorder.add_slice(
-                        "collector/actor_infer_cpu",
+                        "collector/actor_infer",
                         category="collector",
                         start_ns=_t_infer_ns,
                         end_ns=_time.perf_counter_ns(),
+                        args={
+                            "collector_infer_device_raw": collector_infer_device_raw,
+                            "collector_infer_device": collector_infer_device,
+                        },
                     )
             phase_start_ns = _record_phase_ms(cycle_timing_ms, "action_select_ms", phase_start_ns)
 

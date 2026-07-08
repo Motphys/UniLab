@@ -393,6 +393,7 @@ def _make_runner(
     policy_frequency: int = 1,
     trace_enabled: bool = False,
     trace_output_dir: str | None = None,
+    collector_infer_device: str | None = "cpu",
 ) -> OffPolicyRunner:
     monkeypatch.setattr(runner_module, "ReplayBuffer", _FakeReplayBuffer)
     monkeypatch.setattr(runner_module, "SharedWeightSync", _FakeWeightSync)
@@ -416,10 +417,31 @@ def _make_runner(
         device="cpu",
         trace_enabled=trace_enabled,
         trace_output_dir=trace_output_dir,
+        collector_infer_device=collector_infer_device,
     )
     monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
     runner._collector_process = _FakeProcess()
     return runner
+
+
+def test_offpolicy_runner_resolves_collector_infer_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runner_module,
+        "resolve_torch_device_alias",
+        lambda device, *, default="cpu": "mps" if device == "gpu" else "cpu",
+    )
+
+    runner = _make_runner(
+        monkeypatch,
+        sync_collection=True,
+        collector_infer_device="gpu",
+    )
+
+    assert runner.collector_infer_device_raw == "gpu"
+    assert runner.collector_infer_device == "mps"
+    assert runner.collector_device == "mps"
 
 
 def test_offpolicy_runner_sync_waits_for_train_start_threshold(

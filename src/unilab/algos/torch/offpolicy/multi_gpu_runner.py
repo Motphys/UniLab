@@ -2,7 +2,7 @@
 
 Architecture:
   Main process   → creates ReplayBuffer (host-only), WeightSync, queues
-                 → spawns Collector subprocess (CPU, env simulation)
+                 → spawns Collector subprocess (CPU env I/O, configurable inference device)
                  → spawns N Learner workers via mp.spawn (one per GPU)
   Learner rank i → samples packed CPU replay rows to its rank device through
                    a rank-local H2D pipeline, then either averages gradients
@@ -275,6 +275,11 @@ def _learner_worker(
                 "Multi-GPU learner sync: "
                 f"{sync_mode} (interval={sync_interval} iteration"
                 f"{'s' if sync_interval != 1 else ''})"
+            )
+            logger.log_status(
+                "Collector infer device: "
+                f"{runner_kwargs.get('collector_infer_device_raw', 'cpu')} -> "
+                f"{runner_kwargs.get('collector_infer_device', 'cpu')}"
             )
             if sync_mode == "local_sgd":
                 logger.log_status(
@@ -571,8 +576,9 @@ def _learner_worker(
 class MultiGPUOffPolicyRunner(OffPolicyRunner):
     """Multi-GPU off-policy runner.
 
-    Keeps a single Collector on CPU and spawns *num_gpus* Learner workers via
-    ``torch.multiprocessing.spawn``. Each worker processes an independent
+    Keeps a single Collector process and spawns *num_gpus* Learner workers via
+    ``torch.multiprocessing.spawn``. Env I/O remains CPU/numpy while collector
+    actor inference can use a configured device. Each worker processes an independent
     mini-batch from the same shared ReplayBuffer through a rank-local H2D
     pipeline. SAC defaults to local-SGD: ranks apply local updates and average
     parameters at runner-controlled synchronization boundaries. Strict per-update
@@ -733,7 +739,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             for _ in range(self.num_gpus)
         ]
 
-        # --- Start Collector (CPU, single process, unchanged) ---
+        # --- Start Collector (single process, device-configurable inference) ---
         weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
         collector_kwargs = {
             "env_name": self.env_name,
@@ -758,6 +764,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "actor_kwargs": self.actor_kwargs,
+            "collector_infer_device": self.collector_infer_device,
+            "collector_infer_device_raw": self.collector_infer_device_raw,
             "seed": derive_worker_seed(self.seed, worker_index=0),
             "collector_pack_request_queue": collector_pack_request_queues,
             "collector_pack_ready_queue": collector_pack_ready_queues,
@@ -798,6 +806,8 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "algo_type": self.algo_type,
             "obs_normalization": self.obs_normalization,
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
+            "collector_infer_device": self.collector_infer_device,
+            "collector_infer_device_raw": self.collector_infer_device_raw,
         }
 
         try:
