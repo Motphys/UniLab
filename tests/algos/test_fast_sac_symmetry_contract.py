@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
 
 import gymnasium as gym
@@ -12,10 +13,21 @@ import unilab.algos.torch.fast_sac.learner as learner_module
 class _FakeSymmetryAugmentation:
     batch_multiplier = 2
 
+    def __init__(self):
+        self.augment_obs_calls: list[str] = []
+        self.augment_obs_and_actions_calls: list[str] = []
+        self.mirror_obs_calls: list[str] = []
+
+    def augment_obs(self, obs, *, obs_group: str = "obs"):
+        self.augment_obs_calls.append(obs_group)
+        return torch.cat([obs, obs], dim=0)
+
     def augment_obs_and_actions(self, obs, actions, *, obs_group: str = "obs"):
-        return obs, actions
+        self.augment_obs_and_actions_calls.append(obs_group)
+        return torch.cat([obs, obs], dim=0), torch.cat([actions, actions], dim=0)
 
     def mirror_obs(self, obs, *, obs_group: str = "obs"):
+        self.mirror_obs_calls.append(obs_group)
         return obs
 
 
@@ -362,3 +374,143 @@ def test_fast_sac_local_sgd_parameter_average_uses_single_flat_all_reduce(
     assert len(seen_sizes) == 1
     assert seen_sizes[0] > 0
     assert torch.allclose(learner.log_alpha, before)
+
+
+def test_fast_sac_symmetry_augmentation_emits_fine_grained_nvtx_ranges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    seen_ranges: list[str] = []
+
+    @contextmanager
+    def record_range(name: str, enabled: bool):
+        if enabled:
+            seen_ranges.append(name)
+        yield
+
+    monkeypatch.setattr(learner_module, "_cuda_nvtx_range", record_range)
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        use_symmetry=True,
+        symmetry_augmentation=_FakeSymmetryAugmentation(),
+    )
+    learner.nvtx_profile_ranges = True
+
+    def fake_critic_loss_tensors(*args, **kwargs):
+        del args, kwargs
+        return (
+            torch.tensor(0.0, requires_grad=True),
+            torch.tensor(0.0),
+            torch.tensor(0.0),
+            torch.zeros(4),
+        )
+
+    def fake_actor_loss_tensors(*args, **kwargs):
+        del args, kwargs
+        return (
+            torch.tensor(0.0, requires_grad=True),
+            torch.tensor(0.0),
+            torch.tensor(0.0),
+        )
+
+    monkeypatch.setattr(learner, "_critic_loss_tensors", fake_critic_loss_tensors)
+    monkeypatch.setattr(learner, "_actor_loss_tensors", fake_actor_loss_tensors)
+    batch = {
+        "obs": torch.randn(4, 4),
+        "critic": torch.randn(4, 5),
+        "actions": torch.randn(4, 2),
+        "rewards": torch.randn(4),
+        "next_obs": torch.randn(4, 4),
+        "next_critic": torch.randn(4, 5),
+        "dones": torch.zeros(4),
+        "truncated": torch.zeros(4),
+    }
+
+    learner.update_critic(batch)
+    learner.update_actor(batch)
+
+    for expected in {
+        "critic/symmetry_obs_actions",
+        "critic/symmetry_next_obs",
+        "critic/symmetry_critic_obs",
+        "critic/symmetry_critic_next_obs",
+        "critic/symmetry_aux_repeat",
+        "actor/symmetry_obs",
+        "actor/symmetry_critic_obs",
+    }:
+        assert expected in seen_ranges
+
+
+def test_fast_sac_symmetry_uses_obs_only_augmentation_for_obs_only_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    symmetry = _FakeSymmetryAugmentation()
+    learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=False,
+        use_symmetry=True,
+        symmetry_augmentation=symmetry,
+    )
+
+    def fake_critic_loss_tensors(critic_obs, actions, rewards, next_obs, critic_next_obs, *args):
+        assert critic_obs.shape[0] == 8
+        assert actions.shape[0] == 8
+        assert rewards.shape[0] == 8
+        assert next_obs.shape[0] == 8
+        assert critic_next_obs.shape[0] == 8
+        return (
+            torch.tensor(0.0, requires_grad=True),
+            torch.tensor(0.0),
+            torch.tensor(0.0),
+            torch.zeros(8),
+        )
+
+    def fake_actor_loss_tensors(obs, critic_obs):
+        assert obs.shape[0] == 8
+        assert critic_obs.shape[0] == 8
+        return (
+            torch.tensor(0.0, requires_grad=True),
+            torch.tensor(0.0),
+            torch.tensor(0.0),
+        )
+
+    monkeypatch.setattr(learner, "_critic_loss_tensors", fake_critic_loss_tensors)
+    monkeypatch.setattr(learner, "_actor_loss_tensors", fake_actor_loss_tensors)
+    batch = {
+        "obs": torch.randn(4, 4),
+        "critic": torch.randn(4, 5),
+        "actions": torch.randn(4, 2),
+        "rewards": torch.randn(4),
+        "next_obs": torch.randn(4, 4),
+        "next_critic": torch.randn(4, 5),
+        "dones": torch.zeros(4),
+        "truncated": torch.zeros(4),
+    }
+
+    learner.update_critic(batch)
+    learner.update_actor(batch)
+
+    assert symmetry.augment_obs_and_actions_calls == ["obs"]
+    assert symmetry.augment_obs_calls == ["obs", "critic", "critic", "obs", "critic"]
+    assert symmetry.mirror_obs_calls == []

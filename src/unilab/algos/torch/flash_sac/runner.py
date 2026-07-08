@@ -53,6 +53,10 @@ class FlashSACRunner(OffPolicyRunner):
         n_step: int = 1,
         amp_dtype: str = "auto",
         use_compile: bool = False,
+        use_cuda_graph_critic: bool = False,
+        use_cuda_graph_actor: bool = False,
+        use_cuda_graph_critic_packed_staging: bool = False,
+        use_cuda_graph_actor_packed_staging: bool = False,
         seed: int | None = None,
         trace_enabled: bool = False,
         trace_output_dir: str | None = None,
@@ -110,6 +114,10 @@ class FlashSACRunner(OffPolicyRunner):
             use_amp=use_amp,
             amp_dtype=amp_dtype,
             use_compile=use_compile,
+            use_cuda_graph_critic=use_cuda_graph_critic,
+            use_cuda_graph_actor=use_cuda_graph_actor,
+            use_cuda_graph_critic_packed_staging=use_cuda_graph_critic_packed_staging,
+            use_cuda_graph_actor_packed_staging=use_cuda_graph_actor_packed_staging,
         )
 
         super().__init__(

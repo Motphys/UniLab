@@ -300,7 +300,7 @@ def _run_teaser_demo() -> int:
             str(_repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
         ]
         env = os.environ.copy()
-        env.setdefault("UV_PROJECT_ENVIRONMENT", str(_repo_root() / ".venv"))
+        env["UV_PROJECT_ENVIRONMENT"] = str(_repo_root() / ".venv")
         return subprocess.run(command, check=False, env=env).returncode
 
     from unilab.tools.render_teaser import main as render_teaser_main
@@ -325,7 +325,7 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
         demo_name=demo_name, checkpoint_path=checkpoint_path, device=device
     )
     env = os.environ.copy()
-    env.setdefault("UV_PROJECT_ENVIRONMENT", str(_repo_root() / ".venv"))
+    env["UV_PROJECT_ENVIRONMENT"] = str(_repo_root() / ".venv")
     returncode = subprocess.run(command, check=False, env=env).returncode
     if returncode == 0:
         print(f"Demo finished: {demo_name} (algo={spec.algo}, task={spec.task}, sim={spec.sim})")

@@ -64,6 +64,11 @@ src/unilab/algos/torch/rsl_rl
 third-party
 temp/
 agent/
+memory/
+tmp/
+issues/
+issue2/
+docs/superpowers/
 
 # Motion assets (downloaded from HF at runtime)
 src/unilab/assets/motions/g1/*.npz

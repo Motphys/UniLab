@@ -273,6 +273,27 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "amp_dtype": cfg.algo.algo_params.amp_dtype,
             "use_compile": cfg.algo.algo_params.use_compile,
             "obs_normalization": cfg.algo.obs_normalization,
+            "use_cuda_graph_critic": bool(
+                getattr(cfg.algo.algo_params, "use_cuda_graph_critic", False)
+            ),
+            "use_cuda_graph_actor": bool(
+                getattr(cfg.algo.algo_params, "use_cuda_graph_actor", False)
+            ),
+            "use_cuda_graph_critic_packed_staging": bool(
+                getattr(
+                    cfg.algo.algo_params,
+                    "use_cuda_graph_critic_packed_staging",
+                    False,
+                )
+            ),
+            "use_cuda_graph_actor_packed_staging": bool(
+                getattr(
+                    cfg.algo.algo_params,
+                    "use_cuda_graph_actor_packed_staging",
+                    False,
+                )
+            ),
+            "nvtx_profile_ranges": bool(getattr(cfg.training, "nvtx_profile_ranges", False)),
             "use_symmetry": cfg.algo.use_symmetry,
             "symmetry_augmentation": _symmetry_aug,
             "critic_obs_dim": _critic_dim,

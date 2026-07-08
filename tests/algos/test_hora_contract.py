@@ -94,6 +94,27 @@ def test_hora_sac_learner_updates_with_privileged_tail() -> None:
     assert torch.isfinite(torch.tensor(list(actor_metrics.values()))).all()
 
 
+def test_hora_sac_disables_cuda_graph_critic_path() -> None:
+    from unilab.algos.torch.hora.sac_learner import HoraSACLearner
+
+    learner = HoraSACLearner(
+        obs_dim=5,
+        critic_obs_dim=8,
+        priv_info_dim=3,
+        action_dim=2,
+        device="cpu",
+        actor_hidden_dim=16,
+        critic_hidden_dim=16,
+        num_atoms=11,
+        use_layer_norm=False,
+        use_cuda_graph_critic=True,
+        use_cuda_graph_actor=True,
+    )
+
+    assert not learner.use_cuda_graph_critic
+    assert not learner.use_cuda_graph_actor
+
+
 def test_hora_sac_distilled_student_forward_does_not_require_priv_info() -> None:
     from unilab.algos.torch.hora.distill import HoraSACDistillActor, HoraSACDistillShared
 

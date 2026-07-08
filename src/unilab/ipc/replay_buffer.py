@@ -66,6 +66,81 @@ class ReplayBuffer(SharedBufferBase):
             self._ncritic_sl = slice(c, c + critic_dim)
             c += critic_dim
 
+    def critic_graph_packed_width(self) -> int:
+        """Return graph-order packed width for FastSAC critic graph inputs."""
+        if self._critic_dim <= 0:
+            raise RuntimeError("critic_graph_packed_source requires critic replay storage")
+        return self._critic_dim + self._action_dim + 1 + self._obs_dim + self._critic_dim + 1 + 1
+
+    def sac_graph_packed_width(self) -> int:
+        """Return graph-union packed width for one-H2D FastSAC graph staging."""
+        if self._critic_dim <= 0:
+            raise RuntimeError("sac_graph_packed_source requires critic replay storage")
+        return int(self._storage.shape[1])
+
+    def pack_critic_graph_source(
+        self,
+        packed_batch: torch.Tensor,
+        *,
+        out: torch.Tensor,
+    ) -> torch.Tensor:
+        """Pack replay rows in the exact input order consumed by critic CUDA graph."""
+        if self._critic_dim <= 0:
+            raise RuntimeError("critic_graph_packed_source requires critic replay storage")
+        expected_shape = (packed_batch.shape[0], self.critic_graph_packed_width())
+        if tuple(out.shape) != expected_shape:
+            raise ValueError(
+                "critic_graph_packed_source output shape mismatch: "
+                f"expected {expected_shape}, got {tuple(out.shape)}"
+            )
+        offset = 0
+        fields = (
+            packed_batch[:, self._critic_sl],
+            packed_batch[:, self._act_sl],
+            packed_batch[:, self._rew_col : self._rew_col + 1],
+            packed_batch[:, self._nobs_sl],
+            packed_batch[:, self._ncritic_sl],
+            packed_batch[:, self._done_col : self._done_col + 1],
+            packed_batch[:, self._trunc_col : self._trunc_col + 1],
+        )
+        for field in fields:
+            width = int(field.shape[1])
+            out[:, offset : offset + width].copy_(field)
+            offset += width
+        return out
+
+    def pack_sac_graph_source(
+        self,
+        packed_batch: torch.Tensor,
+        *,
+        out: torch.Tensor,
+    ) -> torch.Tensor:
+        """Pack replay rows once in a layout friendly to SAC actor/critic graphs."""
+        if self._critic_dim <= 0:
+            raise RuntimeError("sac_graph_packed_source requires critic replay storage")
+        expected_shape = (packed_batch.shape[0], self.sac_graph_packed_width())
+        if tuple(out.shape) != expected_shape:
+            raise ValueError(
+                "sac_graph_packed_source output shape mismatch: "
+                f"expected {expected_shape}, got {tuple(out.shape)}"
+            )
+        offset = 0
+        fields = (
+            packed_batch[:, self._obs_sl],
+            packed_batch[:, self._critic_sl],
+            packed_batch[:, self._act_sl],
+            packed_batch[:, self._rew_col : self._rew_col + 1],
+            packed_batch[:, self._nobs_sl],
+            packed_batch[:, self._ncritic_sl],
+            packed_batch[:, self._done_col : self._done_col + 1],
+            packed_batch[:, self._trunc_col : self._trunc_col + 1],
+        )
+        for field in fields:
+            width = int(field.shape[1])
+            out[:, offset : offset + width].copy_(field)
+            offset += width
+        return out
+
     def __getstate__(self) -> dict:
         """Custom pickle support.
 
