@@ -112,3 +112,6 @@ val/
 G1_23DOF_INIT.md
 G1_23DOF_PR_CHECKLIST.md
 APPO_HARDWARE_TIMING_ANALYSIS.md
+
+# Training log artifacts (checkpoints, ONNX exports)
+log/
