@@ -17,7 +17,7 @@ from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.logging import OffPolicyLogger, TraceRecorder
 from unilab.training.seed import apply_training_seed, derive_worker_seed
-from unilab.utils.device import get_default_device
+from unilab.utils.device import get_default_device, resolve_torch_device_alias
 from unilab.utils.nan_guard import NanGuardCfg
 
 
@@ -176,13 +176,19 @@ class OffPolicyRunner(AsyncRunner):
         trace_thread_time: bool = False,
         trace_cuda_events: bool = True,
         nan_guard_cfg: NanGuardCfg | None = None,
+        collector_infer_device: str | None = "cpu",
     ):
+        self.collector_infer_device_raw = str(collector_infer_device or "cpu")
+        self.collector_infer_device = resolve_torch_device_alias(
+            self.collector_infer_device_raw,
+            default="cpu",
+        )
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device="cpu",
+            collector_device=self.collector_infer_device,
             num_envs=num_envs,
             sim_backend=sim_backend,
         )
@@ -332,6 +338,8 @@ class OffPolicyRunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "actor_kwargs": self.actor_kwargs,
+            "collector_infer_device": self.collector_infer_device,
+            "collector_infer_device_raw": self.collector_infer_device_raw,
             "seed": derive_worker_seed(self.seed, worker_index=0),
             "trace_enabled": self.trace_enabled,
             "trace_thread_time": self.trace_thread_time,
@@ -362,6 +370,10 @@ class OffPolicyRunner(AsyncRunner):
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
+        logger.log_status(
+            "Collector infer device: "
+            f"{self.collector_infer_device_raw} -> {self.collector_infer_device}"
+        )
         self._active_logger = logger
         logger.start()
 

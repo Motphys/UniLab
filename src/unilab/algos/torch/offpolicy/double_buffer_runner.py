@@ -282,6 +282,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"{self.replay_transfer_backend.get('backend')} "
                 f"({self.replay_transfer_backend.get('device_family')})"
             )
+        logger.log_status(
+            "Collector infer device: "
+            f"{self.collector_infer_device_raw} -> {self.collector_infer_device}"
+        )
         logger.log_status("Replay learner lightweight: fixed (log_interval=1)")
         if self.verbose_metrics:
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
@@ -332,6 +336,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "obs_dim": self.obs_dim,
                 "action_dim": self.action_dim,
                 "actor_kwargs": self.actor_kwargs,
+                "collector_infer_device": self.collector_infer_device,
+                "collector_infer_device_raw": self.collector_infer_device_raw,
                 "seed": derive_worker_seed(self.seed, worker_index=0),
                 "trace_enabled": self.trace_enabled,
                 "trace_thread_time": self.trace_thread_time,

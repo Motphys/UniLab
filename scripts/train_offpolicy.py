@@ -178,6 +178,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
     num_gpus = int(getattr(cfg.training, "num_gpus", 1))
     multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
     multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
+    collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
 
     sync_collection = not bool(cfg.training.no_sync_collection)
 
@@ -318,6 +319,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 trace_cuda_events=cfg.training.trace_cuda_events,
                 seed=cfg.algo.seed,
                 nan_guard_cfg=_nan_guard_cfg,
+                collector_infer_device=collector_infer_device,
             )
 
         _learner = _learner_cls(device=_device, **_learner_kwargs)
@@ -348,6 +350,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             verbose_metrics=verbose_metrics,
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
+            collector_infer_device=collector_infer_device,
         )
 
     if algo_name == "td3":
@@ -433,6 +436,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             verbose_metrics=verbose_metrics,
             actor_kwargs=_actor_kwargs,
             nan_guard_cfg=_nan_guard_cfg,
+            collector_infer_device=collector_infer_device,
         )
 
     if algo_name == "flashsac":
