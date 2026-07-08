@@ -1221,10 +1221,17 @@ class MuJoCoBackend(SimBackend):
         does not allocate one ``MjData`` per env. For a scalar ``site_id``, the
         pool returns ``(N, 3, nv)`` because the site dimension is squeezed.
         """
+        site_id_int = int(site_id)
+        if site_id_int < 0 or site_id_int >= int(self._model.nsite):
+            raise ValueError(
+                f"Invalid site_id {site_id_int}; expected 0 <= site_id < {self._model.nsite}"
+            )
         dof_indices = np.asarray(dof_indices, dtype=np.int32).reshape(-1)
+        if np.any(dof_indices < 0) or np.any(dof_indices >= self.nv):
+            raise ValueError(f"dof_indices must be within [0, {self.nv})")
         jp, jr = self._pool.compute_site_jacobians(  # type: ignore[union-attr]
             self._physics_state.astype(np.float64),
-            int(site_id),
+            site_id_int,
             jacp=True,
             jacr=True,
         )

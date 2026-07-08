@@ -38,6 +38,11 @@ from unilab.algos.torch.offpolicy.runner import (
     replay_buffer_ready_for_learning,
     update_reward_stats_from_replay,
 )
+from unilab.algos.torch.offpolicy.thread_budget import (
+    apply_torch_thread_runtime,
+    format_torch_thread_runtime,
+    torch_thread_env,
+)
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
@@ -170,6 +175,11 @@ def _learner_worker(
     """Worker function executed on each GPU (called via torch.multiprocessing.spawn)."""
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(master_port)
+    apply_torch_thread_runtime(
+        runner_kwargs.get("torch_thread_runtime"),
+        role="learner",
+        torch_module=torch,
+    )
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
     backend = str(runner_kwargs.get("distributed_backend", "nccl"))
@@ -285,6 +295,9 @@ def _learner_worker(
                 logger.log_status(
                     "Local-SGD optimizer state: rank-local; parameters averaged at sync boundary"
                 )
+            logger.log_status(
+                format_torch_thread_runtime(runner_kwargs.get("torch_thread_runtime"))
+            )
             logger.start()
 
         reward_history: deque = deque(maxlen=100)
@@ -770,11 +783,13 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "collector_pack_request_queue": collector_pack_request_queues,
             "collector_pack_ready_queue": collector_pack_ready_queues,
             "collector_pack_shared_slots": collector_pack_shared_slots,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
-        self._start_collector(
-            target_fn=off_policy_collector_fn,
-            kwargs={"stop_event": self._stop_event, **collector_kwargs},
-        )
+        with torch_thread_env(self.torch_thread_runtime, role="collector"):
+            self._start_collector(
+                target_fn=off_policy_collector_fn,
+                kwargs={"stop_event": self._stop_event, **collector_kwargs},
+            )
         time.sleep(0.5)
         if self._collector_process:
             print(f"[MultiGPURunner] Collector process alive: {self._collector_process.is_alive()}")
@@ -808,6 +823,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
             "collector_infer_device": self.collector_infer_device,
             "collector_infer_device_raw": self.collector_infer_device_raw,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
 
         try:
