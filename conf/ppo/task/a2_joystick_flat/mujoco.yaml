@@ -1,0 +1,84 @@
+# @package _global_
+# A2 (leg-only Unitree A2) joystick flat task. Same isomorphic task as
+# Go2JoystickFlat: 12-DOF velocity tracking with a gait phase. Robot identity
+# (asset path, standing height 0.465, A2 leg PD gains) lives in A2JoystickCfg;
+# this YAML carries training + reward only, mirroring the Go2 task.
+training:
+  task_name: A2JoystickFlat
+  sim_backend: mujoco
+algo:
+  num_envs: 1024
+  max_iterations: 500   # A2 (19.6 kg, ~2.8x Go2) + full DR needs more budget than Go2's flat task
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    learning_rate: 3.0e-4
+    entropy_coef: 1.0e-3
+env:
+  # Domain randomization for sim2real deployment. A2JoystickDomainRandomizationProvider
+  # caches the dof-armature + geom-friction baselines, so randomize_dof_armature and
+  # randomize_ground_friction are ON. Ground friction is effective because the floor
+  # geom is the priority geom (scene_flat.xml). Ranges reference unitree_rl_mjlab A2
+  # events: joint_armature scale [0.9,1.1], foot friction [0.3,1.6]. randomize_body_mass
+  # stays off (base_body_mass not cached); gravity OFF (constant on flat ground).
+  # env.domain_rand is sim2sim ALLOWLIST (free override).
+  domain_rand:
+    randomize_base_mass: true
+    added_mass_range: [0.0, 8.0]
+
+    randomize_body_mass: false   # provider does not cache base_body_mass
+    body_mass_multiplier_range: [0.9, 1.1]
+
+    random_com: true
+    com_offset_x: [-0.08, 0.08]
+    com_offset_y: [-0.08, 0.08]
+    com_offset_z: [-0.08, 0.08]
+
+    randomize_gravity: false   # flat ground: gravity constant on the real robot; randomizing only slows training.
+
+    randomize_ground_friction: true   # floor is the priority geom, so this moves the foot-ground friction
+    ground_friction_multiplier_range: [0.3, 1.6]   # mjlab foot_friction range
+
+    randomize_dof_armature: true
+    dof_armature_multiplier_range: [0.9, 1.1]   # mjlab joint_armature scale
+
+    randomize_kp: true
+    kp_multiplier_range: [0.9, 1.1]
+
+    randomize_kd: true
+    kd_multiplier_range: [0.9, 1.1]
+
+    push_robots: true
+    push_interval: 400          # control steps between base velocity pushes
+    max_force: [1.0, 1.0, 0.5]
+    push_body_name: base_link   # A2 base body (Go2 uses "base"); required or push has no target.
+  # Standing-aware commands so the policy trains on genuine zero-command samples
+  # (rel_standing_envs fraction forced to stand) and resamples mid-episode every 5s. env.commands is
+  # a sim2sim ALLOWLIST subset (vel_limit) / free fields; rel_standing_envs and
+  # resampling_time are declared fields on Commands so Hydra struct mode accepts them.
+  commands:
+    rel_standing_envs: 0.1
+    resampling_time: 5.0
+reward:
+  # command_threshold gates the phase-driven gait rewards (swing_feet_z / contact)
+  # so the A2 stands still at zero command instead of marching in place.
+  command_threshold: 0.1
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.4
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    base_height: -100.0
+    action_rate: -0.02
+    similar_to_default: -0.25
+    contact: 0.5
+    swing_feet_z: 4.0
+    stand_still: -4.0
+    hip_deviation: -1.0
+    stand_feet_air: -1.0   # penalize feet leaving the ground at zero command (gated off during locomotion)
+  tracking_sigma: 0.25
+  base_height_target: 0.40

@@ -112,7 +112,7 @@ class Go2WalkTask(Go2BaseEnv):
             cfg.sim_dt,
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
-            position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
+            position_actuator_gains=cfg.control_config.position_gains(),
             **env_backend_kwargs(cfg),
         )
         self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
@@ -124,7 +124,7 @@ class Go2WalkTask(Go2BaseEnv):
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
-        self._init_domain_randomization(Go2JoystickDomainRandomizationProvider())
+        self._init_domain_randomization(self._make_dr_provider())
         if self._scene_terrain_origins is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,
@@ -138,6 +138,15 @@ class Go2WalkTask(Go2BaseEnv):
         self.gait_frequency = 2
         self.feet_force = np.zeros((num_envs, len(cfg.sensor.feet_force), 3), dtype=np.float32)
         self.feet_pos = np.zeros((num_envs, len(cfg.sensor.feet_pos), 3), dtype=np.float32)
+
+    def _make_dr_provider(self) -> LocomotionDRProvider:
+        """Domain-randomization provider for this task. Subclasses override to
+        inject robot-specific behaviour (e.g. A2's per-joint base gains)."""
+        return Go2JoystickDomainRandomizationProvider()
+
+    def _update_commands(self, info: dict) -> None:
+        """Mid-episode command resample hook. No-op for Go2 flat; subclasses
+        (e.g. A2) override to draw standing-aware commands at intervals."""
 
     def get_playback_model(self, env_index: int | None = None) -> Any:
         return super().get_playback_model(env_index)
@@ -174,8 +183,16 @@ class Go2WalkTask(Go2BaseEnv):
             "foot_drag": self._reward_foot_drag,
         }
 
+    def _advance_phase(self, phase: np.ndarray) -> np.ndarray:
+        """Advance the gait phase clock one control step.
+
+        Subclasses override to modulate the advance (e.g. A2 freezes standing
+        envs). The base advance is unconditional, matching the Go2 flat gait."""
+        return np.fmod(phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
+
     def update_state(self, state: NpEnvState) -> NpEnvState:
-        self.phase = np.fmod(self.phase + self._cfg.ctrl_dt * self.gait_frequency, 1.0)
+        self._update_commands(state.info)
+        self.phase = self._advance_phase(self.phase)
         self.feet_phase[:, 0] = self.phase
         self.feet_phase[:, 3] = self.phase
 
