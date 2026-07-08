@@ -119,6 +119,7 @@ def test_g1_walk_numba_unsupported_active_term_raises():
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+@pytest.mark.slow
 def test_g1_walk_numba_basic_reward_parity():
     n = 512
     n_action = 29
@@ -184,6 +185,7 @@ def test_g1_walk_numba_basic_reward_parity():
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+@pytest.mark.slow
 def test_g1_walk_numba_update_state_parity_without_noise():
     from unilab.envs.locomotion.g1.joystick import G1WalkEnv
 

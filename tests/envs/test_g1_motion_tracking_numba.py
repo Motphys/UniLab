@@ -40,6 +40,7 @@ def test_numba_accelerator_rejects_unsupported_active_reward_terms():
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+@pytest.mark.slow
 def test_g1_motion_tracking_numba_reward_termination_parity():
     n = 512
     env = _make_env(n, include_undesired=True)
@@ -95,6 +96,7 @@ def test_g1_motion_tracking_numba_reward_termination_parity():
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+@pytest.mark.slow
 def test_g1_motion_tracking_numba_update_state_parity_without_noise():
     n = 512
     env = _make_env(n, include_undesired=True)
