@@ -45,8 +45,8 @@ except Exception:  # pragma: no cover - plotting is optional in benchmark script
 
 from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.motion_tracking.g1.motion_tracking_numba import (
-    G1MotionTrackingNumbaAccelerator,
+from unilab.envs.motion_tracking.common.numba import (
+    MotionTrackingNumbaAccelerator,
 )
 from unilab.envs.motion_tracking.g1.tracking import (
     G1MotionTrackingCfg,
@@ -390,7 +390,7 @@ def compute_numpy(batch: SyntheticBatch) -> tuple[np.ndarray, np.ndarray, dict[s
 
 
 def compute_numba(
-    batch: SyntheticBatch, accelerator: G1MotionTrackingNumbaAccelerator
+    batch: SyntheticBatch, accelerator: MotionTrackingNumbaAccelerator
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
     info = {**batch.info, "log": {}}
     out = accelerator.compute(
@@ -451,7 +451,7 @@ def compute_numpy_update_state(
 
 
 def compute_numba_update_state(
-    batch: SyntheticBatch, accelerator: G1MotionTrackingNumbaAccelerator
+    batch: SyntheticBatch, accelerator: MotionTrackingNumbaAccelerator
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, float]]:
     info = {**batch.info, "log": {}}
     noise_cfg = batch.env._cfg.noise_config
@@ -494,7 +494,7 @@ def time_call(fn, *, iters: int, warmup: int) -> tuple[float, float, float]:
 
 
 def check_parity(
-    batch: SyntheticBatch, accelerator: G1MotionTrackingNumbaAccelerator
+    batch: SyntheticBatch, accelerator: MotionTrackingNumbaAccelerator
 ) -> dict[str, float]:
     reward_np, terminated_np, log_np = compute_numpy(batch)
     reward_nb, terminated_nb, log_nb = compute_numba(batch, accelerator)
@@ -555,7 +555,7 @@ def bench_one(
         )
     ]
 
-    compile_driver = G1MotionTrackingNumbaAccelerator.from_env(batch.env, num_threads=1)
+    compile_driver = MotionTrackingNumbaAccelerator.from_env(batch.env, num_threads=1)
     t0 = time.perf_counter()
     compute_numba(batch, compile_driver)
     compute_numba_update_state(batch, compile_driver)
@@ -565,7 +565,7 @@ def bench_one(
     for threads in dict.fromkeys([1, *thread_counts]):
         if threads > max_threads:
             continue
-        accelerator = G1MotionTrackingNumbaAccelerator.from_env(batch.env, num_threads=threads)
+        accelerator = MotionTrackingNumbaAccelerator.from_env(batch.env, num_threads=threads)
         numba_mean, numba_min, numba_std = time_call(
             lambda: compute_numba(batch, accelerator), iters=iters, warmup=warmup
         )
@@ -597,7 +597,7 @@ def bench_one(
         (record for record in records if record.path == "numba_accelerator"),
         key=lambda record: record.mean_ms,
     )
-    best_update_accelerator = G1MotionTrackingNumbaAccelerator.from_env(
+    best_update_accelerator = MotionTrackingNumbaAccelerator.from_env(
         batch.env, num_threads=best_numba.threads
     )
     numba_update_state_mean, _, _ = time_call(
