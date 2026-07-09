@@ -273,7 +273,5 @@ def compute_obs(
     )
     offset += n_body * 3
     robot_body_ori_b = critic_obs[:, offset : offset + n_body * 6].reshape(num_envs, n_body, 6)
-    env._write_body_ori6_in_anchor_frame(
-        robot_anchor_quat_w, robot_body_quat_w, robot_body_ori_b
-    )
+    env._write_body_ori6_in_anchor_frame(robot_anchor_quat_w, robot_body_quat_w, robot_body_ori_b)
     return {"obs": actor_obs, "critic": critic_obs}

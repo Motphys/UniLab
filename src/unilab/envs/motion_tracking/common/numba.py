@@ -974,9 +974,7 @@ class MotionTrackingNumbaAccelerator:
         self._zero_joint_noise = np.zeros((self.num_envs, self.num_action), dtype=np.float64)
 
     @classmethod
-    def from_env(
-        cls, env: Any, num_threads: int | None = None
-    ) -> "MotionTrackingNumbaAccelerator":
+    def from_env(cls, env: Any, num_threads: int | None = None) -> "MotionTrackingNumbaAccelerator":
         if not NUMBA_AVAILABLE:
             raise RuntimeError(
                 "MotionTracking numba_acceleration=True requires numba. Install it or run "

@@ -100,9 +100,7 @@ def test_motion_joint_pos_term_matches_hand_computed():
 def test_action_rate_l2_term_matches_hand_computed():
     ctx = _make_ctx()
     out = rewards.action_rate_l2(ctx).copy()
-    expected = np.sum(
-        np.square(ctx.info["current_actions"] - ctx.info["last_actions"]), axis=1
-    )
+    expected = np.sum(np.square(ctx.info["current_actions"] - ctx.info["last_actions"]), axis=1)
     np.testing.assert_allclose(out, expected, rtol=1e-12, atol=1e-12)
 
 
@@ -142,7 +140,5 @@ def test_compute_reward_matches_hand_computed_weighted_sum():
         enable_log=False,
     ).copy()
 
-    expected = (
-        1.0 * joint_pos_ref - 0.1 * action_rate_ref - 0.5 * undesired_ref
-    ) * ctrl_dt
+    expected = (1.0 * joint_pos_ref - 0.1 * action_rate_ref - 0.5 * undesired_ref) * ctrl_dt
     np.testing.assert_allclose(reward, expected, rtol=1e-12, atol=1e-12)

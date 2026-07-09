@@ -312,6 +312,8 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
     def _reward_joint_acc_l2(self, ctx: RewardContext) -> np.ndarray:
         dof_vel = ctx.dof_vel
         prev_dof_vel = ctx.info.get("prev_dof_vel")
+        if dof_vel is None:
+            raise RuntimeError("RewardContext.dof_vel is required for joint_acc_l2")
         if prev_dof_vel is None or prev_dof_vel.shape != dof_vel.shape:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         joint_acc = (dof_vel - prev_dof_vel) / self._cfg.ctrl_dt
@@ -321,6 +323,8 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
         dof_pos = ctx.dof_pos
         dof_vel = ctx.dof_vel
         last_actions = ctx.info.get("last_actions")
+        if dof_pos is None or dof_vel is None:
+            raise RuntimeError("RewardContext.dof_pos and dof_vel are required for joint_torque_l2")
         if last_actions is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         target_q = (

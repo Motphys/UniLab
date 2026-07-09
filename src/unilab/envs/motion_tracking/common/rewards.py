@@ -101,12 +101,18 @@ class RewardContext:
 # ── buffered math helpers ────────────────────────────────────────────
 
 
+def _required_array(value: np.ndarray | None, name: str) -> np.ndarray:
+    if value is None:
+        raise RuntimeError(f"RewardContext.{name} is required for this reward term")
+    return value
+
+
 def _mean_body_xyz_squared_error(
     ctx: RewardContext, reference: np.ndarray, actual: np.ndarray
 ) -> np.ndarray:
-    vec_error = ctx.body_vec_error
-    env_error = ctx.env_error
-    tmp_error = ctx.reward_term
+    vec_error = _required_array(ctx.body_vec_error, "body_vec_error")
+    env_error = _required_array(ctx.env_error, "env_error")
+    tmp_error = _required_array(ctx.reward_term, "reward_term")
     np.subtract(reference[..., 0], actual[..., 0], out=vec_error[..., 0])
     np.square(vec_error[..., 0], out=vec_error[..., 0])
     np.sum(vec_error[..., 0], axis=1, out=env_error)
@@ -125,8 +131,8 @@ def _mean_body_xyz_squared_error(
 def _quat_error_magnitude_squared_body(
     ctx: RewardContext, q1: np.ndarray, q2: np.ndarray
 ) -> np.ndarray:
-    rel_w = ctx.quat_error_w
-    rel_x = ctx.quat_error_x
+    rel_w = _required_array(ctx.quat_error_w, "quat_error_w")
+    rel_x = _required_array(ctx.quat_error_x, "quat_error_x")
     # Motion/backend quaternions are unit quaternions, so the relative
     # rotation angle only needs abs(dot(q1, q2)).
     np.multiply(q1[..., 0], q2[..., 0], out=rel_w)
@@ -145,7 +151,7 @@ def _quat_error_magnitude_squared_body(
 
 
 def _exp_reward_from_error(ctx: RewardContext, error: np.ndarray, std: float) -> np.ndarray:
-    out = ctx.reward_term
+    out = _required_array(ctx.reward_term, "reward_term")
     np.divide(error, -(std**2), out=out)
     np.exp(out, out=out)
     return out
@@ -156,139 +162,163 @@ def _exp_reward_from_error(ctx: RewardContext, error: np.ndarray, std: float) ->
 
 def motion_global_root_pos(ctx: RewardContext) -> np.ndarray:
     motion_data = ctx.motion_data
-    robot_body_pos_w = ctx.robot_body_pos_w
+    robot_body_pos_w = _required_array(ctx.robot_body_pos_w, "robot_body_pos_w")
     anchor_pos_w = motion_data.body_pos_w[:, ctx.anchor_body_idx]
     robot_anchor_pos_w = robot_body_pos_w[:, ctx.anchor_body_idx]
-    error = ctx.env_error
+    error = _required_array(ctx.env_error, "env_error")
+    reward_term = _required_array(ctx.reward_term, "reward_term")
     np.subtract(anchor_pos_w[:, 0], robot_anchor_pos_w[:, 0], out=error)
     np.square(error, out=error)
-    np.subtract(anchor_pos_w[:, 1], robot_anchor_pos_w[:, 1], out=ctx.reward_term)
-    np.square(ctx.reward_term, out=ctx.reward_term)
-    error += ctx.reward_term
-    np.subtract(anchor_pos_w[:, 2], robot_anchor_pos_w[:, 2], out=ctx.reward_term)
-    np.square(ctx.reward_term, out=ctx.reward_term)
-    error += ctx.reward_term
+    np.subtract(anchor_pos_w[:, 1], robot_anchor_pos_w[:, 1], out=reward_term)
+    np.square(reward_term, out=reward_term)
+    error += reward_term
+    np.subtract(anchor_pos_w[:, 2], robot_anchor_pos_w[:, 2], out=reward_term)
+    np.square(reward_term, out=reward_term)
+    error += reward_term
     return _exp_reward_from_error(ctx, error, ctx.reward_config.std_root_pos)
 
 
 def motion_global_root_ori(ctx: RewardContext) -> np.ndarray:
     motion_data = ctx.motion_data
-    robot_body_quat_w = ctx.robot_body_quat_w
+    robot_body_quat_w = _required_array(ctx.robot_body_quat_w, "robot_body_quat_w")
     anchor_quat_w = motion_data.body_quat_w[:, ctx.anchor_body_idx]
     robot_anchor_quat_w = robot_body_quat_w[:, ctx.anchor_body_idx]
-    np.multiply(anchor_quat_w[:, 0], robot_anchor_quat_w[:, 0], out=ctx.env_error)
-    np.multiply(anchor_quat_w[:, 1], robot_anchor_quat_w[:, 1], out=ctx.reward_term)
-    ctx.env_error += ctx.reward_term
-    np.multiply(anchor_quat_w[:, 2], robot_anchor_quat_w[:, 2], out=ctx.reward_term)
-    ctx.env_error += ctx.reward_term
-    np.multiply(anchor_quat_w[:, 3], robot_anchor_quat_w[:, 3], out=ctx.reward_term)
-    ctx.env_error += ctx.reward_term
-    np.abs(ctx.env_error, out=ctx.env_error)
-    np.clip(ctx.env_error, 0.0, 1.0, out=ctx.env_error)
-    np.arccos(ctx.env_error, out=ctx.env_error)
-    ctx.env_error *= 2.0
-    np.square(ctx.env_error, out=ctx.env_error)
-    return _exp_reward_from_error(ctx, ctx.env_error, ctx.reward_config.std_root_ori)
+    env_error = _required_array(ctx.env_error, "env_error")
+    reward_term = _required_array(ctx.reward_term, "reward_term")
+    np.multiply(anchor_quat_w[:, 0], robot_anchor_quat_w[:, 0], out=env_error)
+    np.multiply(anchor_quat_w[:, 1], robot_anchor_quat_w[:, 1], out=reward_term)
+    env_error += reward_term
+    np.multiply(anchor_quat_w[:, 2], robot_anchor_quat_w[:, 2], out=reward_term)
+    env_error += reward_term
+    np.multiply(anchor_quat_w[:, 3], robot_anchor_quat_w[:, 3], out=reward_term)
+    env_error += reward_term
+    np.abs(env_error, out=env_error)
+    np.clip(env_error, 0.0, 1.0, out=env_error)
+    np.arccos(env_error, out=env_error)
+    env_error *= 2.0
+    np.square(env_error, out=env_error)
+    return _exp_reward_from_error(ctx, env_error, ctx.reward_config.std_root_ori)
 
 
 def motion_body_pos(ctx: RewardContext) -> np.ndarray:
-    robot_body_pos_w = ctx.robot_body_pos_w
-    error = _mean_body_xyz_squared_error(ctx, ctx.ref_body_pos_w, robot_body_pos_w)
+    ref_body_pos_w = _required_array(ctx.ref_body_pos_w, "ref_body_pos_w")
+    robot_body_pos_w = _required_array(ctx.robot_body_pos_w, "robot_body_pos_w")
+    error = _mean_body_xyz_squared_error(ctx, ref_body_pos_w, robot_body_pos_w)
     return _exp_reward_from_error(ctx, error, ctx.reward_config.std_body_pos)
 
 
 def motion_body_ori(ctx: RewardContext) -> np.ndarray:
-    robot_body_quat_w = ctx.robot_body_quat_w
-    error = _quat_error_magnitude_squared_body(ctx, ctx.ref_body_quat_w, robot_body_quat_w)
-    np.sum(error, axis=-1, out=ctx.env_error)
-    ctx.env_error /= error.shape[1]
-    return _exp_reward_from_error(ctx, ctx.env_error, ctx.reward_config.std_body_ori)
+    ref_body_quat_w = _required_array(ctx.ref_body_quat_w, "ref_body_quat_w")
+    robot_body_quat_w = _required_array(ctx.robot_body_quat_w, "robot_body_quat_w")
+    error = _quat_error_magnitude_squared_body(ctx, ref_body_quat_w, robot_body_quat_w)
+    env_error = _required_array(ctx.env_error, "env_error")
+    np.sum(error, axis=-1, out=env_error)
+    env_error /= error.shape[1]
+    return _exp_reward_from_error(ctx, env_error, ctx.reward_config.std_body_ori)
 
 
 def motion_body_lin_vel(ctx: RewardContext) -> np.ndarray:
     motion_data = ctx.motion_data
-    robot_body_lin_vel_w = ctx.robot_body_lin_vel_w
+    robot_body_lin_vel_w = _required_array(ctx.robot_body_lin_vel_w, "robot_body_lin_vel_w")
     error = _mean_body_xyz_squared_error(ctx, motion_data.body_lin_vel_w, robot_body_lin_vel_w)
     return _exp_reward_from_error(ctx, error, ctx.reward_config.std_body_lin_vel)
 
 
 def motion_body_ang_vel(ctx: RewardContext) -> np.ndarray:
     motion_data = ctx.motion_data
-    robot_body_ang_vel_w = ctx.robot_body_ang_vel_w
+    robot_body_ang_vel_w = _required_array(ctx.robot_body_ang_vel_w, "robot_body_ang_vel_w")
     error = _mean_body_xyz_squared_error(ctx, motion_data.body_ang_vel_w, robot_body_ang_vel_w)
     return _exp_reward_from_error(ctx, error, ctx.reward_config.std_body_ang_vel)
 
 
 def motion_ee_body_pos_z(ctx: RewardContext) -> np.ndarray:
-    robot_body_pos_w = ctx.robot_body_pos_w
+    ref_body_pos_w = _required_array(ctx.ref_body_pos_w, "ref_body_pos_w")
+    robot_body_pos_w = _required_array(ctx.robot_body_pos_w, "robot_body_pos_w")
+    ee_body_indices = _required_array(ctx.ee_body_indices, "ee_body_indices")
+    ee_pos_error_z = _required_array(ctx.ee_pos_error_z, "ee_pos_error_z")
+    env_error = _required_array(ctx.env_error, "env_error")
     np.subtract(
-        ctx.ref_body_pos_w[:, ctx.ee_body_indices, 2],
-        robot_body_pos_w[:, ctx.ee_body_indices, 2],
-        out=ctx.ee_pos_error_z,
+        ref_body_pos_w[:, ee_body_indices, 2],
+        robot_body_pos_w[:, ee_body_indices, 2],
+        out=ee_pos_error_z,
     )
-    np.square(ctx.ee_pos_error_z, out=ctx.ee_pos_error_z)
-    np.sum(ctx.ee_pos_error_z, axis=-1, out=ctx.env_error)
-    ctx.env_error /= ctx.ee_pos_error_z.shape[1]
-    return _exp_reward_from_error(ctx, ctx.env_error, ctx.reward_config.std_body_pos)
+    np.square(ee_pos_error_z, out=ee_pos_error_z)
+    np.sum(ee_pos_error_z, axis=-1, out=env_error)
+    env_error /= ee_pos_error_z.shape[1]
+    return _exp_reward_from_error(ctx, env_error, ctx.reward_config.std_body_pos)
 
 
 def motion_joint_pos(ctx: RewardContext) -> np.ndarray:
     motion_data = ctx.motion_data
-    dof_pos = ctx.dof_pos
-    np.subtract(motion_data.joint_pos, dof_pos, out=ctx.joint_error)
-    np.square(ctx.joint_error, out=ctx.joint_error)
-    np.sum(ctx.joint_error, axis=1, out=ctx.env_error)
-    ctx.env_error /= dof_pos.shape[1]
-    return _exp_reward_from_error(ctx, ctx.env_error, ctx.reward_config.std_joint_pos)
+    dof_pos = _required_array(ctx.dof_pos, "dof_pos")
+    joint_error = _required_array(ctx.joint_error, "joint_error")
+    env_error = _required_array(ctx.env_error, "env_error")
+    np.subtract(motion_data.joint_pos, dof_pos, out=joint_error)
+    np.square(joint_error, out=joint_error)
+    np.sum(joint_error, axis=1, out=env_error)
+    env_error /= dof_pos.shape[1]
+    return _exp_reward_from_error(ctx, env_error, ctx.reward_config.std_joint_pos)
 
 
 def motion_joint_vel(ctx: RewardContext) -> np.ndarray:
     motion_data = ctx.motion_data
-    dof_vel = ctx.dof_vel
-    np.subtract(motion_data.joint_vel, dof_vel, out=ctx.joint_error)
-    np.square(ctx.joint_error, out=ctx.joint_error)
-    np.sum(ctx.joint_error, axis=1, out=ctx.env_error)
-    ctx.env_error /= dof_vel.shape[1]
-    return _exp_reward_from_error(ctx, ctx.env_error, ctx.reward_config.std_joint_vel)
+    dof_vel = _required_array(ctx.dof_vel, "dof_vel")
+    joint_error = _required_array(ctx.joint_error, "joint_error")
+    env_error = _required_array(ctx.env_error, "env_error")
+    np.subtract(motion_data.joint_vel, dof_vel, out=joint_error)
+    np.square(joint_error, out=joint_error)
+    np.sum(joint_error, axis=1, out=env_error)
+    env_error /= dof_vel.shape[1]
+    return _exp_reward_from_error(ctx, env_error, ctx.reward_config.std_joint_vel)
 
 
 def undesired_contacts(ctx: RewardContext) -> np.ndarray:
-    robot_body_pos_w = ctx.robot_body_pos_w
-    body_z = robot_body_pos_w[:, ctx.undesired_contact_body_indices, 2]
+    robot_body_pos_w = _required_array(ctx.robot_body_pos_w, "robot_body_pos_w")
+    undesired_contact_body_indices = _required_array(
+        ctx.undesired_contact_body_indices, "undesired_contact_body_indices"
+    )
+    undesired_contact_mask = _required_array(ctx.undesired_contact_mask, "undesired_contact_mask")
+    env_error = _required_array(ctx.env_error, "env_error")
+    body_z = robot_body_pos_w[:, undesired_contact_body_indices, 2]
     np.less(
         body_z,
         ctx.undesired_contact_z_threshold,
-        out=ctx.undesired_contact_mask,
+        out=undesired_contact_mask,
     )
-    np.sum(ctx.undesired_contact_mask, axis=-1, out=ctx.env_error)
-    return ctx.env_error
+    np.sum(undesired_contact_mask, axis=-1, out=env_error)
+    return env_error
 
 
 def action_rate_l2(ctx: RewardContext) -> np.ndarray:
     info = ctx.info
-    np.subtract(info["current_actions"], info["last_actions"], out=ctx.joint_error)
-    np.square(ctx.joint_error, out=ctx.joint_error)
-    np.sum(ctx.joint_error, axis=1, out=ctx.env_error)
-    return ctx.env_error
+    joint_error = _required_array(ctx.joint_error, "joint_error")
+    env_error = _required_array(ctx.env_error, "env_error")
+    np.subtract(info["current_actions"], info["last_actions"], out=joint_error)
+    np.square(joint_error, out=joint_error)
+    np.sum(joint_error, axis=1, out=env_error)
+    return env_error
 
 
 def joint_limit(ctx: RewardContext) -> np.ndarray:
-    dof_pos = ctx.dof_pos
+    dof_pos = _required_array(ctx.dof_pos, "dof_pos")
+    reward_term = _required_array(ctx.reward_term, "reward_term")
+    joint_error = _required_array(ctx.joint_error, "joint_error")
+    joint_error_upper = _required_array(ctx.joint_error_upper, "joint_error_upper")
     lower = ctx.joint_lower
     upper = ctx.joint_upper
     if lower is None or upper is None:
-        ctx.reward_term.fill(0.0)
-        return ctx.reward_term
+        reward_term.fill(0.0)
+        return reward_term
 
     # Compute violation
-    np.subtract(lower, dof_pos, out=ctx.joint_error)
-    np.maximum(ctx.joint_error, 0, out=ctx.joint_error)
-    np.subtract(dof_pos, upper, out=ctx.joint_error_upper)
-    np.maximum(ctx.joint_error_upper, 0, out=ctx.joint_error_upper)
-    ctx.joint_error += ctx.joint_error_upper
-    np.square(ctx.joint_error, out=ctx.joint_error)
-    np.sum(ctx.joint_error, axis=1, out=ctx.reward_term)
-    return ctx.reward_term
+    np.subtract(lower, dof_pos, out=joint_error)
+    np.maximum(joint_error, 0, out=joint_error)
+    np.subtract(dof_pos, upper, out=joint_error_upper)
+    np.maximum(joint_error_upper, 0, out=joint_error_upper)
+    joint_error += joint_error_upper
+    np.square(joint_error, out=joint_error)
+    np.sum(joint_error, axis=1, out=reward_term)
+    return reward_term
 
 
 def build_reward_functions() -> dict[str, Callable[[RewardContext], np.ndarray]]:
@@ -327,7 +357,7 @@ def compute_reward(
     as the per-term scratch, matching the numba kernel's op order. Logs per-term
     means into ``ctx.info["log"]`` every 4th step, then scales by ``ctrl_dt``.
     """
-    reward = ctx.env_error2
+    reward = _required_array(ctx.env_error2, "env_error2")
     reward.fill(0.0)
 
     info = ctx.info
@@ -346,7 +376,7 @@ def compute_reward(
                 log[f"reward/{name}"] = 0.0
             continue
         rew = reward_fn(ctx)
-        weighted_rew = ctx.weighted_reward
+        weighted_rew = _required_array(ctx.weighted_reward, "weighted_reward")
         np.multiply(rew, scale, out=weighted_rew)
         reward += weighted_rew
         if should_log:
