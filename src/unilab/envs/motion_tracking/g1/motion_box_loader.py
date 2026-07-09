@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .motion_loader import MotionData, MotionLoader
+from ..common.motion_loader import MotionData, MotionLoader
 
 
 @dataclass

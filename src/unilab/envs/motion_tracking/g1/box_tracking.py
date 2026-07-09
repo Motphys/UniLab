@@ -24,6 +24,7 @@ from unilab.utils.rotation import (
     np_subtract_frame_transforms,
 )
 
+from ..common.rewards import RewardContext
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
 from .tracking import (
     G1MotionTrackingCfg,
@@ -344,8 +345,8 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
         )
         return obs
 
-    def _reward_object_position(self, info: dict) -> np.ndarray:
-        motion_data: BoxMotionData = info["motion_data"]
+    def _reward_object_position(self, ctx: RewardContext) -> np.ndarray:
+        motion_data: BoxMotionData = ctx.motion_data
         if motion_data.object_pos_w is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         obj_pos_w = self._backend.get_body_pos_w(self._object_body_ids)[:, 0, :]
@@ -354,8 +355,8 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             np.exp(-error / self._cfg.reward_config.std_object_pos**2), dtype=get_global_dtype()
         )
 
-    def _reward_object_orientation(self, info: dict) -> np.ndarray:
-        motion_data: BoxMotionData = info["motion_data"]
+    def _reward_object_orientation(self, ctx: RewardContext) -> np.ndarray:
+        motion_data: BoxMotionData = ctx.motion_data
         if motion_data.object_quat_w is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         obj_quat_w = self._backend.get_body_quat_w(self._object_body_ids)[:, 0, :]
