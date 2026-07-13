@@ -80,7 +80,9 @@ def convert_motion_npz(src_path: Path, dst_path: Path, is_box: bool = False) -> 
     out["joint_vel"] = data["joint_vel"][:, joint_keep]
 
     # Body data: keep only mapped body indices
-    assert len(BODY_KEEP_IDX) == 25, f"Expected 25 kept bodies (world + 24 child), got {len(BODY_KEEP_IDX)}"
+    assert len(BODY_KEEP_IDX) == 25, (
+        f"Expected 25 kept bodies (world + 24 child), got {len(BODY_KEEP_IDX)}"
+    )
     for key in ("body_pos_w", "body_quat_w", "body_lin_vel_w", "body_ang_vel_w"):
         out[key] = data[key][:, BODY_KEEP_IDX]
 
