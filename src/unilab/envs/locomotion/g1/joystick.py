@@ -706,3 +706,36 @@ registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mujoco")
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="motrix")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="mujoco")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="motrix")
+
+
+class G1Walk23DofEnv(G1WalkEnv):
+    @property
+    def obs_groups_spec(self) -> dict[str, int]:
+        # gyro(3) + gravity(3) + diff(23) + dof_vel(23) + action(23) + cmd(3) + phase(2) = 80
+        return {"obs": 80, "critic": 83}
+
+
+@registry.envcfg("G1Walk23DofFlat")
+@dataclass
+class G1Walk23DofFlatCfg(G1WalkFlatCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
+        )
+    )
+
+
+@registry.envcfg("G1Walk23DofRough")
+@dataclass
+class G1Walk23DofRoughCfg(G1Walk23DofFlatCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_rough_23dof.xml")
+        )
+    )
+
+
+registry.register_env("G1Walk23DofFlat", G1Walk23DofEnv, sim_backend="mujoco")
+registry.register_env("G1Walk23DofFlat", G1Walk23DofEnv, sim_backend="motrix")
+registry.register_env("G1Walk23DofRough", G1Walk23DofEnv, sim_backend="mujoco")
+registry.register_env("G1Walk23DofRough", G1Walk23DofEnv, sim_backend="motrix")

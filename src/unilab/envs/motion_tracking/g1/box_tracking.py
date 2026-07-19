@@ -75,6 +75,48 @@ class G1BoxTrackingEnvCfg(G1BoxTrackingCfg):
     pass
 
 
+@dataclass
+class G1BoxTracking23DofCfg(G1BoxTrackingCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(
+                ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof_with_largebox.xml"
+            )
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "sub3_largebox_003_boxconverted_23dof.npz"
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1BoxTracking23Dof")
+@dataclass
+class G1BoxTracking23DofEnvCfg(G1BoxTracking23DofCfg):
+    pass
+
+
 def _build_box_motion_reference_state(
     env: Any, env_ids: np.ndarray, motion_data: BoxMotionData
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -179,6 +221,8 @@ class G1BoxTrackingDomainRandomizationProvider(G1MotionTrackingDomainRandomizati
 
 @registry.env("G1BoxTracking", sim_backend="mujoco")
 @registry.env("G1BoxTracking", sim_backend="motrix")
+@registry.env("G1BoxTracking23Dof", sim_backend="mujoco")
+@registry.env("G1BoxTracking23Dof", sim_backend="motrix")
 class G1BoxTrackingEnv(G1MotionTrackingEnv):
     """Motion tracking env extended with large-box state and rewards."""
 

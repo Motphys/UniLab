@@ -29,7 +29,9 @@ from typing import Any
 
 import numpy as np
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 from unilab.dr import (
     DomainRandomizationCapabilities,
     ResetPlan,
@@ -469,3 +471,42 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
         sel = slice(None) if env_ids is None else env_ids
         for key, val in components.items():
             self._hist_buf[key][sel, :] = val[:, None, :]
+
+
+@registry.envcfg("G1WBTObs23Dof")
+@dataclass
+class G1WBTObs23DofCfg(G1WBTObsCfg):
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part_23dof.npz"
+    )
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
+        )
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+registry.register_env("G1WBTObs23Dof", G1WBTObsEnv, sim_backend="mujoco")
+registry.register_env("G1WBTObs23Dof", G1WBTObsEnv, sim_backend="motrix")
