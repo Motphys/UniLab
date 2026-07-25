@@ -1947,7 +1947,11 @@ def test_g1_motion_tracking_reset_and_step(sim_backend: str):
     if not npz_files:
         pytest.skip(f"No .npz motion files in {motion_dir}")
 
-    motion_file = str(npz_files[0])
+    # Filter out 23-DoF motion files — G1MotionTracking uses 29-DoF config
+    non_23dof = [f for f in npz_files if "_23dof" not in f.name]
+    if not non_23dof:
+        pytest.skip("No non-23-DoF motion files available for 29-DoF config")
+    motion_file = str(non_23dof[0])
     env = cast(
         Any,
         registry.make(
@@ -1997,13 +2001,17 @@ def test_g1_motion_tracking_deploy_reset_and_step_mujoco():
     if not npz_files:
         pytest.skip(f"No .npz motion files in {motion_dir}")
 
+    # Filter out 23-DoF motion files — G1MotionTrackingDeploy uses 29-DoF config
+    non_23dof = [f for f in npz_files if "_23dof" not in f.name]
+    if not non_23dof:
+        pytest.skip("No non-23-DoF motion files available for 29-DoF deploy config")
     env = cast(
         Any,
         registry.make(
             "G1MotionTrackingDeploy",
             num_envs=2,
             sim_backend="mujoco",
-            env_cfg_override={"motion_file": str(npz_files[0])},
+            env_cfg_override={"motion_file": str(non_23dof[0])},
         ),
     )
     try:

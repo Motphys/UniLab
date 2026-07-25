@@ -73,6 +73,8 @@ docs/superpowers/
 # Motion assets (downloaded from HF at runtime)
 src/unilab/assets/motions/g1/*.npz
 src/unilab/assets/motions/g1/*.csv
+src/unilab/assets/motions/g1/**/*.npz
+src/unilab/assets/motions/g1/**/*.csv
 src/unilab/assets/motions/g1/flip
 src/unilab/assets/motions/g1/flip_npz
 src/unilab/assets/motions/x2/*.npz
@@ -101,3 +103,17 @@ src/unilab/assets/checkpoints/**/*.onnx
 
 # Backend temp XML emitted next to robot.xml (motrix/mujoco scene materialization)
 src/unilab/assets/robots/**/tmp*.xml
+
+# Training artifacts (curves, videos, screenshots)
+val/
+
+# Agent working directory (not committed)
+.sisyphus/
+
+# Internal planning docs (not for upstream)
+G1_23DOF_INIT.md
+G1_23DOF_PR_CHECKLIST.md
+APPO_HARDWARE_TIMING_ANALYSIS.md
+
+# Training log artifacts (checkpoints, ONNX exports)
+log/

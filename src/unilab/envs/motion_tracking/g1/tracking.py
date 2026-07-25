@@ -9,9 +9,11 @@ names so existing subclasses and tests keep importing them from ``.tracking``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 
 from ..common.config import (
     Domain_Rand,
@@ -50,6 +52,52 @@ class G1MotionTrackingDeployEnvCfg(MotionTrackingDeployEnvCfg):
     pass
 
 
+@dataclass
+class G1MotionTracking23DofCfg(G1MotionTrackingCfg):
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part_23dof.npz"
+    )
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
+        )
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1MotionTracking23Dof")
+@dataclass
+class G1MotionTracking23DofEnvCfg(G1MotionTracking23DofCfg):
+    pass
+
+
+@registry.envcfg("G1MotionTracking23DofDeploy")
+@dataclass
+class G1MotionTracking23DofDeployEnvCfg(G1MotionTracking23DofCfg):
+    pass
+
+
 @registry.env("G1MotionTracking", sim_backend="mujoco")
 @registry.env("G1MotionTracking", sim_backend="motrix")
 class G1MotionTrackingEnv(MotionTrackingEnv):
@@ -66,9 +114,23 @@ class G1MotionTrackingDeployEnv(MotionTrackingDeployEnv):
     _cfg: MotionTrackingDeployEnvCfg
 
 
+# --- 23-DoF env registrations (same env classes, 23-DoF configs) ---
+registry.register_env("G1MotionTracking23Dof", G1MotionTrackingEnv, sim_backend="mujoco")
+registry.register_env("G1MotionTracking23Dof", G1MotionTrackingEnv, sim_backend="motrix")
+registry.register_env(
+    "G1MotionTracking23DofDeploy", G1MotionTrackingDeployEnv, sim_backend="mujoco"
+)
+registry.register_env(
+    "G1MotionTracking23DofDeploy", G1MotionTrackingDeployEnv, sim_backend="motrix"
+)
+
+
 __all__ = [
     "DomainRand",
     "Domain_Rand",
+    "G1MotionTracking23DofCfg",
+    "G1MotionTracking23DofDeployEnvCfg",
+    "G1MotionTracking23DofEnvCfg",
     "G1MotionTrackingCfg",
     "G1MotionTrackingDeployEnv",
     "G1MotionTrackingDeployEnvCfg",

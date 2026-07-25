@@ -210,19 +210,25 @@ class MotrixBackend(SimBackend):
         # (e.g. a Stewart platform) have passive joints, so the model-wide
         # ``joint_dof_pos_indices`` is wider than ``num_actuators``.
         self._actuator_joint_pos_indices: np.ndarray | None = None
+        self._actuator_joint_vel_indices: np.ndarray | None = None
         if self._supports_position_actuator_gains:
             joint_pos_idx: list[int] = []
+            joint_vel_idx: list[int] = []
             for actuator in sorted(self._position_actuators, key=lambda a: int(a.index)):
                 if actuator.target_type != "joint":
                     joint_pos_idx = []
+                    joint_vel_idx = []
                     break
                 joint = self._model.get_joint(actuator.target_name)
                 if joint is None or int(joint.num_dof_pos) != 1:
                     joint_pos_idx = []
+                    joint_vel_idx = []
                     break
                 joint_pos_idx.append(int(joint.dof_pos_index))
+                joint_vel_idx.append(int(joint.dof_vel_index))
             if len(joint_pos_idx) == int(self._model.num_actuators):
                 self._actuator_joint_pos_indices = np.asarray(joint_pos_idx, dtype=np.intp)
+                self._actuator_joint_vel_indices = np.asarray(joint_vel_idx, dtype=np.intp)
         self._actuator_joint_pos_slice = (
             _contiguous_slice(self._actuator_joint_pos_indices)
             if self._actuator_joint_pos_indices is not None
@@ -933,10 +939,21 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._body.get_joint_dof_pos(self._data)  # type: ignore[no-any-return]
+        indices = (
+            self._actuator_joint_pos_indices
+            if self._actuator_joint_pos_indices is not None
+            else self._joint_dof_pos_indices
+        )
+        result = self._data.dof_pos[..., indices]  # type: ignore[no-any-return]
+        return result
 
     def get_dof_vel(self) -> np.ndarray:
-        return self._body.get_joint_dof_vel(self._data)  # type: ignore[no-any-return]
+        indices = (
+            self._actuator_joint_vel_indices
+            if self._actuator_joint_vel_indices is not None
+            else self._joint_dof_vel_indices
+        )
+        return self._data.dof_vel[..., indices]  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — world frame                                      #
