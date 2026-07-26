@@ -13,34 +13,13 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
 
+from ..common.config import _zero_pose_randomization, _zero_velocity_randomization
 from .tracking import (
     G1MotionTrackingCfg,
     G1MotionTrackingEnv,
     PoseRandomization,
     VelocityRandomization,
 )
-
-
-def _zero_pose_randomization() -> PoseRandomization:
-    return PoseRandomization(
-        x=(0.0, 0.0),
-        y=(0.0, 0.0),
-        z=(0.0, 0.0),
-        roll=(0.0, 0.0),
-        pitch=(0.0, 0.0),
-        yaw=(0.0, 0.0),
-    )
-
-
-def _zero_velocity_randomization() -> VelocityRandomization:
-    return VelocityRandomization(
-        x=(0.0, 0.0),
-        y=(0.0, 0.0),
-        z=(0.0, 0.0),
-        roll=(0.0, 0.0),
-        pitch=(0.0, 0.0),
-        yaw=(0.0, 0.0),
-    )
 
 
 @dataclass

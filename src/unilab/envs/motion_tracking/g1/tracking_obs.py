@@ -45,6 +45,7 @@ from unilab.dr.types import RESET_TERM_GEOM_FRICTION
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import NoiseConfig
 
+from ..common.rewards import RewardContext
 from .tracking import (
     Domain_Rand,
     G1MotionTrackingDomainRandomizationProvider,
@@ -310,18 +311,22 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
         self._reward_fns["joint_acc_l2"] = self._reward_joint_acc_l2
         self._reward_fns["joint_torque_l2"] = self._reward_joint_torque_l2
 
-    def _reward_joint_acc_l2(self, info: dict) -> np.ndarray:
-        dof_vel = info["dof_vel"]
-        prev_dof_vel = info.get("prev_dof_vel")
+    def _reward_joint_acc_l2(self, ctx: RewardContext) -> np.ndarray:
+        dof_vel = ctx.dof_vel
+        prev_dof_vel = ctx.info.get("prev_dof_vel")
+        if dof_vel is None:
+            raise RuntimeError("RewardContext.dof_vel is required for joint_acc_l2")
         if prev_dof_vel is None or prev_dof_vel.shape != dof_vel.shape:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         joint_acc = (dof_vel - prev_dof_vel) / self._cfg.ctrl_dt
         return np.asarray(np.sum(np.square(joint_acc), axis=1), dtype=get_global_dtype())
 
-    def _reward_joint_torque_l2(self, info: dict) -> np.ndarray:
-        dof_pos = info["dof_pos"]
-        dof_vel = info["dof_vel"]
-        last_actions = info.get("last_actions")
+    def _reward_joint_torque_l2(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = ctx.dof_pos
+        dof_vel = ctx.dof_vel
+        last_actions = ctx.info.get("last_actions")
+        if dof_pos is None or dof_vel is None:
+            raise RuntimeError("RewardContext.dof_pos and dof_vel are required for joint_torque_l2")
         if last_actions is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         target_q = (
