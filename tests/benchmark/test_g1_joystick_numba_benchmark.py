@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from benchmark import benchmark_g1_joystick_numba as bench
+from benchmark.env import benchmark_g1_joystick_numba as bench
 
 
 def test_g1_joystick_numba_benchmark_builds_records_and_matches_numpy() -> None:

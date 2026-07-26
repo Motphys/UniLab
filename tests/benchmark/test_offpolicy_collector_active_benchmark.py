@@ -6,7 +6,7 @@ from collections import namedtuple
 from types import SimpleNamespace
 
 import pytest
-from benchmark import benchmark_offpolicy_collector_active as bench
+from benchmark.rl import benchmark_offpolicy_collector_active as bench
 
 
 def _make_result(
