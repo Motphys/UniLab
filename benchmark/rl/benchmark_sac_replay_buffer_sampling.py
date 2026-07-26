@@ -3,7 +3,7 @@
 
 This standalone benchmark composes the same off-policy owner config used by:
 
-    uv run train --algo sac --task g1_walk_flat --sim mujoco
+    uv run train --algo sac --task g1_motion_tracking --sim motrix
 
 It does not run training.  It measures only the replay sampling boundary:
 
@@ -16,9 +16,13 @@ available are recorded as skipped.
 
 Usage:
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py
+    uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --task g1_motion_tracking --sim motrix
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --gpu-counts 1,2
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --capacity-multipliers 0.25,0.5,1,2
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --warmup 3 --repeat 10
+
+On machines without CUDA (e.g. macOS), the device-resident cases automatically
+fall back to the single MPS device; world sizes above 1 are recorded as skipped.
 """
 
 from __future__ import annotations
@@ -61,7 +65,10 @@ except Exception:
 DEFAULT_OUTPUT_JSON = (
     ROOT_DIR / "benchmark" / "outputs" / "sac_replay_buffer_sampling" / "results.json"
 )
-DEFAULT_SIM = "mujoco"
+DEFAULT_TASK = "g1_motion_tracking"
+DEFAULT_SIM = "motrix"
+LEGACY_DEFAULT_TASK = "g1_walk_flat"
+KNOWN_SIMS = ("mujoco", "motrix", "mujoco_hora")
 DEFAULT_GPU_COUNTS = "1,2,4,8"
 DEFAULT_CAPACITY_MULTIPLIERS = "0.25,0.5,1.0"
 FLOAT_BYTES = 4
@@ -86,6 +93,7 @@ class BenchmarkCase:
     command: str
     training_task_name: str
     num_envs: int
+    env_steps_per_sync: int
     replay_buffer_n: int
     config_capacity_rows: int
     configured_batch_size: int
@@ -99,6 +107,18 @@ class BenchmarkCase:
     @property
     def sample_bytes_per_rank(self) -> int:
         return self.sample_count_per_rank * self.shape.packed_width * FLOAT_BYTES
+
+    @property
+    def collector_rows_per_iter(self) -> int:
+        return self.num_envs * self.env_steps_per_sync
+
+    @property
+    def collector_bytes_per_iter(self) -> int:
+        return self.collector_rows_per_iter * self.shape.packed_width * FLOAT_BYTES
+
+    @property
+    def sample_new_ratio_per_rank(self) -> float:
+        return self.sample_count_per_rank / max(self.collector_rows_per_iter, 1)
 
 
 @dataclass
@@ -207,11 +227,35 @@ def _cleanup_device() -> None:
         torch.mps.empty_cache()
 
 
-def _compose_offpolicy_cfg(sim: str = DEFAULT_SIM) -> DictConfig:
+def _owner_config_path(task: str, sim: str) -> Path:
+    return ROOT_DIR / "conf" / "offpolicy" / "task" / "sac" / task / f"{sim}.yaml"
+
+
+def _owner_config_exists(task: str, sim: str) -> bool:
+    return _owner_config_path(task, sim).is_file()
+
+
+def _compose_offpolicy_cfg(task: str = DEFAULT_TASK, sim: str | None = None) -> DictConfig:
+    if sim is None:
+        if task in KNOWN_SIMS:
+            task_name = LEGACY_DEFAULT_TASK
+            sim_name = task
+        else:
+            task_name = task
+            sim_name = DEFAULT_SIM
+    else:
+        task_name = task
+        sim_name = sim
+
+    owner_config = _owner_config_path(task_name, sim_name)
+    if not owner_config.is_file():
+        raise FileNotFoundError(
+            f"Missing SAC owner config for task={task_name!r}, sim={sim_name!r}: {owner_config}"
+        )
     config_dir = str(ROOT_DIR / "conf" / "offpolicy")
     overrides = [
         "algo=sac",
-        f"task=sac/g1_walk_flat/{sim}",
+        f"task=sac/{task_name}/{sim_name}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -261,11 +305,13 @@ def _resolve_env_shape_and_symmetry(cfg: DictConfig) -> tuple[ReplayShape, int]:
 def _build_case(
     cfg: DictConfig,
     *,
-    sim: str,
+    task: str = LEGACY_DEFAULT_TASK,
+    sim: str = DEFAULT_SIM,
     shape: ReplayShape,
     symmetry_batch_multiplier: int,
 ) -> BenchmarkCase:
     num_envs = int(cfg.algo.num_envs)
+    env_steps_per_sync = int(cfg.training.env_steps_per_sync)
     replay_buffer_n = int(cfg.algo.replay_buffer_n)
     configured_batch_size = int(cfg.algo.batch_size)
     learner_batch_size = configured_batch_size
@@ -280,11 +326,12 @@ def _build_case(
     updates_per_step = int(cfg.algo.updates_per_step)
     return BenchmarkCase(
         algo="sac",
-        task="g1_walk_flat",
+        task=task,
         sim=sim,
-        command=f"uv run train --algo sac --task g1_walk_flat --sim {sim}",
+        command=f"uv run train --algo sac --task {task} --sim {sim}",
         training_task_name=str(cfg.training.task_name),
         num_envs=num_envs,
+        env_steps_per_sync=env_steps_per_sync,
         replay_buffer_n=replay_buffer_n,
         config_capacity_rows=num_envs * replay_buffer_n,
         configured_batch_size=configured_batch_size,
@@ -357,6 +404,19 @@ def _parse_device_ids(value: str) -> list[int]:
     if value.strip().lower() == "auto":
         return list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
     return _parse_int_list(value, name="device ids")
+
+
+def _mps_available() -> bool:
+    mps = getattr(torch.backends, "mps", None)
+    return bool(mps is not None and mps.is_available())
+
+
+def _resolve_device_type() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if _mps_available():
+        return "mps"
+    return "none"
 
 
 def _resolve_torch_threads(setting: str, *, world_size: int) -> int:
@@ -801,6 +861,15 @@ def _result_timing_mean(result: dict[str, Any], key: str) -> float:
     return float(result["timings"][key]["mean_ms"])
 
 
+def _case_label(payload: dict[str, Any]) -> str:
+    case = payload.get("case", {})
+    task = case.get("task")
+    sim = case.get("sim")
+    if task and sim:
+        return f"{task}/{sim}"
+    return "SAC"
+
+
 def _capacity_label(capacity_rows: int, config_capacity_rows: int) -> str:
     multiplier = capacity_rows / max(config_capacity_rows, 1)
     if capacity_rows % 1_048_576 == 0:
@@ -841,6 +910,7 @@ def _save_component_breakdown_plot(payload: dict[str, Any], output_path: Path) -
     colors = {
         "cpu_sample": "#4C78A8",
         "h2d": "#F58518",
+        "cpu_total": "#E45756",
         "gpu": "#54A24B",
     }
     max_y = 0.0
@@ -855,24 +925,32 @@ def _save_component_breakdown_plot(payload: dict[str, Any], output_path: Path) -
             _capacity_label(int(result["capacity_rows"]), config_capacity_rows) for result in rows
         ]
         x_positions = list(range(len(rows)))
-        bar_width = 0.34
         cpu_sample = [_result_timing_mean(result, "cpu_sample_wall") for result in rows]
         h2d = [_result_timing_mean(result, "cpu_sample_h2d_wall") for result in rows]
         cpu_total = [_result_timing_mean(result, "cpu_sample_then_h2d_wall") for result in rows]
         gpu_sample = [_result_timing_mean(result, "gpu_sample_wall") for result in rows]
-        component_total = [sample + copy for sample, copy in zip(cpu_sample, h2d)]
-        max_y = max(max_y, *(component_total or [0.0]), *(gpu_sample or [0.0]))
+        max_y = max(
+            max_y,
+            *(cpu_sample or [0.0]),
+            *(h2d or [0.0]),
+            *(cpu_total or [0.0]),
+            *(gpu_sample or [0.0]),
+        )
 
-        cpu_x = [x - bar_width / 2 for x in x_positions]
-        gpu_x = [x + bar_width / 2 for x in x_positions]
-        ax.bar(cpu_x, cpu_sample, bar_width, color=colors["cpu_sample"], label="CPU sample")
-        ax.bar(cpu_x, h2d, bar_width, bottom=cpu_sample, color=colors["h2d"], label="H2D")
-        ax.bar(gpu_x, gpu_sample, bar_width, color=colors["gpu"], label="GPU sample")
-
-        for x, total, measured_total in zip(cpu_x, component_total, cpu_total):
-            _annotate(ax, x, total, f"{measured_total:.2f}", fontsize=7)
-        for x, value in zip(gpu_x, gpu_sample):
-            _annotate(ax, x, value, f"{value:.3f}", fontsize=7)
+        bar_width = min(0.8 / 4, 0.18)
+        offsets = (-1.5 * bar_width, -0.5 * bar_width, 0.5 * bar_width, 1.5 * bar_width)
+        series = (
+            ("CPU sample", "cpu_sample", cpu_sample),
+            ("H2D", "h2d", h2d),
+            ("CPU sample+H2D", "cpu_total", cpu_total),
+            ("GPU sample", "gpu", gpu_sample),
+        )
+        for offset, (label, color_key, values) in zip(offsets, series):
+            bar_x = [x + offset for x in x_positions]
+            ax.bar(bar_x, values, bar_width, color=colors[color_key], label=label)
+            for x, value in zip(bar_x, values):
+                label_text = f"{value:.2f}" if value >= 1.0 else f"{value:.3f}"
+                _annotate(ax, x, value, label_text, fontsize=7)
 
         ax.set_title(f"{world_size} GPU(s)")
         ax.set_xticks(x_positions)
@@ -885,10 +963,10 @@ def _save_component_breakdown_plot(payload: dict[str, Any], output_path: Path) -
 
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.suptitle(
-        "SAC replay sampling placement: CPU sample + H2D vs GPU-resident sample",
+        f"{_case_label(payload)} replay sampling: CPU sample, H2D, CPU total, GPU sample",
         y=0.985,
     )
-    fig.legend(handles, labels, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 0.955))
+    fig.legend(handles, labels, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.955))
     if max_y > 0:
         for ax_row in axes:
             for ax in ax_row:
@@ -945,7 +1023,7 @@ def _save_speedup_plot(payload: dict[str, Any], output_path: Path) -> str | None
             if value == value and value > 0:
                 _annotate(ax, float(bar.get_x() + bar.get_width() / 2), value, f"{value:.1f}x")
 
-    ax.set_title("CPU sample+H2D wall time divided by GPU-resident sample time")
+    ax.set_title(f"{_case_label(payload)} CPU sample+H2D divided by GPU-resident sample")
     ax.set_ylabel("Speedup (x)")
     ax.set_xticks(x_positions)
     ax.set_xticklabels([str(world_size) for world_size in world_sizes])
@@ -1000,7 +1078,7 @@ def _save_gpu_sample_plot(payload: dict[str, Any], output_path: Path) -> str | N
             if value == value and value > 0:
                 _annotate(ax, float(bar.get_x() + bar.get_width() / 2), value, f"{value:.3f}")
 
-    ax.set_title("GPU-resident replay sample wall time")
+    ax.set_title(f"{_case_label(payload)} GPU-resident replay sample wall time")
     ax.set_ylabel("Mean wall time (ms)")
     ax.set_xticks(x_positions)
     ax.set_xticklabels([str(world_size) for world_size in world_sizes])
@@ -1050,13 +1128,29 @@ def _write_analysis_markdown(payload: dict[str, Any], output_path: Path) -> str:
         f"- Command: `{case.get('command', 'unknown')}`",
         f"- Sample count per rank: `{case.get('sample_count_per_rank', 'unknown')}`",
         f"- Packed row width: `{packed_width if packed_width is not None else 'unknown'}` float32 columns",
-        "",
-        "Measured `CPU sample then H2D` is timed as its own end-to-end pass, so it can differ "
-        "slightly from `CPU sample + H2D` due to cache effects and run-to-run noise.",
-        "",
-        "| GPUs | Capacity rows | CPU sample ms | H2D ms | CPU sample+H2D ms | GPU sample ms | Speedup | CPU sample share | H2D share |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
+    num_envs = int(case.get("num_envs", 0) or 0)
+    env_steps_per_sync = int(case.get("env_steps_per_sync", 0) or 0)
+    sample_count = int(case.get("sample_count_per_rank", 0) or 0)
+    if num_envs > 0 and env_steps_per_sync > 0:
+        collector_rows = num_envs * env_steps_per_sync
+        sample_new_ratio = sample_count / collector_rows if collector_rows > 0 else 0.0
+        lines.extend(
+            [
+                f"- Collector rows per learner iter: `{collector_rows:,}`",
+                f"- Per-rank replay sample:new ratio: `{sample_new_ratio:g}x`",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Measured `CPU sample then H2D` is timed as its own end-to-end pass, so it can differ "
+            "slightly from `CPU sample + H2D` due to cache effects and run-to-run noise.",
+            "",
+            "| GPUs | Capacity rows | CPU sample ms | H2D ms | CPU sample+H2D ms | GPU sample ms | Speedup | CPU sample share | H2D share |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
     for result in results:
         cpu_sample = _result_timing_mean(result, "cpu_sample_wall")
         h2d = _result_timing_mean(result, "cpu_sample_h2d_wall")
@@ -1086,6 +1180,7 @@ def _write_analysis_markdown(payload: dict[str, Any], output_path: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task", default=DEFAULT_TASK)
     parser.add_argument("--sim", default=DEFAULT_SIM)
     parser.add_argument("--gpu-counts", default=DEFAULT_GPU_COUNTS)
     parser.add_argument("--device-ids", default="auto")
@@ -1170,7 +1265,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.device_memory_safety_factor < 1.0:
         raise ValueError("--device-memory-safety-factor must be >= 1.0")
 
-    cfg = _compose_offpolicy_cfg(args.sim)
+    cfg = _compose_offpolicy_cfg(args.task, args.sim)
     manual_shape = args.obs_dim > 0 or args.action_dim > 0 or args.critic_dim > 0
     if manual_shape:
         if args.obs_dim <= 0 or args.action_dim <= 0 or args.critic_dim < 0:
@@ -1195,6 +1290,7 @@ def main(argv: list[str] | None = None) -> int:
 
     case = _build_case(
         cfg,
+        task=args.task,
         sim=args.sim,
         shape=shape,
         symmetry_batch_multiplier=symmetry_batch_multiplier,
@@ -1219,38 +1315,61 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "Config: "
         f"num_envs={case.num_envs:,}, replay_buffer_n={case.replay_buffer_n:,}, "
+        f"env_steps_per_sync={case.env_steps_per_sync:,}, "
         f"capacity={case.config_capacity_rows:,}, configured_batch={case.configured_batch_size:,}, "
         f"learner_batch={case.learner_batch_size:,}, updates={case.updates_per_step}, "
-        f"sample_count/rank={case.sample_count_per_rank:,}"
+        f"sample_count/rank={case.sample_count_per_rank:,}, "
+        f"sample:new/rank={case.sample_new_ratio_per_rank:g}x"
     )
     print(f"Capacity rows: {', '.join(f'{rows:,}' for rows in capacity_rows)}")
-    print(f"Requested GPU counts: {gpu_counts}; visible CUDA device ids: {device_ids}")
+    device_type = _resolve_device_type()
+    print(
+        f"Requested GPU counts: {gpu_counts}; visible CUDA device ids: {device_ids}; device type: {device_type}"
+    )
 
     results: list[CapacityResult] = []
     skipped: list[SkippedCase] = []
 
-    if not torch.cuda.is_available() or not device_ids:
+    if device_type == "none" or (device_type == "cuda" and not device_ids):
+        reason = (
+            "CUDA is not available or no CUDA device ids were selected"
+            if device_type == "cuda"
+            else "no CUDA or MPS device is available"
+        )
         for world_size in gpu_counts:
             skipped.append(
                 SkippedCase(
                     world_size=world_size,
                     capacity_rows=None,
-                    reason="CUDA is not available or no CUDA device ids were selected",
+                    reason=reason,
                 )
             )
     else:
         for world_size in gpu_counts:
-            if world_size > len(device_ids):
-                skipped.append(
-                    SkippedCase(
-                        world_size=world_size,
-                        capacity_rows=None,
-                        reason=f"requested {world_size} GPUs but only {len(device_ids)} are visible",
+            if device_type == "cuda":
+                if world_size > len(device_ids):
+                    skipped.append(
+                        SkippedCase(
+                            world_size=world_size,
+                            capacity_rows=None,
+                            reason=f"requested {world_size} GPUs but only {len(device_ids)} are visible",
+                        )
                     )
-                )
-                continue
-
-            devices = [torch.device(f"cuda:{device_id}") for device_id in device_ids[:world_size]]
+                    continue
+                devices = [
+                    torch.device(f"cuda:{device_id}") for device_id in device_ids[:world_size]
+                ]
+            else:
+                if world_size > 1:
+                    skipped.append(
+                        SkippedCase(
+                            world_size=world_size,
+                            capacity_rows=None,
+                            reason="MPS backend exposes a single device",
+                        )
+                    )
+                    continue
+                devices = [torch.device("mps")]
             torch_threads = _resolve_torch_threads(args.torch_threads, world_size=world_size)
             for rows in capacity_rows:
                 required = _estimate_device_bytes_per_gpu(case, rows)
@@ -1291,10 +1410,10 @@ def main(argv: list[str] | None = None) -> int:
                         SkippedCase(
                             world_size=world_size,
                             capacity_rows=rows,
-                            reason=f"CUDA OOM during benchmark allocation/run: {exc}",
+                            reason=f"device OOM during benchmark allocation/run: {exc}",
                         )
                     )
-                    print(f"  skipped: CUDA OOM during benchmark allocation/run: {exc}")
+                    print(f"  skipped: device OOM during benchmark allocation/run: {exc}")
                     continue
                 results.append(result)
                 _print_result(result)
@@ -1304,9 +1423,11 @@ def main(argv: list[str] | None = None) -> int:
         "torch_version": torch.__version__,
         "device_info": get_device_info_dict(),
         "args": {
+            "task": args.task,
             "sim": args.sim,
             "gpu_counts": gpu_counts,
             "device_ids": device_ids,
+            "device_type": device_type,
             "capacity_rows": capacity_rows,
             "capacity_rows_arg": args.capacity_rows,
             "capacity_multipliers": args.capacity_multipliers,
@@ -1343,7 +1464,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Saved analysis: {analysis_path}")
     print(f"\nSaved JSON: {args.out_json}")
     if not results:
-        print("No CUDA benchmark cases were run.")
+        print("No benchmark cases were run.")
         return 1
     return 0
 
