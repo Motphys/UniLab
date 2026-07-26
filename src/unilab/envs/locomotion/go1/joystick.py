@@ -12,7 +12,6 @@ from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_mul, np_yaw_to_quat
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
@@ -23,6 +22,7 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainSpawnManager,
 )
 from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
+from unilab.utils.rotation import np_quat_mul, np_yaw_to_quat
 
 
 @dataclass

@@ -11,13 +11,17 @@ from typing import Any, cast
 import torch
 
 from unilab.algos.torch.common.device import get_env_dims
+from unilab.algos.torch.offpolicy.thread_budget import (
+    format_torch_thread_runtime,
+    torch_thread_env,
+)
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX, AsyncRunner
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.logging import OffPolicyLogger, TraceRecorder
 from unilab.training.seed import apply_training_seed, derive_worker_seed
-from unilab.utils.device import get_default_device
+from unilab.utils.device import get_default_device, resolve_torch_device_alias
 from unilab.utils.nan_guard import NanGuardCfg
 
 
@@ -176,13 +180,20 @@ class OffPolicyRunner(AsyncRunner):
         trace_thread_time: bool = False,
         trace_cuda_events: bool = True,
         nan_guard_cfg: NanGuardCfg | None = None,
+        collector_infer_device: str | None = "cpu",
+        torch_thread_runtime: dict[str, Any] | None = None,
     ):
+        self.collector_infer_device_raw = str(collector_infer_device or "cpu")
+        self.collector_infer_device = resolve_torch_device_alias(
+            self.collector_infer_device_raw,
+            default="cpu",
+        )
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device="cpu",
+            collector_device=self.collector_infer_device,
             num_envs=num_envs,
             sim_backend=sim_backend,
         )
@@ -213,6 +224,7 @@ class OffPolicyRunner(AsyncRunner):
         self.trace_thread_time = trace_thread_time
         self.trace_cuda_events = trace_cuda_events
         self.nan_guard_cfg = nan_guard_cfg
+        self.torch_thread_runtime = torch_thread_runtime
 
         apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(
@@ -332,15 +344,19 @@ class OffPolicyRunner(AsyncRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "actor_kwargs": self.actor_kwargs,
+            "collector_infer_device": self.collector_infer_device,
+            "collector_infer_device_raw": self.collector_infer_device_raw,
             "seed": derive_worker_seed(self.seed, worker_index=0),
             "trace_enabled": self.trace_enabled,
             "trace_thread_time": self.trace_thread_time,
             "nan_guard_cfg": self.nan_guard_cfg,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
-        self._start_collector(
-            target_fn=off_policy_collector_fn,
-            kwargs={"stop_event": self._stop_event, **collector_kwargs},
-        )
+        with torch_thread_env(self.torch_thread_runtime, role="collector"):
+            self._start_collector(
+                target_fn=off_policy_collector_fn,
+                kwargs={"stop_event": self._stop_event, **collector_kwargs},
+            )
 
         time.sleep(0.5)
         if self._collector_process:
@@ -362,6 +378,11 @@ class OffPolicyRunner(AsyncRunner):
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
+        logger.log_status(
+            "Collector infer device: "
+            f"{self.collector_infer_device_raw} -> {self.collector_infer_device}"
+        )
+        logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))
         self._active_logger = logger
         logger.start()
 
@@ -542,9 +563,18 @@ class OffPolicyRunner(AsyncRunner):
                 s = update_idx * self.batch_size
                 e = s + self.batch_size
                 batch = {k: v[s:e] for k, v in large_batch.items()}
+                read_critic_graph_metrics = update_idx == self.updates_per_step - 1
 
                 _critic_ns = time.perf_counter_ns() if trace_recorder else 0
-                critic_metrics = learner.update_critic(batch)
+                if getattr(learner, "use_cuda_graph_critic", False) and hasattr(
+                    learner, "update_critic_cuda_graph"
+                ):
+                    critic_metrics = learner.update_critic_cuda_graph(
+                        batch,
+                        read_metrics=read_critic_graph_metrics,
+                    )
+                else:
+                    critic_metrics = learner.update_critic(batch)
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "learner/update_critic",
@@ -557,8 +587,18 @@ class OffPolicyRunner(AsyncRunner):
                     iter_metrics[k].append(v)
 
                 if update_idx % self.policy_frequency == 0:
+                    next_actor_update = update_idx + self.policy_frequency
+                    read_actor_graph_metrics = next_actor_update >= self.updates_per_step
                     _actor_ns = time.perf_counter_ns() if trace_recorder else 0
-                    actor_metrics = learner.update_actor(batch)
+                    if getattr(learner, "use_cuda_graph_actor", False) and hasattr(
+                        learner, "update_actor_cuda_graph"
+                    ):
+                        actor_metrics = learner.update_actor_cuda_graph(
+                            batch,
+                            read_metrics=read_actor_graph_metrics,
+                        )
+                    else:
+                        actor_metrics = learner.update_actor(batch)
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/update_actor",

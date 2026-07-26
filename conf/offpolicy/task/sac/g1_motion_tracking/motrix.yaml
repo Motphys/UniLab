@@ -11,6 +11,7 @@ training:
   task_name: G1MotionTrackingSAC
   sim_backend: motrix
 env:
+  numba_acceleration: false
   # motrix backend's kp/kd override path is broken on column slices, and DR
   # is not desirable during deterministic sim2sim eval anyway. Match the
   # `g1_walk_flat/motrix.yaml` convention by switching them off.

@@ -16,6 +16,7 @@ from unilab.algos.torch.appo.worker import (
     compute_rollout_active_steps_per_sec,
     put_latest_metrics,
 )
+from unilab.algos.torch.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.registry import ensure_registries
 from unilab.training.seed import apply_training_seed
@@ -238,6 +239,7 @@ def hora_appo_collector_fn(
     ema_mlp_infer_ms = 0.0
     ema_env_step_ms = 0.0
     ema_rollout_ms = 0.0
+    ema_env_step_breakdown_ms: dict[str, float] = {}
 
     try:
         while not stop_event.is_set():
@@ -275,6 +277,10 @@ def hora_appo_collector_fn(
                 ema_env_step_ms = (1 - _EMA) * ema_env_step_ms + _EMA * (
                     (time.perf_counter() - t_env) * 1000
                 )
+                for key, value in extract_env_step_breakdown_timing_ms(state.info).items():
+                    ema_env_step_breakdown_ms[key] = (1 - _EMA) * ema_env_step_breakdown_ms.get(
+                        key, 0.0
+                    ) + _EMA * value
 
                 reward_raw = np.asarray(state.reward, dtype=np.float32).ravel()
                 terminated_raw = np.asarray(state.terminated, dtype=np.float32).ravel()
@@ -379,6 +385,7 @@ def hora_appo_collector_fn(
                             "rollout_ms": ema_rollout_ms,
                             "mlp_infer_ms": ema_mlp_infer_ms,
                             "env_step_ms": ema_env_step_ms,
+                            **ema_env_step_breakdown_ms,
                         }
                         collector_active_steps_per_sec = compute_rollout_active_steps_per_sec(
                             num_envs=num_envs,

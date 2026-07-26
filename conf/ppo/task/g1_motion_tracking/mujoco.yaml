@@ -12,6 +12,8 @@ algo:
       - actor
   algorithm:
     entropy_coef: 0.005
+env:
+  numba_acceleration: false
 reward:
   scales:
     motion_global_root_pos: 0.5

@@ -12,7 +12,6 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import ResetPlan
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_matrix_from_quat, np_quat_from_euler_xyz
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
@@ -25,6 +24,13 @@ from unilab.envs.locomotion.go2_arm.base import (
     Go2ArmSensor,
     build_go2_arm_position_gains,
 )
+from unilab.utils.geometry import (
+    np_cartesian_to_spherical as _cart2sphere,
+)
+from unilab.utils.geometry import (
+    np_spherical_to_cartesian as _sphere2cart,
+)
+from unilab.utils.rotation import np_matrix_from_quat, np_quat_from_euler_xyz
 
 
 def _default_go2_arm_model_file() -> str:
@@ -48,27 +54,6 @@ def _resolve_go2_arm_scene(cfg: "Go2ArmManipLocoCfg") -> SceneCfg:
         )
     cfg.scene = scene
     return scene
-
-
-def _sphere2cart(sphere: np.ndarray) -> np.ndarray:
-    """Convert (..., 3)[l, phi, theta] to (..., 3)[x, y, z]."""
-    l = sphere[..., 0]
-    phi = sphere[..., 1]
-    theta = sphere[..., 2]
-    x = l * np.cos(phi) * np.cos(theta)
-    y = l * np.sin(theta)
-    z = l * np.sin(phi) * np.cos(theta)
-    return np.stack([x, y, z], axis=-1)
-
-
-def _cart2sphere(cart: np.ndarray) -> np.ndarray:
-    """Convert (..., 3)[x, y, z] to (..., 3)[l, phi, theta]."""
-    cart = np.asarray(cart)
-    l_sq = np.sum(cart**2, axis=-1, keepdims=True)
-    l = np.sqrt(np.maximum(l_sq, 1e-12))
-    phi = np.arctan2(cart[..., 2:3], cart[..., 0:1])
-    theta = np.arcsin(np.clip(cart[..., 1:2] / l, -1.0, 1.0))
-    return np.concatenate([l, phi, theta], axis=-1)
 
 
 @dataclass

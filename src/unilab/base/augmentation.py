@@ -22,6 +22,13 @@ class SymmetryAugmentation(Protocol):
         obs_group: str = "obs",
     ) -> tuple[torch.Tensor, torch.Tensor]: ...
 
+    def augment_obs(
+        self,
+        obs: torch.Tensor,
+        *,
+        obs_group: str = "obs",
+    ) -> torch.Tensor: ...
+
     def mirror_obs(
         self,
         obs: torch.Tensor,

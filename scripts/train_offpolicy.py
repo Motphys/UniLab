@@ -157,6 +157,15 @@ def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[st
 def build_runner(algo_name: str, cfg: DictConfig):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
+    from unilab.algos.torch.offpolicy.thread_budget import (
+        apply_torch_thread_runtime,
+        resolve_torch_thread_runtime,
+    )
+
+    torch_thread_runtime = resolve_torch_thread_runtime(
+        getattr(cfg.training, "torch_threads", None)
+    )
+    apply_torch_thread_runtime(torch_thread_runtime, role="learner")
 
     nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
     _nan_guard_cfg: NanGuardCfg | None = None
@@ -178,6 +187,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
     num_gpus = int(getattr(cfg.training, "num_gpus", 1))
     multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
     multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
+    collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
 
     sync_collection = not bool(cfg.training.no_sync_collection)
 
@@ -263,6 +273,27 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "amp_dtype": cfg.algo.algo_params.amp_dtype,
             "use_compile": cfg.algo.algo_params.use_compile,
             "obs_normalization": cfg.algo.obs_normalization,
+            "use_cuda_graph_critic": bool(
+                getattr(cfg.algo.algo_params, "use_cuda_graph_critic", False)
+            ),
+            "use_cuda_graph_actor": bool(
+                getattr(cfg.algo.algo_params, "use_cuda_graph_actor", False)
+            ),
+            "use_cuda_graph_critic_packed_staging": bool(
+                getattr(
+                    cfg.algo.algo_params,
+                    "use_cuda_graph_critic_packed_staging",
+                    False,
+                )
+            ),
+            "use_cuda_graph_actor_packed_staging": bool(
+                getattr(
+                    cfg.algo.algo_params,
+                    "use_cuda_graph_actor_packed_staging",
+                    False,
+                )
+            ),
+            "nvtx_profile_ranges": bool(getattr(cfg.training, "nvtx_profile_ranges", False)),
             "use_symmetry": cfg.algo.use_symmetry,
             "symmetry_augmentation": _symmetry_aug,
             "critic_obs_dim": _critic_dim,
@@ -318,6 +349,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 trace_cuda_events=cfg.training.trace_cuda_events,
                 seed=cfg.algo.seed,
                 nan_guard_cfg=_nan_guard_cfg,
+                collector_infer_device=collector_infer_device,
+                torch_thread_runtime=torch_thread_runtime,
             )
 
         _learner = _learner_cls(device=_device, **_learner_kwargs)
@@ -348,6 +381,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             verbose_metrics=verbose_metrics,
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
+            collector_infer_device=collector_infer_device,
+            torch_thread_runtime=torch_thread_runtime,
         )
 
     if algo_name == "td3":
@@ -433,6 +468,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             verbose_metrics=verbose_metrics,
             actor_kwargs=_actor_kwargs,
             nan_guard_cfg=_nan_guard_cfg,
+            collector_infer_device=collector_infer_device,
+            torch_thread_runtime=torch_thread_runtime,
         )
 
     if algo_name == "flashsac":
@@ -446,6 +483,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             replay_prefetch_mode=replay_prefetch_mode,
             verbose_metrics=verbose_metrics,
             nan_guard_cfg=_nan_guard_cfg,
+            torch_thread_runtime=torch_thread_runtime,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")

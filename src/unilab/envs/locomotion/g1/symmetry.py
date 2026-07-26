@@ -12,9 +12,8 @@ from unilab.base.augmentation import SymmetryAugmentation, SymmetryObsLayout
 @dataclass(frozen=True)
 class _ObsGroupTransform:
     dim: int
-    flip_mask: torch.Tensor
     joint_map: torch.Tensor
-    joint_sign: torch.Tensor
+    sign_mask: torch.Tensor
 
 
 class G1SymmetryAugmentation(SymmetryAugmentation):
@@ -120,9 +119,8 @@ class G1SymmetryAugmentation(SymmetryAugmentation):
 
         return _ObsGroupTransform(
             dim=obs_dim,
-            flip_mask=flip_mask,
             joint_map=joint_map,
-            joint_sign=joint_sign,
+            sign_mask=flip_mask * joint_sign,
         )
 
     @staticmethod
@@ -141,7 +139,10 @@ class G1SymmetryAugmentation(SymmetryAugmentation):
             raise ValueError(
                 f"Symmetry obs group {obs_group!r} expects dim {transform.dim}, got {obs.shape[-1]}"
             )
-        return obs[..., transform.joint_map] * transform.flip_mask * transform.joint_sign
+        return obs[..., transform.joint_map] * transform.sign_mask
+
+    def augment_obs(self, obs: torch.Tensor, *, obs_group: str = "obs") -> torch.Tensor:
+        return torch.cat([obs, self.mirror_obs(obs, obs_group=obs_group)], dim=0)
 
     def augment_obs_and_actions(
         self,
@@ -150,7 +151,7 @@ class G1SymmetryAugmentation(SymmetryAugmentation):
         *,
         obs_group: str = "obs",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        return torch.cat([obs, self.mirror_obs(obs, obs_group=obs_group)], dim=0), torch.cat(
+        return self.augment_obs(obs, obs_group=obs_group), torch.cat(
             [actions, self.mirror_action(actions)],
             dim=0,
         )

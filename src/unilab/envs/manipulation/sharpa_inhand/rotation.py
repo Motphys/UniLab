@@ -30,18 +30,19 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import (
-    np_quat_apply,
-    np_quat_conjugate,
-    np_quat_mul,
-    np_quat_to_axis_angle,
-)
 from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
     repeat_obs_history,
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
+)
+from unilab.utils.geometry import np_sample_uniform_quaternion
+from unilab.utils.rotation import (
+    np_quat_apply,
+    np_quat_conjugate,
+    np_quat_mul,
+    np_quat_to_axis_angle,
 )
 
 
@@ -76,18 +77,9 @@ def sample_random_quaternion(num_envs: int) -> np.ndarray:
         num_envs: Number of quaternions to sample.
 
     Returns:
-        Quaternion array with shape ``(num_envs, 4)``.
+        Quaternion array with shape ``(num_envs, 4)`` in float64.
     """
-    u1 = np.random.rand(num_envs)
-    u2 = np.random.rand(num_envs) * 2.0 * np.pi
-    u3 = np.random.rand(num_envs) * 2.0 * np.pi
-
-    q1 = np.sqrt(1.0 - u1) * np.sin(u2)
-    q2 = np.sqrt(1.0 - u1) * np.cos(u2)
-    q3 = np.sqrt(u1) * np.sin(u3)
-    q4 = np.sqrt(u1) * np.cos(u3)
-
-    return np.stack([q4, q1, q2, q3], axis=1).astype(np.float64)
+    return np_sample_uniform_quaternion(num_envs).astype(np.float64)
 
 
 class SharpaInhandRotationDRProvider(DomainRandomizationProvider):

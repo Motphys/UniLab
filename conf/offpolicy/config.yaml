@@ -6,6 +6,7 @@ defaults:
 training:
   task_name: G1WalkFlat
   device: null
+  collector_infer_device: cpu
   logger: tensorboard
   wandb_project: unilab
   wandb_entity: null
@@ -43,8 +44,19 @@ training:
   trace_output_dir: null
   trace_thread_time: false
   trace_cuda_events: true
+  nvtx_profile_ranges: false
   replay_prefetch_mode: one_tick
   verbose_metrics: false
+  torch_threads:
+    enabled: true
+    # "auto" resolves per process role from host CPU count with conservative caps.
+    # Override these from Hydra when benchmarking a specific machine.
+    learner_num_threads: auto
+    collector_num_threads: auto
+    learner_num_interop_threads: 1
+    collector_num_interop_threads: 1
+    compile_threads: auto
+    set_env_vars: true
 
 interactive:
   action_mode: zero

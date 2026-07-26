@@ -49,13 +49,22 @@ class DomainRandomizationManager:
         payload_filter_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        self._env._backend.set_state(
+        set_state_result = self._env._backend.set_state(
             plan.env_ids,
             plan.qpos,
             plan.qvel,
             randomization=payload,
         )
         set_state_ms = (time.perf_counter() - t0) * 1000.0
+        backend_set_state_timing: dict[str, float] = {}
+        if isinstance(set_state_result, dict):
+            backend_timing = set_state_result.get("timing")
+            if isinstance(backend_timing, dict):
+                for key, value in backend_timing.items():
+                    try:
+                        backend_set_state_timing[str(key)] = float(value)
+                    except (TypeError, ValueError):
+                        continue
 
         t0 = time.perf_counter()
         obs = self._provider.build_reset_observation(self._env, plan.env_ids, plan.info_updates)
@@ -71,6 +80,8 @@ class DomainRandomizationManager:
             "dr_reset_build_observation_ms": build_observation_ms,
             "dr_reset_internal_gap_ms": total_ms - measured_ms,
         }
+        if backend_set_state_timing:
+            timing.update(backend_set_state_timing)
         provider_timing = getattr(self._provider, "last_reset_observation_timing_ms", {})
         if isinstance(provider_timing, dict):
             timing.update(provider_timing)

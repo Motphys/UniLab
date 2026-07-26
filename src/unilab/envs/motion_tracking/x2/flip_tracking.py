@@ -9,20 +9,20 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
 from unilab.envs.locomotion.g1.base import Sensor
-from unilab.envs.motion_tracking.g1.flip_tracking import (
+from unilab.envs.motion_tracking.common.config import (
+    PoseRandomization,
+    VelocityRandomization,
     _zero_pose_randomization,
     _zero_velocity_randomization,
 )
-from unilab.envs.motion_tracking.g1.tracking import (
-    G1MotionTrackingDeployEnv,
-    G1MotionTrackingDeployEnvCfg,
-    PoseRandomization,
-    VelocityRandomization,
+from unilab.envs.motion_tracking.common.tracking import (
+    MotionTrackingDeployEnv,
+    MotionTrackingDeployEnvCfg,
 )
 
 
 @dataclass
-class X2MotionTrackingCfg(G1MotionTrackingDeployEnvCfg):
+class X2MotionTrackingCfg(MotionTrackingDeployEnvCfg):
     """Base X2 motion-tracking config profile."""
 
     scene: SceneCfg = field(
@@ -119,7 +119,7 @@ class X2WallFlipTrackingEnvCfg(X2WallFlipTrackingCfg):
 
 @registry.env("X2WallFlipTracking", sim_backend="mujoco")
 @registry.env("X2WallFlipTracking", sim_backend="motrix")
-class X2WallFlipTrackingEnv(G1MotionTrackingDeployEnv):
+class X2WallFlipTrackingEnv(MotionTrackingDeployEnv):
     """X2 wall flip-tracking environment implementation."""
 
     _cfg: X2WallFlipTrackingCfg

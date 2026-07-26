@@ -27,7 +27,10 @@ from unilab.dr.dr_utils import (
     zero_actions,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import np_quat_conjugate, np_quat_mul, np_quat_to_axis_angle
+from unilab.utils.geometry import (
+    np_normalize_axis,
+    np_quat_angular_velocity_from_pair,
+)
 
 from .base import AllegroBaseCfg, AllegroBaseEnv
 
@@ -41,15 +44,19 @@ def resolve_grasp_cache_path(cache_path: str) -> epath.Path:
 
 
 def normalize_rotation_axis(rotation_axis: tuple[float, float, float]) -> np.ndarray:
+    # Cast to the training dtype first so the norm and division happen at that
+    # precision, matching the pre-refactor bit-exact behavior for float32 runs.
     axis = np.asarray(rotation_axis, dtype=get_global_dtype())
-    return np.asarray(axis / np.linalg.norm(axis), dtype=get_global_dtype())
+    return np.asarray(np_normalize_axis(axis), dtype=get_global_dtype())
 
 
 def compute_ball_angvel(
     ball_quat: np.ndarray, prev_ball_quat: np.ndarray, ctrl_dt: float
 ) -> np.ndarray:
-    rel_quat = np_quat_mul(ball_quat, np_quat_conjugate(prev_ball_quat))
-    return np.asarray(np_quat_to_axis_angle(rel_quat) / ctrl_dt, dtype=get_global_dtype())
+    return np.asarray(
+        np_quat_angular_velocity_from_pair(ball_quat, prev_ball_quat, ctrl_dt),
+        dtype=get_global_dtype(),
+    )
 
 
 def compute_pd_torques(

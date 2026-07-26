@@ -6,6 +6,7 @@ algo:
   max_iterations: 500
   save_interval: 100
 env:
+  numba_acceleration: false
   control_config:
     action_scale: 0.25
   curriculum:

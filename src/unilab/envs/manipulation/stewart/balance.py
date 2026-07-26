@@ -23,7 +23,8 @@ from unilab.base.scene import SceneCfg
 from unilab.dr.provider import DomainRandomizationProvider
 from unilab.dr.types import DomainRandomizationCapabilities, ResetPlan
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.common.rotation import (
+from unilab.utils.geometry import np_roll_pitch_from_quat
+from unilab.utils.rotation import (
     np_quat_apply_batched,
     np_quat_apply_inverse,
     np_quat_conjugate_batched,
@@ -120,13 +121,8 @@ def _ball_home_z(cfg: StewartBalanceCfg) -> float:
 
 
 def _roll_pitch_from_quat(quat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Extract roll/pitch (rad) from a wxyz quaternion via its rotation matrix."""
-    w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
-    r20 = 2.0 * (x * z - w * y)
-    r21 = 2.0 * (y * z + w * x)
-    r22 = 1.0 - 2.0 * (x * x + y * y)
-    roll = np.arctan2(r21, r22)
-    pitch = np.arctan2(-r20, np.sqrt(np.clip(r21 * r21 + r22 * r22, 0.0, None)))
+    """Extract roll/pitch (rad) from a wxyz quaternion, cast to float32."""
+    roll, pitch = np_roll_pitch_from_quat(quat)
     return roll.astype(np.float32), pitch.astype(np.float32)
 
 

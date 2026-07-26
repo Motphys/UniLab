@@ -20,6 +20,10 @@ from unilab.algos.torch.offpolicy.runner import (
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
 )
+from unilab.algos.torch.offpolicy.thread_budget import (
+    format_torch_thread_runtime,
+    torch_thread_env,
+)
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
@@ -186,6 +190,26 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             warn_if_over_budget,
         )
 
+        graph_packed_staging_supported = self.algo_type == "sac" or (
+            self.algo_type == "flashsac"
+            and bool(getattr(self.learner, "supports_cuda_graph_packed_staging", False))
+        )
+        use_critic_graph_packed_source = (
+            graph_packed_staging_supported
+            and bool(getattr(self.learner, "use_cuda_graph_critic_packed_staging", False))
+            and self.critic_obs_dim > 0
+        )
+        use_sac_graph_pack_layout = use_critic_graph_packed_source and bool(
+            getattr(self.learner, "use_cuda_graph_actor_packed_staging", False)
+        )
+        use_critic_graph_packed_source = (
+            use_critic_graph_packed_source and not use_sac_graph_pack_layout
+        )
+        critic_graph_staging_width = (
+            self.critic_obs_dim + self.action_dim + 1 + self.obs_dim + self.critic_obs_dim + 1 + 1
+            if use_critic_graph_packed_source
+            else 0
+        )
         mem_est = estimate_offpolicy_bytes(
             num_envs=self.num_envs,
             replay_buffer_n=self.replay_buffer_n,
@@ -194,6 +218,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             critic_dim=self.critic_obs_dim,
             batch_size=self.batch_size,
             updates_per_step=self.updates_per_step,
+            critic_graph_staging_width=critic_graph_staging_width,
         )
         warn_if_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
         raise_if_shared_memory_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
@@ -219,10 +244,22 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         collector_pack_request_queue = _SPAWN_CTX.Queue(maxsize=1)
         collector_pack_ready_queue = _SPAWN_CTX.Queue(maxsize=1)
         packed_width = int(replay_buffer._storage.shape[1])
+        if use_sac_graph_pack_layout:
+            packed_width = int(replay_buffer.sac_graph_packed_width())
         collector_pack_shared_slots = [
             torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
             for _ in range(2)
         ]
+        collector_pack_critic_graph_shared_slots = None
+        if use_critic_graph_packed_source:
+            critic_graph_width = int(replay_buffer.critic_graph_packed_width())
+            collector_pack_critic_graph_shared_slots = [
+                torch.empty(
+                    (sample_count, critic_graph_width),
+                    dtype=torch.float32,
+                ).share_memory_()
+                for _ in range(2)
+            ]
         _verbose_output_dir: str | None = None
         if self.verbose_metrics:
             _vroot = Path(self.trace_output_dir) if self.trace_output_dir else Path(log_dir)
@@ -239,6 +276,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             collector_pack_request_queue=collector_pack_request_queue,
             collector_pack_ready_queue=collector_pack_ready_queue,
             collector_pack_shared_slots=collector_pack_shared_slots,
+            pack_layout="sac_graph" if use_sac_graph_pack_layout else "packed",
+            use_critic_graph_packed_source=use_critic_graph_packed_source,
+            collector_pack_critic_graph_shared_slots=collector_pack_critic_graph_shared_slots,
         )
         self.replay_h2d_submitter = getattr(
             replay_pipeline,
@@ -271,6 +311,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
+        logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))
         logger.log_status("Replay pipeline: cpu_pinned_double_buffer")
         logger.log_status(f"Replay prefetch mode: {self.replay_prefetch_mode}")
         logger.log_status(f"Replay pack layout: {self.replay_pack_layout}")
@@ -282,6 +323,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"{self.replay_transfer_backend.get('backend')} "
                 f"({self.replay_transfer_backend.get('device_family')})"
             )
+        logger.log_status(
+            "Collector infer device: "
+            f"{self.collector_infer_device_raw} -> {self.collector_infer_device}"
+        )
         logger.log_status("Replay learner lightweight: fixed (log_interval=1)")
         if self.verbose_metrics:
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
@@ -332,18 +377,26 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "obs_dim": self.obs_dim,
                 "action_dim": self.action_dim,
                 "actor_kwargs": self.actor_kwargs,
+                "collector_infer_device": self.collector_infer_device,
+                "collector_infer_device_raw": self.collector_infer_device_raw,
                 "seed": derive_worker_seed(self.seed, worker_index=0),
                 "trace_enabled": self.trace_enabled,
                 "trace_thread_time": self.trace_thread_time,
                 "nan_guard_cfg": self.nan_guard_cfg,
+                "torch_thread_runtime": self.torch_thread_runtime,
                 "collector_pack_request_queue": collector_pack_request_queue,
                 "collector_pack_ready_queue": collector_pack_ready_queue,
                 "collector_pack_shared_slots": collector_pack_shared_slots,
             }
-            self._start_collector(
-                target_fn=off_policy_collector_fn,
-                kwargs={"stop_event": self._stop_event, **collector_kwargs},
-            )
+            if use_critic_graph_packed_source:
+                collector_kwargs["collector_pack_critic_graph_shared_slots"] = (
+                    collector_pack_critic_graph_shared_slots
+                )
+            with torch_thread_env(self.torch_thread_runtime, role="collector"):
+                self._start_collector(
+                    target_fn=off_policy_collector_fn,
+                    kwargs={"stop_event": self._stop_event, **collector_kwargs},
+                )
 
             time.sleep(0.5)
             if self._collector_process:
@@ -575,9 +628,18 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         s = update_idx * self.batch_size
                         e = s + self.batch_size
                         batch = {k: v[s:e] for k, v in large_batch.items()}
+                        read_critic_graph_metrics = update_idx == self.updates_per_step - 1
 
                         _critic_ns = time.perf_counter_ns()
-                        critic_metrics = learner.update_critic(batch)
+                        if getattr(learner, "use_cuda_graph_critic", False) and hasattr(
+                            learner, "update_critic_cuda_graph"
+                        ):
+                            critic_metrics = learner.update_critic_cuda_graph(
+                                batch,
+                                read_metrics=read_critic_graph_metrics,
+                            )
+                        else:
+                            critic_metrics = learner.update_critic(batch)
                         if trace_recorder:
                             trace_recorder.add_slice(
                                 "learner/update_critic",
@@ -590,8 +652,18 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             iter_metrics[k].append(v)
 
                         if update_idx % self.policy_frequency == 0:
+                            next_actor_update = update_idx + self.policy_frequency
+                            read_actor_graph_metrics = next_actor_update >= self.updates_per_step
                             _actor_ns = time.perf_counter_ns()
-                            actor_metrics = learner.update_actor(batch)
+                            if getattr(learner, "use_cuda_graph_actor", False) and hasattr(
+                                learner, "update_actor_cuda_graph"
+                            ):
+                                actor_metrics = learner.update_actor_cuda_graph(
+                                    batch,
+                                    read_metrics=read_actor_graph_metrics,
+                                )
+                            else:
+                                actor_metrics = learner.update_actor(batch)
                             if trace_recorder:
                                 trace_recorder.add_slice(
                                     "learner/update_actor",

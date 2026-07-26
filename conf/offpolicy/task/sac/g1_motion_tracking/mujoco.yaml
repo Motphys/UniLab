@@ -20,6 +20,7 @@ algo:
     target_entropy_ratio: 0.5
     max_grad_norm: 10.0
 env:
+  numba_acceleration: false
   control_config:
     action_scale: 2.0
   anchor_pos_z_threshold: 0.5
@@ -30,6 +31,7 @@ env:
     scale_joint_angle: 0.01
     scale_joint_vel: 1.5
     scale_gyro: 0.2
+    seed: null
 reward:
   scales:
     motion_global_root_pos: 1.0

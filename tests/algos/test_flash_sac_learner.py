@@ -59,6 +59,136 @@ def test_flashsac_learner_exposes_expected_dims():
     assert learner.action_dim == 29
 
 
+def test_flashsac_cuda_graph_options_are_opt_in() -> None:
+    default_learner = _make_small_learner()
+
+    assert default_learner.supports_cuda_graph_packed_staging is True
+    assert default_learner.use_cuda_graph_critic is False
+    assert default_learner.use_cuda_graph_actor is False
+    assert default_learner.use_cuda_graph_critic_packed_staging is False
+    assert default_learner.use_cuda_graph_actor_packed_staging is False
+
+    graph_learner = _make_small_learner(
+        use_cuda_graph_critic=True,
+        use_cuda_graph_actor=True,
+        use_cuda_graph_critic_packed_staging=True,
+        use_cuda_graph_actor_packed_staging=True,
+    )
+
+    assert graph_learner.use_cuda_graph_critic is True
+    assert graph_learner.use_cuda_graph_actor is True
+    assert graph_learner.use_cuda_graph_critic_packed_staging is True
+    assert graph_learner.use_cuda_graph_actor_packed_staging is True
+
+
+def test_flashsac_update_critic_cuda_graph_falls_back_on_cpu() -> None:
+    learner = FlashSACLearner(
+        obs_dim=98,
+        action_dim=29,
+        critic_obs_dim=101,
+        device="cpu",
+        use_cuda_graph_critic=True,
+    )
+    batch = _make_batch(batch_size=4)
+
+    metrics = learner.update_critic_cuda_graph(batch)
+
+    assert "critic_loss" in metrics
+    assert "reward_scale_std" in metrics
+
+
+def test_flashsac_update_actor_cuda_graph_falls_back_on_cpu() -> None:
+    learner = FlashSACLearner(
+        obs_dim=98,
+        action_dim=29,
+        critic_obs_dim=101,
+        device="cpu",
+        use_cuda_graph_actor=True,
+    )
+    batch = _make_batch(batch_size=4)
+
+    metrics = learner.update_actor_cuda_graph(batch)
+
+    assert "actor_loss" in metrics
+    assert "temperature" in metrics
+
+
+def test_flashsac_sac_graph_packed_source_updates_critic_and_actor_views() -> None:
+    learner = _make_small_learner(
+        use_cuda_graph_critic=True,
+        use_cuda_graph_actor=True,
+        use_cuda_graph_critic_packed_staging=True,
+        use_cuda_graph_actor_packed_staging=True,
+    )
+    batch = {
+        "obs": torch.randn(4, 4),
+        "critic": torch.randn(4, 6),
+        "actions": torch.randn(4, 2),
+        "rewards": torch.randn(4),
+        "next_obs": torch.randn(4, 4),
+        "next_critic": torch.randn(4, 6),
+        "dones": torch.zeros(4),
+        "truncated": torch.zeros(4),
+    }
+    packed = torch.cat(
+        [
+            batch["obs"],
+            batch["critic"],
+            batch["actions"],
+            batch["rewards"].view(4, 1),
+            batch["next_obs"],
+            batch["next_critic"],
+            batch["dones"].view(4, 1),
+            batch["truncated"].view(4, 1),
+        ],
+        dim=1,
+    )
+    critic_shapes = learner._critic_graph_input_shapes(batch)
+    actor_shapes = learner._actor_graph_input_shapes(batch)
+
+    critic_views = learner._critic_graph_static_views_from_sac_packed(
+        packed,
+        critic_shapes,
+        actor_shapes,
+    )
+    actor_views = learner._actor_graph_static_views_from_sac_packed(packed, actor_shapes)
+
+    torch.testing.assert_close(critic_views["obs"], batch["obs"])
+    torch.testing.assert_close(critic_views["critic"], batch["critic"])
+    torch.testing.assert_close(critic_views["actions"], batch["actions"])
+    torch.testing.assert_close(critic_views["rewards"], batch["rewards"])
+    torch.testing.assert_close(critic_views["next_obs"], batch["next_obs"])
+    torch.testing.assert_close(critic_views["next_critic"], batch["next_critic"])
+    torch.testing.assert_close(actor_views["obs"], batch["obs"])
+    torch.testing.assert_close(actor_views["critic"], batch["critic"])
+
+
+def test_flashsac_cuda_adam_optimizers_are_capture_ready(monkeypatch) -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA-only optimizer kwargs require a CUDA-enabled torch build")
+
+    calls: list[dict[str, Any]] = []
+
+    class _FakeAdam:
+        def __init__(self, _params, **kwargs):
+            calls.append(kwargs)
+            self.param_groups = [{"lr": kwargs["lr"]}]
+
+    class _FakeLambdaLR:
+        def __init__(self, optimizer, lr_lambda):
+            self.optimizer = optimizer
+            self.lr_lambda = lr_lambda
+
+    monkeypatch.setattr(torch.optim, "Adam", _FakeAdam)
+    monkeypatch.setattr(torch.optim.lr_scheduler, "LambdaLR", _FakeLambdaLR)
+
+    FlashSACLearner(obs_dim=98, action_dim=29, critic_obs_dim=101, device="cuda")
+
+    assert len(calls) == 3
+    assert all(call["fused"] for call in calls)
+    assert all(call["capturable"] for call in calls)
+
+
 def test_flashsac_learner_declares_multi_gpu_contract() -> None:
     validate_distributed_learner_capability(
         learner_cls=FlashSACLearner,
@@ -183,6 +313,68 @@ def test_flashsac_compile_targets_training_hot_paths(monkeypatch) -> None:
         ),
         (
             "FlashSACLearner._actor_loss_tensors",
+            {"options": {"triton.cudagraphs": False}},
+        ),
+    ]
+
+
+def test_flashsac_graph_critic_skips_compiling_critic_loss(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_compile(fn: Callable, **kwargs):
+        calls.append((fn.__qualname__, kwargs))
+        return fn
+
+    learner = FlashSACLearner(
+        obs_dim=98,
+        action_dim=29,
+        critic_obs_dim=101,
+        device="cpu",
+        use_cuda_graph_critic=True,
+    )
+    learner.device = torch.device("cuda")
+    monkeypatch.setattr(torch, "compile", fake_compile)
+
+    learner._compile_training_methods()
+
+    assert calls == [
+        (
+            "FlashSACActor.get_mean_and_std",
+            {"options": {"triton.cudagraphs": False}},
+        ),
+        (
+            "FlashSACLearner._actor_loss_tensors",
+            {"options": {"triton.cudagraphs": False}},
+        ),
+    ]
+
+
+def test_flashsac_graph_actor_skips_compiling_actor_loss(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_compile(fn: Callable, **kwargs):
+        calls.append((fn.__qualname__, kwargs))
+        return fn
+
+    learner = FlashSACLearner(
+        obs_dim=98,
+        action_dim=29,
+        critic_obs_dim=101,
+        device="cpu",
+        use_cuda_graph_actor=True,
+    )
+    learner.device = torch.device("cuda")
+    monkeypatch.setattr(torch, "compile", fake_compile)
+
+    learner._compile_training_methods()
+
+    assert calls == [
+        (
+            "FlashSACActor.get_mean_and_std",
+            {"options": {"triton.cudagraphs": False}},
+        ),
+        (
+            "FlashSACLearner._critic_loss_tensors",
             {"options": {"triton.cudagraphs": False}},
         ),
     ]

@@ -1,57 +1,95 @@
 """Motion tracking environments for Unitree G1."""
 
-from .box_tracking import G1BoxTrackingCfg, G1BoxTrackingEnv, G1BoxTrackingEnvCfg
+from .box_tracking import (
+    G1BoxTracking23DofCfg,
+    G1BoxTracking23DofEnvCfg,
+    G1BoxTrackingCfg,
+    G1BoxTrackingEnv,
+    G1BoxTrackingEnvCfg,
+)
 from .flip_tracking import (
     G1ClimbTrackingCfg,
     G1ClimbTrackingEnv,
     G1ClimbTrackingEnvCfg,
+    G1FlipTracking23DofCfg,
+    G1FlipTracking23DofEnvCfg,
     G1FlipTrackingCfg,
     G1FlipTrackingEnv,
     G1FlipTrackingEnvCfg,
+    G1WallFlipTracking23DofCfg,
+    G1WallFlipTracking23DofEnvCfg,
     G1WallFlipTrackingCfg,
     G1WallFlipTrackingEnv,
     G1WallFlipTrackingEnvCfg,
 )
 from .flip_tracking_sac import (
+    G1FlipTrackingSAC23DofCfg,
+    G1FlipTrackingSAC23DofEnv,
     G1FlipTrackingSACCfg,
     G1FlipTrackingSACEnv,
+    G1WallFlipTrackingSAC23DofCfg,
+    G1WallFlipTrackingSAC23DofEnv,
     G1WallFlipTrackingSACCfg,
     G1WallFlipTrackingSACEnv,
 )
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
 from .tracking import (
+    G1MotionTracking23DofCfg,
+    G1MotionTracking23DofDeployEnvCfg,
+    G1MotionTracking23DofEnvCfg,
     G1MotionTrackingCfg,
     G1MotionTrackingDeployEnv,
     G1MotionTrackingDeployEnvCfg,
     G1MotionTrackingEnv,
     G1MotionTrackingEnvCfg,
 )
-from .tracking_obs import G1WBTObsCfg, G1WBTObsEnv
-from .tracking_sac import G1MotionTrackingSACCfg, G1MotionTrackingSACEnv
+from .tracking_obs import G1WBTObs23DofCfg, G1WBTObsCfg, G1WBTObsEnv
+from .tracking_sac import (
+    G1MotionTrackingSAC23DofCfg,
+    G1MotionTrackingSAC23DofEnv,
+    G1MotionTrackingSACCfg,
+    G1MotionTrackingSACEnv,
+)
 
 __all__ = [
+    "G1MotionTracking23DofCfg",
+    "G1MotionTracking23DofDeployEnvCfg",
+    "G1MotionTracking23DofEnvCfg",
     "G1MotionTrackingCfg",
     "G1MotionTrackingDeployEnv",
     "G1MotionTrackingDeployEnvCfg",
     "G1MotionTrackingEnv",
     "G1MotionTrackingEnvCfg",
+    "G1MotionTrackingSAC23DofCfg",
+    "G1MotionTrackingSAC23DofEnv",
     "G1MotionTrackingSACCfg",
     "G1MotionTrackingSACEnv",
+    "G1WBTObs23DofCfg",
     "G1WBTObsCfg",
     "G1WBTObsEnv",
+    "G1FlipTracking23DofCfg",
+    "G1FlipTracking23DofEnvCfg",
     "G1FlipTrackingCfg",
     "G1FlipTrackingEnv",
     "G1FlipTrackingEnvCfg",
+    "G1FlipTrackingSAC23DofCfg",
+    "G1FlipTrackingSAC23DofEnv",
+    "G1FlipTrackingSACCfg",
+    "G1FlipTrackingSACEnv",
+    "G1WallFlipTracking23DofCfg",
+    "G1WallFlipTracking23DofEnvCfg",
     "G1WallFlipTrackingCfg",
     "G1WallFlipTrackingEnv",
     "G1WallFlipTrackingEnvCfg",
-    "G1FlipTrackingSACCfg",
-    "G1FlipTrackingSACEnv",
+    "G1WallFlipTrackingSAC23DofCfg",
+    "G1WallFlipTrackingSAC23DofEnv",
     "G1WallFlipTrackingSACCfg",
     "G1WallFlipTrackingSACEnv",
     "G1ClimbTrackingCfg",
     "G1ClimbTrackingEnv",
     "G1ClimbTrackingEnvCfg",
+    "G1BoxTracking23DofCfg",
+    "G1BoxTracking23DofEnvCfg",
     "G1BoxTrackingCfg",
     "G1BoxTrackingEnv",
     "G1BoxTrackingEnvCfg",

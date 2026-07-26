@@ -48,6 +48,7 @@ def build_flashsac_double_buffer_runner(
     replay_prefetch_mode: str,
     verbose_metrics: bool,
     nan_guard_cfg: NanGuardCfg | None = None,
+    torch_thread_runtime: dict[str, Any] | None = None,
 ) -> Any:
     """Build FlashSAC with the opt-in CPU-pinned double-buffer replay pipeline."""
     from unilab.base.observations import get_obs_dims
@@ -55,6 +56,7 @@ def build_flashsac_double_buffer_runner(
     ensure_registries()
     apply_training_seed(cfg.algo.seed, torch_runtime=True, cuda=True)
     device = cfg.training.device or get_default_device()
+    collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
     _validate_flashsac_double_buffer_runtime(
         cfg,
         device=device,
@@ -103,6 +105,14 @@ def build_flashsac_double_buffer_runner(
         "use_amp": cfg.training.use_amp,
         "amp_dtype": cfg.algo.algo_params.amp_dtype,
         "use_compile": cfg.algo.algo_params.use_compile,
+        "use_cuda_graph_critic": cfg.algo.algo_params.use_cuda_graph_critic,
+        "use_cuda_graph_actor": cfg.algo.algo_params.use_cuda_graph_actor,
+        "use_cuda_graph_critic_packed_staging": (
+            cfg.algo.algo_params.use_cuda_graph_critic_packed_staging
+        ),
+        "use_cuda_graph_actor_packed_staging": (
+            cfg.algo.algo_params.use_cuda_graph_actor_packed_staging
+        ),
     }
     actor_kwargs = {
         "actor_num_blocks": cfg.algo.algo_params.actor_num_blocks,
@@ -152,6 +162,8 @@ def build_flashsac_double_buffer_runner(
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
             nan_guard_cfg=nan_guard_cfg,
+            collector_infer_device=collector_infer_device,
+            torch_thread_runtime=torch_thread_runtime,
         )
 
     learner = FlashSACLearner(device=device, **learner_kwargs)
@@ -183,4 +195,6 @@ def build_flashsac_double_buffer_runner(
         replay_prefetch_mode=replay_prefetch_mode,
         verbose_metrics=verbose_metrics,
         nan_guard_cfg=nan_guard_cfg,
+        collector_infer_device=collector_infer_device,
+        torch_thread_runtime=torch_thread_runtime,
     )

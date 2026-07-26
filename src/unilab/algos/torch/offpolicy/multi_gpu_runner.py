@@ -2,7 +2,7 @@
 
 Architecture:
   Main process   → creates ReplayBuffer (host-only), WeightSync, queues
-                 → spawns Collector subprocess (CPU, env simulation)
+                 → spawns Collector subprocess (CPU env I/O, configurable inference device)
                  → spawns N Learner workers via mp.spawn (one per GPU)
   Learner rank i → samples packed CPU replay rows to its rank device through
                    a rank-local H2D pipeline, then either averages gradients
@@ -37,6 +37,11 @@ from unilab.algos.torch.offpolicy.runner import (
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
     update_reward_stats_from_replay,
+)
+from unilab.algos.torch.offpolicy.thread_budget import (
+    apply_torch_thread_runtime,
+    format_torch_thread_runtime,
+    torch_thread_env,
 )
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
@@ -170,6 +175,11 @@ def _learner_worker(
     """Worker function executed on each GPU (called via torch.multiprocessing.spawn)."""
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(master_port)
+    apply_torch_thread_runtime(
+        runner_kwargs.get("torch_thread_runtime"),
+        role="learner",
+        torch_module=torch,
+    )
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
     backend = str(runner_kwargs.get("distributed_backend", "nccl"))
@@ -276,10 +286,18 @@ def _learner_worker(
                 f"{sync_mode} (interval={sync_interval} iteration"
                 f"{'s' if sync_interval != 1 else ''})"
             )
+            logger.log_status(
+                "Collector infer device: "
+                f"{runner_kwargs.get('collector_infer_device_raw', 'cpu')} -> "
+                f"{runner_kwargs.get('collector_infer_device', 'cpu')}"
+            )
             if sync_mode == "local_sgd":
                 logger.log_status(
                     "Local-SGD optimizer state: rank-local; parameters averaged at sync boundary"
                 )
+            logger.log_status(
+                format_torch_thread_runtime(runner_kwargs.get("torch_thread_runtime"))
+            )
             logger.start()
 
         reward_history: deque = deque(maxlen=100)
@@ -571,8 +589,9 @@ def _learner_worker(
 class MultiGPUOffPolicyRunner(OffPolicyRunner):
     """Multi-GPU off-policy runner.
 
-    Keeps a single Collector on CPU and spawns *num_gpus* Learner workers via
-    ``torch.multiprocessing.spawn``. Each worker processes an independent
+    Keeps a single Collector process and spawns *num_gpus* Learner workers via
+    ``torch.multiprocessing.spawn``. Env I/O remains CPU/numpy while collector
+    actor inference can use a configured device. Each worker processes an independent
     mini-batch from the same shared ReplayBuffer through a rank-local H2D
     pipeline. SAC defaults to local-SGD: ranks apply local updates and average
     parameters at runner-controlled synchronization boundaries. Strict per-update
@@ -733,7 +752,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             for _ in range(self.num_gpus)
         ]
 
-        # --- Start Collector (CPU, single process, unchanged) ---
+        # --- Start Collector (single process, device-configurable inference) ---
         weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
         collector_kwargs = {
             "env_name": self.env_name,
@@ -758,15 +777,19 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "obs_dim": self.obs_dim,
             "action_dim": self.action_dim,
             "actor_kwargs": self.actor_kwargs,
+            "collector_infer_device": self.collector_infer_device,
+            "collector_infer_device_raw": self.collector_infer_device_raw,
             "seed": derive_worker_seed(self.seed, worker_index=0),
             "collector_pack_request_queue": collector_pack_request_queues,
             "collector_pack_ready_queue": collector_pack_ready_queues,
             "collector_pack_shared_slots": collector_pack_shared_slots,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
-        self._start_collector(
-            target_fn=off_policy_collector_fn,
-            kwargs={"stop_event": self._stop_event, **collector_kwargs},
-        )
+        with torch_thread_env(self.torch_thread_runtime, role="collector"):
+            self._start_collector(
+                target_fn=off_policy_collector_fn,
+                kwargs={"stop_event": self._stop_event, **collector_kwargs},
+            )
         time.sleep(0.5)
         if self._collector_process:
             print(f"[MultiGPURunner] Collector process alive: {self._collector_process.is_alive()}")
@@ -798,6 +821,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "algo_type": self.algo_type,
             "obs_normalization": self.obs_normalization,
             "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
+            "collector_infer_device": self.collector_infer_device,
+            "collector_infer_device_raw": self.collector_infer_device_raw,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
 
         try:

@@ -156,6 +156,7 @@ class FlashSACLearner:
     supports_multi_gpu = True
     supports_multi_gpu_symmetry = False
     supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
+    supports_cuda_graph_packed_staging = True
 
     def __init__(
         self,
@@ -192,6 +193,10 @@ class FlashSACLearner:
         use_amp: bool = False,
         amp_dtype: str = "auto",
         use_compile: bool = False,
+        use_cuda_graph_critic: bool = False,
+        use_cuda_graph_actor: bool = False,
+        use_cuda_graph_critic_packed_staging: bool = False,
+        use_cuda_graph_actor_packed_staging: bool = False,
         world_size: int = 1,
         distributed_sync_mode: str = "sync_sgd",
     ):
@@ -209,6 +214,14 @@ class FlashSACLearner:
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self.device.type)
         self.use_compile = bool(
             use_compile and get_torch_compile_for_cuda(self.device, warn=True) is not None
+        )
+        self.use_cuda_graph_critic = bool(use_cuda_graph_critic)
+        self.use_cuda_graph_actor = bool(use_cuda_graph_actor)
+        self.use_cuda_graph_critic_packed_staging = bool(
+            use_cuda_graph_critic_packed_staging and self.use_cuda_graph_critic
+        )
+        self.use_cuda_graph_actor_packed_staging = bool(
+            use_cuda_graph_actor_packed_staging and self.use_cuda_graph_actor
         )
         self.world_size = int(world_size)
         self.distributed_sync_mode = normalize_distributed_sync_mode(distributed_sync_mode)
@@ -260,12 +273,27 @@ class FlashSACLearner:
             else None
         )
         lr_peak = learning_rate_peak if learning_rate_peak > 0 else actor_lr
-        fused = self.device.type == "cuda"
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr_peak, fused=fused)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_peak, fused=fused)
+        optimizer_kwargs: dict[str, Any] = {"fused": self.device.type == "cuda"}
+        if self.device.type == "cuda":
+            optimizer_kwargs["capturable"] = True
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr_peak, **optimizer_kwargs)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_peak, **optimizer_kwargs)
         self.temperature_optimizer = optim.Adam(
-            self.temperature.parameters(), lr=lr_peak, fused=fused
+            self.temperature.parameters(), lr=lr_peak, **optimizer_kwargs
         )
+        self._cuda_graph_critic: torch.cuda.CUDAGraph | None = None
+        self._cuda_graph_critic_static_inputs: dict[str, torch.Tensor] | None = None
+        self._cuda_graph_sac_static_packed_input: torch.Tensor | None = None
+        self._cuda_graph_sac_static_source_ptr: int | None = None
+        self._cuda_graph_critic_outputs: tuple[torch.Tensor, torch.Tensor] | None = None
+        self._cuda_graph_critic_shapes: dict[str, torch.Size] | None = None
+        self._cuda_graph_actor: torch.cuda.CUDAGraph | None = None
+        self._cuda_graph_actor_static_inputs: dict[str, torch.Tensor] | None = None
+        self._cuda_graph_actor_static_packed_input: torch.Tensor | None = None
+        self._cuda_graph_actor_outputs: (
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None
+        ) = None
+        self._cuda_graph_actor_shapes: dict[str, torch.Size] | None = None
 
         scheduler_fn = build_lr_lambda(
             init_lr=learning_rate_init,
@@ -292,12 +320,14 @@ class FlashSACLearner:
         self.actor.get_mean_and_std = compile_fn(  # type: ignore[method-assign]
             self.actor.get_mean_and_std, **compile_kwargs
         )
-        self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
-            self._critic_loss_tensors, **compile_kwargs
-        )
-        self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
-            self._actor_loss_tensors, **compile_kwargs
-        )
+        if not self.use_cuda_graph_critic:
+            self._critic_loss_tensors = compile_fn(  # type: ignore[method-assign]
+                self._critic_loss_tensors, **compile_kwargs
+            )
+        if not self.use_cuda_graph_actor:
+            self._actor_loss_tensors = compile_fn(  # type: ignore[method-assign]
+                self._actor_loss_tensors, **compile_kwargs
+            )
 
     @staticmethod
     def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
@@ -508,6 +538,526 @@ class FlashSACLearner:
             actor_loss = actor_loss + self.actor_bc_alpha * min_q.abs().mean().detach() * bc_loss
         entropy = -log_probs.detach().mean()
         return actor_loss, entropy
+
+    @staticmethod
+    def _critic_graph_input_keys() -> tuple[str, ...]:
+        return (
+            "obs",
+            "actions",
+            "rewards",
+            "next_obs",
+            "dones",
+            "truncated",
+            "critic",
+            "next_critic",
+        )
+
+    def _critic_graph_input_shapes(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Size]:
+        return {key: inputs[key].shape for key in self._critic_graph_input_keys()}
+
+    @staticmethod
+    def _graph_width(shape: torch.Size) -> int:
+        value = 1
+        for dim in shape[1:]:
+            value *= int(dim)
+        return value
+
+    @classmethod
+    def _sac_graph_offsets(
+        cls,
+        actor_shapes: dict[str, torch.Size],
+        critic_shapes: dict[str, torch.Size],
+    ) -> dict[str, tuple[int, int]]:
+        widths = {
+            "obs": cls._graph_width(actor_shapes["obs"]),
+            "critic": cls._graph_width(critic_shapes["critic"]),
+            "actions": cls._graph_width(critic_shapes["actions"]),
+            "rewards": cls._graph_width(critic_shapes["rewards"]),
+            "next_obs": cls._graph_width(critic_shapes["next_obs"]),
+            "next_critic": cls._graph_width(critic_shapes["next_critic"]),
+            "dones": cls._graph_width(critic_shapes["dones"]),
+            "truncated": cls._graph_width(critic_shapes["truncated"]),
+        }
+        offsets: dict[str, tuple[int, int]] = {}
+        offset = 0
+        for key in (
+            "obs",
+            "critic",
+            "actions",
+            "rewards",
+            "next_obs",
+            "next_critic",
+            "dones",
+            "truncated",
+        ):
+            key_width = widths[key]
+            offsets[key] = (offset, key_width)
+            offset += key_width
+        return offsets
+
+    @classmethod
+    def _critic_graph_static_views_from_sac_packed(
+        cls,
+        packed: torch.Tensor,
+        critic_shapes: dict[str, torch.Size],
+        actor_shapes: dict[str, torch.Size],
+    ) -> dict[str, torch.Tensor]:
+        offsets = cls._sac_graph_offsets(actor_shapes, critic_shapes)
+        views: dict[str, torch.Tensor] = {}
+        for key in cls._critic_graph_input_keys():
+            offset, width = offsets[key]
+            views[key] = packed.narrow(1, offset, width).view(critic_shapes[key])
+        return views
+
+    @classmethod
+    def _actor_graph_static_views_from_sac_packed(
+        cls,
+        packed: torch.Tensor,
+        actor_shapes: dict[str, torch.Size],
+    ) -> dict[str, torch.Tensor]:
+        batch_size = int(actor_shapes["obs"][0])
+        critic_shapes = {
+            "critic": actor_shapes["critic"],
+            "actions": actor_shapes["actions"],
+            "rewards": torch.Size((batch_size,)),
+            "next_obs": actor_shapes["next_obs"],
+            "next_critic": actor_shapes["critic"],
+            "dones": torch.Size((batch_size,)),
+            "truncated": torch.Size((batch_size,)),
+        }
+        offsets = cls._sac_graph_offsets(actor_shapes, critic_shapes)
+        views: dict[str, torch.Tensor] = {}
+        for key in cls._actor_graph_input_keys():
+            source_key = "actions" if key == "actions" else key
+            offset, width = offsets[source_key]
+            views[key] = packed.narrow(1, offset, width).view(actor_shapes[key])
+        return views
+
+    def _prepare_critic_graph_inputs(
+        self,
+        batch: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        obs = batch["obs"].to(self.device)
+        actions = batch["actions"].to(self.device)
+        rewards = batch["rewards"].to(self.device)
+        next_obs = batch["next_obs"].to(self.device)
+        dones = batch["dones"].to(self.device)
+        truncated = batch["truncated"].to(self.device)
+        critic_obs = batch["critic"].to(self.device)
+        critic_next_obs = batch["next_critic"].to(self.device)
+
+        obs = self._maybe_normalize_obs(obs, update=True)
+        next_obs = self._maybe_normalize_obs(next_obs, update=False)
+        if self.reward_normalizer is not None:
+            rewards = self.reward_normalizer.normalize(rewards)
+
+        prepared = {
+            "obs": obs,
+            "actions": actions,
+            "rewards": rewards,
+            "next_obs": next_obs,
+            "dones": dones,
+            "truncated": truncated,
+            "critic": critic_obs,
+            "next_critic": critic_next_obs,
+        }
+        if "sac_graph_packed_source" in batch:
+            prepared["sac_graph_packed_source"] = batch["sac_graph_packed_source"].to(self.device)
+        return prepared
+
+    def _copy_critic_graph_inputs(self, inputs: dict[str, torch.Tensor]) -> None:
+        assert self._cuda_graph_critic_static_inputs is not None
+        packed_source = inputs.get("sac_graph_packed_source")
+        if packed_source is not None and self._cuda_graph_sac_static_packed_input is not None:
+            self._cuda_graph_sac_static_packed_input.copy_(packed_source)
+            self._cuda_graph_sac_static_source_ptr = int(packed_source.data_ptr())
+            return
+        for key, tensor in self._cuda_graph_critic_static_inputs.items():
+            tensor.copy_(inputs[key])
+
+    def _update_critic_capture_candidate(
+        self,
+        inputs: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        actions = inputs["actions"]
+        rewards = inputs["rewards"]
+        next_obs = inputs["next_obs"]
+        dones = inputs["dones"]
+        truncated = inputs["truncated"]
+        critic_obs = inputs["critic"]
+        critic_next_obs = inputs["next_critic"]
+
+        gamma = self.gamma**self.n_step
+        obs_all = torch.cat([critic_obs, critic_next_obs], dim=0)
+
+        with torch.no_grad():
+            with self._autocast():
+                next_actions, actor_info = self.actor(next_obs, training=False)
+                actor_entropy = self.temperature().detach() * actor_info["log_prob"]
+                act_all = torch.cat([actions, next_actions], dim=0)
+                qs_all, q_info_all = self.target_critic(obs_all, act_all, training=True)
+                next_q_values = qs_all.chunk(2, dim=1)[1]
+                next_q_log_probs_full = q_info_all["log_prob"].chunk(2, dim=1)[1]
+                support = cast(torch.Tensor, self.target_critic.predictor.support)
+
+        with self._autocast():
+            _, pred_info_all = self.critic(obs_all, act_all, training=True)
+            pred_log_probs = pred_info_all["log_prob"].chunk(2, dim=1)[0]
+            critic_loss = self._critic_loss_tensors(
+                next_q_values,
+                next_q_log_probs_full,
+                support,
+                rewards,
+                dones,
+                truncated,
+                actor_entropy,
+                pred_log_probs,
+                gamma,
+            )
+
+        self.critic_optimizer.zero_grad(set_to_none=True)
+        critic_loss.backward()
+        self.critic_optimizer.step()
+        reward_scale_std = (
+            torch.sqrt(self.reward_normalizer.rms.var)
+            if self.reward_normalizer is not None
+            else torch.ones((), device=self.device)
+        )
+        return critic_loss, reward_scale_std
+
+    def _reset_critic_cuda_graph(self) -> None:
+        self._cuda_graph_critic = None
+        self._cuda_graph_critic_static_inputs = None
+        self._cuda_graph_sac_static_packed_input = None
+        self._cuda_graph_sac_static_source_ptr = None
+        self._cuda_graph_critic_outputs = None
+        self._cuda_graph_critic_shapes = None
+
+    def _materialize_capturable_critic_optimizer_state(
+        self,
+        inputs: dict[str, torch.Tensor],
+    ) -> None:
+        optimizer_lrs = [group["lr"] for group in self.critic_optimizer.param_groups]
+        optimizer_weight_decays = [
+            group["weight_decay"] for group in self.critic_optimizer.param_groups
+        ]
+        cpu_rng_state = torch.random.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state() if self.device.type == "cuda" else None
+        try:
+            for group in self.critic_optimizer.param_groups:
+                group["lr"] = 0.0
+                group["weight_decay"] = 0.0
+            self._update_critic_capture_candidate(inputs)
+        finally:
+            torch.random.set_rng_state(cpu_rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state(cuda_rng_state)
+            for group, lr, weight_decay in zip(
+                self.critic_optimizer.param_groups,
+                optimizer_lrs,
+                optimizer_weight_decays,
+                strict=True,
+            ):
+                group["lr"] = lr
+                group["weight_decay"] = weight_decay
+
+        self.critic_optimizer.zero_grad(set_to_none=True)
+        for state in self.critic_optimizer.state.values():
+            step = state.get("step")
+            if isinstance(step, torch.Tensor):
+                step.zero_()
+            elif step is not None:
+                state["step"] = 0
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                tensor = state.get(name)
+                if isinstance(tensor, torch.Tensor):
+                    tensor.zero_()
+
+    def _capture_critic_cuda_graph(self, inputs: dict[str, torch.Tensor]) -> None:
+        self._cuda_graph_critic_shapes = self._critic_graph_input_shapes(inputs)
+        packed_source = inputs.get("sac_graph_packed_source")
+        if self.use_cuda_graph_critic_packed_staging and packed_source is not None:
+            self._cuda_graph_sac_static_packed_input = packed_source.detach().clone()
+            actor_shapes = self._actor_graph_input_shapes(inputs)
+            self._cuda_graph_critic_static_inputs = self._critic_graph_static_views_from_sac_packed(
+                self._cuda_graph_sac_static_packed_input,
+                self._cuda_graph_critic_shapes,
+                actor_shapes,
+            )
+        else:
+            self._cuda_graph_sac_static_packed_input = None
+            self._cuda_graph_critic_static_inputs = {
+                key: inputs[key].detach().clone() for key in self._critic_graph_input_keys()
+            }
+        self._copy_critic_graph_inputs(inputs)
+
+        graph = torch.cuda.CUDAGraph()
+        capture_stream = cast(torch.cuda.Stream, torch.cuda.Stream())
+        capture_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+            self._cuda_graph_critic_outputs = self._update_critic_capture_candidate(
+                self._cuda_graph_critic_static_inputs
+            )
+        torch.cuda.current_stream().wait_stream(capture_stream)
+        torch.cuda.synchronize()
+        self._cuda_graph_critic = graph
+
+    def _critic_graph_output_metrics(self, *, read_items: bool = True) -> dict[str, float]:
+        if not read_items:
+            return {}
+        assert self._cuda_graph_critic_outputs is not None
+        critic_loss, reward_scale_std = self._cuda_graph_critic_outputs
+        return {
+            "critic_loss": float(critic_loss.detach().cpu()),
+            "reward_scale_std": float(reward_scale_std.detach().cpu()),
+        }
+
+    def update_critic_cuda_graph(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> dict[str, float]:
+        if not self.use_cuda_graph_critic:
+            return self.update_critic(batch)
+        if self.device.type != "cuda":
+            return self.update_critic(batch)
+        if self.scaler is not None or self.world_size > 1:
+            return self.update_critic(batch)
+        if not isinstance(self.obs_normalizer, nn.Identity):
+            return self.update_critic(batch)
+
+        inputs = self._prepare_critic_graph_inputs(batch)
+        if self._cuda_graph_critic_shapes != self._critic_graph_input_shapes(inputs):
+            self._reset_critic_cuda_graph()
+            self._materialize_capturable_critic_optimizer_state(inputs)
+            self._capture_critic_cuda_graph(inputs)
+            self.critic_scheduler.step()
+            self.critic.normalize_parameters()
+            return self._critic_graph_output_metrics(read_items=read_metrics)
+
+        assert self._cuda_graph_critic is not None
+        self._copy_critic_graph_inputs(inputs)
+        self._cuda_graph_critic.replay()
+        self.critic_scheduler.step()
+        self.critic.normalize_parameters()
+        return self._critic_graph_output_metrics(read_items=read_metrics)
+
+    @staticmethod
+    def _actor_graph_input_keys() -> tuple[str, ...]:
+        return ("obs", "next_obs", "actions", "critic")
+
+    def _actor_graph_input_shapes(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Size]:
+        return {key: inputs[key].shape for key in self._actor_graph_input_keys()}
+
+    def _prepare_actor_graph_inputs(
+        self,
+        batch: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        obs = batch["obs"].to(self.device)
+        next_obs = batch["next_obs"].to(self.device)
+        expert_actions = batch["actions"].to(self.device)
+        critic_obs = batch["critic"].to(self.device)
+        prepared = {
+            "obs": self._maybe_normalize_obs(obs, update=False),
+            "next_obs": self._maybe_normalize_obs(next_obs, update=False),
+            "actions": expert_actions,
+            "critic": critic_obs,
+        }
+        if "sac_graph_packed_source" in batch:
+            prepared["sac_graph_packed_source"] = batch["sac_graph_packed_source"].to(self.device)
+        return prepared
+
+    def _copy_actor_graph_inputs(self, inputs: dict[str, torch.Tensor]) -> None:
+        assert self._cuda_graph_actor_static_inputs is not None
+        packed_source = inputs.get("sac_graph_packed_source")
+        if packed_source is not None:
+            static_packed = self._cuda_graph_actor_static_packed_input
+            if static_packed is None:
+                static_packed = self._cuda_graph_sac_static_packed_input
+            if static_packed is not None:
+                source_ptr = int(packed_source.data_ptr())
+                if (
+                    static_packed is not self._cuda_graph_sac_static_packed_input
+                    or self._cuda_graph_sac_static_source_ptr != source_ptr
+                ):
+                    static_packed.copy_(packed_source)
+                    if static_packed is self._cuda_graph_sac_static_packed_input:
+                        self._cuda_graph_sac_static_source_ptr = source_ptr
+                return
+        for key, tensor in self._cuda_graph_actor_static_inputs.items():
+            tensor.copy_(inputs[key])
+
+    def _update_actor_capture_candidate(
+        self,
+        inputs: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        obs = inputs["obs"]
+        next_obs = inputs["next_obs"]
+        expert_actions = inputs["actions"]
+        critic_obs = inputs["critic"]
+        obs_all = torch.cat([obs, next_obs], dim=0)
+
+        with self._autocast():
+            actions_all, actor_info_all = self.actor(obs_all, training=True)
+            actions = actions_all.chunk(2, dim=0)[0]
+            log_probs = actor_info_all["log_prob"].chunk(2, dim=0)[0]
+
+            self._set_requires_grad(self.critic, False)
+            q_values, _ = self.critic(critic_obs, actions, training=False)
+            self._set_requires_grad(self.critic, True)
+            temp_value = self.temperature()
+            actor_loss, entropy = self._actor_loss_tensors(
+                log_probs, q_values, actions, expert_actions, temp_value
+            )
+
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        temp_loss = temp_value * (entropy - self.target_entropy)
+        self.temperature_optimizer.zero_grad(set_to_none=True)
+        temp_loss.backward()
+        self.temperature_optimizer.step()
+        return actor_loss, entropy, temp_value, temp_loss
+
+    def _reset_actor_cuda_graph(self) -> None:
+        self._cuda_graph_actor = None
+        self._cuda_graph_actor_static_inputs = None
+        self._cuda_graph_actor_static_packed_input = None
+        self._cuda_graph_actor_outputs = None
+        self._cuda_graph_actor_shapes = None
+
+    def _materialize_capturable_actor_optimizer_state(
+        self,
+        inputs: dict[str, torch.Tensor],
+    ) -> None:
+        optimizers = (self.actor_optimizer, self.temperature_optimizer)
+        optimizer_lrs = [
+            [group["lr"] for group in optimizer.param_groups] for optimizer in optimizers
+        ]
+        optimizer_weight_decays = [
+            [group["weight_decay"] for group in optimizer.param_groups] for optimizer in optimizers
+        ]
+        cpu_rng_state = torch.random.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state() if self.device.type == "cuda" else None
+        try:
+            for optimizer in optimizers:
+                for group in optimizer.param_groups:
+                    group["lr"] = 0.0
+                    group["weight_decay"] = 0.0
+            self._update_actor_capture_candidate(inputs)
+        finally:
+            torch.random.set_rng_state(cpu_rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state(cuda_rng_state)
+            for optimizer, lrs, weight_decays in zip(
+                optimizers,
+                optimizer_lrs,
+                optimizer_weight_decays,
+                strict=True,
+            ):
+                for group, lr, weight_decay in zip(
+                    optimizer.param_groups,
+                    lrs,
+                    weight_decays,
+                    strict=True,
+                ):
+                    group["lr"] = lr
+                    group["weight_decay"] = weight_decay
+
+        for optimizer in optimizers:
+            optimizer.zero_grad(set_to_none=True)
+            for state in optimizer.state.values():
+                step = state.get("step")
+                if isinstance(step, torch.Tensor):
+                    step.zero_()
+                elif step is not None:
+                    state["step"] = 0
+                for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                    tensor = state.get(name)
+                    if isinstance(tensor, torch.Tensor):
+                        tensor.zero_()
+
+    def _capture_actor_cuda_graph(self, inputs: dict[str, torch.Tensor]) -> None:
+        self._cuda_graph_actor_shapes = self._actor_graph_input_shapes(inputs)
+        packed_source = inputs.get("sac_graph_packed_source")
+        if self.use_cuda_graph_actor_packed_staging and packed_source is not None:
+            if (
+                self._cuda_graph_sac_static_packed_input is not None
+                and self._cuda_graph_sac_static_packed_input.shape == packed_source.shape
+            ):
+                self._cuda_graph_actor_static_packed_input = (
+                    self._cuda_graph_sac_static_packed_input
+                )
+            else:
+                self._cuda_graph_actor_static_packed_input = packed_source.detach().clone()
+            self._cuda_graph_actor_static_inputs = self._actor_graph_static_views_from_sac_packed(
+                self._cuda_graph_actor_static_packed_input,
+                self._cuda_graph_actor_shapes,
+            )
+        else:
+            self._cuda_graph_actor_static_packed_input = None
+            self._cuda_graph_actor_static_inputs = {
+                key: inputs[key].detach().clone() for key in self._actor_graph_input_keys()
+            }
+        self._copy_actor_graph_inputs(inputs)
+
+        graph = torch.cuda.CUDAGraph()
+        capture_stream = cast(torch.cuda.Stream, torch.cuda.Stream())
+        capture_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+            self._cuda_graph_actor_outputs = self._update_actor_capture_candidate(
+                self._cuda_graph_actor_static_inputs
+            )
+        torch.cuda.current_stream().wait_stream(capture_stream)
+        torch.cuda.synchronize()
+        self._cuda_graph_actor = graph
+
+    def _actor_graph_output_metrics(self, *, read_items: bool = True) -> dict[str, float]:
+        if not read_items:
+            return {}
+        assert self._cuda_graph_actor_outputs is not None
+        actor_loss, entropy, temp_value, temp_loss = self._cuda_graph_actor_outputs
+        return {
+            "actor_loss": float(actor_loss.detach().cpu()),
+            "actor_entropy": float(entropy.detach().cpu()),
+            "temperature": float(temp_value.detach().cpu()),
+            "temperature_loss": float(temp_loss.detach().cpu()),
+        }
+
+    def update_actor_cuda_graph(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> dict[str, float]:
+        if not self.use_cuda_graph_actor:
+            return self.update_actor(batch)
+        if self.device.type != "cuda":
+            return self.update_actor(batch)
+        if self.scaler is not None or self.world_size > 1:
+            return self.update_actor(batch)
+        if not isinstance(self.obs_normalizer, nn.Identity):
+            return self.update_actor(batch)
+
+        inputs = self._prepare_actor_graph_inputs(batch)
+        if self._cuda_graph_actor_shapes != self._actor_graph_input_shapes(inputs):
+            self._reset_actor_cuda_graph()
+            self._materialize_capturable_actor_optimizer_state(inputs)
+            self._capture_actor_cuda_graph(inputs)
+            self.actor_scheduler.step()
+            self.temperature_scheduler.step()
+            self.actor.normalize_parameters()
+            return self._actor_graph_output_metrics(read_items=read_metrics)
+
+        assert self._cuda_graph_actor is not None
+        self._copy_actor_graph_inputs(inputs)
+        self._cuda_graph_actor.replay()
+        self.actor_scheduler.step()
+        self.temperature_scheduler.step()
+        self.actor.normalize_parameters()
+        return self._actor_graph_output_metrics(read_items=read_metrics)
 
     def update_critic(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         obs = batch["obs"].to(self.device)

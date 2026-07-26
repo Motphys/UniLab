@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from benchmark import benchmark_replay_buffer_placement as bench
+from benchmark.rl import benchmark_replay_buffer_placement as bench
 
 
 def test_sac_default_case_uses_effective_symmetry_batch() -> None:

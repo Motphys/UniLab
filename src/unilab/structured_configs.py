@@ -27,6 +27,10 @@ class SACAlgoParams:
     max_grad_norm: float = 0.0
     amp_dtype: str = "auto"
     use_compile: bool = True
+    use_cuda_graph_critic: bool = False
+    use_cuda_graph_actor: bool = False
+    use_cuda_graph_critic_packed_staging: bool = False
+    use_cuda_graph_actor_packed_staging: bool = False
 
 
 @dataclass
@@ -128,6 +132,10 @@ class FlashSACAlgoParams:
     n_step: int = 1
     amp_dtype: str = "auto"
     use_compile: bool = True
+    use_cuda_graph_critic: bool = False
+    use_cuda_graph_actor: bool = False
+    use_cuda_graph_critic_packed_staging: bool = False
+    use_cuda_graph_actor_packed_staging: bool = False
 
 
 @dataclass

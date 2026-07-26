@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .motion_loader import MotionData, MotionLoader
+from ..common.motion_loader import MotionData, MotionLoader
 
 
 @dataclass
@@ -86,7 +86,7 @@ class BoxMotionLoader(MotionLoader):
                 if "joint_names" in data:
                     n_robot_joints = len(data["joint_names"])
                 else:
-                    n_robot_joints = self.joint_pos.shape[1] - 7
+                    n_robot_joints = self.joint_pos.shape[1]
 
             self.num_joints = n_robot_joints
             self.joint_pos = self.joint_pos[:, :n_robot_joints]

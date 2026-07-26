@@ -16,8 +16,8 @@ if str(ROOT_DIR) not in sys.path:
 
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
-from unilab.envs.common.rotation import np_matrix_from_quat
 from unilab.envs.locomotion.go2_arm.manip_loco import RewardConfig
+from unilab.utils.rotation import np_matrix_from_quat
 
 
 def _parse_vec3(raw: list[float], *, name: str) -> list[float]:

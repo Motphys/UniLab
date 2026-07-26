@@ -46,7 +46,11 @@ class _FakeLearner:
         self.reward_normalizer = None
         self.update_count = 0
         self.critic_updates = 0
+        self.graph_critic_updates = 0
         self.actor_updates = 0
+        self.graph_actor_updates = 0
+        self.graph_critic_read_metrics: list[bool] = []
+        self.graph_actor_read_metrics: list[bool] = []
         self.target_updates = 0
         self.average_parameter_calls = 0
         self.kwargs = dict(kwargs)
@@ -56,8 +60,32 @@ class _FakeLearner:
         self.critic_updates += 1
         return {"critic_loss": float(batch["obs"].shape[0])}
 
+    def update_critic_cuda_graph(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> dict[str, float]:
+        self.graph_critic_updates += 1
+        self.graph_critic_read_metrics.append(read_metrics)
+        if not read_metrics:
+            return {}
+        return {"critic_loss": float(batch["obs"].shape[0])}
+
     def update_actor(self, batch: dict[str, torch.Tensor]) -> dict[str, float]:
         self.actor_updates += 1
+        return {"actor_loss": float(batch["obs"].shape[0])}
+
+    def update_actor_cuda_graph(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        read_metrics: bool = True,
+    ) -> dict[str, float]:
+        self.graph_actor_updates += 1
+        self.graph_actor_read_metrics.append(read_metrics)
+        if not read_metrics:
+            return {}
         return {"actor_loss": float(batch["obs"].shape[0])}
 
     def soft_update_target(self) -> None:
@@ -393,6 +421,7 @@ def _make_runner(
     policy_frequency: int = 1,
     trace_enabled: bool = False,
     trace_output_dir: str | None = None,
+    collector_infer_device: str | None = "cpu",
 ) -> OffPolicyRunner:
     monkeypatch.setattr(runner_module, "ReplayBuffer", _FakeReplayBuffer)
     monkeypatch.setattr(runner_module, "SharedWeightSync", _FakeWeightSync)
@@ -416,10 +445,31 @@ def _make_runner(
         device="cpu",
         trace_enabled=trace_enabled,
         trace_output_dir=trace_output_dir,
+        collector_infer_device=collector_infer_device,
     )
     monkeypatch.setattr(runner, "_start_collector", lambda *args, **kwargs: None)
     runner._collector_process = _FakeProcess()
     return runner
+
+
+def test_offpolicy_runner_resolves_collector_infer_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runner_module,
+        "resolve_torch_device_alias",
+        lambda device, *, default="cpu": "mps" if device == "gpu" else "cpu",
+    )
+
+    runner = _make_runner(
+        monkeypatch,
+        sync_collection=True,
+        collector_infer_device="gpu",
+    )
+
+    assert runner.collector_infer_device_raw == "gpu"
+    assert runner.collector_infer_device == "mps"
+    assert runner.collector_device == "mps"
 
 
 def test_offpolicy_runner_sync_waits_for_train_start_threshold(
@@ -810,6 +860,73 @@ def test_td3_offpolicy_runner_trace_writes_core_learner_events(
     assert learner.target_updates == 3
 
 
+def test_offpolicy_runner_uses_cuda_graph_critic_when_learner_opts_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    runner = _make_runner(
+        monkeypatch,
+        sync_collection=False,
+        updates_per_step=3,
+        policy_frequency=2,
+    )
+    runner.learner.use_cuda_graph_critic = True
+    threshold = runner.train_start_threshold
+    sleep_sizes = iter([4, 8, threshold])
+
+    def fake_sleep(seconds: float) -> None:
+        if seconds < 0.5:
+            next_size = next(sleep_sizes, threshold)
+            replay_buffer = _FakeReplayBuffer.last_instance
+            assert replay_buffer is not None
+            replay_buffer.size[0] = next_size
+            replay_buffer.ptr[0] = next_size
+
+    monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(runner_module.time, "sleep", fake_sleep)
+
+    runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path / "logs"))
+
+    learner = cast(_FakeLearner, runner.learner)
+    assert learner.critic_updates == 0
+    assert learner.graph_critic_updates == 3
+    assert learner.graph_critic_read_metrics == [False, False, True]
+    assert learner.actor_updates == 2
+    assert learner.target_updates == 3
+
+
+def test_offpolicy_runner_uses_cuda_graph_actor_when_learner_opts_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    runner = _make_runner(
+        monkeypatch,
+        sync_collection=False,
+        updates_per_step=3,
+        policy_frequency=2,
+    )
+    runner.learner.use_cuda_graph_actor = True
+    threshold = runner.train_start_threshold
+    sleep_sizes = iter([4, 8, threshold])
+
+    def fake_sleep(seconds: float) -> None:
+        if seconds < 0.5:
+            next_size = next(sleep_sizes, threshold)
+            replay_buffer = _FakeReplayBuffer.last_instance
+            assert replay_buffer is not None
+            replay_buffer.size[0] = next_size
+            replay_buffer.ptr[0] = next_size
+
+    monkeypatch.setattr(runner_module._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue())
+    monkeypatch.setattr(runner_module.time, "sleep", fake_sleep)
+
+    runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path / "logs"))
+
+    learner = cast(_FakeLearner, runner.learner)
+    assert learner.graph_actor_updates == 2
+    assert learner.graph_actor_read_metrics == [False, True]
+    assert learner.actor_updates == 0
+    assert learner.target_updates == 3
+
+
 class _FakeDoubleBufferPipeline:
     def __init__(
         self,
@@ -825,6 +942,9 @@ class _FakeDoubleBufferPipeline:
         collector_pack_request_queue,
         collector_pack_ready_queue,
         collector_pack_shared_slots,
+        pack_layout,
+        use_critic_graph_packed_source,
+        collector_pack_critic_graph_shared_slots,
     ) -> None:
         del (
             replay_buffer,
@@ -836,6 +956,9 @@ class _FakeDoubleBufferPipeline:
             collector_pack_request_queue,
             collector_pack_ready_queue,
             collector_pack_shared_slots,
+            pack_layout,
+            use_critic_graph_packed_source,
+            collector_pack_critic_graph_shared_slots,
         )
         self.sample_count = sample_count
         self.trace_recorder = trace_recorder

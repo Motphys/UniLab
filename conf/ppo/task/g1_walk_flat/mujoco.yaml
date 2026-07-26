@@ -15,6 +15,7 @@ algo:
     actor_hidden_dims: [512, 256, 128]
     critic_hidden_dims: [512, 256, 128]
 env:
+  numba_acceleration: false
   control_config:
     action_scale: 0.25
   curriculum:
