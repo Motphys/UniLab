@@ -136,7 +136,6 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | Registered |
 | SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | Registered |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | Registered |
-| SAC (torch) | `stewart_balance` (stewart balance) | Tested | Registered |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | Tested |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | Tested |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered |
