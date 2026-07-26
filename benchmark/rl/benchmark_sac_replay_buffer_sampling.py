@@ -20,6 +20,9 @@ Usage:
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --gpu-counts 1,2
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --capacity-multipliers 0.25,0.5,1,2
     uv run benchmark/rl/benchmark_sac_replay_buffer_sampling.py --warmup 3 --repeat 10
+
+On machines without CUDA (e.g. macOS), the device-resident cases automatically
+fall back to the single MPS device; world sizes above 1 are recorded as skipped.
 """
 
 from __future__ import annotations
@@ -401,6 +404,19 @@ def _parse_device_ids(value: str) -> list[int]:
     if value.strip().lower() == "auto":
         return list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
     return _parse_int_list(value, name="device ids")
+
+
+def _mps_available() -> bool:
+    mps = getattr(torch.backends, "mps", None)
+    return bool(mps is not None and mps.is_available())
+
+
+def _resolve_device_type() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if _mps_available():
+        return "mps"
+    return "none"
 
 
 def _resolve_torch_threads(setting: str, *, world_size: int) -> int:
@@ -1306,33 +1322,54 @@ def main(argv: list[str] | None = None) -> int:
         f"sample:new/rank={case.sample_new_ratio_per_rank:g}x"
     )
     print(f"Capacity rows: {', '.join(f'{rows:,}' for rows in capacity_rows)}")
-    print(f"Requested GPU counts: {gpu_counts}; visible CUDA device ids: {device_ids}")
+    device_type = _resolve_device_type()
+    print(
+        f"Requested GPU counts: {gpu_counts}; visible CUDA device ids: {device_ids}; device type: {device_type}"
+    )
 
     results: list[CapacityResult] = []
     skipped: list[SkippedCase] = []
 
-    if not torch.cuda.is_available() or not device_ids:
+    if device_type == "none" or (device_type == "cuda" and not device_ids):
+        reason = (
+            "CUDA is not available or no CUDA device ids were selected"
+            if device_type == "cuda"
+            else "no CUDA or MPS device is available"
+        )
         for world_size in gpu_counts:
             skipped.append(
                 SkippedCase(
                     world_size=world_size,
                     capacity_rows=None,
-                    reason="CUDA is not available or no CUDA device ids were selected",
+                    reason=reason,
                 )
             )
     else:
         for world_size in gpu_counts:
-            if world_size > len(device_ids):
-                skipped.append(
-                    SkippedCase(
-                        world_size=world_size,
-                        capacity_rows=None,
-                        reason=f"requested {world_size} GPUs but only {len(device_ids)} are visible",
+            if device_type == "cuda":
+                if world_size > len(device_ids):
+                    skipped.append(
+                        SkippedCase(
+                            world_size=world_size,
+                            capacity_rows=None,
+                            reason=f"requested {world_size} GPUs but only {len(device_ids)} are visible",
+                        )
                     )
-                )
-                continue
-
-            devices = [torch.device(f"cuda:{device_id}") for device_id in device_ids[:world_size]]
+                    continue
+                devices = [
+                    torch.device(f"cuda:{device_id}") for device_id in device_ids[:world_size]
+                ]
+            else:
+                if world_size > 1:
+                    skipped.append(
+                        SkippedCase(
+                            world_size=world_size,
+                            capacity_rows=None,
+                            reason="MPS backend exposes a single device",
+                        )
+                    )
+                    continue
+                devices = [torch.device("mps")]
             torch_threads = _resolve_torch_threads(args.torch_threads, world_size=world_size)
             for rows in capacity_rows:
                 required = _estimate_device_bytes_per_gpu(case, rows)
@@ -1373,10 +1410,10 @@ def main(argv: list[str] | None = None) -> int:
                         SkippedCase(
                             world_size=world_size,
                             capacity_rows=rows,
-                            reason=f"CUDA OOM during benchmark allocation/run: {exc}",
+                            reason=f"device OOM during benchmark allocation/run: {exc}",
                         )
                     )
-                    print(f"  skipped: CUDA OOM during benchmark allocation/run: {exc}")
+                    print(f"  skipped: device OOM during benchmark allocation/run: {exc}")
                     continue
                 results.append(result)
                 _print_result(result)
@@ -1390,6 +1427,7 @@ def main(argv: list[str] | None = None) -> int:
             "sim": args.sim,
             "gpu_counts": gpu_counts,
             "device_ids": device_ids,
+            "device_type": device_type,
             "capacity_rows": capacity_rows,
             "capacity_rows_arg": args.capacity_rows,
             "capacity_multipliers": args.capacity_multipliers,
@@ -1426,7 +1464,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Saved analysis: {analysis_path}")
     print(f"\nSaved JSON: {args.out_json}")
     if not results:
-        print("No CUDA benchmark cases were run.")
+        print("No benchmark cases were run.")
         return 1
     return 0
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import torch
 from benchmark.rl import benchmark_sac_replay_buffer_sampling as bench
 
@@ -105,6 +106,18 @@ def test_parse_device_ids_auto_no_cuda(monkeypatch) -> None:
     assert bench._parse_device_ids("auto") == []
 
 
+def test_resolve_device_type_prefers_cuda_then_mps(monkeypatch) -> None:
+    monkeypatch.setattr(bench.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(bench, "_mps_available", lambda: True)
+    assert bench._resolve_device_type() == "cuda"
+
+    monkeypatch.setattr(bench.torch.cuda, "is_available", lambda: False)
+    assert bench._resolve_device_type() == "mps"
+
+    monkeypatch.setattr(bench, "_mps_available", lambda: False)
+    assert bench._resolve_device_type() == "none"
+
+
 def test_run_capacity_case_portable_cpu_path_records_timings() -> None:
     result = bench._run_capacity_case(
         _tiny_case(),
@@ -133,6 +146,7 @@ def test_run_capacity_case_portable_cpu_path_records_timings() -> None:
 def test_main_no_cuda_writes_skipped_json(tmp_path, monkeypatch) -> None:
     out_json = tmp_path / "results.json"
     monkeypatch.setattr(bench.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(bench, "_mps_available", lambda: False)
 
     rc = bench.main(
         [
@@ -165,3 +179,49 @@ def test_main_no_cuda_writes_skipped_json(tmp_path, monkeypatch) -> None:
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     assert payload["results"] == []
     assert [item["world_size"] for item in payload["skipped"]] == [1, 2]
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS is not available")
+def test_main_mps_runs_single_device_and_skips_multi(tmp_path, monkeypatch) -> None:
+    out_json = tmp_path / "results.json"
+    monkeypatch.setattr(bench.torch.cuda, "is_available", lambda: False)
+
+    rc = bench.main(
+        [
+            "--task",
+            "g1_walk_flat",
+            "--sim",
+            "mujoco",
+            "--gpu-counts",
+            "1,2",
+            "--capacity-rows",
+            "16",
+            "--warmup",
+            "0",
+            "--repeat",
+            "1",
+            "--obs-dim",
+            "3",
+            "--action-dim",
+            "2",
+            "--critic-dim",
+            "1",
+            "--symmetry-batch-multiplier",
+            "2",
+            "--out-json",
+            str(out_json),
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["args"]["device_type"] == "mps"
+    assert [item["world_size"] for item in payload["results"]] == [1]
+    assert set(payload["results"][0]["timings"]) == {
+        "cpu_sample_wall",
+        "cpu_sample_h2d_wall",
+        "cpu_sample_then_h2d_wall",
+        "gpu_sample_wall",
+    }
+    assert [item["world_size"] for item in payload["skipped"]] == [2]
+    assert payload["skipped"][0]["reason"] == "MPS backend exposes a single device"
