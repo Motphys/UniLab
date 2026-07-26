@@ -478,7 +478,7 @@ def test_g1_motion_tracking_uses_combined_body_pose_query():
 
 
 def test_g1_motion_tracking_reset_observation_uses_sparse_body_pose_rows():
-    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.common.motion_loader import MotionData
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDomainRandomizationProvider
 
     class FakeBackend:
@@ -557,7 +557,7 @@ def test_g1_motion_tracking_reset_observation_uses_sparse_body_pose_rows():
 
 
 def _compute_g1_motion_tracking_obs_stub(env_cls: type):
-    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.common.motion_loader import MotionData
 
     env = cast(Any, object.__new__(env_cls))
     env._num_envs = 1
@@ -761,7 +761,7 @@ def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
 
 
 def test_g1_motion_tracking_reward_fast_path_matches_reference():
-    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.common.motion_loader import MotionData
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
     from unilab.utils.rotation import np_quat_error_magnitude
 
@@ -1250,7 +1250,7 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
 
 def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
     from unilab.envs.locomotion.g1.base import G1BaseEnv
-    from unilab.envs.motion_tracking.g1 import tracking as tracking_module
+    from unilab.envs.motion_tracking.common import tracking as tracking_module
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg, G1MotionTrackingEnv
 
     calls: dict[str, Any] = {}
@@ -1331,7 +1331,7 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["motion_loader"][0] == "dummy_motion.npz"
     np.testing.assert_array_equal(calls["motion_loader"][1], np.array([1, 2], dtype=np.int32))
     assert calls["motion_sampler"][1:] == ("adaptive", 4, cfg.sampling_start_ratio)
-    assert calls["dr_provider"] == "G1MotionTrackingDomainRandomizationProvider"
+    assert calls["dr_provider"] == "MotionTrackingDomainRandomizationProvider"
     assert calls["reward_init"] is True
 
 
@@ -1500,7 +1500,7 @@ def _make_g1_motion_tracking_clip_end_stub(
     step_env_ids: np.ndarray | None = None,
 ):
     from unilab.base.np_env import NpEnvState
-    from unilab.envs.motion_tracking.g1.motion_loader import MotionData
+    from unilab.envs.motion_tracking.common.motion_loader import MotionData
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:

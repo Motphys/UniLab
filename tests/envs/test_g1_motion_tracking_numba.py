@@ -6,9 +6,9 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from unilab.envs.motion_tracking.g1.motion_tracking_numba import (
+from unilab.envs.motion_tracking.common.numba import (
     NUMBA_AVAILABLE,
-    G1MotionTrackingNumbaAccelerator,
+    MotionTrackingNumbaAccelerator,
     unsupported_terms,
 )
 from unilab.envs.motion_tracking.g1.tracking import (
@@ -24,11 +24,11 @@ def test_unsupported_terms_only_reports_active_unknown_terms():
 
 
 def test_numba_accelerator_requires_numba_when_declared(monkeypatch):
-    import unilab.envs.motion_tracking.g1.motion_tracking_numba as motion_tracking_numba
+    import unilab.envs.motion_tracking.common.numba as motion_tracking_numba
 
     monkeypatch.setattr(motion_tracking_numba, "NUMBA_AVAILABLE", False)
     with pytest.raises(RuntimeError, match="requires numba"):
-        G1MotionTrackingNumbaAccelerator.from_env(_make_env(8, include_undesired=False))
+        MotionTrackingNumbaAccelerator.from_env(_make_env(8, include_undesired=False))
 
 
 def test_numba_accelerator_rejects_unsupported_active_reward_terms():
@@ -36,7 +36,7 @@ def test_numba_accelerator_rejects_unsupported_active_reward_terms():
     env._cfg.reward_config.scales = {"motion_body_pos": 1.0, "custom": 1.0}
     if NUMBA_AVAILABLE:
         with pytest.raises(ValueError, match="does not support active reward terms"):
-            G1MotionTrackingNumbaAccelerator.from_env(env)
+            MotionTrackingNumbaAccelerator.from_env(env)
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
@@ -68,7 +68,7 @@ def test_g1_motion_tracking_numba_reward_termination_parity():
     )
     log_np = dict(info["log"])
 
-    accel = G1MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
+    accel = MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
     out = accel.compute(
         info={
             "steps": np.zeros((n,), dtype=np.uint32),
@@ -148,7 +148,7 @@ def test_g1_motion_tracking_numba_update_state_parity_without_noise():
         robot_body_quat_w,
     )
 
-    accel = G1MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
+    accel = MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
     out = accel.compute_update_state(
         info=info,
         motion_data=motion_data,
@@ -182,7 +182,7 @@ def test_g1_motion_tracking_numba_update_state_parity_without_noise():
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
 def test_g1_motion_tracking_numba_term_py_funcs_match_numpy_math():
-    from unilab.envs.motion_tracking.g1 import motion_tracking_numba as T
+    from unilab.envs.motion_tracking.common import numba as T
 
     n = 4
     env = _make_env(n, include_undesired=True)

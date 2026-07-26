@@ -912,7 +912,7 @@ if NUMBA_AVAILABLE:
             )
 
 
-class G1MotionTrackingNumbaAccelerator:
+class MotionTrackingNumbaAccelerator:
     """Driver that keeps config-derived arrays and calls the fused kernel."""
 
     def __init__(
@@ -974,21 +974,19 @@ class G1MotionTrackingNumbaAccelerator:
         self._zero_joint_noise = np.zeros((self.num_envs, self.num_action), dtype=np.float64)
 
     @classmethod
-    def from_env(
-        cls, env: Any, num_threads: int | None = None
-    ) -> "G1MotionTrackingNumbaAccelerator":
+    def from_env(cls, env: Any, num_threads: int | None = None) -> "MotionTrackingNumbaAccelerator":
         if not NUMBA_AVAILABLE:
             raise RuntimeError(
-                "G1MotionTracking numba_acceleration=True requires numba. Install it or run "
+                "MotionTracking numba_acceleration=True requires numba. Install it or run "
                 "through `uv run --with numba ...`; disable numba_acceleration to use the "
                 "numpy path."
             )
         unsupported = unsupported_terms(env._cfg.reward_config.scales)
         if unsupported:
             raise ValueError(
-                "G1MotionTracking Numba accelerator does not support active reward terms "
+                "MotionTracking Numba accelerator does not support active reward terms "
                 f"{sorted(unsupported)}. Disable numba_acceleration or add these terms to "
-                "src/unilab/envs/motion_tracking/g1/motion_tracking_numba.py."
+                "src/unilab/envs/motion_tracking/common/numba.py."
             )
         default_angles = getattr(env, "default_angles", None)
         if default_angles is None:
@@ -1042,9 +1040,9 @@ class G1MotionTrackingNumbaAccelerator:
         unsupported = unsupported_terms(scales)
         if unsupported:
             raise ValueError(
-                "G1MotionTracking Numba accelerator does not support active reward terms "
+                "MotionTracking Numba accelerator does not support active reward terms "
                 f"{sorted(unsupported)}. Disable numba_acceleration or add these terms to "
-                "src/unilab/envs/motion_tracking/g1/motion_tracking_numba.py."
+                "src/unilab/envs/motion_tracking/common/numba.py."
             )
         self.scale.fill(0.0)
         for name, value in scales.items():
