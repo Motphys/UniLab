@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import torch
-from benchmark import benchmark_sac_replay_buffer_sampling as bench
+from benchmark.rl import benchmark_sac_replay_buffer_sampling as bench
 
 
 def _tiny_case() -> bench.BenchmarkCase:
