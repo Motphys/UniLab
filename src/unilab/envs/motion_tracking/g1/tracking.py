@@ -98,6 +98,7 @@ class G1MotionTracking23DofDeployEnvCfg(G1MotionTracking23DofCfg):
     pass
 
 
+@registry.env("G1MotionTracking", sim_backend="drake")
 @registry.env("G1MotionTracking", sim_backend="mujoco")
 @registry.env("G1MotionTracking", sim_backend="motrix")
 class G1MotionTrackingEnv(MotionTrackingEnv):

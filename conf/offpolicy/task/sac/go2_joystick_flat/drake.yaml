@@ -1,0 +1,50 @@
+# @package _global_
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: drake
+  no_play: true
+  play_steps: 400
+  play_env_num: 1
+  play_render_mode: record
+
+algo:
+  algo_log_name: fast_sac_drake
+  num_envs: 512
+  batch_size: 1024
+  replay_buffer_n: 512
+  updates_per_step: 2
+  learning_starts: 2
+  max_iterations: 300
+  save_interval: 100
+  actor_hidden_dim: 256
+  critic_hidden_dim: 512
+  obs_normalization: true
+  use_layer_norm: true
+  algo_params:
+    alpha_init: 0.005
+    target_entropy_ratio: 0.0
+    use_compile: false
+
+env:
+  drake_backend_mode: batch
+  drake_nthread: 20
+  scene:
+    model_file: src/unilab/assets/robots/go2/scene_flat.xml
+  domain_rand:
+    randomize_kp: false
+    randomize_kd: false
+    push_robots: false
+
+reward:
+  scales:
+    tracking_lin_vel: 1.0
+    tracking_ang_vel: 0.2
+    lin_vel_z: -5.0
+    ang_vel_xy: -0.1
+    base_height: -100.0
+    action_rate: -0.005
+    similar_to_default: -0.1
+    contact: 0.24
+    swing_feet_z: 4.0
+  tracking_sigma: 0.25
+  base_height_target: 0.3

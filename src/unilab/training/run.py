@@ -28,8 +28,8 @@ def log_playback_plan(plan: BackendPlayRenderPlan, *, prefix: str = "") -> None:
     if plan.record_video:
         print(f"{prefix}Rendering video to {plan.output_video}...")
     elif plan.mode == "interactive":
-        print(f"{prefix}Starting interactive visualization (motrix native renderer)...")
-        print(f"{prefix}Close the render window to exit.")
+        print(f"{prefix}Starting interactive visualization...")
+        print(f"{prefix}Use the renderer window or browser URL reported by the backend.")
     else:
         print(f"{prefix}Running playback without video recording...")
     print(f"{prefix}Rendering playback frames...")

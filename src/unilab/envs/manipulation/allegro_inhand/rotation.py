@@ -254,6 +254,7 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
 # ─────────────────────────── Environment ──────────────────────────────
 
 
+@registry.env("AllegroInhandRotation", sim_backend="drake")
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 @registry.env("AllegroInhandRotation", sim_backend="motrix")
 class AllegroRotationPPO(AllegroBaseEnv):
@@ -282,6 +283,8 @@ class AllegroRotationPPO(AllegroBaseEnv):
                 "actuator_ids": slice(0, 16),
             },
             **env_backend_kwargs(cfg),
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

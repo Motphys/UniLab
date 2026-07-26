@@ -47,6 +47,8 @@ class MotionTrackingEnv(G1BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
             **env_backend_kwargs(cfg),
+            drake_backend_mode=cfg.drake_backend_mode,
+            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
 
