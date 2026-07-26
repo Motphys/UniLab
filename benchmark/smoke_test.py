@@ -17,9 +17,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 BENCHMARK_DIR = Path(__file__).resolve().parent
+CATEGORIES = ("compute", "env", "ipc", "physics", "rl")
 MODULES = sorted(
-    name
-    for _, name, is_pkg in pkgutil.iter_modules([str(BENCHMARK_DIR)])
+    f"{category}.{name}"
+    for category in CATEGORIES
+    for _, name, is_pkg in pkgutil.iter_modules([str(BENCHMARK_DIR / category)])
     if not is_pkg and name.startswith("benchmark_")
 )
 

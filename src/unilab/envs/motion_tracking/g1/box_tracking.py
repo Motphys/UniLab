@@ -24,6 +24,7 @@ from unilab.utils.rotation import (
     np_subtract_frame_transforms,
 )
 
+from ..common.rewards import RewardContext
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
 from .tracking import (
     G1MotionTrackingCfg,
@@ -72,6 +73,48 @@ class G1BoxTrackingCfg(G1MotionTrackingCfg):
 class G1BoxTrackingEnvCfg(G1BoxTrackingCfg):
     """Registered config for G1 box tracking."""
 
+    pass
+
+
+@dataclass
+class G1BoxTracking23DofCfg(G1BoxTrackingCfg):
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(
+                ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof_with_largebox.xml"
+            )
+        )
+    )
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "sub3_largebox_003_boxconverted_23dof.npz"
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+@registry.envcfg("G1BoxTracking23Dof")
+@dataclass
+class G1BoxTracking23DofEnvCfg(G1BoxTracking23DofCfg):
     pass
 
 
@@ -179,6 +222,8 @@ class G1BoxTrackingDomainRandomizationProvider(G1MotionTrackingDomainRandomizati
 
 @registry.env("G1BoxTracking", sim_backend="mujoco")
 @registry.env("G1BoxTracking", sim_backend="motrix")
+@registry.env("G1BoxTracking23Dof", sim_backend="mujoco")
+@registry.env("G1BoxTracking23Dof", sim_backend="motrix")
 class G1BoxTrackingEnv(G1MotionTrackingEnv):
     """Motion tracking env extended with large-box state and rewards."""
 
@@ -344,8 +389,8 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
         )
         return obs
 
-    def _reward_object_position(self, info: dict) -> np.ndarray:
-        motion_data: BoxMotionData = info["motion_data"]
+    def _reward_object_position(self, ctx: RewardContext) -> np.ndarray:
+        motion_data: BoxMotionData = ctx.motion_data
         if motion_data.object_pos_w is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         obj_pos_w = self._backend.get_body_pos_w(self._object_body_ids)[:, 0, :]
@@ -354,8 +399,8 @@ class G1BoxTrackingEnv(G1MotionTrackingEnv):
             np.exp(-error / self._cfg.reward_config.std_object_pos**2), dtype=get_global_dtype()
         )
 
-    def _reward_object_orientation(self, info: dict) -> np.ndarray:
-        motion_data: BoxMotionData = info["motion_data"]
+    def _reward_object_orientation(self, ctx: RewardContext) -> np.ndarray:
+        motion_data: BoxMotionData = ctx.motion_data
         if motion_data.object_quat_w is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         obj_quat_w = self._backend.get_body_quat_w(self._object_body_ids)[:, 0, :]

@@ -68,7 +68,11 @@ def test_sharpa_registry_exposes_rotation_and_grasp_motrix() -> None:
 
     registered = registry.list_registered_envs()
 
-    assert set(registered["SharpaInhandRotation"]["available_backends"]) == {"mujoco", "motrix"}
+    assert set(registered["SharpaInhandRotation"]["available_backends"]) == {
+        "drake",
+        "mujoco",
+        "motrix",
+    }
     assert set(registered["SharpaInhandRotationGrasp"]["available_backends"]) == {
         "mujoco",
         "motrix",

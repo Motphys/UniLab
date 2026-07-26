@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from benchmark import benchmark_numba_random_noise as bench
+from benchmark.env import benchmark_numba_random_noise as bench
 
 
 def test_numba_random_noise_profiles_match_training_shapes() -> None:

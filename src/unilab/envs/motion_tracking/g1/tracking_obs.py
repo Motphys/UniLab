@@ -29,7 +29,9 @@ from typing import Any
 
 import numpy as np
 
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.scene import SceneCfg
 from unilab.dr import (
     DomainRandomizationCapabilities,
     ResetPlan,
@@ -43,6 +45,7 @@ from unilab.dr.types import RESET_TERM_GEOM_FRICTION
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import NoiseConfig
 
+from ..common.rewards import RewardContext
 from .tracking import (
     Domain_Rand,
     G1MotionTrackingDomainRandomizationProvider,
@@ -308,18 +311,22 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
         self._reward_fns["joint_acc_l2"] = self._reward_joint_acc_l2
         self._reward_fns["joint_torque_l2"] = self._reward_joint_torque_l2
 
-    def _reward_joint_acc_l2(self, info: dict) -> np.ndarray:
-        dof_vel = info["dof_vel"]
-        prev_dof_vel = info.get("prev_dof_vel")
+    def _reward_joint_acc_l2(self, ctx: RewardContext) -> np.ndarray:
+        dof_vel = ctx.dof_vel
+        prev_dof_vel = ctx.info.get("prev_dof_vel")
+        if dof_vel is None:
+            raise RuntimeError("RewardContext.dof_vel is required for joint_acc_l2")
         if prev_dof_vel is None or prev_dof_vel.shape != dof_vel.shape:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         joint_acc = (dof_vel - prev_dof_vel) / self._cfg.ctrl_dt
         return np.asarray(np.sum(np.square(joint_acc), axis=1), dtype=get_global_dtype())
 
-    def _reward_joint_torque_l2(self, info: dict) -> np.ndarray:
-        dof_pos = info["dof_pos"]
-        dof_vel = info["dof_vel"]
-        last_actions = info.get("last_actions")
+    def _reward_joint_torque_l2(self, ctx: RewardContext) -> np.ndarray:
+        dof_pos = ctx.dof_pos
+        dof_vel = ctx.dof_vel
+        last_actions = ctx.info.get("last_actions")
+        if dof_pos is None or dof_vel is None:
+            raise RuntimeError("RewardContext.dof_pos and dof_vel are required for joint_torque_l2")
         if last_actions is None:
             return np.zeros((self._num_envs,), dtype=get_global_dtype())
         target_q = (
@@ -469,3 +476,42 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
         sel = slice(None) if env_ids is None else env_ids
         for key, val in components.items():
             self._hist_buf[key][sel, :] = val[:, None, :]
+
+
+@registry.envcfg("G1WBTObs23Dof")
+@dataclass
+class G1WBTObs23DofCfg(G1WBTObsCfg):
+    motion_file: str | list[str] = str(
+        ASSETS_ROOT_PATH / "motions" / "g1" / "dance1_subject2_part_23dof.npz"
+    )
+    scene: SceneCfg = field(
+        default_factory=lambda: SceneCfg(
+            model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
+        )
+    )
+    body_names: tuple[str, ...] = (
+        "pelvis",
+        "left_hip_roll_link",
+        "left_knee_link",
+        "left_ankle_roll_link",
+        "right_hip_roll_link",
+        "right_knee_link",
+        "right_ankle_roll_link",
+        "torso_link",
+        "left_shoulder_roll_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_roll_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    )
+    ee_body_names: tuple[str, ...] = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_roll_rubber_hand",
+        "right_wrist_roll_rubber_hand",
+    )
+
+
+registry.register_env("G1WBTObs23Dof", G1WBTObsEnv, sim_backend="mujoco")
+registry.register_env("G1WBTObs23Dof", G1WBTObsEnv, sim_backend="motrix")
