@@ -2323,13 +2323,16 @@ wheels = [
 [[package]]
 name = "mujoco-uni-runtime"
 version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
+source = { registry = "https://test.pypi.org/simple" }
 dependencies = [
     { name = "mujoco" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/46/0ff38fed8fba39b092f77b8b7fbf51f7a5be10f9598583601317e0fb885f/mujoco_uni_runtime-0.2.1.tar.gz", hash = "sha256:ef90e7c77652340d8ad6298aa96d349c67b2766895858e02bc0e3ae4745f216b", size = 45330, upload-time = "2026-07-27T04:53:38.563Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/a4/61/6b4c7fb545a34b0856e7824cf3d1947e49747145d4f7e3a850b7ffa2fa5a/mujoco_uni_runtime-0.2.1.tar.gz", hash = "sha256:cf19674920aa204278d45495f44ae44811d5cacd03cfa59a13881d1814709055", size = 46017, upload-time = "2026-07-27T05:04:51.471Z" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/87/e4/17c0aae505bf3849728340506d951a304fffc5d1e0ae8a28fb21e01e2d5f/mujoco_uni_runtime-0.2.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:e83df3e9f20ba08aa182d65d5d9609f4108ab57d44b76a94d44a6dd8393607a7", size = 184940, upload-time = "2026-07-27T05:04:49.519Z" },
+]
 
 [[package]]
 name = "mypy"
@@ -4852,7 +4855,7 @@ requires-dist = [
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5,<3.11" },
-    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.2.1" },
+    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.2.1", index = "https://test.pypi.org/simple" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numba" },
