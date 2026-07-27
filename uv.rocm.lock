@@ -2347,14 +2347,14 @@ wheels = [
 
 [[package]]
 name = "mujoco-uni-runtime"
-version = "0.2.2"
+version = "0.2.3"
 source = { registry = "https://test.pypi.org/simple" }
 dependencies = [
     { name = "mujoco" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/d0/05/2496a4aa6b31bcd3a8720fe932c566bd1904564e85ca53b8694c7470e10c/mujoco_uni_runtime-0.2.2.tar.gz", hash = "sha256:96df98fe4fae18ea65f6a7c976653025445445774e73dea90b26835db383e87b", size = 45799, upload-time = "2026-07-27T15:05:02.229Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/ce/a2/a0a2bdf3c94a64ac6849e8920ad58a7a6ae4304a26dd9daa4104ef206b66/mujoco_uni_runtime-0.2.3.tar.gz", hash = "sha256:f6127c37b0492737ad70b3bad3f52dcb1c255a38aac78d5f2ea5e7794c28d3b1", size = 45901, upload-time = "2026-07-27T15:15:21.988Z" }
 
 [[package]]
 name = "mypy"
@@ -4647,7 +4647,7 @@ requires-dist = [
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5,<3.11" },
-    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.2.2", index = "https://test.pypi.org/simple" },
+    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.2.3", index = "https://test.pypi.org/simple" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numba" },
