@@ -8,6 +8,14 @@
 - `uv`，用于依赖同步和命令执行。
 - `cmake`，本地安装流程所需，详见
   `docs/sphinx/source/zh_CN/1-getting_started/2-installation.md`。
+- 使用 `mujoco` extra 时：需要 C++17 工具链和 Python 开发头文件，
+  因为 `mujoco-uni-runtime` 仅以源码分发，`uv sync` 时会就地编译其原生扩展
+  （针对 lock 钉住的 mujoco 版本）。
+  - macOS：`xcode-select --install`
+  - Ubuntu / Debian：`sudo apt-get install build-essential python3-dev`
+  - Windows：MSVC Build Tools
+  - 提示：使用 uv 托管的 Python（`uv python install`）自带头文件，
+    只有系统 Python 才需要额外安装 `python3-dev`。
 
 ## 克隆与同步
 
