@@ -2347,17 +2347,14 @@ wheels = [
 
 [[package]]
 name = "mujoco-uni-runtime"
-version = "0.2.1"
+version = "0.2.2"
 source = { registry = "https://test.pypi.org/simple" }
 dependencies = [
     { name = "mujoco" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/a4/61/6b4c7fb545a34b0856e7824cf3d1947e49747145d4f7e3a850b7ffa2fa5a/mujoco_uni_runtime-0.2.1.tar.gz", hash = "sha256:cf19674920aa204278d45495f44ae44811d5cacd03cfa59a13881d1814709055", size = 46017, upload-time = "2026-07-27T05:04:51.471Z" }
-wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/87/e4/17c0aae505bf3849728340506d951a304fffc5d1e0ae8a28fb21e01e2d5f/mujoco_uni_runtime-0.2.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:e83df3e9f20ba08aa182d65d5d9609f4108ab57d44b76a94d44a6dd8393607a7", size = 184940, upload-time = "2026-07-27T05:04:49.519Z" },
-]
+sdist = { url = "https://test-files.pythonhosted.org/packages/d0/05/2496a4aa6b31bcd3a8720fe932c566bd1904564e85ca53b8694c7470e10c/mujoco_uni_runtime-0.2.2.tar.gz", hash = "sha256:96df98fe4fae18ea65f6a7c976653025445445774e73dea90b26835db383e87b", size = 45799, upload-time = "2026-07-27T15:05:02.229Z" }
 
 [[package]]
 name = "mypy"
@@ -4650,7 +4647,7 @@ requires-dist = [
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5,<3.11" },
-    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.2.1", index = "https://test.pypi.org/simple" },
+    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.2.2", index = "https://test.pypi.org/simple" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
     { name = "notebook", specifier = ">=7.5.5" },
     { name = "numba" },
