@@ -25,7 +25,8 @@ MuJoCo 在 `src/unilab/base/backend/mujoco/backend.py` 中声明对物理状态�
 
 ## 切换 MuJoCo 版本
 
-mujoco extra 支持 `>=3.5,<3.11` 窗口内的任意求解器版本。
+mujoco extra 支持 `>=3.5,<3.11` 窗口内的任意求解器版本。全新安装默认使用
+已提交的 `uv.lock` 中钉住的版本（当前为 **3.8.0**）。
 `mujoco-uni-runtime` 的原生扩展针对本环境中的 `mujoco` 编译，且拒绝在其它版本下加载，
 因此切换版本 = 重钉 `mujoco` + 重编扩展：
 

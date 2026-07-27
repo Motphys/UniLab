@@ -28,7 +28,9 @@ rather than opening the Motrix native interactive renderer.
 
 ## Switching MuJoCo Versions
 
-The mujoco extra supports any solver version in `>=3.5,<3.11`. The
+The mujoco extra supports any solver version in `>=3.5,<3.11`. Fresh installs
+default to the version pinned in the committed `uv.lock` (currently **3.8.0**).
+The
 `mujoco-uni-runtime` native extension is compiled against the `mujoco`
 package in this environment and refuses to load against any other version,
 so switching versions means repinning `mujoco` and rebuilding the extension:
