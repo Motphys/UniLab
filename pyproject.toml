@@ -53,7 +53,7 @@ unilab-pull-assets = "unilab.tools.pull_assets:main"
 [project.optional-dependencies]
 mujoco = [
     "mujoco>=3.5,<3.11",
-    "mujoco-uni-runtime==0.2.5",
+    "mujoco-uni-runtime==0.3.0",
     # pybind11/wheel are build requirements of mujoco-uni-runtime, which is
     # compiled in this environment (see no-build-isolation-package below).
     "pybind11>=2.12",
@@ -75,21 +75,12 @@ name = "r2-cu130"
 url = "https://download-r2.pytorch.org/whl/cu130"
 explicit = true
 
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple"
-explicit = true
-
 [tool.uv.sources]
 torch = [
     { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
     { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },
     { index = "pytorch-cu128", marker = "sys_platform=='win32'" },
 ]
-# Staging index while the release pipeline is finalized; move to PyPI for the
-# final release. Platforms without a prebuilt wheel build the sdist in this
-# environment (see no-build-isolation-package below).
-mujoco-uni-runtime = { index = "testpypi" }
 
 [tool.uv]
 exclude-dependencies = ["torchvision"]
