@@ -47,7 +47,7 @@ backend implementations, and owner YAMLs.
 Current MuJoCo reset randomization uses `BatchEnvPool.reset(...,
 randomization=...)` with a fixed field whitelist. Indexed reads and writes are
 available through `get_field_indexed(...)` and `set_field_indexed(...)`. This
-interface lives in the `mujoco-uni` package (`mujoco.batch_env`), not in this
+interface lives in the `mujoco-uni-runtime` package (`mujoco_uni.batch_env`), not in this
 repository; the reset-term constants that map onto it are in
 `src/unilab/dr/types.py`.
 
@@ -77,9 +77,10 @@ Two caveats:
 - `geom_size` is not in `SUPPORTED_FIELDS`. Geometry size is expressed through
   init-lifecycle model materialization (see `GeomSizeOverride` /
   `ModelVariantSpec` in `src/unilab/dr/types.py`), not reset randomization.
-- `gravity` reset randomization requires a `mujoco-uni` build that ships it.
-  This repository pins `mujoco-uni==3.8.0`, whose `SUPPORTED_FIELDS` includes
-  `gravity`; older packages such as `3.6.0.post6` do not.
+- `gravity` reset randomization requires a `mujoco-uni-runtime` build that ships
+  it. This repository depends on the official `mujoco` package (`>=3.5,<3.11`)
+  plus `mujoco-uni-runtime`, whose `SUPPORTED_FIELDS` includes `gravity`; older
+  batch-env packages such as `mujoco-uni==3.6.0.post6` do not.
 
 ## Motor Control Extension
 

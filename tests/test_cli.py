@@ -447,10 +447,10 @@ def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
     _make_demo_checkout(tmp_path, demo_name="locomani")
     monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
-    def fail_materialize(_: Path) -> None:
+    def fail_materialize() -> None:
         raise AssertionError("Linux demo path must not touch macOS mjpython setup")
 
-    monkeypatch.setattr(demo, "_ensure_mujoco_uni_mjpython_app", fail_materialize)
+    monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", fail_materialize)
 
     command = demo.build_demo_command(
         demo_name="locomani",
@@ -473,7 +473,7 @@ def test_demo_play_interactive_uses_mjpython_on_macos(
     fake_mjpython.write_text("", encoding="utf-8")
     monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(demo.sys, "executable", str(fake_python))
-    monkeypatch.setattr(demo, "_ensure_mujoco_uni_mjpython_app", lambda root: None)
+    monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", lambda: None)
 
     command = demo.build_demo_command(
         demo_name="locomani",
@@ -485,13 +485,13 @@ def test_demo_play_interactive_uses_mjpython_on_macos(
     assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
 
 
-def test_demo_play_interactive_materializes_mujoco_uni_mjpython_app_on_macos(
+def test_demo_play_interactive_checks_mujoco_mjpython_app_on_macos(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[Path] = []
+    calls: list[str] = []
     _make_demo_checkout(tmp_path, demo_name="locomani")
     monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(demo, "_ensure_mujoco_uni_mjpython_app", lambda root: calls.append(root))
+    monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", lambda: calls.append("checked"))
     monkeypatch.setattr(demo, "_current_env_mjpython", lambda: "/tmp/mjpython")
 
     command = demo.build_demo_command(
@@ -501,7 +501,7 @@ def test_demo_play_interactive_materializes_mujoco_uni_mjpython_app_on_macos(
     )
 
     assert command[0] == "/tmp/mjpython"
-    assert calls == [tmp_path]
+    assert calls == ["checked"]
 
 
 def test_demo_play_interactive_requires_owner_yaml(tmp_path: Path) -> None:

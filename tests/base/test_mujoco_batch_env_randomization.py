@@ -10,10 +10,10 @@ pytest.importorskip("mujoco", reason="mujoco not installed")
 
 try:
     import mujoco
-    from mujoco.batch_env import SUPPORTED_FIELDS, BatchEnvPool
+    from mujoco_uni.batch_env import SUPPORTED_FIELDS, BatchEnvPool
 except Exception:
     pytest.skip(
-        "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
+        "mujoco_uni.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
 from unilab.assets import ASSETS_ROOT_PATH

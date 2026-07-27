@@ -5,7 +5,7 @@ UniLab abstracts two CPU-side physics backends behind a single
 
 | Backend | Strengths | Notes |
 |---|---|---|
-| **MuJoCo** (`mujoco-uni`) | Mature, broad asset support, deterministic | Default for research |
+| **MuJoCo** (`mujoco` + `mujoco-uni-runtime`) | Mature, broad asset support, deterministic | Default for research |
 | **Motrix** (`motrixsim-core`) | High-throughput, multithread step, snapshot/playback | Cross-platform; required for video export on macOS |
 
 Pick a backend per task via the top-level `--sim <backend>` CLI flag — see

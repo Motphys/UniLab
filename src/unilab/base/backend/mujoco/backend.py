@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 
 import mujoco
 import numpy as np
-from mujoco.batch_env import BatchEnvPool
+from mujoco_uni.batch_env import BatchEnvPool
 
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (

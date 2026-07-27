@@ -9,7 +9,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
-from mujoco.batch_env import BatchEnvPool
+from mujoco_uni.batch_env import BatchEnvPool
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:

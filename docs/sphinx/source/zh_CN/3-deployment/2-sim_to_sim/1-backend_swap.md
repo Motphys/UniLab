@@ -1,6 +1,7 @@
 # 切换后端
 
-UniLab 支持两个 CPU 物理后端：**MuJoCo**（通过 `mujoco-uni`）和
+UniLab 支持两个 CPU 物理后端：**MuJoCo**（通过官方 `mujoco` 包加
+`mujoco-uni-runtime`）和
 **Motrix**（通过 `motrixsim-core`）。两者实现了相同的 `SimBackend`
 contract 和相同的 env contract。后端特有的行为通过显式方法和能力记录
 （capability records）暴露出来。

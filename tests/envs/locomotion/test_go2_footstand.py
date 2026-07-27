@@ -933,9 +933,9 @@ def test_go2_footstand_joint_limit_cost_uses_soft_limits() -> None:
 def test_go2_footstand_reset_critic_height_uses_backend_sensor() -> None:
     pytest.importorskip("mujoco", reason="mujoco not installed")
     try:
-        from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
+        from mujoco_uni.batch_env import BatchEnvPool as _  # noqa: F401
     except Exception:
-        pytest.skip("mujoco.batch_env not available")
+        pytest.skip("mujoco_uni.batch_env not available")
 
     ensure_registries()
     env = registry.make(

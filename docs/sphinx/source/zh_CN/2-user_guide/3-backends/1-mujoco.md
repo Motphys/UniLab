@@ -1,7 +1,7 @@
 # MuJoCo 后端
 
-MuJoCo 是已提交 owner 配置中的默认后端路径。其 Python 依赖在
-`pyproject.toml` 中为 `mujoco-uni==3.8.0`，适配层位于
+MuJoCo 是已提交 owner 配置中的默认后端路径。其 Python 依赖为官方
+`mujoco` 包（`>=3.5,<3.11`）加 `mujoco-uni-runtime`（见 `pyproject.toml`），适配层位于
 `src/unilab/base/backend/mujoco/` 下。
 
 ## 何时使用

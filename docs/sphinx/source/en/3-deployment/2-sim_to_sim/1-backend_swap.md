@@ -1,6 +1,7 @@
 # Backend Swap
 
-UniLab supports two CPU physics backends: **MuJoCo** (via `mujoco-uni`) and
+UniLab supports two CPU physics backends: **MuJoCo** (via the official `mujoco`
+package plus `mujoco-uni-runtime`) and
 **Motrix** (via `motrixsim-core`). Both implement the same `SimBackend`
 contract and the same env contract. Backend-specific behavior is exposed
 through explicit methods and capability records.
