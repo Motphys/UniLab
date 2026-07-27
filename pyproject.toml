@@ -95,8 +95,14 @@ mujoco-uni-runtime = { index = "testpypi" }
 exclude-dependencies = ["torchvision"]
 # Build mujoco-uni-runtime against the mujoco version locked in this project
 # environment instead of an isolated build env (its native extension records
-# the build-time mujoco version and refuses to load on mismatch).
+# the build-time mujoco version and refuses to load on mismatch). Prebuilt
+# wheels on the index are bound to one specific mujoco build, so always
+# compile from the sdist here. After changing the mujoco version, run
+# `uv cache clean mujoco-uni-runtime && uv sync --extra mujoco
+# --reinstall-package mujoco-uni-runtime` to force a fresh in-env build
+# (uv's build cache cannot see that the extension depends on mujoco).
 no-build-isolation-package = ["mujoco-uni-runtime"]
+no-binary-package = ["mujoco-uni-runtime"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
