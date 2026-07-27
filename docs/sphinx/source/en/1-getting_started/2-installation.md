@@ -9,6 +9,14 @@ live in the getting-started and algorithm pages.
 - `uv`, used for dependency sync and command execution.
 - `cmake`, required by the local setup documented in
   `docs/sphinx/source/zh_CN/1-getting_started/2-installation.md`.
+- For the `mujoco` extra: a C++17 toolchain and Python development headers,
+  because `mujoco-uni-runtime` ships as a source distribution and compiles its
+  native extension during `uv sync` (against the locked mujoco version).
+  - macOS: `xcode-select --install`
+  - Ubuntu / Debian: `sudo apt-get install build-essential python3-dev`
+  - Windows: MSVC Build Tools
+  - Tip: a uv-managed Python (`uv python install`) already bundles the
+    headers, so `python3-dev` is only needed for system Pythons.
 
 ## Clone And Sync
 

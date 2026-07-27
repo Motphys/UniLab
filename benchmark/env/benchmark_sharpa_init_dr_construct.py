@@ -11,14 +11,14 @@ Why variant count matters:
 - UniLab then expands env-to-variant assignments into a per-env model sequence
   before constructing `BatchEnvPool`.
 
-Relevant `mujoco-uni` constraint from source:
+Relevant `mujoco-uni-runtime` constraint from source:
 - `BatchEnvPool(model=...)` accepts either
   - one `MjModel`, or
   - a sequence of `MjModel` with length `1` or `nbatch`.
 
 See:
-- `mujoco_uni/python/mujoco/batch_env.py`
-- `mujoco_uni/python/mujoco/batch_env.cc`
+- `mujoco_uni/runtime/batch.py` (re-exported as `mujoco_uni.batch_env`)
+- `mujoco_uni/native/batch_env.cc`
 
 Usage:
     uv run benchmark/env/benchmark_sharpa_init_dr_construct.py
@@ -597,8 +597,8 @@ def main() -> None:
             "repeats": args.repeats,
             "warmup": args.warmup,
             "batch_env_contract": {
-                "source_py": "mujoco_uni/python/mujoco/batch_env.py",
-                "source_cc": "mujoco_uni/python/mujoco/batch_env.cc",
+                "source_py": "mujoco_uni/runtime/batch.py (re-exported as mujoco_uni.batch_env)",
+                "source_cc": "mujoco_uni/native/batch_env.cc",
                 "accepted_model_arity": "single MjModel, or sequence length 1 or nbatch",
             },
             "init_dr_off_mode": "local monkeypatch: provider returns no InitRandomizationPlan",

@@ -381,7 +381,7 @@ def _build_context(args: argparse.Namespace) -> dict[str, Any]:
         "batch_pool": None,
     }
     if args.jacobian_source == "batch" or args.compare_jacobians:
-        from mujoco.batch_env import BatchEnvPool
+        from mujoco_uni.batch_env import BatchEnvPool
 
         ctx["batch_pool"] = BatchEnvPool(model, nbatch=1, nthread=1)
     return ctx

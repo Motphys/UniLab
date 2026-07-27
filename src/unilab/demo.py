@@ -15,8 +15,6 @@ from pathlib import Path
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.assets.hub import resolve_checkpoint_file
 
-_OFFICIAL_MUJOCO_PACKAGE = "mujoco==3.8.0"
-
 
 @dataclass(frozen=True)
 class DemoSpec:
@@ -135,7 +133,7 @@ def _build_play_interactive_command(
             f"{owner_yaml}"
         )
     command = [
-        *_play_interactive_command_prefix(selected_root),
+        *_play_interactive_command_prefix(),
         str(script),
         "--algo",
         spec.algo,
@@ -153,87 +151,33 @@ def _build_play_interactive_command(
     return command
 
 
-def _play_interactive_command_prefix(root: Path) -> list[str]:
+def _play_interactive_command_prefix() -> list[str]:
     if platform.system() != "Darwin":
         return [sys.executable]
 
-    _ensure_mujoco_uni_mjpython_app(root)
+    _ensure_mujoco_mjpython_app()
     return [_current_env_mjpython()]
-
-
-def _official_mujoco_env(root: Path) -> Path:
-    return root / ".tmp" / "mjpython-demo"
-
-
-def _official_mujoco_app_mjpython(env_root: Path) -> Path:
-    site_packages = (
-        env_root
-        / "lib"
-        / f"python{sys.version_info.major}.{sys.version_info.minor}"
-        / "site-packages"
-    )
-    return site_packages / "mujoco" / "MuJoCo_(mjpython).app" / "Contents" / "MacOS" / "mjpython"
-
-
-def _official_mujoco_app(env_root: Path) -> Path:
-    return _official_mujoco_app_mjpython(env_root).parents[2]
 
 
 def _mujoco_package_dir() -> Path:
     spec = importlib.util.find_spec("mujoco")
     if spec is None or spec.origin is None:
-        raise SystemExit("macOS MuJoCo demos require the project mujoco-uni package.")
+        raise SystemExit("macOS MuJoCo demos require the official mujoco package.")
     return Path(spec.origin).resolve().parent
 
 
-def _mujoco_uni_mjpython_app() -> Path:
+def _mujoco_mjpython_app() -> Path:
     return _mujoco_package_dir() / "MuJoCo_(mjpython).app"
 
 
-def _ensure_official_mujoco_env(root: Path) -> Path:
-    env_root = _official_mujoco_env(root)
-    env_mjpython = env_root / "bin" / "mjpython"
-    if env_mjpython.is_file() and _official_mujoco_app_mjpython(env_root).is_file():
-        return env_root
-
-    uv = shutil.which("uv")
-    if uv is None:
-        raise SystemExit(
-            "macOS MuJoCo demos require `uv` to create an isolated official MuJoCo "
-            "mjpython environment."
-        )
-
-    env_root.parent.mkdir(parents=True, exist_ok=True)
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    subprocess.run([uv, "venv", str(env_root), "--python", python_version], check=True)
-    subprocess.run(
-        [
-            uv,
-            "pip",
-            "install",
-            "--python",
-            str(env_root / "bin" / "python"),
-            _OFFICIAL_MUJOCO_PACKAGE,
-        ],
-        check=True,
-    )
-    if not env_mjpython.is_file() or not _official_mujoco_app_mjpython(env_root).is_file():
-        raise SystemExit(
-            "Failed to create the isolated official MuJoCo mjpython environment for "
-            "macOS demo playback."
-        )
-    return env_root
-
-
-def _ensure_mujoco_uni_mjpython_app(root: Path) -> None:
-    dest = _mujoco_uni_mjpython_app()
-    if (dest / "Contents" / "MacOS" / "mjpython").is_file():
+def _ensure_mujoco_mjpython_app() -> None:
+    app = _mujoco_mjpython_app()
+    if (app / "Contents" / "MacOS" / "mjpython").is_file():
         return
-
-    official_env = _ensure_official_mujoco_env(root)
-    shutil.copytree(_official_mujoco_app(official_env), dest, dirs_exist_ok=True)
-    if not (dest / "Contents" / "MacOS" / "mjpython").is_file():
-        raise SystemExit(f"Failed to materialize MuJoCo mjpython app at {dest}")
+    raise SystemExit(
+        "macOS MuJoCo demos require the MuJoCo_(mjpython).app bundled with the "
+        f"official mujoco wheel, but it is missing at {app}."
+    )
 
 
 def _current_env_mjpython() -> str:

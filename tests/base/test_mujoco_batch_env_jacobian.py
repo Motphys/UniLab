@@ -10,15 +10,15 @@ pytest.importorskip("mujoco", reason="mujoco not installed")
 
 try:
     import mujoco
-    from mujoco.batch_env import BatchEnvPool
+    from mujoco_uni.batch_env import BatchEnvPool
 except Exception:
     pytest.skip(
-        "mujoco.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
+        "mujoco_uni.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
 if not hasattr(BatchEnvPool, "compute_site_jacobians"):
     pytest.skip(
-        "BatchEnvPool.compute_site_jacobians requires mujoco-uni>=3.8.0rc0",
+        "BatchEnvPool.compute_site_jacobians requires a mujoco-uni-runtime build that ships it",
         allow_module_level=True,
     )
 
@@ -135,7 +135,7 @@ def test_compute_site_jacobians_requires_at_least_one_flag(pool_ctx: _PoolCtx) -
 
 def test_compute_site_jacobians_rejects_invalid_site_id(pool_ctx: _PoolCtx) -> None:
     pytest.xfail(
-        "current mujoco-uni BatchEnvPool aborts on invalid site ids; "
+        "current mujoco-uni-runtime BatchEnvPool aborts on invalid site ids; "
         "UniLab validates ids before native calls at the backend boundary"
     )
 

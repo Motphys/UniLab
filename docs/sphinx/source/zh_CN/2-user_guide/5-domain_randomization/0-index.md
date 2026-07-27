@@ -150,7 +150,7 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 - `gravity_range` 必须可转换为 `(2, 3)` 数组；否则 reset 在构造 payload 时会抛出错误。
 - 该项不调用 `mj_setConst`；MuJoCo step / forward 直接读取 `mjModel.opt.gravity`。
 - 不要在 Motrix 后端下启用该项；当前 Motrix 能力不包含 `gravity`。
-- 如果你当前的环境仍安装了不包含 `gravity` 字段的 `mujoco-uni` 包，MuJoCo reset 会抛出 unsupported field；你需要使用包含该字段的 `mujoco-uni` 构建/发布版本。
+- 如果你当前的环境仍安装了不包含 `gravity` 字段的 `mujoco-uni-runtime` 包，MuJoCo reset 会抛出 unsupported field；你需要使用包含该字段的 `mujoco-uni-runtime` 构建/发布版本。
 - 在训练期间，建议从较小的倾斜范围开始；否则在早期采样到过大的水平重力，可能会使任务退化为不可学习。
 
 ## Interval push 用法

@@ -2,6 +2,18 @@
 sync:
 	uv sync --extra mujoco --extra motrix
 
+# Switch the MuJoCo solver version (window: >=3.5,<3.11), e.g.
+#   make mujoco MJ=3.8.0
+# Repins mujoco in uv.lock, then rebuilds the mujoco-uni-runtime native
+# extension against it (the extension refuses to load on a version mismatch,
+# and uv's build cache must be cleared because it cannot see the dependency).
+.PHONY: mujoco
+mujoco:
+	@test -n "$(MJ)" || (echo "usage: make mujoco MJ=3.8.0" && exit 1)
+	uv lock --upgrade-package mujoco==$(MJ)
+	uv cache clean mujoco-uni-runtime
+	uv sync --extra mujoco --extra motrix --reinstall-package mujoco-uni-runtime
+
 .PHONY: setup
 setup:
 	uv sync --extra mujoco --extra motrix

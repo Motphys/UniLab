@@ -8,16 +8,16 @@ import pytest
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
 try:
-    from mujoco.batch_env import BatchEnvPool
+    from mujoco_uni.batch_env import BatchEnvPool
 except Exception:
     pytest.skip(
-        "mujoco.batch_env not available (platform/libstdc++ issue)",
+        "mujoco_uni.batch_env not available (platform/libstdc++ issue)",
         allow_module_level=True,
     )
 
 if not hasattr(BatchEnvPool, "sample_hfield_height"):
     pytest.skip(
-        "BatchEnvPool.sample_hfield_height requires mujoco-uni>=3.8.0",
+        "BatchEnvPool.sample_hfield_height requires a mujoco-uni-runtime build that ships it",
         allow_module_level=True,
     )
 

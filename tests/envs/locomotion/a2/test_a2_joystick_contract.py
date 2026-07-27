@@ -38,9 +38,9 @@ _MJLAB_FRICTION_RANGE = [0.3, 1.6]
 def _skip_if_no_mujoco():
     pytest.importorskip("mujoco", reason="mujoco not installed")
     try:
-        from mujoco.batch_env import BatchEnvPool  # noqa: F401
+        from mujoco_uni.batch_env import BatchEnvPool  # noqa: F401
     except Exception:
-        pytest.skip("mujoco.batch_env not available")
+        pytest.skip("mujoco_uni.batch_env not available")
 
 
 def test_a2_robot_xml_compiles_with_12_position_actuators():

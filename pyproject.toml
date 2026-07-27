@@ -51,7 +51,14 @@ unilab-import-robot = "unilab.tools.import_robot:main"
 unilab-pull-assets = "unilab.tools.pull_assets:main"
 
 [project.optional-dependencies]
-mujoco = ["mujoco-uni==3.8.0"]
+mujoco = [
+    "mujoco>=3.5,<3.11",
+    "mujoco-uni-runtime==0.3.0",
+    # pybind11/wheel are build requirements of mujoco-uni-runtime, which is
+    # compiled in this environment (see no-build-isolation-package below).
+    "pybind11>=2.12",
+    "wheel",
+]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
@@ -77,6 +84,16 @@ torch = [
 
 [tool.uv]
 exclude-dependencies = ["torchvision"]
+# Build mujoco-uni-runtime against the mujoco version locked in this project
+# environment instead of an isolated build env (its native extension records
+# the build-time mujoco version and refuses to load on mismatch). Prebuilt
+# wheels on the index are bound to one specific mujoco build, so always
+# compile from the sdist here. After changing the mujoco version, run
+# `uv cache clean mujoco-uni-runtime && uv sync --extra mujoco
+# --reinstall-package mujoco-uni-runtime` to force a fresh in-env build
+# (uv's build cache cannot see that the extension depends on mujoco).
+no-build-isolation-package = ["mujoco-uni-runtime"]
+no-binary-package = ["mujoco-uni-runtime"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -137,9 +154,9 @@ exclude = [
     "src/unilab/algos/torch/rsl_rl/",       # vendored third-party
     "src/unilab/algos/mlx/",                # MLX stubs incomplete, macOS-only
     "src/unilab/algos/torch/common/ane_*",  # Apple Neural Engine, macOS-only
-    "src/unilab/base/backend/",             # mujoco-uni stubs mismatch; optional backends
-    "src/unilab/envs/",                     # mujoco-uni internal API, stubs mismatch
-    "src/unilab/terrains/",                 # mujoco-uni MjSpec API, stubs mismatch
+    "src/unilab/base/backend/",             # mujoco-uni-runtime stubs mismatch; optional backends
+    "src/unilab/envs/",                     # mujoco-uni-runtime internal API, stubs mismatch
+    "src/unilab/terrains/",                 # mujoco-uni-runtime MjSpec API, stubs mismatch
     "src/unilab/training/monitoring.py",    # optional pynvml/psutil deps
     "src/unilab/visualization/",            # direct mujoco C bindings + optional viser deps
 ]

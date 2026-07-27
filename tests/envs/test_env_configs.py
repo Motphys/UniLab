@@ -24,9 +24,9 @@ from unilab.base.registry import ensure_registries
 def _require_mujoco_runtime() -> None:
     pytest.importorskip("mujoco", reason="mujoco not installed")
     try:
-        from mujoco.batch_env import BatchEnvPool as _  # noqa: F401
+        from mujoco_uni.batch_env import BatchEnvPool as _  # noqa: F401
     except Exception:
-        pytest.skip("mujoco.batch_env not available (platform/libstdc++ issue)")
+        pytest.skip("mujoco_uni.batch_env not available (platform/libstdc++ issue)")
 
 
 # ---------------------------------------------------------------------------
