@@ -7,6 +7,15 @@ from omegaconf import OmegaConf
 from scripts import validate_issue705_thresholds
 
 
+def test_default_cli_validates_manifest_and_freeze_receipt(capsys) -> None:
+    exit_code = validate_issue705_thresholds.main(["--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"] == "PASS"
+    assert payload["freeze_commit"] == "a2419b342b8663998b2e29cf20a4dce49b3127f5"
+
+
 def test_manifest_only_cli_passes_and_reports_frozen_matrix(capsys) -> None:
     exit_code = validate_issue705_thresholds.main(["--manifest-only", "--json"])
 
