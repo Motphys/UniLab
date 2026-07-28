@@ -1,0 +1,95 @@
+schema_version: 1
+issue: 705
+phase: 1
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [A, B]
+claims:
+  - claim_id: P1-BATCH-CONTRACT
+    expected: SimBackend exposes one additive typed batch contract with explicit state, control, mutation, placement, ownership, and lifetime semantics.
+    risk: A parallel hierarchy or loosely typed dictionaries bypass the existing backend owner boundary.
+    owner: backend-contract
+    oracle: Parameterized fake-backend tests validate public types and reject invalid shape, frame, unit, dtype, rows, placement, and stale views.
+    commands: [uv run pytest tests/base/test_backend_batch_contract.py -v]
+    lane: A
+    required: true
+    required_test_ids: [tests/base/test_backend_batch_contract.py::test_bound_state_batch_contract]
+    environment: {dependencies: [uv.lock], hardware: any, owner_yaml: null, seeds: [0], batch_sizes: [1, 17], dtype: float32, plan_fingerprint: backend-batch-contract-v1}
+    acceptance: {tolerance: {}, thresholds: {}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any ambiguous ownership, placement, row, lifetime, or unsupported operation is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/**, tests/base/test_backend_batch_contract.py], capabilities: [typed-backend-batch], fingerprints: [backend-batch-contract-v1]}
+    status: planned
+
+  - claim_id: P1-MUJOCO-REFERENCE
+    expected: The mujoco backend implements the bound host batch path and matches frozen getter vectors and reset schedules.
+    risk: The interface exists but production mujoco behavior still uses unrelated per-field materialization.
+    owner: mujoco-backend
+    oracle: Randomized differential tests compare public getter output with one bound StateBatch and independently generated row schedules.
+    commands: [uv run pytest tests/base/test_backend_batch_contract.py -k mujoco -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference]
+    environment: {dependencies: [uv.lock, mujoco], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0, 1, 2], batch_sizes: [1, 32], dtype: float64, plan_fingerprint: mujoco-host-batch-v1}
+    acceptance: {tolerance: {atol: 1.0e-10, rtol: 1.0e-8}, thresholds: {materializations_per_barrier: 1}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any field mismatch, row leak, or repeated barrier materialization is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mujoco/**, src/unilab/base/backend/base.py, tests/base/test_backend_batch_contract.py], capabilities: [mujoco-host-batch], fingerprints: [mujoco-host-batch-v1]}
+    status: planned
+
+  - claim_id: P1-MUTATION-CONTRACT
+    expected: Registry-owned MutationSpec binds to typed model, state, wrench, and task-state mutation batches with strict capability and conflict checks.
+    risk: DR semantics leak backend-private fields or unsupported terms are silently filtered.
+    owner: backend-DR
+    oracle: Mutation fixtures independently enumerate phases, row masks, conflicts, baseline policy, persistence, and unsupported combinations.
+    commands: [uv run pytest tests/dr/test_mutation_contract.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/dr/test_mutation_contract.py::test_typed_mutation_conflicts_fail_closed]
+    environment: {dependencies: [uv.lock], hardware: any, owner_yaml: null, seeds: [0, 7], batch_sizes: [1, 19], dtype: float32, plan_fingerprint: mutation-contract-v1}
+    acceptance: {tolerance: {}, thresholds: {silent_fallbacks: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any undeclared target, conflict, phase, baseline, persistence, or capability fallback is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/dr/**, src/unilab/base/backend/**, tests/dr/test_mutation_contract.py], capabilities: [typed-mutation], fingerprints: [mutation-contract-v1]}
+    status: planned
+
+  - claim_id: P1-HOT-PATH-INSTRUMENTATION
+    expected: Transfer, synchronization, allocation, getter, selector, and asset access counters expose all managed hot-path violations.
+    risk: Dynamic fallback or hidden materialization survives while numerical tests still pass.
+    owner: runtime-instrumentation
+    oracle: Fault injection adds getters, terms, selectors, and asset probes and checks exact counter deltas at lifecycle barriers.
+    commands: [uv run pytest tests/base/test_backend_batch_contract.py -k instrumentation -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/base/test_backend_batch_contract.py::test_managed_hot_path_has_no_dynamic_getters]
+    environment: {dependencies: [uv.lock], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0], batch_sizes: [16], dtype: float32, plan_fingerprint: hot-path-counters-v1}
+    acceptance: {tolerance: {}, thresholds: {hot_getters: 0, hot_selectors: 0, hot_asset_reads: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any undeclared transfer, sync, allocation, getter, selector, or asset access is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/**, src/unilab/envs/**, tests/base/test_backend_batch_contract.py], capabilities: [hot-path-observability], fingerprints: [hot-path-counters-v1]}
+    status: planned
+
+  - claim_id: P1-DR-COMPATIBILITY
+    expected: Legacy DomainRandomizationProvider warning and filtering remain an explicit compatibility mode while compiled managed tasks default to strict fail-closed mutation binding.
+    risk: The new path silently inherits legacy warning-and-continue behavior or duplicates randomization semantics.
+    owner: backend-DR
+    oracle: The same unsupported term fixture is executed through legacy and compiled entrypoints and must produce a warning in one and a compile error in the other.
+    commands: [uv run pytest tests/dr/test_mutation_contract.py -k compatibility -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary]
+    environment: {dependencies: [uv.lock], hardware: Linux CPU, owner_yaml: null, seeds: [0], batch_sizes: [8], dtype: float32, plan_fingerprint: dr-compatibility-boundary-v1}
+    acceptance: {tolerance: {}, thresholds: {silent_filters: 0, duplicated_samplers: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any compiled warning-and-continue or duplicated mutation semantics is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/dr/**, src/unilab/base/backend/**, tests/dr/test_mutation_contract.py], capabilities: [dr-compatibility-boundary], fingerprints: [dr-compatibility-boundary-v1]}
+    status: planned
+
+  - claim_id: P1-BACKEND-ISOLATION
+    expected: mujoco and mjwarp share only cold-path materialization utilities and never inherit or access each other's runtime-private model data or buffers.
+    risk: Shared implementation couples backend identity and leaks private runtime behavior through manager terms.
+    owner: backend-contract
+    oracle: Import and ownership tests inspect module dependencies plus fault-injected private access from env and manager layers.
+    commands: [uv run pytest tests/base/test_backend_batch_contract.py -k backend_isolation -v]
+    lane: A
+    required: true
+    required_test_ids: [tests/base/test_backend_batch_contract.py::test_runtime_backends_share_only_cold_materialization_contract]
+    environment: {dependencies: [uv.lock], hardware: any, owner_yaml: null, seeds: [], batch_sizes: [], dtype: null, plan_fingerprint: backend-runtime-isolation-v1}
+    acceptance: {tolerance: {}, thresholds: {runtime_private_cross_reads: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any runtime inheritance, private cross-read, or manager import of concrete backend modules is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/**, src/unilab/manager/**, tests/base/test_backend_batch_contract.py], capabilities: [backend-runtime-isolation], fingerprints: [backend-runtime-isolation-v1]}
+    status: planned

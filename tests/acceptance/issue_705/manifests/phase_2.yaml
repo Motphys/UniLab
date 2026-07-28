@@ -1,0 +1,125 @@
+schema_version: 1
+issue: 705
+phase: 2
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [A, C]
+claims:
+  - claim_id: P2-BACKEND-IDENTITY
+    expected: mjwarp is a lazy optional, independently registered backend identity across factory, CLI, config, logs, and sim2sim snapshots.
+    risk: mjwarp is implemented as a mujoco mode or imports CUDA dependencies when another backend is selected.
+    owner: mjwarp-backend
+    oracle: Import-isolation and routing tests inspect public registry/config output with dependency-present and dependency-absent environments.
+    commands: [uv run pytest tests/base/test_backend_imports.py tests/base/test_mjwarp_identity.py -v]
+    lane: A
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco]
+    environment: {dependencies: [uv.lock], hardware: any, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [], batch_sizes: [], dtype: null, plan_fingerprint: mjwarp-identity-v1}
+    acceptance: {tolerance: {}, thresholds: {identity_aliases: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any eager optional import, identity alias, or owner-route mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/**, src/unilab/cli.py, src/unilab/structured_configs.py, conf/**, tests/base/test_mjwarp_identity.py], capabilities: [mjwarp-identity], fingerprints: [mjwarp-identity-v1]}
+    status: planned
+
+  - claim_id: P2-GPU-CORRECTNESS
+    expected: The production mjwarp backend initializes, resets, steps, and refreshes its bound state on a real CUDA device.
+    risk: A benchmark monkey patch or fake Warp implementation is mistaken for the production backend.
+    owner: mjwarp-backend
+    oracle: A real-CUDA test imports the registered backend path and checks public state/control results and dependency versions.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [1, 128], dtype: float32, plan_fingerprint: mjwarp-correctness-v1}
+    acceptance: {tolerance: {}, thresholds: {mandatory_skips: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Fake Warp, benchmark-only code, implicit skip, or host-only execution is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, conf/ppo/task/g1_walk_flat/mjwarp.yaml, uv.lock, tests/base/test_mjwarp_backend.py], capabilities: [mjwarp-correctness], fingerprints: [mjwarp-correctness-v1]}
+    status: planned
+
+  - claim_id: P2-RESET-ISOLATION
+    expected: Selected-row qpos and qvel reset changes exactly the requested worlds and refreshes terminal/reset state at the canonical barrier.
+    risk: Batched reset leaks into complement rows or exposes stale state.
+    owner: mjwarp-backend
+    oracle: Sentinel-filled worlds and independently sampled row masks verify selected rows, complements, and post-forward state.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 3, 19], batch_sizes: [17, 128], dtype: float32, plan_fingerprint: mjwarp-reset-v1}
+    acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {complement_changes: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any complement-row change, stale reset view, or missing forward is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, tests/base/test_mjwarp_backend.py], capabilities: [mjwarp-selected-reset], fingerprints: [mjwarp-reset-v1]}
+    status: planned
+
+  - claim_id: P2-TRAJECTORY-DIFFERENTIAL
+    expected: Fixed initial state and action schedules produce bounded single-step and short-trajectory differences between mujoco and mjwarp.
+    risk: Backend liveness hides incorrect dynamics, indexing, actuator semantics, or quaternion conventions.
+    owner: backend-validation
+    oracle: The mujoco backend and frozen action/state fixtures independently generate field-wise comparison vectors.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_differential.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco]
+    environment: {dependencies: [uv.lock, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [1, 32], dtype: float32, plan_fingerprint: g1-mjwarp-differential-v1}
+    acceptance: {tolerance: {state_atol: 1.0e-4, state_rtol: 1.0e-3}, thresholds: {trajectory_steps: 100}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any field outside frozen tolerance or unexplained first mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mujoco/**, src/unilab/base/backend/mjwarp/**, assets/**, tests/base/test_mjwarp_differential.py], capabilities: [mjwarp-dynamics-parity], fingerprints: [g1-mjwarp-differential-v1]}
+    status: planned
+
+  - claim_id: P2-DR-OWNER-SEMANTICS
+    expected: The mjwarp G1 owner either implements selected-row kp/kd mutation with immutable baselines and physics effect or explicitly disables it with an audited semantic difference.
+    risk: Default DR is configured but silently ineffective.
+    owner: backend-DR
+    oracle: Owner-config and controlled randomized/control pair tests inspect the next physics step rather than only written gain arrays.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_g1_dr.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1], batch_sizes: [32], dtype: float32, plan_fingerprint: mjwarp-g1-dr-v1}
+    acceptance: {tolerance: {effect_min: 1.0e-7}, thresholds: {silent_terms: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Enabled but ineffective kp/kd DR, cumulative baselines, or row leakage is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [conf/ppo/task/g1_walk_flat/mjwarp.yaml, src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_g1_dr.py], capabilities: [mjwarp-g1-dr], fingerprints: [mjwarp-g1-dr-v1]}
+    status: planned
+
+  - claim_id: P2-TRANSFER-ACCOUNTING
+    expected: The host compatibility profile performs only the transfers declared by its bound plan and reports every transfer and synchronization.
+    risk: Per-getter device numpy conversion or hidden synchronization dominates runtime.
+    owner: runtime-instrumentation
+    oracle: Exact transfer counters are reconciled with a profiler trace over a fixed number of steps and added getter probes.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_transfers.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU with profiler, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: mjwarp-host-transfer-v1}
+    acceptance: {tolerance: {}, thresholds: {undeclared_transfers: 0, getter_dependent_transfers: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Counter/trace disagreement, hidden numpy conversion, or getter-dependent transfer is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/training/**, tests/base/test_mjwarp_transfers.py], capabilities: [mjwarp-transfer-accounting], fingerprints: [mjwarp-host-transfer-v1]}
+    status: planned
+
+  - claim_id: P2-UNSUPPORTED-FAIL-CLOSED
+    expected: Unsupported DR, Event, render, playback, hfield, Jacobian, and host substep controller combinations fail during compose, compile, or materialization.
+    risk: The correctness slice registers capabilities that silently no-op or fail only inside the hot loop.
+    owner: mjwarp-backend
+    oracle: A table independent from the backend capability registry attempts every unsupported public combination and asserts the earliest owner-layer error.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_capabilities.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [8], dtype: float32, plan_fingerprint: mjwarp-unsupported-matrix-v1}
+    acceptance: {tolerance: {}, thresholds: {late_failures: 0, silent_fallbacks: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any unsupported combination that composes silently, reaches step, or falls back is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/structured_configs.py, conf/ppo/task/g1_walk_flat/mjwarp.yaml, tests/base/test_mjwarp_capabilities.py], capabilities: [mjwarp-unsupported-matrix], fingerprints: [mjwarp-unsupported-matrix-v1]}
+    status: planned
+
+  - claim_id: P2-TRAIN-LIVENESS
+    expected: A one-iteration G1 PPO run reaches rollout and learner completion through the production registered mjwarp backend.
+    risk: Backend unit correctness does not integrate with Hydra, env adapters, runner lifecycle, or learner input.
+    owner: training-integration
+    oracle: A CLI subprocess records backend identity, owner config, rollout, learner, and checkpoint artifacts while forbidding benchmark monkey patches.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/integration/test_mjwarp_train_smoke.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: mjwarp-train-liveness-v1}
+    acceptance: {tolerance: {}, thresholds: {completed_iterations: 1, mandatory_skips: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any non-production route, missing rollout or learner stage, crash, skip, or nonfinite value is FAIL; this claim does not imply performance."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [scripts/train_rsl_rl.py, src/unilab/training/**, src/unilab/base/backend/mjwarp/**, conf/ppo/task/g1_walk_flat/mjwarp.yaml, tests/integration/test_mjwarp_train_smoke.py], capabilities: [mjwarp-train-liveness], fingerprints: [mjwarp-train-liveness-v1]}
+    status: planned

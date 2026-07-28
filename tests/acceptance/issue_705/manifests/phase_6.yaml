@@ -1,0 +1,125 @@
+schema_version: 1
+issue: 705
+phase: 6
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [B, C, D]
+claims:
+  - claim_id: P6-CAPABILITY-BIJECTION
+    expected: Every advertised field, phase, row scope, persistence, recompute, device, and graph capability maps bidirectionally to a mandatory test ID.
+    risk: Registry support claims outpace implemented and effect-tested combinations.
+    owner: backend-DR
+    oracle: The capability manifest itself parameterizes tests, and a reverse audit rejects untested or unadvertised passing cases.
+    commands: [uv run pytest tests/dr/test_mjwarp_capability_matrix.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Linux CPU for audit and CUDA GPU for cases, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [32], dtype: float32, plan_fingerprint: mjwarp-dr-capability-v2}
+    acceptance: {tolerance: {}, thresholds: {untested_capabilities: 0, unadvertised_passes: 0, mandatory_skips: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any non-bijective registration/test mapping or mandatory skip is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_capability_matrix.py], capabilities: [mjwarp-dr-capability-matrix], fingerprints: [mjwarp-dr-capability-v2]}
+    status: planned
+
+  - claim_id: P6-DR-SEMANTICS
+    expected: abs, scale, add, baseline, correlation, selected-row, persistence, expiry, and reset semantics are correct without accumulation or complement leakage.
+    risk: Randomized values look plausible while lifecycle, baseline, or correlation semantics are wrong.
+    owner: backend-DR
+    oracle: Predetermined sample tensors and sentinel baselines independently define expected values for each operation and row schedule.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_mutation_semantics.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [17, 128], dtype: float32, plan_fingerprint: mjwarp-mutation-semantics-v1}
+    acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {accumulation_errors: 0, complement_changes: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any baseline accumulation, row leak, correlation mismatch, or expiry/reset-clear error is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_mutation_semantics.py], capabilities: [mjwarp-dr-semantics], fingerprints: [mjwarp-mutation-semantics-v1]}
+    status: planned
+
+  - claim_id: P6-PHYSICS-EFFECT
+    expected: Every supported model or data mutation changes the next physics result when its semantic target should have an effect and preserves physical validity.
+    risk: Direct fields are writable but derived constants, bounds, or physics kernels still consume shared stale values.
+    owner: backend-DR
+    oracle: Randomized/control world pairs compare next-step acceleration, contact, or trajectory outcomes and independent validity invariants.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_physics_effect.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [2, 32], dtype: float32, plan_fingerprint: mjwarp-dr-effect-v1}
+    acceptance: {tolerance: {effect_min: 1.0e-7}, thresholds: {ineffective_capabilities: 0, invalid_inertias: 0}, repetitions: 5, max_dispersion: 0, failure_semantics: "A written field without next-step effect, stale derived constants, invalid inertia, or stale geom bounds is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_physics_effect.py], capabilities: [mjwarp-dr-effect], fingerprints: [mjwarp-dr-effect-v1]}
+    status: planned
+
+  - claim_id: P6-RNG-REPRODUCIBILITY
+    expected: Keyed RNG is stable under partial-reset row permutations and insertion of unrelated terms, with algorithm/version in the fingerprint.
+    risk: Refactoring term order silently changes all randomization streams and training behavior.
+    owner: manager-runtime
+    oracle: Metamorphic tests permute rows and add unrelated terms while comparing the original term's samples by env and trigger count.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_keyed_rng.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 7, 29], batch_sizes: [17, 128], dtype: float32, plan_fingerprint: keyed-dr-rng-v1}
+    acceptance: {tolerance: {}, thresholds: {sequence_mismatches: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any existing-term sequence change from row order or unrelated term insertion is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/dr/**, tests/dr/test_keyed_rng.py], capabilities: [keyed-dr-rng], fingerprints: [keyed-dr-rng-v1]}
+    status: planned
+
+  - claim_id: P6-GRAPH-RECAPTURE
+    expected: Field expansion, derived storage, baseline snapshot, bridge and sensor invalidation, and graph recapture commit atomically before execution.
+    risk: Captured kernels retain pre-expansion array addresses and ignore visible randomization writes.
+    owner: mjwarp-backend
+    oracle: Stale-address fault injection replaces arrays around capture and checks pointer identity plus next-step physics effect.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_graph_mutation.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [32, 128], dtype: float32, plan_fingerprint: mjwarp-dr-graph-v1}
+    acceptance: {tolerance: {}, thresholds: {stale_consumers: 0, partial_transactions: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any stale address, partial materialization transaction, or missed bridge/sensor invalidation is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_graph_mutation.py], capabilities: [mjwarp-dr-graph], fingerprints: [mjwarp-dr-graph-v1]}
+    status: planned
+
+  - claim_id: P6-CONTROLLER-CONTRACT
+    expected: Device substep controllers declare state reads and cadence, match constant/reference implementations, and reject host callbacks at compile time.
+    risk: Per-substep host synchronization reappears through controller compatibility behavior.
+    owner: backend-control
+    oracle: Recording cadence fixtures and a device/reference control pair compare outputs while a host callback is fault-injected.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_device_controller_contract.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: null, seeds: [0, 1], batch_sizes: [32], dtype: float32, plan_fingerprint: device-controller-v1}
+    acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {host_substep_callbacks: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Cadence mismatch, undeclared state read, parity failure, or accepted host callback is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/**, src/unilab/manager/**, tests/base/test_device_controller_contract.py], capabilities: [device-substep-controller], fingerprints: [device-controller-v1]}
+    status: planned
+
+  - claim_id: P6-DR-PERFORMANCE
+    expected: DR disabled, kp/kd, Tier B, Tier C, and eligible Tier D profiles meet frozen reset-density, recompute, memory, graph, env, and train gates.
+    risk: Correct DR becomes unusable at realistic reset density or expands excessive per-world storage.
+    owner: benchmark-training
+    oracle: Independent-process matrix reports sample, transfer, commit, strongest recompute, forward, expanded bytes, graph recapture, env, and PPO p50/p95.
+    commands: [uv run --with mujoco-warp --with warp-lang benchmark/mjwarp/benchmark_dr_profiles.py]
+    lane: D
+    required: true
+    required_test_ids: [tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Phase 0 frozen CUDA benchmark host, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2, 3, 4], batch_sizes: [128, 1024, 4096], dtype: float32, plan_fingerprint: mjwarp-dr-performance-v1}
+    acceptance: {tolerance: {}, thresholds: {min_process_repeats: 5, strongest_recomputes_per_barrier: 1}, repetitions: 5, max_dispersion: 0.1, failure_semantics: "Any frozen reset density, p95, memory, graph, env, train, or provenance gate failure is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, benchmark/**, tests/benchmark/test_mjwarp_dr_benchmark.py, uv.lock], capabilities: [mjwarp-dr-performance], fingerprints: [mjwarp-dr-performance-v1]}
+    status: planned
+
+  - claim_id: P6-RECOMPUTE-AGGREGATION
+    expected: Direct and derived fields expand together and each mutation barrier executes exactly one strongest required recompute plus one forward and state refresh.
+    risk: Individual terms trigger redundant recompute or weaker recompute leaves derived constants stale.
+    owner: backend-DR
+    oracle: A mixed-tier mutation fixture predicts the strongest semantic requirement and traces backend recompute and forward calls.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_recompute.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1], batch_sizes: [32, 128], dtype: float32, plan_fingerprint: mjwarp-recompute-aggregation-v1}
+    acceptance: {tolerance: {}, thresholds: {strongest_recomputes_per_barrier: 1, forwards_per_barrier: 1, missing_derived_fields: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any missing derived storage, weaker recompute, duplicate recompute, duplicate forward, or stale state refresh is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_recompute.py], capabilities: [mjwarp-recompute-aggregation], fingerprints: [mjwarp-recompute-aggregation-v1]}
+    status: planned
