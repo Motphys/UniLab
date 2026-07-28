@@ -13,6 +13,7 @@ from .batch import (
     BackendCompletionEvent,
     BackendIORequirements,
     BackendMutationBatch,
+    BackendReadResult,
     BackendResetResult,
     BackendStepResult,
     BackendTiming,
@@ -38,6 +39,8 @@ from .batch import (
     StateBatch,
     StateBatchLease,
     StateBatchPhase,
+    StateEntityKind,
+    StateFieldKind,
     StateFieldSpec,
 )
 
@@ -199,6 +202,7 @@ __all__ = [
     "BackendCompletionEvent",
     "BackendIORequirements",
     "BackendMutationBatch",
+    "BackendReadResult",
     "BackendResetResult",
     "BackendStepResult",
     "BackendTiming",
@@ -224,6 +228,8 @@ __all__ = [
     "StateBatch",
     "StateBatchLease",
     "StateBatchPhase",
+    "StateEntityKind",
+    "StateFieldKind",
     "StateFieldSpec",
     "MuJoCoBackend",
     "MotrixBackend",
