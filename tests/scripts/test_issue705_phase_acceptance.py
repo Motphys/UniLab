@@ -23,6 +23,7 @@ def test_phase0_manifest_covers_frozen_claims_and_passes_schema() -> None:
     )
 
     manifest = load_phase_acceptance(manifest_path)
+    statuses = {claim.claim_id: claim.status for claim in manifest.claims}
 
     assert {claim.claim_id for claim in manifest.claims} == {
         "P0-WORKFLOW-CANARY",
@@ -33,6 +34,8 @@ def test_phase0_manifest_covers_frozen_claims_and_passes_schema() -> None:
         "P0-THRESHOLD-FREEZE",
     }
     assert manifest.claims[0].status == ClaimStatus.VERIFIED
+    assert statuses["P0-BASELINE-PROVENANCE"] == ClaimStatus.VERIFIED
+    assert statuses["P0-THRESHOLD-FREEZE"] == ClaimStatus.PLANNED
     assert set(manifest.required_lanes) == {
         AcceptanceLane.PR,
         AcceptanceLane.BACKEND,
@@ -54,7 +57,8 @@ def test_phase0_gate_cli_fails_until_required_claims_are_verified(capsys) -> Non
     assert exit_code == 1
     output = capsys.readouterr().out
     assert "FAIL" in output
-    assert "P0-BASELINE-PROVENANCE" in output
+    assert "P0-BASELINE-PROVENANCE" not in output
+    assert "P0-THRESHOLD-FREEZE" in output
 
 
 def test_cli_rejects_requested_phase_mismatch(tmp_path: Path, capsys) -> None:

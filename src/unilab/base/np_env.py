@@ -390,6 +390,13 @@ class NpEnv(ABEnv):
             raise RuntimeError("Domain-randomization manager has not been initialized")
         return self._dr_manager.reset(env_indices)
 
+    @property
+    def last_reset_timing_ms(self) -> dict[str, float]:
+        """Return the latest reset timing without exposing the DR manager."""
+        if self._dr_manager is None:
+            return {}
+        return self._dr_manager.last_reset_timing_ms
+
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         """Compute truncation conditions.
 
