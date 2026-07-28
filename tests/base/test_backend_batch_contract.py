@@ -50,6 +50,7 @@ from unilab.base.backend.batch import (
     StateFieldSpec,
 )
 from unilab.base.scene import SceneCfg
+from unilab.tools.backend_isolation import audit_backend_isolation
 
 
 def _state_buffer(
@@ -75,6 +76,16 @@ def _state_buffer(
         dlpack_exportable=dlpack_exportable,
         address_stable=address_stable,
     )
+
+
+def test_runtime_backends_share_only_cold_materialization_contract() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+
+    report = audit_backend_isolation(repo_root)
+
+    report.require_ok()
+    assert {"drake", "motrix", "mujoco"}.issubset(report.backend_packages)
+    assert "unilab.base.backend.mujoco.batch" in report.runtime_modules
 
 
 def _control_buffer(*, placement: BufferPlacement | None = None) -> BufferContract:

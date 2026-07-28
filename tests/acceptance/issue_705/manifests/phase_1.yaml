@@ -84,12 +84,12 @@ claims:
     risk: Shared implementation couples backend identity and leaks private runtime behavior through manager terms.
     owner: backend-contract
     oracle: Import and ownership tests inspect module dependencies plus fault-injected private access from env and manager layers.
-    commands: [uv run pytest tests/base/test_backend_batch_contract.py -k backend_isolation -v]
+    commands: [uv run pytest tests/base/test_backend_batch_contract.py::test_runtime_backends_share_only_cold_materialization_contract -v]
     lane: A
     required: true
     required_test_ids: [tests/base/test_backend_batch_contract.py::test_runtime_backends_share_only_cold_materialization_contract]
     environment: {dependencies: [uv.lock], hardware: any, owner_yaml: null, seeds: [], batch_sizes: [], dtype: null, plan_fingerprint: backend-runtime-isolation-v1}
     acceptance: {tolerance: {}, thresholds: {runtime_private_cross_reads: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any runtime inheritance, private cross-read, or manager import of concrete backend modules is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/base/backend/**, src/unilab/manager/**, tests/base/test_backend_batch_contract.py], capabilities: [backend-runtime-isolation], fingerprints: [backend-runtime-isolation-v1]}
+    invalidation: {paths: [src/unilab/base/backend/**, src/unilab/base/np_env.py, src/unilab/envs/**, src/unilab/dr/**, src/unilab/tools/backend_isolation.py, scripts/audit_issue705_backend_isolation.py, tests/base/test_backend_batch_contract.py, tests/tools/test_backend_isolation.py], capabilities: [backend-runtime-isolation], fingerprints: [backend-runtime-isolation-v1]}
     status: planned
