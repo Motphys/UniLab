@@ -10,6 +10,12 @@ from .entities import (
     ManagerContractError,
     SelectorMode,
 )
+from .fingerprint import (
+    MANAGED_POLICY_ABI_SNAPSHOT_VERSION,
+    ManagedPolicyABISnapshotError,
+    managed_policy_abi_snapshot,
+    normalize_managed_policy_abi_snapshot,
+)
 from .plan import (
     MANAGER_TASK_CONTRACT_VERSION,
     CompiledTaskPlan,
@@ -60,6 +66,7 @@ __all__ = [
     "EntitySelector",
     "FrozenParameters",
     "ManagerContractError",
+    "ManagedPolicyABISnapshotError",
     "ManagedLifecycleEvent",
     "ManagedLifecyclePhase",
     "ManagedKernelBinding",
@@ -70,6 +77,7 @@ __all__ = [
     "ManagedTaskKernel",
     "MutationTemplate",
     "NormalizationMode",
+    "MANAGED_POLICY_ABI_SNAPSHOT_VERSION",
     "ObservationGroupPlan",
     "ObservationOutput",
     "OutputChannelPlan",
@@ -90,4 +98,6 @@ __all__ = [
     "TermRegistry",
     "TermRole",
     "freeze_parameters",
+    "managed_policy_abi_snapshot",
+    "normalize_managed_policy_abi_snapshot",
 ]
