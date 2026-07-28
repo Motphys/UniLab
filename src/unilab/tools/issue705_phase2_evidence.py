@@ -53,6 +53,17 @@ PHASE2_REQUIRED_TEST_IDS: dict[str, str] = {
     ),
 }
 
+PHASE2_MIN_REPETITIONS: dict[str, int] = {
+    "P2-BACKEND-IDENTITY": 1,
+    "P2-GPU-CORRECTNESS": 2,
+    "P2-RESET-ISOLATION": 3,
+    "P2-TRAJECTORY-DIFFERENTIAL": 3,
+    "P2-DR-OWNER-SEMANTICS": 3,
+    "P2-TRANSFER-ACCOUNTING": 2,
+    "P2-UNSUPPORTED-FAIL-CLOSED": 1,
+    "P2-TRAIN-LIVENESS": 1,
+}
+
 
 class Phase2EvidenceError(RuntimeError):
     """Raised when an evidence capture cannot establish a trustworthy PASS."""
@@ -66,6 +77,7 @@ class Phase2EvidenceCommand:
     lane: str
     argv: tuple[str, ...]
     required_test_ids: tuple[str, ...]
+    repetitions: int
 
 
 PHASE2_COMMANDS = (
@@ -82,6 +94,7 @@ PHASE2_COMMANDS = (
             "-rsxX",
         ),
         required_test_ids=(PHASE2_REQUIRED_TEST_IDS["P2-BACKEND-IDENTITY"],),
+        repetitions=1,
     ),
     Phase2EvidenceCommand(
         name="lane_c_production_cuda",
@@ -114,6 +127,7 @@ PHASE2_COMMANDS = (
                 "P2-TRAIN-LIVENESS",
             )
         ),
+        repetitions=3,
     ),
     Phase2EvidenceCommand(
         name="lane_c_dr_owner_semantics",
@@ -129,6 +143,7 @@ PHASE2_COMMANDS = (
             "-rsxX",
         ),
         required_test_ids=(PHASE2_REQUIRED_TEST_IDS["P2-DR-OWNER-SEMANTICS"],),
+        repetitions=3,
     ),
 )
 
@@ -208,7 +223,9 @@ def _pytest_counts(output: str) -> dict[str, int]:
     return counts
 
 
-def _run_evidence_command(command: Phase2EvidenceCommand, *, root: Path) -> dict[str, Any]:
+def _run_evidence_command(
+    command: Phase2EvidenceCommand, *, root: Path, repetition: int
+) -> dict[str, Any]:
     started = time.perf_counter()
     result = subprocess.run(
         command.argv,
@@ -238,8 +255,10 @@ def _run_evidence_command(command: Phase2EvidenceCommand, *, root: Path) -> dict
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
     return {
-        "name": command.name,
+        "name": f"{command.name}#{repetition}",
+        "series": command.name,
         "lane": command.lane,
+        "repetition": repetition,
         "argv": list(command.argv),
         "required_test_ids": list(command.required_test_ids),
         "exit_code": int(result.returncode),
@@ -265,7 +284,11 @@ def capture_phase2_evidence(root: Path) -> dict[str, Any]:
         raise Phase2EvidenceError(f"git returned an invalid commit SHA: {source_commit!r}")
 
     environment = _cuda_environment(root)
-    commands = [_run_evidence_command(command, root=root) for command in PHASE2_COMMANDS]
+    commands = [
+        _run_evidence_command(command, root=root, repetition=repetition)
+        for command in PHASE2_COMMANDS
+        for repetition in range(1, command.repetitions + 1)
+    ]
     command_by_test = {
         test_id: command.name
         for command in PHASE2_COMMANDS
@@ -294,6 +317,7 @@ def capture_phase2_evidence(root: Path) -> dict[str, Any]:
                 "claim_id": claim_id,
                 "required_test_id": test_id,
                 "command": command_by_test[test_id],
+                "minimum_repetitions": PHASE2_MIN_REPETITIONS[claim_id],
             }
             for claim_id, test_id in PHASE2_REQUIRED_TEST_IDS.items()
         ],
@@ -399,6 +423,7 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
         errors.append("commands: expected non-empty list")
         raw_commands = []
     command_by_name: dict[str, dict[str, Any]] = {}
+    commands_by_series: dict[str, list[dict[str, Any]]] = {}
     seen_lanes: set[str] = set()
     for index, raw_command in enumerate(raw_commands):
         command = _mapping(raw_command, f"commands[{index}]", errors)
@@ -407,6 +432,9 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
             if name in command_by_name:
                 errors.append(f"commands[{index}].name: duplicate {name!r}")
             command_by_name[name] = command
+        series = _string(command.get("series"), f"commands[{index}].series", errors)
+        if series:
+            commands_by_series.setdefault(series, []).append(command)
         lane = _string(command.get("lane"), f"commands[{index}].lane", errors)
         if lane:
             seen_lanes.add(lane)
@@ -439,12 +467,23 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
                     )
     if seen_lanes != {"A", "C"}:
         errors.append(f"commands: expected exactly lanes A/C, got {sorted(seen_lanes)!r}")
+    for expected_command in PHASE2_COMMANDS:
+        matching = commands_by_series.get(expected_command.name, [])
+        repetitions = {
+            _int(command.get("repetition"), f"commands[{index}].repetition", errors)
+            for index, command in enumerate(matching)
+        }
+        if repetitions != set(range(1, expected_command.repetitions + 1)):
+            errors.append(
+                f"commands[{expected_command.name}]: expected repetitions "
+                f"1..{expected_command.repetitions}"
+            )
 
     raw_claims = report.get("claims")
     if not isinstance(raw_claims, list):
         errors.append("claims: expected list")
         raw_claims = []
-    observed_claims: dict[str, tuple[str, str]] = {}
+    observed_claims: dict[str, tuple[str, str, int]] = {}
     for index, raw_claim in enumerate(raw_claims):
         claim = _mapping(raw_claim, f"claims[{index}]", errors)
         claim_id = _string(claim.get("claim_id"), f"claims[{index}].claim_id", errors)
@@ -452,23 +491,31 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
             claim.get("required_test_id"), f"claims[{index}].required_test_id", errors
         )
         command_name = _string(claim.get("command"), f"claims[{index}].command", errors)
+        minimum_repetitions = _int(
+            claim.get("minimum_repetitions"), f"claims[{index}].minimum_repetitions", errors
+        )
         if claim_id:
             if claim_id in observed_claims:
                 errors.append(f"claims[{index}].claim_id: duplicate {claim_id!r}")
-            observed_claims[claim_id] = (test_id, command_name)
+            observed_claims[claim_id] = (test_id, command_name, minimum_repetitions)
     if set(observed_claims) != set(PHASE2_REQUIRED_TEST_IDS):
         errors.append("claims: claim IDs do not exactly match Phase 2 required claims")
     for claim_id, expected_test_id in PHASE2_REQUIRED_TEST_IDS.items():
-        test_id, command_name = observed_claims.get(claim_id, ("", ""))
+        test_id, command_name, minimum_repetitions = observed_claims.get(claim_id, ("", "", -1))
         if test_id != expected_test_id:
             errors.append(f"claims[{claim_id}]: required test mapping does not match")
-        mapped_command: dict[str, Any] | None = command_by_name.get(command_name)
-        if mapped_command is None:
+        if minimum_repetitions != PHASE2_MIN_REPETITIONS[claim_id]:
+            errors.append(f"claims[{claim_id}]: minimum repetitions do not match Phase 2 manifest")
+        mapped_commands = commands_by_series.get(command_name, [])
+        if not mapped_commands:
             errors.append(f"claims[{claim_id}]: references unknown command {command_name!r}")
             continue
-        command_ids = mapped_command.get("required_test_ids")
-        if not isinstance(command_ids, list) or expected_test_id not in command_ids:
-            errors.append(f"claims[{claim_id}]: command does not declare its required test")
+        if len(mapped_commands) < minimum_repetitions:
+            errors.append(f"claims[{claim_id}]: insufficient successful repetitions")
+        for mapped_command in mapped_commands:
+            command_ids = mapped_command.get("required_test_ids")
+            if not isinstance(command_ids, list) or expected_test_id not in command_ids:
+                errors.append(f"claims[{claim_id}]: command does not declare its required test")
     return tuple(errors)
 
 
