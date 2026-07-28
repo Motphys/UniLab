@@ -83,6 +83,7 @@ class CandidateEnvMetrics:
     throughput_median_env_steps_per_sec: float
     throughput_population_cv: float
     host_memory_median_bytes: int
+    host_memory_metric: str
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ class CandidateDrMetrics:
     enabled_total_p50_median_ms: float
     enabled_total_p95_median_ms: float
     enabled_extra_resident_bytes: int
+    resident_memory_metric: str
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,8 @@ class CandidateDeviceMetrics:
     host_global_sync_per_policy_step: float
     metrics_materializations: int
     profiler_reconciled: bool
+    profiler_trace_refs: tuple[str, ...]
+    profiler_trace_sha256s: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -141,9 +145,21 @@ class CandidateCompatibilityMetrics:
 
 
 @dataclass(frozen=True)
+class CandidateRawEvidence:
+    planned_case_ids: tuple[str, ...]
+    observed_case_ids: tuple[str, ...]
+    included_case_ids: tuple[str, ...]
+    failed_case_ids: tuple[str, ...]
+    filtered_case_ids: tuple[str, ...]
+    raw_artifact_sha256: str
+    aggregate_recomputed_from_raw: bool
+
+
+@dataclass(frozen=True)
 class CandidateGateInput:
     profile: str
     provenance: CandidateProvenance
+    raw_evidence: CandidateRawEvidence
     environment: Mapping[int, CandidateEnvMetrics]
     training: CandidateTrainingMetrics
     dr: Mapping[float, CandidateDrMetrics]
@@ -914,6 +930,7 @@ def candidate_gate_errors(
     if candidate.profile not in {"host_fused", "device_resident"}:
         errors.append(f"profile: unsupported execution profile {candidate.profile!r}")
         return errors
+    errors.extend(_raw_evidence_errors(candidate.raw_evidence))
     gates = manifest.gates
     performance = cast(Mapping[str, Any], gates["performance"])
     reference_env = cast(Mapping[str, Mapping[str, Any]], manifest.baseline_reference["env"])
@@ -935,6 +952,8 @@ def candidate_gate_errors(
             "host_memory_median_bytes",
         ):
             _append_nonnegative_error(errors, f"{prefix}.{name}", getattr(env_metrics, name))
+        if env_metrics.host_memory_metric != "uss":
+            errors.append(f"{prefix}.host_memory_metric: expected frozen preferred metric 'uss'")
         _append_max_error(
             errors,
             f"{prefix}.p50_latency_ratio",
@@ -1053,6 +1072,10 @@ def candidate_gate_errors(
             "enabled_extra_resident_bytes",
         ):
             _append_nonnegative_error(errors, f"{prefix}.{name}", getattr(dr_metrics, name))
+        if dr_metrics.resident_memory_metric != "uss":
+            errors.append(
+                f"{prefix}.resident_memory_metric: expected frozen preferred metric 'uss'"
+            )
         expected_rows = max(1, int(1024 * density))
         if dr_metrics.actual_rows != expected_rows:
             errors.append(
@@ -1145,6 +1168,42 @@ def _compatibility_errors(
     return errors
 
 
+def _raw_evidence_errors(evidence: CandidateRawEvidence) -> list[str]:
+    errors: list[str] = []
+    expected_case_count = 15 + 30 + 5
+    for name in ("planned_case_ids", "observed_case_ids", "included_case_ids"):
+        case_ids = getattr(evidence, name)
+        if len(case_ids) != expected_case_count:
+            errors.append(
+                f"raw_evidence.{name}: expected {expected_case_count} cases, got {len(case_ids)}"
+            )
+        if len(set(case_ids)) != len(case_ids):
+            errors.append(f"raw_evidence.{name}: duplicate case IDs are forbidden")
+        if any(not case_id.strip() for case_id in case_ids):
+            errors.append(f"raw_evidence.{name}: case IDs must be non-empty")
+    planned = set(evidence.planned_case_ids)
+    observed = set(evidence.observed_case_ids)
+    included = set(evidence.included_case_ids)
+    if observed != planned:
+        errors.append("raw_evidence.observed_case_ids: must exactly match the planned matrix")
+    if included != observed:
+        errors.append("raw_evidence.included_case_ids: every observed case must be aggregated")
+    if evidence.failed_case_ids:
+        errors.append(
+            f"raw_evidence.failed_case_ids: failed cases are FAIL, got {evidence.failed_case_ids!r}"
+        )
+    if evidence.filtered_case_ids:
+        errors.append(
+            "raw_evidence.filtered_case_ids: post-hoc filtering is forbidden, got "
+            f"{evidence.filtered_case_ids!r}"
+        )
+    if not _SHA256_RE.fullmatch(evidence.raw_artifact_sha256):
+        errors.append("raw_evidence.raw_artifact_sha256: expected sha256:<64 lowercase hex>")
+    if not evidence.aggregate_recomputed_from_raw:
+        errors.append("raw_evidence.aggregate_recomputed_from_raw: must be true")
+    return errors
+
+
 def _device_errors(
     metrics: CandidateDeviceMetrics,
     training: CandidateTrainingMetrics,
@@ -1193,6 +1252,16 @@ def _device_errors(
         )
     if not metrics.profiler_reconciled:
         errors.append("device.profiler_reconciled: counter/trace reconciliation is required")
+    if not metrics.profiler_trace_refs:
+        errors.append("device.profiler_trace_refs: at least one raw profiler trace is required")
+    elif len(set(metrics.profiler_trace_refs)) != len(metrics.profiler_trace_refs):
+        errors.append("device.profiler_trace_refs: duplicate trace references are forbidden")
+    elif any(not reference.strip() for reference in metrics.profiler_trace_refs):
+        errors.append("device.profiler_trace_refs: references must be non-empty")
+    if len(metrics.profiler_trace_sha256s) != len(metrics.profiler_trace_refs):
+        errors.append("device.profiler_trace_sha256s: must map one hash to every trace")
+    elif any(not _SHA256_RE.fullmatch(value) for value in metrics.profiler_trace_sha256s):
+        errors.append("device.profiler_trace_sha256s: every trace requires a SHA-256 hash")
     return errors
 
 

@@ -15,6 +15,7 @@ from unilab.tools.issue705_thresholds import (
     CandidateEnvMetrics,
     CandidateGateInput,
     CandidateProvenance,
+    CandidateRawEvidence,
     CandidateTrainingMetrics,
     FreezeReceipt,
     ThresholdManifest,
@@ -94,6 +95,7 @@ def _candidate(
             ),
             throughput_population_cv=float(reference["throughput_population_cv"]),
             host_memory_median_bytes=int(reference["host_uss_delta_median_bytes"]),
+            host_memory_metric="uss",
         )
         for batch, reference in manifest.baseline_reference["env"].items()
     }
@@ -122,6 +124,7 @@ def _candidate(
             enabled_total_p95_median_ms=float(enabled["total_p95_median_ms"]),
             enabled_extra_resident_bytes=int(enabled["host_uss_delta_median_bytes"])
             - int(disabled["host_uss_delta_median_bytes"]),
+            resident_memory_metric="uss",
         )
     device = None
     if profile == "device_resident":
@@ -133,7 +136,10 @@ def _candidate(
             host_global_sync_per_policy_step=0.0,
             metrics_materializations=1,
             profiler_reconciled=True,
+            profiler_trace_refs=("artifacts/profile.sqlite",),
+            profiler_trace_sha256s=("sha256:" + "2" * 64,),
         )
+    case_ids = tuple(f"case-{index}" for index in range(50))
     return CandidateGateInput(
         profile=profile,
         provenance=CandidateProvenance(
@@ -142,6 +148,15 @@ def _candidate(
             threshold_freeze_commit=FREEZE_COMMIT,
             candidate_commit=CANDIDATE_COMMIT,
             source_dirty=False,
+        ),
+        raw_evidence=CandidateRawEvidence(
+            planned_case_ids=case_ids,
+            observed_case_ids=case_ids,
+            included_case_ids=case_ids,
+            failed_case_ids=(),
+            filtered_case_ids=(),
+            raw_artifact_sha256="sha256:" + "1" * 64,
+            aggregate_recomputed_from_raw=True,
         ),
         environment=env,
         training=training,
@@ -341,6 +356,54 @@ def test_candidate_provenance_requires_freeze_ancestor(
     ("change", "message"),
     [
         (
+            lambda value: replace(value, observed_case_ids=value.observed_case_ids[:-1]),
+            "expected 50 cases",
+        ),
+        (
+            lambda value: replace(
+                value,
+                observed_case_ids=value.observed_case_ids[:-1] + (value.observed_case_ids[0],),
+            ),
+            "duplicate case IDs",
+        ),
+        (
+            lambda value: replace(value, included_case_ids=value.included_case_ids[:-1]),
+            "every observed case",
+        ),
+        (lambda value: replace(value, failed_case_ids=("case-2",)), "failed cases are FAIL"),
+        (
+            lambda value: replace(value, filtered_case_ids=("case-0",)),
+            "post-hoc filtering is forbidden",
+        ),
+        (
+            lambda value: replace(value, raw_artifact_sha256="not-a-hash"),
+            "sha256:<64 lowercase hex>",
+        ),
+        (
+            lambda value: replace(value, aggregate_recomputed_from_raw=False),
+            "must be true",
+        ),
+    ],
+)
+def test_raw_evidence_fails_missing_duplicate_filtered_or_unreconciled_cases(
+    manifest: ThresholdManifest,
+    receipt: FreezeReceipt,
+    change: Callable[[CandidateRawEvidence], CandidateRawEvidence],
+    message: str,
+) -> None:
+    candidate = _candidate(manifest)
+    errors = _errors(
+        replace(candidate, raw_evidence=change(candidate.raw_evidence)),
+        manifest,
+        receipt,
+    )
+    assert any(message in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (
             lambda candidate: replace(candidate, environment={128: candidate.environment[128]}),
             "expected batches",
         ),
@@ -390,6 +453,16 @@ def test_candidate_provenance_requires_freeze_ancestor(
                 },
             ),
             "host_memory_ratio",
+        ),
+        (
+            lambda candidate: replace(
+                candidate,
+                environment={
+                    **candidate.environment,
+                    128: replace(candidate.environment[128], host_memory_metric="rss"),
+                },
+            ),
+            "host_memory_metric",
         ),
     ],
 )
@@ -451,6 +524,7 @@ def test_training_gate_fails_each_seed_behavior_performance_and_memory_dimension
             lambda value: replace(value, enabled_extra_resident_bytes=10**12),
             "enabled_extra_resident_bytes",
         ),
+        (lambda value: replace(value, resident_memory_metric="rss"), "resident_memory_metric"),
     ],
 )
 def test_dr_gate_fails_each_density_row_timing_and_memory_dimension(
@@ -503,6 +577,19 @@ def test_compatibility_gate_fails_each_contract_dimension(
         ),
         (lambda value: replace(value, metrics_materializations=-1), "non-negative"),
         (lambda value: replace(value, profiler_reconciled=False), "reconciliation"),
+        (lambda value: replace(value, profiler_trace_refs=()), "raw profiler trace"),
+        (
+            lambda value: replace(
+                value,
+                profiler_trace_refs=("artifacts/profile.sqlite", "artifacts/profile.sqlite"),
+                profiler_trace_sha256s=("sha256:" + "2" * 64,) * 2,
+            ),
+            "duplicate trace",
+        ),
+        (
+            lambda value: replace(value, profiler_trace_sha256s=("not-a-hash",)),
+            "SHA-256 hash",
+        ),
     ],
 )
 def test_device_gate_fails_memory_transfer_sync_and_profiler_dimensions(
