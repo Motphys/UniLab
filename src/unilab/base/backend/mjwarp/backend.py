@@ -16,6 +16,12 @@ from typing import Any
 import numpy as np
 
 from unilab.base.backend.base import SimBackend
+from unilab.base.backend.telemetry import (
+    BackendTransferBuffer,
+    BackendTransferCounters,
+    BackendTransferProfile,
+    BackendTransferTrace,
+)
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
@@ -25,6 +31,7 @@ from unilab.dr.types import (
 
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
+from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
 
 
 class MjwarpBackend(SimBackend):
@@ -81,6 +88,7 @@ class MjwarpBackend(SimBackend):
         self._mujoco = deps.mujoco
         self._mujoco_warp = deps.mujoco_warp
         self._warp = deps.warp
+        self._transfer_telemetry = MjwarpTransferTelemetry()
         self._cpu_model = deps.mujoco.MjModel.from_xml_path(scene_context.source_model_file)
         self._cpu_model.opt.timestep = self._sim_dt
         self._device_model = deps.mujoco_warp.put_model(self._cpu_model)
@@ -132,9 +140,6 @@ class MjwarpBackend(SimBackend):
             (self._num_envs, int(self._cpu_model.nsensordata)),
             dtype=np.float32,
         )
-        self._body_pos_cache = np.zeros((self._num_envs, self._nbody, 3), dtype=np.float32)
-        self._body_quat_cache = np.zeros((self._num_envs, self._nbody, 4), dtype=np.float32)
-        self._body_cvel_cache = np.zeros((self._num_envs, self._nbody, 6), dtype=np.float32)
         self._ctrl_staging = np.zeros((self._num_envs, self._nu), dtype=np.float32)
         self._reset_mask_host = np.zeros((self._num_envs,), dtype=np.bool_)
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
@@ -148,10 +153,11 @@ class MjwarpBackend(SimBackend):
         )
         np.copyto(self._qpos_cache, defaults)
         self._qvel_cache.fill(0.0)
-        self._device_data.qpos.assign(self._qpos_cache)
-        self._device_data.qvel.assign(self._qvel_cache)
+        self._transfer_telemetry.begin_barrier("init")
+        self._upload("qpos", self._device_data.qpos, self._qpos_cache)
+        self._upload("qvel", self._device_data.qvel, self._qvel_cache)
         self._mujoco_warp.forward(self._device_model, self._device_data)
-        self._warp.synchronize_device()
+        self._synchronize()
         self._refresh_host_cache()
 
     # ------------------------------------------------------------------ #
@@ -211,12 +217,21 @@ class MjwarpBackend(SimBackend):
 
     def _refresh_host_cache(self) -> None:
         """Copy all legacy-visible device state at one explicit lifecycle barrier."""
-        np.copyto(self._qpos_cache, self._device_data.qpos.numpy())
-        np.copyto(self._qvel_cache, self._device_data.qvel.numpy())
-        np.copyto(self._sensor_cache, self._device_data.sensordata.numpy())
-        np.copyto(self._body_pos_cache, self._device_data.xpos.numpy())
-        np.copyto(self._body_quat_cache, self._device_data.xquat.numpy())
-        np.copyto(self._body_cvel_cache, self._device_data.cvel.numpy())
+        self._download("qpos", self._device_data.qpos, self._qpos_cache)
+        self._download("qvel", self._device_data.qvel, self._qvel_cache)
+        self._download("sensordata", self._device_data.sensordata, self._sensor_cache)
+
+    def _upload(self, buffer_name: str, device_array: Any, host_array: np.ndarray) -> None:
+        device_array.assign(host_array)
+        self._transfer_telemetry.host_to_device(buffer_name, int(host_array.nbytes))
+
+    def _download(self, buffer_name: str, device_array: Any, host_array: np.ndarray) -> None:
+        np.copyto(host_array, device_array.numpy())
+        self._transfer_telemetry.device_to_host(buffer_name, int(host_array.nbytes))
+
+    def _synchronize(self) -> None:
+        self._warp.synchronize_device()
+        self._transfer_telemetry.synchronize()
 
     def _validate_rows(self, env_indices: np.ndarray) -> np.ndarray:
         rows = np.asarray(env_indices, dtype=np.intp)
@@ -257,6 +272,32 @@ class MjwarpBackend(SimBackend):
 
     def get_scene_model_file(self) -> str | None:
         return self.scene_model_file
+
+    def get_transfer_profile(self) -> BackendTransferProfile:
+        """Expose the declared bounded transfers for this host cache profile."""
+        return MJWARP_HOST_TRANSFER_PROFILE
+
+    def get_transfer_counters(self) -> BackendTransferCounters:
+        """Return telemetry without reading a Warp array or synchronizing the device."""
+        return self._transfer_telemetry.counters()
+
+    def get_transfer_buffers(self) -> tuple[BackendTransferBuffer, ...]:
+        """Return stable host-cache byte sizes named by the transfer profile."""
+        return (
+            BackendTransferBuffer("control", int(self._ctrl_staging.nbytes)),
+            BackendTransferBuffer("reset_mask", int(self._reset_mask_host.nbytes)),
+            BackendTransferBuffer("qpos", int(self._qpos_cache.nbytes)),
+            BackendTransferBuffer("qvel", int(self._qvel_cache.nbytes)),
+            BackendTransferBuffer("sensordata", int(self._sensor_cache.nbytes)),
+        )
+
+    def get_transfer_trace(self) -> BackendTransferTrace:
+        """Materialize immutable profiler events only when diagnostics request them."""
+        return self._transfer_telemetry.trace()
+
+    def reset_transfer_telemetry(self) -> None:
+        """Clear transfer diagnostics; simulator state and stable cache remain untouched."""
+        self._transfer_telemetry.reset()
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         try:
@@ -379,13 +420,14 @@ class MjwarpBackend(SimBackend):
 
         t0 = time.perf_counter()
         np.copyto(self._ctrl_staging, ctrl_array)
-        self._device_data.ctrl.assign(self._ctrl_staging)
+        self._transfer_telemetry.begin_barrier("step")
+        self._upload("control", self._device_data.ctrl, self._ctrl_staging)
         control_upload_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
         for _ in range(int(nsteps)):
             self._mujoco_warp.step(self._device_model, self._device_data)
-        self._warp.synchronize_device()
+        self._synchronize()
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
@@ -425,9 +467,10 @@ class MjwarpBackend(SimBackend):
             return {"timing": {"set_state_reset_ms": 0.0, "set_state_cache_refresh_ms": 0.0}}
 
         t0 = time.perf_counter()
+        self._transfer_telemetry.begin_barrier("reset")
         self._reset_mask_host.fill(False)
         self._reset_mask_host[rows] = True
-        self._reset_mask_device.assign(self._reset_mask_host)
+        self._upload("reset_mask", self._reset_mask_device, self._reset_mask_host)
         self._mujoco_warp.reset_data(
             self._device_model,
             self._device_data,
@@ -439,10 +482,10 @@ class MjwarpBackend(SimBackend):
         # pre-reset qpos/qvel values while reset_data clears selected transient
         # solver/control state.  This is an explicit reset barrier, not a
         # getter fallback or hot-path transfer.
-        self._device_data.qpos.assign(self._qpos_cache)
-        self._device_data.qvel.assign(self._qvel_cache)
+        self._upload("qpos", self._device_data.qpos, self._qpos_cache)
+        self._upload("qvel", self._device_data.qvel, self._qvel_cache)
         self._mujoco_warp.forward(self._device_model, self._device_data)
-        self._warp.synchronize_device()
+        self._synchronize()
         reset_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()

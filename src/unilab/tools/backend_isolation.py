@@ -17,6 +17,7 @@ _SHARED_RUNTIME_MODULES = frozenset(
         "mutation",
         "mutation_batch",
         "playback_common",
+        "telemetry",
     }
 )
 _RAW_BACKEND_MEMBERS = frozenset({"model"})
