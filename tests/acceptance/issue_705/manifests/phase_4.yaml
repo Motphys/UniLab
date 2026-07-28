@@ -16,7 +16,7 @@ claims:
     environment: {dependencies: [uv.lock, numba], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0, 1, 2], batch_sizes: [1, 128, 4096], dtype: float32, plan_fingerprint: host-fused-executor-v1}
     acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {unexplained_fields: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any output, lifecycle, logging, or nonfinite-guard mismatch is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/manager/**, benchmark/numba_profile/**, tests/manager/test_fused_executor.py], capabilities: [host-fused-executor], fingerprints: [host-fused-executor-v1]}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/envs/locomotion/g1/managed_fused.py, src/unilab/envs/locomotion/g1/managed_reference.py, benchmark/numba_profile/**, tests/manager/test_fused_executor.py], capabilities: [host-fused-executor], fingerprints: [host-fused-executor-v1]}
     status: planned
 
   - claim_id: P4-NO-FALLBACK
@@ -24,14 +24,14 @@ claims:
     risk: Production performance silently disappears for a subset of configurations.
     owner: host-executor
     oracle: Fault injection uses unsupported term and stale fingerprint fixtures while tracing executor dispatch.
-    commands: [uv run pytest tests/manager/test_fused_executor.py -k fail_closed -v]
+    commands: [uv run pytest tests/manager/test_fused_executor.py::test_fused_executor_never_silently_falls_back -v]
     lane: A
     required: true
     required_test_ids: [tests/manager/test_fused_executor.py::test_fused_executor_never_silently_falls_back]
     environment: {dependencies: [uv.lock, numba], hardware: any, owner_yaml: null, seeds: [0], batch_sizes: [32], dtype: float32, plan_fingerprint: fused-dispatch-v1}
     acceptance: {tolerance: {}, thresholds: {silent_fallbacks: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any runtime reference fallback or stale-plan execution is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/manager/**, tests/manager/test_fused_executor.py], capabilities: [fused-fail-closed], fingerprints: [fused-dispatch-v1]}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/envs/locomotion/g1/managed_fused.py, src/unilab/envs/locomotion/g1/managed_reference.py, tests/manager/test_fused_executor.py], capabilities: [fused-fail-closed], fingerprints: [fused-dispatch-v1]}
     status: planned
 
   - claim_id: P4-ALLOCATION-STABILITY
