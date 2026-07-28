@@ -128,12 +128,14 @@ def _requirements(
     profile: ExecutionProfile = ExecutionProfile.HOST_NUMPY,
     control: ControlSpec | None = None,
     hot_path_budget: BackendBatchCounterBudget | None = None,
+    reset_hot_path_budget: BackendBatchCounterBudget | None = None,
 ) -> BackendIORequirements:
     return BackendIORequirements(
         state_fields=fields or (_field(),),
         control=control or ControlSpec("joint.command", _control_buffer()),
         execution_profile=profile,
         hot_path_budget=hot_path_budget,
+        reset_hot_path_budget=reset_hot_path_budget,
     )
 
 
@@ -162,6 +164,7 @@ class _FakeBatchBackend:
             execution_profile=requirements.execution_profile,
             fingerprint=BACKEND_BATCH_CONTRACT_VERSION,
             hot_path_budget=requirements.hot_path_budget,
+            reset_hot_path_budget=requirements.reset_hot_path_budget,
         )
         self.lease = StateBatchLease(self.backend_instance_id)
 
@@ -556,6 +559,8 @@ def test_managed_hot_path_has_no_dynamic_getters() -> None:
         )
     with pytest.raises(BackendBatchContractError, match="hot_path_budget"):
         replace(_requirements(), hot_path_budget=cast(Any, object()))
+    with pytest.raises(BackendBatchContractError, match="reset_hot_path_budget"):
+        replace(_requirements(), reset_hot_path_budget=cast(Any, object()))
 
     unbudgeted = _FakeBatchBackend().plan
     assert unbudgeted.fingerprint == backend.plan.fingerprint
@@ -565,6 +570,43 @@ def test_managed_hot_path_has_no_dynamic_getters() -> None:
     )
     with pytest.raises(BackendBatchContractError, match="different backend plan"):
         unbudgeted.require_compatible(backend.plan)
+
+
+def test_reset_counter_budget_is_explicit_and_defaults_to_step_budget() -> None:
+    step_budget = BackendBatchCounterBudget(state_materializations=1)
+    reset_budget = BackendBatchCounterBudget(
+        host_to_device_transfers=3,
+        state_materializations=1,
+    )
+    explicit = _FakeBatchBackend(
+        _requirements(
+            hot_path_budget=step_budget,
+            reset_hot_path_budget=reset_budget,
+        )
+    )
+    reset_diagnostics = BackendBatchDiagnostics(
+        counters=BackendBatchCounters(
+            host_to_device_transfers=3,
+            state_materializations=1,
+            instrumentation_complete=True,
+        )
+    )
+    BackendResetResult(
+        explicit.state(RowSelection.all(4), phase=StateBatchPhase.RESET),
+        reset_diagnostics,
+    )
+    with pytest.raises(BackendHotPathViolationError, match="host_to_device_transfers"):
+        BackendStepResult(
+            explicit.state(RowSelection.all(4), phase=StateBatchPhase.TERMINAL),
+            reset_diagnostics,
+        )
+
+    inherited = _FakeBatchBackend(_requirements(hot_path_budget=step_budget))
+    with pytest.raises(BackendHotPathViolationError, match="host_to_device_transfers"):
+        BackendResetResult(
+            inherited.state(RowSelection.all(4), phase=StateBatchPhase.RESET),
+            reset_diagnostics,
+        )
 
 
 def test_completion_event_is_explicitly_device_owned() -> None:
@@ -609,6 +651,7 @@ def test_batch_contract_version_and_cross_device_placement_fail_closed() -> None
         BACKEND_BATCH_CONTRACT_VERSION,
     )
     assert positional.hot_path_budget is None
+    assert positional.reset_hot_path_budget is None
 
     with pytest.raises(BackendBatchContractError, match="unsupported backend batch contract"):
         replace(_requirements(), contract_version="backend-batch-contract-v0")
