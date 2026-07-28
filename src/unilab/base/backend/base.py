@@ -25,6 +25,12 @@ from .batch import (
     StateBatchPhase,
 )
 from .mutation import BoundMutationPlan, MutationSpec
+from .telemetry import (
+    BackendTransferBuffer,
+    BackendTransferCounters,
+    BackendTransferProfile,
+    BackendTransferTrace,
+)
 
 PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
 
@@ -126,6 +132,30 @@ class SimBackend(abc.ABC):
     def get_scene_model_file(self) -> str | None:
         """Return the materialized scene path for diagnostics, when available."""
         return None
+
+    def get_transfer_profile(self) -> BackendTransferProfile:
+        """Return the backend's explicit transfer plan for its execution profile.
+
+        This is a cold diagnostic contract.  Backends without transfer telemetry
+        must fail closed instead of returning inferred or partial counters.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
+
+    def get_transfer_counters(self) -> BackendTransferCounters:
+        """Return a cumulative immutable transfer/synchronization snapshot."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
+
+    def get_transfer_buffers(self) -> tuple[BackendTransferBuffer, ...]:
+        """Return stable byte sizes for every buffer named by transfer telemetry."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
+
+    def get_transfer_trace(self) -> BackendTransferTrace:
+        """Return a fixed-capacity transfer-profiler trace on a cold path."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
+
+    def reset_transfer_telemetry(self) -> None:
+        """Clear diagnostic transfer counters without mutating physics state."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
 
     def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
         """Return cold-path terrain spawn metadata, when the scene provides it."""
