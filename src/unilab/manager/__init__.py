@@ -1,5 +1,6 @@
 """Contract-first manager API for compiled UniLab tasks."""
 
+from .backend_resolver import BackendEntityResolver
 from .compiler import TaskCompiler
 from .entities import (
     CompiledSelector,
@@ -50,6 +51,7 @@ from .spec import (
 
 __all__ = [
     "MANAGER_TASK_CONTRACT_VERSION",
+    "BackendEntityResolver",
     "CompiledSelector",
     "CompiledTaskPlan",
     "CompiledTerm",
