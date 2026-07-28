@@ -34,6 +34,8 @@ from unilab.base.backend import (
     MutationOperation,
     MutationPersistence,
     MutationRecomputeLevel,
+    MutationSelectorMode,
+    MutationSelectorSpec,
     MutationSpec,
     MutationTargetKind,
     MutationTargetSpec,
@@ -243,7 +245,7 @@ def _reset_spec(
     target_key: str,
     entity_kind: MutationEntityKind,
     field_kind: MutationFieldKind,
-    selector: str,
+    selector: MutationSelectorSpec | str,
     row_shape: tuple[int, ...],
 ) -> MutationSpec:
     return MutationSpec(
@@ -554,6 +556,38 @@ def test_mjwarp_typed_reset_binding_and_commit_faults_fail_closed() -> None:
     }
     valid = _reset_batch(mutation_plan, rows, values)
 
+    compiled_hinge_selector = MutationSelectorSpec(
+        semantic_key="robot.managed_hinge",
+        mode=MutationSelectorMode.EXACT,
+        expressions=(_HINGE,),
+        entity_ids=(17,),
+    )
+    structured = replace(
+        specs[4],
+        target=replace(specs[4].target, selector=compiled_hinge_selector),
+    )
+    structured_plan = backend.bind_mutation_plan((structured,))
+    assert (
+        structured_plan.specs[0].target.entity_ids
+        == mutation_plan.specs[mutation_plan.spec_index("reset.hinge.position")].target.entity_ids
+    )
+
+    compiled_root_selector = MutationSelectorSpec(
+        semantic_key="robot.managed_root",
+        mode=MutationSelectorMode.EXACT,
+        expressions=(_BASE,),
+        entity_ids=(1,),
+    )
+    structured_root = replace(
+        specs[0],
+        target=replace(specs[0].target, selector=compiled_root_selector),
+    )
+    structured_root_plan = backend.bind_mutation_plan((structured_root,))
+    assert (
+        structured_root_plan.specs[0].target.entity_ids
+        == mutation_plan.specs[mutation_plan.spec_index("reset.root.position")].target.entity_ids
+    )
+
     unsupported_specs = (
         replace(specs[0], operation=MutationOperation.ADD),
         replace(specs[0], commit_phase=MutationCommitPhase.PRE_PHYSICS),
@@ -561,6 +595,30 @@ def test_mjwarp_typed_reset_binding_and_commit_faults_fail_closed() -> None:
         replace(specs[0], target=replace(specs[0].target, selector="left_hip_pitch_link")),
         replace(specs[4], target=replace(specs[4].target, selector="floating_base_joint")),
         replace(specs[4], target=replace(specs[4].target, selector="missing_joint")),
+        replace(
+            specs[4],
+            target=replace(
+                specs[4].target,
+                selector=MutationSelectorSpec(
+                    semantic_key="robot.regex_hinges",
+                    mode=MutationSelectorMode.REGEX,
+                    expressions=(".*hip.*",),
+                    entity_ids=(17,),
+                ),
+            ),
+        ),
+        replace(
+            specs[4],
+            target=replace(
+                specs[4].target,
+                selector=MutationSelectorSpec(
+                    semantic_key="robot.two_hinges",
+                    mode=MutationSelectorMode.EXACT,
+                    expressions=(_HINGE, "right_hip_pitch_joint"),
+                    entity_ids=(17, 23),
+                ),
+            ),
+        ),
     )
     for spec in unsupported_specs:
         with pytest.raises(MutationContractError):

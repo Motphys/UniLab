@@ -31,6 +31,8 @@ from unilab.base.backend import (
     MutationOperation,
     MutationPersistence,
     MutationRecomputeLevel,
+    MutationSelectorMode,
+    MutationSelectorSpec,
     MutationSpec,
     MutationTargetKind,
     MutationTargetSpec,
@@ -197,7 +199,7 @@ def _reset_spec(
     term_key: str,
     target_key: str,
     field_kind: MutationFieldKind,
-    selector: str = "hinge",
+    selector: MutationSelectorSpec | str = "hinge",
 ) -> MutationSpec:
     return MutationSpec(
         term_key=term_key,
@@ -469,6 +471,18 @@ def test_mujoco_typed_reset_binding_and_commit_faults_fail_closed(tmp_path: Path
             np.asarray([[[1.5]], [[-2.0]]], dtype=np.float64),
         )
 
+        compiled_selector = MutationSelectorSpec(
+            semantic_key="robot.managed_hinge",
+            mode=MutationSelectorMode.EXACT,
+            expressions=("hinge",),
+            entity_ids=(37,),
+        )
+        structured = _position_spec(np.dtype(np.float64), selector=compiled_selector)
+        structured_plan = backend.bind_mutation_plan((structured,))
+        assert (
+            structured_plan.specs[0].target.entity_ids == mutation_plan.specs[0].target.entity_ids
+        )
+
         unsupported_specs = (
             replace(
                 position_spec,
@@ -480,6 +494,24 @@ def test_mujoco_typed_reset_binding_and_commit_faults_fail_closed(tmp_path: Path
             _position_spec(np.dtype(np.float64), selector="payload_free"),
             _position_spec(np.dtype(np.float64), selector="prefix_ball"),
             _position_spec(np.dtype(np.float64), selector="slide"),
+            _position_spec(
+                np.dtype(np.float64),
+                selector=MutationSelectorSpec(
+                    semantic_key="robot.regex_hinges",
+                    mode=MutationSelectorMode.REGEX,
+                    expressions=(".*hinge.*",),
+                    entity_ids=(37,),
+                ),
+            ),
+            _position_spec(
+                np.dtype(np.float64),
+                selector=MutationSelectorSpec(
+                    semantic_key="robot.two_hinges",
+                    mode=MutationSelectorMode.EXACT,
+                    expressions=("hinge", "slide"),
+                    entity_ids=(37, 41),
+                ),
+            ),
         )
         for spec in unsupported_specs:
             with pytest.raises(MutationContractError):

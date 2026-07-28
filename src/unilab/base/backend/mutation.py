@@ -42,6 +42,19 @@ class MutationEntityKind(str, Enum):
     TASK = "task"
 
 
+class MutationSelectorMode(str, Enum):
+    """Cold-path matching mode for a semantic mutation selector.
+
+    This intentionally mirrors no manager type.  The backend mutation
+    contract must be usable by direct backend callers without importing the
+    manager package, while a compiled manager task can still lower its
+    selector metadata into this backend-neutral representation.
+    """
+
+    EXACT = "exact"
+    REGEX = "regex"
+
+
 class MutationFieldKind(str, Enum):
     GRAVITY = "gravity"
     MASS = "mass"
@@ -258,12 +271,95 @@ def _validate_value_template(value: BufferContract) -> None:
 
 
 @dataclass(frozen=True)
+class MutationSelectorSpec:
+    """Immutable selector metadata supplied to a backend on the cold path.
+
+    ``semantic_key`` identifies the task-level selector.  ``expressions`` are
+    the raw model-facing expressions that a concrete backend may resolve
+    without consulting a manager registry.  ``entity_ids`` records the
+    compiler's already validated selector binding; it is diagnostic and part
+    of the manager binding fingerprint, not a physics-backend ID handoff.
+
+    A direct backend caller may use :meth:`exact` (or a legacy string accepted
+    by :class:`MutationTargetSpec`) and therefore has no compiler IDs.  A
+    manager-compiled selector always provides its concrete IDs.
+    """
+
+    semantic_key: str
+    mode: MutationSelectorMode
+    expressions: tuple[str, ...]
+    entity_ids: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "semantic_key", _non_empty(self.semantic_key, "selector key"))
+        _enum(self.mode, MutationSelectorMode, "selector mode")
+        if not isinstance(self.expressions, tuple) or not self.expressions:
+            raise MutationContractError("selector expressions must be a non-empty tuple")
+        expressions = tuple(_non_empty(value, "selector expression") for value in self.expressions)
+        if len(set(expressions)) != len(expressions):
+            raise MutationContractError("selector expressions must be unique")
+        object.__setattr__(self, "expressions", expressions)
+        if not isinstance(self.entity_ids, tuple):
+            raise MutationContractError("selector entity_ids must be a tuple")
+        if any(
+            isinstance(entity_id, bool) or not isinstance(entity_id, int) or entity_id < 0
+            for entity_id in self.entity_ids
+        ):
+            raise MutationContractError("selector entity_ids must be non-negative integers")
+        if len(set(self.entity_ids)) != len(self.entity_ids):
+            raise MutationContractError("selector entity_ids must be unique")
+        if (
+            self.mode is MutationSelectorMode.EXACT
+            and self.entity_ids
+            and len(self.expressions) != len(self.entity_ids)
+        ):
+            raise MutationContractError(
+                "exact selector expressions must have one compiler entity_id each"
+            )
+
+    @classmethod
+    def exact(cls, expression: str) -> MutationSelectorSpec:
+        """Normalize a direct legacy exact selector without compiler binding."""
+
+        expression = _non_empty(expression, "selector")
+        return cls(
+            semantic_key=expression,
+            mode=MutationSelectorMode.EXACT,
+            expressions=(expression,),
+        )
+
+    def require_exact_singleton(self, *, context: str) -> str:
+        """Return one raw expression or reject an unsupported backend shape.
+
+        Narrow backends such as the first typed MuJoCo and mjwarp reset paths
+        support exactly one raw body/joint name.  They must reject regex and
+        multi-selector descriptors during cold binding rather than guessing a
+        mapping or doing a hot-path fallback lookup.
+        """
+
+        context = _non_empty(context, "selector context")
+        if self.mode is not MutationSelectorMode.EXACT:
+            raise MutationContractError(
+                f"{context} only supports exact mutation selectors, got {self.mode.value!r}"
+            )
+        if len(self.expressions) != 1:
+            raise MutationContractError(
+                f"{context} requires exactly one mutation selector expression"
+            )
+        if self.entity_ids and len(self.entity_ids) != 1:
+            raise MutationContractError(
+                f"{context} requires exactly one compiler-bound mutation entity"
+            )
+        return self.expressions[0]
+
+
+@dataclass(frozen=True)
 class MutationTargetSpec:
     target_key: str
     target_kind: MutationTargetKind
     entity_kind: MutationEntityKind
     field_kind: MutationFieldKind
-    selector: str | None
+    selector: MutationSelectorSpec | str | None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "target_key", _non_empty(self.target_key, "target_key"))
@@ -287,7 +383,25 @@ class MutationTargetSpec:
             if self.selector is not None:
                 raise MutationContractError("global mutation targets cannot declare a selector")
         else:
-            object.__setattr__(self, "selector", _non_empty(self.selector, "selector"))
+            selector = self.selector
+            if isinstance(selector, str):
+                selector = MutationSelectorSpec.exact(selector)
+            if not isinstance(selector, MutationSelectorSpec):
+                raise MutationContractError(
+                    "mutation selector must be a MutationSelectorSpec, exact string, or None"
+                )
+            object.__setattr__(self, "selector", selector)
+
+    @property
+    def selector_spec(self) -> MutationSelectorSpec | None:
+        """Return normalized selector metadata without exposing legacy input."""
+
+        selector = self.selector
+        if selector is None:
+            return None
+        if not isinstance(selector, MutationSelectorSpec):  # pragma: no cover - invariant
+            raise MutationContractError("mutation selector normalization failed")
+        return selector
 
 
 @dataclass(frozen=True)
@@ -550,12 +664,13 @@ def _resolve_entity_ids(
     target: MutationTargetSpec,
     capability: MutationCapability,
     resolver: MutationSelectorResolver,
-    cache: dict[tuple[str, MutationEntityKind, str], tuple[int, ...]],
+    cache: dict[tuple[str, MutationEntityKind, MutationSelectorSpec], tuple[int, ...]],
 ) -> tuple[int, ...]:
     if target.entity_kind is MutationEntityKind.GLOBAL:
         return ()
-    assert target.selector is not None
-    cache_key = (target.target_key, target.entity_kind, target.selector)
+    selector = target.selector_spec
+    assert selector is not None
+    cache_key = (target.target_key, target.entity_kind, selector)
     if cache_key not in cache:
         try:
             resolved = resolver(target)
@@ -563,14 +678,16 @@ def _resolve_entity_ids(
             raise
         except Exception as exc:
             raise MutationContractError(
-                f"failed to resolve mutation selector {target.selector!r}"
+                f"failed to resolve mutation selector {selector.semantic_key!r}"
             ) from exc
         if not isinstance(resolved, tuple):
             raise MutationContractError("mutation selector resolver must return a tuple")
         cache[cache_key] = resolved
     entity_ids = cache[cache_key]
     if not entity_ids:
-        raise MutationContractError(f"mutation selector {target.selector!r} resolved no entities")
+        raise MutationContractError(
+            f"mutation selector {selector.semantic_key!r} resolved no entities"
+        )
     if any(
         isinstance(entity_id, bool) or not isinstance(entity_id, int) or entity_id < 0
         for entity_id in entity_ids
@@ -578,10 +695,14 @@ def _resolve_entity_ids(
         raise MutationContractError("resolved mutation entity IDs must be non-negative integers")
     if len(set(entity_ids)) != len(entity_ids):
         raise MutationContractError("resolved mutation entity IDs must be unique")
+    if selector.entity_ids and len(entity_ids) != len(selector.entity_ids):
+        raise MutationContractError(
+            "backend mutation selector cardinality differs from the compiled selector binding"
+        )
     assert capability.entity_count is not None
     if any(entity_id >= capability.entity_count for entity_id in entity_ids):
         raise MutationContractError(
-            f"mutation selector {target.selector!r} resolved an out-of-range entity ID"
+            f"mutation selector {selector.semantic_key!r} resolved an out-of-range entity ID"
         )
     return entity_ids
 
@@ -693,7 +814,7 @@ def bind_mutation_plan(
     # A selector may map into a different coordinate domain for each semantic
     # target (for example MuJoCo qpos versus qvel coordinates).  Cache aliases
     # of one target, but never reuse an entity ID across distinct targets.
-    selector_cache: dict[tuple[str, MutationEntityKind, str], tuple[int, ...]] = {}
+    selector_cache: dict[tuple[str, MutationEntityKind, MutationSelectorSpec], tuple[int, ...]] = {}
     bound_specs: list[BoundMutationSpec] = []
     for spec in sorted(specs, key=lambda item: item.term_key):
         try:
@@ -743,7 +864,9 @@ __all__ = [
     "MutationOperation",
     "MutationPersistence",
     "MutationRecomputeLevel",
+    "MutationSelectorMode",
     "MutationSelectorResolver",
+    "MutationSelectorSpec",
     "MutationSpec",
     "MutationTargetKind",
     "MutationTargetSpec",
