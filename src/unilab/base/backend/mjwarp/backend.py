@@ -147,6 +147,14 @@ class MjwarpBackend(SimBackend):
         self._sensor_slots = self._bind_sensor_slots()
         self._keyframe_qpos = self._bind_keyframes()
         self._body_ids = self._bind_names(deps.mujoco.mjtObj.mjOBJ_BODY, self._nbody)
+        self._sensor_ids = self._bind_names(
+            deps.mujoco.mjtObj.mjOBJ_SENSOR,
+            int(self._cpu_model.nsensor),
+        )
+        self._joint_ids = self._bind_names(
+            deps.mujoco.mjtObj.mjOBJ_JOINT,
+            int(self._cpu_model.njnt),
+        )
         if self._base_name is None:
             self._base_body_id: int | None = None
         else:
@@ -366,6 +374,17 @@ class MjwarpBackend(SimBackend):
                 raise ValueError(f"Body {name!r} not found in mjwarp model") from exc
         return np.asarray(resolved, dtype=np.int32)
 
+    def get_sensor_ids(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve exact sensor names from constructor-bound CPU metadata."""
+
+        resolved: list[int] = []
+        for name in names:
+            try:
+                resolved.append(self._sensor_ids[str(name)])
+            except KeyError as exc:
+                raise ValueError(f"Sensor {name!r} not found in mjwarp model") from exc
+        return np.asarray(resolved, dtype=np.int32)
+
     def get_geom_id(self, name: str) -> int:
         try:
             return int(self._geom_ids[name])
@@ -436,6 +455,41 @@ class MjwarpBackend(SimBackend):
             except KeyError as exc:
                 raise ValueError(f"Site {name!r} not found in mjwarp model") from exc
         return np.asarray(resolved, dtype=np.int32)
+
+    def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve named joint qvel coordinates on the cold metadata path."""
+
+        resolved: list[int] = []
+        for name in names:
+            try:
+                joint_id = self._joint_ids[str(name)]
+            except KeyError as exc:
+                raise ValueError(f"Joint {name!r} not found in mjwarp model") from exc
+            resolved.append(int(self._cpu_model.jnt_dofadr[joint_id]))
+        return np.asarray(resolved, dtype=np.int32)
+
+    def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve named single-DoF qpos coordinates excluding the free root."""
+
+        single_dof_types = {
+            int(self._mujoco.mjtJoint.mjJNT_HINGE),
+            int(self._mujoco.mjtJoint.mjJNT_SLIDE),
+        }
+        resolved: list[int] = []
+        for name in names:
+            try:
+                joint_id = self._joint_ids[str(name)]
+            except KeyError as exc:
+                raise ValueError(f"Joint {name!r} not found in mjwarp model") from exc
+            if int(self._cpu_model.jnt_type[joint_id]) not in single_dof_types:
+                raise ValueError(f"Joint {name!r} is not a single-DoF joint")
+            resolved.append(int(self._cpu_model.jnt_qposadr[joint_id]) - self._root_qpos_dim)
+        return np.asarray(resolved, dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve named joint qvel coordinates excluding the free root."""
+
+        return self.get_joint_dof_indices(names) - self._root_qvel_dim
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         """Expose immutable model defaults; this does not advertise gain DR support."""
