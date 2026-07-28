@@ -97,7 +97,6 @@ PHASE2_COMMANDS = (
             PHASE2_REQUIRED_TEST_IDS["P2-GPU-CORRECTNESS"],
             PHASE2_REQUIRED_TEST_IDS["P2-RESET-ISOLATION"],
             PHASE2_REQUIRED_TEST_IDS["P2-TRAJECTORY-DIFFERENTIAL"],
-            PHASE2_REQUIRED_TEST_IDS["P2-DR-OWNER-SEMANTICS"],
             PHASE2_REQUIRED_TEST_IDS["P2-TRANSFER-ACCOUNTING"],
             PHASE2_REQUIRED_TEST_IDS["P2-UNSUPPORTED-FAIL-CLOSED"],
             PHASE2_REQUIRED_TEST_IDS["P2-TRAIN-LIVENESS"],
@@ -110,12 +109,26 @@ PHASE2_COMMANDS = (
                 "P2-GPU-CORRECTNESS",
                 "P2-RESET-ISOLATION",
                 "P2-TRAJECTORY-DIFFERENTIAL",
-                "P2-DR-OWNER-SEMANTICS",
                 "P2-TRANSFER-ACCOUNTING",
                 "P2-UNSUPPORTED-FAIL-CLOSED",
                 "P2-TRAIN-LIVENESS",
             )
         ),
+    ),
+    Phase2EvidenceCommand(
+        name="lane_c_dr_owner_semantics",
+        lane="C",
+        argv=(
+            "uv",
+            "run",
+            "--extra",
+            "mjwarp",
+            "pytest",
+            PHASE2_REQUIRED_TEST_IDS["P2-DR-OWNER-SEMANTICS"],
+            "-v",
+            "-rsxX",
+        ),
+        required_test_ids=(PHASE2_REQUIRED_TEST_IDS["P2-DR-OWNER-SEMANTICS"],),
     ),
 )
 
