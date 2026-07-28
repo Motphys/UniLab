@@ -103,14 +103,15 @@ claims:
       artifact_refs:
         - https://github.com/unilabsim/UniLab/issues/709
         - https://github.com/unilabsim/UniLab/pull/710
-      commit_sha: d6ddad97b8dbe92c68d0a1d8fc740ad6b851fe30
+        - https://github.com/unilabsim/UniLab/issues/711
+      commit_sha: cbdc63af24fe461650da46c20d52a87c0de4ed8b
       config_hash: sha256:36c46945a43b6c6f3cfe4659543fa139ca0246e807a49d931939a17ddd681047
       executed_test_ids:
         - tests/tools/test_phase_acceptance.py
         - tests/scripts/test_issue705_phase_acceptance.py
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: PR #710 merged the strict parser and CLI after 25 targeted tests and the full local gate passed.
+      summary: The strict parser and CLI passed 53 targeted tests against all eight manifests at the Phase 0C implementation commit.
     invalidation:
       paths:
         - src/unilab/tools/phase_acceptance.py
@@ -151,19 +152,23 @@ claims:
       max_dispersion: 0
       failure_semantics: Any claim without an owner, oracle, test ID, or explicit gap is FAIL.
     evidence:
-      result: NOT_RUN
-      artifact_refs: []
-      commit_sha: null
-      config_hash: null
-      executed_test_ids: []
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/issues/711
+        - tests/acceptance/issue_705/claim_test_inventory.yaml
+      commit_sha: cbdc63af24fe461650da46c20d52a87c0de4ed8b
+      config_hash: sha256:a28fe754ff4f7c885aa9725ae96dd57e83f00845cc5f3625116c94eac5f08107
+      executed_test_ids:
+        - tests/tools/test_claim_gap_audit.py
+        - tests/scripts/test_issue705_claim_gap_audit.py
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: Implementation is part of child issue #711; independent gate evidence is pending.
+      summary: All 51 Phase 0-7 claims map bidirectionally to 74 owned existing or explicit-gap target test entries.
     invalidation:
       paths: [tests/**, benchmark/**, src/unilab/**, scripts/**]
       capabilities: [claim-gap-audit]
       fingerprints: [claim-gap-inventory-v1]
-    status: implemented
+    status: verified
 
   - claim_id: P0-DR-CAPABILITY-INVENTORY
     expected: mjwarp DR fields declare direct and derived storage, recompute, row, graph, memory, and effect-test requirements.
