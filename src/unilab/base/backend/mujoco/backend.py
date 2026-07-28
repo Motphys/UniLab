@@ -727,6 +727,17 @@ class MuJoCoBackend(SimBackend):
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
 
+    def get_sensor_ids(self, names: "Sequence[str]") -> np.ndarray:
+        """Resolve exact MuJoCo sensor names on the cold metadata path."""
+
+        ids: list[int] = []
+        for name in names:
+            sensor_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SENSOR, name)
+            if sensor_id < 0:
+                raise ValueError(f"Sensor {name!r} not found in MuJoCo model")
+            ids.append(sensor_id)
+        return np.asarray(ids, dtype=np.int32)
+
     def get_geom_id(self, name: str) -> int:
         geom_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
         if geom_id < 0:
@@ -823,11 +834,15 @@ class MuJoCoBackend(SimBackend):
 
     def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
         indices: list[int] = []
+        single_dof_types = {
+            int(mujoco.mjtJoint.mjJNT_HINGE),
+            int(mujoco.mjtJoint.mjJNT_SLIDE),
+        }
         for name in names:
             jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
             if jid < 0:
                 raise ValueError(f"Joint '{name}' not found in MuJoCo model")
-            if int(self._model.jnt_type[jid]) == int(mujoco.mjtJoint.mjJNT_FREE):
+            if int(self._model.jnt_type[jid]) not in single_dof_types:
                 raise ValueError(f"Joint '{name}' is not a single-DoF joint")
             indices.append(int(self._model.jnt_qposadr[jid]) - self._root_qpos_dim)
         return np.array(indices, dtype=np.int32)

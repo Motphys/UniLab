@@ -202,6 +202,17 @@ class SimBackend(abc.ABC):
         """Resolve one body/link name through the backend contract."""
         return int(self.get_body_ids([name])[0])
 
+    def get_sensor_ids(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve sensor names to backend IDs on the cold path.
+
+        Managed task compilation uses this metadata query to lower semantic
+        ``EntityKind.SENSOR`` selectors once. It must not be used from a
+        step/reset hot path; backends that do not expose stable sensor IDs
+        fail closed rather than leaking a private model object.
+        """
+
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose sensor ids")
+
     def get_geom_id(self, name: str) -> int:
         """Resolve one geom name through the backend contract."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose geom ids")
