@@ -15,9 +15,9 @@ claims:
     required_test_ids: [tests/manager/test_task_compiler.py::test_compiler_binds_and_freezes_complete_plan]
     environment: {dependencies: [uv.lock], hardware: any, owner_yaml: null, seeds: [0], batch_sizes: [1, 32], dtype: float32, plan_fingerprint: task-compiler-v1}
     acceptance: {tolerance: {}, thresholds: {hot_registry_lookups: 0, hot_selector_resolutions: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any dynamic hot-path metadata lookup, mutable plan, cycle, overlap, or mismatch is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_3_gate.json], commit_sha: 062d619650ad1ac35cc940dbade0fa806adf075e, config_hash: sha256:c7a48c57f915b4e9e0a2146480493bd1f2de250e5eecf74c86df63549842fefc, executed_test_ids: [tests/manager/test_task_compiler.py::test_compiler_binds_and_freezes_complete_plan], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane A compiler evidence completed two clean repetitions with no skip, xfail, or xpass; raw outputs and input hashes are retained in the Phase 3 artifact."}
     invalidation: {paths: [src/unilab/manager/**, src/unilab/base/registry.py, tests/manager/test_task_compiler.py], capabilities: [task-compiler], fingerprints: [task-compiler-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P3-LIFECYCLE-PARITY
     expected: Managed reset and step preserve terminal state, final observation, timeout, autoreset, command, history, and Event ordering.
@@ -30,9 +30,9 @@ claims:
     required_test_ids: [tests/manager/test_managed_lifecycle.py::test_terminal_and_autoreset_lifecycle_trace]
     environment: {dependencies: [uv.lock], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0, 2], batch_sizes: [1, 31], dtype: float32, plan_fingerprint: managed-lifecycle-v1}
     acceptance: {tolerance: {}, thresholds: {ordering_mismatches: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any terminal/reset ambiguity, stale final observation, or phase-order mismatch is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_3_gate.json], commit_sha: 062d619650ad1ac35cc940dbade0fa806adf075e, config_hash: sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb, executed_test_ids: [tests/manager/test_managed_lifecycle.py::test_terminal_and_autoreset_lifecycle_trace], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane B lifecycle evidence completed two clean repetitions with no skip, xfail, or xpass; raw outputs and owner-config hash are retained in the Phase 3 artifact."}
     invalidation: {paths: [src/unilab/manager/**, src/unilab/base/np_env.py, src/unilab/base/final_observation.py, tests/manager/test_managed_lifecycle.py], capabilities: [managed-lifecycle], fingerprints: [managed-lifecycle-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P3-G1-REFERENCE-DIFFERENTIAL
     expected: The hand-written G1 env and manager reference executor match per field for observations, rewards, termination, truncation, final observation, and logs.
@@ -45,9 +45,9 @@ claims:
     required_test_ids: [tests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env]
     environment: {dependencies: [uv.lock, mujoco], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0, 1, 2], batch_sizes: [1, 32, 128], dtype: float32, plan_fingerprint: g1-manager-reference-v1}
     acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {unexplained_fields: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any unexplained field, lifecycle, reset, reward, or log mismatch is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_3_gate.json], commit_sha: 062d619650ad1ac35cc940dbade0fa806adf075e, config_hash: sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb, executed_test_ids: [tests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane B G1 reference differential evidence completed three clean repetitions with no skip, xfail, or xpass; raw outputs and owner-config hash are retained in the Phase 3 artifact."}
     invalidation: {paths: [src/unilab/envs/locomotion/g1/**, src/unilab/manager/**, conf/ppo/task/g1_walk_flat/**, tests/manager/test_g1_reference_differential.py], capabilities: [g1-manager-reference], fingerprints: [g1-manager-reference-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P3-POLICY-ABI
     expected: Compiled observation groups, action signature, dtype, frame, normalization, and plan fingerprint extend the sim2sim snapshot and fail closed on mismatch.
@@ -60,9 +60,9 @@ claims:
     required_test_ids: [tests/training/test_managed_policy_abi.py::test_managed_policy_abi_mismatch_fails_closed]
     environment: {dependencies: [uv.lock], hardware: any, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [], batch_sizes: [], dtype: float32, plan_fingerprint: managed-policy-abi-v1}
     acceptance: {tolerance: {}, thresholds: {silent_abi_mismatches: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any asymmetric or omitted policy ABI mismatch is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_3_gate.json], commit_sha: 062d619650ad1ac35cc940dbade0fa806adf075e, config_hash: sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb, executed_test_ids: [tests/training/test_managed_policy_abi.py::test_managed_policy_abi_mismatch_fails_closed], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane A managed-policy ABI evidence completed with no skip, xfail, or xpass; raw outputs and owner-config hash are retained in the Phase 3 artifact."}
     invalidation: {paths: [src/unilab/training/sim2sim.py, src/unilab/manager/**, conf/ppo/task/g1_walk_flat/**, tests/training/test_managed_policy_abi.py], capabilities: [managed-policy-abi], fingerprints: [managed-policy-abi-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P3-CROSS-BACKEND-PLAN
     expected: mujoco and mjwarp host profiles execute the same compiled G1 plan without backend-private term branches.
@@ -75,9 +75,9 @@ claims:
     required_test_ids: [tests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp]
     environment: {dependencies: [uv.lock, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1], batch_sizes: [32], dtype: float32, plan_fingerprint: g1-cross-backend-plan-v1}
     acceptance: {tolerance: {atol: 1.0e-4, rtol: 1.0e-3}, thresholds: {backend_private_term_reads: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Backend-specific term branches, private access, or incompatible plan signature is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_3_gate.json], commit_sha: 062d619650ad1ac35cc940dbade0fa806adf075e, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C real-CUDA cross-backend evidence completed two clean repetitions with no skip, xfail, or xpass; raw outputs, GPU provenance, and mjwarp-owner hash are retained in the Phase 3 artifact."}
     invalidation: {paths: [src/unilab/manager/**, src/unilab/base/backend/**, conf/ppo/task/g1_walk_flat/**, tests/manager/test_cross_backend_plan.py], capabilities: [cross-backend-task-plan], fingerprints: [g1-cross-backend-plan-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P3-GENERALITY-FIXTURE
     expected: A manipulation design fixture compiles and binds multi-entity body, joint, site, and mutation requirements without G1-specific assumptions.
@@ -90,6 +90,6 @@ claims:
     required_test_ids: [tests/manager/test_manipulation_compile_fixture.py::test_multi_entity_manipulation_fixture_compiles]
     environment: {dependencies: [uv.lock, mujoco], hardware: Linux CPU, owner_yaml: null, seeds: [0], batch_sizes: [4], dtype: float32, plan_fingerprint: manipulation-fixture-v1}
     acceptance: {tolerance: {}, thresholds: {g1_specific_contract_types: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any single-robot, fixed-joint-count, or missing site/object contract assumption is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_3_gate.json], commit_sha: 062d619650ad1ac35cc940dbade0fa806adf075e, config_hash: sha256:8a588a4980bcb81270ff28f73428d94a7ee92014a3e253f93ac1de15769cb8b0, executed_test_ids: [tests/manager/test_manipulation_compile_fixture.py::test_multi_entity_manipulation_fixture_compiles], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane B multi-entity generality fixture evidence completed with no skip, xfail, or xpass; raw output and fixture-input hash are retained in the Phase 3 artifact."}
     invalidation: {paths: [src/unilab/manager/**, src/unilab/base/scene.py, tests/manager/test_manipulation_compile_fixture.py], capabilities: [manager-generality], fingerprints: [manipulation-fixture-v1]}
-    status: planned
+    status: verified
