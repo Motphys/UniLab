@@ -63,9 +63,11 @@ class ReferenceFrame(str, Enum):
 
 class StateEntityKind(str, Enum):
     ROOT = "root"
+    JOINT = "joint"
     DOF = "dof"
     SENSOR = "sensor"
     BODY = "body"
+    SITE = "site"
 
 
 class StateFieldKind(str, Enum):
