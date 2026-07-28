@@ -14,6 +14,7 @@ def test_default_cli_validates_manifest_and_freeze_receipt(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["result"] == "PASS"
     assert payload["freeze_commit"] == "a2419b342b8663998b2e29cf20a4dce49b3127f5"
+    assert payload["git_history_verified"] is True
 
 
 def test_manifest_only_cli_passes_and_reports_frozen_matrix(capsys) -> None:

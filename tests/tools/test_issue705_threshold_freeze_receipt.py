@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
 import pytest
 from omegaconf import OmegaConf
 
+from unilab.tools import issue705_thresholds
 from unilab.tools.g1_baseline_provenance import sha256_file
 from unilab.tools.issue705_thresholds import (
     ThresholdManifest,
@@ -45,6 +47,7 @@ def test_real_receipt_resolves_frozen_parent_commit_and_blob(
     assert receipt.freeze_commit == "a2419b342b8663998b2e29cf20a4dce49b3127f5"
     assert receipt.data["manifest_git_blob"] == "f622c724eec1368cf4c28ce9a243a0fcac16d09d"
     assert receipt.data["manifest_sha256"] == sha256_file(MANIFEST_PATH)
+    assert receipt.git_history_verified is True
 
 
 @pytest.mark.parametrize(
@@ -121,3 +124,31 @@ def test_receipt_rejects_unresolvable_freeze_commit(
 
     with pytest.raises(ThresholdValidationError, match="cannot verify Git object"):
         load_freeze_receipt(path, manifest=manifest, repo_root=REPO_ROOT)
+
+
+def test_shallow_checkout_uses_hash_receipt_without_false_ancestry_failure(
+    manifest: ThresholdManifest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_git(
+        _repo_root: Path,
+        args: list[str] | tuple[str, ...],
+        *,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[bytes]:
+        del check
+        if args[0] == "cat-file":
+            return subprocess.CompletedProcess(args, 1, b"", b"missing")
+        if list(args) == ["rev-parse", "--is-shallow-repository"]:
+            return subprocess.CompletedProcess(args, 0, b"true\n", b"")
+        raise AssertionError(f"unexpected git command: {args}")
+
+    monkeypatch.setattr(issue705_thresholds, "_git", fake_git)
+
+    receipt = load_freeze_receipt(
+        RECEIPT_PATH,
+        manifest=manifest,
+        repo_root=REPO_ROOT,
+    )
+
+    assert receipt.git_history_verified is False
