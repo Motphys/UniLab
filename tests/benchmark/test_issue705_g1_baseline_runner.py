@@ -4,7 +4,6 @@ import ast
 from pathlib import Path
 
 import pytest
-
 from benchmark.issue705.benchmark_g1_phase0 import (
     DEFAULT_PLAN,
     _build_env_config,
