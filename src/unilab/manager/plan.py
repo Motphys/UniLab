@@ -290,8 +290,40 @@ class CompiledTaskPlan:
             raise ManagerContractError(
                 f"unsupported manager task contract version {self.contract_version!r}"
             )
+        self._validate_mutation_selectors()
         self._validate_indices_and_outputs()
         self._validate_policy_abi()
+
+    def _validate_mutation_selectors(self) -> None:
+        """Keep mutation raw expressions tied to the compiled selector table.
+
+        A manager plan may carry backend-neutral raw expressions for a future
+        backend cold bind, but it must never substitute a semantic selector
+        key as a model name.  Checking the descriptor against the immutable
+        compiled selector table also makes a forged ``replace(plan, ...)``
+        fail before runtime binding.
+        """
+
+        selectors = {item.key: item for item in self.selectors}
+        for mutation in self.mutation_specs:
+            selector = mutation.target.selector_spec
+            if selector is None:
+                continue
+            try:
+                compiled = selectors[selector.semantic_key]
+            except KeyError as exc:
+                raise ManagerContractError(
+                    "compiled mutation selector does not reference a compiled selector"
+                ) from exc
+            if (
+                selector.mode.value != compiled.mode.value
+                or mutation.target.entity_kind.value != compiled.kind.value
+                or selector.expressions != compiled.expressions
+                or selector.entity_ids != compiled.entity_ids
+            ):
+                raise ManagerContractError(
+                    "compiled mutation selector does not match its selector binding"
+                )
 
     def _validate_indices_and_outputs(self) -> None:
         state_count = len(self.backend_io.state_fields)

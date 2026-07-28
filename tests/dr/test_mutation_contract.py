@@ -29,6 +29,8 @@ from unilab.base.backend import (
     MutationOperation,
     MutationPersistence,
     MutationRecomputeLevel,
+    MutationSelectorMode,
+    MutationSelectorSpec,
     MutationSpec,
     MutationTargetKind,
     MutationTargetSpec,
@@ -289,8 +291,9 @@ class _Resolver:
         self.calls: list[tuple[MutationEntityKind, str]] = []
 
     def __call__(self, target: MutationTargetSpec) -> tuple[int, ...]:
-        assert target.selector is not None
-        key = (target.entity_kind, target.selector)
+        selector = target.selector_spec
+        assert selector is not None
+        key = (target.entity_kind, selector.semantic_key)
         self.calls.append(key)
         return self.values[key]
 
@@ -396,6 +399,62 @@ def test_selector_is_resolved_once_per_shared_cold_path_binding() -> None:
     )
     assert len(plan.specs) == 2
     assert resolver.calls == [(MutationEntityKind.BODY, "robot.links")]
+
+
+def test_mutation_selector_normalizes_legacy_exact_input_and_preserves_structured_metadata() -> (
+    None
+):
+    legacy = _target(
+        "state.dof.position",
+        MutationTargetKind.SIMULATION_STATE,
+        MutationEntityKind.DOF,
+        MutationFieldKind.POSITION,
+        "left_hip_pitch_joint",
+    )
+    selector = legacy.selector_spec
+    assert selector == MutationSelectorSpec(
+        semantic_key="left_hip_pitch_joint",
+        mode=MutationSelectorMode.EXACT,
+        expressions=("left_hip_pitch_joint",),
+    )
+    assert selector.require_exact_singleton(context="test") == "left_hip_pitch_joint"
+
+    with pytest.raises(MutationContractError, match="only supports exact"):
+        MutationSelectorSpec(
+            semantic_key="robot.joints",
+            mode=MutationSelectorMode.REGEX,
+            expressions=(".*_joint",),
+            entity_ids=(0, 1),
+        ).require_exact_singleton(context="test")
+    with pytest.raises(MutationContractError, match="exactly one mutation selector expression"):
+        MutationSelectorSpec(
+            semantic_key="robot.joints",
+            mode=MutationSelectorMode.EXACT,
+            expressions=("left_joint", "right_joint"),
+            entity_ids=(0, 1),
+        ).require_exact_singleton(context="test")
+
+    specs, capabilities, selectors = _fixtures()
+    compiled_regex = replace(
+        specs[0],
+        target=replace(
+            specs[0].target,
+            selector=MutationSelectorSpec(
+                semantic_key="robot.links",
+                mode=MutationSelectorMode.REGEX,
+                expressions=("link_.*",),
+                entity_ids=(1, 3),
+            ),
+        ),
+    )
+    mismatched = dict(selectors)
+    mismatched[(MutationEntityKind.BODY, "robot.links")] = (1,)
+    with pytest.raises(MutationContractError, match="cardinality differs"):
+        _bind(
+            specs=(compiled_regex,),
+            capabilities=(capabilities[0],),
+            selectors=mismatched,
+        )
 
 
 def test_typed_mutation_conflicts_fail_closed() -> None:

@@ -20,6 +20,8 @@ from unilab.base.backend import (
     MutationOperation,
     MutationPersistence,
     MutationRecomputeLevel,
+    MutationSelectorMode,
+    MutationSelectorSpec,
     MutationTargetKind,
     MutationTrigger,
     PhysicalUnit,
@@ -319,7 +321,13 @@ def test_compiler_binds_and_freezes_complete_plan() -> None:
     assert plan.terms[3].dependency_indices == (1,)
     assert plan.terms[3].parameters == (("scale", 0.5),)
     assert plan.terms[0].mutation_indices == (0,)
-    assert plan.mutation_specs[0].target.selector == "robot.base"
+    mutation_selector = plan.mutation_specs[0].target.selector_spec
+    assert mutation_selector == MutationSelectorSpec(
+        semantic_key="robot.base",
+        mode=MutationSelectorMode.EXACT,
+        expressions=("base",),
+        entity_ids=(0,),
+    )
 
     assert [item.semantic_key for item in plan.backend_io.state_fields] == [
         "robot.base.orientation",
@@ -376,7 +384,7 @@ def test_compiler_fingerprint_is_canonical_and_sensitive() -> None:
     plan, _, _ = _compile()
     reordered, _, _ = _compile(reverse_registry=True, reverse_terms=True)
     changed_parameter, _, _ = _compile(joint_scale=0.75)
-    changed_binding, _, _ = _compile(ids={"robot.base": (0,), "robot.policy_joints": (4, 8)})
+    changed_binding, _, _ = _compile(ids={"robot.base": (2,), "robot.policy_joints": (4, 8)})
 
     assert reordered == plan
     assert reordered.fingerprint == plan.fingerprint
@@ -384,6 +392,33 @@ def test_compiler_fingerprint_is_canonical_and_sensitive() -> None:
     assert changed_parameter.policy_abi.fingerprint == plan.policy_abi.fingerprint
     assert changed_binding.fingerprint == plan.fingerprint
     assert changed_binding.selector_binding_fingerprint != plan.selector_binding_fingerprint
+
+
+def test_compiled_mutation_selector_must_match_its_immutable_selector_binding() -> None:
+    plan, _, _ = _compile()
+    mutation = plan.mutation_specs[0]
+    selector = mutation.target.selector_spec
+    assert selector is not None
+
+    wrong_expression = replace(
+        mutation,
+        target=replace(
+            mutation.target,
+            selector=replace(selector, expressions=("wrong_base",)),
+        ),
+    )
+    with pytest.raises(ManagerContractError, match="does not match its selector binding"):
+        replace(plan, mutation_specs=(wrong_expression,))
+
+    wrong_semantic_key = replace(
+        mutation,
+        target=replace(
+            mutation.target,
+            selector=replace(selector, semantic_key="not.a.compiled.selector"),
+        ),
+    )
+    with pytest.raises(ManagerContractError, match="does not reference a compiled selector"):
+        replace(plan, mutation_specs=(wrong_semantic_key,))
 
 
 def test_registry_rejects_duplicate_and_post_freeze_registration() -> None:

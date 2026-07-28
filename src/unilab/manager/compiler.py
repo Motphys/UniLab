@@ -16,7 +16,12 @@ from unilab.base.backend.batch import (
     ExecutionProfile,
     StateFieldSpec,
 )
-from unilab.base.backend.mutation import MutationSpec, MutationTargetSpec
+from unilab.base.backend.mutation import (
+    MutationSelectorMode,
+    MutationSelectorSpec,
+    MutationSpec,
+    MutationTargetSpec,
+)
 
 from .entities import CompiledSelector, EntityResolver, EntitySelector, ManagerContractError
 from .fingerprint import canonical_digest, compiled_plan_payload, tensor_payload
@@ -291,7 +296,16 @@ def _compile_mutations(
                 target_kind=template.target_kind,
                 entity_kind=template.entity_kind,
                 field_kind=template.field_kind,
-                selector=selector.key if selector is not None else None,
+                selector=(
+                    None
+                    if selector is None
+                    else MutationSelectorSpec(
+                        semantic_key=selector.key,
+                        mode=MutationSelectorMode(selector.mode.value),
+                        expressions=selector.expressions,
+                        entity_ids=selector.entity_ids,
+                    )
+                ),
             )
             spec = MutationSpec(
                 term_key=key,
