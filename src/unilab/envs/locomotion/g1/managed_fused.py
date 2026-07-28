@@ -24,11 +24,11 @@ from typing import Any
 import numpy as np
 
 try:  # pragma: no cover - the negative path is exercised by fault tests.
-    from numba import njit, prange
+    from numba import njit
 
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - optional-import boundary.
-    njit = prange = None  # type: ignore[assignment]
+    njit = None  # type: ignore[assignment]
     NUMBA_AVAILABLE = False
 
 from unilab.base.backend import (
@@ -138,6 +138,16 @@ _TERM_CODES = {
 
 
 if NUMBA_AVAILABLE:
+
+    # These kernels deliberately use serial Numba loops rather than ``prange``.
+    # The Phase-0 frozen host uses sixteen Numba threads but its available TBB
+    # runtime cannot service the parallel scheduler efficiently; entering five
+    # tiny parallel regions per control step dominated the full lifecycle at
+    # batches 128--4096.  Serial kernels retain nopython/GIL-free math while
+    # avoiding that scheduler cost.  Any future parallel strategy must be
+    # introduced as an explicit cold-bound dispatch mode and re-pass the
+    # independent-process Phase-4 host gate; it must not silently replace this
+    # measured default.
 
     @njit(inline="always", cache=True, nogil=True)  # type: ignore[misc]
     def _positive(value):
@@ -257,7 +267,7 @@ if NUMBA_AVAILABLE:
                 pelvis_local_linear_velocity[row, component] * linear_velocity_scale
             )
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _write_observations_kernel(
         row_indices,
         pelvis_local_linear_velocity,
@@ -275,7 +285,7 @@ if NUMBA_AVAILABLE:
         actor_out,
         critic_out,
     ):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             _write_observation_row(
                 row,
                 row_indices[row],
@@ -295,7 +305,7 @@ if NUMBA_AVAILABLE:
                 critic_out,
             )
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _compute_terminal_kernel(
         root_position,
         torso_upvector,
@@ -333,7 +343,7 @@ if NUMBA_AVAILABLE:
         critic_out,
     ):
         action_dim = dof_position.shape[1]
-        for row in prange(root_position.shape[0]):
+        for row in range(root_position.shape[0]):
             up_z = torso_upvector[row, 2]
             if up_z < -1.0:
                 up_z = -1.0
@@ -449,12 +459,12 @@ if NUMBA_AVAILABLE:
                 critic_out,
             )
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _copy_rows_kernel(row_indices, source, target):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             target[row_indices[row], :] = source[row, :]
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _gather_task_rows_kernel(
         row_indices,
         commands,
@@ -464,7 +474,7 @@ if NUMBA_AVAILABLE:
         current_actions_out,
         gait_phase_out,
     ):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             source_row = row_indices[row]
             for component in range(3):
                 commands_out[row, component] = commands[source_row, component]
@@ -473,7 +483,7 @@ if NUMBA_AVAILABLE:
             for phase_index in range(2):
                 gait_phase_out[row, phase_index] = gait_phase[source_row, phase_index]
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _complete_reset_task_state_kernel(
         row_indices,
         reset_commands,
@@ -484,7 +494,7 @@ if NUMBA_AVAILABLE:
         gait_phase,
         steps,
     ):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             target_row = row_indices[row]
             for component in range(3):
                 commands[target_row, component] = reset_commands[row, component]

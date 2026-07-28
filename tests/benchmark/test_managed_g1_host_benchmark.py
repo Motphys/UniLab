@@ -219,6 +219,8 @@ def test_list_cases_exposes_frozen_three_way_process_matrix(
 def test_runner_refuses_implicit_expensive_execution() -> None:
     with pytest.raises(SystemExit, match="Refusing to run implicitly"):
         managed_benchmark.main([])
+    with pytest.raises(managed_benchmark.HostBenchmarkError, match="only with --execute"):
+        managed_benchmark.main(["--allow-gate-failure"])
 
 
 def test_capture_rejects_dirty_candidate_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -288,6 +290,16 @@ def test_artifact_validator_rejects_preregistered_performance_gate_failure() -> 
         repo_root=None,
     )
     assert any("performance threshold failed" in error for error in errors)
+    assert (
+        managed_benchmark.validate_artifact(
+            artifact,
+            binding=binding,
+            plan=plan,
+            repo_root=None,
+            require_passing_gate=False,
+        )
+        == ()
+    )
 
 
 def test_artifact_validator_rejects_memory_gate_failure() -> None:
@@ -317,6 +329,25 @@ def test_artifact_validator_rejects_action_or_executor_substitution() -> None:
     assert any("executor_key" in error for error in errors)
 
 
+def test_artifact_validator_allows_zero_legacy_component_timings() -> None:
+    artifact, binding, plan = _artifact()
+    hand_written_case = artifact["cases"][0]
+    timing_records = hand_written_case["raw"]["timing_records"]
+    timing_records["legacy_env_step_total_ms"] = [0.0] * binding.measure_steps
+    hand_written_case["summary"] = managed_benchmark.summarize_worker_raw(
+        hand_written_case["raw"], batch_size=128
+    )
+    assert (
+        managed_benchmark.validate_artifact(
+            artifact,
+            binding=binding,
+            plan=plan,
+            repo_root=None,
+        )
+        == ()
+    )
+
+
 def test_artifact_validator_rejects_hardware_and_preflight_tampering() -> None:
     artifact, binding, plan = _artifact()
     tampered = deepcopy(artifact)
@@ -332,3 +363,28 @@ def test_artifact_validator_rejects_hardware_and_preflight_tampering() -> None:
     )
     assert any("hardware.cpu_model" in error for error in errors)
     assert any("foreign GPU" in error for error in errors)
+
+
+def test_artifact_validator_gates_cpu_load_before_not_after_cpu_workers() -> None:
+    artifact, binding, plan = _artifact()
+    post_capture_load = deepcopy(artifact)
+    post_capture_load["execution"]["preflight_after"]["load_per_physical_core"] = 10.0
+    assert (
+        managed_benchmark.validate_artifact(
+            post_capture_load,
+            binding=binding,
+            plan=plan,
+            repo_root=None,
+        )
+        == ()
+    )
+
+    pre_capture_load = deepcopy(artifact)
+    pre_capture_load["execution"]["preflight_before"]["load_per_physical_core"] = 10.0
+    errors = managed_benchmark.validate_artifact(
+        pre_capture_load,
+        binding=binding,
+        plan=plan,
+        repo_root=None,
+    )
+    assert any("CPU load exceeds" in error for error in errors)
