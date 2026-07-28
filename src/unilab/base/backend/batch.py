@@ -60,6 +60,21 @@ class ReferenceFrame(str, Enum):
     JOINT = "joint"
 
 
+class StateEntityKind(str, Enum):
+    ROOT = "root"
+    DOF = "dof"
+    SENSOR = "sensor"
+    BODY = "body"
+
+
+class StateFieldKind(str, Enum):
+    POSITION = "position"
+    ORIENTATION = "orientation"
+    LINEAR_VELOCITY = "linear_velocity"
+    ANGULAR_VELOCITY = "angular_velocity"
+    VALUE = "value"
+
+
 class PhysicalUnit(str, Enum):
     UNITLESS = "1"
     METER = "m"
@@ -182,13 +197,13 @@ class BufferContract:
 class BoundFieldIdentity:
     """Selector-free backend field identity resolved on the cold path."""
 
-    entity_kind: str
-    field_kind: str
+    entity_kind: StateEntityKind
+    field_kind: StateFieldKind
     entity_ids: tuple[int, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "entity_kind", _non_empty(self.entity_kind, "entity_kind"))
-        object.__setattr__(self, "field_kind", _non_empty(self.field_kind, "field_kind"))
+        _enum(self.entity_kind, StateEntityKind, "entity_kind")
+        _enum(self.field_kind, StateFieldKind, "field_kind")
         if not isinstance(self.entity_ids, tuple):
             raise BackendBatchContractError("entity_ids must be a tuple of cold-path bound ids")
         if not self.entity_ids:
@@ -405,11 +420,7 @@ class BoundBackendPlan:
     def require_compatible(self, other: BoundBackendPlan) -> None:
         if not isinstance(other, BoundBackendPlan):
             raise BackendBatchContractError("batch plan must be a BoundBackendPlan")
-        if (
-            self.backend_type != other.backend_type
-            or self.backend_instance_id != other.backend_instance_id
-            or self.fingerprint != other.fingerprint
-        ):
+        if self != other:
             raise BackendBatchContractError(
                 "batch was built from a different backend plan or fingerprint"
             )
@@ -644,9 +655,14 @@ class BackendBatchCounters:
     global_synchronizations: int = 0
     allocations: int = 0
     state_materializations: int = 0
+    instrumentation_complete: bool = False
 
     def __post_init__(self) -> None:
         for name, value in vars(self).items():
+            if name == "instrumentation_complete":
+                if not isinstance(value, bool):
+                    raise BackendBatchContractError("instrumentation_complete must be a bool")
+                continue
             _count(value, name)
 
 
@@ -707,6 +723,20 @@ class BackendBatchDiagnostics:
             )
 
 
+@dataclass(frozen=True)
+class BackendReadResult:
+    state: StateBatch
+    diagnostics: BackendBatchDiagnostics = field(default_factory=BackendBatchDiagnostics)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.state, StateBatch):
+            raise BackendBatchContractError("state must be a StateBatch")
+        self.state.assert_valid()
+        if not isinstance(self.diagnostics, BackendBatchDiagnostics):
+            raise BackendBatchContractError("diagnostics must be BackendBatchDiagnostics")
+        _validate_result_completion(self.state, self.diagnostics)
+
+
 def _validate_result_completion(
     state: StateBatch,
     diagnostics: BackendBatchDiagnostics,
@@ -763,6 +793,7 @@ __all__ = [
     "BackendCompletionEvent",
     "BackendIORequirements",
     "BackendMutationBatch",
+    "BackendReadResult",
     "BackendResetResult",
     "BackendStepResult",
     "BackendTiming",
@@ -788,5 +819,7 @@ __all__ = [
     "StateBatch",
     "StateBatchLease",
     "StateBatchPhase",
+    "StateEntityKind",
+    "StateFieldKind",
     "StateFieldSpec",
 ]
