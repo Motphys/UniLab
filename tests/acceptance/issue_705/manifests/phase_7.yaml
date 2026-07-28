@@ -1,0 +1,95 @@
+schema_version: 1
+issue: 705
+phase: 7
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [A, B, C, D]
+claims:
+  - claim_id: P7-SUPPORT-MATRIX
+    expected: Every Supported or Benchmarked task/backend combination has consistent owner YAML, registry identity, compiled signature, mandatory tests, and fresh artifacts.
+    risk: Documentation or config advertises combinations that are unregistered, untested, stale, or only partially implemented.
+    owner: release-validation
+    oracle: A bidirectional audit starts independently from owner YAML, registry, support matrix, acceptance manifests, and artifact fingerprints.
+    commands: [uv run scripts/audit_issue705_support.py]
+    lane: A
+    required: true
+    required_test_ids: [tests/scripts/test_issue705_support_audit.py::test_supported_combinations_have_fresh_bidirectional_evidence]
+    environment: {dependencies: [uv.lock], hardware: any plus artifact metadata validation, owner_yaml: null, seeds: [], batch_sizes: [], dtype: null, plan_fingerprint: issue705-support-audit-v1}
+    acceptance: {tolerance: {}, thresholds: {unsupported_advertisements: 0, stale_artifacts: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any non-bijective config, registry, test, support, or artifact mapping is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [conf/**, src/unilab/base/registry.py, src/unilab/utils/support_matrix.py, tests/acceptance/issue_705/**, scripts/audit_issue705_support.py], capabilities: [issue705-support-matrix], fingerprints: [issue705-support-audit-v1]}
+    status: planned
+
+  - claim_id: P7-TASK-ROLLOUT
+    expected: Each promoted mjwarp task passes backend correctness, managed differential, lifecycle, sim2sim, transfer, DR, and train-smoke gates before support registration.
+    risk: Task promotion outruns its required terrain, entity, controller, or mutation capabilities.
+    owner: task-migration
+    oracle: Capability-derived parameterized cases execute each owner config through production entrypoints on real CUDA.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/integration/test_mjwarp_task_rollout.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: null, seeds: [0, 1], batch_sizes: [128], dtype: float32, plan_fingerprint: mjwarp-task-rollout-v1}
+    acceptance: {tolerance: {}, thresholds: {mandatory_skips: 0, unsupported_promotions: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any promoted task with missing prerequisite, failed differential, lifecycle, transfer, DR, sim2sim, or train smoke is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [conf/**/task/**/mjwarp.yaml, src/unilab/envs/**, src/unilab/base/backend/mjwarp/**, src/unilab/manager/**, tests/integration/test_mjwarp_task_rollout.py], capabilities: [mjwarp-task-rollout], fingerprints: [mjwarp-task-rollout-v1]}
+    status: planned
+
+  - claim_id: P7-TRAINING-BEHAVIOR
+    expected: Paired-seed learning curves preserve frozen AUC, final-window task metrics, episode length, success, and stability while meeting performance gates.
+    risk: Throughput gains mask degraded policy learning or filtered failed seeds.
+    owner: benchmark-training
+    oracle: All preregistered baseline/candidate seeds and budgets are analyzed without post-hoc exclusion by a frozen report generator.
+    commands: [uv run benchmark/rl/evaluate_issue705_training_behavior.py]
+    lane: D
+    required: true
+    required_test_ids: [tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Phase 0 frozen training host, owner_yaml: null, seeds: [0, 1, 2, 3, 4], batch_sizes: [4096], dtype: float32, plan_fingerprint: issue705-training-behavior-v1}
+    acceptance: {tolerance: {}, thresholds: {required_training_seeds: 5, omitted_runs: 0, nan_runs: 0}, repetitions: 5, max_dispersion: 0.1, failure_semantics: "Any omitted seed, stability failure, or frozen AUC/final-window/episode/success regression is FAIL regardless of throughput."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/envs/**, src/unilab/manager/**, benchmark/**, tests/benchmark/test_issue705_training_behavior.py, conf/**, uv.lock], capabilities: [issue705-training-behavior], fingerprints: [issue705-training-behavior-v1]}
+    status: planned
+
+  - claim_id: P7-ENTRYPOINT-MATRIX
+    expected: Train, play, visualization, export, checkpoint, and policy-load entrypoints preserve contracts across supported host and device profiles.
+    risk: The new path works only in one training script while operational workflows remain broken or silently use legacy behavior.
+    owner: integration
+    oracle: Public CLI subprocess tests compose every supported owner and inspect route, policy ABI guard, terminal behavior, and actionable unsupported errors.
+    commands: [uv run pytest tests/integration/test_issue705_entrypoints.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix]
+    environment: {dependencies: [uv.lock, torch, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Linux CPU and CUDA-capable GPU, owner_yaml: null, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: issue705-entrypoints-v1}
+    acceptance: {tolerance: {}, thresholds: {silent_legacy_routes: 0, broken_entrypoints: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any supported entrypoint failure, silent legacy route, ABI bypass, or unactionable error is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [scripts/**, src/unilab/cli.py, src/unilab/training/**, src/unilab/visualization/**, tests/integration/test_issue705_entrypoints.py], capabilities: [issue705-entrypoints], fingerprints: [issue705-entrypoints-v1]}
+    status: planned
+
+  - claim_id: P7-FINAL-REGRESSION
+    expected: Every Phase manifest is revalidated at the final integration head with no mandatory skip/xfail and reproducible fresh artifacts.
+    risk: Earlier evidence becomes stale after later refactors or only a subset of lanes is rerun.
+    owner: release-validation
+    oracle: Path/capability/fingerprint invalidation is evaluated against the integration diff before all A/B/C/D lanes rerun.
+    commands: [uv run scripts/validate_issue705_final.py]
+    lane: A
+    required: true
+    required_test_ids: [tests/scripts/test_issue705_final_gate.py::test_final_head_has_fresh_all_phase_evidence]
+    environment: {dependencies: [uv.lock], hardware: Phase 0 frozen CPU/GPU hosts plus GitHub main CI, owner_yaml: null, seeds: [0, 1, 2, 3, 4], batch_sizes: [128, 1024, 4096], dtype: float32, plan_fingerprint: issue705-final-gate-v1}
+    acceptance: {tolerance: {}, thresholds: {mandatory_skips: 0, mandatory_xfails: 0, stale_claims: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any stale evidence, skipped lane, failed phase, or unreproducible artifact is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/**, scripts/**, conf/**, tests/**, benchmark/**, uv.lock], capabilities: [issue705-final-gate], fingerprints: [issue705-final-gate-v1]}
+    status: planned
+
+  - claim_id: P7-LEGACY-RETIREMENT
+    expected: Legacy hand-written paths are removed only after all train, play, visualization, export, checkpoint, policy-load, rollback, and unsupported-config evidence is complete.
+    risk: Premature deletion breaks operational entrypoints or leaves old configs with opaque import and dimension failures.
+    owner: integration
+    oracle: A release fixture evaluates the deletion diff against the full entrypoint matrix, rollback artifact, and actionable-error snapshots.
+    commands: [uv run pytest tests/integration/test_issue705_legacy_retirement.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence]
+    environment: {dependencies: [uv.lock, torch, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Linux CPU and CUDA-capable GPU, owner_yaml: null, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: issue705-legacy-retirement-v1}
+    acceptance: {tolerance: {}, thresholds: {missing_entrypoints: 0, opaque_legacy_errors: 0, missing_rollback_artifacts: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any deletion before full matrix evidence, missing rollback, or unactionable legacy diagnostic is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/envs/**, scripts/**, src/unilab/training/**, src/unilab/visualization/**, conf/**, tests/integration/test_issue705_legacy_retirement.py], capabilities: [issue705-legacy-retirement], fingerprints: [issue705-legacy-retirement-v1]}
+    status: planned

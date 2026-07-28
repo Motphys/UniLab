@@ -99,14 +99,19 @@ claims:
       max_dispersion: 0
       failure_semantics: Unknown, missing, inconsistent, skipped, stale, or non-PASS required evidence is FAIL.
     evidence:
-      result: NOT_RUN
-      artifact_refs: []
-      commit_sha: null
-      config_hash: null
-      executed_test_ids: []
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/issues/709
+        - https://github.com/unilabsim/UniLab/pull/710
+        - https://github.com/unilabsim/UniLab/issues/711
+      commit_sha: cbdc63af24fe461650da46c20d52a87c0de4ed8b
+      config_hash: sha256:36c46945a43b6c6f3cfe4659543fa139ca0246e807a49d931939a17ddd681047
+      executed_test_ids:
+        - tests/tools/test_phase_acceptance.py
+        - tests/scripts/test_issue705_phase_acceptance.py
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: Implementation is part of child issue #709; gate evidence is pending merge.
+      summary: The strict parser and CLI passed 53 targeted tests against all eight manifests at the Phase 0C implementation commit.
     invalidation:
       paths:
         - src/unilab/tools/phase_acceptance.py
@@ -116,7 +121,7 @@ claims:
         - tests/scripts/test_issue705_phase_acceptance.py
       capabilities: [phase-acceptance]
       fingerprints: [phase-acceptance-schema-v1]
-    status: implemented
+    status: verified
 
   - claim_id: P0-CLAIM-GAP-AUDIT
     expected: Every Phase claim maps to an existing test or an owned target test ID and explicit gap.
@@ -124,10 +129,12 @@ claims:
     owner: validation
     oracle: Bidirectional claim-to-test inventory with no ownerless or unclassified gaps.
     commands:
-      - uv run scripts/audit_issue705_claims.py --phase 0
+      - uv run scripts/audit_issue705_claims.py --all
     lane: A
     required: true
-    required_test_ids: [acceptance:P0-CLAIM-GAP-AUDIT]
+    required_test_ids:
+      - tests/tools/test_claim_gap_audit.py
+      - tests/scripts/test_issue705_claim_gap_audit.py
     environment:
       dependencies: [uv.lock]
       hardware: any
@@ -145,19 +152,23 @@ claims:
       max_dispersion: 0
       failure_semantics: Any claim without an owner, oracle, test ID, or explicit gap is FAIL.
     evidence:
-      result: NOT_RUN
-      artifact_refs: []
-      commit_sha: null
-      config_hash: null
-      executed_test_ids: []
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/issues/711
+        - tests/acceptance/issue_705/claim_test_inventory.yaml
+      commit_sha: cbdc63af24fe461650da46c20d52a87c0de4ed8b
+      config_hash: sha256:a28fe754ff4f7c885aa9725ae96dd57e83f00845cc5f3625116c94eac5f08107
+      executed_test_ids:
+        - tests/tools/test_claim_gap_audit.py
+        - tests/scripts/test_issue705_claim_gap_audit.py
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: ""
+      summary: All 51 Phase 0-7 claims map bidirectionally to 74 owned existing or explicit-gap target test entries.
     invalidation:
       paths: [tests/**, benchmark/**, src/unilab/**, scripts/**]
       capabilities: [claim-gap-audit]
       fingerprints: [claim-gap-inventory-v1]
-    status: planned
+    status: verified
 
   - claim_id: P0-DR-CAPABILITY-INVENTORY
     expected: mjwarp DR fields declare direct and derived storage, recompute, row, graph, memory, and effect-test requirements.
@@ -168,7 +179,8 @@ claims:
       - uv run scripts/validate_issue705_dr_inventory.py
     lane: B
     required: true
-    required_test_ids: [acceptance:P0-DR-CAPABILITY-INVENTORY]
+    required_test_ids:
+      - tests/acceptance/issue_705/test_mjwarp_dr_inventory.py::test_inventory_covers_required_field_contracts
     environment:
       dependencies: [mujoco-warp>=3.10.0.3, warp-lang>=1.14.0]
       hardware: Linux CPU for inventory; CUDA GPU for later effect evidence
@@ -214,7 +226,8 @@ claims:
       - uv run scripts/train_rsl_rl.py task=g1_walk_flat/mujoco training.no_play=true
     lane: D
     required: true
-    required_test_ids: [acceptance:P0-BASELINE-PROVENANCE]
+    required_test_ids:
+      - tests/acceptance/issue_705/test_g1_baseline_provenance.py::test_baseline_artifacts_are_reproducible
     environment:
       dependencies: [uv.lock]
       hardware: Phase 0 frozen CPU/GPU benchmark host
@@ -261,7 +274,8 @@ claims:
       - uv run scripts/validate_issue705_phase.py --phase 0 --mode gate
     lane: D
     required: true
-    required_test_ids: [acceptance:P0-THRESHOLD-FREEZE]
+    required_test_ids:
+      - tests/acceptance/issue_705/test_threshold_manifest.py::test_phase0_thresholds_are_frozen
     environment:
       dependencies: [uv.lock]
       hardware: Phase 0 frozen CPU/GPU benchmark host

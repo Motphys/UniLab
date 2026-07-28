@@ -1,0 +1,95 @@
+schema_version: 1
+issue: 705
+phase: 3
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [A, B, C]
+claims:
+  - claim_id: P3-TASK-COMPILER
+    expected: TermRegistry and TaskCompiler emit one immutable plan with bound selectors, term DAG, output slices, requirements, execution key, and stable fingerprint.
+    risk: Runtime callbacks retain dynamic registry lookup, selector resolution, or inferred shapes.
+    owner: manager-core
+    oracle: Compiler fixtures and fault injection reject cycles, duplicate slices, missing entities, mismatched semantics, and unsupported capabilities.
+    commands: [uv run pytest tests/manager/test_task_compiler.py -v]
+    lane: A
+    required: true
+    required_test_ids: [tests/manager/test_task_compiler.py::test_compiler_binds_and_freezes_complete_plan]
+    environment: {dependencies: [uv.lock], hardware: any, owner_yaml: null, seeds: [0], batch_sizes: [1, 32], dtype: float32, plan_fingerprint: task-compiler-v1}
+    acceptance: {tolerance: {}, thresholds: {hot_registry_lookups: 0, hot_selector_resolutions: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any dynamic hot-path metadata lookup, mutable plan, cycle, overlap, or mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/base/registry.py, tests/manager/test_task_compiler.py], capabilities: [task-compiler], fingerprints: [task-compiler-v1]}
+    status: planned
+
+  - claim_id: P3-LIFECYCLE-PARITY
+    expected: Managed reset and step preserve terminal state, final observation, timeout, autoreset, command, history, and Event ordering.
+    risk: Correct final shapes hide a semantically different transition lifecycle.
+    owner: manager-runtime
+    oracle: A recording backend and frozen event trace independently assert exact phase order and terminal/reset row contents.
+    commands: [uv run pytest tests/manager/test_managed_lifecycle.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/manager/test_managed_lifecycle.py::test_terminal_and_autoreset_lifecycle_trace]
+    environment: {dependencies: [uv.lock], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0, 2], batch_sizes: [1, 31], dtype: float32, plan_fingerprint: managed-lifecycle-v1}
+    acceptance: {tolerance: {}, thresholds: {ordering_mismatches: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Any terminal/reset ambiguity, stale final observation, or phase-order mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/base/np_env.py, src/unilab/base/final_observation.py, tests/manager/test_managed_lifecycle.py], capabilities: [managed-lifecycle], fingerprints: [managed-lifecycle-v1]}
+    status: planned
+
+  - claim_id: P3-G1-REFERENCE-DIFFERENTIAL
+    expected: The hand-written G1 env and manager reference executor match per field for observations, rewards, termination, truncation, final observation, and logs.
+    risk: The pilot passes only shape checks while changing policy inputs or training semantics.
+    owner: g1-task
+    oracle: The current hand-written env and frozen action, command, and reset schedules are independent expected-value producers.
+    commands: [uv run pytest tests/manager/test_g1_reference_differential.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env]
+    environment: {dependencies: [uv.lock, mujoco], hardware: Linux CPU, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [0, 1, 2], batch_sizes: [1, 32, 128], dtype: float32, plan_fingerprint: g1-manager-reference-v1}
+    acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {unexplained_fields: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any unexplained field, lifecycle, reset, reward, or log mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/envs/locomotion/g1/**, src/unilab/manager/**, conf/ppo/task/g1_walk_flat/**, tests/manager/test_g1_reference_differential.py], capabilities: [g1-manager-reference], fingerprints: [g1-manager-reference-v1]}
+    status: planned
+
+  - claim_id: P3-POLICY-ABI
+    expected: Compiled observation groups, action signature, dtype, frame, normalization, and plan fingerprint extend the sim2sim snapshot and fail closed on mismatch.
+    risk: Cross-backend play loads a dimensionally compatible but semantically different policy.
+    owner: training-contract
+    oracle: Bidirectional config mutations exercise the public sim2sim resolver and policy-load guard before environment creation.
+    commands: [uv run pytest tests/training/test_managed_policy_abi.py -v]
+    lane: A
+    required: true
+    required_test_ids: [tests/training/test_managed_policy_abi.py::test_managed_policy_abi_mismatch_fails_closed]
+    environment: {dependencies: [uv.lock], hardware: any, owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml, seeds: [], batch_sizes: [], dtype: float32, plan_fingerprint: managed-policy-abi-v1}
+    acceptance: {tolerance: {}, thresholds: {silent_abi_mismatches: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any asymmetric or omitted policy ABI mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/sim2sim.py, src/unilab/manager/**, conf/ppo/task/g1_walk_flat/**, tests/training/test_managed_policy_abi.py], capabilities: [managed-policy-abi], fingerprints: [managed-policy-abi-v1]}
+    status: planned
+
+  - claim_id: P3-CROSS-BACKEND-PLAN
+    expected: mujoco and mjwarp host profiles execute the same compiled G1 plan without backend-private term branches.
+    risk: Two backend-specific task implementations merely share a manager-shaped facade.
+    owner: manager-runtime
+    oracle: Plan fingerprints, public access counters, and per-field outputs are compared across independently bound backends.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/manager/test_cross_backend_plan.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp]
+    environment: {dependencies: [uv.lock, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1], batch_sizes: [32], dtype: float32, plan_fingerprint: g1-cross-backend-plan-v1}
+    acceptance: {tolerance: {atol: 1.0e-4, rtol: 1.0e-3}, thresholds: {backend_private_term_reads: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Backend-specific term branches, private access, or incompatible plan signature is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/base/backend/**, conf/ppo/task/g1_walk_flat/**, tests/manager/test_cross_backend_plan.py], capabilities: [cross-backend-task-plan], fingerprints: [g1-cross-backend-plan-v1]}
+    status: planned
+
+  - claim_id: P3-GENERALITY-FIXTURE
+    expected: A manipulation design fixture compiles and binds multi-entity body, joint, site, and mutation requirements without G1-specific assumptions.
+    risk: Shared contracts encode a single locomotion robot layout and block later task reuse.
+    owner: manager-core
+    oracle: A synthetic multi-entity fixture with site observations and object mutations supplies requirements absent from G1.
+    commands: [uv run pytest tests/manager/test_manipulation_compile_fixture.py -v]
+    lane: B
+    required: true
+    required_test_ids: [tests/manager/test_manipulation_compile_fixture.py::test_multi_entity_manipulation_fixture_compiles]
+    environment: {dependencies: [uv.lock, mujoco], hardware: Linux CPU, owner_yaml: null, seeds: [0], batch_sizes: [4], dtype: float32, plan_fingerprint: manipulation-fixture-v1}
+    acceptance: {tolerance: {}, thresholds: {g1_specific_contract_types: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any single-robot, fixed-joint-count, or missing site/object contract assumption is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/base/scene.py, tests/manager/test_manipulation_compile_fixture.py], capabilities: [manager-generality], fingerprints: [manipulation-fixture-v1]}
+    status: planned

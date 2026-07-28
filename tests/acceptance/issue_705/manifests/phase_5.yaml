@@ -1,0 +1,110 @@
+schema_version: 1
+issue: 705
+phase: 5
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [C, D]
+claims:
+  - claim_id: P5-DEVICE-ABI
+    expected: Action, State, and Transition batches expose stable device views or DLPack with explicit shape, dtype, lifetime, owner, and completion semantics.
+    risk: Zero-copy interfaces outlive backend buffers or hide dtype conversion and allocation.
+    owner: runner-device
+    oracle: Pointer, capsule-consumption, lifetime, and producer-consumer tests inspect independent device allocations and invalidation epochs.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_transition_abi.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [1, 128, 4096], dtype: float32, plan_fingerprint: device-transition-abi-v1}
+    acceptance: {tolerance: {}, thresholds: {implicit_copies: 0, stale_view_acceptances: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any implicit copy, ambiguous owner, reusable consumed capsule, or stale view is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/base/backend/mjwarp/**, tests/training/test_device_transition_abi.py], capabilities: [device-transition-abi], fingerprints: [device-transition-abi-v1]}
+    status: planned
+
+  - claim_id: P5-STREAM-LIFETIME
+    expected: Producer and consumer streams hand off buffers through explicit events and reject missing events or premature reuse.
+    risk: Asynchronous races produce intermittent stale actions or observations.
+    owner: runner-device
+    oracle: Delayed kernels and fault-injected event removal make ordering errors deterministic under a recording stream fixture.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_stream_contract.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 11], batch_sizes: [128], dtype: float32, plan_fingerprint: device-stream-contract-v1}
+    acceptance: {tolerance: {}, thresholds: {ordering_races: 0}, repetitions: 10, max_dispersion: 0, failure_semantics: "Missing event, stale epoch, early buffer reuse, or global-sync workaround is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/base/backend/mjwarp/**, tests/training/test_device_stream_contract.py], capabilities: [device-stream-handoff], fingerprints: [device-stream-contract-v1]}
+    status: planned
+
+  - claim_id: P5-DEVICE-LIFECYCLE
+    expected: Device-resident transitions preserve host contract semantics for terminal observation, timeout, partial autoreset, logging, and next policy observation.
+    risk: Removing host materialization changes rollout semantics or loses final observations.
+    owner: runner-device
+    oracle: The verified host adapter and an independent terminal/reset schedule are compared field by field with the device adapter.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_lifecycle.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [32, 128], dtype: float32, plan_fingerprint: device-lifecycle-v1}
+    acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {lifecycle_mismatches: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any terminal, timeout, reset, final-observation, or next-observation mismatch is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/base/final_observation.py, src/unilab/manager/**, tests/training/test_device_lifecycle.py], capabilities: [device-lifecycle], fingerprints: [device-lifecycle-v1]}
+    status: planned
+
+  - claim_id: P5-NO-HOST-ROUNDTRIP
+    expected: A fixed rollout has exact preregistered H2D, D2H, and synchronization counts with no per-step host roundtrip or global synchronize.
+    risk: Device physics still crosses CPU for action, terms, observations, rewards, dones, or learner input.
+    owner: runtime-instrumentation
+    oracle: Instrumentation counters are reconciled against a CUDA profiler trace while term, getter, and logging counts are varied.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_transfer_budget.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU with profiler, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [128, 4096], dtype: float32, plan_fingerprint: device-transfer-budget-v1}
+    acceptance: {tolerance: {}, thresholds: {per_step_h2d: 0, per_step_d2h: 0, global_synchronizes: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Counter/trace mismatch or term-dependent transfer/synchronization is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/base/backend/mjwarp/**, src/unilab/manager/**, tests/training/test_device_transfer_budget.py], capabilities: [device-transfer-budget], fingerprints: [device-transfer-budget-v1]}
+    status: planned
+
+  - claim_id: P5-GRAPH-CONTRACT
+    expected: Eager or CUDA graph execution is selected by measured evidence, with explicit capture keys, stable addresses, and recapture or fail-closed behavior.
+    risk: A captured graph executes stale pointers or a changed plan while appearing faster.
+    owner: mjwarp-backend
+    oracle: Address replacement and plan/batch/dtype mutations fault-inject stale graph inputs and verify recapture counters or rejection.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_graph_contract.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed]
+    environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [128, 4096], dtype: float32, plan_fingerprint: mjwarp-graph-contract-v1}
+    acceptance: {tolerance: {}, thresholds: {stale_graph_executions: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Stale address execution, implicit graph reuse, or undocumented eager fallback is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/manager/**, tests/base/test_mjwarp_graph_contract.py], capabilities: [mjwarp-graph], fingerprints: [mjwarp-graph-contract-v1]}
+    status: planned
+
+  - claim_id: P5-TRAIN-PERFORMANCE
+    expected: Device-resident PPO improves frozen end-to-end iteration and rollout throughput without violating memory, p95, lifecycle, or learner behavior gates.
+    risk: Raw physics SPS improves while Iter Wall, contention, memory, or training work regresses.
+    owner: benchmark-training
+    oracle: Paired independent-process PPO runs report rollout, learner, Iter Wall, samples per second, memory, sync counts, and co-located contention.
+    commands: [uv run --with mujoco-warp --with warp-lang benchmark/rl/benchmark_mjwarp_ppo.py]
+    lane: D
+    required: true
+    required_test_ids: [tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Phase 0 frozen CUDA benchmark host, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2, 3, 4], batch_sizes: [128, 1024, 4096], dtype: float32, plan_fingerprint: mjwarp-device-train-v1}
+    acceptance: {tolerance: {}, thresholds: {min_process_repeats: 5, global_synchronizes: 0}, repetitions: 5, max_dispersion: 0.1, failure_semantics: "Any key batch Iter Wall, rollout, memory, p95, contention, or provenance gate failure is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/base/backend/mjwarp/**, src/unilab/manager/**, benchmark/**, tests/benchmark/test_mjwarp_ppo_benchmark.py, uv.lock], capabilities: [mjwarp-device-performance], fingerprints: [mjwarp-device-train-v1]}
+    status: planned
+
+  - claim_id: P5-DEVICE-STABILITY
+    expected: Long device rollouts keep allocated and reserved memory bounded and preserve all stable buffer addresses outside explicit recapture events.
+    risk: A zero-copy fast path leaks tensors or reallocates buffers slowly enough to evade short smoke and benchmark runs.
+    owner: runner-device
+    oracle: A long-loop sampler records allocator snapshots, pointer epochs, reset density, and graph recapture events independently from runtime counters.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_runtime_stability.py -v]
+    lane: C
+    required: true
+    required_test_ids: [tests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable]
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1], batch_sizes: [128, 4096], dtype: float32, plan_fingerprint: device-runtime-stability-v1}
+    acceptance: {tolerance: {}, thresholds: {unexpected_pointer_changes: 0, unbounded_memory_growth: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any unbounded allocated or reserved memory growth, unexplained pointer change, or hidden recapture is FAIL."}
+    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    invalidation: {paths: [src/unilab/training/**, src/unilab/base/backend/mjwarp/**, src/unilab/manager/**, tests/training/test_device_runtime_stability.py], capabilities: [device-runtime-stability], fingerprints: [device-runtime-stability-v1]}
+    status: planned
