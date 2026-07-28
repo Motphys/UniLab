@@ -7,6 +7,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+import unilab.tools.issue705_phase3_evidence as phase3_evidence
 from unilab.tools.issue705_phase3_evidence import (
     ARTIFACT_KIND,
     ISSUE,
@@ -118,6 +121,32 @@ def _valid_report() -> dict[str, Any]:
     }
 
 
+def _capture_fixture_root(tmp_path: Path) -> Path:
+    root = tmp_path / "capture"
+    for path in _input_paths():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"fixture for {path}\n", encoding="utf-8")
+    subprocess.run(("git", "init", "--quiet"), cwd=root, check=True)
+    subprocess.run(("git", "add", "."), cwd=root, check=True)
+    subprocess.run(
+        (
+            "git",
+            "-c",
+            "user.email=issue705-test@example.invalid",
+            "-c",
+            "user.name=Issue705 Test",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ),
+        cwd=root,
+        check=True,
+    )
+    return root
+
+
 def test_phase3_evidence_validator_accepts_complete_registered_report() -> None:
     assert validate_phase3_evidence(_valid_report(), root=REPO_ROOT) == ()
 
@@ -167,3 +196,40 @@ def test_phase3_evidence_validator_fails_closed_for_provenance_and_execution_fau
         "does not match registered command" in error
         for error in validate_phase3_evidence(altered_argv, root=REPO_ROOT)
     )
+
+
+def test_capture_rejects_registered_input_mutated_by_evidence_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _capture_fixture_root(tmp_path)
+
+    def fake_cuda_environment(_: Path) -> dict[str, Any]:
+        return {
+            "platform": "Linux",
+            "python": "test",
+            "warp_device": "cuda:0",
+            "nvidia_smi": ["test-gpu"],
+            "packages": {"mujoco": "3.10", "mujoco-warp": "3.10", "warp-lang": "1.14"},
+        }
+
+    def fake_evidence_command(command: Any, *, root: Path, repetition: int) -> dict[str, Any]:
+        (root / "uv.lock").write_text("mutated during capture\n", encoding="utf-8")
+        return {
+            "name": f"{command.name}#{repetition}",
+            "series": command.name,
+            "lane": command.lane,
+            "repetition": repetition,
+            "argv": list(command.argv),
+            "required_test_ids": list(command.required_test_ids),
+            "exit_code": 0,
+            "duration_sec": 0.1,
+            "pytest": {"passed": 1, "skipped": 0, "xfailed": 0, "xpassed": 0},
+            "stdout": "\n".join((*command.required_test_ids, "1 passed")),
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(phase3_evidence, "_cuda_environment", fake_cuda_environment)
+    monkeypatch.setattr(phase3_evidence, "_run_evidence_command", fake_evidence_command)
+
+    with pytest.raises(phase3_evidence.Phase3EvidenceError, match="clean source"):
+        phase3_evidence.capture_phase3_evidence(root)

@@ -210,6 +210,18 @@ def sha256_file(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
+def _registered_input_hashes(root: Path) -> dict[str, str]:
+    """Hash every registered capture input before any evidence command runs."""
+
+    return {path.as_posix(): sha256_file(root / path) for path in _INPUT_FILES}
+
+
+def _claim_config_hashes(root: Path) -> dict[str, str]:
+    """Hash the per-claim config/test input used by the phase manifest."""
+
+    return {claim_id: sha256_file(root / path) for claim_id, path in _CLAIM_CONFIG_INPUTS.items()}
+
+
 def _run_checked(argv: Sequence[str], *, root: Path, context: str) -> str:
     result = subprocess.run(argv, cwd=root, capture_output=True, text=True, check=False)
     if result.returncode != 0:
@@ -332,6 +344,8 @@ def capture_phase3_evidence(root: Path) -> dict[str, Any]:
     source_commit = _git(root, "rev-parse", "HEAD")
     if not _COMMIT_RE.fullmatch(source_commit):
         raise Phase3EvidenceError(f"git returned an invalid commit SHA: {source_commit!r}")
+    input_hashes = _registered_input_hashes(root)
+    config_hashes = _claim_config_hashes(root)
 
     environment = _cuda_environment(root)
     commands = [
@@ -339,6 +353,11 @@ def capture_phase3_evidence(root: Path) -> dict[str, Any]:
         for command in PHASE3_COMMANDS
         for repetition in range(1, command.repetitions + 1)
     ]
+    _assert_clean_source(root)
+    if _registered_input_hashes(root) != input_hashes:
+        raise Phase3EvidenceError(
+            "Phase 3 evidence commands changed a registered input during capture"
+        )
     return {
         "schema_version": SCHEMA_VERSION,
         "kind": ARTIFACT_KIND,
@@ -351,11 +370,8 @@ def capture_phase3_evidence(root: Path) -> dict[str, Any]:
             "tree_clean": True,
         },
         "inputs": {
-            "files": {path.as_posix(): sha256_file(root / path) for path in _INPUT_FILES},
-            "claim_config_hashes": {
-                claim_id: sha256_file(root / path)
-                for claim_id, path in _CLAIM_CONFIG_INPUTS.items()
-            },
+            "files": input_hashes,
+            "claim_config_hashes": config_hashes,
         },
         "environment": environment,
         "claims": [
