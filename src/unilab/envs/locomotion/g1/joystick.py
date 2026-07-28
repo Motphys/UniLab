@@ -199,7 +199,7 @@ class G1WalkEnvCfg(G1BaseCfg):
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float | None = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: G1RewardConfig | None = None
