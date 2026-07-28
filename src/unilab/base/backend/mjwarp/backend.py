@@ -468,8 +468,10 @@ class MjwarpBackend(SimBackend):
     ) -> tuple[int, ...]:
         """Resolve raw Warp state coordinates exactly once during plan binding."""
 
-        if spec.selector is None:
+        selector = spec.selector_spec
+        if selector is None:
             raise MutationContractError("mjwarp typed mutation selector must be explicit")
+        raw_selector = selector.require_exact_singleton(context="mjwarp typed reset")
         if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
             raise MutationContractError("mjwarp typed mutation selector has an unsupported target")
 
@@ -490,14 +492,14 @@ class MjwarpBackend(SimBackend):
                     "mjwarp typed root reset requires a named first free-joint base body"
                 )
             try:
-                body_id = self._body_ids[spec.selector]
+                body_id = self._body_ids[raw_selector]
             except KeyError as exc:
                 raise MutationContractError(
-                    f"mjwarp typed root selector {spec.selector!r} did not resolve a body"
+                    f"mjwarp typed root selector {raw_selector!r} did not resolve a body"
                 ) from exc
             if body_id != self._base_body_id:
                 raise MutationContractError(
-                    f"mjwarp typed root selector {spec.selector!r} must resolve the base body"
+                    f"mjwarp typed root selector {raw_selector!r} must resolve the base body"
                 )
             return (body_id,)
 
@@ -515,13 +517,13 @@ class MjwarpBackend(SimBackend):
         joint_id = self._mujoco.mj_name2id(
             self._cpu_model,
             self._mujoco.mjtObj.mjOBJ_JOINT,
-            spec.selector,
+            raw_selector,
         )
         if joint_id < 0 or int(self._cpu_model.jnt_type[joint_id]) != int(
             self._mujoco.mjtJoint.mjJNT_HINGE
         ):
             raise MutationContractError(
-                f"mjwarp typed reset selector {spec.selector!r} must resolve one hinge joint"
+                f"mjwarp typed reset selector {raw_selector!r} must resolve one hinge joint"
             )
         if spec.field_kind is MutationFieldKind.POSITION:
             coordinate = int(self._cpu_model.jnt_qposadr[joint_id]) - self._root_qpos_dim
