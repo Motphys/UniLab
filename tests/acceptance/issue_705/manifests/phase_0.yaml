@@ -1,0 +1,297 @@
+schema_version: 1
+issue: 705
+phase: 0
+integration_branch: feat/issue-705-manager-mjwarp
+required_lanes: [A, B, D]
+claims:
+  - claim_id: P0-WORKFLOW-CANARY
+    expected: Intermediate PR creation, update, push, merge, and branch lifecycle produce no Actions run.
+    risk: Remote CI/CD is accidentally triggered or treated as an empty successful gate.
+    owner: CI/tooling
+    oracle: GitHub PR status rollup, commit checks/statuses, and branch Actions runs are independently empty.
+    commands:
+      - uv run scripts/audit_issue705_workflow_triggers.py --json
+      - uv run pytest tests/scripts/test_issue705_workflow_audit.py -v
+    lane: A
+    required: true
+    required_test_ids:
+      - tests/scripts/test_issue705_workflow_audit.py::test_current_workflows_exclude_issue705_integration_branch
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_accepts_explicit_main_only_triggers
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_integration_branch_target
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_implicit_all_branches
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_branches_ignore
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_unfilterable_pr_activity_event
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_branch_create_event
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_invalid_yaml
+      - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_empty_workflow_directory
+    environment:
+      dependencies: [uv.lock]
+      hardware: Linux CPU; GitHub API read access
+      owner_yaml: null
+      seeds: []
+      batch_sizes: []
+      dtype: null
+      plan_fingerprint: workflow-trigger-policy-v1
+    acceptance:
+      tolerance: {}
+      thresholds:
+        actions_runs: 0
+        check_runs: 0
+        legacy_statuses: 0
+      repetitions: 2
+      max_dispersion: 0
+      failure_semantics: Any matching trigger, remote run, check, parse ambiguity, or missing workflow is FAIL.
+    evidence:
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/pull/708
+        - https://github.com/unilabsim/UniLab/issues/707
+      commit_sha: 2612f4ec906764d2ecc0ca2b1f8762b3b7034218
+      config_hash: sha256:775da7547f376f9a20461a31da2c13c093d491ca6586af2f832fa29736ceecc6
+      executed_test_ids:
+        - tests/scripts/test_issue705_workflow_audit.py::test_current_workflows_exclude_issue705_integration_branch
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_accepts_explicit_main_only_triggers
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_integration_branch_target
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_implicit_all_branches
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_branches_ignore
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_unfilterable_pr_activity_event
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_branch_create_event
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_invalid_yaml
+        - tests/scripts/test_issue705_workflow_audit.py::test_audit_rejects_empty_workflow_directory
+      skipped_test_ids: []
+      xfailed_test_ids: []
+      summary: PR #708 merged with no status rollup, checks, statuses, or Actions runs.
+    invalidation:
+      paths:
+        - .github/workflows/*.yml
+        - .github/workflows/*.yaml
+        - scripts/audit_issue705_workflow_triggers.py
+        - tests/scripts/test_issue705_workflow_audit.py
+      capabilities: [intermediate-pr-no-remote-ci]
+      fingerprints: [workflow-trigger-policy-v1]
+    status: verified
+
+  - claim_id: P0-ACCEPTANCE-CONTRACT
+    expected: Phase manifests are strict, machine-readable, and fail closed in schema and gate modes.
+    risk: Missing or self-asserted evidence is accepted as phase completion.
+    owner: CI/tooling
+    oracle: Positive, negative, and fault-oriented parser/validator tests plus CLI exit codes.
+    commands:
+      - uv run pytest tests/tools/test_phase_acceptance.py tests/scripts/test_issue705_phase_acceptance.py -v
+      - uv run scripts/validate_issue705_phase.py --phase 0 --mode schema
+    lane: A
+    required: true
+    required_test_ids:
+      - tests/tools/test_phase_acceptance.py
+      - tests/scripts/test_issue705_phase_acceptance.py
+    environment:
+      dependencies: [uv.lock]
+      hardware: any
+      owner_yaml: null
+      seeds: []
+      batch_sizes: []
+      dtype: null
+      plan_fingerprint: phase-acceptance-schema-v1
+    acceptance:
+      tolerance: {}
+      thresholds: {}
+      repetitions: 1
+      max_dispersion: 0
+      failure_semantics: Unknown, missing, inconsistent, skipped, stale, or non-PASS required evidence is FAIL.
+    evidence:
+      result: NOT_RUN
+      artifact_refs: []
+      commit_sha: null
+      config_hash: null
+      executed_test_ids: []
+      skipped_test_ids: []
+      xfailed_test_ids: []
+      summary: Implementation is part of child issue #709; gate evidence is pending merge.
+    invalidation:
+      paths:
+        - src/unilab/tools/phase_acceptance.py
+        - scripts/validate_issue705_phase.py
+        - tests/acceptance/issue_705/manifests/*.yaml
+        - tests/tools/test_phase_acceptance.py
+        - tests/scripts/test_issue705_phase_acceptance.py
+      capabilities: [phase-acceptance]
+      fingerprints: [phase-acceptance-schema-v1]
+    status: implemented
+
+  - claim_id: P0-CLAIM-GAP-AUDIT
+    expected: Every Phase claim maps to an existing test or an owned target test ID and explicit gap.
+    risk: Existing smoke, field-write, or global coverage is misreported as effect or performance evidence.
+    owner: validation
+    oracle: Bidirectional claim-to-test inventory with no ownerless or unclassified gaps.
+    commands:
+      - uv run scripts/audit_issue705_claims.py --phase 0
+    lane: A
+    required: true
+    required_test_ids: [acceptance:P0-CLAIM-GAP-AUDIT]
+    environment:
+      dependencies: [uv.lock]
+      hardware: any
+      owner_yaml: null
+      seeds: []
+      batch_sizes: []
+      dtype: null
+      plan_fingerprint: claim-gap-inventory-v1
+    acceptance:
+      tolerance: {}
+      thresholds:
+        ownerless_gaps: 0
+        unclassified_claims: 0
+      repetitions: 1
+      max_dispersion: 0
+      failure_semantics: Any claim without an owner, oracle, test ID, or explicit gap is FAIL.
+    evidence:
+      result: NOT_RUN
+      artifact_refs: []
+      commit_sha: null
+      config_hash: null
+      executed_test_ids: []
+      skipped_test_ids: []
+      xfailed_test_ids: []
+      summary: ""
+    invalidation:
+      paths: [tests/**, benchmark/**, src/unilab/**, scripts/**]
+      capabilities: [claim-gap-audit]
+      fingerprints: [claim-gap-inventory-v1]
+    status: planned
+
+  - claim_id: P0-DR-CAPABILITY-INVENTORY
+    expected: mjwarp DR fields declare direct and derived storage, recompute, row, graph, memory, and effect-test requirements.
+    risk: A writable field is advertised even though physics does not consume the per-world value.
+    owner: backend/DR
+    oracle: Field inventory completeness checks against mjlab findings and the planned capability matrix.
+    commands:
+      - uv run scripts/validate_issue705_dr_inventory.py
+    lane: B
+    required: true
+    required_test_ids: [acceptance:P0-DR-CAPABILITY-INVENTORY]
+    environment:
+      dependencies: [mujoco-warp>=3.10.0.3, warp-lang>=1.14.0]
+      hardware: Linux CPU for inventory; CUDA GPU for later effect evidence
+      owner_yaml: null
+      seeds: []
+      batch_sizes: []
+      dtype: null
+      plan_fingerprint: mjwarp-dr-capability-inventory-v1
+    acceptance:
+      tolerance: {}
+      thresholds:
+        unowned_fields: 0
+        fields_without_effect_test: 0
+      repetitions: 1
+      max_dispersion: 0
+      failure_semantics: Missing derived field, recompute, row, graph, memory, or effect-test mapping is FAIL.
+    evidence:
+      result: NOT_RUN
+      artifact_refs: []
+      commit_sha: null
+      config_hash: null
+      executed_test_ids: []
+      skipped_test_ids: []
+      xfailed_test_ids: []
+      summary: ""
+    invalidation:
+      paths:
+        - benchmark/mjwarp/**
+        - src/unilab/dr/**
+        - src/unilab/base/backend/**
+        - uv.lock
+      capabilities: [mjwarp-dr]
+      fingerprints: [mjwarp-dr-capability-inventory-v1]
+    status: planned
+
+  - claim_id: P0-BASELINE-PROVENANCE
+    expected: G1 env, PPO, memory, DR, and reset-density baselines are reproducible from raw artifacts.
+    risk: A single best run or raw physics SPS is used as production performance evidence.
+    owner: benchmark/training
+    oracle: Independent-process paired baseline runs with commit, lock, config, hardware, p50/p95, and raw samples.
+    commands:
+      - uv run benchmark/env/benchmark_env_step.py task=g1_walk_flat/mujoco
+      - uv run scripts/train_rsl_rl.py task=g1_walk_flat/mujoco training.no_play=true
+    lane: D
+    required: true
+    required_test_ids: [acceptance:P0-BASELINE-PROVENANCE]
+    environment:
+      dependencies: [uv.lock]
+      hardware: Phase 0 frozen CPU/GPU benchmark host
+      owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml
+      seeds: [0, 1, 2, 3, 4]
+      batch_sizes: [128, 1024, 4096]
+      dtype: float32
+      plan_fingerprint: null
+    acceptance:
+      tolerance: {}
+      thresholds:
+        min_process_repeats: 5
+        min_training_seeds: 5
+      repetitions: 5
+      max_dispersion: null
+      failure_semantics: Missing raw samples/provenance, post-hoc filtering, or unreconciled synchronization is FAIL.
+    evidence:
+      result: NOT_RUN
+      artifact_refs: []
+      commit_sha: null
+      config_hash: null
+      executed_test_ids: []
+      skipped_test_ids: []
+      xfailed_test_ids: []
+      summary: ""
+    invalidation:
+      paths:
+        - benchmark/**
+        - scripts/train_rsl_rl.py
+        - src/unilab/envs/locomotion/g1/**
+        - src/unilab/base/backend/mujoco/**
+        - conf/ppo/task/g1_walk_flat/mujoco.yaml
+        - uv.lock
+      capabilities: [g1-baseline, benchmark-provenance]
+      fingerprints: [g1-phase0-baseline-v1]
+    status: planned
+
+  - claim_id: P0-THRESHOLD-FREEZE
+    expected: Performance, training, DR, memory, and compatibility gates are fixed before candidate measurements.
+    risk: Thresholds are relaxed after results or omit a failing target batch/seed.
+    owner: benchmark/training
+    oracle: Reviewed threshold manifest and validator reject missing or post-hoc-mutated criteria.
+    commands:
+      - uv run scripts/validate_issue705_phase.py --phase 0 --mode gate
+    lane: D
+    required: true
+    required_test_ids: [acceptance:P0-THRESHOLD-FREEZE]
+    environment:
+      dependencies: [uv.lock]
+      hardware: Phase 0 frozen CPU/GPU benchmark host
+      owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml
+      seeds: [0, 1, 2, 3, 4]
+      batch_sizes: [128, 1024, 4096]
+      dtype: float32
+      plan_fingerprint: null
+    acceptance:
+      tolerance: {}
+      thresholds:
+        manager_overhead_ratio_max: 1.05
+        required_training_seeds: 5
+      repetitions: 5
+      max_dispersion: null
+      failure_semantics: Any threshold changed with candidate implementation/results in the same PR is FAIL.
+    evidence:
+      result: NOT_RUN
+      artifact_refs: []
+      commit_sha: null
+      config_hash: null
+      executed_test_ids: []
+      skipped_test_ids: []
+      xfailed_test_ids: []
+      summary: ""
+    invalidation:
+      paths:
+        - tests/acceptance/issue_705/manifests/phase_0.yaml
+        - benchmark/**
+        - conf/ppo/task/g1_walk_flat/mujoco.yaml
+      capabilities: [phase-gate-thresholds]
+      fingerprints: [g1-phase0-thresholds-v1]
+    status: planned
