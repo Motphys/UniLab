@@ -236,6 +236,7 @@ class _RecordingBackend:
             execution_profile=requirements.execution_profile,
             fingerprint=BACKEND_BATCH_CONTRACT_VERSION,
             hot_path_budget=requirements.hot_path_budget,
+            reset_hot_path_budget=requirements.reset_hot_path_budget,
         )
         return self._bound_plan
 

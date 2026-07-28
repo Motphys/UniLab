@@ -552,6 +552,7 @@ class TaskCompiler:
             control=task.control,
             execution_profile=task.execution_profile,
             hot_path_budget=task.hot_path_budget,
+            reset_hot_path_budget=task.reset_hot_path_budget,
         )
         outputs = _allocate_outputs(ordered_keys, resolved)
         output_channels = _build_output_channels(

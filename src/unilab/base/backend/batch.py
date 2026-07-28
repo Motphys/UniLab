@@ -354,18 +354,21 @@ class BackendIORequirements:
     execution_profile: ExecutionProfile
     contract_version: str = BACKEND_BATCH_CONTRACT_VERSION
     hot_path_budget: BackendBatchCounterBudget | None = None
+    reset_hot_path_budget: BackendBatchCounterBudget | None = None
 
     def __post_init__(self) -> None:
         _validate_fields(self.state_fields)
         if not isinstance(self.control, ControlSpec):
             raise BackendBatchContractError("control must be a ControlSpec")
         _validate_profile(self.execution_profile, self.state_fields, self.control)
-        if self.hot_path_budget is not None and not isinstance(
-            self.hot_path_budget, BackendBatchCounterBudget
+        for name, budget in (
+            ("hot_path_budget", self.hot_path_budget),
+            ("reset_hot_path_budget", self.reset_hot_path_budget),
         ):
-            raise BackendBatchContractError(
-                "hot_path_budget must be a BackendBatchCounterBudget or None"
-            )
+            if budget is not None and not isinstance(budget, BackendBatchCounterBudget):
+                raise BackendBatchContractError(
+                    f"{name} must be a BackendBatchCounterBudget or None"
+                )
         if self.contract_version != BACKEND_BATCH_CONTRACT_VERSION:
             raise BackendBatchContractError(
                 f"unsupported backend batch contract version {self.contract_version!r}"
@@ -409,6 +412,7 @@ class BoundBackendPlan:
     fingerprint: str
     contract_version: str = BACKEND_BATCH_CONTRACT_VERSION
     hot_path_budget: BackendBatchCounterBudget | None = None
+    reset_hot_path_budget: BackendBatchCounterBudget | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.state, BoundStatePlan):
@@ -420,12 +424,14 @@ class BoundBackendPlan:
             raise BackendBatchContractError("state and backend execution profiles must match")
         _validate_profile(self.execution_profile, self.state.fields, self.control)
         object.__setattr__(self, "fingerprint", _non_empty(self.fingerprint, "fingerprint"))
-        if self.hot_path_budget is not None and not isinstance(
-            self.hot_path_budget, BackendBatchCounterBudget
+        for name, budget in (
+            ("hot_path_budget", self.hot_path_budget),
+            ("reset_hot_path_budget", self.reset_hot_path_budget),
         ):
-            raise BackendBatchContractError(
-                "hot_path_budget must be a BackendBatchCounterBudget or None"
-            )
+            if budget is not None and not isinstance(budget, BackendBatchCounterBudget):
+                raise BackendBatchContractError(
+                    f"{name} must be a BackendBatchCounterBudget or None"
+                )
         if self.contract_version != BACKEND_BATCH_CONTRACT_VERSION:
             raise BackendBatchContractError(
                 f"unsupported backend batch contract version {self.contract_version!r}"
@@ -906,8 +912,12 @@ def _validate_result_completion(
 def _validate_result_budget(
     state: StateBatch,
     diagnostics: BackendBatchDiagnostics,
+    *,
+    reset: bool = False,
 ) -> None:
     budget = state.plan.hot_path_budget
+    if reset and state.plan.reset_hot_path_budget is not None:
+        budget = state.plan.reset_hot_path_budget
     if budget is not None:
         diagnostics.counters.require_within(budget)
 
@@ -943,7 +953,7 @@ class BackendResetResult:
         if not isinstance(self.diagnostics, BackendBatchDiagnostics):
             raise BackendBatchContractError("diagnostics must be BackendBatchDiagnostics")
         _validate_result_completion(self.reset_state, self.diagnostics)
-        _validate_result_budget(self.reset_state, self.diagnostics)
+        _validate_result_budget(self.reset_state, self.diagnostics, reset=True)
 
 
 __all__ = [

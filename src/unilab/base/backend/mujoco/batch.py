@@ -863,6 +863,11 @@ def _binding_payloads(
             if requirements.hot_path_budget is None
             else dict(requirements.hot_path_budget.items())
         ),
+        "reset_hot_path_budget": (
+            None
+            if requirements.reset_hot_path_budget is None
+            else dict(requirements.reset_hot_path_budget.items())
+        ),
     }
     return state_payload, plan_payload
 
@@ -923,6 +928,7 @@ def _bind_mujoco_host_batch(
         execution_profile=requirements.execution_profile,
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{plan_digest}",
         hot_path_budget=requirements.hot_path_budget,
+        reset_hot_path_budget=requirements.reset_hot_path_budget,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     return _MuJoCoHostBatchPlan(

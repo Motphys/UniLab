@@ -14,6 +14,7 @@ from numpy.testing import assert_allclose
 from unilab.base.backend import (
     BackendBatchContractError,
     BackendBatchCounterBudget,
+    BackendHotPathViolationError,
     BackendIORequirements,
     BoundFieldIdentity,
     BufferContract,
@@ -230,6 +231,19 @@ def _requirements(
             allocations=3,
             state_materializations=1,
         ),
+        reset_hot_path_budget=BackendBatchCounterBudget(
+            host_to_device_transfers=3,
+            device_to_host_transfers=3,
+            host_to_device_bytes=sum(
+                transfer_bytes[name] for name in ("reset_mask", "qpos", "qvel")
+            ),
+            device_to_host_bytes=sum(
+                transfer_bytes[name] for name in ("qpos", "qvel", "sensordata")
+            ),
+            global_synchronizations=1,
+            allocations=3,
+            state_materializations=1,
+        ),
     )
     return requirements, tuple(getters)
 
@@ -362,6 +376,9 @@ def test_mjwarp_typed_batch_fails_closed_before_physics() -> None:
     state = backend.read_state_batch(plan, RowSelection.all(2)).state
     telemetry = backend.get_transfer_counters()
 
+    with pytest.raises(BackendHotPathViolationError, match="host_to_device_transfers"):
+        backend.bind_task_io(replace(requirements, reset_hot_path_budget=None))
+
     foreign = replace(plan, state=replace(plan.state, backend_instance_id="mjwarp:foreign"))
     with pytest.raises(BackendBatchContractError, match="different backend"):
         backend.read_state_batch(foreign, RowSelection.all(2))
@@ -428,7 +445,7 @@ def test_mjwarp_typed_batch_fails_closed_before_physics() -> None:
             mutation_batch=cast(Any, object()),
             nsteps=2,
         )
-    with pytest.raises(BackendBatchContractError, match="Phase 3C"):
+    with pytest.raises(BackendBatchContractError, match="TypedBackendMutationBatch"):
         backend.reset_batch(plan, RowSelection.selected(2, (0,)))
 
     assert backend.get_transfer_counters() == telemetry

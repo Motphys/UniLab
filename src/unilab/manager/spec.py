@@ -488,6 +488,7 @@ class TaskSpec:
     executor_key: str
     policy: PolicySpec
     hot_path_budget: BackendBatchCounterBudget | None = None
+    reset_hot_path_budget: BackendBatchCounterBudget | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "key", _non_empty(self.key, "task key"))
@@ -505,12 +506,14 @@ class TaskSpec:
         object.__setattr__(self, "executor_key", _non_empty(self.executor_key, "executor key"))
         if not isinstance(self.policy, PolicySpec):
             raise ManagerContractError("task policy must be a PolicySpec")
-        if self.hot_path_budget is not None and not isinstance(
-            self.hot_path_budget, BackendBatchCounterBudget
+        for name, budget in (
+            ("hot_path_budget", self.hot_path_budget),
+            ("reset_hot_path_budget", self.reset_hot_path_budget),
         ):
-            raise ManagerContractError(
-                "task hot_path_budget must be a BackendBatchCounterBudget or None"
-            )
+            if budget is not None and not isinstance(budget, BackendBatchCounterBudget):
+                raise ManagerContractError(
+                    f"task {name} must be a BackendBatchCounterBudget or None"
+                )
 
     @classmethod
     def create(
@@ -523,6 +526,7 @@ class TaskSpec:
         executor_key: str,
         policy: PolicySpec,
         hot_path_budget: BackendBatchCounterBudget | None = None,
+        reset_hot_path_budget: BackendBatchCounterBudget | None = None,
     ) -> TaskSpec:
         return cls(
             key=key,
@@ -532,4 +536,5 @@ class TaskSpec:
             executor_key=executor_key,
             policy=policy,
             hot_path_budget=hot_path_budget,
+            reset_hot_path_budget=reset_hot_path_budget,
         )
