@@ -103,9 +103,11 @@ def test_all_phase_manifests_exist_and_pass_schema() -> None:
     assert {
         manifest.phase: {claim.claim_id for claim in manifest.claims} for manifest in manifests
     } == EXPECTED_CLAIMS
+    assert all(claim.status == ClaimStatus.VERIFIED for claim in manifests[2].claims)
     assert all(
         claim.status == ClaimStatus.PLANNED
-        for manifest in manifests[1:]
+        for manifest in manifests
+        if manifest.phase not in {0, 2}
         for claim in manifest.claims
     )
 
@@ -153,12 +155,12 @@ def test_high_risk_claims_require_the_right_evidence_class() -> None:
     assert all(entry.evidence_kind != EvidenceKind.SMOKE for entry in current_acceptance)
 
 
-def test_phase_zero_is_open_and_later_phase_gates_remain_closed() -> None:
+def test_only_evidenced_phase_gates_are_open() -> None:
     manifests, errors = load_phase_manifests(audit_issue705_claims.MANIFEST_DIR, PHASES)
 
     assert errors == ()
-    assert not phase_gate_errors(manifests[0])
-    assert all(phase_gate_errors(manifest) for manifest in manifests[1:])
+    open_phases = {manifest.phase for manifest in manifests if not phase_gate_errors(manifest)}
+    assert open_phases == {0, 2}
 
 
 def test_phase_schema_cli_accepts_each_frozen_manifest(capsys) -> None:
