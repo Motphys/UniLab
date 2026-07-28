@@ -8,15 +8,17 @@ backend, selector, registry, asset, or model object.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
 from unilab.base.backend.base import SimBackend
 from unilab.base.backend.batch import (
     BackendBatchContractError,
+    BackendBatchCounters,
+    BackendBatchDiagnostics,
     BackendMutationBatch,
     BackendResetResult,
     BackendStepResult,
@@ -118,6 +120,250 @@ class ManagedMetric:
             raise ManagedRuntimeError("managed metric float value must be finite")
         if isinstance(self.value, np.ndarray) and not np.isfinite(self.value).all():
             raise ManagedRuntimeError("managed metric array value must be finite")
+
+
+@dataclass(frozen=True)
+class ManagedRuntimeBuffer:
+    """One explicitly registered manager/executor-owned numeric buffer.
+
+    This is a diagnostic-only cold/warm instrumentation descriptor.  It makes
+    the allocation boundary explicit without exposing a backend buffer or
+    counting short-lived Python result wrappers as numeric allocations.  A
+    provider must return the same canonical names and ndarray identities for
+    the life of a warmed runtime.
+    """
+
+    name: str
+    array: np.ndarray = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ManagedRuntimeError("managed runtime buffer name must be non-empty")
+        if not isinstance(self.array, np.ndarray):
+            raise ManagedRuntimeError("managed runtime buffer must be a numpy array")
+        if self.array.ndim == 0 or not self.array.flags.c_contiguous:
+            raise ManagedRuntimeError(
+                "managed runtime buffer must be a non-scalar C-contiguous numpy array"
+            )
+
+
+@dataclass(frozen=True)
+class ManagedRuntimeBufferAddress:
+    """Stable public identity for one registered numeric buffer."""
+
+    name: str
+    address: int
+    shape: tuple[int, ...]
+    dtype: str
+    nbytes: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ManagedRuntimeError("managed runtime buffer address name must be non-empty")
+        if isinstance(self.address, bool) or not isinstance(self.address, int) or self.address <= 0:
+            raise ManagedRuntimeError("managed runtime buffer address must be positive")
+        if (
+            not isinstance(self.shape, tuple)
+            or not self.shape
+            or any(
+                isinstance(dim, bool) or not isinstance(dim, int) or dim <= 0 for dim in self.shape
+            )
+        ):
+            raise ManagedRuntimeError("managed runtime buffer address shape is invalid")
+        try:
+            dtype = np.dtype(self.dtype).name
+        except TypeError as exc:
+            raise ManagedRuntimeError("managed runtime buffer address dtype is invalid") from exc
+        object.__setattr__(self, "dtype", dtype)
+        if isinstance(self.nbytes, bool) or not isinstance(self.nbytes, int) or self.nbytes <= 0:
+            raise ManagedRuntimeError("managed runtime buffer address nbytes must be positive")
+
+
+@dataclass(frozen=True)
+class ManagedRuntimeStabilityDiagnostics:
+    """Public warm-path buffer and backend-counter observation snapshot.
+
+    ``warm_numeric_allocations`` counts only registration-visible numeric
+    buffer replacement/addition after the post-reset baseline.  It does not
+    claim to count Python dataclass/dict/descriptor heap churn; those objects
+    are intentionally outside the typed numeric-buffer ownership contract.
+    """
+
+    buffers: tuple[ManagedRuntimeBufferAddress, ...]
+    state_buffers: tuple[ManagedRuntimeBufferAddress, ...]
+    warm_numeric_allocations: int
+    address_churn: int
+    observations: int
+    backend_step_counters: BackendBatchCounters | None
+    backend_reset_counters: BackendBatchCounters | None
+    instrumentation_complete: bool
+
+    def __post_init__(self) -> None:
+        for label, values in (("buffers", self.buffers), ("state_buffers", self.state_buffers)):
+            if not isinstance(values, tuple) or any(
+                not isinstance(value, ManagedRuntimeBufferAddress) for value in values
+            ):
+                raise ManagedRuntimeError(f"managed runtime stability {label} is invalid")
+            names = tuple(value.name for value in values)
+            if names != tuple(sorted(names)) or len(set(names)) != len(names):
+                raise ManagedRuntimeError(
+                    f"managed runtime stability {label} names must be canonical and unique"
+                )
+        for label, value in (
+            ("warm_numeric_allocations", self.warm_numeric_allocations),
+            ("address_churn", self.address_churn),
+            ("observations", self.observations),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ManagedRuntimeError(f"managed runtime stability {label} must be non-negative")
+        for label, counters in (
+            ("backend_step_counters", self.backend_step_counters),
+            ("backend_reset_counters", self.backend_reset_counters),
+        ):
+            if counters is not None and not isinstance(counters, BackendBatchCounters):
+                raise ManagedRuntimeError(f"managed runtime stability {label} is invalid")
+        if not isinstance(self.instrumentation_complete, bool):
+            raise ManagedRuntimeError(
+                "managed runtime stability instrumentation_complete must be a bool"
+            )
+
+
+@runtime_checkable
+class ManagedRuntimeBufferProvider(Protocol):
+    """Explicit task-owned buffer registration for warm-path instrumentation."""
+
+    def managed_runtime_buffers(
+        self, *, task_state: object
+    ) -> tuple[ManagedRuntimeBuffer, ...]: ...
+
+
+def _buffer_address(buffer: ManagedRuntimeBuffer) -> ManagedRuntimeBufferAddress:
+    """Snapshot one C-contiguous ndarray without retaining its mutable handle."""
+
+    array = buffer.array
+    address = int(array.__array_interface__["data"][0])
+    return ManagedRuntimeBufferAddress(
+        name=buffer.name,
+        address=address,
+        shape=tuple(int(dim) for dim in array.shape),
+        dtype=array.dtype.name,
+        nbytes=int(array.nbytes),
+    )
+
+
+class _ManagedRuntimeStabilityMonitor:
+    """Fail-closed monitor for registered numeric ownership and state views."""
+
+    def __init__(self, *, require_complete_backend_instrumentation: bool) -> None:
+        self._require_complete_backend_instrumentation = require_complete_backend_instrumentation
+        self._baseline_buffers: tuple[ManagedRuntimeBufferAddress, ...] | None = None
+        self._state_buffers: dict[str, ManagedRuntimeBufferAddress] = {}
+        self._warm_numeric_allocations = 0
+        self._address_churn = 0
+        self._observations = 0
+        self._backend_step_counters: BackendBatchCounters | None = None
+        self._backend_reset_counters: BackendBatchCounters | None = None
+
+    @staticmethod
+    def _canonical(
+        buffers: tuple[ManagedRuntimeBuffer, ...], *, context: str
+    ) -> tuple[ManagedRuntimeBufferAddress, ...]:
+        addresses = tuple(
+            sorted((_buffer_address(buffer) for buffer in buffers), key=lambda item: item.name)
+        )
+        names = tuple(item.name for item in addresses)
+        if len(set(names)) != len(names):
+            raise ManagedRuntimeError(f"{context} registered duplicate managed runtime buffers")
+        return addresses
+
+    def arm(self, buffers: tuple[ManagedRuntimeBuffer, ...]) -> None:
+        if self._baseline_buffers is not None:
+            raise ManagedRuntimeError("managed runtime stability monitor may only arm once")
+        baseline = self._canonical(buffers, context="managed runtime stability baseline")
+        if not baseline:
+            raise ManagedRuntimeError("managed runtime stability baseline must register buffers")
+        self._baseline_buffers = baseline
+
+    def observe_buffers(self, buffers: tuple[ManagedRuntimeBuffer, ...]) -> None:
+        if self._baseline_buffers is None:
+            raise ManagedRuntimeError("managed runtime stability monitor has not been armed")
+        actual = self._canonical(buffers, context="managed runtime stability observation")
+        if actual == self._baseline_buffers:
+            self._observations += 1
+            return
+        self._address_churn += 1
+        baseline_by_name = {item.name: item for item in self._baseline_buffers}
+        actual_by_name = {item.name: item for item in actual}
+        added_or_removed = tuple(sorted(set(baseline_by_name) ^ set(actual_by_name)))
+        changed = tuple(
+            name
+            for name in sorted(set(baseline_by_name) & set(actual_by_name))
+            if baseline_by_name[name] != actual_by_name[name]
+        )
+        self._warm_numeric_allocations += len(added_or_removed) + len(changed)
+        raise ManagedRuntimeError(
+            "managed warm buffer stability violated: "
+            f"added_or_removed={added_or_removed!r}, changed={changed!r}"
+        )
+
+    def observe_state(self, state: StateBatch) -> None:
+        state.assert_valid()
+        observed: list[ManagedRuntimeBufferAddress] = []
+        for field_index, state_field in enumerate(state.plan.state.fields):
+            handle = state.buffer_at(field_index).handle
+            if not isinstance(handle, np.ndarray):
+                raise ManagedRuntimeError(
+                    "host managed stability instrumentation requires numpy StateBatch buffers"
+                )
+            row_mode = "all" if state.rows.is_all else "selected"
+            name = f"{state.phase.value}.{row_mode}.rows={state.rows.count}.{state_field.key}"
+            observed.append(_buffer_address(ManagedRuntimeBuffer(name=name, array=handle)))
+        for address in observed:
+            previous = self._state_buffers.get(address.name)
+            if previous is None:
+                self._state_buffers[address.name] = address
+            elif previous != address:
+                self._address_churn += 1
+                raise ManagedRuntimeError(
+                    f"managed backend StateBatch address changed after warmup: {address.name!r}"
+                )
+
+    def record_backend(self, *, phase: str, diagnostics: BackendBatchDiagnostics) -> None:
+        if not isinstance(diagnostics, BackendBatchDiagnostics):
+            raise ManagedRuntimeError("managed backend diagnostics are invalid")
+        counters = diagnostics.counters
+        if self._require_complete_backend_instrumentation and not counters.instrumentation_complete:
+            raise ManagedRuntimeError(
+                "managed warm stability requires complete backend batch instrumentation"
+            )
+        if phase == "step":
+            self._backend_step_counters = counters
+        elif phase == "reset":
+            self._backend_reset_counters = counters
+        else:  # pragma: no cover - internal fixed call sites.
+            raise ManagedRuntimeError(f"unknown managed backend diagnostic phase {phase!r}")
+
+    def snapshot(self) -> ManagedRuntimeStabilityDiagnostics:
+        if self._baseline_buffers is None:
+            raise ManagedRuntimeError("managed runtime stability monitor has not been armed")
+        observed_counters = tuple(
+            counters
+            for counters in (self._backend_step_counters, self._backend_reset_counters)
+            if counters is not None
+        )
+        complete = bool(observed_counters) and all(
+            counters.instrumentation_complete for counters in observed_counters
+        )
+        return ManagedRuntimeStabilityDiagnostics(
+            buffers=self._baseline_buffers,
+            state_buffers=tuple(sorted(self._state_buffers.values(), key=lambda item: item.name)),
+            warm_numeric_allocations=self._warm_numeric_allocations,
+            address_churn=self._address_churn,
+            observations=self._observations,
+            backend_step_counters=self._backend_step_counters,
+            backend_reset_counters=self._backend_reset_counters,
+            instrumentation_complete=complete,
+        )
 
 
 @dataclass(frozen=True)
@@ -314,6 +560,8 @@ class ManagedReferenceRuntime:
         max_episode_steps: int | None,
         autoreset: bool = True,
         record_lifecycle: bool = False,
+        stability_buffer_provider: ManagedRuntimeBufferProvider | None = None,
+        require_complete_backend_instrumentation: bool = False,
     ) -> None:
         if not isinstance(backend, SimBackend):
             raise ManagedRuntimeError("managed runtime requires a SimBackend")
@@ -325,6 +573,22 @@ class ManagedReferenceRuntime:
             raise ManagedRuntimeError("managed autoreset must be a bool")
         if not isinstance(record_lifecycle, bool):
             raise ManagedRuntimeError("record_lifecycle must be a bool")
+        if stability_buffer_provider is not None and not isinstance(
+            stability_buffer_provider, ManagedRuntimeBufferProvider
+        ):
+            raise ManagedRuntimeError(
+                "managed stability buffer provider must implement ManagedRuntimeBufferProvider"
+            )
+        if stability_buffer_provider is not None and stability_buffer_provider is not kernel:
+            raise ManagedRuntimeError(
+                "managed stability buffer provider must be the task kernel owner"
+            )
+        if not isinstance(require_complete_backend_instrumentation, bool):
+            raise ManagedRuntimeError("require_complete_backend_instrumentation must be a bool")
+        if require_complete_backend_instrumentation and stability_buffer_provider is None:
+            raise ManagedRuntimeError(
+                "complete backend instrumentation requires a managed stability buffer provider"
+            )
         if max_episode_steps is not None and (
             isinstance(max_episode_steps, bool)
             or not isinstance(max_episode_steps, int)
@@ -338,6 +602,14 @@ class ManagedReferenceRuntime:
         self._autoreset = autoreset
         self._record_lifecycle = record_lifecycle
         self._max_episode_steps = max_episode_steps
+        self._stability_buffer_provider = stability_buffer_provider
+        self._stability_monitor = (
+            None
+            if stability_buffer_provider is None
+            else _ManagedRuntimeStabilityMonitor(
+                require_complete_backend_instrumentation=require_complete_backend_instrumentation
+            )
+        )
 
         bound = backend.bind_task_io(plan.backend_io)
         if not isinstance(bound, BoundBackendPlan):
@@ -404,6 +676,8 @@ class ManagedReferenceRuntime:
         self._task_state: object | None = None
         self._last_trace: tuple[ManagedLifecycleEvent, ...] = ()
         self._trace_events: list[ManagedLifecycleEvent] = []
+        self._last_step_diagnostics: BackendBatchDiagnostics | None = None
+        self._last_reset_diagnostics: BackendBatchDiagnostics | None = None
 
     @staticmethod
     def _validate_kernel(kernel: ManagedTaskKernel, plan: CompiledTaskPlan) -> None:
@@ -509,6 +783,98 @@ class ManagedReferenceRuntime:
     @property
     def last_trace(self) -> tuple[ManagedLifecycleEvent, ...]:
         return self._last_trace
+
+    @property
+    def last_step_diagnostics(self) -> BackendBatchDiagnostics | None:
+        """Most recent typed backend step diagnostics, if a step has run."""
+
+        return self._last_step_diagnostics
+
+    @property
+    def last_reset_diagnostics(self) -> BackendBatchDiagnostics | None:
+        """Most recent typed backend reset diagnostics, including initial reset."""
+
+        return self._last_reset_diagnostics
+
+    @property
+    def stability_diagnostics(self) -> ManagedRuntimeStabilityDiagnostics | None:
+        """Return the explicit warm-buffer diagnostic snapshot when enabled.
+
+        The optional monitor is deliberately opt-in so production execution is
+        not burdened with diagnostic descriptor construction.  A caller that
+        requests it before ``init_state`` receives an explicit lifecycle
+        error rather than a partial baseline.
+        """
+
+        if self._stability_monitor is None:
+            return None
+        return self._stability_monitor.snapshot()
+
+    def _manager_runtime_buffers(self) -> tuple[ManagedRuntimeBuffer, ...]:
+        """Return the core runtime-owned arrays in canonical diagnostic form."""
+
+        buffers: list[ManagedRuntimeBuffer] = [
+            ManagedRuntimeBuffer("runtime.control", self._control),
+            ManagedRuntimeBuffer("runtime.reward", self._reward),
+            ManagedRuntimeBuffer("runtime.terminated", self._terminated),
+            ManagedRuntimeBuffer("runtime.truncated", self._truncated),
+            ManagedRuntimeBuffer("runtime.steps", self._steps),
+            ManagedRuntimeBuffer("runtime.final_observation_mask", self._final_observation_mask),
+        ]
+        for key in self._observation_keys:
+            buffers.append(ManagedRuntimeBuffer(f"runtime.observation.{key}", self._obs[key]))
+            buffers.append(
+                ManagedRuntimeBuffer(
+                    f"runtime.final_observation.{key}", self._final_observation_scratch[key]
+                )
+            )
+            buffers.append(
+                ManagedRuntimeBuffer(
+                    f"runtime.compat_final_observation.{key}",
+                    self._compat_final_observation[key],
+                )
+            )
+        return tuple(buffers)
+
+    def _stability_buffers(self) -> tuple[ManagedRuntimeBuffer, ...]:
+        provider = self._stability_buffer_provider
+        task_state = self._task_state
+        if provider is None or task_state is None:
+            raise ManagedRuntimeError(
+                "managed runtime stability buffers are unavailable before init"
+            )
+        task_buffers = provider.managed_runtime_buffers(task_state=task_state)
+        if not isinstance(task_buffers, tuple) or any(
+            not isinstance(buffer, ManagedRuntimeBuffer) for buffer in task_buffers
+        ):
+            raise ManagedRuntimeError(
+                "managed stability buffer provider must return a tuple of ManagedRuntimeBuffer"
+            )
+        return (*self._manager_runtime_buffers(), *task_buffers)
+
+    def _arm_stability_monitor(self) -> None:
+        if self._stability_monitor is not None:
+            self._stability_monitor.arm(self._stability_buffers())
+
+    def _observe_stability_buffers(self) -> None:
+        if self._stability_monitor is not None:
+            self._stability_monitor.observe_buffers(self._stability_buffers())
+
+    def _observe_stability_state(self, state: StateBatch) -> None:
+        if self._stability_monitor is not None:
+            self._stability_monitor.observe_state(state)
+
+    def _record_backend_diagnostics(
+        self, *, phase: str, diagnostics: BackendBatchDiagnostics
+    ) -> None:
+        if phase == "step":
+            self._last_step_diagnostics = diagnostics
+        elif phase == "reset":
+            self._last_reset_diagnostics = diagnostics
+        else:  # pragma: no cover - internal fixed call sites.
+            raise ManagedRuntimeError(f"unknown managed backend diagnostic phase {phase!r}")
+        if self._stability_monitor is not None:
+            self._stability_monitor.record_backend(phase=phase, diagnostics=diagnostics)
 
     def _begin_trace(self) -> None:
         self._trace_events.clear()
@@ -671,9 +1037,11 @@ class ManagedReferenceRuntime:
         )
         if not isinstance(reset_result, BackendResetResult):
             raise ManagedRuntimeError("backend reset_batch must return a BackendResetResult")
+        self._record_backend_diagnostics(phase="reset", diagnostics=reset_result.diagnostics)
         if terminal_state is not None:
             self._require_stale_after_reset(terminal_state)
         self._validate_state(reset_result.reset_state, phase=StateBatchPhase.RESET, rows=rows)
+        self._observe_stability_state(reset_result.reset_state)
         self._trace(ManagedLifecyclePhase.TASK_STATE_RESET, rows)
         self._kernel.complete_reset(
             request=request,
@@ -725,6 +1093,7 @@ class ManagedReferenceRuntime:
         self._clear_final_observation()
         self._reset_rows(RowSelection.all(self._num_envs), initial=True)
         self._clear_final_observation()
+        self._arm_stability_monitor()
         self._trace(ManagedLifecyclePhase.COMPLETE)
         self._finish_trace()
         return self._state
@@ -734,6 +1103,7 @@ class ManagedReferenceRuntime:
             self.init_state()
         assert self._state is not None
         task_state = self._require_task_state()
+        self._observe_stability_buffers()
         self._begin_trace()
         actions = _require_full_array(
             actions,
@@ -786,9 +1156,11 @@ class ManagedReferenceRuntime:
         )
         if not isinstance(step_result, BackendStepResult):
             raise ManagedRuntimeError("backend step_batch must return a BackendStepResult")
+        self._record_backend_diagnostics(phase="step", diagnostics=step_result.diagnostics)
         terminal = step_result.terminal_state
         all_rows = RowSelection.all(self._num_envs)
         self._validate_state(terminal, phase=StateBatchPhase.TERMINAL, rows=all_rows)
+        self._observe_stability_state(terminal)
 
         self._trace(ManagedLifecyclePhase.TERMINATION)
         self._terminated.fill(False)
@@ -851,6 +1223,7 @@ class ManagedReferenceRuntime:
             self._trace(ManagedLifecyclePhase.AUTORESET, done_rows)
             self._steps[np.asarray(done_rows.indices, dtype=np.intp)] = 0
             self._reset_rows(done_rows, initial=False, terminal_state=terminal)
+        self._observe_stability_buffers()
         self._trace(ManagedLifecyclePhase.COMPLETE)
         self._finish_trace()
         return self._state
@@ -863,6 +1236,10 @@ __all__ = [
     "ManagedMetric",
     "ManagedReferenceRuntime",
     "ManagedResetRequest",
+    "ManagedRuntimeBuffer",
+    "ManagedRuntimeBufferAddress",
+    "ManagedRuntimeBufferProvider",
     "ManagedRuntimeError",
+    "ManagedRuntimeStabilityDiagnostics",
     "ManagedTaskKernel",
 ]
