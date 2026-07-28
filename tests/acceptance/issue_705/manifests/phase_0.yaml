@@ -259,25 +259,42 @@ claims:
       max_dispersion: null
       failure_semantics: Missing raw samples/provenance, post-hoc filtering, or unreconciled synchronization is FAIL.
     evidence:
-      result: NOT_RUN
-      artifact_refs: []
-      commit_sha: null
-      config_hash: null
-      executed_test_ids: []
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/issues/715
+        - tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json
+      commit_sha: aa0a8e723e73e18d8b1b850eef7adfb442ef1bbb
+      config_hash: sha256:3c2c9a1f788b6e7600398589cf644d2d4cfb90e6116ea67b5ede75564ef7dede
+      executed_test_ids:
+        - tests/tools/test_g1_baseline_provenance_contract.py
+        - tests/benchmark/test_issue705_g1_baseline_runner.py
+        - tests/scripts/test_issue705_g1_baseline.py
+        - tests/acceptance/issue_705/test_g1_baseline_provenance.py::test_baseline_artifacts_are_reproducible
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: ""
+      summary: 50 isolated processes captured 15 env, 30 DR/reset-density, and 5 PPO-seed cases with raw p50/p95-recomputable timing, memory, config, hardware, and training series.
     invalidation:
       paths:
         - benchmark/**
         - scripts/train_rsl_rl.py
+        - scripts/validate_issue705_g1_baseline.py
+        - src/unilab/base/np_env.py
         - src/unilab/envs/locomotion/g1/**
+        - src/unilab/envs/locomotion/common/**
         - src/unilab/base/backend/mujoco/**
+        - src/unilab/dr/**
+        - src/unilab/tools/g1_baseline_provenance.py
         - conf/ppo/task/g1_walk_flat/mujoco.yaml
+        - tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml
+        - tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json
+        - tests/acceptance/issue_705/test_g1_baseline_provenance.py
+        - tests/benchmark/test_issue705_g1_baseline_runner.py
+        - tests/scripts/test_issue705_g1_baseline.py
+        - tests/tools/test_g1_baseline_provenance_contract.py
         - uv.lock
       capabilities: [g1-baseline, benchmark-provenance]
       fingerprints: [g1-phase0-baseline-v1]
-    status: planned
+    status: verified
 
   - claim_id: P0-THRESHOLD-FREEZE
     expected: Performance, training, DR, memory, and compatibility gates are fixed before candidate measurements.
