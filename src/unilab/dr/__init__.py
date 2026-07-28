@@ -7,16 +7,19 @@ from .manager import DomainRandomizationManager
 from .provider import DomainRandomizationProvider
 from .types import (
     DomainRandomizationCapabilities,
+    DomainRandomizationExecutionMode,
     GeomSizeOverride,
     InitRandomizationPlan,
     IntervalRandomizationPlan,
     ModelVariantSpec,
     ResetPlan,
     ResetRandomizationPayload,
+    UnsupportedDomainRandomizationError,
 )
 
 __all__ = [
     "DomainRandomizationCapabilities",
+    "DomainRandomizationExecutionMode",
     "DomainRandomizationManager",
     "DomainRandomizationProvider",
     "GeomSizeOverride",
@@ -25,4 +28,5 @@ __all__ = [
     "ModelVariantSpec",
     "ResetPlan",
     "ResetRandomizationPayload",
+    "UnsupportedDomainRandomizationError",
 ]

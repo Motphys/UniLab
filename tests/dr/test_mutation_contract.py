@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -39,6 +41,16 @@ from unilab.base.backend import (
     TypedBackendMutationBatch,
     bind_mutation_plan,
 )
+from unilab.dr import (
+    DomainRandomizationCapabilities,
+    DomainRandomizationExecutionMode,
+    DomainRandomizationManager,
+    DomainRandomizationProvider,
+    ResetPlan,
+    ResetRandomizationPayload,
+    UnsupportedDomainRandomizationError,
+)
+from unilab.dr.types import RESET_TERM_BASE_MASS
 
 
 def _value_template(
@@ -825,3 +837,133 @@ def test_global_mutation_target_binds_without_runtime_selector() -> None:
 
     with pytest.raises(MutationContractError, match="cannot declare a selector"):
         replace(target, selector="world")
+
+
+def test_legacy_warning_and_compiled_strict_boundary(caplog, monkeypatch) -> None:
+    class Backend:
+        backend_type = "boundary-fixture"
+
+        def __init__(self, capabilities: DomainRandomizationCapabilities) -> None:
+            self.capabilities = capabilities
+            self.call_count = 0
+            self.committed_payloads: list[ResetRandomizationPayload | None] = []
+
+        def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+            return self.capabilities
+
+        def set_state(
+            self,
+            env_indices: np.ndarray,
+            qpos: np.ndarray,
+            qvel: np.ndarray,
+            randomization: ResetRandomizationPayload | None = None,
+        ) -> None:
+            self.call_count += 1
+            self.committed_payloads.append(randomization)
+
+    class Provider(DomainRandomizationProvider):
+        def __init__(self) -> None:
+            self.observation_call_count = 0
+
+        def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
+            return None
+
+        def build_reset_plan(self, env: Any, env_ids: np.ndarray) -> ResetPlan:
+            return ResetPlan(
+                env_ids=env_ids,
+                qpos=np.zeros((len(env_ids), 1), dtype=np.float32),
+                qvel=np.zeros((len(env_ids), 1), dtype=np.float32),
+                info_updates={},
+                randomization=ResetRandomizationPayload(
+                    base_mass_delta=np.ones((len(env_ids),), dtype=np.float32),
+                    kp=np.ones((len(env_ids), 1), dtype=np.float32),
+                ),
+            )
+
+        def build_reset_observation(
+            self, env: Any, env_ids: np.ndarray, info_updates: dict[str, Any]
+        ) -> dict[str, np.ndarray]:
+            self.observation_call_count += 1
+            return {"obs": np.zeros((len(env_ids), 1), dtype=np.float32)}
+
+    filter_calls: dict[int, int] = {}
+    filter_reset_payload = DomainRandomizationCapabilities.filter_reset_payload
+
+    def track_filter(
+        capabilities: DomainRandomizationCapabilities,
+        payload: ResetRandomizationPayload,
+    ) -> tuple[ResetRandomizationPayload | None, frozenset[str]]:
+        key = id(capabilities)
+        filter_calls[key] = filter_calls.get(key, 0) + 1
+        return filter_reset_payload(capabilities, payload)
+
+    monkeypatch.setattr(
+        DomainRandomizationCapabilities,
+        "filter_reset_payload",
+        track_filter,
+    )
+
+    legacy_capabilities = DomainRandomizationCapabilities(
+        supported_reset_terms=frozenset({RESET_TERM_BASE_MASS})
+    )
+    legacy_backend = Backend(legacy_capabilities)
+    legacy_provider = Provider()
+    legacy_manager = DomainRandomizationManager(
+        SimpleNamespace(_backend=legacy_backend),
+        legacy_provider,
+        execution_mode=DomainRandomizationExecutionMode.LEGACY_WARN_AND_FILTER,
+    )
+    env_ids = np.array([0, 1], dtype=np.int32)
+
+    with caplog.at_level(logging.WARNING):
+        legacy_manager.reset(env_ids)
+        legacy_manager.reset(env_ids)
+
+    assert filter_calls[id(legacy_capabilities)] == 2
+    assert legacy_backend.call_count == 2
+    assert legacy_provider.observation_call_count == 2
+    assert len(legacy_backend.committed_payloads) == 2
+    for payload in legacy_backend.committed_payloads:
+        assert payload is not None
+        assert payload.base_mass_delta is not None
+        assert payload.kp is None
+    assert (
+        caplog.messages.count(
+            "boundary-fixture backend does not support reset randomization terms: kp; skipping them."
+        )
+        == 1
+    )
+
+    caplog.clear()
+    strict_capabilities = DomainRandomizationCapabilities(
+        supported_reset_terms=frozenset({RESET_TERM_BASE_MASS})
+    )
+    strict_backend = Backend(strict_capabilities)
+    strict_provider = Provider()
+    strict_manager = DomainRandomizationManager.for_compiled_task(
+        SimpleNamespace(_backend=strict_backend), strict_provider
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(
+            UnsupportedDomainRandomizationError,
+            match="does not support compiled reset randomization terms: kp",
+        ) as exc_info:
+            strict_manager.reset(env_ids)
+
+    assert exc_info.value.backend_type == "boundary-fixture"
+    assert exc_info.value.unsupported_terms == frozenset({"kp"})
+    assert strict_manager.execution_mode is DomainRandomizationExecutionMode.COMPILED_STRICT
+    assert filter_calls.get(id(strict_capabilities), 0) == 0
+    assert strict_backend.call_count == 0
+    assert strict_backend.committed_payloads == []
+    assert strict_provider.observation_call_count == 0
+    assert caplog.messages == []
+
+    specs, capabilities, selectors = _fixtures()
+    unknown = replace(
+        specs[0],
+        target=replace(specs[0].target, target_key="physics.body.unknown"),
+    )
+    with pytest.raises(MutationContractError, match="not supported"):
+        _bind(specs=(unknown,), capabilities=capabilities, selectors=selectors)
