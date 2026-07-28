@@ -75,6 +75,16 @@ from .mutation_batch import (
     TaskStateMutationBatch,
     TypedBackendMutationBatch,
 )
+from .telemetry import (
+    BackendTransferBarrier,
+    BackendTransferBuffer,
+    BackendTransferCounters,
+    BackendTransferDirection,
+    BackendTransferEvent,
+    BackendTransferProfile,
+    BackendTransferTelemetryError,
+    BackendTransferTrace,
+)
 
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
@@ -273,6 +283,14 @@ __all__ = [
     "BackendResetResult",
     "BackendStepResult",
     "BackendTiming",
+    "BackendTransferBarrier",
+    "BackendTransferBuffer",
+    "BackendTransferCounters",
+    "BackendTransferDirection",
+    "BackendTransferEvent",
+    "BackendTransferProfile",
+    "BackendTransferTelemetryError",
+    "BackendTransferTrace",
     "BoundMutationPlan",
     "BoundMutationSpec",
     "BoundMutationTarget",
