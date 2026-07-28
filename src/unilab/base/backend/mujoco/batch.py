@@ -38,6 +38,9 @@ from unilab.base.backend.mutation import (
     BoundMutationPlan,
     BoundMutationSpec,
     MutationContractError,
+    MutationEntityKind,
+    MutationFieldKind,
+    MutationTargetKind,
 )
 from unilab.base.backend.mutation_batch import TypedBackendMutationBatch
 
@@ -186,14 +189,24 @@ class _MuJoCoHostMutationPlan:
     """MuJoCo-owned cold-path staging for one typed mutation plan.
 
     The public ``BoundMutationPlan`` deliberately does not expose raw MuJoCo
-    field layout.  This runtime companion owns the only ``xfrc_applied``
-    translation and allocates every control-plus-wrench trajectory while a
-    state/control plan is being bound, never at a physics step.
+    field layout.  This runtime companion owns the only ``xfrc_applied`` and
+    raw reset-state translations, and allocates its control, wrench, reset,
+    and row-selection scratch on the cold path rather than during physics.
     """
 
     public_plan: BoundMutationPlan
     num_bodies: int
+    state_size: int
+    state_dtype: str
+    qpos_state_offset: int
+    qvel_state_offset: int
+    root_qpos_dim: int
+    root_qvel_dim: int
     _staged_xfrc: np.ndarray = field(init=False, repr=False)
+    _reset_state: np.ndarray = field(init=False, repr=False)
+    _reset_env_ids: np.ndarray = field(init=False, repr=False)
+    _reset_row_ids: np.ndarray = field(init=False, repr=False)
+    _staged_reset_rows: RowSelection | None = field(default=None, init=False, repr=False)
     _control_trajectories: dict[str, np.ndarray] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
@@ -203,6 +216,19 @@ class _MuJoCoHostMutationPlan:
             (self.public_plan.num_envs, 6 * self.num_bodies),
             dtype=np.float64,
         )
+        if self.state_size <= 0:
+            raise BackendBatchContractError(
+                "MuJoCo mutation binding requires a positive state size"
+            )
+        self._reset_state = np.empty(
+            (self.public_plan.num_envs, self.state_size),
+            dtype=self.state_dtype,
+        )
+        self._reset_env_ids = np.empty(self.public_plan.num_envs, dtype=np.int32)
+        self._reset_row_ids = np.empty(self.public_plan.num_envs, dtype=np.intp)
+        for row_id in range(self.public_plan.num_envs):
+            self._reset_env_ids[row_id] = row_id
+            self._reset_row_ids[row_id] = row_id
 
     def register_batch_plan(self, plan: BoundBackendPlan) -> None:
         """Allocate the plan-paired pool control trajectory on the cold path."""
@@ -211,9 +237,7 @@ class _MuJoCoHostMutationPlan:
                 "MuJoCo mutation and state plans must use the same row universe"
             )
         if plan.execution_profile is not ExecutionProfile.HOST_NUMPY:
-            raise BackendBatchContractError(
-                "MuJoCo typed external wrench only supports host_numpy plans"
-            )
+            raise BackendBatchContractError("MuJoCo typed mutations only support host_numpy plans")
         key = plan.fingerprint
         existing = self._control_trajectories.get(key)
         expected_shape = (
@@ -321,6 +345,99 @@ class _MuJoCoHostMutationPlan:
     def clear_staged_external_force(self) -> None:
         """Enforce the only supported persistence mode: one physics step."""
         self._staged_xfrc.fill(0.0)
+
+    def _stage_reset_rows(self, rows: RowSelection) -> np.ndarray:
+        """Record the selected-row mapping in cold-allocated scratch buffers."""
+        if rows.universe_size != self.public_plan.num_envs:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation rows do not match the backend row universe"
+            )
+        if not rows.is_all:
+            assert rows.indices is not None
+            self._reset_env_ids[: rows.count] = rows.indices
+            self._reset_row_ids[: rows.count] = rows.indices
+        self._staged_reset_rows = rows
+        return self._reset_row_ids[: rows.count]
+
+    def _require_staged_reset_rows(self, rows: RowSelection) -> None:
+        if self._staged_reset_rows != rows:
+            raise BackendBatchContractError(
+                "MuJoCo typed reset rows were not staged by this mutation commit"
+            )
+
+    def reset_env_ids(self, rows: RowSelection) -> np.ndarray:
+        """Return pool-facing selected IDs after a matching reset state was staged."""
+        self._require_staged_reset_rows(rows)
+        return self._reset_env_ids[: rows.count]
+
+    def reset_row_ids(self, rows: RowSelection) -> np.ndarray:
+        """Return cache-facing selected IDs after a matching reset state was staged."""
+        self._require_staged_reset_rows(rows)
+        return self._reset_row_ids[: rows.count]
+
+    def stage_reset_state(
+        self,
+        batch: TypedBackendMutationBatch,
+        physics_state: np.ndarray,
+    ) -> np.ndarray:
+        """Patch bound single-DoF reset values into a cold-allocated state scratch."""
+        self.public_plan.require_compatible(batch.plan)
+        if batch.rows.universe_size != self.public_plan.num_envs:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation rows do not match the backend row universe"
+            )
+        if batch.model.values or batch.wrench.values or batch.task_state.values:
+            raise BackendBatchContractError(
+                "MuJoCo host reset commit only supports simulation-state values"
+            )
+        if not batch.state.values:
+            raise BackendBatchContractError("MuJoCo typed reset requires at least one state value")
+        if physics_state.shape != (self.public_plan.num_envs, self.state_size):
+            raise BackendBatchContractError(
+                "MuJoCo typed reset source state does not match the bound mutation plan"
+            )
+
+        staged_values: list[tuple[BoundMutationSpec, np.ndarray]] = []
+        for value in batch.state.values:
+            spec = value.spec
+            if (
+                spec.target.target_kind is not MutationTargetKind.SIMULATION_STATE
+                or spec.target.entity_kind is not MutationEntityKind.DOF
+                or spec.target.target_key
+                not in {"state.dof.position", "state.dof.angular_velocity"}
+                or spec.value_buffer.row_shape[-1] != 1
+            ):
+                raise MutationContractError(
+                    "MuJoCo typed mutation plan contains an unsupported reset-state target"
+                )
+            staged_values.append((spec, self._require_value_handle(value, batch.rows)))
+
+        row_ids = self._stage_reset_rows(batch.rows)
+        if batch.rows.is_all:
+            np.copyto(self._reset_state, physics_state)
+        else:
+            np.take(
+                physics_state,
+                row_ids,
+                axis=0,
+                out=self._reset_state[: batch.rows.count],
+            )
+
+        for spec, values in staged_values:
+            if spec.target.field_kind is MutationFieldKind.POSITION:
+                state_offset = self.qpos_state_offset + self.root_qpos_dim
+            elif spec.target.field_kind is MutationFieldKind.ANGULAR_VELOCITY:
+                state_offset = self.qvel_state_offset + self.root_qvel_dim
+            else:
+                raise MutationContractError(
+                    "MuJoCo typed reset target has an unsupported field kind"
+                )
+            for dof_offset, dof_id in enumerate(spec.target.entity_ids):
+                for row_offset in range(batch.rows.count):
+                    self._reset_state[row_offset, state_offset + dof_id] = values[
+                        row_offset, dof_offset, 0
+                    ]
+        return self._reset_state[: batch.rows.count]
 
 
 def _require_field_contract(

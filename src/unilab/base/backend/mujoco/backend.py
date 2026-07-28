@@ -47,6 +47,7 @@ from ..batch import (
     BackendIORequirements,
     BackendMutationBatch,
     BackendReadResult,
+    BackendResetResult,
     BackendStepResult,
     BackendTiming,
     BoundBackendPlan,
@@ -863,24 +864,26 @@ class MuJoCoBackend(SimBackend):
         return bound.public_plan
 
     def _mujoco_typed_mutation_capabilities(self) -> tuple[MutationCapability, ...]:
-        value_template = BufferContract(
-            row_shape=(3,),
-            dtype=np.dtype(self._np_dtype).name,
-            layout=BufferLayout.C_CONTIGUOUS,
-            placement=BufferPlacement.host(),
-            owner=BufferOwner.MANAGER,
-            mutability=BufferMutability.READ_ONLY,
-            lifetime=BufferLifetime.UNTIL_COMMIT,
-            dlpack_exportable=False,
-        )
-        return (
+        def value_template(row_shape: tuple[int, ...]) -> BufferContract:
+            return BufferContract(
+                row_shape=row_shape,
+                dtype=np.dtype(self._np_dtype).name,
+                layout=BufferLayout.C_CONTIGUOUS,
+                placement=BufferPlacement.host(),
+                owner=BufferOwner.MANAGER,
+                mutability=BufferMutability.READ_ONLY,
+                lifetime=BufferLifetime.UNTIL_COMMIT,
+                dlpack_exportable=False,
+            )
+
+        capabilities = [
             MutationCapability(
                 target_key="wrench.body.force",
                 target_kind=MutationTargetKind.EXTERNAL_WRENCH,
                 entity_kind=MutationEntityKind.BODY,
                 field_kind=MutationFieldKind.FORCE,
                 entity_count=int(self._model.nbody),
-                value_template=value_template,
+                value_template=value_template((3,)),
                 triggers=frozenset({MutationTrigger.INTERVAL, MutationTrigger.STEP}),
                 commit_phases=frozenset({MutationCommitPhase.PRE_PHYSICS}),
                 operations=frozenset({MutationOperation.SET}),
@@ -888,19 +891,81 @@ class MuJoCoBackend(SimBackend):
                 persistences=frozenset({MutationPersistence.ONE_STEP}),
                 recompute_levels=frozenset({MutationRecomputeLevel.NONE}),
             ),
-        )
+        ]
+        if self._num_dof_pos > 0:
+            capabilities.append(
+                MutationCapability(
+                    target_key="state.dof.position",
+                    target_kind=MutationTargetKind.SIMULATION_STATE,
+                    entity_kind=MutationEntityKind.DOF,
+                    field_kind=MutationFieldKind.POSITION,
+                    entity_count=self._num_dof_pos,
+                    value_template=value_template((1,)),
+                    triggers=frozenset({MutationTrigger.RESET}),
+                    commit_phases=frozenset({MutationCommitPhase.RESET}),
+                    operations=frozenset({MutationOperation.SET}),
+                    baselines=frozenset({MutationBaseline.DEFAULT}),
+                    persistences=frozenset({MutationPersistence.EPISODE}),
+                    recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                )
+            )
+        if self._num_dof_vel > 0:
+            capabilities.append(
+                MutationCapability(
+                    target_key="state.dof.angular_velocity",
+                    target_kind=MutationTargetKind.SIMULATION_STATE,
+                    entity_kind=MutationEntityKind.DOF,
+                    field_kind=MutationFieldKind.ANGULAR_VELOCITY,
+                    entity_count=self._num_dof_vel,
+                    value_template=value_template((1,)),
+                    triggers=frozenset({MutationTrigger.RESET}),
+                    commit_phases=frozenset({MutationCommitPhase.RESET}),
+                    operations=frozenset({MutationOperation.SET}),
+                    baselines=frozenset({MutationBaseline.DEFAULT}),
+                    persistences=frozenset({MutationPersistence.EPISODE}),
+                    recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                )
+            )
+        return tuple(capabilities)
 
     def _resolve_mujoco_typed_mutation_selector(self, spec: MutationTargetSpec) -> tuple[int, ...]:
-        if spec.target_kind is not MutationTargetKind.EXTERNAL_WRENCH:
+        if spec.selector is None:
+            raise MutationContractError("MuJoCo typed mutation selector must be explicit")
+        if spec.target_kind is MutationTargetKind.EXTERNAL_WRENCH:
+            if spec.entity_kind is not MutationEntityKind.BODY:
+                raise MutationContractError("MuJoCo external wrench selector must name one body")
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, spec.selector)
+            if body_id <= 0:
+                raise MutationContractError(
+                    f"MuJoCo typed mutation body selector {spec.selector!r} did not resolve a dynamic body"
+                )
+            return (int(body_id),)
+        if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
             raise MutationContractError("MuJoCo typed mutation selector has an unsupported target")
-        if spec.entity_kind is not MutationEntityKind.BODY or spec.selector is None:
-            raise MutationContractError("MuJoCo typed mutation selector must name one body")
-        body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, spec.selector)
-        if body_id <= 0:
+        if spec.entity_kind is not MutationEntityKind.DOF:
             raise MutationContractError(
-                f"MuJoCo typed mutation body selector {spec.selector!r} did not resolve a dynamic body"
+                "MuJoCo typed reset selector must name one single-DoF joint"
             )
-        return (int(body_id),)
+        joint_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, spec.selector)
+        if joint_id < 0 or int(self._model.jnt_type[joint_id]) != int(mujoco.mjtJoint.mjJNT_HINGE):
+            raise MutationContractError(
+                f"MuJoCo typed reset selector {spec.selector!r} must resolve one hinge joint"
+            )
+        if spec.field_kind is MutationFieldKind.POSITION:
+            coordinate = int(self._model.jnt_qposadr[joint_id]) - self._root_qpos_dim
+            if coordinate < 0 or coordinate >= self._num_dof_pos:
+                raise MutationContractError(
+                    "MuJoCo typed reset position coordinate is out of range"
+                )
+            return (coordinate,)
+        if spec.field_kind is MutationFieldKind.ANGULAR_VELOCITY:
+            coordinate = int(self._model.jnt_dofadr[joint_id]) - self._root_qvel_dim
+            if coordinate < 0 or coordinate >= self._num_dof_vel:
+                raise MutationContractError(
+                    "MuJoCo typed reset velocity coordinate is out of range"
+                )
+            return (coordinate,)
+        raise MutationContractError("MuJoCo typed reset selector has an unsupported field kind")
 
     def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
         if self._pool is None:
@@ -922,6 +987,12 @@ class MuJoCoBackend(SimBackend):
         runtime_plan = _MuJoCoHostMutationPlan(
             public_plan=bound,
             num_bodies=int(self._model.nbody),
+            state_size=self._physics_state.shape[1],
+            state_dtype=np.dtype(self._physics_state.dtype).name,
+            qpos_state_offset=self._idx_qpos,
+            qvel_state_offset=self._idx_qvel,
+            root_qpos_dim=self._root_qpos_dim,
+            root_qvel_dim=self._root_qvel_dim,
         )
         for batch_plan in self._host_batch_plans.values():
             runtime_plan.register_batch_plan(batch_plan.public_plan)
@@ -976,6 +1047,60 @@ class MuJoCoBackend(SimBackend):
         if rows.universe_size != self._num_envs:
             raise BackendBatchContractError("MuJoCo row universe does not match backend num_envs")
         return bound.materialize(rows, phase)
+
+    def reset_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        mutation_batch: BackendMutationBatch | None = None,
+    ) -> BackendResetResult:
+        bound = self._require_host_batch_plan(plan)
+        if rows.universe_size != self._num_envs:
+            raise BackendBatchContractError("MuJoCo row universe does not match backend num_envs")
+        if np.any(self._pending_xfrc_applied):
+            raise BackendBatchContractError(
+                "MuJoCo managed host batches reject out-of-band external wrench state"
+            )
+        if not isinstance(mutation_batch, TypedBackendMutationBatch):
+            raise BackendBatchContractError(
+                "MuJoCo typed reset requires a TypedBackendMutationBatch"
+            )
+        if mutation_batch.rows != rows:
+            raise BackendBatchContractError(
+                "MuJoCo typed reset rows must match the mutation envelope"
+            )
+        mutation_runtime = self._require_host_mutation_plan(mutation_batch, plan)
+        initial_state = mutation_runtime.stage_reset_state(mutation_batch, self._physics_state)
+
+        self._invalidate_host_batch_state()
+        t0 = time.perf_counter()
+        state_np, sensor_np = self._pool.reset(  # type: ignore[union-attr]
+            env_ids=mutation_runtime.reset_env_ids(rows),
+            initial_state=initial_state,
+            randomization=None,
+        )
+        reset_pool_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        for row_offset, row_id in enumerate(mutation_runtime.reset_row_ids(rows)):
+            np.copyto(self._physics_state[row_id], state_np[row_offset], casting="unsafe")
+            np.copyto(self._sensor_data[row_id], sensor_np[row_offset], casting="unsafe")
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        read_result = bound.materialize(rows, StateBatchPhase.RESET)
+        diagnostics = BackendBatchDiagnostics(
+            counters=replace(
+                read_result.diagnostics.counters,
+                allocations=bound.step_allocations,
+            ),
+            timings=(
+                BackendTiming("reset_pool_ms", reset_pool_ms),
+                BackendTiming("refresh_cache_ms", refresh_cache_ms),
+                *read_result.diagnostics.timings,
+            ),
+        )
+        return BackendResetResult(reset_state=read_result.state, diagnostics=diagnostics)
 
     def step_batch(
         self,
