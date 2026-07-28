@@ -324,9 +324,9 @@ def _validate_fields(fields: tuple[StateFieldSpec, ...]) -> None:
     keys = [spec.key for spec in fields]
     if len(set(keys)) != len(keys):
         raise BackendBatchContractError("state field semantic keys must be unique")
-    identities = [spec.identity for spec in fields]
-    if len(set(identities)) != len(identities):
-        raise BackendBatchContractError("bound state field identities must be unique")
+    bound_fields = [(spec.identity, spec.frame) for spec in fields]
+    if len(set(bound_fields)) != len(bound_fields):
+        raise BackendBatchContractError("bound state field identities and frames must be unique")
 
 
 @dataclass(frozen=True)

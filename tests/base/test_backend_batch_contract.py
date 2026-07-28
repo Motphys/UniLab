@@ -206,6 +206,15 @@ def _valid_frozen_batch_sizes() -> None:
         assert state.plan.fingerprint == BACKEND_BATCH_CONTRACT_VERSION
 
 
+def _valid_same_entity_in_distinct_frames() -> None:
+    world = _field("body.position.world")
+    base = replace(world, semantic_key="body.position.base", frame=ReferenceFrame.BASE)
+    backend = _FakeBatchBackend(_requirements(fields=(world, base)))
+    state = backend.state(RowSelection.all(4))
+    assert state.buffer("body.position.world").shape == (4, 3)
+    assert state.buffer("body.position.base").shape == (4, 3)
+
+
 def _invalid_shape() -> None:
     backend = _FakeBatchBackend()
     spec = backend.plan.state.fields[0]
@@ -299,7 +308,7 @@ def _invalid_duplicate_field() -> None:
 def _invalid_duplicate_bound_identity() -> None:
     first = _field("base.position")
     alias = replace(first, semantic_key="robot.root.position")
-    with pytest.raises(BackendBatchContractError, match="identities must be unique"):
+    with pytest.raises(BackendBatchContractError, match="identities and frames must be unique"):
         _requirements(fields=(first, alias))
 
 
@@ -330,6 +339,7 @@ _CONTRACT_CASES: tuple[Callable[[], None], ...] = (
     _valid_all_rows,
     _valid_selected_row_order,
     _valid_frozen_batch_sizes,
+    _valid_same_entity_in_distinct_frames,
     _invalid_shape,
     _invalid_frame,
     _invalid_unit,
@@ -810,6 +820,24 @@ def test_mujoco_batch_contract_faults_fail_closed() -> None:
         np.testing.assert_allclose(
             cast(np.ndarray, body_state.state.buffer_at(0).handle),
             backend.get_body_pos_b(np.asarray([body_id], dtype=np.int32)),
+        )
+
+        body_world_field = replace(
+            body_field,
+            semantic_key="body.left_foot.position.world",
+            frame=ReferenceFrame.WORLD,
+        )
+        dual_frame_plan = backend.bind_task_io(
+            replace(requirements, state_fields=(body_field, body_world_field))
+        )
+        dual_frame_state = backend.read_state_batch(dual_frame_plan, RowSelection.all(2))
+        np.testing.assert_allclose(
+            cast(np.ndarray, dual_frame_state.state.buffer_at(0).handle),
+            backend.get_body_pos_b(np.asarray([body_id], dtype=np.int32)),
+        )
+        np.testing.assert_allclose(
+            cast(np.ndarray, dual_frame_state.state.buffer_at(1).handle),
+            backend.get_body_pos_w(np.asarray([body_id], dtype=np.int32)),
         )
 
         tracked_sensor_name = "track_pos_b_left_ankle_roll_link"
