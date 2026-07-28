@@ -509,12 +509,14 @@ class G1WalkEnv(G1BaseEnv):
         }
 
     def build_symmetry_augmentation(self, *, device: str):
-        if self._backend.backend_type != "mujoco":
+        try:
+            actuator_names = self._backend.get_actuator_names()
+        except NotImplementedError:
             return None
         from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
 
         return G1SymmetryAugmentation(
-            self._backend.model,
+            actuator_names,
             self.get_symmetry_obs_layouts(),
             device=device,
         )
