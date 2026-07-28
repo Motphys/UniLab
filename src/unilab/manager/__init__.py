@@ -1,0 +1,73 @@
+"""Contract-first manager API for compiled UniLab tasks."""
+
+from .compiler import TaskCompiler
+from .entities import (
+    CompiledSelector,
+    EntityKind,
+    EntityResolver,
+    EntitySelector,
+    ManagerContractError,
+    SelectorMode,
+)
+from .plan import (
+    MANAGER_TASK_CONTRACT_VERSION,
+    CompiledTaskPlan,
+    CompiledTerm,
+    ObservationGroupPlan,
+    ObservationOutput,
+    OutputChannelPlan,
+    OutputSlice,
+    PolicyABI,
+)
+from .registry import TermRegistry
+from .spec import (
+    FrozenParameters,
+    MutationTemplate,
+    NormalizationMode,
+    ParameterKind,
+    ParameterSpec,
+    PolicySpec,
+    QuaternionOrder,
+    StateRequirement,
+    TaskSpec,
+    TensorSpec,
+    TermDefinition,
+    TermInvocation,
+    TermPhase,
+    TermRole,
+    freeze_parameters,
+)
+
+__all__ = [
+    "MANAGER_TASK_CONTRACT_VERSION",
+    "CompiledSelector",
+    "CompiledTaskPlan",
+    "CompiledTerm",
+    "EntityKind",
+    "EntityResolver",
+    "EntitySelector",
+    "FrozenParameters",
+    "ManagerContractError",
+    "MutationTemplate",
+    "NormalizationMode",
+    "ObservationGroupPlan",
+    "ObservationOutput",
+    "OutputChannelPlan",
+    "OutputSlice",
+    "ParameterKind",
+    "ParameterSpec",
+    "PolicyABI",
+    "PolicySpec",
+    "QuaternionOrder",
+    "SelectorMode",
+    "StateRequirement",
+    "TaskCompiler",
+    "TaskSpec",
+    "TensorSpec",
+    "TermDefinition",
+    "TermInvocation",
+    "TermPhase",
+    "TermRegistry",
+    "TermRole",
+    "freeze_parameters",
+]
