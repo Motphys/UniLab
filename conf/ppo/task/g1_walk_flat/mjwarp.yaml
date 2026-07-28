@@ -1,0 +1,56 @@
+# @package _global_
+#
+# Independent mujoco-warp owner.  This is a host_numpy correctness profile:
+# policy ABI follows the G1 MuJoCo owner, while unsupported legacy DR terms are
+# explicitly disabled rather than silently filtered by the backend.
+training:
+  task_name: G1WalkFlat
+  sim_backend: mjwarp
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+env:
+  numba_acceleration: false
+  domain_rand:
+    # G1 defaults these to true.  mjwarp must not claim per-world actuator
+    # gain DR until a typed model-mutation path has an effect test.
+    randomize_kp: false
+    randomize_kd: false
+  control_config:
+    action_scale: 0.25
+  curriculum:
+    enabled: false
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
+reward:
+  scales:
+    tracking_lin_vel: 2.0
+    tracking_ang_vel: 0.2
+    feet_phase: 1.0
+    lin_vel_z: -1.0
+    ang_vel_xy: -0.25
+    base_height: -500.0
+    orientation: -5.0
+    action_rate: -0.01
+    pose: -0.1
+  tracking_sigma: 0.25
+  gait_frequency: 1.5
+  feet_phase_swing_height: 0.09
+  feet_phase_tracking_sigma: 0.008
+  base_height_target: 0.754
+  min_base_height: 0.55
+  max_tilt_deg: 25.0
+  pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+play_profile:
+  # Rendering/playback is intentionally unsupported by this first profile.
+  enabled: false
