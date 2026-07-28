@@ -16,6 +16,7 @@ from unilab.tools.g1_baseline_provenance import (
     BaselineValidationError,
     load_g1_baseline_artifact,
     load_g1_baseline_plan,
+    verify_g1_baseline_source,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,7 @@ def _payload(plan_path: Path, artifact_path: Path) -> dict[str, Any]:
             plan,
             repo_root=REPO_ROOT,
         )
+        source_verification = verify_g1_baseline_source(artifact, plan, REPO_ROOT)
     except (BaselineValidationError, OSError, ValueError) as exc:
         errors = list(exc.errors) if isinstance(exc, BaselineValidationError) else [str(exc)]
         return {
@@ -51,6 +53,7 @@ def _payload(plan_path: Path, artifact_path: Path) -> dict[str, Any]:
         "plan": str(plan_path),
         "artifact": str(artifact_path),
         "source_commit": artifact["source"]["commit"],
+        "git_history_verified": source_verification.git_history_verified,
         "plan_sha256": artifact["plan"]["sha256"],
         "lane_counts": dict(sorted(lane_counts.items())),
         "errors": [],
@@ -69,7 +72,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif payload["ok"]:
         print(
             f"PASS source={payload['source_commit']} lanes={payload['lane_counts']} "
-            f"plan={payload['plan_sha256']}"
+            f"plan={payload['plan_sha256']} "
+            f"git_history_verified={payload['git_history_verified']}"
         )
     else:
         print(f"FAIL artifact={payload['artifact']}")

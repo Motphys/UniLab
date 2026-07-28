@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.validate_issue705_g1_baseline import PLAN_PATH, _payload, main
+from scripts.validate_issue705_g1_baseline import ARTIFACT_PATH, PLAN_PATH, _payload, main
+
+
+def test_real_artifact_reports_history_verification_status() -> None:
+    payload = _payload(PLAN_PATH, ARTIFACT_PATH)
+
+    assert payload["ok"] is True
+    assert isinstance(payload["git_history_verified"], bool)
 
 
 def test_validator_reports_missing_artifact_without_traceback(tmp_path: Path) -> None:
