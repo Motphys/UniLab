@@ -54,7 +54,7 @@ claims:
     risk: Dynamic fallback or hidden materialization survives while numerical tests still pass.
     owner: runtime-instrumentation
     oracle: Fault injection adds getters, terms, selectors, and asset probes and checks exact counter deltas at lifecycle barriers.
-    commands: [uv run pytest tests/base/test_backend_batch_contract.py -k instrumentation -v]
+    commands: [uv run pytest tests/base/test_backend_batch_contract.py::test_managed_hot_path_has_no_dynamic_getters -v]
     lane: B
     required: true
     required_test_ids: [tests/base/test_backend_batch_contract.py::test_managed_hot_path_has_no_dynamic_getters]
