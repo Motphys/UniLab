@@ -13,10 +13,14 @@ from unilab.base.backend.base import SimBackend
 from unilab.base.backend.batch import (
     BACKEND_BATCH_CONTRACT_VERSION,
     BackendBatchContractError,
+    BackendBatchCounterBudget,
     BackendBatchCounters,
     BackendBatchDiagnostics,
     BackendCompletionEvent,
+    BackendCounterViolation,
+    BackendHotPathViolationError,
     BackendIORequirements,
+    BackendReadResult,
     BackendResetResult,
     BackendStepResult,
     BackendTiming,
@@ -112,11 +116,13 @@ def _requirements(
     fields: tuple[StateFieldSpec, ...] | None = None,
     profile: ExecutionProfile = ExecutionProfile.HOST_NUMPY,
     control: ControlSpec | None = None,
+    hot_path_budget: BackendBatchCounterBudget | None = None,
 ) -> BackendIORequirements:
     return BackendIORequirements(
         state_fields=fields or (_field(),),
         control=control or ControlSpec("joint.command", _control_buffer()),
         execution_profile=profile,
+        hot_path_budget=hot_path_budget,
     )
 
 
@@ -144,6 +150,7 @@ class _FakeBatchBackend:
             control=requirements.control,
             execution_profile=requirements.execution_profile,
             fingerprint=BACKEND_BATCH_CONTRACT_VERSION,
+            hot_path_budget=requirements.hot_path_budget,
         )
         self.lease = StateBatchLease(self.backend_instance_id)
 
@@ -425,6 +432,130 @@ def test_batch_results_preserve_terminal_reset_and_diagnostic_semantics() -> Non
         BackendStepResult(terminal_state=reset_result.reset_state)
 
 
+def test_managed_hot_path_has_no_dynamic_getters() -> None:
+    budget = BackendBatchCounterBudget(state_materializations=1)
+    backend = _FakeBatchBackend(_requirements(hot_path_budget=budget))
+    state = backend.state(RowSelection.all(4))
+    baseline = BackendBatchCounters(
+        state_materializations=1,
+        instrumentation_complete=True,
+    )
+
+    result = BackendReadResult(
+        state,
+        BackendBatchDiagnostics(counters=baseline),
+    )
+    assert result.diagnostics.counters == baseline
+
+    terminal_result = BackendStepResult(
+        backend.state(RowSelection.all(4), phase=StateBatchPhase.TERMINAL),
+        BackendBatchDiagnostics(counters=baseline),
+    )
+    reset_result = BackendResetResult(
+        backend.state(RowSelection.all(4), phase=StateBatchPhase.RESET),
+        BackendBatchDiagnostics(counters=baseline),
+    )
+    assert terminal_result.diagnostics.counters == baseline
+    assert reset_result.diagnostics.counters == baseline
+
+    incomplete_diagnostics = BackendBatchDiagnostics(
+        counters=replace(baseline, instrumentation_complete=False)
+    )
+    incomplete_results = (
+        lambda: BackendReadResult(state, incomplete_diagnostics),
+        lambda: BackendStepResult(
+            backend.state(RowSelection.all(4), phase=StateBatchPhase.TERMINAL),
+            incomplete_diagnostics,
+        ),
+        lambda: BackendResetResult(
+            backend.state(RowSelection.all(4), phase=StateBatchPhase.RESET),
+            incomplete_diagnostics,
+        ),
+    )
+    for build_result in incomplete_results:
+        with pytest.raises(
+            BackendHotPathViolationError,
+            match="managed hot-path instrumentation is incomplete",
+        ) as incomplete:
+            build_result()
+        assert not incomplete.value.instrumentation_complete
+        assert incomplete.value.violations == ()
+
+    faults = (
+        ("host_to_device_transfers", 1),
+        ("device_to_host_transfers", 1),
+        ("host_to_device_bytes", 4),
+        ("device_to_host_bytes", 4),
+        ("global_synchronizations", 1),
+        ("allocations", 1),
+        ("state_materializations", 2),
+        ("dynamic_getter_calls", 1),
+        ("selector_resolutions", 1),
+        ("asset_metadata_reads", 1),
+        ("registry_lookups", 1),
+    )
+    for counter, actual in faults:
+        limit = getattr(budget, counter)
+        with pytest.raises(
+            BackendHotPathViolationError,
+            match=rf"{counter}: actual={actual}, limit={limit}",
+        ) as exc_info:
+            BackendReadResult(
+                state,
+                BackendBatchDiagnostics(counters=replace(baseline, **{counter: actual})),
+            )
+        assert exc_info.value.instrumentation_complete
+        assert exc_info.value.violations == (
+            BackendCounterViolation(counter=counter, actual=actual, limit=limit),
+        )
+
+    all_faults = BackendBatchCounters(
+        host_to_device_transfers=1,
+        device_to_host_transfers=1,
+        host_to_device_bytes=4,
+        device_to_host_bytes=4,
+        global_synchronizations=1,
+        allocations=1,
+        state_materializations=2,
+        dynamic_getter_calls=1,
+        selector_resolutions=1,
+        asset_metadata_reads=1,
+        registry_lookups=1,
+        instrumentation_complete=True,
+    )
+    with pytest.raises(BackendHotPathViolationError) as aggregated:
+        BackendReadResult(state, BackendBatchDiagnostics(counters=all_faults))
+    assert tuple(item.counter for item in aggregated.value.violations) == tuple(
+        counter for counter, _ in faults
+    )
+
+    with pytest.raises(BackendBatchContractError, match="must be an integer"):
+        BackendBatchCounters(dynamic_getter_calls=True)
+    with pytest.raises(BackendBatchContractError, match="must be an integer"):
+        BackendBatchCounterBudget(selector_resolutions=-1)
+    with pytest.raises(BackendBatchContractError, match="unknown backend counter"):
+        BackendCounterViolation(counter="unknown", actual=1, limit=0)
+    with pytest.raises(BackendBatchContractError, match="canonical order"):
+        BackendHotPathViolationError(
+            instrumentation_complete=True,
+            violations=(
+                BackendCounterViolation(counter="selector_resolutions", actual=1, limit=0),
+                BackendCounterViolation(counter="dynamic_getter_calls", actual=1, limit=0),
+            ),
+        )
+    with pytest.raises(BackendBatchContractError, match="hot_path_budget"):
+        replace(_requirements(), hot_path_budget=cast(Any, object()))
+
+    unbudgeted = _FakeBatchBackend().plan
+    assert unbudgeted.fingerprint == backend.plan.fingerprint
+    BackendReadResult(
+        _FakeBatchBackend().state(RowSelection.all(4)),
+        BackendBatchDiagnostics(),
+    )
+    with pytest.raises(BackendBatchContractError, match="different backend plan"):
+        unbudgeted.require_compatible(backend.plan)
+
+
 def test_completion_event_is_explicitly_device_owned() -> None:
     event = BackendCompletionEvent(
         backend_type="fake",
@@ -460,6 +591,14 @@ def test_completion_event_is_explicitly_device_owned() -> None:
 
 
 def test_batch_contract_version_and_cross_device_placement_fail_closed() -> None:
+    positional = BackendIORequirements(
+        (_field(),),
+        ControlSpec("joint.command", _control_buffer()),
+        ExecutionProfile.HOST_NUMPY,
+        BACKEND_BATCH_CONTRACT_VERSION,
+    )
+    assert positional.hot_path_budget is None
+
     with pytest.raises(BackendBatchContractError, match="unsupported backend batch contract"):
         replace(_requirements(), contract_version="backend-batch-contract-v0")
 
@@ -662,6 +801,10 @@ def _mujoco_requirements(backend: Any) -> tuple[BackendIORequirements, list[Call
             physics_substeps_per_control=2,
         ),
         execution_profile=ExecutionProfile.HOST_NUMPY,
+        hot_path_budget=BackendBatchCounterBudget(
+            allocations=2,
+            state_materializations=1,
+        ),
     )
     return requirements, getters
 
@@ -682,8 +825,10 @@ def _assert_batch_matches(
     references: list[np.ndarray],
     rows: tuple[int, ...] | None,
 ) -> None:
-    assert result.diagnostics.counters.state_materializations == 1
-    assert not result.diagnostics.counters.instrumentation_complete
+    assert result.diagnostics.counters == BackendBatchCounters(
+        state_materializations=1,
+        instrumentation_complete=True,
+    )
     for index, reference in enumerate(references):
         expected = reference if rows is None else reference[np.asarray(rows, dtype=np.intp)]
         actual = cast(np.ndarray, result.state.buffer_at(index).handle)
@@ -744,14 +889,54 @@ def test_mujoco_batch_matches_getter_reference(seed: int, num_envs: int) -> None
                 "get_sensor_data",
                 side_effect=AssertionError("getter fallback"),
             ),
+            patch.object(
+                backend,
+                "get_body_id",
+                side_effect=AssertionError("selector fallback"),
+            ),
+            patch.object(
+                backend,
+                "get_body_ids",
+                side_effect=AssertionError("selector fallback"),
+            ),
+            patch.object(
+                Path,
+                "read_bytes",
+                side_effect=AssertionError("asset fallback"),
+            ),
+            patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("asset fallback"),
+            ),
         ):
             selected = backend.read_state_batch(
                 plan,
                 RowSelection.selected(num_envs, reset_rows),
                 phase=StateBatchPhase.RESET,
             )
-        _assert_batch_matches(selected, references, reset_rows)
-        selected_view = selected.state.buffer_at(0)
+            selected_addresses = tuple(
+                cast(np.ndarray, selected.state.buffer_at(index).handle).__array_interface__[
+                    "data"
+                ][0]
+                for index in range(len(plan.state.fields))
+            )
+            selected_again = backend.read_state_batch(
+                plan,
+                RowSelection.selected(num_envs, reset_rows),
+                phase=StateBatchPhase.RESET,
+            )
+            assert (
+                tuple(
+                    cast(
+                        np.ndarray, selected_again.state.buffer_at(index).handle
+                    ).__array_interface__["data"][0]
+                    for index in range(len(plan.state.fields))
+                )
+                == selected_addresses
+            )
+        _assert_batch_matches(selected_again, references, reset_rows)
+        selected_view = selected_again.state.buffer_at(0)
 
         all_rows = backend.read_state_batch(plan, RowSelection.all(num_envs))
         _assert_batch_matches(all_rows, references, None)
@@ -768,11 +953,34 @@ def test_mujoco_batch_matches_getter_reference(seed: int, num_envs: int) -> None
             rows=RowSelection.all(num_envs),
             buffer=BufferView(control, control.shape, plan.control.buffer),
         )
-        stepped = backend.step_batch(plan, control_batch, nsteps=2)
+        assert backend._pool is not None
+        pool_step = backend._pool.step
+        pool_outputs: list[np.ndarray] = []
+
+        def recording_pool_step(initial_state: np.ndarray, **kwargs: Any) -> Any:
+            staged_control = kwargs["control"]
+            assert initial_state.dtype == np.float64
+            assert initial_state.flags.c_contiguous
+            assert isinstance(staged_control, np.ndarray)
+            assert staged_control.dtype == np.float64
+            assert staged_control.flags.c_contiguous
+            result = pool_step(initial_state, **kwargs)
+            assert isinstance(result, tuple) and len(result) == 2
+            pool_outputs.extend(result)
+            return result
+
+        with patch.object(backend._pool, "step", side_effect=recording_pool_step):
+            stepped = backend.step_batch(plan, control_batch, nsteps=2)
         with pytest.raises(StaleStateBatchError, match="mutation barrier"):
             _ = all_view.handle
         stepped_references = [np.asarray(getter()).copy() for getter in getters]
-        assert stepped.diagnostics.counters.state_materializations == 1
+        assert len(pool_outputs) == 2
+        assert all(output.flags.owndata for output in pool_outputs)
+        assert stepped.diagnostics.counters == BackendBatchCounters(
+            allocations=2,
+            state_materializations=1,
+            instrumentation_complete=True,
+        )
         for index, expected in enumerate(stepped_references):
             np.testing.assert_allclose(
                 cast(np.ndarray, stepped.terminal_state.buffer_at(index).handle),
@@ -934,6 +1142,34 @@ def test_mujoco_batch_contract_faults_fail_closed() -> None:
         plan = backend.bind_task_io(requirements)
         assert backend.bind_task_io(replace(requirements)) is plan
 
+        assert requirements.hot_path_budget is not None
+        with pytest.raises(
+            BackendHotPathViolationError,
+            match="allocations: actual=2, limit=0",
+        ):
+            backend.bind_task_io(
+                replace(
+                    requirements,
+                    hot_path_budget=replace(
+                        requirements.hot_path_budget,
+                        allocations=0,
+                    ),
+                )
+            )
+        alternate_budget_plan = backend.bind_task_io(
+            replace(
+                requirements,
+                hot_path_budget=replace(
+                    requirements.hot_path_budget,
+                    dynamic_getter_calls=1,
+                ),
+            )
+        )
+        assert alternate_budget_plan.fingerprint != plan.fingerprint
+        assert alternate_budget_plan.state.fingerprint == plan.state.fingerprint
+        with pytest.raises(BackendBatchContractError, match="different backend plan"):
+            plan.require_compatible(alternate_budget_plan)
+
         alternate_cadence_plan = backend.bind_task_io(
             replace(
                 requirements,
@@ -951,6 +1187,11 @@ def test_mujoco_batch_contract_faults_fail_closed() -> None:
         )
         assert root_only_plan.fingerprint != plan.fingerprint
         assert root_only_plan.state.fingerprint != plan.state.fingerprint
+
+        backend.set_pre_step_control(lambda _backend, ctrl: ctrl)
+        with pytest.raises(BackendBatchContractError, match="pre-step control callbacks"):
+            backend.bind_task_io(requirements)
+        backend.set_pre_step_control(None)
 
         wrong_owner_plan = replace(
             plan,
@@ -973,6 +1214,17 @@ def test_mujoco_batch_contract_faults_fail_closed() -> None:
             RowSelection.all(2),
             BufferView(valid_control, valid_control.shape, plan.control.buffer),
         )
+        backend.set_pre_step_control(lambda _backend, ctrl: ctrl)
+        with pytest.raises(BackendBatchContractError, match="pre-step control callbacks"):
+            backend.step_batch(plan, valid_batch, nsteps=2)
+        backend.set_pre_step_control(None)
+        backend.apply_body_force(
+            np.asarray([backend.get_body_id("pelvis")], dtype=np.int32),
+            np.ones((2, 1, 3), dtype=np.float64),
+        )
+        with pytest.raises(BackendBatchContractError, match="out-of-band external wrench"):
+            backend.step_batch(plan, valid_batch, nsteps=2)
+        backend.push_robots((0.0, 0.0, 0.0))
         with pytest.raises(BackendBatchContractError, match="control cadence"):
             backend.step_batch(plan, valid_batch, nsteps=1)
         with pytest.raises(BackendBatchContractError, match="mutation batches"):

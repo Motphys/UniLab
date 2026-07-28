@@ -42,6 +42,12 @@ _STATE_FINGERPRINT_PREFIX = "mujoco-host-state-v1"
 _PLAN_FINGERPRINT_PREFIX = "mujoco-host-batch-v1"
 
 
+def _step_allocations(dtype: str) -> int:
+    """Count Python-visible native outputs plus required float64 input casts."""
+    input_conversions = 0 if dtype == "float64" else 2
+    return 2 + input_conversions
+
+
 def _readonly_view(array: np.ndarray) -> np.ndarray:
     view = array.view()
     view.flags.writeable = False
@@ -81,7 +87,11 @@ class _MuJoCoStateSource:
         self._all_view = _readonly_view(self._full)
         self._selected = np.empty(expected_shape, dtype=self.spec.buffer.dtype)
 
-    def materialize(self, rows: RowSelection) -> BufferView:
+    def materialize(
+        self,
+        rows: RowSelection,
+        row_ids: np.ndarray | None,
+    ) -> BufferView:
         if self.gather_indices is not None:
             np.take(
                 self.source,
@@ -94,8 +104,7 @@ class _MuJoCoStateSource:
         if rows.is_all:
             handle = self._all_view
         else:
-            assert rows.indices is not None
-            row_ids = np.asarray(rows.indices, dtype=np.intp)
+            assert row_ids is not None
             np.take(self._full, row_ids, axis=0, out=self._selected[: rows.count])
             handle = self._selected_views.get(rows.count)
             if handle is None:
@@ -113,11 +122,39 @@ class _MuJoCoHostBatchPlan:
     public_plan: BoundBackendPlan
     sources: tuple[_MuJoCoStateSource, ...]
     lease: StateBatchLease
+    _control_trajectory: np.ndarray = field(init=False, repr=False)
+    _row_ids: np.ndarray = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        control = self.public_plan.control
+        self._control_trajectory = np.empty(
+            (
+                self.public_plan.num_envs,
+                control.physics_substeps_per_control,
+                *control.buffer.row_shape,
+            ),
+            dtype=control.buffer.dtype,
+        )
+        self._row_ids = np.empty(self.public_plan.num_envs, dtype=np.intp)
+
+    def stage_control(self, control: np.ndarray) -> np.ndarray:
+        np.copyto(self._control_trajectory, control[:, None, ...])
+        return self._control_trajectory
+
+    @property
+    def step_allocations(self) -> int:
+        """Per-step numeric storage allocated by the pool after plan binding."""
+        return _step_allocations(self.public_plan.control.buffer.dtype)
 
     def materialize(self, rows: RowSelection, phase: StateBatchPhase) -> BackendReadResult:
         self.lease.invalidate()
         start = time.perf_counter()
-        descriptors = tuple(source.materialize(rows) for source in self.sources)
+        row_ids = None
+        if not rows.is_all:
+            assert rows.indices is not None
+            self._row_ids[: rows.count] = rows.indices
+            row_ids = self._row_ids[: rows.count]
+        descriptors = tuple(source.materialize(rows, row_ids) for source in self.sources)
         state = StateBatch(
             plan=self.public_plan,
             rows=rows,
@@ -131,7 +168,7 @@ class _MuJoCoHostBatchPlan:
             diagnostics=BackendBatchDiagnostics(
                 counters=BackendBatchCounters(
                     state_materializations=1,
-                    instrumentation_complete=False,
+                    instrumentation_complete=True,
                 ),
                 timings=(BackendTiming("state_materialize", elapsed_ms),),
             ),
@@ -556,6 +593,11 @@ def _binding_payloads(
             "buffer": _buffer_payload(requirements.control.buffer),
             "cadence": requirements.control.physics_substeps_per_control,
         },
+        "hot_path_budget": (
+            None
+            if requirements.hot_path_budget is None
+            else dict(requirements.hot_path_budget.items())
+        ),
     }
     return state_payload, plan_payload
 
@@ -574,6 +616,10 @@ def _bind_mujoco_host_batch(
 ) -> _MuJoCoHostBatchPlan:
     if requirements.execution_profile is not ExecutionProfile.HOST_NUMPY:
         raise BackendBatchContractError("MuJoCo reference batches only support host_numpy")
+    if backend._pre_step_control_fn is not None:
+        raise BackendBatchContractError(
+            "MuJoCo managed host batches do not support pre-step control callbacks"
+        )
     expected_dtype = np.dtype(backend._np_dtype).name
     control = requirements.control
     if control.buffer.row_shape != (int(backend._model.nu),):
@@ -587,6 +633,12 @@ def _bind_mujoco_host_batch(
         )
     if control.buffer.layout is not BufferLayout.C_CONTIGUOUS:
         raise BackendBatchContractError("MuJoCo host control requires c_contiguous layout")
+    if requirements.hot_path_budget is not None:
+        BackendBatchCounters(
+            allocations=_step_allocations(control.buffer.dtype),
+            state_materializations=1,
+            instrumentation_complete=True,
+        ).require_within(requirements.hot_path_budget)
 
     sources = tuple(_bind_state_source(backend, spec) for spec in requirements.state_fields)
     state_payload, plan_payload = _binding_payloads(backend, requirements)
@@ -605,6 +657,7 @@ def _bind_mujoco_host_batch(
         control=control,
         execution_profile=requirements.execution_profile,
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{plan_digest}",
+        hot_path_budget=requirements.hot_path_budget,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     return _MuJoCoHostBatchPlan(
@@ -612,12 +665,3 @@ def _bind_mujoco_host_batch(
         sources=sources,
         lease=StateBatchLease(backend_instance_id),
     )
-
-
-def _legacy_timings(payload: dict | None) -> tuple[BackendTiming, ...]:
-    if not payload:
-        return ()
-    timing = payload.get("timing")
-    if not isinstance(timing, dict):
-        return ()
-    return tuple(BackendTiming(str(name), float(value)) for name, value in timing.items())

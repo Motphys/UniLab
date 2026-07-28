@@ -124,6 +124,21 @@ def _count(value: int, name: str, *, minimum: int = 0) -> int:
     return value
 
 
+_BACKEND_BATCH_COUNTER_FIELDS = (
+    "host_to_device_transfers",
+    "device_to_host_transfers",
+    "host_to_device_bytes",
+    "device_to_host_bytes",
+    "global_synchronizations",
+    "allocations",
+    "state_materializations",
+    "dynamic_getter_calls",
+    "selector_resolutions",
+    "asset_metadata_reads",
+    "registry_lookups",
+)
+
+
 @dataclass(frozen=True)
 class BufferPlacement:
     """Explicit memory-space identity; it is never inferred from a buffer handle."""
@@ -336,12 +351,19 @@ class BackendIORequirements:
     control: ControlSpec
     execution_profile: ExecutionProfile
     contract_version: str = BACKEND_BATCH_CONTRACT_VERSION
+    hot_path_budget: BackendBatchCounterBudget | None = None
 
     def __post_init__(self) -> None:
         _validate_fields(self.state_fields)
         if not isinstance(self.control, ControlSpec):
             raise BackendBatchContractError("control must be a ControlSpec")
         _validate_profile(self.execution_profile, self.state_fields, self.control)
+        if self.hot_path_budget is not None and not isinstance(
+            self.hot_path_budget, BackendBatchCounterBudget
+        ):
+            raise BackendBatchContractError(
+                "hot_path_budget must be a BackendBatchCounterBudget or None"
+            )
         if self.contract_version != BACKEND_BATCH_CONTRACT_VERSION:
             raise BackendBatchContractError(
                 f"unsupported backend batch contract version {self.contract_version!r}"
@@ -384,6 +406,7 @@ class BoundBackendPlan:
     execution_profile: ExecutionProfile
     fingerprint: str
     contract_version: str = BACKEND_BATCH_CONTRACT_VERSION
+    hot_path_budget: BackendBatchCounterBudget | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.state, BoundStatePlan):
@@ -395,6 +418,12 @@ class BoundBackendPlan:
             raise BackendBatchContractError("state and backend execution profiles must match")
         _validate_profile(self.execution_profile, self.state.fields, self.control)
         object.__setattr__(self, "fingerprint", _non_empty(self.fingerprint, "fingerprint"))
+        if self.hot_path_budget is not None and not isinstance(
+            self.hot_path_budget, BackendBatchCounterBudget
+        ):
+            raise BackendBatchContractError(
+                "hot_path_budget must be a BackendBatchCounterBudget or None"
+            )
         if self.contract_version != BACKEND_BATCH_CONTRACT_VERSION:
             raise BackendBatchContractError(
                 f"unsupported backend batch contract version {self.contract_version!r}"
@@ -649,6 +678,16 @@ class BackendMutationBatch(Protocol):
 
 @dataclass(frozen=True)
 class BackendBatchCounters:
+    """Per-barrier counters for runtime-owned numeric work and dynamic access.
+
+    ``allocations`` counts numeric storage or scratch allocated after binding. It
+    intentionally excludes Python result/descriptor wrapper objects, which need
+    a separate allocation-stability profiler at the executor/runtime layer.
+    Dynamic counters cover legacy fine-grained getters, selector resolution,
+    asset/model metadata I/O, and term/backend registry lookup; a backend's
+    lookup of an already-bound plan handle is not a registry lookup.
+    """
+
     host_to_device_transfers: int = 0
     device_to_host_transfers: int = 0
     host_to_device_bytes: int = 0
@@ -656,15 +695,122 @@ class BackendBatchCounters:
     global_synchronizations: int = 0
     allocations: int = 0
     state_materializations: int = 0
+    dynamic_getter_calls: int = 0
+    selector_resolutions: int = 0
+    asset_metadata_reads: int = 0
+    registry_lookups: int = 0
     instrumentation_complete: bool = False
 
     def __post_init__(self) -> None:
-        for name, value in vars(self).items():
-            if name == "instrumentation_complete":
-                if not isinstance(value, bool):
-                    raise BackendBatchContractError("instrumentation_complete must be a bool")
-                continue
-            _count(value, name)
+        for name in _BACKEND_BATCH_COUNTER_FIELDS:
+            _count(getattr(self, name), name)
+        if not isinstance(self.instrumentation_complete, bool):
+            raise BackendBatchContractError("instrumentation_complete must be a bool")
+
+    def require_within(self, budget: BackendBatchCounterBudget) -> None:
+        if not isinstance(budget, BackendBatchCounterBudget):
+            raise BackendBatchContractError("budget must be a BackendBatchCounterBudget")
+        if not self.instrumentation_complete:
+            raise BackendHotPathViolationError(
+                instrumentation_complete=False,
+                violations=(),
+            )
+        violations = tuple(
+            BackendCounterViolation(
+                counter=name,
+                actual=getattr(self, name),
+                limit=getattr(budget, name),
+            )
+            for name in _BACKEND_BATCH_COUNTER_FIELDS
+            if getattr(self, name) > getattr(budget, name)
+        )
+        if violations:
+            raise BackendHotPathViolationError(
+                instrumentation_complete=True,
+                violations=violations,
+            )
+
+
+@dataclass(frozen=True)
+class BackendBatchCounterBudget:
+    """Maximum permitted per-barrier counts for one bound managed path."""
+
+    host_to_device_transfers: int = 0
+    device_to_host_transfers: int = 0
+    host_to_device_bytes: int = 0
+    device_to_host_bytes: int = 0
+    global_synchronizations: int = 0
+    allocations: int = 0
+    state_materializations: int = 0
+    dynamic_getter_calls: int = 0
+    selector_resolutions: int = 0
+    asset_metadata_reads: int = 0
+    registry_lookups: int = 0
+
+    def __post_init__(self) -> None:
+        for name in _BACKEND_BATCH_COUNTER_FIELDS:
+            _count(getattr(self, name), name)
+
+    def items(self) -> tuple[tuple[str, int], ...]:
+        """Return canonical cold-path serialization entries."""
+        return tuple((name, getattr(self, name)) for name in _BACKEND_BATCH_COUNTER_FIELDS)
+
+
+@dataclass(frozen=True)
+class BackendCounterViolation:
+    counter: str
+    actual: int
+    limit: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "counter", _non_empty(self.counter, "counter"))
+        if self.counter not in _BACKEND_BATCH_COUNTER_FIELDS:
+            raise BackendBatchContractError(f"unknown backend counter {self.counter!r}")
+        _count(self.actual, "actual")
+        _count(self.limit, "limit")
+        if self.actual <= self.limit:
+            raise BackendBatchContractError("counter violation actual value must exceed its limit")
+
+
+class BackendHotPathViolationError(BackendBatchContractError):
+    def __init__(
+        self,
+        *,
+        instrumentation_complete: bool,
+        violations: tuple[BackendCounterViolation, ...],
+    ) -> None:
+        if not isinstance(instrumentation_complete, bool):
+            raise BackendBatchContractError("instrumentation_complete must be a bool")
+        if not isinstance(violations, tuple) or any(
+            not isinstance(violation, BackendCounterViolation) for violation in violations
+        ):
+            raise BackendBatchContractError(
+                "violations must be a tuple of BackendCounterViolation values"
+            )
+        names = tuple(violation.counter for violation in violations)
+        canonical_names = tuple(name for name in _BACKEND_BATCH_COUNTER_FIELDS if name in names)
+        if names != canonical_names:
+            raise BackendBatchContractError(
+                "counter violations must be unique and in canonical order"
+            )
+        self.instrumentation_complete = instrumentation_complete
+        self.violations = violations
+        if not instrumentation_complete:
+            if violations:
+                raise BackendBatchContractError(
+                    "incomplete instrumentation cannot report counter violations"
+                )
+            message = "managed hot-path instrumentation is incomplete"
+        else:
+            if not violations:
+                raise BackendBatchContractError(
+                    "complete instrumentation errors require counter violations"
+                )
+            details = "; ".join(
+                f"{item.counter}: actual={item.actual}, limit={item.limit}" for item in violations
+            )
+            message = f"managed hot-path counter budget exceeded: {details}"
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -736,6 +882,7 @@ class BackendReadResult:
         if not isinstance(self.diagnostics, BackendBatchDiagnostics):
             raise BackendBatchContractError("diagnostics must be BackendBatchDiagnostics")
         _validate_result_completion(self.state, self.diagnostics)
+        _validate_result_budget(self.state, self.diagnostics)
 
 
 def _validate_result_completion(
@@ -754,6 +901,15 @@ def _validate_result_completion(
         )
 
 
+def _validate_result_budget(
+    state: StateBatch,
+    diagnostics: BackendBatchDiagnostics,
+) -> None:
+    budget = state.plan.hot_path_budget
+    if budget is not None:
+        diagnostics.counters.require_within(budget)
+
+
 @dataclass(frozen=True)
 class BackendStepResult:
     terminal_state: StateBatch
@@ -768,6 +924,7 @@ class BackendStepResult:
         if not isinstance(self.diagnostics, BackendBatchDiagnostics):
             raise BackendBatchContractError("diagnostics must be BackendBatchDiagnostics")
         _validate_result_completion(self.terminal_state, self.diagnostics)
+        _validate_result_budget(self.terminal_state, self.diagnostics)
 
 
 @dataclass(frozen=True)
@@ -784,14 +941,18 @@ class BackendResetResult:
         if not isinstance(self.diagnostics, BackendBatchDiagnostics):
             raise BackendBatchContractError("diagnostics must be BackendBatchDiagnostics")
         _validate_result_completion(self.reset_state, self.diagnostics)
+        _validate_result_budget(self.reset_state, self.diagnostics)
 
 
 __all__ = [
     "BACKEND_BATCH_CONTRACT_VERSION",
     "BackendBatchContractError",
+    "BackendBatchCounterBudget",
     "BackendBatchCounters",
     "BackendBatchDiagnostics",
     "BackendCompletionEvent",
+    "BackendCounterViolation",
+    "BackendHotPathViolationError",
     "BackendIORequirements",
     "BackendMutationBatch",
     "BackendReadResult",
