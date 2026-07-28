@@ -68,8 +68,8 @@ claims:
     expected: Legacy DomainRandomizationProvider warning and filtering remain an explicit compatibility mode while compiled managed tasks default to strict fail-closed mutation binding.
     risk: The new path silently inherits legacy warning-and-continue behavior or duplicates randomization semantics.
     owner: backend-DR
-    oracle: The same unsupported term fixture is executed through legacy and compiled entrypoints and must produce a warning in one and a compile error in the other.
-    commands: [uv run pytest tests/dr/test_mutation_contract.py -k compatibility -v]
+    oracle: The same unsupported term fixture is executed through legacy and compiled compatibility entrypoints and must warn once and filter only in legacy mode, while strict mode raises a typed error before filtering or backend commit.
+    commands: [uv run pytest tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary -v]
     lane: B
     required: true
     required_test_ids: [tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary]
