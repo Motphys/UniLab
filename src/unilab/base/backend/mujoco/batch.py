@@ -34,6 +34,12 @@ from unilab.base.backend.batch import (
     StateFieldKind,
     StateFieldSpec,
 )
+from unilab.base.backend.mutation import (
+    BoundMutationPlan,
+    BoundMutationSpec,
+    MutationContractError,
+)
+from unilab.base.backend.mutation_batch import TypedBackendMutationBatch
 
 if TYPE_CHECKING:
     from .backend import MuJoCoBackend
@@ -173,6 +179,148 @@ class _MuJoCoHostBatchPlan:
                 timings=(BackendTiming("state_materialize", elapsed_ms),),
             ),
         )
+
+
+@dataclass
+class _MuJoCoHostMutationPlan:
+    """MuJoCo-owned cold-path staging for one typed mutation plan.
+
+    The public ``BoundMutationPlan`` deliberately does not expose raw MuJoCo
+    field layout.  This runtime companion owns the only ``xfrc_applied``
+    translation and allocates every control-plus-wrench trajectory while a
+    state/control plan is being bound, never at a physics step.
+    """
+
+    public_plan: BoundMutationPlan
+    num_bodies: int
+    _staged_xfrc: np.ndarray = field(init=False, repr=False)
+    _control_trajectories: dict[str, np.ndarray] = field(default_factory=dict, init=False)
+
+    def __post_init__(self) -> None:
+        if self.num_bodies <= 0:
+            raise BackendBatchContractError("MuJoCo mutation binding requires at least one body")
+        self._staged_xfrc = np.empty(
+            (self.public_plan.num_envs, 6 * self.num_bodies),
+            dtype=np.float64,
+        )
+
+    def register_batch_plan(self, plan: BoundBackendPlan) -> None:
+        """Allocate the plan-paired pool control trajectory on the cold path."""
+        if plan.num_envs != self.public_plan.num_envs:
+            raise BackendBatchContractError(
+                "MuJoCo mutation and state plans must use the same row universe"
+            )
+        if plan.execution_profile is not ExecutionProfile.HOST_NUMPY:
+            raise BackendBatchContractError(
+                "MuJoCo typed external wrench only supports host_numpy plans"
+            )
+        key = plan.fingerprint
+        existing = self._control_trajectories.get(key)
+        expected_shape = (
+            plan.num_envs,
+            plan.control.physics_substeps_per_control,
+            plan.control.buffer.row_shape[0] + 6 * self.num_bodies,
+        )
+        if existing is not None:
+            if existing.shape != expected_shape or existing.dtype != np.dtype(np.float64):
+                raise BackendBatchContractError(
+                    "MuJoCo mutation plan has an incompatible registered control trajectory"
+                )
+            return
+        self._control_trajectories[key] = np.empty(
+            expected_shape,
+            # mujoco_uni consumes the raw combined ctrl/xfrc state vector in
+            # MuJoCo's native scalar type.  Manager control may be float32,
+            # but the cold-path trajectory must retain the float64 xfrc lane.
+            dtype=np.float64,
+        )
+
+    def require_registered_batch_plan(self, plan: BoundBackendPlan) -> None:
+        try:
+            trajectory = self._control_trajectories[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation plan was not cold-path paired with this state/control plan"
+            ) from exc
+        if trajectory.shape[0] != plan.num_envs:
+            raise BackendBatchContractError(
+                "MuJoCo mutation trajectory row universe does not match the state/control plan"
+            )
+
+    @staticmethod
+    def _require_value_handle(value, rows: RowSelection) -> np.ndarray:
+        handle = value.buffer.handle
+        if not isinstance(handle, np.ndarray):
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation values require numpy host buffer handles"
+            )
+        expected_shape = (rows.count, *value.spec.value_buffer.row_shape)
+        if handle.shape != expected_shape:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation value handle shape does not match its bound contract"
+            )
+        if handle.dtype.name != value.spec.value_buffer.dtype:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation value handle dtype does not match its bound contract"
+            )
+        if not handle.flags.c_contiguous:
+            raise BackendBatchContractError("MuJoCo typed mutation values must be C-contiguous")
+        return handle
+
+    def stage_external_force(self, batch: TypedBackendMutationBatch) -> bool:
+        """Validate and stage selected-row force values without exposing raw fields."""
+        self.public_plan.require_compatible(batch.plan)
+        if batch.rows.universe_size != self.public_plan.num_envs:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation rows do not match the backend row universe"
+            )
+        if batch.model.values or batch.state.values or batch.task_state.values:
+            raise BackendBatchContractError(
+                "MuJoCo host mutation commit only supports external force values"
+            )
+        if not batch.wrench.values:
+            return False
+
+        staged_values: list[tuple[BoundMutationSpec, np.ndarray]] = []
+        for value in batch.wrench.values:
+            spec = value.spec
+            if (
+                spec.target.target_key != "wrench.body.force"
+                or len(spec.target.entity_ids) == 0
+                or spec.value_buffer.row_shape[-1] != 3
+            ):
+                raise MutationContractError(
+                    "MuJoCo typed mutation plan contains an unsupported external wrench target"
+                )
+            staged_values.append((spec, self._require_value_handle(value, batch.rows)))
+
+        self._staged_xfrc.fill(0.0)
+        if batch.rows.indices is None:
+            row_ids = tuple(range(batch.rows.universe_size))
+        else:
+            row_ids = batch.rows.indices
+        for spec, values in staged_values:
+            for body_offset, body_id in enumerate(spec.target.entity_ids):
+                force_slice = slice(6 * body_id, 6 * body_id + 3)
+                for row_offset, row_id in enumerate(row_ids):
+                    self._staged_xfrc[row_id, force_slice] = values[row_offset, body_offset]
+        return True
+
+    def stage_control_with_wrench(
+        self,
+        plan: BoundBackendPlan,
+        control: np.ndarray,
+    ) -> np.ndarray:
+        self.require_registered_batch_plan(plan)
+        trajectory = self._control_trajectories[plan.fingerprint]
+        control_width = plan.control.buffer.row_shape[0]
+        np.copyto(trajectory[..., :control_width], control[:, None, ...])
+        np.copyto(trajectory[..., control_width:], self._staged_xfrc[:, None, ...])
+        return trajectory
+
+    def clear_staged_external_force(self) -> None:
+        """Enforce the only supported persistence mode: one physics step."""
+        self._staged_xfrc.fill(0.0)
 
 
 def _require_field_contract(
