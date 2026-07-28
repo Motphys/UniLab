@@ -4,7 +4,7 @@ import time
 import weakref
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from multiprocessing import cpu_count, current_process, get_context
 from typing import Any, Optional, cast
 
@@ -47,12 +47,13 @@ from ..batch import (
     BackendMutationBatch,
     BackendReadResult,
     BackendStepResult,
+    BackendTiming,
     BoundBackendPlan,
     ControlBatch,
     RowSelection,
     StateBatchPhase,
 )
-from .batch import _bind_mujoco_host_batch, _legacy_timings, _MuJoCoHostBatchPlan
+from .batch import _bind_mujoco_host_batch, _MuJoCoHostBatchPlan
 from .playback import run_mujoco_playback
 
 
@@ -852,10 +853,18 @@ class MuJoCoBackend(SimBackend):
         nsteps: int = 1,
     ) -> BackendStepResult:
         bound = self._require_host_batch_plan(plan)
+        if self._pre_step_control_fn is not None:
+            raise BackendBatchContractError(
+                "MuJoCo managed host batches do not support pre-step control callbacks"
+            )
         plan.require_compatible(control_batch.plan)
         if mutation_batch is not None:
             raise BackendBatchContractError(
                 "MuJoCo typed mutation batches are not implemented in the host reference path"
+            )
+        if np.any(self._pending_xfrc_applied):
+            raise BackendBatchContractError(
+                "MuJoCo managed host batches reject out-of-band external wrench state"
             )
         if not control_batch.rows.is_all:
             raise BackendBatchContractError("MuJoCo physics steps require controls for all rows")
@@ -873,11 +882,40 @@ class MuJoCoBackend(SimBackend):
         if not control.flags.c_contiguous:
             raise BackendBatchContractError("MuJoCo host control must be C-contiguous")
 
-        legacy_result = self.step(control, nsteps=nsteps)
+        self._invalidate_host_batch_state()
+        t0 = time.perf_counter()
+        control_trajectory = bound.stage_control(control)
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
+            self._physics_state,
+            nstep=nsteps,
+            control=control_trajectory,
+            control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
+            chunk_size=self._chunk_size,
+            return_sensor=True,
+            post_step_forward_sensor=self._post_step_forward_sensor,
+        )
+        np.copyto(self._physics_state, state_np, casting="unsafe")
+        physics_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        np.copyto(self._sensor_data, sensor_np, casting="unsafe")
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
         read_result = bound.materialize(RowSelection.all(self._num_envs), StateBatchPhase.TERMINAL)
         diagnostics = BackendBatchDiagnostics(
-            counters=read_result.diagnostics.counters,
-            timings=(*_legacy_timings(legacy_result), *read_result.diagnostics.timings),
+            counters=replace(
+                read_result.diagnostics.counters,
+                allocations=bound.step_allocations,
+            ),
+            timings=(
+                BackendTiming("set_ctrl_ms", set_ctrl_ms),
+                BackendTiming("physics_ms", physics_ms),
+                BackendTiming("refresh_cache_ms", refresh_cache_ms),
+                *read_result.diagnostics.timings,
+            ),
         )
         return BackendStepResult(
             terminal_state=read_result.state,
