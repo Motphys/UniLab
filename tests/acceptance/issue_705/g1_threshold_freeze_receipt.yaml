@@ -1,0 +1,13 @@
+schema_version: 1
+issue: 705
+threshold_set_id: g1-manager-mjwarp-v1
+manifest_path: tests/acceptance/issue_705/g1_threshold_manifest.yaml
+manifest_sha256: sha256:c39e3a001d5c516982b33eae1be684b58e4b6f85d2610fb253e5742321b62a74
+manifest_git_blob: f622c724eec1368cf4c28ce9a243a0fcac16d09d
+freeze_commit: a2419b342b8663998b2e29cf20a4dce49b3127f5
+baseline_artifact_sha256: sha256:216e4aab93d00ed0d8d44b1632def469d498c1fe659302bc8d3a6ea5cd0cb694
+issue_url: https://github.com/unilabsim/UniLab/issues/717
+change_policy: Threshold changes require an independent ADR and threshold-only PR merged before new candidate measurements.
+creation_verification: full_git_history
+shallow_checkout_policy: current_hash_and_receipt
+final_merge_method: merge_commit

@@ -302,10 +302,14 @@ claims:
     owner: benchmark/training
     oracle: Reviewed threshold manifest and validator reject missing or post-hoc-mutated criteria.
     commands:
+      - uv run scripts/validate_issue705_thresholds.py
       - uv run scripts/validate_issue705_phase.py --phase 0 --mode gate
     lane: D
     required: true
     required_test_ids:
+      - tests/tools/test_issue705_threshold_contract.py
+      - tests/tools/test_issue705_threshold_freeze_receipt.py
+      - tests/scripts/test_issue705_thresholds.py
       - tests/acceptance/issue_705/test_threshold_manifest.py::test_phase0_thresholds_are_frozen
     environment:
       dependencies: [uv.lock]
@@ -316,27 +320,59 @@ claims:
       dtype: float32
       plan_fingerprint: null
     acceptance:
-      tolerance: {}
+      tolerance:
+        manager_obs_atol: 0.000001
+        manager_reward_atol: 0.000001
+        physics_one_step_atol: 0.00001
+        physics_trajectory_qpos_atol: 0.002
+        physics_trajectory_qvel_atol: 0.01
       thresholds:
         manager_overhead_ratio_max: 1.05
+        env_p95_ratio_max: 1.05
+        env_throughput_ratio_min: 0.9523809523809523
         required_training_seeds: 5
+        reward_auc_drop_max: 5.0
+        dr_overhead_ratio_max: 1.25
+        host_memory_ratio_max: 1.25
+        device_capacity_ratio_max: 0.8
+        h2d_per_policy_step_max: 0.0
+        d2h_per_policy_step_max: 0.0
+        host_sync_per_policy_step_max: 0.0
       repetitions: 5
-      max_dispersion: null
+      max_dispersion: 0.15
       failure_semantics: Any threshold changed with candidate implementation/results in the same PR is FAIL.
     evidence:
-      result: NOT_RUN
-      artifact_refs: []
-      commit_sha: null
-      config_hash: null
-      executed_test_ids: []
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/issues/717
+        - tests/acceptance/issue_705/g1_threshold_manifest.yaml
+        - tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml
+      commit_sha: 209ce97bc27e3a4a4771fe7d7dd19d1e20b310d4
+      config_hash: sha256:c39e3a001d5c516982b33eae1be684b58e4b6f85d2610fb253e5742321b62a74
+      executed_test_ids:
+        - tests/tools/test_issue705_threshold_contract.py
+        - tests/tools/test_issue705_threshold_freeze_receipt.py
+        - tests/scripts/test_issue705_thresholds.py
+        - tests/acceptance/issue_705/test_threshold_manifest.py::test_phase0_thresholds_are_frozen
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: ""
+      summary: Frozen gates cover all 50 raw cases, env batches, PPO seeds, DR densities, host/device memory, CPU-GPU transfers, lifecycle, and numerical compatibility; aggregate/raw and counter/profiler reconciliation are mandatory, the receipt binds the unchanged manifest blob to a pre-candidate Git commit, and merge-commit history preservation is required after shallow CI.
     invalidation:
       paths:
         - tests/acceptance/issue_705/manifests/phase_0.yaml
+        - tests/acceptance/issue_705/g1_threshold_manifest.yaml
+        - tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml
+        - tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml
+        - tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json
+        - src/unilab/tools/issue705_thresholds.py
+        - scripts/validate_issue705_thresholds.py
+        - tests/tools/test_issue705_threshold_contract.py
+        - tests/tools/test_issue705_threshold_freeze_receipt.py
+        - tests/scripts/test_issue705_thresholds.py
+        - tests/acceptance/issue_705/test_threshold_manifest.py
         - benchmark/**
         - conf/ppo/task/g1_walk_flat/mujoco.yaml
-      capabilities: [phase-gate-thresholds]
+        - uv.lock
+      capabilities: [phase-gate-thresholds, candidate-provenance, transfer-gates]
       fingerprints: [g1-phase0-thresholds-v1]
-    status: planned
+    status: verified
