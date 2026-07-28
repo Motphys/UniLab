@@ -385,6 +385,7 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
         errors.append(f"kind: expected {ARTIFACT_KIND!r}")
     if report.get("issue") != ISSUE or report.get("phase") != PHASE:
         errors.append(f"issue/phase: expected {ISSUE}/{PHASE}")
+    _string(report.get("generated_at_utc"), "generated_at_utc", errors)
 
     source = _mapping(report.get("source"), "source", errors)
     commit = _string(source.get("commit_sha"), "source.commit_sha", errors)
@@ -417,6 +418,9 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
     warp_device = _string(environment.get("warp_device"), "environment.warp_device", errors)
     if warp_device and "cuda" not in warp_device.lower():
         errors.append("environment.warp_device: expected CUDA device")
+    packages = _mapping(environment.get("packages"), "environment.packages", errors)
+    for package_name in ("mujoco", "mujoco-warp", "warp-lang", "torch", "rsl-rl-lib"):
+        _string(packages.get(package_name), f"environment.packages.{package_name}", errors)
 
     raw_commands = report.get("commands")
     if not isinstance(raw_commands, list) or not raw_commands:
@@ -424,6 +428,7 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
         raw_commands = []
     command_by_name: dict[str, dict[str, Any]] = {}
     commands_by_series: dict[str, list[dict[str, Any]]] = {}
+    expected_commands = {command.name: command for command in PHASE2_COMMANDS}
     seen_lanes: set[str] = set()
     for index, raw_command in enumerate(raw_commands):
         command = _mapping(raw_command, f"commands[{index}]", errors)
@@ -433,13 +438,37 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
                 errors.append(f"commands[{index}].name: duplicate {name!r}")
             command_by_name[name] = command
         series = _string(command.get("series"), f"commands[{index}].series", errors)
+        repetition = _int(command.get("repetition"), f"commands[{index}].repetition", errors)
+        if repetition < 1:
+            errors.append(f"commands[{index}].repetition: expected >= 1")
+        if series and name and name != f"{series}#{repetition}":
+            errors.append(f"commands[{index}].name: must equal its series/repetition key")
         if series:
             commands_by_series.setdefault(series, []).append(command)
+            expected = expected_commands.get(series)
+            if expected is None:
+                errors.append(f"commands[{index}].series: unknown series {series!r}")
+            else:
+                if command.get("lane") != expected.lane:
+                    errors.append(f"commands[{index}].lane: does not match {series!r}")
+                if command.get("argv") != list(expected.argv):
+                    errors.append(
+                        f"commands[{index}].argv: does not match registered command {series!r}"
+                    )
+                if command.get("required_test_ids") != list(expected.required_test_ids):
+                    errors.append(f"commands[{index}].required_test_ids: does not match {series!r}")
         lane = _string(command.get("lane"), f"commands[{index}].lane", errors)
         if lane:
             seen_lanes.add(lane)
         if _int(command.get("exit_code"), f"commands[{index}].exit_code", errors) != 0:
             errors.append(f"commands[{index}].exit_code: expected 0")
+        duration = command.get("duration_sec")
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or float(duration) <= 0.0
+        ):
+            errors.append(f"commands[{index}].duration_sec: expected positive number")
         pytest_counts = _mapping(command.get("pytest"), f"commands[{index}].pytest", errors)
         if _int(pytest_counts.get("passed"), f"commands[{index}].pytest.passed", errors) <= 0:
             errors.append(f"commands[{index}].pytest.passed: expected > 0")
@@ -467,6 +496,8 @@ def validate_phase2_evidence(report: Mapping[str, Any], *, root: Path) -> tuple[
                     )
     if seen_lanes != {"A", "C"}:
         errors.append(f"commands: expected exactly lanes A/C, got {sorted(seen_lanes)!r}")
+    if set(commands_by_series) != set(expected_commands):
+        errors.append("commands: series do not exactly match the registered Phase 2 commands")
     for expected_command in PHASE2_COMMANDS:
         matching = commands_by_series.get(expected_command.name, [])
         repetitions = {
@@ -525,6 +556,7 @@ __all__ = [
     "OWNER_YAML",
     "PHASE",
     "PHASE2_COMMANDS",
+    "PHASE2_MIN_REPETITIONS",
     "PHASE2_REQUIRED_TEST_IDS",
     "Phase2EvidenceError",
     "capture_phase2_evidence",

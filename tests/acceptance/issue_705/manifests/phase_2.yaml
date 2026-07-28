@@ -15,9 +15,9 @@ claims:
     required_test_ids: [tests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco]
     environment: {dependencies: [uv.lock], hardware: any, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [], batch_sizes: [], dtype: null, plan_fingerprint: mjwarp-identity-v1}
     acceptance: {tolerance: {}, thresholds: {identity_aliases: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any eager optional import, identity alias, or owner-route mismatch is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane A import/identity capture passed from a clean source commit; artifact records the owner and lock hashes."}
     invalidation: {paths: [src/unilab/base/backend/**, src/unilab/cli.py, src/unilab/structured_configs.py, conf/**, tests/base/test_mjwarp_identity.py], capabilities: [mjwarp-identity], fingerprints: [mjwarp-identity-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-GPU-CORRECTNESS
     expected: The production mjwarp backend initializes, resets, steps, and refreshes its bound state on a real CUDA device.
@@ -30,9 +30,9 @@ claims:
     required_test_ids: [tests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [1, 128], dtype: float32, plan_fingerprint: mjwarp-correctness-v1}
     acceptance: {tolerance: {}, thresholds: {mandatory_skips: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Fake Warp, benchmark-only code, implicit skip, or host-only execution is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C production CUDA capture passed with no skip or xfail; raw pytest output and GPU provenance are retained in the artifact."}
     invalidation: {paths: [src/unilab/base/backend/mjwarp/**, conf/ppo/task/g1_walk_flat/mjwarp.yaml, uv.lock, tests/base/test_mjwarp_backend.py], capabilities: [mjwarp-correctness], fingerprints: [mjwarp-correctness-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-RESET-ISOLATION
     expected: Selected-row qpos and qvel reset changes exactly the requested worlds and refreshes terminal/reset state at the canonical barrier.
@@ -45,9 +45,9 @@ claims:
     required_test_ids: [tests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 3, 19], batch_sizes: [17, 128], dtype: float32, plan_fingerprint: mjwarp-reset-v1}
     acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {complement_changes: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any complement-row change, stale reset view, or missing forward is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C selected-row reset capture passed with no skip or xfail; raw pytest output and GPU provenance are retained in the artifact."}
     invalidation: {paths: [src/unilab/base/backend/mjwarp/**, tests/base/test_mjwarp_backend.py], capabilities: [mjwarp-selected-reset], fingerprints: [mjwarp-reset-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-TRAJECTORY-DIFFERENTIAL
     expected: Fixed initial state and action schedules produce bounded single-step and short-trajectory differences between mujoco and mjwarp.
@@ -60,9 +60,9 @@ claims:
     required_test_ids: [tests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco]
     environment: {dependencies: [uv.lock, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [1, 32], dtype: float32, plan_fingerprint: g1-mjwarp-differential-v1}
     acceptance: {tolerance: {state_atol: 1.0e-4, state_rtol: 1.0e-3}, thresholds: {trajectory_steps: 100}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any field outside frozen tolerance or unexplained first mismatch is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C fixed-seed short-trajectory differential capture passed with no skip or xfail; raw pytest output and GPU provenance are retained in the artifact."}
     invalidation: {paths: [src/unilab/base/backend/mujoco/**, src/unilab/base/backend/mjwarp/**, assets/**, tests/base/test_mjwarp_differential.py], capabilities: [mjwarp-dynamics-parity], fingerprints: [g1-mjwarp-differential-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-DR-OWNER-SEMANTICS
     expected: The mjwarp G1 owner either implements selected-row kp/kd mutation with immutable baselines and physics effect or explicitly disables it with an audited semantic difference.
@@ -75,9 +75,9 @@ claims:
     required_test_ids: [tests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1], batch_sizes: [32], dtype: float32, plan_fingerprint: mjwarp-g1-dr-v1}
     acceptance: {tolerance: {effect_min: 1.0e-7}, thresholds: {silent_terms: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Enabled but ineffective kp/kd DR, cumulative baselines, or row leakage is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C owner-semantics capture passed with explicit disabled kp/kd DR and no skip or xfail; raw pytest output is retained in the artifact."}
     invalidation: {paths: [conf/ppo/task/g1_walk_flat/mjwarp.yaml, src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_g1_dr.py], capabilities: [mjwarp-g1-dr], fingerprints: [mjwarp-g1-dr-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-TRANSFER-ACCOUNTING
     expected: The host compatibility profile performs only the transfers declared by its bound plan and reports every transfer and synchronization.
@@ -90,9 +90,9 @@ claims:
     required_test_ids: [tests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU with profiler, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: mjwarp-host-transfer-v1}
     acceptance: {tolerance: {}, thresholds: {undeclared_transfers: 0, getter_dependent_transfers: 0}, repetitions: 2, max_dispersion: 0, failure_semantics: "Counter/trace disagreement, hidden numpy conversion, or getter-dependent transfer is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C transfer/profile reconciliation capture passed with no skip or xfail; raw pytest output and GPU provenance are retained in the artifact."}
     invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/training/**, tests/base/test_mjwarp_transfers.py], capabilities: [mjwarp-transfer-accounting], fingerprints: [mjwarp-host-transfer-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-UNSUPPORTED-FAIL-CLOSED
     expected: Unsupported DR, Event, render, playback, hfield, Jacobian, and host substep controller combinations fail during compose, compile, or materialization.
@@ -105,9 +105,9 @@ claims:
     required_test_ids: [tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [8], dtype: float32, plan_fingerprint: mjwarp-unsupported-matrix-v1}
     acceptance: {tolerance: {}, thresholds: {late_failures: 0, silent_fallbacks: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any unsupported combination that composes silently, reaches step, or falls back is FAIL."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C fail-closed capability capture passed with no skip or xfail; raw pytest output and GPU provenance are retained in the artifact."}
     invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/structured_configs.py, conf/ppo/task/g1_walk_flat/mjwarp.yaml, tests/base/test_mjwarp_capabilities.py], capabilities: [mjwarp-unsupported-matrix], fingerprints: [mjwarp-unsupported-matrix-v1]}
-    status: planned
+    status: verified
 
   - claim_id: P2-TRAIN-LIVENESS
     expected: A one-iteration G1 PPO run reaches rollout and learner completion through the production registered mjwarp backend.
@@ -120,6 +120,6 @@ claims:
     required_test_ids: [tests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp]
     environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: mjwarp-train-liveness-v1}
     acceptance: {tolerance: {}, thresholds: {completed_iterations: 1, mandatory_skips: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any non-production route, missing rollout or learner stage, crash, skip, or nonfinite value is FAIL; this claim does not imply performance."}
-    evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_2_gate.json], commit_sha: e5e3b6638d72577c66cc474efd072e7a8459e53a, config_hash: sha256:25dea0ab8d00597a20b8a75867dc26c88d337bbe0815e355fe216fc9d17db3fe, executed_test_ids: [tests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane C production PPO liveness capture passed with no skip or xfail; raw pytest output and GPU provenance are retained in the artifact."}
     invalidation: {paths: [scripts/train_rsl_rl.py, src/unilab/training/**, src/unilab/base/backend/mjwarp/**, conf/ppo/task/g1_walk_flat/mjwarp.yaml, tests/integration/test_mjwarp_train_smoke.py], capabilities: [mjwarp-train-liveness], fingerprints: [mjwarp-train-liveness-v1]}
-    status: planned
+    status: verified
