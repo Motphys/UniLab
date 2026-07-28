@@ -68,8 +68,8 @@ claims:
     expected: mujoco and mjwarp host profiles execute the same compiled G1 plan without backend-private term branches.
     risk: Two backend-specific task implementations merely share a manager-shaped facade.
     owner: manager-runtime
-    oracle: Plan fingerprints, public access counters, and per-field outputs are compared across independently bound backends.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/manager/test_cross_backend_plan.py -v]
+    oracle: Independently bound semantic/backend-local fingerprints, public StateBatch fields, and policy-visible outputs are compared while selector/getter/reset/asset fallbacks are fault-injected.
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/manager/test_cross_backend_plan.py -v]
     lane: C
     required: true
     required_test_ids: [tests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp]
