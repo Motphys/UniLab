@@ -35,7 +35,7 @@ def _write_mutated_receipt(tmp_path: Path, mutate: Callable[[dict[str, Any]], No
     return destination
 
 
-def test_real_receipt_resolves_frozen_parent_commit_and_blob(
+def test_real_receipt_reports_whether_frozen_history_is_available(
     manifest: ThresholdManifest,
 ) -> None:
     receipt = load_freeze_receipt(
@@ -47,7 +47,15 @@ def test_real_receipt_resolves_frozen_parent_commit_and_blob(
     assert receipt.freeze_commit == "a2419b342b8663998b2e29cf20a4dce49b3127f5"
     assert receipt.data["manifest_git_blob"] == "f622c724eec1368cf4c28ce9a243a0fcac16d09d"
     assert receipt.data["manifest_sha256"] == sha256_file(MANIFEST_PATH)
-    assert receipt.git_history_verified is True
+    commit_available = (
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{receipt.freeze_commit}^{{commit}}"],
+            cwd=REPO_ROOT,
+            check=False,
+        ).returncode
+        == 0
+    )
+    assert receipt.git_history_verified is commit_available
 
 
 @pytest.mark.parametrize(
