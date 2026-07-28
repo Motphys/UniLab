@@ -60,6 +60,7 @@ class ThresholdManifest:
 class FreezeReceipt:
     source_path: Path
     data: Mapping[str, Any]
+    git_history_verified: bool = False
 
     @property
     def freeze_commit(self) -> str:
@@ -784,6 +785,9 @@ _RECEIPT_KEYS = (
     "baseline_artifact_sha256",
     "issue_url",
     "change_policy",
+    "creation_verification",
+    "shallow_checkout_policy",
+    "final_merge_method",
 )
 
 
@@ -810,6 +814,14 @@ def load_freeze_receipt(
         errors.append(f"threshold_set_id: expected {THRESHOLD_SET_ID!r}")
     if receipt.get("manifest_path") != THRESHOLD_MANIFEST_PATH.as_posix():
         errors.append("manifest_path: must point to the frozen threshold manifest")
+    expected_history_policy = {
+        "creation_verification": "full_git_history",
+        "shallow_checkout_policy": "current_hash_and_receipt",
+        "final_merge_method": "merge_commit",
+    }
+    for key, expected in expected_history_policy.items():
+        if receipt.get(key) != expected:
+            errors.append(f"{key}: expected {expected!r}")
     manifest_sha = sha256_file(manifest.source_path)
     if receipt.get("manifest_sha256") != manifest_sha:
         errors.append(
@@ -827,19 +839,23 @@ def load_freeze_receipt(
     for key in ("manifest_sha256", "baseline_artifact_sha256"):
         if not _SHA256_RE.fullmatch(str(receipt.get(key, ""))):
             errors.append(f"{key}: expected sha256:<64 lowercase hex>")
+    git_history_verified = False
     if verify_git and _COMMIT_RE.fullmatch(freeze_commit):
-        errors.extend(
-            _git_receipt_errors(
-                repo_root=repo_root,
-                freeze_commit=freeze_commit,
-                manifest_path=THRESHOLD_MANIFEST_PATH,
-                manifest_bytes=manifest.source_path.read_bytes(),
-                expected_blob=manifest_blob,
-            )
+        git_errors, git_history_verified = _git_receipt_errors(
+            repo_root=repo_root,
+            freeze_commit=freeze_commit,
+            manifest_path=THRESHOLD_MANIFEST_PATH,
+            manifest_bytes=manifest.source_path.read_bytes(),
+            expected_blob=manifest_blob,
         )
+        errors.extend(git_errors)
     if errors:
         raise ThresholdValidationError(path, errors)
-    return FreezeReceipt(source_path=path, data=raw)
+    return FreezeReceipt(
+        source_path=path,
+        data=raw,
+        git_history_verified=git_history_verified,
+    )
 
 
 def _git(
@@ -861,9 +877,29 @@ def _git_receipt_errors(
     manifest_path: Path,
     manifest_bytes: bytes,
     expected_blob: str,
-) -> list[str]:
+) -> tuple[list[str], bool]:
     errors: list[str] = []
     object_spec = f"{freeze_commit}:{manifest_path.as_posix()}"
+    try:
+        commit_exists = _git(
+            repo_root,
+            ["cat-file", "-e", f"{freeze_commit}^{{commit}}"],
+            check=False,
+        )
+    except OSError as exc:
+        return [f"freeze_commit: cannot invoke Git: {exc}"], False
+    if commit_exists.returncode != 0:
+        try:
+            shallow = _git(
+                repo_root,
+                ["rev-parse", "--is-shallow-repository"],
+                check=False,
+            )
+        except OSError as exc:
+            return [f"freeze_commit: cannot determine repository depth: {exc}"], False
+        if shallow.returncode == 0 and shallow.stdout.decode().strip() == "true":
+            return [], False
+        return ["freeze_commit: cannot verify Git object in a full-history checkout"], False
     try:
         actual_blob = _git(repo_root, ["rev-parse", object_spec]).stdout.decode().strip()
         if actual_blob != expected_blob:
@@ -882,7 +918,7 @@ def _git_receipt_errors(
             errors.append("freeze_commit: is not an ancestor of HEAD")
     except (OSError, subprocess.CalledProcessError) as exc:
         errors.append(f"freeze_commit: cannot verify Git object: {exc}")
-    return errors
+    return errors, not errors
 
 
 def candidate_provenance_errors(

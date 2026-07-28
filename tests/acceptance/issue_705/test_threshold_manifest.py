@@ -32,3 +32,4 @@ def test_phase0_thresholds_are_frozen() -> None:
     assert manifest.gates["performance"]["p50_latency_ratio_max"] == 1.05
     assert manifest.gates["transfer"]["h2d_per_policy_step_max"] == 0.0
     assert receipt.freeze_commit == "a2419b342b8663998b2e29cf20a4dce49b3127f5"
+    assert receipt.data["final_merge_method"] == "merge_commit"

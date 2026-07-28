@@ -67,6 +67,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "manifest_sha256": sha256_file(manifest_path),
         "baseline_artifact_sha256": manifest.data["baseline"]["artifact_sha256"],
         "freeze_commit": None if receipt is None else receipt.freeze_commit,
+        "git_history_verified": None if receipt is None else receipt.git_history_verified,
         "env_batches": sorted(int(key) for key in manifest.baseline_reference["env"]),
         "dr_densities": sorted(float(key) for key in manifest.baseline_reference["dr"]),
         "ppo_seeds": manifest.baseline_reference["ppo"]["seeds"],
@@ -79,6 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"threshold_set={payload['threshold_set_id']} "
             f"manifest={payload['manifest_sha256']} "
             f"freeze={payload['freeze_commit']} "
+            f"git_history_verified={payload['git_history_verified']} "
             f"env={payload['env_batches']} dr={payload['dr_densities']} "
             f"seeds={payload['ppo_seeds']}"
         )

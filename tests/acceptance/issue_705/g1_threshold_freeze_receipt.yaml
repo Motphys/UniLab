@@ -8,3 +8,6 @@ freeze_commit: a2419b342b8663998b2e29cf20a4dce49b3127f5
 baseline_artifact_sha256: sha256:216e4aab93d00ed0d8d44b1632def469d498c1fe659302bc8d3a6ea5cd0cb694
 issue_url: https://github.com/unilabsim/UniLab/issues/717
 change_policy: Threshold changes require an independent ADR and threshold-only PR merged before new candidate measurements.
+creation_verification: full_git_history
+shallow_checkout_policy: current_hash_and_receipt
+final_merge_method: merge_commit
