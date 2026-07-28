@@ -1,4 +1,4 @@
-"""MuJoCo-only G1 symmetry augmentation owned by the task/backend layer."""
+"""G1 symmetry augmentation derived from backend-owned actuator ordering."""
 
 from __future__ import annotations
 
@@ -17,22 +17,17 @@ class _ObsGroupTransform:
 
 
 class G1SymmetryAugmentation(SymmetryAugmentation):
-    """Runtime symmetry adapter derived from the MuJoCo actuator ordering."""
+    """Runtime symmetry adapter derived from the backend actuator ordering."""
 
     batch_multiplier = 2
 
     def __init__(
         self,
-        model,
+        actuator_names: tuple[str, ...],
         obs_layouts: dict[str, SymmetryObsLayout],
         *,
         device: str = "cuda",
     ):
-        import mujoco
-
-        actuator_names = [
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) for i in range(model.nu)
-        ]
         symmetry_pairs = {
             "left_hip_pitch_joint": "right_hip_pitch_joint",
             "left_hip_roll_joint": "right_hip_roll_joint",

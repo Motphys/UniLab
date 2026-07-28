@@ -46,6 +46,14 @@ class BackendHeightScanner(abc.ABC):
         """Return sampled values with shape ``(num_envs, num_points)``."""
 
 
+@dataclass(frozen=True)
+class BackendTerrainSpawnData:
+    """Cold-path terrain metadata required by locomotion spawn managers."""
+
+    origins: np.ndarray
+    surface_sampler: object | None = None
+
+
 PLAY_RENDER_MODES = frozenset({"auto", "interactive", "record", "none"})
 
 
@@ -110,6 +118,18 @@ class SimBackend(abc.ABC):
         Returns:
             Array with shape ``(num_actuators, 2)`` and columns ``[low, high]``.
         """
+
+    def get_actuator_names(self) -> tuple[str, ...]:
+        """Return actuator names in control-vector order on the cold path."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose actuator names")
+
+    def get_scene_model_file(self) -> str | None:
+        """Return the materialized scene path for diagnostics, when available."""
+        return None
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        """Return cold-path terrain spawn metadata, when the scene provides it."""
+        return None
 
     @abc.abstractmethod
     def get_keyframe_qpos(self, name: str) -> np.ndarray:

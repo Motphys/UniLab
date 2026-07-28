@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
 
-from .base import SimBackend
+from .base import BackendTerrainSpawnData, SimBackend
 from .batch import (
     BACKEND_BATCH_CONTRACT_VERSION,
     BackendBatchContractError,

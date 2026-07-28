@@ -317,7 +317,7 @@ class NpEnv(ABEnv):
         scene = getattr(self._cfg, "scene", None)
         if isinstance(scene, SceneCfg) and scene.model_file:
             return str(scene.model_file)
-        model_file = getattr(self._backend, "scene_model_file", None)
+        model_file = self._backend.get_scene_model_file()
         if model_file:
             return str(model_file)
         return ""
@@ -570,9 +570,4 @@ class NpEnv(ABEnv):
 
     def close(self) -> None:
         """Close the environment and release backend-owned scene assets."""
-        cleanup_scene_assets = getattr(self._backend, "cleanup_scene_assets", None)
-        if callable(cleanup_scene_assets):
-            cleanup_scene_assets()
-
-    def _supports_backend_property(self, name: str) -> bool:
-        return hasattr(self._backend, name)
+        self._backend.cleanup_scene_assets()
