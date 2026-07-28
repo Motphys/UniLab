@@ -1,0 +1,68 @@
+schema_version: 1
+issue: 705
+baseline_id: g1-mujoco-phase0-v1
+backend: mujoco
+task: g1_walk_flat
+owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml
+source_inputs:
+  - benchmark/issue705/benchmark_g1_phase0.py
+  - benchmark/core/device_info.py
+  - benchmark/core/mem_profile.py
+  - scripts/train_rsl_rl.py
+  - src/unilab/tools/g1_baseline_provenance.py
+  - src/unilab/base/np_env.py
+  - src/unilab/base/backend/mujoco
+  - src/unilab/dr
+  - src/unilab/envs/locomotion/common
+  - src/unilab/envs/locomotion/g1
+  - conf/ppo/config.yaml
+  - conf/ppo/task/g1_walk_flat/mujoco.yaml
+  - uv.lock
+hardware:
+  platform_system: Linux
+  cpu_model: Intel(R) Xeon(R) w5-3435X
+  cpu_physical_cores: 16
+  cpu_logical_cores: 32
+  affinity_cpus: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  gpu_name: NVIDIA RTX 6000 Ada Generation
+  gpu_uuid: GPU-e154a732-d539-0424-cdb2-de408e0c5a21
+  gpu_memory_mib: 49140
+  driver_version: "570.133.07"
+environment:
+  dtype: float32
+  hydra_overrides:
+    - env.adaptive_chunk_size=false
+    - env.chunk_size=null
+  env_vars:
+    OMP_NUM_THREADS: "16"
+    MKL_NUM_THREADS: "16"
+    OPENBLAS_NUM_THREADS: "16"
+    NUMBA_NUM_THREADS: "16"
+env_lane:
+  batch_sizes: [128, 1024, 4096]
+  process_repeats: 5
+  warmup_steps: 10
+  measure_steps: 50
+  action_seed_base: 705000
+dr_lane:
+  num_envs: 1024
+  modes: [disabled, default_kp_kd]
+  reset_densities: [0.01, 0.1, 1.0]
+  process_repeats: 5
+  warmup_resets: 3
+  measure_resets: 20
+  reset_seed_base: 705100
+ppo_lane:
+  num_envs: 1024
+  num_steps_per_env: 24
+  max_iterations: 100
+  warmup_iterations: 10
+  seeds: [0, 1, 2, 3, 4]
+  save_interval: 1000
+  memory_poll_interval_sec: 0.25
+  required_scalar_tags:
+    - Perf/total_fps
+    - Perf/collection_time
+    - Perf/learning_time
+    - Train/mean_reward
+    - Train/mean_episode_length

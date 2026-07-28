@@ -126,6 +126,26 @@ def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]
     ).wrapper_cls
 
 
+def _peak_process_rss_bytes() -> int | None:
+    try:
+        import resource
+
+        value = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except (ImportError, OSError, ValueError):
+        return None
+    return value if sys.platform == "darwin" else value * 1024
+
+
+def _peak_cuda_memory_bytes(device: str) -> tuple[int | None, int | None]:
+    resolved = torch.device(device)
+    if resolved.type != "cuda" or not torch.cuda.is_available():
+        return None, None
+    return (
+        int(torch.cuda.max_memory_allocated(resolved)),
+        int(torch.cuda.max_memory_reserved(resolved)),
+    )
+
+
 def apply_ppo_runtime_flags(
     train_cfg: dict[str, Any],
     cfg: DictConfig,
@@ -405,9 +425,10 @@ def main(cfg: DictConfig) -> None:
             train_start_wall = time.time()
             runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
             assert log_dir is not None
+            peak_gpu_allocated, peak_gpu_reserved = _peak_cuda_memory_bytes(device)
             train_summary = {
                 "status": "completed",
-                "completed_iterations": int(runner.current_learning_iteration),
+                "completed_iterations": int(runner.current_learning_iteration) + 1,
                 "total_env_steps": int(getattr(runner.logger, "tot_timesteps", 0)),
                 "final_mean_reward": (
                     float(statistics.mean(runner.logger.rewbuffer))
@@ -428,6 +449,9 @@ def main(cfg: DictConfig) -> None:
                     Path(log_dir) / f"model_{int(runner.current_learning_iteration)}.pt"
                 ),
                 "training_wall_time_sec": time.time() - train_start_wall,
+                "peak_process_rss_bytes": _peak_process_rss_bytes(),
+                "peak_gpu_memory_allocated_bytes": peak_gpu_allocated,
+                "peak_gpu_memory_reserved_bytes": peak_gpu_reserved,
             }
             if tracker is not None:
                 tracker.update_summary(train_summary)
