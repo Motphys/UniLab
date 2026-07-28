@@ -201,14 +201,19 @@ claims:
       max_dispersion: 0
       failure_semantics: Missing derived field, recompute, row, graph, memory, or effect-test mapping is FAIL.
     evidence:
-      result: NOT_RUN
-      artifact_refs: []
-      commit_sha: null
-      config_hash: null
-      executed_test_ids: []
+      result: PASS
+      artifact_refs:
+        - https://github.com/unilabsim/UniLab/issues/713
+        - tests/acceptance/issue_705/mjwarp_dr_inventory.yaml
+      commit_sha: 170413e8067104610fa919115df4b931a740ddec
+      config_hash: sha256:24dfb474dc8513c5f008452467e61ad967e97e5999bc919b775354ebb247fc67
+      executed_test_ids:
+        - tests/tools/test_mjwarp_dr_inventory_contract.py
+        - tests/scripts/test_issue705_dr_inventory.py
+        - tests/acceptance/issue_705/test_mjwarp_dr_inventory.py::test_inventory_covers_required_field_contracts
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: Implementation is part of child issue #713; independent gate evidence is pending.
+      summary: Sixteen Tier A-F capabilities cover all legacy terms with strict storage, recompute, graph, memory, and effect-test mappings; 35 targeted tests passed.
     invalidation:
       paths:
         - benchmark/mjwarp/**
@@ -223,7 +228,7 @@ claims:
         - uv.lock
       capabilities: [mjwarp-dr]
       fingerprints: [mjwarp-dr-capability-inventory-v1]
-    status: implemented
+    status: verified
 
   - claim_id: P0-BASELINE-PROVENANCE
     expected: G1 env, PPO, memory, DR, and reset-density baselines are reproducible from raw artifacts.
