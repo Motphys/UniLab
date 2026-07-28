@@ -550,12 +550,12 @@ def _resolve_entity_ids(
     target: MutationTargetSpec,
     capability: MutationCapability,
     resolver: MutationSelectorResolver,
-    cache: dict[tuple[MutationEntityKind, str], tuple[int, ...]],
+    cache: dict[tuple[str, MutationEntityKind, str], tuple[int, ...]],
 ) -> tuple[int, ...]:
     if target.entity_kind is MutationEntityKind.GLOBAL:
         return ()
     assert target.selector is not None
-    cache_key = (target.entity_kind, target.selector)
+    cache_key = (target.target_key, target.entity_kind, target.selector)
     if cache_key not in cache:
         try:
             resolved = resolver(target)
@@ -690,7 +690,10 @@ def bind_mutation_plan(
     if not callable(resolve_selector):
         raise MutationContractError("resolve_selector must be callable")
 
-    selector_cache: dict[tuple[MutationEntityKind, str], tuple[int, ...]] = {}
+    # A selector may map into a different coordinate domain for each semantic
+    # target (for example MuJoCo qpos versus qvel coordinates).  Cache aliases
+    # of one target, but never reuse an entity ID across distinct targets.
+    selector_cache: dict[tuple[str, MutationEntityKind, str], tuple[int, ...]] = {}
     bound_specs: list[BoundMutationSpec] = []
     for spec in sorted(specs, key=lambda item: item.term_key):
         try:
