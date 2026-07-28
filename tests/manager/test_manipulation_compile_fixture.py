@@ -246,10 +246,21 @@ def test_multi_entity_manipulation_fixture_compiles() -> None:
         StateEntityKind.SITE,
         StateEntityKind.BODY,
     }
-    assert {item.target.selector for item in plan.mutation_specs} == {
+    assert {item.target.selector_spec.semantic_key for item in plan.mutation_specs} == {
         "object.body",
         "object.collision_geoms",
     }
+    reset_body = next(item for item in plan.mutation_specs if item.term_key == "reset_object.pose")
+    reset_geoms = next(
+        item for item in plan.mutation_specs if item.term_key == "reset_object.friction"
+    )
+    assert reset_body.target.selector_spec is not None
+    assert reset_body.target.selector_spec.expressions == ("cube",)
+    assert reset_body.target.selector_spec.entity_ids == (20,)
+    assert reset_geoms.target.selector_spec is not None
+    assert reset_geoms.target.selector_spec.mode.value == "regex"
+    assert reset_geoms.target.selector_spec.expressions == ("cube_collision.*",)
+    assert reset_geoms.target.selector_spec.entity_ids == (30, 31)
     assert plan.policy_abi.observation_groups[0].width == 9
     assert plan.policy_abi.action_dim == 7
     assert plan.policy_abi.action_scale == (0.1,) * 7

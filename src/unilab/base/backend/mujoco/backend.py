@@ -929,15 +929,17 @@ class MuJoCoBackend(SimBackend):
         return tuple(capabilities)
 
     def _resolve_mujoco_typed_mutation_selector(self, spec: MutationTargetSpec) -> tuple[int, ...]:
-        if spec.selector is None:
+        selector = spec.selector_spec
+        if selector is None:
             raise MutationContractError("MuJoCo typed mutation selector must be explicit")
+        raw_selector = selector.require_exact_singleton(context="MuJoCo typed mutation")
         if spec.target_kind is MutationTargetKind.EXTERNAL_WRENCH:
             if spec.entity_kind is not MutationEntityKind.BODY:
                 raise MutationContractError("MuJoCo external wrench selector must name one body")
-            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, spec.selector)
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, raw_selector)
             if body_id <= 0:
                 raise MutationContractError(
-                    f"MuJoCo typed mutation body selector {spec.selector!r} did not resolve a dynamic body"
+                    f"MuJoCo typed mutation body selector {raw_selector!r} did not resolve a dynamic body"
                 )
             return (int(body_id),)
         if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
@@ -946,10 +948,10 @@ class MuJoCoBackend(SimBackend):
             raise MutationContractError(
                 "MuJoCo typed reset selector must name one single-DoF joint"
             )
-        joint_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, spec.selector)
+        joint_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, raw_selector)
         if joint_id < 0 or int(self._model.jnt_type[joint_id]) != int(mujoco.mjtJoint.mjJNT_HINGE):
             raise MutationContractError(
-                f"MuJoCo typed reset selector {spec.selector!r} must resolve one hinge joint"
+                f"MuJoCo typed reset selector {raw_selector!r} must resolve one hinge joint"
             )
         if spec.field_kind is MutationFieldKind.POSITION:
             coordinate = int(self._model.jnt_qposadr[joint_id]) - self._root_qpos_dim

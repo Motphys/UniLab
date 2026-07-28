@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from unilab.base.backend.batch import BufferContract, BufferPlacement
+from unilab.base.backend.mutation import MutationSelectorSpec
 
 from .plan import CompiledTaskPlan
 from .spec import ParameterValue, TensorSpec
@@ -51,6 +52,23 @@ def tensor_payload(tensor: TensorSpec) -> dict[str, Any]:
 
 def _parameter_payload(value: ParameterValue) -> object:
     return list(value) if isinstance(value, tuple) else value
+
+
+def _mutation_selector_payload(
+    selector: MutationSelectorSpec | None,
+    *,
+    include_bindings: bool,
+) -> dict[str, Any] | None:
+    """Serialize selector semantics separately from compiler-local IDs."""
+
+    if selector is None:
+        return None
+    return {
+        "semantic_key": selector.semantic_key,
+        "mode": selector.mode.value,
+        "expressions": list(selector.expressions),
+        **({"entity_ids": list(selector.entity_ids)} if include_bindings else {}),
+    }
 
 
 def compiled_plan_payload(
@@ -130,7 +148,10 @@ def compiled_plan_payload(
                 "target_kind": item.target.target_kind.value,
                 "entity_kind": item.target.entity_kind.value,
                 "field_kind": item.target.field_kind.value,
-                "selector": item.target.selector,
+                "selector": _mutation_selector_payload(
+                    item.target.selector_spec,
+                    include_bindings=include_bindings,
+                ),
                 "trigger": item.trigger.value,
                 "commit_phase": item.commit_phase.value,
                 "operation": item.operation.value,
