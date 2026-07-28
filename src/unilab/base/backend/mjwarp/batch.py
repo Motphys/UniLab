@@ -547,6 +547,11 @@ def _binding_payloads(
             if requirements.hot_path_budget is None
             else dict(requirements.hot_path_budget.items())
         ),
+        "reset_hot_path_budget": (
+            None
+            if requirements.reset_hot_path_budget is None
+            else dict(requirements.reset_hot_path_budget.items())
+        ),
     }
     return state_payload, plan_payload
 
@@ -562,6 +567,25 @@ def _worst_step_counters(backend: MjwarpBackend) -> BackendBatchCounters:
         host_to_device_transfers=1,
         device_to_host_transfers=3,
         host_to_device_bytes=int(backend._ctrl_staging.nbytes),
+        device_to_host_bytes=int(
+            backend._qpos_cache.nbytes + backend._qvel_cache.nbytes + backend._sensor_cache.nbytes
+        ),
+        global_synchronizations=1,
+        allocations=_HOST_CACHE_DOWNLOAD_ALLOCATIONS,
+        state_materializations=1,
+        instrumentation_complete=True,
+    )
+
+
+def _worst_reset_counters(backend: MjwarpBackend) -> BackendBatchCounters:
+    return BackendBatchCounters(
+        host_to_device_transfers=3,
+        device_to_host_transfers=3,
+        host_to_device_bytes=int(
+            backend._reset_mask_host.nbytes
+            + backend._qpos_cache.nbytes
+            + backend._qvel_cache.nbytes
+        ),
         device_to_host_bytes=int(
             backend._qpos_cache.nbytes + backend._qvel_cache.nbytes + backend._sensor_cache.nbytes
         ),
@@ -601,6 +625,9 @@ def bind_mjwarp_host_batch(
         raise BackendBatchContractError("mjwarp host control requires c_contiguous layout")
     if requirements.hot_path_budget is not None:
         _worst_step_counters(backend).require_within(requirements.hot_path_budget)
+    reset_budget = requirements.reset_hot_path_budget or requirements.hot_path_budget
+    if reset_budget is not None:
+        _worst_reset_counters(backend).require_within(reset_budget)
 
     sources = tuple(_bind_state_source(backend, spec) for spec in requirements.state_fields)
     state_payload, plan_payload = _binding_payloads(backend, requirements)
@@ -618,6 +645,7 @@ def bind_mjwarp_host_batch(
         execution_profile=requirements.execution_profile,
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{_payload_digest(plan_payload)}",
         hot_path_budget=requirements.hot_path_budget,
+        reset_hot_path_budget=requirements.reset_hot_path_budget,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     return MjwarpHostBatchPlan(

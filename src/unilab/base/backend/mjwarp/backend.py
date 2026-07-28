@@ -30,6 +30,19 @@ from unilab.base.backend.batch import (
     RowSelection,
     StateBatchPhase,
 )
+from unilab.base.backend.mutation import (
+    BoundMutationPlan,
+    MutationContractError,
+    MutationEntityKind,
+    MutationFieldKind,
+    MutationSpec,
+    MutationTargetKind,
+    MutationTargetSpec,
+)
+from unilab.base.backend.mutation import (
+    bind_mutation_plan as bind_typed_mutation_plan,
+)
+from unilab.base.backend.mutation_batch import TypedBackendMutationBatch
 from unilab.base.backend.telemetry import (
     BackendTransferBuffer,
     BackendTransferCounters,
@@ -50,6 +63,7 @@ from .batch import (
 )
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
+from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
 
 
@@ -58,7 +72,7 @@ class MjwarpBackend(SimBackend):
 
     The profile is intentionally narrow: it provides the state/control/reset
     surface required by ``g1_walk_flat`` while unsupported render, terrain,
-    Jacobian, typed-mutation, interval-DR, and host-substep-controller paths
+    Jacobian, typed model-mutation, interval-DR, and host-substep-controller paths
     remain fail-closed.  It is a correctness migration path, not a performance
     claim or a replacement for the later device-resident executor.
     """
@@ -173,6 +187,7 @@ class MjwarpBackend(SimBackend):
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
         self._batch_instance_id = f"mjwarp:{id(self):x}"
         self._host_batch_plans: dict[str, MjwarpHostBatchPlan] = {}
+        self._host_mutation_plans: dict[str, MjwarpHostMutationPlan] = {}
 
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
@@ -443,7 +458,127 @@ class MjwarpBackend(SimBackend):
             existing.public_plan.require_compatible(bound.public_plan)
             return existing.public_plan
         self._host_batch_plans[bound.public_plan.fingerprint] = bound
+        for mutation_plan in self._host_mutation_plans.values():
+            mutation_plan.register_batch_plan(bound.public_plan)
         return bound.public_plan
+
+    def _resolve_mjwarp_typed_mutation_selector(
+        self,
+        spec: MutationTargetSpec,
+    ) -> tuple[int, ...]:
+        """Resolve raw Warp state coordinates exactly once during plan binding."""
+
+        if spec.selector is None:
+            raise MutationContractError("mjwarp typed mutation selector must be explicit")
+        if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
+            raise MutationContractError("mjwarp typed mutation selector has an unsupported target")
+
+        if spec.entity_kind is MutationEntityKind.BODY:
+            root_targets = {
+                "state.root.position": MutationFieldKind.POSITION,
+                "state.root.orientation": MutationFieldKind.ORIENTATION,
+                "state.root.linear_velocity": MutationFieldKind.LINEAR_VELOCITY,
+                "state.root.angular_velocity": MutationFieldKind.ANGULAR_VELOCITY,
+            }
+            expected_field = root_targets.get(spec.target_key)
+            if expected_field is None or spec.field_kind is not expected_field:
+                raise MutationContractError(
+                    "mjwarp typed body reset only supports floating-root state targets"
+                )
+            if self._base_body_id is None or (self._root_qpos_dim, self._root_qvel_dim) != (7, 6):
+                raise MutationContractError(
+                    "mjwarp typed root reset requires a named first free-joint base body"
+                )
+            try:
+                body_id = self._body_ids[spec.selector]
+            except KeyError as exc:
+                raise MutationContractError(
+                    f"mjwarp typed root selector {spec.selector!r} did not resolve a body"
+                ) from exc
+            if body_id != self._base_body_id:
+                raise MutationContractError(
+                    f"mjwarp typed root selector {spec.selector!r} must resolve the base body"
+                )
+            return (body_id,)
+
+        if spec.entity_kind is not MutationEntityKind.DOF:
+            raise MutationContractError(
+                "mjwarp typed reset selector must name a floating root body or hinge DoF"
+            )
+        field_targets = {
+            "state.dof.position": MutationFieldKind.POSITION,
+            "state.dof.angular_velocity": MutationFieldKind.ANGULAR_VELOCITY,
+        }
+        expected_field = field_targets.get(spec.target_key)
+        if expected_field is None or spec.field_kind is not expected_field:
+            raise MutationContractError("mjwarp typed DoF reset has an unsupported field kind")
+        joint_id = self._mujoco.mj_name2id(
+            self._cpu_model,
+            self._mujoco.mjtObj.mjOBJ_JOINT,
+            spec.selector,
+        )
+        if joint_id < 0 or int(self._cpu_model.jnt_type[joint_id]) != int(
+            self._mujoco.mjtJoint.mjJNT_HINGE
+        ):
+            raise MutationContractError(
+                f"mjwarp typed reset selector {spec.selector!r} must resolve one hinge joint"
+            )
+        if spec.field_kind is MutationFieldKind.POSITION:
+            coordinate = int(self._cpu_model.jnt_qposadr[joint_id]) - self._root_qpos_dim
+            count = self._num_dof_pos
+        else:
+            coordinate = int(self._cpu_model.jnt_dofadr[joint_id]) - self._root_qvel_dim
+            count = self._num_dof_vel
+        if coordinate < 0 or coordinate >= count:
+            raise MutationContractError("mjwarp typed reset coordinate is out of range")
+        return (coordinate,)
+
+    def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
+        """Bind the narrow typed reset contract without exposing raw Warp objects."""
+
+        bound = bind_typed_mutation_plan(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+            num_envs=self._num_envs,
+            specs=specs,
+            capabilities=mjwarp_host_mutation_capabilities(self),
+            resolve_selector=self._resolve_mjwarp_typed_mutation_selector,
+        )
+        existing = self._host_mutation_plans.get(bound.fingerprint)
+        if existing is not None:
+            existing.public_plan.require_compatible(bound)
+            return existing.public_plan
+        runtime_plan = MjwarpHostMutationPlan(
+            public_plan=bound,
+            nq=self._nq,
+            nv=self._nv,
+            state_dtype=np.dtype(self._qpos_cache.dtype).name,
+            root_qpos_dim=self._root_qpos_dim,
+            root_qvel_dim=self._root_qvel_dim,
+        )
+        for batch_plan in self._host_batch_plans.values():
+            runtime_plan.register_batch_plan(batch_plan.public_plan)
+        self._host_mutation_plans[bound.fingerprint] = runtime_plan
+        return bound
+
+    def _require_host_mutation_plan(
+        self,
+        mutation_batch: TypedBackendMutationBatch,
+        plan: BoundBackendPlan,
+    ) -> MjwarpHostMutationPlan:
+        mutation_batch.plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            runtime_plan = self._host_mutation_plans[mutation_batch.plan_fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp typed mutation plan was not bound by this backend instance"
+            ) from exc
+        runtime_plan.public_plan.require_compatible(mutation_batch.plan)
+        runtime_plan.require_registered_batch_plan(plan)
+        return runtime_plan
 
     def _require_host_batch_plan(self, plan: BoundBackendPlan) -> MjwarpHostBatchPlan:
         if not isinstance(plan, BoundBackendPlan):
@@ -508,6 +643,57 @@ class MjwarpBackend(SimBackend):
             {
                 "control_upload_ms": control_upload_ms,
                 "physics_ms": physics_ms,
+                "host_cache_refresh_ms": host_cache_ms,
+            },
+            transfer_delta,
+        )
+
+    def _execute_host_reset(
+        self,
+        row_ids: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+    ) -> tuple[dict[str, float], BackendTransferCounters]:
+        """Commit one explicit typed/legacy reset barrier from host staging.
+
+        Callers validate and own the staging source.  This helper intentionally
+        has no legacy API dependency, so ``reset_batch`` never delegates to
+        ``set_state`` while both paths preserve the same backend-owned transfer
+        ordering: reset mask/qpos/qvel H2D, forward/sync, then cache D2H.
+        """
+
+        before = self._transfer_telemetry.counters()
+        t0 = time.perf_counter()
+        self._transfer_telemetry.begin_barrier("reset")
+        self._reset_mask_host.fill(False)
+        self._reset_mask_host[row_ids] = True
+        self._upload("reset_mask", self._reset_mask_device, self._reset_mask_host)
+        self._mujoco_warp.reset_data(
+            self._device_model,
+            self._device_data,
+            reset=self._reset_mask_device,
+        )
+        # Full-cache uploads are intentional for the host compatibility
+        # profile: they preserve complement worlds after reset_data cleared
+        # selected transient state, while keeping all D2H materialization at
+        # one explicit barrier.
+        self._upload("qpos", self._device_data.qpos, qpos)
+        self._upload("qvel", self._device_data.qvel, qvel)
+        reset_upload_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        self._mujoco_warp.forward(self._device_model, self._device_data)
+        self._synchronize()
+        reset_forward_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        self._refresh_host_cache()
+        host_cache_ms = (time.perf_counter() - t0) * 1000.0
+        transfer_delta = self._transfer_telemetry.counters().delta(before)
+        return (
+            {
+                "reset_upload_ms": reset_upload_ms,
+                "reset_forward_ms": reset_forward_ms,
                 "host_cache_refresh_ms": host_cache_ms,
             },
             transfer_delta,
@@ -582,15 +768,41 @@ class MjwarpBackend(SimBackend):
         *,
         mutation_batch: BackendMutationBatch | None = None,
     ) -> BackendResetResult:
-        self._require_host_batch_plan(plan)
+        bound = self._require_host_batch_plan(plan)
         if not isinstance(rows, RowSelection):
             raise BackendBatchContractError("mjwarp rows must be a RowSelection")
         if rows.universe_size != self._num_envs:
             raise BackendBatchContractError("mjwarp row universe does not match backend num_envs")
-        del mutation_batch
-        raise BackendBatchContractError(
-            "mjwarp host_numpy typed reset requires the Phase 3C bound state-mutation plan"
+        if not isinstance(mutation_batch, TypedBackendMutationBatch):
+            raise BackendBatchContractError(
+                "mjwarp typed reset requires a TypedBackendMutationBatch"
+            )
+        if mutation_batch.rows != rows:
+            raise BackendBatchContractError(
+                "mjwarp typed reset rows must match the mutation envelope"
+            )
+        mutation_runtime = self._require_host_mutation_plan(mutation_batch, plan)
+        qpos, qvel, row_ids = mutation_runtime.stage_reset_state(
+            mutation_batch,
+            self._qpos_cache,
+            self._qvel_cache,
         )
+
+        self._invalidate_host_batch_state()
+        timings, transfer_delta = self._execute_host_reset(row_ids, qpos, qvel)
+        read_result = bound.materialize(rows, StateBatchPhase.RESET)
+        diagnostics = BackendBatchDiagnostics(
+            counters=transfer_delta_to_batch_counters(
+                transfer_delta,
+                allocations=bound.step_allocations,
+                state_materializations=1,
+            ),
+            timings=(
+                *(BackendTiming(phase, milliseconds) for phase, milliseconds in timings.items()),
+                *read_result.diagnostics.timings,
+            ),
+        )
+        return BackendResetResult(reset_state=read_result.state, diagnostics=diagnostics)
 
     def set_pre_step_control(self, fn: Any | None) -> None:
         if fn is not None:
@@ -637,35 +849,13 @@ class MjwarpBackend(SimBackend):
             return {"timing": {"set_state_reset_ms": 0.0, "set_state_cache_refresh_ms": 0.0}}
 
         self._invalidate_host_batch_state()
-        t0 = time.perf_counter()
-        self._transfer_telemetry.begin_barrier("reset")
-        self._reset_mask_host.fill(False)
-        self._reset_mask_host[rows] = True
-        self._upload("reset_mask", self._reset_mask_device, self._reset_mask_host)
-        self._mujoco_warp.reset_data(
-            self._device_model,
-            self._device_data,
-            reset=self._reset_mask_device,
-        )
         self._qpos_cache[rows] = qpos_array
         self._qvel_cache[rows] = qvel_array
-        # Uploading the cache keeps complement worlds bit-for-bit on their
-        # pre-reset qpos/qvel values while reset_data clears selected transient
-        # solver/control state.  This is an explicit reset barrier, not a
-        # getter fallback or hot-path transfer.
-        self._upload("qpos", self._device_data.qpos, self._qpos_cache)
-        self._upload("qvel", self._device_data.qvel, self._qvel_cache)
-        self._mujoco_warp.forward(self._device_model, self._device_data)
-        self._synchronize()
-        reset_ms = (time.perf_counter() - t0) * 1000.0
-
-        t0 = time.perf_counter()
-        self._refresh_host_cache()
-        cache_refresh_ms = (time.perf_counter() - t0) * 1000.0
+        timings, _ = self._execute_host_reset(rows, self._qpos_cache, self._qvel_cache)
         return {
             "timing": {
-                "set_state_reset_ms": reset_ms,
-                "set_state_cache_refresh_ms": cache_refresh_ms,
+                "set_state_reset_ms": timings["reset_upload_ms"] + timings["reset_forward_ms"],
+                "set_state_cache_refresh_ms": timings["host_cache_refresh_ms"],
             }
         }
 
