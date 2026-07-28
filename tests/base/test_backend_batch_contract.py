@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -39,8 +41,11 @@ from unilab.base.backend.batch import (
     StateBatch,
     StateBatchLease,
     StateBatchPhase,
+    StateEntityKind,
+    StateFieldKind,
     StateFieldSpec,
 )
+from unilab.base.scene import SceneCfg
 
 
 def _state_buffer(
@@ -92,8 +97,8 @@ def _field(
     return StateFieldSpec(
         semantic_key=semantic_key,
         identity=BoundFieldIdentity(
-            entity_kind="body",
-            field_kind="position",
+            entity_kind=StateEntityKind.BODY,
+            field_kind=StateFieldKind.POSITION,
             entity_ids=entity_ids,
         ),
         frame=frame,
@@ -201,6 +206,15 @@ def _valid_frozen_batch_sizes() -> None:
         assert state.plan.fingerprint == BACKEND_BATCH_CONTRACT_VERSION
 
 
+def _valid_same_entity_in_distinct_frames() -> None:
+    world = _field("body.position.world")
+    base = replace(world, semantic_key="body.position.base", frame=ReferenceFrame.BASE)
+    backend = _FakeBatchBackend(_requirements(fields=(world, base)))
+    state = backend.state(RowSelection.all(4))
+    assert state.buffer("body.position.world").shape == (4, 3)
+    assert state.buffer("body.position.base").shape == (4, 3)
+
+
 def _invalid_shape() -> None:
     backend = _FakeBatchBackend()
     spec = backend.plan.state.fields[0]
@@ -294,7 +308,7 @@ def _invalid_duplicate_field() -> None:
 def _invalid_duplicate_bound_identity() -> None:
     first = _field("base.position")
     alias = replace(first, semantic_key="robot.root.position")
-    with pytest.raises(BackendBatchContractError, match="identities must be unique"):
+    with pytest.raises(BackendBatchContractError, match="identities and frames must be unique"):
         _requirements(fields=(first, alias))
 
 
@@ -311,10 +325,21 @@ def _invalid_plan_fingerprint() -> None:
         backend.plan.require_compatible(other)
 
 
+def _invalid_plan_metadata_with_reused_fingerprint() -> None:
+    backend = _FakeBatchBackend()
+    tampered = replace(
+        backend.plan,
+        control=replace(backend.plan.control, semantic_key="other.command"),
+    )
+    with pytest.raises(BackendBatchContractError, match="different backend plan or fingerprint"):
+        backend.plan.require_compatible(tampered)
+
+
 _CONTRACT_CASES: tuple[Callable[[], None], ...] = (
     _valid_all_rows,
     _valid_selected_row_order,
     _valid_frozen_batch_sizes,
+    _valid_same_entity_in_distinct_frames,
     _invalid_shape,
     _invalid_frame,
     _invalid_unit,
@@ -334,6 +359,7 @@ _CONTRACT_CASES: tuple[Callable[[], None], ...] = (
     _invalid_duplicate_bound_identity,
     _invalid_plan_owner,
     _invalid_plan_fingerprint,
+    _invalid_plan_metadata_with_reused_fingerprint,
 )
 
 
@@ -468,6 +494,7 @@ def test_sim_backend_batch_extensions_are_additive_and_fail_closed() -> None:
     control = fake.control(rows)
 
     assert "bind_task_io" not in SimBackend.__abstractmethods__
+    assert "read_state_batch" not in SimBackend.__abstractmethods__
     assert "step_batch" not in SimBackend.__abstractmethods__
     assert "reset_batch" not in SimBackend.__abstractmethods__
     with pytest.raises(NotImplementedError, match="typed backend batches"):
@@ -475,4 +502,492 @@ def test_sim_backend_batch_extensions_are_additive_and_fail_closed() -> None:
     with pytest.raises(NotImplementedError, match="typed backend batches"):
         SimBackend.step_batch(backend, fake.plan, control)
     with pytest.raises(NotImplementedError, match="typed backend batches"):
+        SimBackend.read_state_batch(backend, fake.plan, rows)
+    with pytest.raises(NotImplementedError, match="typed backend batches"):
         SimBackend.reset_batch(backend, fake.plan, rows)
+
+
+def _g1_scene_path() -> Path:
+    from unilab.assets import ASSETS_ROOT_PATH
+
+    return ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml"
+
+
+def _mujoco_state_buffer(row_shape: tuple[int, ...]) -> BufferContract:
+    return _state_buffer(row_shape=row_shape, dtype="float64")
+
+
+def _mujoco_field(
+    semantic_key: str,
+    *,
+    entity_kind: StateEntityKind,
+    field_kind: StateFieldKind,
+    entity_ids: tuple[int, ...],
+    row_shape: tuple[int, ...],
+    frame: ReferenceFrame,
+    unit: PhysicalUnit,
+) -> StateFieldSpec:
+    return StateFieldSpec(
+        semantic_key=semantic_key,
+        identity=BoundFieldIdentity(
+            entity_kind=entity_kind,
+            field_kind=field_kind,
+            entity_ids=entity_ids,
+        ),
+        frame=frame,
+        unit=unit,
+        buffer=_mujoco_state_buffer(row_shape),
+    )
+
+
+def _mujoco_requirements(backend: Any) -> tuple[BackendIORequirements, list[Callable[[], Any]]]:
+    import mujoco
+
+    base_id = backend.get_body_id("pelvis")
+    dof_pos_ids = tuple(range(backend.get_dof_pos().shape[1]))
+    dof_vel_ids = tuple(range(backend.get_dof_vel().shape[1]))
+    fields: list[StateFieldSpec] = [
+        _mujoco_field(
+            "root.position",
+            entity_kind=StateEntityKind.ROOT,
+            field_kind=StateFieldKind.POSITION,
+            entity_ids=(base_id,),
+            row_shape=(3,),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.METER,
+        ),
+        _mujoco_field(
+            "root.orientation",
+            entity_kind=StateEntityKind.ROOT,
+            field_kind=StateFieldKind.ORIENTATION,
+            entity_ids=(base_id,),
+            row_shape=(4,),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.QUATERNION,
+        ),
+        _mujoco_field(
+            "root.linear_velocity",
+            entity_kind=StateEntityKind.ROOT,
+            field_kind=StateFieldKind.LINEAR_VELOCITY,
+            entity_ids=(base_id,),
+            row_shape=(3,),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.METER_PER_SECOND,
+        ),
+        _mujoco_field(
+            "root.angular_velocity",
+            entity_kind=StateEntityKind.ROOT,
+            field_kind=StateFieldKind.ANGULAR_VELOCITY,
+            entity_ids=(base_id,),
+            row_shape=(3,),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.RADIAN_PER_SECOND,
+        ),
+        _mujoco_field(
+            "dof.position",
+            entity_kind=StateEntityKind.DOF,
+            field_kind=StateFieldKind.POSITION,
+            entity_ids=dof_pos_ids,
+            row_shape=(len(dof_pos_ids),),
+            frame=ReferenceFrame.JOINT,
+            unit=PhysicalUnit.RADIAN,
+        ),
+        _mujoco_field(
+            "dof.velocity",
+            entity_kind=StateEntityKind.DOF,
+            field_kind=StateFieldKind.ANGULAR_VELOCITY,
+            entity_ids=dof_vel_ids,
+            row_shape=(len(dof_vel_ids),),
+            frame=ReferenceFrame.JOINT,
+            unit=PhysicalUnit.RADIAN_PER_SECOND,
+        ),
+    ]
+    getters: list[Callable[[], Any]] = [
+        backend.get_base_pos,
+        backend.get_base_quat,
+        backend.get_base_lin_vel,
+        backend.get_base_ang_vel,
+        backend.get_dof_pos,
+        backend.get_dof_vel,
+    ]
+    sensor_specs = (
+        ("pelvis_local_linvel", ReferenceFrame.SENSOR, PhysicalUnit.METER_PER_SECOND),
+        ("torso_gyro", ReferenceFrame.SENSOR, PhysicalUnit.RADIAN_PER_SECOND),
+        ("torso_upvector", ReferenceFrame.WORLD, PhysicalUnit.UNITLESS),
+        ("left_foot_pos", ReferenceFrame.WORLD, PhysicalUnit.METER),
+        ("left_foot_quat", ReferenceFrame.WORLD, PhysicalUnit.QUATERNION),
+        ("right_foot_pos", ReferenceFrame.WORLD, PhysicalUnit.METER),
+        ("right_foot_quat", ReferenceFrame.WORLD, PhysicalUnit.QUATERNION),
+        *(
+            (f"{side}_foot_contact_{index}", ReferenceFrame.SENSOR, PhysicalUnit.NEWTON)
+            for side in ("left", "right")
+            for index in range(4)
+        ),
+    )
+    for sensor_name, frame, unit in sensor_specs:
+        sensor_id = mujoco.mj_name2id(
+            backend.model,
+            mujoco.mjtObj.mjOBJ_SENSOR,
+            sensor_name,
+        )
+        sensor_dim = int(backend.model.sensor_dim[sensor_id])
+        fields.append(
+            _mujoco_field(
+                f"sensor.{sensor_name}",
+                entity_kind=StateEntityKind.SENSOR,
+                field_kind=StateFieldKind.VALUE,
+                entity_ids=(int(sensor_id),),
+                row_shape=(sensor_dim,),
+                frame=frame,
+                unit=unit,
+            )
+        )
+        getters.append(lambda name=sensor_name: backend.get_sensor_data(name))
+
+    control_buffer = BufferContract(
+        row_shape=(backend.num_actuators,),
+        dtype="float64",
+        layout=BufferLayout.C_CONTIGUOUS,
+        placement=BufferPlacement.host(),
+        owner=BufferOwner.MANAGER,
+        mutability=BufferMutability.READ_ONLY,
+        lifetime=BufferLifetime.UNTIL_STEP_COMPLETE,
+        dlpack_exportable=False,
+    )
+    requirements = BackendIORequirements(
+        state_fields=tuple(fields),
+        control=ControlSpec(
+            "joint.position_target",
+            control_buffer,
+            physics_substeps_per_control=2,
+        ),
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+    )
+    return requirements, getters
+
+
+def _random_g1_state(backend: Any, rng: np.random.Generator, count: int) -> tuple[Any, Any]:
+    qpos = np.broadcast_to(backend.model.qpos0, (count, backend.model.nq)).copy()
+    qvel = rng.normal(0.0, 0.1, size=(count, backend.model.nv))
+    qpos[:, :3] += rng.uniform(-0.1, 0.1, size=(count, 3))
+    quaternion = rng.normal(size=(count, 4))
+    quaternion /= np.linalg.norm(quaternion, axis=1, keepdims=True)
+    qpos[:, 3:7] = quaternion
+    qpos[:, 7:] += rng.uniform(-0.05, 0.05, size=(count, backend.model.nq - 7))
+    return qpos, qvel
+
+
+def _assert_batch_matches(
+    result: Any,
+    references: list[np.ndarray],
+    rows: tuple[int, ...] | None,
+) -> None:
+    assert result.diagnostics.counters.state_materializations == 1
+    assert not result.diagnostics.counters.instrumentation_complete
+    for index, reference in enumerate(references):
+        expected = reference if rows is None else reference[np.asarray(rows, dtype=np.intp)]
+        actual = cast(np.ndarray, result.state.buffer_at(index).handle)
+        assert not actual.flags.writeable
+        assert actual.flags.c_contiguous
+        np.testing.assert_allclose(actual, expected, atol=1e-10, rtol=1e-8)
+
+
+@pytest.mark.parametrize("num_envs", [1, 32])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_mujoco_batch_matches_getter_reference(seed: int, num_envs: int) -> None:
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    rng = np.random.default_rng(seed)
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=str(_g1_scene_path())),
+        num_envs,
+        0.005,
+        base_name="pelvis",
+        np_dtype=np.float64,
+        chunk_size=max(1, num_envs),
+        bench_nsteps=2,
+    )
+    try:
+        backend.materialize()
+        requirements, getters = _mujoco_requirements(backend)
+        plan = backend.bind_task_io(requirements)
+        assert plan.fingerprint.startswith("mujoco-host-batch-v1:")
+
+        pre_reset = backend.read_state_batch(plan, RowSelection.all(num_envs))
+        pre_reset_view = pre_reset.state.buffer_at(0)
+
+        reset_count = max(1, num_envs // 2)
+        reset_rows = tuple(int(row) for row in rng.permutation(num_envs)[:reset_count])
+        qpos, qvel = _random_g1_state(backend, rng, reset_count)
+        backend.set_state(np.asarray(reset_rows, dtype=np.int32), qpos, qvel)
+        with pytest.raises(StaleStateBatchError, match="mutation barrier"):
+            _ = pre_reset_view.handle
+        references = [np.asarray(getter()).copy() for getter in getters]
+
+        with (
+            patch.object(backend, "get_base_pos", side_effect=AssertionError("getter fallback")),
+            patch.object(backend, "get_base_quat", side_effect=AssertionError("getter fallback")),
+            patch.object(
+                backend,
+                "get_base_lin_vel",
+                side_effect=AssertionError("getter fallback"),
+            ),
+            patch.object(
+                backend,
+                "get_base_ang_vel",
+                side_effect=AssertionError("getter fallback"),
+            ),
+            patch.object(backend, "get_dof_pos", side_effect=AssertionError("getter fallback")),
+            patch.object(backend, "get_dof_vel", side_effect=AssertionError("getter fallback")),
+            patch.object(
+                backend,
+                "get_sensor_data",
+                side_effect=AssertionError("getter fallback"),
+            ),
+        ):
+            selected = backend.read_state_batch(
+                plan,
+                RowSelection.selected(num_envs, reset_rows),
+                phase=StateBatchPhase.RESET,
+            )
+        _assert_batch_matches(selected, references, reset_rows)
+        selected_view = selected.state.buffer_at(0)
+
+        all_rows = backend.read_state_batch(plan, RowSelection.all(num_envs))
+        _assert_batch_matches(all_rows, references, None)
+        with pytest.raises(StaleStateBatchError, match="mutation barrier"):
+            _ = selected_view.handle
+        all_view = all_rows.state.buffer_at(0)
+
+        control = np.ascontiguousarray(
+            rng.uniform(-0.1, 0.1, size=(num_envs, backend.num_actuators)),
+            dtype=np.float64,
+        )
+        control_batch = ControlBatch(
+            plan=plan,
+            rows=RowSelection.all(num_envs),
+            buffer=BufferView(control, control.shape, plan.control.buffer),
+        )
+        stepped = backend.step_batch(plan, control_batch, nsteps=2)
+        with pytest.raises(StaleStateBatchError, match="mutation barrier"):
+            _ = all_view.handle
+        stepped_references = [np.asarray(getter()).copy() for getter in getters]
+        assert stepped.diagnostics.counters.state_materializations == 1
+        for index, expected in enumerate(stepped_references):
+            np.testing.assert_allclose(
+                cast(np.ndarray, stepped.terminal_state.buffer_at(index).handle),
+                expected,
+                atol=1e-10,
+                rtol=1e-8,
+            )
+    finally:
+        if backend._pool is not None:
+            backend._pool.close()
+
+
+def test_mujoco_batch_contract_faults_fail_closed() -> None:
+    import mujoco
+
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=str(_g1_scene_path())),
+        2,
+        0.005,
+        base_name="pelvis",
+        np_dtype=np.float64,
+        add_body_sensors=True,
+        chunk_size=2,
+    )
+    try:
+        with pytest.raises(BackendBatchContractError, match="materialized backend pool"):
+            backend.bind_task_io(_requirements())
+        backend.materialize()
+        requirements, _ = _mujoco_requirements(backend)
+
+        body_id = backend.get_body_id("left_ankle_roll_link")
+        body_field = _mujoco_field(
+            "body.left_foot.position.base",
+            entity_kind=StateEntityKind.BODY,
+            field_kind=StateFieldKind.POSITION,
+            entity_ids=(body_id,),
+            row_shape=(1, 3),
+            frame=ReferenceFrame.BASE,
+            unit=PhysicalUnit.METER,
+        )
+        body_plan = backend.bind_task_io(replace(requirements, state_fields=(body_field,)))
+        body_state = backend.read_state_batch(body_plan, RowSelection.all(2))
+        np.testing.assert_allclose(
+            cast(np.ndarray, body_state.state.buffer_at(0).handle),
+            backend.get_body_pos_b(np.asarray([body_id], dtype=np.int32)),
+        )
+
+        body_world_field = replace(
+            body_field,
+            semantic_key="body.left_foot.position.world",
+            frame=ReferenceFrame.WORLD,
+        )
+        dual_frame_plan = backend.bind_task_io(
+            replace(requirements, state_fields=(body_field, body_world_field))
+        )
+        dual_frame_state = backend.read_state_batch(dual_frame_plan, RowSelection.all(2))
+        np.testing.assert_allclose(
+            cast(np.ndarray, dual_frame_state.state.buffer_at(0).handle),
+            backend.get_body_pos_b(np.asarray([body_id], dtype=np.int32)),
+        )
+        np.testing.assert_allclose(
+            cast(np.ndarray, dual_frame_state.state.buffer_at(1).handle),
+            backend.get_body_pos_w(np.asarray([body_id], dtype=np.int32)),
+        )
+
+        tracked_sensor_name = "track_pos_b_left_ankle_roll_link"
+        tracked_sensor_id = mujoco.mj_name2id(
+            backend.model,
+            mujoco.mjtObj.mjOBJ_SENSOR,
+            tracked_sensor_name,
+        )
+        tracked_sensor = _mujoco_field(
+            "sensor.left_foot.position.base",
+            entity_kind=StateEntityKind.SENSOR,
+            field_kind=StateFieldKind.VALUE,
+            entity_ids=(int(tracked_sensor_id),),
+            row_shape=(3,),
+            frame=ReferenceFrame.BASE,
+            unit=PhysicalUnit.METER,
+        )
+        tracked_sensor_plan = backend.bind_task_io(
+            replace(requirements, state_fields=(tracked_sensor,))
+        )
+        tracked_sensor_state = backend.read_state_batch(
+            tracked_sensor_plan,
+            RowSelection.all(2),
+        )
+        np.testing.assert_allclose(
+            cast(np.ndarray, tracked_sensor_state.state.buffer_at(0).handle),
+            backend.get_sensor_data(tracked_sensor_name),
+        )
+        with pytest.raises(BackendBatchContractError, match="homogeneous frame/unit"):
+            backend.bind_task_io(
+                replace(
+                    requirements,
+                    state_fields=(replace(tracked_sensor, frame=ReferenceFrame.WORLD),),
+                )
+            )
+
+        root = requirements.state_fields[0]
+        sensor = requirements.state_fields[6]
+        dof = requirements.state_fields[4]
+        with (
+            patch.object(backend, "_root_qpos_dim", 0),
+            patch.object(backend, "_root_qvel_dim", 0),
+            pytest.raises(BackendBatchContractError, match="free-joint root cache"),
+        ):
+            backend.bind_task_io(replace(requirements, state_fields=(root,)))
+
+        invalid_specs = (
+            replace(root, buffer=replace(root.buffer, row_shape=(2,))),
+            replace(root, frame=ReferenceFrame.BASE),
+            replace(root, unit=PhysicalUnit.RADIAN),
+            replace(root, identity=replace(root.identity, entity_ids=(backend.model.nbody,))),
+            replace(
+                root,
+                identity=replace(root.identity, field_kind=StateFieldKind.VALUE),
+            ),
+            replace(sensor, unit=PhysicalUnit.RADIAN),
+            replace(
+                dof,
+                identity=replace(dof.identity, entity_ids=(backend.get_dof_pos().shape[1],)),
+                buffer=replace(dof.buffer, row_shape=(1,)),
+            ),
+        )
+        for invalid in invalid_specs:
+            invalid_requirements = replace(requirements, state_fields=(invalid,))
+            with pytest.raises(BackendBatchContractError):
+                backend.bind_task_io(invalid_requirements)
+
+        invalid_control = replace(
+            requirements.control,
+            buffer=replace(requirements.control.buffer, row_shape=(1,)),
+        )
+        with pytest.raises(BackendBatchContractError, match="control requires row_shape"):
+            backend.bind_task_io(replace(requirements, control=invalid_control))
+
+        device_placement = BufferPlacement.device("cuda", 0)
+        device_fields = tuple(
+            replace(spec, buffer=replace(spec.buffer, placement=device_placement))
+            for spec in requirements.state_fields
+        )
+        device_control = replace(
+            requirements.control,
+            buffer=replace(requirements.control.buffer, placement=device_placement),
+        )
+        with pytest.raises(BackendBatchContractError, match="only support host_numpy"):
+            backend.bind_task_io(
+                replace(
+                    requirements,
+                    state_fields=device_fields,
+                    control=device_control,
+                    execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+                )
+            )
+
+        plan = backend.bind_task_io(requirements)
+        assert backend.bind_task_io(replace(requirements)) is plan
+
+        alternate_cadence_plan = backend.bind_task_io(
+            replace(
+                requirements,
+                control=replace(
+                    requirements.control,
+                    physics_substeps_per_control=1,
+                ),
+            )
+        )
+        assert alternate_cadence_plan.fingerprint != plan.fingerprint
+        assert alternate_cadence_plan.state.fingerprint == plan.state.fingerprint
+
+        root_only_plan = backend.bind_task_io(
+            replace(requirements, state_fields=requirements.state_fields[:1])
+        )
+        assert root_only_plan.fingerprint != plan.fingerprint
+        assert root_only_plan.state.fingerprint != plan.state.fingerprint
+
+        wrong_owner_plan = replace(
+            plan,
+            state=replace(plan.state, backend_instance_id="mujoco:other"),
+        )
+        with pytest.raises(BackendBatchContractError, match="different backend"):
+            backend.read_state_batch(wrong_owner_plan, RowSelection.all(2))
+        wrong_dtype = np.zeros((2, backend.num_actuators), dtype=np.float32)
+        control_batch = ControlBatch(
+            plan,
+            RowSelection.all(2),
+            BufferView(wrong_dtype, wrong_dtype.shape, plan.control.buffer),
+        )
+        with pytest.raises(BackendBatchContractError, match="handle dtype"):
+            backend.step_batch(plan, control_batch, nsteps=2)
+
+        valid_control = np.zeros((2, backend.num_actuators), dtype=np.float64)
+        valid_batch = ControlBatch(
+            plan,
+            RowSelection.all(2),
+            BufferView(valid_control, valid_control.shape, plan.control.buffer),
+        )
+        with pytest.raises(BackendBatchContractError, match="control cadence"):
+            backend.step_batch(plan, valid_batch, nsteps=1)
+        with pytest.raises(BackendBatchContractError, match="mutation batches"):
+            backend.step_batch(plan, valid_batch, mutation_batch=cast(Any, object()), nsteps=2)
+        with pytest.raises(BackendBatchContractError, match="controls for all rows"):
+            partial = ControlBatch(
+                plan,
+                RowSelection.selected(2, (1,)),
+                BufferView(
+                    np.zeros((1, backend.num_actuators), dtype=np.float64),
+                    (1, backend.num_actuators),
+                    plan.control.buffer,
+                ),
+            )
+            backend.step_batch(plan, partial, nsteps=2)
+    finally:
+        if backend._pool is not None:
+            backend._pool.close()

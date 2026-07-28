@@ -95,6 +95,7 @@ def _fake_mujoco_backend(pre_step_control_fn=None, post_step_forward_sensor=Fals
     backend._post_step_forward_sensor = post_step_forward_sensor
     backend._chunk_size = None
     backend._pool = _FakeMuJoCoPool()
+    backend._host_batch_plans = {}
     return backend
 
 
