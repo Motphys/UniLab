@@ -33,6 +33,7 @@ from unilab.base.backend.mutation import BoundMutationPlan
 from unilab.base.np_env import NpEnvState
 
 from .entities import ManagerContractError
+from .fingerprint import managed_policy_abi_snapshot
 from .plan import CompiledTaskPlan
 
 
@@ -476,6 +477,17 @@ class ManagedReferenceRuntime:
     @property
     def plan(self) -> CompiledTaskPlan:
         return self._plan
+
+    @property
+    def policy_abi_snapshot(self) -> dict[str, Any]:
+        """Return a fresh semantic ABI extension for experiment/sim2sim metadata.
+
+        This is a cold/diagnostic accessor over immutable plan metadata only;
+        it neither reads backend state nor exposes backend-local selector
+        bindings.
+        """
+
+        return managed_policy_abi_snapshot(self._plan)
 
     @property
     def bound_plan(self) -> BoundBackendPlan:

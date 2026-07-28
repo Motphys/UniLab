@@ -12,12 +12,14 @@ import platform
 import socket
 import subprocess
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from omegaconf import OmegaConf
 
+from unilab.manager.fingerprint import normalize_managed_policy_abi_snapshot
 from unilab.training.sim2sim import extract_contract_snapshot
 
 
@@ -185,6 +187,7 @@ class ExperimentTracker:
         device: str | None = None,
         collector_device: str | None = None,
         seed_info: Any | None = None,
+        managed_policy_abi: Mapping[str, Any] | None = None,
     ):
         self.root_dir = Path(root_dir)
         self.log_dir = Path(log_dir)
@@ -196,6 +199,11 @@ class ExperimentTracker:
         self.device = device
         self.collector_device = collector_device
         self.seed_info = seed_info
+        self.managed_policy_abi = (
+            None
+            if managed_policy_abi is None
+            else normalize_managed_policy_abi_snapshot(managed_policy_abi)
+        )
         self.enabled = str(_cfg_get(training_cfg, "logger", "tensorboard")).lower() == "wandb"
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -260,7 +268,12 @@ class ExperimentTracker:
         payload = {
             "run": _json_safe(metadata),
             "config": _json_safe(_plain_dict(self.full_cfg)),
-            "contract_snapshot": _json_safe(extract_contract_snapshot(self.full_cfg)),
+            "contract_snapshot": _json_safe(
+                extract_contract_snapshot(
+                    self.full_cfg,
+                    managed_policy_abi=self.managed_policy_abi,
+                )
+            ),
         }
         self._write_json(self.log_dir / "run_config.json", payload)
 
