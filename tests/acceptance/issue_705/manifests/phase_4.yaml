@@ -39,7 +39,7 @@ claims:
     risk: Temporary arrays and materialization scale with terms or reset density despite correct values.
     owner: runtime-instrumentation
     oracle: Address and allocation counters are sampled over long loops while unrelated terms and logging are varied.
-    commands: [uv run pytest tests/manager/test_fused_runtime_stability.py -v]
+    commands: [uv run pytest -o addopts='' tests/manager/test_fused_runtime_stability.py -v]
     lane: B
     required: true
     required_test_ids: [tests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations]

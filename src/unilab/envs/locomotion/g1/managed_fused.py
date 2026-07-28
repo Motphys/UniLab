@@ -51,6 +51,7 @@ from unilab.manager import (
     ManagedMetric,
     ManagedReferenceRuntime,
     ManagedResetRequest,
+    ManagedRuntimeBuffer,
     ManagerContractError,
     PolicySpec,
     TaskCompiler,
@@ -1065,6 +1066,62 @@ class G1ManagedFusedKernel:
             noise_value_action_scratch=np.empty((num_envs, self._action_dim), dtype=dtype),
         )
 
+    def managed_runtime_buffers(self, *, task_state: object) -> tuple[ManagedRuntimeBuffer, ...]:
+        """Register every fused task-owned numeric buffer for warm auditing.
+
+        The method is called only when the caller explicitly enables runtime
+        stability instrumentation.  It never receives a backend/state/model
+        object and returns descriptor wrappers around already allocated task
+        arrays; it does not allocate numeric storage on the hot path.
+        """
+
+        task = self._require_task_state(task_state)
+        candidates: list[tuple[str, np.ndarray]] = [
+            ("kernel.action_scale", self._action_scale),
+            ("kernel.default_angles", self._default_angles),
+            ("kernel.pose_weights", self._pose_weights),
+            ("kernel.upper_body_pose_weights", self._upper_body_pose_weights),
+            ("kernel.term_codes", self._term_codes),
+            ("kernel.term_scales", self._term_scales),
+            ("kernel.initial_qpos", self._config.initial_qpos),
+            ("kernel.initial_qvel", self._config.initial_qvel),
+            ("kernel.command_low", self._config.command_low),
+            ("kernel.command_high", self._config.command_high),
+            ("task.commands", task.commands),
+            ("task.current_actions", task.current_actions),
+            ("task.last_actions", task.last_actions),
+            ("task.gait_phase", task.gait_phase),
+            ("task.steps", task.steps),
+            ("task.reset_qpos", task.reset_qpos),
+            ("task.reset_qvel", task.reset_qvel),
+            ("task.reset_commands", task.reset_commands),
+            ("task.reset_gait_phase", task.reset_gait_phase),
+            ("task.reward_means", task.reward_means),
+            ("task.logged_reward_means", task.logged_reward_means),
+            ("task.has_logged_reward", task.has_logged_reward),
+            ("task.reward_scratch", task.reward_scratch),
+            ("task.weighted_term_scratch", task.weighted_term_scratch),
+            ("task.actor_scratch", task.actor_scratch),
+            ("task.critic_scratch", task.critic_scratch),
+            ("task.row_scratch", task.row_scratch),
+            ("task.command_row_scratch", task.command_row_scratch),
+            ("task.action_row_scratch", task.action_row_scratch),
+            ("task.gait_phase_row_scratch", task.gait_phase_row_scratch),
+            ("task.noise_uniform_vector_scratch", task.noise_uniform_vector_scratch),
+            ("task.noise_value_vector_scratch", task.noise_value_vector_scratch),
+            ("task.noise_uniform_action_scratch", task.noise_uniform_action_scratch),
+            ("task.noise_value_action_scratch", task.noise_value_action_scratch),
+        ]
+        candidates.extend(
+            (f"task.reset_value_buffers.{index}", buffer)
+            for index, buffer in enumerate(task.reset_value_buffers)
+        )
+        return tuple(
+            ManagedRuntimeBuffer(name=name, array=array)
+            for name, array in candidates
+            if array.size > 0
+        )
+
     def apply_action(
         self,
         *,
@@ -1479,10 +1536,13 @@ def create_g1_managed_fused_runtime(
     observation_noise_seed: int | None = None,
     autoreset: bool = True,
     record_lifecycle: bool = False,
+    enable_stability_instrumentation: bool = False,
 ) -> ManagedReferenceRuntime:
     """Create a cold-bound fused G1 runtime with no reference fallback path."""
 
     _require_numba()
+    if not isinstance(enable_stability_instrumentation, bool):
+        raise G1ManagedFusedError("enable_stability_instrumentation must be a bool")
     # ``_kernel_config`` validates every unsupported legacy feature before its
     # first public backend metadata query.  It is a cold-path schema helper,
     # not a reference executor invocation.
@@ -1505,6 +1565,8 @@ def create_g1_managed_fused_runtime(
         max_episode_steps=cfg.max_episode_steps,
         autoreset=autoreset,
         record_lifecycle=record_lifecycle,
+        stability_buffer_provider=kernel if enable_stability_instrumentation else None,
+        require_complete_backend_instrumentation=enable_stability_instrumentation,
     )
 
 
