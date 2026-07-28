@@ -273,6 +273,11 @@ class StateRequirement:
 
 _MUTATION_ENTITY_KINDS = {
     EntityKind.GLOBAL: MutationEntityKind.GLOBAL,
+    # A semantic ROOT is a task-level alias for the single floating-base
+    # body.  The shared backend mutation contract intentionally has no ROOT
+    # entity kind: concrete backends bind the exact base body on their cold
+    # path and own the qpos/qvel translation.
+    EntityKind.ROOT: MutationEntityKind.BODY,
     EntityKind.BODY: MutationEntityKind.BODY,
     EntityKind.JOINT: MutationEntityKind.JOINT,
     EntityKind.DOF: MutationEntityKind.DOF,
