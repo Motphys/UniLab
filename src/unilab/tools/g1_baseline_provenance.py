@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,6 +104,12 @@ class G1BaselinePlan:
     dr_lane: DrLanePlan
     ppo_lane: PpoLanePlan
     source_path: Path
+
+
+@dataclass(frozen=True)
+class BaselineSourceVerification:
+    errors: tuple[str, ...]
+    git_history_verified: bool
 
 
 class BaselineValidationError(ValueError):
@@ -515,6 +522,59 @@ def source_tree_sha256(root: Path, source_inputs: Sequence[str]) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _git(
+    repo_root: Path,
+    args: Sequence[str],
+    *,
+    check: bool = True,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        check=check,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _git_file_bytes(repo_root: Path, commit: str, path: str) -> bytes:
+    return _git(repo_root, ["show", f"{commit}:{path}"]).stdout
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def source_tree_sha256_at_commit(
+    repo_root: Path,
+    source_inputs: Sequence[str],
+    commit: str,
+) -> str:
+    paths: set[str] = set()
+    for source_input in source_inputs:
+        result = _git(
+            repo_root,
+            ["ls-tree", "-r", "--name-only", "-z", commit, "--", source_input],
+        )
+        resolved = {
+            item.decode("utf-8")
+            for item in result.stdout.split(b"\0")
+            if item and "__pycache__" not in item.decode("utf-8").split("/")
+        }
+        if not resolved:
+            raise FileNotFoundError(
+                f"recorded source input does not exist at {commit}: {source_input}"
+            )
+        paths.update(resolved)
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(_git_file_bytes(repo_root, commit, path))
+        digest.update(b"\0")
+    return f"sha256:{digest.hexdigest()}"
+
+
 def numeric_stats(values: Sequence[float]) -> dict[str, float | int]:
     array = np.asarray(values, dtype=np.float64)
     if array.ndim != 1 or array.size == 0 or not np.all(np.isfinite(array)):
@@ -872,7 +932,8 @@ def validate_g1_baseline_artifact(
         parser.errors.append("artifact.aggregates: does not recompute from raw case summaries")
 
     if repo_root is not None:
-        _validate_current_source(root, plan, repo_root, parser.errors)
+        verification = verify_g1_baseline_source(root, plan, repo_root)
+        parser.errors.extend(verification.errors)
     return tuple(parser.errors)
 
 
@@ -891,35 +952,88 @@ def load_g1_baseline_artifact(
     return cast(dict[str, Any], raw)
 
 
-def _validate_current_source(
+def verify_g1_baseline_source(
     root: Mapping[str, Any],
     plan: G1BaselinePlan,
     repo_root: Path,
-    errors: list[str],
-) -> None:
+) -> BaselineSourceVerification:
+    errors: list[str] = []
     plan_payload = root.get("plan", {})
     source_payload = root.get("source", {})
-    checks = {
-        "artifact.plan.sha256": (
-            plan_payload.get("sha256"),
-            sha256_file(repo_root / plan.source_path),
-        ),
-        "artifact.source.tree_sha256": (
-            source_payload.get("tree_sha256"),
-            source_tree_sha256(repo_root, plan.source_inputs),
-        ),
-        "artifact.source.uv_lock_sha256": (
-            source_payload.get("uv_lock_sha256"),
-            sha256_file(repo_root / "uv.lock"),
-        ),
-        "artifact.source.owner_yaml_sha256": (
-            source_payload.get("owner_yaml_sha256"),
-            sha256_file(repo_root / plan.owner_yaml),
-        ),
-    }
-    for path, (actual, expected) in checks.items():
-        if actual != expected:
-            errors.append(f"{path}: stale; expected current fingerprint {expected!r}")
+    if not isinstance(plan_payload, Mapping) or not isinstance(source_payload, Mapping):
+        return BaselineSourceVerification(
+            errors=("artifact source verification requires plan and source mappings",),
+            git_history_verified=False,
+        )
+
+    current_plan_sha = sha256_file(repo_root / plan.source_path)
+    if plan_payload.get("sha256") != current_plan_sha:
+        errors.append(
+            "artifact.plan.sha256: frozen plan changed; "
+            f"expected current fingerprint {current_plan_sha!r}"
+        )
+
+    commit = source_payload.get("commit")
+    if not isinstance(commit, str) or _COMMIT_RE.fullmatch(commit) is None:
+        return BaselineSourceVerification(tuple(errors), False)
+    try:
+        commit_exists = _git(
+            repo_root,
+            ["cat-file", "-e", f"{commit}^{{commit}}"],
+            check=False,
+        )
+    except OSError as exc:
+        errors.append(f"artifact.source.commit: cannot invoke Git: {exc}")
+        return BaselineSourceVerification(tuple(errors), False)
+    if commit_exists.returncode != 0:
+        try:
+            shallow = _git(
+                repo_root,
+                ["rev-parse", "--is-shallow-repository"],
+                check=False,
+            )
+        except OSError as exc:
+            errors.append(f"artifact.source.commit: cannot determine repository depth: {exc}")
+            return BaselineSourceVerification(tuple(errors), False)
+        if shallow.returncode == 0 and shallow.stdout.decode().strip() == "true":
+            return BaselineSourceVerification(tuple(errors), False)
+        errors.append("artifact.source.commit: cannot verify Git object in a full-history checkout")
+        return BaselineSourceVerification(tuple(errors), False)
+
+    try:
+        recorded_checks = {
+            "artifact.plan.sha256": (
+                plan_payload.get("sha256"),
+                _sha256_bytes(_git_file_bytes(repo_root, commit, plan.source_path.as_posix())),
+            ),
+            "artifact.source.tree_sha256": (
+                source_payload.get("tree_sha256"),
+                source_tree_sha256_at_commit(repo_root, plan.source_inputs, commit),
+            ),
+            "artifact.source.uv_lock_sha256": (
+                source_payload.get("uv_lock_sha256"),
+                _sha256_bytes(_git_file_bytes(repo_root, commit, "uv.lock")),
+            ),
+            "artifact.source.owner_yaml_sha256": (
+                source_payload.get("owner_yaml_sha256"),
+                _sha256_bytes(_git_file_bytes(repo_root, commit, plan.owner_yaml)),
+            ),
+        }
+        for path, (actual, expected) in recorded_checks.items():
+            if actual != expected:
+                errors.append(
+                    f"{path}: does not match recorded source commit; expected {expected!r}"
+                )
+        ancestor = _git(
+            repo_root,
+            ["merge-base", "--is-ancestor", commit, "HEAD"],
+            check=False,
+        )
+        if ancestor.returncode != 0:
+            errors.append("artifact.source.commit: is not an ancestor of HEAD")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        errors.append(f"artifact.source.commit: cannot verify recorded source: {exc}")
+    return BaselineSourceVerification(tuple(errors), not errors)
 
 
 def _validate_hardware(

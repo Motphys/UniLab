@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import uuid
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import cast
 import pytest
 from omegaconf import OmegaConf
 
+from unilab.tools import g1_baseline_provenance
 from unilab.tools.g1_baseline_provenance import (
     BaselineValidationError,
     G1BaselinePlan,
@@ -21,10 +23,12 @@ from unilab.tools.g1_baseline_provenance import (
     numeric_stats,
     parse_g1_baseline_plan,
     source_tree_sha256,
+    source_tree_sha256_at_commit,
     summarize_dr_raw,
     summarize_env_raw,
     summarize_ppo_raw,
     validate_g1_baseline_artifact,
+    verify_g1_baseline_source,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -263,6 +267,46 @@ def _errors(raw: dict) -> tuple[str, ...]:
     return validate_g1_baseline_artifact(raw, _plan())
 
 
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _recorded_source_fixture(tmp_path: Path) -> tuple[G1BaselinePlan, dict, str]:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/code.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "owner.yaml").write_text("backend: mujoco\n", encoding="utf-8")
+    (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (tmp_path / "plan.yaml").write_text("baseline: frozen\n", encoding="utf-8")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.name", "Issue 705 Test")
+    _git(tmp_path, "config", "user.email", "issue705@example.invalid")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "baseline")
+    baseline_commit = _git(tmp_path, "rev-parse", "HEAD")
+    plan = replace(
+        _plan(),
+        owner_yaml="owner.yaml",
+        source_inputs=("owner.yaml", "src", "uv.lock"),
+        source_path=Path("plan.yaml"),
+    )
+    root = {
+        "plan": {"sha256": g1_baseline_provenance.sha256_file(tmp_path / "plan.yaml")},
+        "source": {
+            "commit": baseline_commit,
+            "tree_sha256": source_tree_sha256(tmp_path, plan.source_inputs),
+            "uv_lock_sha256": g1_baseline_provenance.sha256_file(tmp_path / "uv.lock"),
+            "owner_yaml_sha256": g1_baseline_provenance.sha256_file(tmp_path / "owner.yaml"),
+        },
+    }
+    return plan, root, baseline_commit
+
+
 def test_frozen_plan_declares_complete_matrix() -> None:
     plan = _plan()
 
@@ -392,6 +436,82 @@ def test_source_tree_hash_changes_with_any_registered_input(tmp_path: Path) -> N
     (tmp_path / "src/code.py").write_text("VALUE = 2\n", encoding="utf-8")
 
     assert source_tree_sha256(tmp_path, ["owner.yaml", "src"]) != before
+
+
+def test_recorded_source_hash_remains_valid_after_candidate_changes(tmp_path: Path) -> None:
+    plan, root, baseline_commit = _recorded_source_fixture(tmp_path)
+    recorded_hash = root["source"]["tree_sha256"]
+
+    (tmp_path / "src/code.py").write_text("VALUE = 2\n", encoding="utf-8")
+    _git(tmp_path, "add", "src/code.py")
+    _git(tmp_path, "commit", "-q", "-m", "candidate")
+
+    verification = verify_g1_baseline_source(root, plan, tmp_path)
+
+    assert verification.errors == ()
+    assert verification.git_history_verified is True
+    assert (
+        source_tree_sha256_at_commit(
+            tmp_path,
+            plan.source_inputs,
+            baseline_commit,
+        )
+        == recorded_hash
+    )
+    assert source_tree_sha256(tmp_path, plan.source_inputs) != recorded_hash
+
+
+def test_recorded_source_verification_rejects_tamper_and_unknown_commit(
+    tmp_path: Path,
+) -> None:
+    plan, root, _ = _recorded_source_fixture(tmp_path)
+    root["source"]["tree_sha256"] = f"sha256:{'0' * 64}"
+
+    tampered = verify_g1_baseline_source(root, plan, tmp_path)
+    assert any("does not match recorded source commit" in error for error in tampered.errors)
+    assert tampered.git_history_verified is False
+
+    root["source"]["commit"] = "f" * 40
+    unknown = verify_g1_baseline_source(root, plan, tmp_path)
+    assert any("full-history checkout" in error for error in unknown.errors)
+    assert unknown.git_history_verified is False
+
+    root["source"]["commit"] = _git(tmp_path, "rev-parse", "HEAD")
+    missing_input = verify_g1_baseline_source(
+        root,
+        replace(plan, source_inputs=(*plan.source_inputs, "missing.py")),
+        tmp_path,
+    )
+    assert any("recorded source input does not exist" in error for error in missing_input.errors)
+    assert missing_input.git_history_verified is False
+
+
+def test_recorded_source_commit_must_be_an_ancestor_of_candidate(tmp_path: Path) -> None:
+    plan, root, baseline_commit = _recorded_source_fixture(tmp_path)
+    tree = _git(tmp_path, "rev-parse", f"{baseline_commit}^{{tree}}")
+    orphan_commit = _git(tmp_path, "commit-tree", tree, "-m", "orphan")
+    root["source"]["commit"] = orphan_commit
+
+    verification = verify_g1_baseline_source(root, plan, tmp_path)
+
+    assert verification.errors == ("artifact.source.commit: is not an ancestor of HEAD",)
+    assert verification.git_history_verified is False
+
+
+def test_shallow_source_verification_reports_unverified_history(tmp_path: Path) -> None:
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    plan, root, _ = _recorded_source_fixture(origin)
+    (origin / "src/code.py").write_text("VALUE = 2\n", encoding="utf-8")
+    _git(origin, "add", "src/code.py")
+    _git(origin, "commit", "-q", "-m", "candidate")
+    shallow = tmp_path / "shallow"
+    _git(tmp_path, "clone", "-q", "--depth=1", f"file://{origin}", str(shallow))
+
+    verification = verify_g1_baseline_source(root, plan, shallow)
+
+    assert verification.errors == ()
+    assert verification.git_history_verified is False
 
 
 def test_load_artifact_normalizes_malformed_json(tmp_path: Path) -> None:
