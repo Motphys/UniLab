@@ -34,7 +34,11 @@ from .runtime import (
     ManagedMetric,
     ManagedReferenceRuntime,
     ManagedResetRequest,
+    ManagedRuntimeBuffer,
+    ManagedRuntimeBufferAddress,
+    ManagedRuntimeBufferProvider,
     ManagedRuntimeError,
+    ManagedRuntimeStabilityDiagnostics,
     ManagedTaskKernel,
 )
 from .spec import (
@@ -73,7 +77,11 @@ __all__ = [
     "ManagedMetric",
     "ManagedReferenceRuntime",
     "ManagedResetRequest",
+    "ManagedRuntimeBuffer",
+    "ManagedRuntimeBufferAddress",
+    "ManagedRuntimeBufferProvider",
     "ManagedRuntimeError",
+    "ManagedRuntimeStabilityDiagnostics",
     "ManagedTaskKernel",
     "MutationTemplate",
     "NormalizationMode",
