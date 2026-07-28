@@ -151,11 +151,12 @@ def test_high_risk_claims_require_the_right_evidence_class() -> None:
     )
 
 
-def test_every_phase_gate_remains_closed_until_its_claims_are_verified() -> None:
+def test_phase_zero_is_open_and_later_phase_gates_remain_closed() -> None:
     manifests, errors = load_phase_manifests(audit_issue705_claims.MANIFEST_DIR, PHASES)
 
     assert errors == ()
-    assert all(phase_gate_errors(manifest) for manifest in manifests)
+    assert not phase_gate_errors(manifests[0])
+    assert all(phase_gate_errors(manifest) for manifest in manifests[1:])
 
 
 def test_phase_schema_cli_accepts_each_frozen_manifest(capsys) -> None:
