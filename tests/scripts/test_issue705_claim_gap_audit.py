@@ -139,16 +139,18 @@ def test_high_risk_claims_require_the_right_evidence_class() -> None:
     for claim_id, evidence_kind in REQUIRED_EVIDENCE_KINDS.items():
         assert acceptance_by_claim[claim_id].evidence_kind == evidence_kind
 
+    # ``existing`` means that a concrete test node now exists; it does *not*
+    # promote a phase or turn a raw test into fresh gate evidence.  Correctness
+    # work may therefore add an effect/differential oracle before its Phase C
+    # artifact is captured.  Promotion remains guarded by the phase manifest
+    # and the artifact validator below, rather than by pretending the test is
+    # still absent from the inventory.
     current_acceptance = [
         entry
         for entry in inventory.entries
         if entry.role == EvidenceRole.ACCEPTANCE and entry.state == InventoryTestState.EXISTING
     ]
-    assert all(
-        entry.evidence_kind
-        not in {EvidenceKind.EFFECT, EvidenceKind.PERFORMANCE, EvidenceKind.TRAINING}
-        for entry in current_acceptance
-    )
+    assert all(entry.evidence_kind != EvidenceKind.SMOKE for entry in current_acceptance)
 
 
 def test_phase_zero_is_open_and_later_phase_gates_remain_closed() -> None:

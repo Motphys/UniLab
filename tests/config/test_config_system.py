@@ -18,7 +18,7 @@ from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 _PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
-_BACKENDS = ("mujoco", "motrix")
+_BACKENDS = ("mujoco", "mjwarp", "motrix")
 _NUMBA_ACCEL_SUPPORTED_TASK_NAMES = {
     "G1MotionTracking",
     "G1MotionTrackingSAC",
