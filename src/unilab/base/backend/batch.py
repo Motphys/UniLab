@@ -44,6 +44,7 @@ class BufferMutability(str, Enum):
 class BufferLifetime(str, Enum):
     BORROWED_UNTIL_MUTATION = "borrowed_until_mutation"
     UNTIL_STEP_COMPLETE = "until_step_complete"
+    UNTIL_COMMIT = "until_commit"
     PLAN = "plan"
 
 
