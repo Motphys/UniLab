@@ -4,11 +4,13 @@ import ast
 from pathlib import Path
 
 import pytest
+from benchmark.issue705 import benchmark_g1_phase0
 from benchmark.issue705.benchmark_g1_phase0 import (
     DEFAULT_PLAN,
     _build_env_config,
     _load_plan,
     _run_subprocess,
+    _source_payload,
     main,
 )
 
@@ -27,6 +29,20 @@ def test_list_cases_exposes_the_frozen_fifty_process_matrix(capsys) -> None:
 def test_runner_refuses_implicit_expensive_execution() -> None:
     with pytest.raises(SystemExit, match="Refusing to run implicitly"):
         main([])
+
+
+def test_baseline_generation_rejects_a_dirty_source_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _load_plan(DEFAULT_PLAN)
+    monkeypatch.setattr(
+        benchmark_g1_phase0,
+        "_git",
+        lambda *args: " M src/unilab/base/backend/mujoco/backend.py",
+    )
+
+    with pytest.raises(RuntimeError, match="clean git worktree"):
+        _source_payload(plan)
 
 
 def test_env_config_uses_owner_then_applies_frozen_benchmark_profile() -> None:
