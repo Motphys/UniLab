@@ -119,6 +119,9 @@ def compiled_plan_payload(
             "hot_path_budget": None
             if plan.backend_io.hot_path_budget is None
             else list(plan.backend_io.hot_path_budget.items()),
+            "reset_hot_path_budget": None
+            if plan.backend_io.reset_hot_path_budget is None
+            else list(plan.backend_io.reset_hot_path_budget.items()),
         },
         "mutations": [
             {

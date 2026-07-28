@@ -328,6 +328,7 @@ def test_compiler_binds_and_freezes_complete_plan() -> None:
     ]
     assert plan.backend_io.control.semantic_key == "robot.joint.command"
     assert plan.backend_io.hot_path_budget == BackendBatchCounterBudget(state_materializations=1)
+    assert plan.backend_io.reset_hot_path_budget is None
     assert plan.required_capabilities == (
         "state.body.orientation",
         "state.body.position",
