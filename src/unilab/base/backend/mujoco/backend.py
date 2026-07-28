@@ -37,6 +37,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -658,6 +659,24 @@ class MuJoCoBackend(SimBackend):
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return np.array(self._model.actuator_ctrlrange, dtype=self._np_dtype)
+
+    def get_actuator_names(self) -> tuple[str, ...]:
+        return tuple(
+            mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+            or f"#{actuator_id}"
+            for actuator_id in range(int(self._model.nu))
+        )
+
+    def get_scene_model_file(self) -> str | None:
+        return str(self.scene_model_file) if self.scene_model_file else None
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        if self.terrain_origins is None:
+            return None
+        return BackendTerrainSpawnData(
+            origins=self.terrain_origins,
+            surface_sampler=self.terrain_surface_sampler,
+        )
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
