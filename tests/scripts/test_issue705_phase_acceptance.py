@@ -35,13 +35,13 @@ def test_phase0_manifest_covers_frozen_claims_and_passes_schema() -> None:
     }
     assert manifest.claims[0].status == ClaimStatus.VERIFIED
     assert statuses["P0-BASELINE-PROVENANCE"] == ClaimStatus.VERIFIED
-    assert statuses["P0-THRESHOLD-FREEZE"] == ClaimStatus.PLANNED
+    assert statuses["P0-THRESHOLD-FREEZE"] == ClaimStatus.VERIFIED
     assert set(manifest.required_lanes) == {
         AcceptanceLane.PR,
         AcceptanceLane.BACKEND,
         AcceptanceLane.BENCHMARK,
     }
-    assert phase_gate_errors(manifest)
+    assert not phase_gate_errors(manifest)
 
 
 def test_phase0_schema_cli_passes(capsys) -> None:
@@ -51,14 +51,12 @@ def test_phase0_schema_cli_passes(capsys) -> None:
     assert "PASS issue=705 phase=0 mode=schema" in capsys.readouterr().out
 
 
-def test_phase0_gate_cli_fails_until_required_claims_are_verified(capsys) -> None:
+def test_phase0_gate_cli_passes_when_all_required_claims_are_verified(capsys) -> None:
     exit_code = validate_issue705_phase.main(["--phase", "0", "--mode", "gate"])
 
-    assert exit_code == 1
+    assert exit_code == 0
     output = capsys.readouterr().out
-    assert "FAIL" in output
-    assert "P0-BASELINE-PROVENANCE" not in output
-    assert "P0-THRESHOLD-FREEZE" in output
+    assert "PASS issue=705 phase=0 mode=gate" in output
 
 
 def test_cli_rejects_requested_phase_mismatch(tmp_path: Path, capsys) -> None:
