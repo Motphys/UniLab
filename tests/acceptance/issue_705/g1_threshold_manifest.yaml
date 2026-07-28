@@ -1,0 +1,191 @@
+schema_version: 1
+issue: 705
+threshold_set_id: g1-manager-mjwarp-v1
+state: frozen
+
+baseline:
+  baseline_id: g1-mujoco-phase0-v1
+  plan_path: tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml
+  plan_sha256: sha256:3c2c9a1f788b6e7600398589cf644d2d4cfb90e6116ea67b5ede75564ef7dede
+  artifact_path: tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json
+  artifact_sha256: sha256:216e4aab93d00ed0d8d44b1632def469d498c1fe659302bc8d3a6ea5cd0cb694
+  source_commit: aa0a8e723e73e18d8b1b850eef7adfb442ef1bbb
+  task: g1_walk_flat
+  backend: mujoco
+  owner_yaml: conf/ppo/task/g1_walk_flat/mujoco.yaml
+  hardware:
+    cpu_model: Intel(R) Xeon(R) w5-3435X
+    gpu_name: NVIDIA RTX 6000 Ada Generation
+    gpu_uuid: GPU-e154a732-d539-0424-cdb2-de408e0c5a21
+    gpu_memory_mib: 49140
+    driver_version: "570.133.07"
+
+measurement:
+  dtype: float32
+  batch_sizes: [128, 1024, 4096]
+  env_process_repeats: 5
+  ppo_seeds: [0, 1, 2, 3, 4]
+  ppo_iterations: 100
+  ppo_warmup_iterations: 10
+  dr_num_envs: 1024
+  dr_modes: [disabled, default_kp_kd]
+  reset_densities: [0.01, 0.1, 1.0]
+  dr_process_repeats: 5
+  prohibit_filtering: true
+
+gates:
+  performance:
+    env_metric: env_step_total_ms
+    process_aggregation: median_of_process_summaries
+    p50_latency_ratio_max: 1.05
+    p95_latency_ratio_max: 1.05
+    throughput_ratio_min: 0.9523809523809523
+    max_population_cv_by_batch:
+      "128": 0.15
+      "1024": 0.03
+      "4096": 0.03
+    require_all_batches: true
+  training:
+    fps_p50_median_ratio_min: 0.9523809523809523
+    reward_auc_median_drop_max: 5.0
+    final_reward_p50_median_drop_max: 0.1
+    episode_length_median_ratio_min: 0.9
+    max_failed_seeds: 0
+    max_nan_seeds: 0
+    require_all_seeds: true
+    performance_and_behavior_must_both_pass: true
+  dr:
+    enabled_to_disabled_p50_ratio_max: 1.25
+    enabled_to_disabled_p95_ratio_max: 1.25
+    enabled_extra_resident_bytes_max: 536870912
+    require_all_modes_and_densities: true
+    actual_rows_must_match: true
+  memory:
+    host_preferred_metric_ratio_max: 1.25
+    device_peak_reserved_capacity_ratio_max: 0.8
+    device_peak_reserved_growth_bytes_max: 8589934592
+  transfer:
+    h2d_per_policy_step_max: 0.0
+    d2h_per_policy_step_max: 0.0
+    host_global_sync_per_policy_step_max: 0.0
+    metrics_materialization_must_be_separate: true
+    profiler_reconciliation_required: true
+  compatibility:
+    exact_match_fields:
+      - task
+      - backend_identity
+      - owner_yaml_sha256
+      - policy_abi
+      - dtype
+      - plan_fingerprint
+      - batch_size
+      - seed
+      - reset_schedule
+    manager_obs_atol: 1.0e-6
+    manager_obs_rtol: 1.0e-6
+    manager_reward_atol: 1.0e-6
+    manager_reward_rtol: 1.0e-6
+    physics_one_step_atol: 1.0e-5
+    physics_one_step_rtol: 1.0e-4
+    physics_trajectory_steps: 32
+    physics_trajectory_qpos_atol: 2.0e-3
+    physics_trajectory_qpos_rtol: 5.0e-3
+    physics_trajectory_qvel_atol: 1.0e-2
+    physics_trajectory_qvel_rtol: 1.0e-2
+    lifecycle_exact: true
+    unsupported_fail_closed: true
+    fallback_forbidden: true
+    mandatory_skip_xfail_forbidden: true
+
+baseline_reference:
+  env:
+    "128":
+      process_count: 5
+      throughput_median_env_steps_per_sec: 24325.77004331524
+      throughput_population_cv: 0.11464559902566135
+      step_p50_median_ms: 5.260677498881705
+      step_p95_median_ms: 5.8724615002574865
+      host_uss_delta_median_bytes: 346308608
+    "1024":
+      process_count: 5
+      throughput_median_env_steps_per_sec: 29880.636521598906
+      throughput_population_cv: 0.0025454777686830686
+      step_p50_median_ms: 34.61669100124709
+      step_p95_median_ms: 36.278756649426214
+      host_uss_delta_median_bytes: 432390144
+    "4096":
+      process_count: 5
+      throughput_median_env_steps_per_sec: 38535.908059971815
+      throughput_population_cv: 0.007173385007180228
+      step_p50_median_ms: 106.64278600052057
+      step_p95_median_ms: 115.90638720008428
+      host_uss_delta_median_bytes: 727494656
+  dr:
+    "0.01":
+      disabled:
+        process_count: 5
+        actual_rows: 10
+        total_p50_median_ms: 0.6041545002517523
+        total_p95_median_ms: 0.6843032007054717
+        host_uss_delta_median_bytes: 339316736
+      default_kp_kd:
+        process_count: 5
+        actual_rows: 10
+        total_p50_median_ms: 0.6608115008930326
+        total_p95_median_ms: 0.7777309494485962
+        host_uss_delta_median_bytes: 428879872
+    "0.1":
+      disabled:
+        process_count: 5
+        actual_rows: 102
+        total_p50_median_ms: 2.595420499346801
+        total_p95_median_ms: 2.7868814991052204
+        host_uss_delta_median_bytes: 338612224
+      default_kp_kd:
+        process_count: 5
+        actual_rows: 102
+        total_p50_median_ms: 2.7115385009892634
+        total_p95_median_ms: 2.9158050006117264
+        host_uss_delta_median_bytes: 428589056
+    "1.0":
+      disabled:
+        process_count: 5
+        actual_rows: 1024
+        total_p50_median_ms: 21.787001000120654
+        total_p95_median_ms: 22.458162701059337
+        host_uss_delta_median_bytes: 339509248
+      default_kp_kd:
+        process_count: 5
+        actual_rows: 1024
+        total_p50_median_ms: 22.978043500188505
+        total_p95_median_ms: 23.491383449618297
+        host_uss_delta_median_bytes: 429445120
+  ppo:
+    case_count: 5
+    seeds: [0, 1, 2, 3, 4]
+    fps_p50_median: 28319.0
+    reward_auc_median: -43.16117367148399
+    final_reward_p50_median: -0.4230277091264725
+    episode_length_p50_median: 16.045000076293945
+    peak_rss_median_bytes: 2120507392
+    peak_gpu_reserved_median_bytes: 260046848
+
+governance:
+  candidate_artifact_required_fields:
+    - threshold_set_id
+    - threshold_manifest_sha256
+    - threshold_freeze_commit
+    - candidate_commit
+    - source_dirty
+    - profile
+    - raw_samples
+  candidate_commit_must_descend_from_freeze: true
+  candidate_and_threshold_same_commit_forbidden: true
+  candidate_result_and_threshold_change_same_pr_forbidden: true
+  threshold_change_requires:
+    - independent_adr
+    - child_issue
+    - threshold_only_pr
+    - fresh_baseline_if_invalidated
+    - before_candidate_measurement
+  failure_semantics: Any missing dimension, stale binding, post-hoc filter, threshold mutation, mandatory skip, or single gate failure is FAIL.
