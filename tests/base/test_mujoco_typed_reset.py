@@ -102,12 +102,13 @@ def _backend(
     num_envs: int = 4,
     np_dtype: type[np.floating] = np.float64,
     materialize: bool = True,
+    base_name: str | None = "payload",
 ) -> MuJoCoBackend:
     backend = MuJoCoBackend(
         SceneCfg(model_file=str(_write_reset_model(tmp_path))),
         num_envs=num_envs,
         sim_dt=0.01,
-        base_name="payload",
+        base_name=base_name,
         np_dtype=np_dtype,
         chunk_size=num_envs,
         bench_nsteps=1,
@@ -117,9 +118,13 @@ def _backend(
     return backend
 
 
-def _state_buffer(dtype: np.dtype[np.floating]) -> BufferContract:
+def _state_buffer(
+    dtype: np.dtype[np.floating],
+    *,
+    row_shape: tuple[int, ...] = (1,),
+) -> BufferContract:
     return BufferContract(
-        row_shape=(1,),
+        row_shape=row_shape,
         dtype=dtype.name,
         layout=BufferLayout.C_CONTIGUOUS,
         placement=BufferPlacement.host(),
@@ -130,9 +135,13 @@ def _state_buffer(dtype: np.dtype[np.floating]) -> BufferContract:
     )
 
 
-def _value_buffer(dtype: np.dtype[np.floating]) -> BufferContract:
+def _value_buffer(
+    dtype: np.dtype[np.floating],
+    *,
+    row_shape: tuple[int, ...] = (1,),
+) -> BufferContract:
     return BufferContract(
-        row_shape=(1,),
+        row_shape=row_shape,
         dtype=dtype.name,
         layout=BufferLayout.C_CONTIGUOUS,
         placement=BufferPlacement.host(),
@@ -193,20 +202,118 @@ def _requirements(backend: MuJoCoBackend) -> BackendIORequirements:
     )
 
 
+def _full_reset_requirements(backend: MuJoCoBackend) -> BackendIORequirements:
+    """Bind the public root and hinge fields used by a complete G1 reset slice."""
+
+    dtype = np.dtype(backend.get_init_qvel().dtype)
+    base_id = int(backend.get_body_ids(("payload",))[0])
+    position_id = tuple(int(value) for value in backend.get_joint_dof_pos_indices(("hinge",)))
+    velocity_id = tuple(int(value) for value in backend.get_joint_dof_vel_indices(("hinge",)))
+    fields = (
+        StateFieldSpec(
+            semantic_key="root.position",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.ROOT,
+                field_kind=StateFieldKind.POSITION,
+                entity_ids=(base_id,),
+            ),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.METER,
+            buffer=_state_buffer(dtype, row_shape=(3,)),
+        ),
+        StateFieldSpec(
+            semantic_key="root.orientation",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.ROOT,
+                field_kind=StateFieldKind.ORIENTATION,
+                entity_ids=(base_id,),
+            ),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.QUATERNION,
+            buffer=_state_buffer(dtype, row_shape=(4,)),
+        ),
+        StateFieldSpec(
+            semantic_key="root.linear_velocity",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.ROOT,
+                field_kind=StateFieldKind.LINEAR_VELOCITY,
+                entity_ids=(base_id,),
+            ),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.METER_PER_SECOND,
+            buffer=_state_buffer(dtype, row_shape=(3,)),
+        ),
+        StateFieldSpec(
+            semantic_key="root.angular_velocity",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.ROOT,
+                field_kind=StateFieldKind.ANGULAR_VELOCITY,
+                entity_ids=(base_id,),
+            ),
+            frame=ReferenceFrame.WORLD,
+            unit=PhysicalUnit.RADIAN_PER_SECOND,
+            buffer=_state_buffer(dtype, row_shape=(3,)),
+        ),
+        StateFieldSpec(
+            semantic_key="hinge.position",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.DOF,
+                field_kind=StateFieldKind.POSITION,
+                entity_ids=position_id,
+            ),
+            frame=ReferenceFrame.JOINT,
+            unit=PhysicalUnit.RADIAN,
+            buffer=_state_buffer(dtype),
+        ),
+        StateFieldSpec(
+            semantic_key="hinge.angular_velocity",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.DOF,
+                field_kind=StateFieldKind.ANGULAR_VELOCITY,
+                entity_ids=velocity_id,
+            ),
+            frame=ReferenceFrame.JOINT,
+            unit=PhysicalUnit.RADIAN_PER_SECOND,
+            buffer=_state_buffer(dtype),
+        ),
+    )
+    control_buffer = BufferContract(
+        row_shape=(backend.num_actuators,),
+        dtype=dtype.name,
+        layout=BufferLayout.C_CONTIGUOUS,
+        placement=BufferPlacement.host(),
+        owner=BufferOwner.MANAGER,
+        mutability=BufferMutability.READ_ONLY,
+        lifetime=BufferLifetime.UNTIL_STEP_COMPLETE,
+        dlpack_exportable=False,
+    )
+    return BackendIORequirements(
+        state_fields=fields,
+        control=ControlSpec("hinge.control", control_buffer),
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        hot_path_budget=BackendBatchCounterBudget(
+            allocations=2 if dtype == np.dtype(np.float64) else 4,
+            state_materializations=1,
+        ),
+    )
+
+
 def _reset_spec(
     dtype: np.dtype[np.floating],
     *,
     term_key: str,
     target_key: str,
     field_kind: MutationFieldKind,
+    entity_kind: MutationEntityKind = MutationEntityKind.DOF,
     selector: MutationSelectorSpec | str = "hinge",
+    row_shape: tuple[int, ...] = (1,),
 ) -> MutationSpec:
     return MutationSpec(
         term_key=term_key,
         target=MutationTargetSpec(
             target_key=target_key,
             target_kind=MutationTargetKind.SIMULATION_STATE,
-            entity_kind=MutationEntityKind.DOF,
+            entity_kind=entity_kind,
             field_kind=field_kind,
             selector=selector,
         ),
@@ -216,7 +323,7 @@ def _reset_spec(
         baseline=MutationBaseline.DEFAULT,
         persistence=MutationPersistence.EPISODE,
         recompute=MutationRecomputeLevel.KINEMATICS,
-        value_template=_value_buffer(dtype),
+        value_template=_value_buffer(dtype, row_shape=row_shape),
     )
 
 
@@ -237,6 +344,49 @@ def _velocity_spec(dtype: np.dtype[np.floating], *, selector: str = "hinge") -> 
         target_key="state.dof.angular_velocity",
         field_kind=MutationFieldKind.ANGULAR_VELOCITY,
         selector=selector,
+    )
+
+
+def _full_reset_specs(dtype: np.dtype[np.floating]) -> tuple[MutationSpec, ...]:
+    return (
+        _reset_spec(
+            dtype,
+            term_key="reset.root.position",
+            target_key="state.root.position",
+            entity_kind=MutationEntityKind.BODY,
+            field_kind=MutationFieldKind.POSITION,
+            selector="payload",
+            row_shape=(3,),
+        ),
+        _reset_spec(
+            dtype,
+            term_key="reset.root.orientation",
+            target_key="state.root.orientation",
+            entity_kind=MutationEntityKind.BODY,
+            field_kind=MutationFieldKind.ORIENTATION,
+            selector="payload",
+            row_shape=(4,),
+        ),
+        _reset_spec(
+            dtype,
+            term_key="reset.root.linear_velocity",
+            target_key="state.root.linear_velocity",
+            entity_kind=MutationEntityKind.BODY,
+            field_kind=MutationFieldKind.LINEAR_VELOCITY,
+            selector="payload",
+            row_shape=(3,),
+        ),
+        _reset_spec(
+            dtype,
+            term_key="reset.root.angular_velocity",
+            target_key="state.root.angular_velocity",
+            entity_kind=MutationEntityKind.BODY,
+            field_kind=MutationFieldKind.ANGULAR_VELOCITY,
+            selector="payload",
+            row_shape=(3,),
+        ),
+        _position_spec(dtype),
+        _velocity_spec(dtype),
     )
 
 
@@ -316,11 +466,42 @@ def _reset_batch(
     )
 
 
+def _full_reset_batch(
+    mutation_plan,
+    rows: RowSelection,
+    values: dict[str, np.ndarray],
+) -> TypedBackendMutationBatch:
+    return TypedBackendMutationBatch(
+        plan=mutation_plan,
+        rows=rows,
+        state=SimulationStateMutationBatch(
+            tuple(
+                _state_value(mutation_plan, term_key, rows, value)
+                for term_key, value in values.items()
+            )
+        ),
+    )
+
+
 def _state_arrays(state) -> tuple[np.ndarray, np.ndarray]:
     return (
         np.asarray(state.buffer("hinge.position").handle).copy(),
         np.asarray(state.buffer("hinge.angular_velocity").handle).copy(),
     )
+
+
+def _full_state_arrays(state) -> dict[str, np.ndarray]:
+    return {
+        key: np.asarray(state.buffer(key).handle).copy()
+        for key in (
+            "root.position",
+            "root.orientation",
+            "root.linear_velocity",
+            "root.angular_velocity",
+            "hinge.position",
+            "hinge.angular_velocity",
+        )
+    }
 
 
 def _set_distinct_hinge_state(backend: MuJoCoBackend) -> tuple[np.ndarray, np.ndarray]:
@@ -450,12 +631,186 @@ def test_mujoco_typed_reset_commits_selected_hinge_state_and_exposes_reset_oracl
         _close(reference)
 
 
+@pytest.mark.parametrize(
+    ("np_dtype", "atol"),
+    ((np.float32, 3e-6), (np.float64, 1e-12)),
+)
+def test_mujoco_typed_reset_commits_full_floating_root_and_hinge_slice(
+    tmp_path: Path,
+    np_dtype: type[np.floating],
+    atol: float,
+) -> None:
+    """A full managed reset envelope stays backend-owned and row-isolated.
+
+    The independent reference uses only the legacy public setup path before
+    the typed commit.  Assertions after the commit inspect public typed state
+    views, so this test detects an implementation that writes staging memory
+    but fails to forward the actual MuJoCo physics state.
+    """
+
+    backend = _backend(tmp_path, np_dtype=np_dtype)
+    reference = _backend(tmp_path / "legacy_reference", np_dtype=np_dtype)
+    try:
+        plan = backend.bind_task_io(_full_reset_requirements(backend))
+        reference_plan = reference.bind_task_io(_full_reset_requirements(reference))
+        mutation_plan = backend.bind_mutation_plan(_full_reset_specs(np.dtype(np_dtype)))
+        bound_specs = {spec.term_key: spec for spec in mutation_plan.specs}
+        assert {spec.target.target_key for spec in mutation_plan.specs} == {
+            "state.root.position",
+            "state.root.orientation",
+            "state.root.linear_velocity",
+            "state.root.angular_velocity",
+            "state.dof.position",
+            "state.dof.angular_velocity",
+        }
+        assert bound_specs["reset.root.position"].target.entity_ids == (1,)
+        assert bound_specs["reset.hinge.position"].target.entity_ids == (4,)
+        assert bound_specs["reset.hinge.velocity"].target.entity_ids == (3,)
+
+        qpos, qvel = _set_distinct_hinge_state(backend)
+        reference_qpos, reference_qvel = _set_distinct_hinge_state(reference)
+        qpos[:, :3] = np.asarray(
+            ((0.0, 0.1, 0.2), (0.1, 0.2, 0.3), (0.2, 0.3, 0.4), (0.3, 0.4, 0.5)),
+            dtype=np_dtype,
+        )
+        qvel[:, :6] = np.asarray(
+            (
+                (0.01, 0.02, 0.03, 0.04, 0.05, 0.06),
+                (0.11, 0.12, 0.13, 0.14, 0.15, 0.16),
+                (0.21, 0.22, 0.23, 0.24, 0.25, 0.26),
+                (0.31, 0.32, 0.33, 0.34, 0.35, 0.36),
+            ),
+            dtype=np_dtype,
+        )
+        reference_qpos[...] = qpos
+        reference_qvel[...] = qvel
+        all_rows = np.arange(backend.num_envs, dtype=np.int32)
+        backend.set_state(all_rows, qpos, qvel)
+        reference.set_state(all_rows, reference_qpos, reference_qvel)
+
+        before = backend.read_state_batch(plan, RowSelection.all(backend.num_envs))
+        before_root_view = before.state.buffer("root.position")
+        before_values = _full_state_arrays(before.state)
+        rows = RowSelection.selected(backend.num_envs, (3, 1))
+        values = {
+            "reset.root.position": np.asarray(
+                [[[1.25, -0.75, 0.55]], [[-0.5, 0.75, 1.1]]], dtype=np_dtype
+            ),
+            "reset.root.orientation": np.asarray(
+                [
+                    [[0.5, 0.5, 0.5, 0.5]],
+                    [[0.0, 0.0, 0.0, 1.0]],
+                ],
+                dtype=np_dtype,
+            ),
+            "reset.root.linear_velocity": np.asarray(
+                [[[2.5, -3.0, 1.0]], [[-1.5, 0.25, 0.75]]], dtype=np_dtype
+            ),
+            "reset.root.angular_velocity": np.asarray(
+                [[[0.2, 0.4, 0.6]], [[-0.3, -0.2, -0.1]]], dtype=np_dtype
+            ),
+            "reset.hinge.position": np.asarray([[[1.25]], [[-0.75]]], dtype=np_dtype),
+            "reset.hinge.velocity": np.asarray([[[2.5]], [[-3.0]]], dtype=np_dtype),
+        }
+        mutation = _full_reset_batch(mutation_plan, rows, values)
+        selected = np.asarray(rows.indices, dtype=np.intp)
+        reference_position_id = int(reference.get_joint_dof_pos_indices(("hinge",))[0])
+        reference_velocity_id = int(reference.get_joint_dof_vel_indices(("hinge",))[0])
+        reference_qpos[selected, :3] = values["reset.root.position"][:, 0, :]
+        reference_qpos[selected, 3:7] = values["reset.root.orientation"][:, 0, :]
+        reference_qvel[selected, :3] = values["reset.root.linear_velocity"][:, 0, :]
+        reference_qvel[selected, 3:6] = values["reset.root.angular_velocity"][:, 0, :]
+        reference_qpos[selected, 7 + reference_position_id] = values["reset.hinge.position"][
+            :, 0, 0
+        ]
+        reference_qvel[selected, 6 + reference_velocity_id] = values["reset.hinge.velocity"][
+            :, 0, 0
+        ]
+        reference.set_state(
+            selected.astype(np.int32),
+            reference_qpos[selected],
+            reference_qvel[selected],
+        )
+
+        with (
+            patch.object(backend, "get_body_ids", side_effect=AssertionError("getter fallback")),
+            patch.object(backend, "get_body_id", side_effect=AssertionError("selector fallback")),
+            patch.object(
+                backend,
+                "get_joint_dof_pos_indices",
+                side_effect=AssertionError("getter fallback"),
+            ),
+            patch.object(
+                backend,
+                "get_joint_dof_vel_indices",
+                side_effect=AssertionError("getter fallback"),
+            ),
+            patch.object(backend, "set_state", side_effect=AssertionError("legacy reset fallback")),
+            patch.object(Path, "read_bytes", side_effect=AssertionError("asset fallback")),
+            patch.object(Path, "read_text", side_effect=AssertionError("asset fallback")),
+        ):
+            result = backend.reset_batch(plan, rows, mutation_batch=mutation)
+
+        assert result.reset_state.phase is StateBatchPhase.RESET
+        assert result.reset_state.rows == rows
+        with pytest.raises(StaleStateBatchError, match="mutation barrier"):
+            _ = before_root_view.handle
+        reset_values = _full_state_arrays(result.reset_state)
+        expected_by_state_key = {
+            "root.position": values["reset.root.position"][:, 0, :],
+            "root.orientation": values["reset.root.orientation"][:, 0, :],
+            "root.linear_velocity": values["reset.root.linear_velocity"][:, 0, :],
+            "root.angular_velocity": values["reset.root.angular_velocity"][:, 0, :],
+            "hinge.position": values["reset.hinge.position"][:, 0, :],
+            "hinge.angular_velocity": values["reset.hinge.velocity"][:, 0, :],
+        }
+        for key, expected in expected_by_state_key.items():
+            np.testing.assert_allclose(reset_values[key], expected, atol=atol, rtol=atol)
+
+        after = backend.read_state_batch(plan, RowSelection.all(backend.num_envs))
+        after_values = _full_state_arrays(after.state)
+        complement = np.asarray((0, 2), dtype=np.intp)
+        for key, expected in expected_by_state_key.items():
+            np.testing.assert_allclose(
+                after_values[key][complement],
+                before_values[key][complement],
+                atol=atol,
+                rtol=atol,
+            )
+            np.testing.assert_allclose(after_values[key][selected], expected, atol=atol, rtol=atol)
+
+        terminal = backend.step_batch(plan, _zero_control(plan, backend.num_envs))
+        expected_terminal = reference.step_batch(
+            reference_plan,
+            _zero_control(reference_plan, reference.num_envs),
+        )
+        terminal_values = _full_state_arrays(terminal.terminal_state)
+        reference_values = _full_state_arrays(expected_terminal.terminal_state)
+        for key in terminal_values:
+            np.testing.assert_allclose(
+                terminal_values[key],
+                reference_values[key],
+                atol=20 * atol,
+                rtol=20 * atol,
+            )
+    finally:
+        _close(backend)
+        _close(reference)
+
+
 def test_mujoco_typed_reset_binding_and_commit_faults_fail_closed(tmp_path: Path) -> None:
     unmaterialized = _backend(tmp_path / "unmaterialized", materialize=False)
     with pytest.raises(BackendBatchContractError, match="materialized backend pool"):
         unmaterialized.bind_task_io(_requirements(unmaterialized))
     with pytest.raises(BackendBatchContractError, match="materialized backend pool"):
         unmaterialized.bind_mutation_plan((_position_spec(np.dtype(np.float64)),))
+
+    misbound_root = _backend(tmp_path / "misbound_root", base_name="ball_link")
+    try:
+        with pytest.raises(MutationContractError, match="not supported by the backend"):
+            misbound_root.bind_mutation_plan((_full_reset_specs(np.dtype(np.float64))[0],))
+    finally:
+        _close(misbound_root)
 
     backend = _backend(tmp_path / "materialized")
     try:
@@ -482,6 +837,24 @@ def test_mujoco_typed_reset_binding_and_commit_faults_fail_closed(tmp_path: Path
         assert (
             structured_plan.specs[0].target.entity_ids == mutation_plan.specs[0].target.entity_ids
         )
+
+        root_specs = _full_reset_specs(np.dtype(np.float64))
+        root_plan = backend.bind_mutation_plan(root_specs)
+        root_bound = {spec.term_key: spec for spec in root_plan.specs}
+        assert root_bound["reset.root.position"].target.entity_ids == (1,)
+        structured_root = replace(
+            root_specs[0],
+            target=replace(
+                root_specs[0].target,
+                selector=MutationSelectorSpec(
+                    semantic_key="robot.managed_root",
+                    mode=MutationSelectorMode.EXACT,
+                    expressions=("payload",),
+                    entity_ids=(1,),
+                ),
+            ),
+        )
+        assert backend.bind_mutation_plan((structured_root,)).specs[0].target.entity_ids == (1,)
 
         unsupported_specs = (
             replace(
@@ -510,6 +883,21 @@ def test_mujoco_typed_reset_binding_and_commit_faults_fail_closed(tmp_path: Path
                     mode=MutationSelectorMode.EXACT,
                     expressions=("hinge", "slide"),
                     entity_ids=(37, 41),
+                ),
+            ),
+            replace(
+                root_specs[0],
+                target=replace(root_specs[0].target, selector="ball_link"),
+            ),
+            replace(
+                root_specs[0],
+                target=replace(root_specs[0].target, selector="payload_free"),
+            ),
+            replace(
+                root_specs[0],
+                target=replace(
+                    root_specs[0].target,
+                    field_kind=MutationFieldKind.ORIENTATION,
                 ),
             ),
         )

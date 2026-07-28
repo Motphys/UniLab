@@ -49,6 +49,13 @@ if TYPE_CHECKING:
 
 _STATE_FINGERPRINT_PREFIX = "mujoco-host-state-v1"
 _PLAN_FINGERPRINT_PREFIX = "mujoco-host-batch-v1"
+_ROOT_RESET_VALUE_SHAPES = {
+    "state.root.position": (1, 3),
+    "state.root.orientation": (1, 4),
+    "state.root.linear_velocity": (1, 3),
+    "state.root.angular_velocity": (1, 3),
+}
+_DOF_RESET_TARGETS = frozenset({"state.dof.position", "state.dof.angular_velocity"})
 
 
 def _step_allocations(dtype: str) -> int:
@@ -192,6 +199,13 @@ class _MuJoCoHostMutationPlan:
     field layout.  This runtime companion owns the only ``xfrc_applied`` and
     raw reset-state translations, and allocates its control, wrench, reset,
     and row-selection scratch on the cold path rather than during physics.
+
+    The public mutation contract deliberately distinguishes a floating root
+    body from joint DoFs.  MuJoCo's full-physics state keeps the first free
+    root at fixed qpos/qvel prefixes (7/6); translating those semantic root
+    targets here keeps that private layout out of manager code and preserves
+    the same compiled reset envelope across the independent ``mujoco`` and
+    ``mjwarp`` backends.
     """
 
     public_plan: BoundMutationPlan
@@ -380,7 +394,7 @@ class _MuJoCoHostMutationPlan:
         batch: TypedBackendMutationBatch,
         physics_state: np.ndarray,
     ) -> np.ndarray:
-        """Patch bound single-DoF reset values into a cold-allocated state scratch."""
+        """Patch bound floating-root and hinge values into reset-state scratch."""
         self.public_plan.require_compatible(batch.plan)
         if batch.rows.universe_size != self.public_plan.num_envs:
             raise BackendBatchContractError(
@@ -400,13 +414,31 @@ class _MuJoCoHostMutationPlan:
         staged_values: list[tuple[BoundMutationSpec, np.ndarray]] = []
         for value in batch.state.values:
             spec = value.spec
-            if (
-                spec.target.target_kind is not MutationTargetKind.SIMULATION_STATE
-                or spec.target.entity_kind is not MutationEntityKind.DOF
-                or spec.target.target_key
-                not in {"state.dof.position", "state.dof.angular_velocity"}
-                or spec.value_buffer.row_shape[-1] != 1
-            ):
+            if spec.target.target_kind is not MutationTargetKind.SIMULATION_STATE:
+                raise MutationContractError(
+                    "MuJoCo typed mutation plan contains an unsupported reset-state target"
+                )
+            target_key = spec.target.target_key
+            expected_shape = _ROOT_RESET_VALUE_SHAPES.get(target_key)
+            if expected_shape is not None:
+                if (
+                    spec.target.entity_kind is not MutationEntityKind.BODY
+                    or len(spec.target.entity_ids) != 1
+                    or spec.value_buffer.row_shape != expected_shape
+                ):
+                    raise MutationContractError(
+                        "MuJoCo typed root reset target has an invalid bound layout"
+                    )
+            elif target_key in _DOF_RESET_TARGETS:
+                if (
+                    spec.target.entity_kind is not MutationEntityKind.DOF
+                    or not spec.target.entity_ids
+                    or spec.value_buffer.row_shape[-1] != 1
+                ):
+                    raise MutationContractError(
+                        "MuJoCo typed DoF reset target has an invalid bound layout"
+                    )
+            else:
                 raise MutationContractError(
                     "MuJoCo typed mutation plan contains an unsupported reset-state target"
                 )
@@ -424,19 +456,49 @@ class _MuJoCoHostMutationPlan:
             )
 
         for spec, values in staged_values:
-            if spec.target.field_kind is MutationFieldKind.POSITION:
+            target_key = spec.target.target_key
+            if target_key == "state.root.position":
+                state_offset = self.qpos_state_offset
+                for row_offset in range(batch.rows.count):
+                    self._reset_state[row_offset, state_offset : state_offset + 3] = values[
+                        row_offset, 0, :
+                    ]
+            elif target_key == "state.root.orientation":
+                state_offset = self.qpos_state_offset + 3
+                for row_offset in range(batch.rows.count):
+                    self._reset_state[row_offset, state_offset : state_offset + 4] = values[
+                        row_offset, 0, :
+                    ]
+            elif target_key == "state.root.linear_velocity":
+                state_offset = self.qvel_state_offset
+                for row_offset in range(batch.rows.count):
+                    self._reset_state[row_offset, state_offset : state_offset + 3] = values[
+                        row_offset, 0, :
+                    ]
+            elif target_key == "state.root.angular_velocity":
+                state_offset = self.qvel_state_offset + 3
+                for row_offset in range(batch.rows.count):
+                    self._reset_state[row_offset, state_offset : state_offset + 3] = values[
+                        row_offset, 0, :
+                    ]
+            elif target_key == "state.dof.position":
                 state_offset = self.qpos_state_offset + self.root_qpos_dim
-            elif spec.target.field_kind is MutationFieldKind.ANGULAR_VELOCITY:
+                for dof_offset, dof_id in enumerate(spec.target.entity_ids):
+                    for row_offset in range(batch.rows.count):
+                        self._reset_state[row_offset, state_offset + dof_id] = values[
+                            row_offset, dof_offset, 0
+                        ]
+            elif target_key == "state.dof.angular_velocity":
                 state_offset = self.qvel_state_offset + self.root_qvel_dim
+                for dof_offset, dof_id in enumerate(spec.target.entity_ids):
+                    for row_offset in range(batch.rows.count):
+                        self._reset_state[row_offset, state_offset + dof_id] = values[
+                            row_offset, dof_offset, 0
+                        ]
             else:
                 raise MutationContractError(
                     "MuJoCo typed reset target has an unsupported field kind"
                 )
-            for dof_offset, dof_id in enumerate(spec.target.entity_ids):
-                for row_offset in range(batch.rows.count):
-                    self._reset_state[row_offset, state_offset + dof_id] = values[
-                        row_offset, dof_offset, 0
-                    ]
         return self._reset_state[: batch.rows.count]
 
 

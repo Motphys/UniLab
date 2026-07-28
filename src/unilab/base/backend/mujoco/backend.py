@@ -863,6 +863,24 @@ class MuJoCoBackend(SimBackend):
             mutation_plan.register_batch_plan(bound.public_plan)
         return bound.public_plan
 
+    def _typed_floating_root_body_id(self) -> int | None:
+        """Return the only body eligible for typed floating-root mutation.
+
+        A free qpos/qvel prefix belongs to the model's first free joint, not
+        merely to whichever body a caller configures as ``base_name``.  Keep
+        this cold-path validation beside the owner-specific capability and
+        selector binding so a non-root body can never write that prefix.
+        """
+
+        if (
+            self._base_body_id < 0
+            or (self._root_qpos_dim, self._root_qvel_dim) != (7, 6)
+            or self._model.njnt <= 0
+            or int(self._model.jnt_bodyid[0]) != self._base_body_id
+        ):
+            return None
+        return self._base_body_id
+
     def _mujoco_typed_mutation_capabilities(self) -> tuple[MutationCapability, ...]:
         def value_template(row_shape: tuple[int, ...]) -> BufferContract:
             return BufferContract(
@@ -892,6 +910,37 @@ class MuJoCoBackend(SimBackend):
                 recompute_levels=frozenset({MutationRecomputeLevel.NONE}),
             ),
         ]
+        if self._typed_floating_root_body_id() is not None:
+            for target_key, field_kind, row_shape in (
+                ("state.root.position", MutationFieldKind.POSITION, (3,)),
+                ("state.root.orientation", MutationFieldKind.ORIENTATION, (4,)),
+                (
+                    "state.root.linear_velocity",
+                    MutationFieldKind.LINEAR_VELOCITY,
+                    (3,),
+                ),
+                (
+                    "state.root.angular_velocity",
+                    MutationFieldKind.ANGULAR_VELOCITY,
+                    (3,),
+                ),
+            ):
+                capabilities.append(
+                    MutationCapability(
+                        target_key=target_key,
+                        target_kind=MutationTargetKind.SIMULATION_STATE,
+                        entity_kind=MutationEntityKind.BODY,
+                        field_kind=field_kind,
+                        entity_count=int(self._model.nbody),
+                        value_template=value_template(row_shape),
+                        triggers=frozenset({MutationTrigger.RESET}),
+                        commit_phases=frozenset({MutationCommitPhase.RESET}),
+                        operations=frozenset({MutationOperation.SET}),
+                        baselines=frozenset({MutationBaseline.DEFAULT}),
+                        persistences=frozenset({MutationPersistence.EPISODE}),
+                        recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                    )
+                )
         if self._num_dof_pos > 0:
             capabilities.append(
                 MutationCapability(
@@ -944,9 +993,36 @@ class MuJoCoBackend(SimBackend):
             return (int(body_id),)
         if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
             raise MutationContractError("MuJoCo typed mutation selector has an unsupported target")
+        if spec.entity_kind is MutationEntityKind.BODY:
+            root_targets = {
+                "state.root.position": MutationFieldKind.POSITION,
+                "state.root.orientation": MutationFieldKind.ORIENTATION,
+                "state.root.linear_velocity": MutationFieldKind.LINEAR_VELOCITY,
+                "state.root.angular_velocity": MutationFieldKind.ANGULAR_VELOCITY,
+            }
+            expected_field = root_targets.get(spec.target_key)
+            if expected_field is None or spec.field_kind is not expected_field:
+                raise MutationContractError(
+                    "MuJoCo typed body reset only supports floating-root state targets"
+                )
+            root_body_id = self._typed_floating_root_body_id()
+            if root_body_id is None:
+                raise MutationContractError(
+                    "MuJoCo typed root reset requires a named first free-joint base body"
+                )
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, raw_selector)
+            if body_id < 0:
+                raise MutationContractError(
+                    f"MuJoCo typed root selector {raw_selector!r} did not resolve a body"
+                )
+            if int(body_id) != root_body_id:
+                raise MutationContractError(
+                    f"MuJoCo typed root selector {raw_selector!r} must resolve the base body"
+                )
+            return (int(body_id),)
         if spec.entity_kind is not MutationEntityKind.DOF:
             raise MutationContractError(
-                "MuJoCo typed reset selector must name one single-DoF joint"
+                "MuJoCo typed reset selector must name a floating root body or hinge DoF"
             )
         joint_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, raw_selector)
         if joint_id < 0 or int(self._model.jnt_type[joint_id]) != int(mujoco.mjtJoint.mjJNT_HINGE):
