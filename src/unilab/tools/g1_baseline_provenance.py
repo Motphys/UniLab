@@ -40,6 +40,15 @@ class HardwarePlan:
 
 
 @dataclass(frozen=True)
+class PreflightPlan:
+    max_load_per_physical_core: float
+    max_gpu_compute_processes: int
+    max_gpu_utilization_percent: int
+    gpu_samples: int
+    sample_interval_sec: float
+
+
+@dataclass(frozen=True)
 class EnvironmentPlan:
     dtype: str
     hydra_overrides: tuple[str, ...]
@@ -88,6 +97,7 @@ class G1BaselinePlan:
     owner_yaml: str
     source_inputs: tuple[str, ...]
     hardware: HardwarePlan
+    preflight: PreflightPlan
     environment: EnvironmentPlan
     env_lane: EnvLanePlan
     dr_lane: DrLanePlan
@@ -191,6 +201,7 @@ _ROOT_KEYS = (
     "owner_yaml",
     "source_inputs",
     "hardware",
+    "preflight",
     "environment",
     "env_lane",
     "dr_lane",
@@ -206,6 +217,13 @@ _HARDWARE_PLAN_KEYS = (
     "gpu_uuid",
     "gpu_memory_mib",
     "driver_version",
+)
+_PREFLIGHT_KEYS = (
+    "max_load_per_physical_core",
+    "max_gpu_compute_processes",
+    "max_gpu_utilization_percent",
+    "gpu_samples",
+    "sample_interval_sec",
 )
 _ENVIRONMENT_KEYS = ("dtype", "hydra_overrides", "env_vars")
 _ENV_LANE_KEYS = (
@@ -240,6 +258,7 @@ def parse_g1_baseline_plan(raw: Any, *, source: Path = Path("<memory>")) -> G1Ba
     parser = _Parser()
     root = parser.mapping(raw, "plan", _ROOT_KEYS)
     hardware_raw = parser.mapping(root.get("hardware"), "hardware", _HARDWARE_PLAN_KEYS)
+    preflight_raw = parser.mapping(root.get("preflight"), "preflight", _PREFLIGHT_KEYS)
     environment_raw = parser.mapping(root.get("environment"), "environment", _ENVIRONMENT_KEYS)
     env_raw = parser.mapping(root.get("env_lane"), "env_lane", _ENV_LANE_KEYS)
     dr_raw = parser.mapping(root.get("dr_lane"), "dr_lane", _DR_LANE_KEYS)
@@ -291,6 +310,31 @@ def parse_g1_baseline_plan(raw: Any, *, source: Path = Path("<memory>")) -> G1Ba
             ),
             driver_version=parser.string(
                 hardware_raw.get("driver_version"), "hardware.driver_version"
+            ),
+        ),
+        preflight=PreflightPlan(
+            max_load_per_physical_core=parser.number(
+                preflight_raw.get("max_load_per_physical_core"),
+                "preflight.max_load_per_physical_core",
+                minimum=0.0,
+            ),
+            max_gpu_compute_processes=parser.integer(
+                preflight_raw.get("max_gpu_compute_processes"),
+                "preflight.max_gpu_compute_processes",
+                minimum=0,
+            ),
+            max_gpu_utilization_percent=parser.integer(
+                preflight_raw.get("max_gpu_utilization_percent"),
+                "preflight.max_gpu_utilization_percent",
+                minimum=0,
+            ),
+            gpu_samples=parser.integer(
+                preflight_raw.get("gpu_samples"), "preflight.gpu_samples", minimum=1
+            ),
+            sample_interval_sec=parser.number(
+                preflight_raw.get("sample_interval_sec"),
+                "preflight.sample_interval_sec",
+                minimum=0.05,
             ),
         ),
         environment=EnvironmentPlan(
@@ -397,6 +441,10 @@ def _plan_semantic_errors(plan: G1BaselinePlan) -> list[str]:
         errors.append("ppo_lane: max_iterations must exceed warmup_iterations")
     if set(plan.dr_lane.modes) != {"disabled", "default_kp_kd"}:
         errors.append("dr_lane.modes: must cover disabled and default_kp_kd")
+    if plan.preflight.max_gpu_compute_processes != 0:
+        errors.append("preflight.max_gpu_compute_processes: baseline host must be exclusive")
+    if plan.preflight.max_gpu_utilization_percent > 50:
+        errors.append("preflight.max_gpu_utilization_percent: must remain <= 50")
     if plan.environment.hydra_overrides != (
         "env.adaptive_chunk_size=false",
         "env.chunk_size=null",
@@ -644,7 +692,26 @@ _HARDWARE_KEYS = (
     "torch_version",
     "hostname",
 )
-_EXECUTION_KEYS = ("process_isolation", "affinity_cpus", "env_vars", "hydra_overrides")
+_EXECUTION_KEYS = (
+    "process_isolation",
+    "affinity_cpus",
+    "env_vars",
+    "hydra_overrides",
+    "preflight",
+)
+_PREFLIGHT_ARTIFACT_KEYS = (
+    "timestamp",
+    "load_average_1m",
+    "load_per_physical_core",
+    "gpu_compute_processes",
+    "gpu_samples",
+)
+_PREFLIGHT_GPU_SAMPLE_KEYS = (
+    "utilization_percent",
+    "memory_used_mib",
+    "temperature_c",
+    "pstate",
+)
 _CASE_KEYS = (
     "case_id",
     "lane",
@@ -770,6 +837,7 @@ def validate_g1_baseline_artifact(
         parser.errors.append("artifact.execution.env_vars: does not match plan")
     if execution.get("hydra_overrides") != list(plan.environment.hydra_overrides):
         parser.errors.append("artifact.execution.hydra_overrides: does not match plan")
+    _validate_preflight(execution.get("preflight"), plan, parser.errors)
 
     case_ids: list[str] = []
     run_ids: list[str] = []
@@ -909,6 +977,58 @@ def _validate_process(
         errors.append(f"{path}.env_vars: does not match plan")
     for key in ("stdout_sha256", "stderr_sha256"):
         _validate_sha(process.get(key), f"{path}.{key}", errors)
+
+
+def _validate_preflight(value: Any, plan: G1BaselinePlan, errors: list[str]) -> None:
+    if not isinstance(value, dict):
+        errors.append("artifact.execution.preflight: expected mapping")
+        return
+    _validate_exact_keys(value, _PREFLIGHT_ARTIFACT_KEYS, "artifact.execution.preflight", errors)
+    load = value.get("load_per_physical_core")
+    if isinstance(load, bool) or not isinstance(load, (int, float)):
+        errors.append("artifact.execution.preflight.load_per_physical_core: expected number")
+    elif load > plan.preflight.max_load_per_physical_core:
+        errors.append("artifact.execution.preflight: CPU load exceeds frozen limit")
+    processes = value.get("gpu_compute_processes")
+    if not isinstance(processes, list):
+        errors.append("artifact.execution.preflight.gpu_compute_processes: expected list")
+    elif len(processes) > plan.preflight.max_gpu_compute_processes:
+        errors.append("artifact.execution.preflight: foreign GPU compute process detected")
+    else:
+        for index, process in enumerate(processes):
+            if not isinstance(process, dict):
+                errors.append(
+                    f"artifact.execution.preflight.gpu_compute_processes[{index}]: expected mapping"
+                )
+                continue
+            _validate_exact_keys(
+                process,
+                ("pid", "process_name", "used_memory_mib"),
+                f"artifact.execution.preflight.gpu_compute_processes[{index}]",
+                errors,
+            )
+    samples = value.get("gpu_samples")
+    if not isinstance(samples, list) or len(samples) != plan.preflight.gpu_samples:
+        errors.append(
+            f"artifact.execution.preflight.gpu_samples: expected {plan.preflight.gpu_samples} samples"
+        )
+    elif any(
+        not isinstance(sample, dict)
+        or sample.get("utilization_percent", plan.preflight.max_gpu_utilization_percent + 1)
+        > plan.preflight.max_gpu_utilization_percent
+        for sample in samples
+    ):
+        errors.append("artifact.execution.preflight: GPU utilization exceeds frozen limit")
+    if isinstance(samples, list):
+        for index, sample in enumerate(samples):
+            if not isinstance(sample, dict):
+                continue
+            _validate_exact_keys(
+                sample,
+                _PREFLIGHT_GPU_SAMPLE_KEYS,
+                f"artifact.execution.preflight.gpu_samples[{index}]",
+                errors,
+            )
 
 
 def _validate_case(

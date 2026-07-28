@@ -392,6 +392,12 @@ def _event_scalars(run_dir: Path, tags: Sequence[str]) -> dict[str, list[dict[st
 
 
 def _run_ppo_case(plan: G1BaselinePlan, seed: int) -> dict[str, Any]:
+    foreign_processes = _gpu_compute_processes()
+    if foreign_processes:
+        raise RuntimeError(
+            f"PPO seed {seed} cannot start with foreign GPU compute processes: "
+            f"{foreign_processes!r}"
+        )
     with tempfile.TemporaryDirectory(prefix=f"unilab_issue705_ppo_seed{seed}_") as temp_dir:
         log_root = Path(temp_dir) / "logs"
         command = [
@@ -463,6 +469,78 @@ def _nvidia_hardware() -> dict[str, Any]:
     }
 
 
+def _gpu_compute_processes() -> list[dict[str, Any]]:
+    command = [
+        "nvidia-smi",
+        "--query-compute-apps=pid,process_name,used_memory",
+        "--format=csv,noheader,nounits",
+    ]
+    completed = subprocess.run(command, check=True, capture_output=True, text=True)
+    processes: list[dict[str, Any]] = []
+    for line in completed.stdout.splitlines():
+        if not line.strip():
+            continue
+        pid, name, used_memory = [item.strip() for item in line.split(",", maxsplit=2)]
+        processes.append(
+            {
+                "pid": int(pid),
+                "process_name": name,
+                "used_memory_mib": int(used_memory),
+            }
+        )
+    return processes
+
+
+def _gpu_idle_sample() -> dict[str, Any]:
+    command = [
+        "nvidia-smi",
+        "--query-gpu=utilization.gpu,memory.used,temperature.gpu,pstate",
+        "--format=csv,noheader,nounits",
+    ]
+    completed = subprocess.run(command, check=True, capture_output=True, text=True)
+    utilization, memory, temperature, pstate = [
+        item.strip() for item in completed.stdout.strip().splitlines()[0].split(",")
+    ]
+    return {
+        "utilization_percent": int(utilization),
+        "memory_used_mib": int(memory),
+        "temperature_c": int(temperature),
+        "pstate": pstate,
+    }
+
+
+def _preflight_payload(plan: G1BaselinePlan) -> dict[str, Any]:
+    load_average = float(os.getloadavg()[0])
+    load_per_core = load_average / plan.hardware.cpu_physical_cores
+    processes = _gpu_compute_processes()
+    samples: list[dict[str, Any]] = []
+    for index in range(plan.preflight.gpu_samples):
+        samples.append(_gpu_idle_sample())
+        if index + 1 < plan.preflight.gpu_samples:
+            time.sleep(plan.preflight.sample_interval_sec)
+    payload = {
+        "timestamp": _utc_now(),
+        "load_average_1m": load_average,
+        "load_per_physical_core": load_per_core,
+        "gpu_compute_processes": processes,
+        "gpu_samples": samples,
+    }
+    if load_per_core > plan.preflight.max_load_per_physical_core:
+        raise RuntimeError(
+            f"preflight CPU load {load_per_core:.3f} exceeds "
+            f"{plan.preflight.max_load_per_physical_core:.3f} per physical core"
+        )
+    if len(processes) > plan.preflight.max_gpu_compute_processes:
+        raise RuntimeError(f"preflight found foreign GPU compute processes: {processes!r}")
+    peak_utilization = max(sample["utilization_percent"] for sample in samples)
+    if peak_utilization > plan.preflight.max_gpu_utilization_percent:
+        raise RuntimeError(
+            f"preflight GPU utilization {peak_utilization}% exceeds "
+            f"{plan.preflight.max_gpu_utilization_percent}%"
+        )
+    return payload
+
+
 def _cpu_model() -> str:
     for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
         if line.startswith("model name"):
@@ -513,6 +591,7 @@ def _source_payload(plan: G1BaselinePlan) -> dict[str, Any]:
 def _collect(plan: G1BaselinePlan) -> dict[str, Any]:
     hardware = _hardware_payload(plan)
     source = _source_payload(plan)
+    preflight = _preflight_payload(plan)
     cases: list[dict[str, Any]] = []
     total = len(expected_case_ids(plan))
 
@@ -561,6 +640,7 @@ def _collect(plan: G1BaselinePlan) -> dict[str, Any]:
             "affinity_cpus": list(plan.hardware.affinity_cpus),
             "env_vars": dict(plan.environment.env_vars),
             "hydra_overrides": list(plan.environment.hydra_overrides),
+            "preflight": preflight,
         },
         "cases": cases,
         "aggregates": build_aggregates(cases),
