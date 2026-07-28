@@ -347,7 +347,7 @@ claims:
         - https://github.com/unilabsim/UniLab/issues/717
         - tests/acceptance/issue_705/g1_threshold_manifest.yaml
         - tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml
-      commit_sha: 052eb2d48a8e213145627883d9f7ff3d27153b09
+      commit_sha: 2d6f24c56c9fc446c390b9e2a645de6c8bd15461
       config_hash: sha256:c39e3a001d5c516982b33eae1be684b58e4b6f85d2610fb253e5742321b62a74
       executed_test_ids:
         - tests/tools/test_issue705_threshold_contract.py
@@ -356,7 +356,7 @@ claims:
         - tests/acceptance/issue_705/test_threshold_manifest.py::test_phase0_thresholds_are_frozen
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: Frozen gates cover all env batches, PPO seeds, DR densities, host/device memory, CPU-GPU transfers, lifecycle, and numerical compatibility; the receipt binds the unchanged manifest blob to a pre-candidate Git commit.
+      summary: Frozen gates cover all 50 raw cases, env batches, PPO seeds, DR densities, host/device memory, CPU-GPU transfers, lifecycle, and numerical compatibility; aggregate/raw and counter/profiler reconciliation are mandatory, and the receipt binds the unchanged manifest blob to a pre-candidate Git commit.
     invalidation:
       paths:
         - tests/acceptance/issue_705/manifests/phase_0.yaml
