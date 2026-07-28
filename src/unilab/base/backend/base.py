@@ -16,11 +16,13 @@ from unilab.dr.types import (
 from .batch import (
     BackendIORequirements,
     BackendMutationBatch,
+    BackendReadResult,
     BackendResetResult,
     BackendStepResult,
     BoundBackendPlan,
     ControlBatch,
     RowSelection,
+    StateBatchPhase,
 )
 
 PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
@@ -256,6 +258,18 @@ class SimBackend(abc.ABC):
         nsteps: int = 1,
     ) -> BackendStepResult:
         """Advance physics through a bound typed batch plan."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support typed backend batches"
+        )
+
+    def read_state_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        phase: StateBatchPhase = StateBatchPhase.CURRENT,
+    ) -> BackendReadResult:
+        """Materialize one borrowed state batch from a bound backend plan."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support typed backend batches"
         )
