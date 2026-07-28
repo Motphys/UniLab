@@ -24,6 +24,7 @@ from .batch import (
     RowSelection,
     StateBatchPhase,
 )
+from .mutation import BoundMutationPlan, MutationSpec
 
 PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
 
@@ -247,6 +248,12 @@ class SimBackend(abc.ABC):
         """Bind managed task state/control requirements on the cold path."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support typed backend batches"
+        )
+
+    def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
+        """Bind managed mutation requirements on the cold path."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support typed backend mutations"
         )
 
     def step_batch(
