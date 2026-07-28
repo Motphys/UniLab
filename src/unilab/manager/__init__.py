@@ -20,6 +20,16 @@ from .plan import (
     PolicyABI,
 )
 from .registry import TermRegistry
+from .runtime import (
+    ManagedKernelBinding,
+    ManagedLifecycleEvent,
+    ManagedLifecyclePhase,
+    ManagedMetric,
+    ManagedReferenceRuntime,
+    ManagedResetRequest,
+    ManagedRuntimeError,
+    ManagedTaskKernel,
+)
 from .spec import (
     FrozenParameters,
     MutationTemplate,
@@ -48,6 +58,14 @@ __all__ = [
     "EntitySelector",
     "FrozenParameters",
     "ManagerContractError",
+    "ManagedLifecycleEvent",
+    "ManagedLifecyclePhase",
+    "ManagedKernelBinding",
+    "ManagedMetric",
+    "ManagedReferenceRuntime",
+    "ManagedResetRequest",
+    "ManagedRuntimeError",
+    "ManagedTaskKernel",
     "MutationTemplate",
     "NormalizationMode",
     "ObservationGroupPlan",
