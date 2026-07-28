@@ -238,6 +238,21 @@ def _artifact() -> dict:
             "affinity_cpus": list(plan.hardware.affinity_cpus),
             "env_vars": dict(plan.environment.env_vars),
             "hydra_overrides": list(plan.environment.hydra_overrides),
+            "preflight": {
+                "timestamp": "2026-07-28T00:00:00+00:00",
+                "load_average_1m": 1.0,
+                "load_per_physical_core": 0.0625,
+                "gpu_compute_processes": [],
+                "gpu_samples": [
+                    {
+                        "utilization_percent": 0,
+                        "memory_used_mib": 100,
+                        "temperature_c": 40,
+                        "pstate": "P8",
+                    }
+                    for _ in range(plan.preflight.gpu_samples)
+                ],
+            },
         },
         "cases": cases,
         "aggregates": build_aggregates(cases),
@@ -337,6 +352,16 @@ def test_valid_artifact_recomputes_all_fifty_cases() -> None:
         (
             lambda raw: raw["hardware"].update({"gpu_uuid": "another-gpu"}),
             "expected frozen value",
+        ),
+        (
+            lambda raw: raw["execution"]["preflight"]["gpu_compute_processes"].append({"pid": 1}),
+            "foreign GPU compute process",
+        ),
+        (
+            lambda raw: raw["execution"]["preflight"]["gpu_samples"][0].update(
+                {"utilization_percent": 99}
+            ),
+            "GPU utilization exceeds",
         ),
     ],
 )

@@ -28,6 +28,12 @@ hardware:
   gpu_uuid: GPU-e154a732-d539-0424-cdb2-de408e0c5a21
   gpu_memory_mib: 49140
   driver_version: "570.133.07"
+preflight:
+  max_load_per_physical_core: 0.25
+  max_gpu_compute_processes: 0
+  max_gpu_utilization_percent: 50
+  gpu_samples: 5
+  sample_interval_sec: 0.2
 environment:
   dtype: float32
   hydra_overrides:
