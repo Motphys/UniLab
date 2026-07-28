@@ -45,8 +45,8 @@ def test_unsupported_matrix_fails_before_step() -> None:
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(push_perturbation_limit=np.ones((3,), dtype=np.float32))
         )
-    with pytest.raises(NotImplementedError, match="typed backend batches"):
-        backend.bind_task_io(None)  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match="typed backend mutations"):
+        backend.bind_mutation_plan(())
 
     qpos = np.tile(backend.get_keyframe_qpos("stand"), (1, 1))
     qvel = np.zeros((1, backend.get_init_qvel().size), dtype=np.float32)

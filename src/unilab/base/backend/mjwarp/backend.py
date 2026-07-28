@@ -16,6 +16,20 @@ from typing import Any
 import numpy as np
 
 from unilab.base.backend.base import SimBackend
+from unilab.base.backend.batch import (
+    BackendBatchContractError,
+    BackendBatchDiagnostics,
+    BackendIORequirements,
+    BackendMutationBatch,
+    BackendReadResult,
+    BackendResetResult,
+    BackendStepResult,
+    BackendTiming,
+    BoundBackendPlan,
+    ControlBatch,
+    RowSelection,
+    StateBatchPhase,
+)
 from unilab.base.backend.telemetry import (
     BackendTransferBuffer,
     BackendTransferCounters,
@@ -29,6 +43,11 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 
+from .batch import (
+    MjwarpHostBatchPlan,
+    bind_mjwarp_host_batch,
+    transfer_delta_to_batch_counters,
+)
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
@@ -114,6 +133,15 @@ class MjwarpBackend(SimBackend):
         self._sensor_slots = self._bind_sensor_slots()
         self._keyframe_qpos = self._bind_keyframes()
         self._body_ids = self._bind_names(deps.mujoco.mjtObj.mjOBJ_BODY, self._nbody)
+        if self._base_name is None:
+            self._base_body_id: int | None = None
+        else:
+            try:
+                self._base_body_id = self._body_ids[self._base_name]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Base body {self._base_name!r} not found in mjwarp model"
+                ) from exc
         self._geom_ids = self._bind_names(deps.mujoco.mjtObj.mjOBJ_GEOM, int(self._cpu_model.ngeom))
         self._site_ids = self._bind_names(deps.mujoco.mjtObj.mjOBJ_SITE, int(self._cpu_model.nsite))
         self._actuator_names = tuple(
@@ -143,6 +171,8 @@ class MjwarpBackend(SimBackend):
         self._ctrl_staging = np.zeros((self._num_envs, self._nu), dtype=np.float32)
         self._reset_mask_host = np.zeros((self._num_envs,), dtype=np.bool_)
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
+        self._batch_instance_id = f"mjwarp:{id(self):x}"
+        self._host_batch_plans: dict[str, MjwarpHostBatchPlan] = {}
 
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
@@ -402,6 +432,166 @@ class MjwarpBackend(SimBackend):
     # Control, reset, and deliberately narrow DR surface                 #
     # ------------------------------------------------------------------ #
 
+    def bind_task_io(self, requirements: BackendIORequirements) -> BoundBackendPlan:
+        bound = bind_mjwarp_host_batch(
+            self,
+            requirements,
+            backend_instance_id=self._batch_instance_id,
+        )
+        existing = self._host_batch_plans.get(bound.public_plan.fingerprint)
+        if existing is not None:
+            existing.public_plan.require_compatible(bound.public_plan)
+            return existing.public_plan
+        self._host_batch_plans[bound.public_plan.fingerprint] = bound
+        return bound.public_plan
+
+    def _require_host_batch_plan(self, plan: BoundBackendPlan) -> MjwarpHostBatchPlan:
+        if not isinstance(plan, BoundBackendPlan):
+            raise BackendBatchContractError("mjwarp batch plan must be a BoundBackendPlan")
+        plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            bound = self._host_batch_plans[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp batch plan was not bound by this backend instance"
+            ) from exc
+        bound.public_plan.require_compatible(plan)
+        return bound
+
+    def _invalidate_host_batch_state(self) -> None:
+        for bound in self._host_batch_plans.values():
+            bound.lease.invalidate()
+
+    def read_state_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        phase: StateBatchPhase = StateBatchPhase.CURRENT,
+    ) -> BackendReadResult:
+        bound = self._require_host_batch_plan(plan)
+        if not isinstance(rows, RowSelection):
+            raise BackendBatchContractError("mjwarp rows must be a RowSelection")
+        if rows.universe_size != self._num_envs:
+            raise BackendBatchContractError("mjwarp row universe does not match backend num_envs")
+        if not isinstance(phase, StateBatchPhase):
+            raise BackendBatchContractError("mjwarp state phase must be a StateBatchPhase")
+        return bound.materialize(rows, phase)
+
+    def _execute_host_step(
+        self,
+        ctrl: np.ndarray,
+        nsteps: int,
+    ) -> tuple[dict[str, float], BackendTransferCounters]:
+        """Execute the single owner-layer host-cache barrier used by both APIs."""
+        before = self._transfer_telemetry.counters()
+        t0 = time.perf_counter()
+        np.copyto(self._ctrl_staging, ctrl)
+        self._transfer_telemetry.begin_barrier("step")
+        self._upload("control", self._device_data.ctrl, self._ctrl_staging)
+        control_upload_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        for _ in range(nsteps):
+            self._mujoco_warp.step(self._device_model, self._device_data)
+        self._synchronize()
+        physics_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        self._refresh_host_cache()
+        host_cache_ms = (time.perf_counter() - t0) * 1000.0
+        transfer_delta = self._transfer_telemetry.counters().delta(before)
+        return (
+            {
+                "control_upload_ms": control_upload_ms,
+                "physics_ms": physics_ms,
+                "host_cache_refresh_ms": host_cache_ms,
+            },
+            transfer_delta,
+        )
+
+    def step_batch(
+        self,
+        plan: BoundBackendPlan,
+        control_batch: ControlBatch,
+        *,
+        mutation_batch: BackendMutationBatch | None = None,
+        nsteps: int = 1,
+    ) -> BackendStepResult:
+        bound = self._require_host_batch_plan(plan)
+        if self._pre_step_control_fn is not None:
+            raise BackendBatchContractError(
+                "mjwarp managed host batches do not support pre-step control callbacks"
+            )
+        if not isinstance(control_batch, ControlBatch):
+            raise BackendBatchContractError("mjwarp control must be a ControlBatch")
+        plan.require_compatible(control_batch.plan)
+        if not control_batch.rows.is_all:
+            raise BackendBatchContractError("mjwarp physics steps require controls for all rows")
+        if (
+            isinstance(nsteps, bool)
+            or not isinstance(nsteps, int)
+            or nsteps != plan.control.physics_substeps_per_control
+        ):
+            raise BackendBatchContractError(
+                "mjwarp nsteps does not match the bound control cadence"
+            )
+        if mutation_batch is not None:
+            raise BackendBatchContractError(
+                "mjwarp host_numpy typed step does not support mutation batches"
+            )
+        control = control_batch.buffer.handle
+        if not isinstance(control, np.ndarray):
+            raise BackendBatchContractError("mjwarp host control handle must be a numpy array")
+        if control.dtype.name != plan.control.buffer.dtype:
+            raise BackendBatchContractError("mjwarp control handle dtype does not match the plan")
+        if control.shape != (self._num_envs, *plan.control.buffer.row_shape):
+            raise BackendBatchContractError("mjwarp control handle shape does not match the plan")
+        if not control.flags.c_contiguous:
+            raise BackendBatchContractError("mjwarp host control must be C-contiguous")
+
+        self._invalidate_host_batch_state()
+        timings, transfer_delta = self._execute_host_step(control, nsteps)
+        read_result = bound.materialize(
+            RowSelection.all(self._num_envs),
+            StateBatchPhase.TERMINAL,
+        )
+        diagnostics = BackendBatchDiagnostics(
+            counters=transfer_delta_to_batch_counters(
+                transfer_delta,
+                allocations=bound.step_allocations,
+                state_materializations=1,
+            ),
+            timings=(
+                *(BackendTiming(phase, milliseconds) for phase, milliseconds in timings.items()),
+                *read_result.diagnostics.timings,
+            ),
+        )
+        return BackendStepResult(
+            terminal_state=read_result.state,
+            diagnostics=diagnostics,
+        )
+
+    def reset_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        mutation_batch: BackendMutationBatch | None = None,
+    ) -> BackendResetResult:
+        self._require_host_batch_plan(plan)
+        if not isinstance(rows, RowSelection):
+            raise BackendBatchContractError("mjwarp rows must be a RowSelection")
+        if rows.universe_size != self._num_envs:
+            raise BackendBatchContractError("mjwarp row universe does not match backend num_envs")
+        del mutation_batch
+        raise BackendBatchContractError(
+            "mjwarp host_numpy typed reset requires the Phase 3C bound state-mutation plan"
+        )
+
     def set_pre_step_control(self, fn: Any | None) -> None:
         if fn is not None:
             raise NotImplementedError(
@@ -417,29 +607,9 @@ class MjwarpBackend(SimBackend):
         expected = (self._num_envs, self._nu)
         if ctrl_array.shape != expected:
             raise ValueError(f"ctrl must have shape {expected}, got {ctrl_array.shape}")
-
-        t0 = time.perf_counter()
-        np.copyto(self._ctrl_staging, ctrl_array)
-        self._transfer_telemetry.begin_barrier("step")
-        self._upload("control", self._device_data.ctrl, self._ctrl_staging)
-        control_upload_ms = (time.perf_counter() - t0) * 1000.0
-
-        t0 = time.perf_counter()
-        for _ in range(int(nsteps)):
-            self._mujoco_warp.step(self._device_model, self._device_data)
-        self._synchronize()
-        physics_ms = (time.perf_counter() - t0) * 1000.0
-
-        t0 = time.perf_counter()
-        self._refresh_host_cache()
-        host_cache_ms = (time.perf_counter() - t0) * 1000.0
-        return {
-            "timing": {
-                "control_upload_ms": control_upload_ms,
-                "physics_ms": physics_ms,
-                "host_cache_refresh_ms": host_cache_ms,
-            }
-        }
+        self._invalidate_host_batch_state()
+        timings, _ = self._execute_host_step(ctrl_array, int(nsteps))
+        return {"timing": timings}
 
     def set_state(
         self,
@@ -466,6 +636,7 @@ class MjwarpBackend(SimBackend):
         if rows.size == 0:
             return {"timing": {"set_state_reset_ms": 0.0, "set_state_cache_refresh_ms": 0.0}}
 
+        self._invalidate_host_batch_state()
         t0 = time.perf_counter()
         self._transfer_telemetry.begin_barrier("reset")
         self._reset_mask_host.fill(False)
