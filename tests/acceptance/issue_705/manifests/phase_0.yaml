@@ -177,9 +177,12 @@ claims:
     oracle: Field inventory completeness checks against mjlab findings and the planned capability matrix.
     commands:
       - uv run scripts/validate_issue705_dr_inventory.py
+      - uv run pytest tests/tools/test_mjwarp_dr_inventory_contract.py tests/scripts/test_issue705_dr_inventory.py tests/acceptance/issue_705/test_mjwarp_dr_inventory.py -v
     lane: B
     required: true
     required_test_ids:
+      - tests/tools/test_mjwarp_dr_inventory_contract.py
+      - tests/scripts/test_issue705_dr_inventory.py
       - tests/acceptance/issue_705/test_mjwarp_dr_inventory.py::test_inventory_covers_required_field_contracts
     environment:
       dependencies: [mujoco-warp>=3.10.0.3, warp-lang>=1.14.0]
@@ -205,16 +208,22 @@ claims:
       executed_test_ids: []
       skipped_test_ids: []
       xfailed_test_ids: []
-      summary: ""
+      summary: Implementation is part of child issue #713; independent gate evidence is pending.
     invalidation:
       paths:
         - benchmark/mjwarp/**
         - src/unilab/dr/**
         - src/unilab/base/backend/**
+        - src/unilab/tools/mjwarp_dr_inventory.py
+        - scripts/validate_issue705_dr_inventory.py
+        - tests/acceptance/issue_705/mjwarp_dr_inventory.yaml
+        - tests/acceptance/issue_705/test_mjwarp_dr_inventory.py
+        - tests/tools/test_mjwarp_dr_inventory_contract.py
+        - tests/scripts/test_issue705_dr_inventory.py
         - uv.lock
       capabilities: [mjwarp-dr]
       fingerprints: [mjwarp-dr-capability-inventory-v1]
-    status: planned
+    status: implemented
 
   - claim_id: P0-BASELINE-PROVENANCE
     expected: G1 env, PPO, memory, DR, and reset-density baselines are reproducible from raw artifacts.

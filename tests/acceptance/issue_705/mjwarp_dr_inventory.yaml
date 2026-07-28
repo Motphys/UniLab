@@ -1,0 +1,631 @@
+schema_version: 1
+issue: 705
+backend: mjwarp
+source:
+  project: mjlab
+  version: 1.5.3
+  commit: f643d245303ff439a90f37151056ff987bdb95f7
+  dependencies: ["mujoco-warp>=3.10.0.3,~=3.10.0", warp-lang>=1.14.0]
+  inspected_files:
+    - src/mjlab/managers/event_manager.py
+    - src/mjlab/sim/randomization.py
+    - src/mjlab/sim/sim.py
+    - src/mjlab/envs/mdp/dr/actuator.py
+    - src/mjlab/envs/mdp/dr/body.py
+    - src/mjlab/envs/mdp/dr/geom.py
+    - src/mjlab/envs/mdp/dr/joint.py
+    - src/mjlab/envs/mdp/dr/tendon.py
+    - src/mjlab/envs/mdp/events.py
+    - tests/test_domain_randomization.py
+    - tests/test_events.py
+derived_field_sets:
+  none: []
+  set_const_fixed: [body_subtreemass]
+  set_const_0: [dof_invweight0, body_invweight0, tendon_length0, tendon_invweight0, actuator_acc0]
+  set_const: [body_subtreemass, dof_invweight0, body_invweight0, tendon_length0, tendon_invweight0, actuator_acc0]
+required_capability_ids:
+  - state.qpos_qvel_reset
+  - state.velocity_impulse
+  - actuator.pd_gains
+  - geom.friction
+  - joint.damping_friction
+  - actuator.force_limits
+  - joint.armature
+  - joint.qpos0
+  - body.pose
+  - tendon.armature
+  - body.coupled_inertia
+  - model.body_gravcomp
+  - geom.primitive_size
+  - structural.scene_variant
+  - wrench.body_external
+  - global.gravity
+
+capabilities:
+  - capability_id: state.qpos_qvel_reset
+    tier: A
+    semantic_target: selected world generalized position and velocity reset
+    target_kind: simulation_state
+    support_state: phase2_required
+    owner: backend/DR
+    selector_kind: joint and free-body state slices
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [data.qpos, data.qvel]
+    derived_fields: []
+    storage:
+      per_world: native
+      row_scope: selected
+      expansion: data_native
+      dtype_bytes: 4
+      direct_elements_per_world: nq + nv
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * (nq + nv) * 4
+      measurement_test_id: &memory_test tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates
+    mutation:
+      operations: [replace]
+      baseline_sources: [compiled_default, sampled_reset_state]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset]
+    recompute: {semantic: state_forward, backend: forward, scope: selected_rows}
+    graph: {impact: stable_data_address, invalidations: []}
+    validity_constraints: [exact row mask, valid normalized free-joint quaternion, qpos and qvel shape contract]
+    required_tests: &runtime_tests
+      contract: tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases
+      row_isolation: tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence
+      physics_effect: tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect
+      graph: tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers
+      memory: *memory_test
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/events.py:reset_scene_to_default
+      - mjlab@f643d245:src/mjlab/sim/sim.py:reset
+    notes: Phase 2 requires a device selected-row implementation; the current benchmark performs a full D2H and H2D splice and is not evidence.
+
+  - capability_id: state.velocity_impulse
+    tier: A
+    semantic_target: selected world root or joint velocity delta
+    target_kind: simulation_state
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: body or joint state slice
+    legacy_terms: [interval_body_velocity_delta]
+    field_resolution: resolved
+    direct_fields: [data.qvel]
+    derived_fields: []
+    storage:
+      per_world: native
+      row_scope: selected
+      expansion: data_native
+      dtype_bytes: 4
+      direct_elements_per_world: nv
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * nv * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [add, replace]
+      baseline_sources: [current_value]
+      triggers: [interval, reset]
+      commit_phases: [pre_physics, reset_pre_forward]
+      persistence: [instantaneous]
+    recompute: {semantic: state_forward, backend: forward, scope: selected_rows}
+    graph: {impact: stable_data_address, invalidations: []}
+    validity_constraints: [selected rows only, explicit world frame, finite velocity delta]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/events.py:push_by_setting_velocity
+      - unilab:src/unilab/dr/types.py:IntervalRandomizationPlan
+    notes: This is an instantaneous mass-independent kick and must not be reported as an external force capability.
+
+  - capability_id: actuator.pd_gains
+    tier: B
+    semantic_target: per-world actuator proportional and derivative gains
+    target_kind: model_parameter
+    support_state: phase2_decision
+    owner: backend/DR
+    selector_kind: actuator and transmission type
+    legacy_terms: [kp, kd]
+    field_resolution: resolved
+    direct_fields: [actuator_gainprm, actuator_biasprm]
+    derived_fields: []
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nu * (ngain + nbias)
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * nu * (ngain + nbias) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: none, backend: none, scope: selected_rows}
+    graph:
+      impact: recapture_required
+      invalidations: &model_invalidations [model_bridge_cache, sensor_context, step_graph, forward_graph, reset_graph, sense_graph]
+    validity_constraints: [actuator type slot mapping, nonnegative finite gains, no duplicate damping injection]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/actuator.py:pd_gains
+      - mjlab@f643d245:tests/test_builtin_pd_actuator.py
+      - unilab:benchmark/mjwarp/backend.py:get_dr_capabilities
+    notes: G1 owner must either pass selected-row next-step effect tests or explicitly disable kp and kd; the benchmark silently discards these fields and is a negative example.
+
+  - capability_id: geom.friction
+    tier: B
+    semantic_target: per-world selected geom contact friction
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: geom and component axes
+    legacy_terms: [geom_friction]
+    field_resolution: resolved
+    direct_fields: [geom_friction]
+    derived_fields: []
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: ngeom * 3
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * ngeom * 3 * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset, interval]
+      commit_phases: [startup, reset_pre_forward, pre_physics]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: none, backend: none, scope: selected_rows}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [nonnegative friction components, selected axes, shared-random correlation contract]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/geom.py:geom_friction
+      - mjlab@f643d245:tests/test_domain_randomization.py:test_partial_env_ids
+    notes: A field write test is insufficient; controlled contact pairs must show a next-step force or trajectory effect.
+
+  - capability_id: joint.damping_friction
+    tier: B
+    semantic_target: per-world joint damping and friction loss
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: joint to dof address mapping
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [dof_damping, dof_frictionloss]
+    derived_fields: []
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nv * 2
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * nv * 2 * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: none, backend: none, scope: selected_rows}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [nonnegative damping, nonnegative friction loss, joint address mapping]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/joint.py:joint_damping
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/joint.py:joint_friction
+    notes: These fields require no constant recompute in the pinned mjlab baseline but still require physics-effect evidence.
+
+  - capability_id: actuator.force_limits
+    tier: B
+    semantic_target: per-world actuator joint and tendon effort limits
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: actuator transmission target
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [actuator_forcerange, jnt_actfrcrange, tendon_actfrcrange]
+    derived_fields: []
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nu * 2 + njnt * 2 + ntendon * 2
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * (nu * 2 + njnt * 2 + ntendon * 2) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: none, backend: none, scope: selected_rows}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [ordered lower and upper bounds, transmission-specific target, finite limits]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/actuator.py:effort_limits
+      - mjlab@f643d245:tests/test_domain_randomization.py
+    notes: All three model arrays are storage requirements even when one actuator type uses only one target array.
+
+  - capability_id: joint.armature
+    tier: C
+    semantic_target: per-world dof armature with reference-constant recompute
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: joint to dof address mapping
+    legacy_terms: [dof_armature]
+    field_resolution: resolved
+    direct_fields: [dof_armature]
+    derived_fields: &set_const_0_fields [dof_invweight0, body_invweight0, tendon_length0, tendon_invweight0, actuator_acc0]
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nv
+      derived_elements_per_world: nv + nbody + ntendon * 2 + nu
+      bytes_formula: nworld * (nv * 2 + nbody + ntendon * 2 + nu) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: reference_constants, backend: set_const_0, scope: all_worlds}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [nonnegative armature, strongest recompute exactly once, selected writes with complement isolation]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/joint.py:joint_armature
+      - mjlab@f643d245:src/mjlab/managers/event_manager.py:_DERIVED_FIELDS
+    notes: The pinned recompute API has no row mask; reset-density scaling remains a mandatory benchmark question.
+
+  - capability_id: joint.qpos0
+    tier: C
+    semantic_target: per-world default generalized position
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: joint to qpos address mapping
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [qpos0]
+    derived_fields: *set_const_0_fields
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nq
+      derived_elements_per_world: nv + nbody + ntendon * 2 + nu
+      bytes_formula: nworld * (nq + nv + nbody + ntendon * 2 + nu) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: reference_constants, backend: set_const_0, scope: all_worlds}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [joint address mapping, valid quaternion slices, no baseline accumulation]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/joint.py:joint_default_pos
+      - mjlab@f643d245:src/mjlab/managers/event_manager.py:RecomputeLevel.set_const_0
+    notes: qpos0 is a model default and is separate from writing current data.qpos during reset.
+
+  - capability_id: body.pose
+    tier: C
+    semantic_target: per-world model body position and orientation
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: body
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [body_pos, body_quat]
+    derived_fields: *set_const_0_fields
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nbody * 7
+      derived_elements_per_world: nv + nbody + ntendon * 2 + nu
+      bytes_formula: nworld * (nbody * 8 + nv + ntendon * 2 + nu) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, compose_rotation]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: reference_constants, backend: set_const_0, scope: all_worlds}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [unit quaternion, body tree semantics, no current-state pose confusion]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/body.py:body_pos
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/body.py:body_quat
+    notes: body_quat is the kinematic body frame; body_iquat belongs to the coupled inertia capability.
+
+  - capability_id: tendon.armature
+    tier: C
+    semantic_target: per-world tendon armature
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: tendon
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [tendon_armature]
+    derived_fields: *set_const_0_fields
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: ntendon
+      derived_elements_per_world: nv + nbody + ntendon * 2 + nu
+      bytes_formula: nworld * (nv + nbody + ntendon * 3 + nu) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: reference_constants, backend: set_const_0, scope: all_worlds}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [nonnegative armature, tendon selector, strongest recompute exactly once]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/tendon.py:tendon_armature
+      - mjlab@f643d245:src/mjlab/managers/event_manager.py:_DERIVED_FIELDS
+    notes: This remains outside the G1 pilot but prevents the shared contract from assuming no tendons.
+
+  - capability_id: body.coupled_inertia
+    tier: D
+    semantic_target: physically valid coupled mass center of mass inertia and principal frame
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: body inertial frame
+    legacy_terms: [base_com_offset, base_mass_delta, body_iquat, body_inertia, body_ipos, body_mass]
+    field_resolution: resolved
+    direct_fields: [body_mass, body_ipos, body_inertia, body_iquat]
+    derived_fields: &set_const_fields [body_subtreemass, dof_invweight0, body_invweight0, tendon_length0, tendon_invweight0, actuator_acc0]
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nbody * 11
+      derived_elements_per_world: nbody * 2 + nv + ntendon * 2 + nu
+      bytes_formula: nworld * (nbody * 13 + nv + ntendon * 2 + nu) * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, coupled_pseudo_inertia]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: full_constants, backend: set_const, scope: all_worlds}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [positive mass, positive-definite pseudo-inertia, triangle inequalities, unit principal quaternion, coupled update only]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/body.py:pseudo_inertia
+      - mjlab@f643d245:src/mjlab/managers/event_manager.py:RecomputeLevel.set_const
+      - mjlab@f643d245:tests/test_domain_randomization.py:test_pseudo_inertia_physical_consistency
+    notes: Legacy independent body fields map here but must not be advertised individually until a physically valid coupled path is proven.
+
+  - capability_id: model.body_gravcomp
+    tier: C
+    semantic_target: per-world body gravity compensation coefficient
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: body
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [body_gravcomp]
+    derived_fields: [body_subtreemass]
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: nbody
+      derived_elements_per_world: nbody
+      bytes_formula: nworld * nbody * 2 * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: fixed_constants, backend: set_const_fixed, scope: all_worlds}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [finite coefficient, body selector, strongest recompute exactly once]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/managers/event_manager.py:RecomputeLevel.set_const_fixed
+      - mjlab@f643d245:src/mjlab/managers/event_manager.py:_DERIVED_FIELDS
+    notes: Included to cover the cheapest pinned recompute level even though it is not in the first G1 owner.
+
+  - capability_id: geom.primitive_size
+    tier: E
+    semantic_target: per-world primitive geom size with broadphase bounds
+    target_kind: model_parameter
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: primitive geom and component axes
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [geom_size]
+    derived_fields: [geom_rbound, geom_aabb]
+    storage:
+      per_world: expand_required
+      row_scope: selected
+      expansion: model_field_expand
+      dtype_bytes: 4
+      direct_elements_per_world: ngeom * 3
+      derived_elements_per_world: ngeom * 7
+      bytes_formula: nworld * ngeom * 10 * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default, per_world_variant_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: collision_bounds, backend: specialized_bounds, scope: selected_rows}
+    graph: {impact: recapture_required, invalidations: *model_invalidations}
+    validity_constraints: [positive dimensions, primitive types only, rbound updated, aabb updated, unsupported mesh hfield and SDF fail closed]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/dr/geom.py:geom_size
+      - mjlab@f643d245:tests/test_domain_randomization.py:test_geom_size_scale_updates_bounds
+    notes: This is a specialized mutation and must not be generalized to mesh hfield SDF or deformable geometry.
+
+  - capability_id: structural.scene_variant
+    tier: E
+    semantic_target: cold-path mesh hfield terrain and compiled scene variants
+    target_kind: structural_variant
+    support_state: cold_path_only
+    owner: backend/DR
+    selector_kind: scene and entity variant assignment
+    legacy_terms: []
+    field_resolution: resolved
+    direct_fields: [geom_size, body_mass, body_ipos, body_inertia, body_iquat]
+    derived_fields: []
+    storage:
+      per_world: cold_variants
+      row_scope: cold_path
+      expansion: cold_materialization
+      dtype_bytes: 4
+      direct_elements_per_world: compiled_variant_model_bytes / 4
+      derived_elements_per_world: "0"
+      bytes_formula: compiled_variant_model_bytes
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [select_compiled_variant]
+      baseline_sources: [per_world_variant_default]
+      triggers: [materialize]
+      commit_phases: [materialize]
+      persistence: [run_lifetime]
+    recompute: {semantic: structural_compile, backend: recompile, scope: cold_path}
+    graph: {impact: rebuild_required, invalidations: *model_invalidations}
+    validity_constraints: [no hot-path asset parsing, topology-compatible batch, per-world baseline snapshot before startup mutation]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/entity/variants.py
+      - mjlab@f643d245:tests/test_variants.py:test_dr_body_mass_scale_preserves_variant_baseline
+    notes: Structural fields never enter BackendMutationBatch and are materialized before plan freeze and graph capture.
+
+  - capability_id: wrench.body_external
+    tier: F
+    semantic_target: selected body external force and torque with explicit lifetime
+    target_kind: external_wrench
+    support_state: phase6_candidate
+    owner: backend/DR
+    selector_kind: body and application point
+    legacy_terms: [interval_push, interval_body_force]
+    field_resolution: resolved
+    direct_fields: [data.xfrc_applied]
+    derived_fields: []
+    storage:
+      per_world: native
+      row_scope: selected
+      expansion: data_native
+      dtype_bytes: 4
+      direct_elements_per_world: nbody * 6
+      derived_elements_per_world: "0"
+      bytes_formula: nworld * nbody * 6 * 4
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add]
+      baseline_sources: [zero, current_value]
+      triggers: [reset, interval, every_step]
+      commit_phases: [reset_pre_forward, pre_physics]
+      persistence: [until_next_step, duration, until_reset, persistent]
+    recompute: {semantic: none, backend: none, scope: selected_rows}
+    graph: {impact: stable_data_address, invalidations: []}
+    validity_constraints: [world frame explicit, combine policy explicit, duration expiry, step clear, reset clear, selected body and row isolation]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - mjlab@f643d245:src/mjlab/envs/mdp/events.py:apply_external_force_torque
+      - mjlab@f643d245:src/mjlab/envs/mdp/events.py:apply_body_impulse
+      - unilab:benchmark/mjwarp/backend.py:apply_interval_randomization
+    notes: The benchmark host staging path is useful only as a lifecycle warning; production requires device staging and effect tests.
+
+  - capability_id: global.gravity
+    tier: D
+    semantic_target: per-world gravity vector
+    target_kind: model_parameter
+    support_state: blocked_pending_evidence
+    owner: backend/DR
+    selector_kind: global option
+    legacy_terms: [gravity]
+    field_resolution: unresolved
+    direct_fields: []
+    derived_fields: []
+    storage:
+      per_world: unresolved
+      row_scope: unresolved
+      expansion: unresolved
+      dtype_bytes: null
+      direct_elements_per_world: unknown
+      derived_elements_per_world: "0"
+      bytes_formula: unknown
+      measurement_test_id: *memory_test
+    mutation:
+      operations: [replace, add, scale]
+      baseline_sources: [compiled_default]
+      triggers: [startup, reset]
+      commit_phases: [startup, reset_pre_forward]
+      persistence: [until_next_reset, persistent]
+    recompute: {semantic: unresolved, backend: unresolved, scope: unresolved}
+    graph: {impact: unknown_fail_closed, invalidations: []}
+    validity_constraints: [field mapping proven in pinned dependency, per-world storage proven, selected-row next-step acceleration effect proven]
+    required_tests: *runtime_tests
+    evidence_refs:
+      - unilab:src/unilab/dr/types.py:RESET_TERM_GRAVITY
+      - unilab:benchmark/mjwarp/backend.py:get_dr_capabilities
+    notes: Writable CPU or Python views are not evidence that the pinned mjwarp kernel consumes per-world gravity; owner config must disable it until proven.
+
+exclusions:
+  - scope: camera light material color and other visual-only model fields
+    handling: deferred
+    reason: They do not affect the G1 training physics slice and require renderer-specific device and graph evidence.
+    test_id: tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step
+  - scope: mesh hfield SDF deformable and topology-changing runtime mutation
+    handling: cold_path
+    reason: Structural data cannot use generic runtime field expansion and belongs to scene variant materialization.
+    test_id: tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step
+  - scope: benchmark mjwarp capability flags and silently discarded reset payload
+    handling: unsupported
+    reason: benchmark/mjwarp/backend.py advertises reset terms only to pass legacy validation and explicitly discards their payload.
+    test_id: tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step
+  - scope: render playback Jacobian and host substep controller
+    handling: unsupported
+    reason: These are outside the correctness slice and must fail before stepping until independent contracts exist.
+    test_id: tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step
