@@ -11,9 +11,9 @@ from unilab.base.backend.batch import (
     BufferMutability,
     BufferOwner,
 )
-from unilab.base.backend.mutation import MutationSpec
+from unilab.base.backend.mutation import MutationEntityKind, MutationSpec
 
-from .entities import CompiledSelector, ManagerContractError
+from .entities import CompiledSelector, EntityKind, ManagerContractError
 from .spec import (
     FrozenParameters,
     NormalizationMode,
@@ -315,9 +315,20 @@ class CompiledTaskPlan:
                 raise ManagerContractError(
                     "compiled mutation selector does not reference a compiled selector"
                 ) from exc
+            selector_kind_matches = (
+                mutation.target.entity_kind.value == compiled.kind.value
+                # The manager uses ROOT for task semantics, whereas the
+                # shared mutation ABI represents a floating root as its
+                # exact base BODY.  Backends still validate that body against
+                # their first-free-joint layout during cold binding.
+                or (
+                    compiled.kind is EntityKind.ROOT
+                    and mutation.target.entity_kind is MutationEntityKind.BODY
+                )
+            )
             if (
                 selector.mode.value != compiled.mode.value
-                or mutation.target.entity_kind.value != compiled.kind.value
+                or not selector_kind_matches
                 or selector.expressions != compiled.expressions
                 or selector.entity_ids != compiled.entity_ids
             ):
