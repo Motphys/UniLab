@@ -401,6 +401,20 @@ def test_fused_executor_matches_reference_generated_vectors() -> None:
         _cleanup(original_backend, permuted_backend)
 
 
+def test_fused_executor_uses_serial_numba_hot_kernels_for_host_profile() -> None:
+    """Guard the measured host strategy against accidental ``prange`` regression."""
+
+    dispatchers = (
+        fused_module._apply_action_kernel,
+        fused_module._write_observations_kernel,
+        fused_module._compute_terminal_kernel,
+        fused_module._copy_rows_kernel,
+        fused_module._gather_task_rows_kernel,
+        fused_module._complete_reset_task_state_kernel,
+    )
+    assert all(dispatcher.targetoptions.get("parallel", False) is False for dispatcher in dispatchers)
+
+
 def test_fused_executor_never_silently_falls_back() -> None:
     """Unsupported/faulted dispatch fails before physics or uses only fused math."""
 
