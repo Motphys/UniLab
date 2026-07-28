@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from scripts.validate_issue705_g1_baseline import PLAN_PATH, _payload, main
+
+
+def test_validator_reports_missing_artifact_without_traceback(tmp_path: Path) -> None:
+    payload = _payload(PLAN_PATH, tmp_path / "missing.json")
+
+    assert payload["ok"] is False
+    assert payload["errors"]
+
+
+def test_validator_reports_schema_errors_for_incomplete_artifact(tmp_path: Path) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_text("{}", encoding="utf-8")
+
+    payload = _payload(PLAN_PATH, artifact)
+
+    assert payload["ok"] is False
+    assert any("missing key" in error for error in payload["errors"])
+
+
+def test_json_cli_failure_is_machine_readable(tmp_path: Path, capsys) -> None:
+    missing = tmp_path / "missing.json"
+
+    assert main(["--artifact", str(missing), "--json"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["artifact"] == str(missing)
