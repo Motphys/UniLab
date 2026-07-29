@@ -12,6 +12,7 @@ from unilab.base.backend import (
     BackendBatchCounterBudget,
     BackendIORequirements,
     BoundFieldIdentity,
+    BoundMutationValueBufferGroup,
     BoundMutationValueBuffers,
     BufferContract,
     BufferLayout,
@@ -488,19 +489,44 @@ def _prepared_full_reset_batch(
     mutation_plan,
     rows: RowSelection,
     values: dict[str, np.ndarray],
+    *,
+    group_hinge: bool = False,
 ) -> TypedBackendMutationBatch:
     """Build the cold-bound complete-value path used by fused reset kernels."""
 
-    buffers = tuple(
+    buffers_list = [
         np.empty(
             (mutation_plan.num_envs, *spec.value_buffer.row_shape),
             dtype=spec.value_buffer.dtype,
         )
         for spec in mutation_plan.specs
-    )
+    ]
+    groups: tuple[BoundMutationValueBufferGroup, ...] = ()
+    if group_hinge:
+        group_indices = (
+            mutation_plan.spec_index("reset.hinge.position"),
+            mutation_plan.spec_index("reset.hinge.velocity"),
+        )
+        group_buffer = np.empty(
+            (len(group_indices), mutation_plan.num_envs, 1, 1),
+            dtype=mutation_plan.specs[group_indices[0]].value_buffer.dtype,
+        )
+        for group_offset, field_index in enumerate(group_indices):
+            buffers_list[field_index] = group_buffer[group_offset]
+        groups = (
+            BoundMutationValueBufferGroup(
+                field_indices=group_indices,
+                buffer=group_buffer,
+            ),
+        )
+    buffers = tuple(buffers_list)
     for index, spec in enumerate(mutation_plan.specs):
         np.copyto(buffers[index][: rows.count], values[spec.term_key], casting="unsafe")
-    bound_buffers = BoundMutationValueBuffers(plan=mutation_plan, buffers=buffers)
+    bound_buffers = BoundMutationValueBuffers(
+        plan=mutation_plan,
+        buffers=buffers,
+        groups=groups,
+    )
     return TypedBackendMutationBatch(
         plan=mutation_plan,
         rows=rows,
@@ -860,7 +886,12 @@ def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wra
             "reset.hinge.position": np.asarray([[[1.25]], [[-0.75]]], dtype=np_dtype),
             "reset.hinge.velocity": np.asarray([[[2.5]], [[-3.0]]], dtype=np_dtype),
         }
-        mutation = _prepared_full_reset_batch(mutation_plan, rows, values)
+        mutation = _prepared_full_reset_batch(
+            mutation_plan,
+            rows,
+            values,
+            group_hinge=True,
+        )
         assert mutation.state.values == ()
         assert mutation.state.bound_buffer_window is not None
         # The public host cache intentionally follows ``np_dtype``, whereas
@@ -873,13 +904,24 @@ def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wra
 
         with (
             patch.object(backend, "get_body_ids", side_effect=AssertionError("getter fallback")),
-            patch.object(backend, "get_joint_dof_pos_indices", side_effect=AssertionError("getter fallback")),
-            patch.object(backend, "get_joint_dof_vel_indices", side_effect=AssertionError("getter fallback")),
+            patch.object(
+                backend, "get_joint_dof_pos_indices", side_effect=AssertionError("getter fallback")
+            ),
+            patch.object(
+                backend, "get_joint_dof_vel_indices", side_effect=AssertionError("getter fallback")
+            ),
             patch.object(backend, "set_state", side_effect=AssertionError("legacy reset fallback")),
             patch.object(Path, "read_bytes", side_effect=AssertionError("asset fallback")),
             patch.object(Path, "read_text", side_effect=AssertionError("asset fallback")),
         ):
             result = backend.reset_batch(plan, rows, mutation_batch=mutation)
+
+        window = mutation.state.bound_buffer_window
+        assert window is not None
+        prepared = mutation_runtime._prepared_buffer_sets[id(window.buffers)]
+        assert prepared.owner is window.buffers
+        assert len(prepared.groups) == 1
+        assert len(prepared.individual) == 4
 
         reset_values = _full_state_arrays(result.reset_state)
         expected_by_state_key = {
@@ -900,6 +942,58 @@ def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wra
                 state=SimulationStateMutationBatch(
                     bound_buffer_window=mutation.state.bound_buffer_window
                 ),
+            )
+    finally:
+        _close(backend)
+
+
+def test_cold_bound_reset_buffer_groups_fail_closed_on_invalid_aliasing(tmp_path: Path) -> None:
+    backend = _backend(tmp_path)
+    try:
+        mutation_plan = backend.bind_mutation_plan(_full_reset_specs(np.dtype(np.float64)))
+        position_index = mutation_plan.spec_index("reset.hinge.position")
+        velocity_index = mutation_plan.spec_index("reset.hinge.velocity")
+        group_indices = (position_index, velocity_index)
+        group_buffer = np.empty((2, mutation_plan.num_envs, 1, 1), dtype=np.float64)
+        canonical = tuple(
+            np.empty(
+                (mutation_plan.num_envs, *spec.value_buffer.row_shape),
+                dtype=spec.value_buffer.dtype,
+            )
+            for spec in mutation_plan.specs
+        )
+        group = BoundMutationValueBufferGroup(
+            field_indices=group_indices,
+            buffer=group_buffer,
+        )
+
+        with pytest.raises(MutationContractError, match="field slice does not match"):
+            BoundMutationValueBuffers(
+                plan=mutation_plan,
+                buffers=canonical,
+                groups=(group,),
+            )
+
+        aliased = list(canonical)
+        aliased[position_index] = group_buffer[0]
+        aliased[velocity_index] = group_buffer[1]
+        with pytest.raises(MutationContractError, match="overlap canonical fields"):
+            BoundMutationValueBuffers(
+                plan=mutation_plan,
+                buffers=tuple(aliased),
+                groups=(group, group),
+            )
+
+        root_position_index = mutation_plan.spec_index("reset.root.position")
+        heterogeneous = BoundMutationValueBufferGroup(
+            field_indices=(root_position_index, position_index),
+            buffer=np.empty((2, mutation_plan.num_envs, 1, 3), dtype=np.float64),
+        )
+        with pytest.raises(MutationContractError, match="not homogeneous"):
+            BoundMutationValueBuffers(
+                plan=mutation_plan,
+                buffers=canonical,
+                groups=(heterogeneous,),
             )
     finally:
         _close(backend)
