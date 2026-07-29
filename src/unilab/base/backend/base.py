@@ -24,6 +24,7 @@ from .batch import (
     RowSelection,
     StateBatchPhase,
 )
+from .graph import DeviceGraphDiagnostics
 from .mutation import BoundMutationPlan, MutationSpec
 from .telemetry import (
     BackendTransferBuffer,
@@ -156,6 +157,21 @@ class SimBackend(abc.ABC):
     def reset_transfer_telemetry(self) -> None:
         """Clear diagnostic transfer counters without mutating physics state."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
+
+    def get_device_graph_diagnostics(
+        self, *, verify_storage: bool = False
+    ) -> DeviceGraphDiagnostics:
+        """Return a cold-path graph identity and storage audit snapshot.
+
+        ``verify_storage=True`` may scan backend-owned device arrays and is
+        therefore forbidden from step/reset hot paths. Backends without an
+        explicit graph contract fail closed instead of reporting inferred data.
+        """
+
+        del verify_storage
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose device graph diagnostics"
+        )
 
     def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
         """Return cold-path terrain spawn metadata, when the scene provides it."""

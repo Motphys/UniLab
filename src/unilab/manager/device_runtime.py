@@ -11,8 +11,8 @@ data remain CUDA tensors joined by explicit events.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Protocol, cast
+from dataclasses import dataclass, field, replace
+from typing import Any, Protocol, cast, runtime_checkable
 from weakref import WeakKeyDictionary
 
 import torch
@@ -35,6 +35,7 @@ from unilab.base.backend import (
     DeviceBufferContractError,
     DeviceBufferLease,
     DeviceCompletion,
+    DeviceGraphDiagnostics,
     DeviceResetMutationBatch,
     DeviceTensorView,
     ExecutionProfile,
@@ -199,6 +200,312 @@ class DeviceResetPayload:
             raise DeviceManagedRuntimeError("device reset payload values must contain only tensors")
 
 
+@dataclass(frozen=True)
+class DeviceRuntimeBuffer:
+    """One explicitly registered runtime/executor-owned CUDA buffer."""
+
+    name: str
+    tensor: torch.Tensor = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise DeviceManagedRuntimeError("device runtime buffer name must be non-empty")
+        if not isinstance(self.tensor, torch.Tensor) or not self.tensor.is_cuda:
+            raise DeviceManagedRuntimeError("device runtime buffer must be a CUDA tensor")
+        if self.tensor.ndim == 0 or not self.tensor.is_contiguous() or self.tensor.numel() == 0:
+            raise DeviceManagedRuntimeError(
+                "device runtime buffer must be non-empty, non-scalar, and contiguous"
+            )
+
+
+@dataclass(frozen=True)
+class DeviceRuntimeBufferAddress:
+    """Host-visible identity metadata for one registered CUDA allocation."""
+
+    name: str
+    address: int
+    shape: tuple[int, ...]
+    dtype: str
+    device: str
+    nbytes: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise DeviceManagedRuntimeError("device buffer address name must be non-empty")
+        if isinstance(self.address, bool) or not isinstance(self.address, int) or self.address <= 0:
+            raise DeviceManagedRuntimeError("device buffer address must be positive")
+        if (
+            not isinstance(self.shape, tuple)
+            or not self.shape
+            or any(
+                isinstance(dim, bool) or not isinstance(dim, int) or dim <= 0 for dim in self.shape
+            )
+        ):
+            raise DeviceManagedRuntimeError("device buffer address shape is invalid")
+        if not isinstance(self.dtype, str) or not self.dtype.strip():
+            raise DeviceManagedRuntimeError("device buffer address dtype must be non-empty")
+        if not isinstance(self.device, str) or not self.device.startswith("cuda:"):
+            raise DeviceManagedRuntimeError("device buffer address requires a CUDA device")
+        if isinstance(self.nbytes, bool) or not isinstance(self.nbytes, int) or self.nbytes <= 0:
+            raise DeviceManagedRuntimeError("device buffer address nbytes must be positive")
+
+
+@dataclass(frozen=True)
+class DeviceRuntimeStateEpoch:
+    """Latest lease/completion epoch observed for one backend state pack."""
+
+    name: str
+    phase: StateBatchPhase
+    lease_epoch: int
+    completion_epoch: int
+    owner_id: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise DeviceManagedRuntimeError("device state epoch name must be non-empty")
+        if not isinstance(self.phase, StateBatchPhase):
+            raise DeviceManagedRuntimeError("device state epoch phase is invalid")
+        for label, value in (
+            ("lease_epoch", self.lease_epoch),
+            ("completion_epoch", self.completion_epoch),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise DeviceManagedRuntimeError(f"device state {label} must be non-negative")
+        if self.lease_epoch != self.completion_epoch:
+            raise DeviceManagedRuntimeError("device state lease/completion epochs must match")
+        if not isinstance(self.owner_id, str) or not self.owner_id.strip():
+            raise DeviceManagedRuntimeError("device state epoch owner must be non-empty")
+
+
+@dataclass(frozen=True)
+class DeviceRuntimeTrafficDiagnostics:
+    """Cumulative public accounting for device lifecycle barriers."""
+
+    policy_steps: int = 0
+    step_barriers: int = 0
+    reset_barriers: int = 0
+    host_to_device_transfers: int = 0
+    device_to_host_transfers: int = 0
+    host_to_device_bytes: int = 0
+    device_to_host_bytes: int = 0
+    global_synchronizations: int = 0
+    backend_allocations: int = 0
+    state_materializations: int = 0
+    dynamic_getter_calls: int = 0
+    selector_resolutions: int = 0
+    asset_metadata_reads: int = 0
+    registry_lookups: int = 0
+    instrumentation_complete: bool = True
+
+    def __post_init__(self) -> None:
+        for name, value in vars(self).items():
+            if name == "instrumentation_complete":
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise DeviceManagedRuntimeError(
+                    f"device traffic diagnostic {name} must be non-negative"
+                )
+        if not isinstance(self.instrumentation_complete, bool):
+            raise DeviceManagedRuntimeError(
+                "device traffic instrumentation_complete must be a bool"
+            )
+
+
+@dataclass(frozen=True)
+class DeviceRuntimeStabilityDiagnostics:
+    """Opt-in registered-buffer, state-pack, epoch, and traffic snapshot."""
+
+    buffers: tuple[DeviceRuntimeBufferAddress, ...]
+    state_buffers: tuple[DeviceRuntimeBufferAddress, ...]
+    state_epochs: tuple[DeviceRuntimeStateEpoch, ...]
+    warm_numeric_allocations: int
+    address_churn: int
+    observations: int
+    output_epoch: int
+    control_epoch: int
+    reset_epoch: int
+    traffic: DeviceRuntimeTrafficDiagnostics
+    graph: DeviceGraphDiagnostics
+    instrumentation_complete: bool
+
+    def __post_init__(self) -> None:
+        for label, values in (("buffers", self.buffers), ("state_buffers", self.state_buffers)):
+            if not isinstance(values, tuple) or any(
+                not isinstance(value, DeviceRuntimeBufferAddress) for value in values
+            ):
+                raise DeviceManagedRuntimeError(f"device stability {label} is invalid")
+            names = tuple(value.name for value in values)
+            if names != tuple(sorted(names)) or len(set(names)) != len(names):
+                raise DeviceManagedRuntimeError(
+                    f"device stability {label} names must be canonical and unique"
+                )
+        if not isinstance(self.state_epochs, tuple) or any(
+            not isinstance(value, DeviceRuntimeStateEpoch) for value in self.state_epochs
+        ):
+            raise DeviceManagedRuntimeError("device stability state_epochs is invalid")
+        epoch_names = tuple(value.name for value in self.state_epochs)
+        if epoch_names != tuple(sorted(epoch_names)) or len(set(epoch_names)) != len(epoch_names):
+            raise DeviceManagedRuntimeError(
+                "device stability state epoch names must be canonical and unique"
+            )
+        for label, value in (
+            ("warm_numeric_allocations", self.warm_numeric_allocations),
+            ("address_churn", self.address_churn),
+            ("observations", self.observations),
+            ("output_epoch", self.output_epoch),
+            ("control_epoch", self.control_epoch),
+            ("reset_epoch", self.reset_epoch),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise DeviceManagedRuntimeError(f"device stability {label} must be non-negative")
+        if not isinstance(self.traffic, DeviceRuntimeTrafficDiagnostics):
+            raise DeviceManagedRuntimeError("device stability traffic is invalid")
+        if not isinstance(self.graph, DeviceGraphDiagnostics):
+            raise DeviceManagedRuntimeError("device stability graph diagnostics are invalid")
+        if (
+            not self.graph.instrumentation_complete
+            or self.graph.eager_fallback_count != 0
+            or not self.graph.active_keys
+        ):
+            raise DeviceManagedRuntimeError(
+                "device stability requires complete graph-only backend diagnostics"
+            )
+        if not isinstance(self.instrumentation_complete, bool):
+            raise DeviceManagedRuntimeError(
+                "device stability instrumentation_complete must be a bool"
+            )
+
+
+@runtime_checkable
+class DeviceRuntimeBufferProvider(Protocol):
+    """Explicit executor-owned CUDA buffer registration for diagnostics."""
+
+    def device_runtime_buffers(self, *, task_state: object) -> tuple[DeviceRuntimeBuffer, ...]: ...
+
+
+def _device_buffer_address(buffer: DeviceRuntimeBuffer) -> DeviceRuntimeBufferAddress:
+    tensor = buffer.tensor
+    return DeviceRuntimeBufferAddress(
+        name=buffer.name,
+        address=int(tensor.data_ptr()),
+        shape=tuple(int(dim) for dim in tensor.shape),
+        dtype=str(tensor.dtype).removeprefix("torch."),
+        device=str(tensor.device),
+        nbytes=int(tensor.numel() * tensor.element_size()),
+    )
+
+
+class _DeviceRuntimeStabilityMonitor:
+    """Fail-closed monitor over explicitly registered CUDA allocations."""
+
+    def __init__(self) -> None:
+        self._baseline_buffers: tuple[DeviceRuntimeBufferAddress, ...] | None = None
+        self._state_buffers: dict[str, DeviceRuntimeBufferAddress] = {}
+        self._state_epochs: dict[str, DeviceRuntimeStateEpoch] = {}
+        self._warm_numeric_allocations = 0
+        self._address_churn = 0
+        self._observations = 0
+
+    @staticmethod
+    def _canonical(
+        buffers: tuple[DeviceRuntimeBuffer, ...], *, context: str
+    ) -> tuple[DeviceRuntimeBufferAddress, ...]:
+        addresses = tuple(
+            sorted(
+                (_device_buffer_address(buffer) for buffer in buffers), key=lambda item: item.name
+            )
+        )
+        names = tuple(item.name for item in addresses)
+        if not addresses or len(set(names)) != len(names):
+            raise DeviceManagedRuntimeError(
+                f"{context} requires non-empty, uniquely named device buffers"
+            )
+        return addresses
+
+    def arm(self, buffers: tuple[DeviceRuntimeBuffer, ...]) -> None:
+        if self._baseline_buffers is not None:
+            raise DeviceManagedRuntimeError("device stability monitor may only arm once")
+        self._baseline_buffers = self._canonical(
+            buffers, context="device runtime stability baseline"
+        )
+
+    def observe_buffers(self, buffers: tuple[DeviceRuntimeBuffer, ...]) -> None:
+        if self._baseline_buffers is None:
+            raise DeviceManagedRuntimeError("device stability monitor has not been armed")
+        actual = self._canonical(buffers, context="device runtime stability observation")
+        if actual == self._baseline_buffers:
+            self._observations += 1
+            return
+        self._address_churn += 1
+        baseline_by_name = {item.name: item for item in self._baseline_buffers}
+        actual_by_name = {item.name: item for item in actual}
+        added_or_removed = tuple(sorted(set(baseline_by_name) ^ set(actual_by_name)))
+        changed = tuple(
+            name
+            for name in sorted(set(baseline_by_name) & set(actual_by_name))
+            if baseline_by_name[name] != actual_by_name[name]
+        )
+        self._warm_numeric_allocations += len(added_or_removed) + len(changed)
+        raise DeviceManagedRuntimeError(
+            "device warm buffer stability violated: "
+            f"added_or_removed={added_or_removed!r}, changed={changed!r}"
+        )
+
+    def observe_state(self, state: StateBatch) -> None:
+        state.assert_valid()
+        for field_index, state_field in enumerate(state.plan.state.fields):
+            view = require_device_tensor_view(
+                state.buffer_at(field_index).handle,
+                contract=state_field.buffer,
+                require_completion=True,
+            )
+            name = f"backend.state.{state_field.key}"
+            address = _device_buffer_address(DeviceRuntimeBuffer(name=name, tensor=view.torch()))
+            previous = self._state_buffers.get(name)
+            if previous is None:
+                self._state_buffers[name] = address
+            elif previous != address:
+                self._address_churn += 1
+                raise DeviceManagedRuntimeError(
+                    f"device backend StateBatch address changed after warmup: {name!r}"
+                )
+            completion = view.require_completion()
+            self._state_epochs[name] = DeviceRuntimeStateEpoch(
+                name=name,
+                phase=state.phase,
+                lease_epoch=view.epoch,
+                completion_epoch=completion.epoch,
+                owner_id=completion.owner_id,
+            )
+
+    def snapshot(
+        self,
+        *,
+        output_epoch: int,
+        control_epoch: int,
+        reset_epoch: int,
+        traffic: DeviceRuntimeTrafficDiagnostics,
+        graph: DeviceGraphDiagnostics,
+    ) -> DeviceRuntimeStabilityDiagnostics:
+        if self._baseline_buffers is None:
+            raise DeviceManagedRuntimeError("device stability monitor has not been armed")
+        complete = traffic.instrumentation_complete and bool(self._state_buffers)
+        return DeviceRuntimeStabilityDiagnostics(
+            buffers=self._baseline_buffers,
+            state_buffers=tuple(sorted(self._state_buffers.values(), key=lambda item: item.name)),
+            state_epochs=tuple(sorted(self._state_epochs.values(), key=lambda item: item.name)),
+            warm_numeric_allocations=self._warm_numeric_allocations,
+            address_churn=self._address_churn,
+            observations=self._observations,
+            output_epoch=output_epoch,
+            control_epoch=control_epoch,
+            reset_epoch=reset_epoch,
+            traffic=traffic,
+            graph=graph,
+            instrumentation_complete=complete,
+        )
+
+
 class DeviceManagedTaskKernel(Protocol):
     """Torch CUDA task-math ABI consumed by :class:`DeviceManagedRuntime`."""
 
@@ -323,6 +630,7 @@ class DeviceManagedRuntime:
         kernel: DeviceManagedTaskKernel,
         max_episode_steps: int | None,
         record_lifecycle: bool = False,
+        stability_buffer_provider: DeviceRuntimeBufferProvider | None = None,
     ) -> None:
         if not isinstance(backend, SimBackend):
             raise DeviceManagedRuntimeError("device managed runtime requires a SimBackend")
@@ -334,6 +642,16 @@ class DeviceManagedRuntime:
             )
         if not isinstance(record_lifecycle, bool):
             raise DeviceManagedRuntimeError("record_lifecycle must be a bool")
+        if stability_buffer_provider is not None and not isinstance(
+            stability_buffer_provider, DeviceRuntimeBufferProvider
+        ):
+            raise DeviceManagedRuntimeError(
+                "device stability provider must implement DeviceRuntimeBufferProvider"
+            )
+        if stability_buffer_provider is not None and stability_buffer_provider is not kernel:
+            raise DeviceManagedRuntimeError(
+                "device stability provider must be the task kernel owner"
+            )
         if max_episode_steps is not None and (
             isinstance(max_episode_steps, bool)
             or not isinstance(max_episode_steps, int)
@@ -372,6 +690,11 @@ class DeviceManagedRuntime:
         self._all_rows = RowSelection.all(self._num_envs)
         self._max_episode_steps = max_episode_steps
         self._record_lifecycle = record_lifecycle
+        self._stability_buffer_provider = stability_buffer_provider
+        self._stability_monitor = (
+            None if stability_buffer_provider is None else _DeviceRuntimeStabilityMonitor()
+        )
+        self._traffic = DeviceRuntimeTrafficDiagnostics()
         self._trace_events: list[ManagedLifecyclePhase] = []
         self._last_trace: tuple[ManagedLifecyclePhase, ...] = ()
         self._last_step_diagnostics: BackendBatchDiagnostics | None = None
@@ -383,6 +706,9 @@ class DeviceManagedRuntime:
         )
         self._reset_lease = DeviceBufferLease(f"{bound.backend_instance_id}:device-manager-reset")
         self._output_lease = DeviceBufferLease(f"{bound.backend_instance_id}:device-runtime-output")
+        self._control_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
+        self._reset_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
+        self._output_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
         self._consumed_action_epochs: WeakKeyDictionary[DeviceBufferLease, int] = (
             WeakKeyDictionary()
         )
@@ -558,6 +884,151 @@ class DeviceManagedRuntime:
     def last_reset_diagnostics(self) -> BackendBatchDiagnostics | None:
         return self._last_reset_diagnostics
 
+    @property
+    def task_state(self) -> object:
+        """Expose the kernel-owned state only for explicit diagnostics."""
+
+        return self._task_state
+
+    @property
+    def traffic_diagnostics(self) -> DeviceRuntimeTrafficDiagnostics:
+        """Return cumulative typed counters without materializing device data."""
+
+        return self._traffic
+
+    @property
+    def stability_diagnostics(self) -> DeviceRuntimeStabilityDiagnostics | None:
+        """Return the opt-in registered-buffer snapshot after initial reset."""
+
+        if self._stability_monitor is None:
+            return None
+        return self._stability_monitor.snapshot(
+            output_epoch=self._output_lease.epoch,
+            control_epoch=self._control_lease.epoch,
+            reset_epoch=self._reset_lease.epoch,
+            traffic=self._traffic,
+            graph=self._backend.get_device_graph_diagnostics(verify_storage=True),
+        )
+
+    def _runtime_buffers(self) -> tuple[DeviceRuntimeBuffer, ...]:
+        buffers: list[DeviceRuntimeBuffer] = [
+            DeviceRuntimeBuffer("runtime.control", self._control),
+            DeviceRuntimeBuffer("runtime.reward", self._reward),
+            DeviceRuntimeBuffer("runtime.terminated", self._terminated),
+            DeviceRuntimeBuffer("runtime.truncated", self._truncated),
+            DeviceRuntimeBuffer("runtime.done", self._done),
+            DeviceRuntimeBuffer("runtime.final_observation_mask", self._final_observation_mask),
+            DeviceRuntimeBuffer("runtime.episode_steps", self._episode_steps),
+        ]
+        for key, observation, terminal, final in zip(
+            self._observation_keys,
+            self._observations,
+            self._terminal_observations,
+            self._final_observations,
+            strict=True,
+        ):
+            buffers.extend(
+                (
+                    DeviceRuntimeBuffer(f"runtime.observation.{key}", observation),
+                    DeviceRuntimeBuffer(f"runtime.terminal_observation.{key}", terminal),
+                    DeviceRuntimeBuffer(f"runtime.final_observation.{key}", final),
+                )
+            )
+        return tuple(buffers)
+
+    def _stability_buffers(self) -> tuple[DeviceRuntimeBuffer, ...]:
+        provider = self._stability_buffer_provider
+        if provider is None:
+            raise DeviceManagedRuntimeError("device stability buffers are not enabled")
+        task_buffers = provider.device_runtime_buffers(task_state=self._task_state)
+        if not isinstance(task_buffers, tuple) or any(
+            not isinstance(buffer, DeviceRuntimeBuffer) for buffer in task_buffers
+        ):
+            raise DeviceManagedRuntimeError(
+                "device stability provider must return DeviceRuntimeBuffer values"
+            )
+        return (*self._runtime_buffers(), *task_buffers)
+
+    def _arm_stability_monitor(self) -> None:
+        if self._stability_monitor is not None:
+            self._stability_monitor.arm(self._stability_buffers())
+
+    def _observe_stability_buffers(self) -> None:
+        if self._stability_monitor is not None:
+            self._stability_monitor.observe_buffers(self._stability_buffers())
+
+    def _observe_stability_state(self, state: StateBatch) -> None:
+        if self._stability_monitor is not None:
+            self._stability_monitor.observe_state(state)
+
+    def _record_backend_diagnostics(
+        self, *, phase: str, diagnostics: BackendBatchDiagnostics
+    ) -> None:
+        if not isinstance(diagnostics, BackendBatchDiagnostics):
+            raise DeviceManagedRuntimeError("device backend diagnostics are invalid")
+        counters = diagnostics.counters
+        if not counters.instrumentation_complete:
+            raise DeviceManagedRuntimeError(
+                "device lifecycle requires complete backend instrumentation"
+            )
+        forbidden = {
+            "host_to_device_transfers": counters.host_to_device_transfers,
+            "device_to_host_transfers": counters.device_to_host_transfers,
+            "host_to_device_bytes": counters.host_to_device_bytes,
+            "device_to_host_bytes": counters.device_to_host_bytes,
+            "global_synchronizations": counters.global_synchronizations,
+            "allocations": counters.allocations,
+            "dynamic_getter_calls": counters.dynamic_getter_calls,
+            "selector_resolutions": counters.selector_resolutions,
+            "asset_metadata_reads": counters.asset_metadata_reads,
+            "registry_lookups": counters.registry_lookups,
+        }
+        violations = tuple(name for name, value in forbidden.items() if value != 0)
+        if violations or counters.state_materializations != 1:
+            raise DeviceManagedRuntimeError(
+                "device backend barrier violates the zero-host-roundtrip budget: "
+                f"phase={phase!r}, violations={violations!r}, "
+                f"state_materializations={counters.state_materializations}"
+            )
+        if phase == "step":
+            self._last_step_diagnostics = diagnostics
+            step_increment = 1
+            reset_increment = 0
+        elif phase == "reset":
+            self._last_reset_diagnostics = diagnostics
+            step_increment = 0
+            reset_increment = 1
+        else:  # pragma: no cover - internal fixed call sites.
+            raise DeviceManagedRuntimeError(f"unknown device diagnostic phase {phase!r}")
+        current = self._traffic
+        self._traffic = DeviceRuntimeTrafficDiagnostics(
+            policy_steps=current.policy_steps,
+            step_barriers=current.step_barriers + step_increment,
+            reset_barriers=current.reset_barriers + reset_increment,
+            host_to_device_transfers=(
+                current.host_to_device_transfers + counters.host_to_device_transfers
+            ),
+            device_to_host_transfers=(
+                current.device_to_host_transfers + counters.device_to_host_transfers
+            ),
+            host_to_device_bytes=current.host_to_device_bytes + counters.host_to_device_bytes,
+            device_to_host_bytes=current.device_to_host_bytes + counters.device_to_host_bytes,
+            global_synchronizations=(
+                current.global_synchronizations + counters.global_synchronizations
+            ),
+            backend_allocations=current.backend_allocations + counters.allocations,
+            state_materializations=(
+                current.state_materializations + counters.state_materializations
+            ),
+            dynamic_getter_calls=current.dynamic_getter_calls + counters.dynamic_getter_calls,
+            selector_resolutions=current.selector_resolutions + counters.selector_resolutions,
+            asset_metadata_reads=current.asset_metadata_reads + counters.asset_metadata_reads,
+            registry_lookups=current.registry_lookups + counters.registry_lookups,
+            instrumentation_complete=(
+                current.instrumentation_complete and counters.instrumentation_complete
+            ),
+        )
+
     def _begin_trace(self) -> None:
         self._trace_events.clear()
 
@@ -671,6 +1142,7 @@ class DeviceManagedRuntime:
             owner_id=self._reset_lease.owner_id,
             epoch=self._reset_lease.epoch,
             stream=self._task_stream,
+            event=self._reset_event,
         )
         mask_view = DeviceTensorView(
             tensor_handle=mask,
@@ -732,6 +1204,7 @@ class DeviceManagedRuntime:
             owner_id=self._control_lease.owner_id,
             epoch=self._control_lease.epoch,
             stream=self._task_stream,
+            event=self._control_event,
         )
         view = DeviceTensorView(
             tensor_handle=self._control,
@@ -755,6 +1228,7 @@ class DeviceManagedRuntime:
             owner_id=self._output_lease.owner_id,
             epoch=self._output_lease.epoch,
             stream=self._task_stream,
+            event=self._output_event,
         )
 
     def _transition_view(
@@ -810,6 +1284,9 @@ class DeviceManagedRuntime:
     def reset(self) -> DeviceTransition:
         """Run an initial all-world CUDA reset and return device observations."""
 
+        first_reset = not self._initialized
+        if not first_reset:
+            self._observe_stability_buffers()
         self._last_step_diagnostics = None
         self._output_lease.invalidate()
         self._reset_lease.invalidate()
@@ -835,7 +1312,8 @@ class DeviceManagedRuntime:
             diagnostics=result.diagnostics,
             state=result.reset_state,
         )
-        self._last_reset_diagnostics = result.diagnostics
+        self._record_backend_diagnostics(phase="reset", diagnostics=result.diagnostics)
+        self._observe_stability_state(result.reset_state)
         self._trace(ManagedLifecyclePhase.TASK_STATE_RESET)
         with torch.cuda.stream(self._task_stream):
             reset_completion.wait(self._task_stream)
@@ -856,6 +1334,10 @@ class DeviceManagedRuntime:
             self._episode_steps.zero_()
             self._trace(ManagedLifecyclePhase.OBSERVATION)
             completion = self._output_completion()
+        if first_reset:
+            self._arm_stability_monitor()
+        else:
+            self._observe_stability_buffers()
         self._initialized = True
         self._trace(ManagedLifecyclePhase.COMPLETE)
         return self._build_transition(
@@ -869,6 +1351,7 @@ class DeviceManagedRuntime:
 
         if not self._initialized:
             raise DeviceManagedRuntimeError("device managed runtime requires reset() before step()")
+        self._observe_stability_buffers()
         action = self._require_action(actions)
         action_completion = actions.require_completion()
         self._output_lease.invalidate()
@@ -900,7 +1383,8 @@ class DeviceManagedRuntime:
             diagnostics=step_result.diagnostics,
             state=terminal,
         )
-        self._last_step_diagnostics = step_result.diagnostics
+        self._record_backend_diagnostics(phase="step", diagnostics=step_result.diagnostics)
+        self._observe_stability_state(terminal)
 
         self._reset_lease.invalidate()
         self._trace(ManagedLifecyclePhase.TERMINATION)
@@ -955,7 +1439,8 @@ class DeviceManagedRuntime:
             diagnostics=reset_result.diagnostics,
             state=reset_result.reset_state,
         )
-        self._last_reset_diagnostics = reset_result.diagnostics
+        self._record_backend_diagnostics(phase="reset", diagnostics=reset_result.diagnostics)
+        self._observe_stability_state(reset_result.reset_state)
         self._trace(ManagedLifecyclePhase.TASK_STATE_RESET)
         with torch.cuda.stream(self._task_stream):
             reset_completion.wait(self._task_stream)
@@ -968,6 +1453,11 @@ class DeviceManagedRuntime:
             self._episode_steps.masked_fill_(payload.active_mask, 0)
             self._trace(ManagedLifecyclePhase.OBSERVATION)
             completion = self._output_completion()
+        self._observe_stability_buffers()
+        self._traffic = replace(
+            self._traffic,
+            policy_steps=self._traffic.policy_steps + 1,
+        )
         self._trace(ManagedLifecyclePhase.COMPLETE)
         return self._build_transition(
             completion=completion,
@@ -981,6 +1471,12 @@ __all__ = [
     "DeviceManagedRuntimeError",
     "DeviceManagedTaskKernel",
     "DeviceResetPayload",
+    "DeviceRuntimeBuffer",
+    "DeviceRuntimeBufferAddress",
+    "DeviceRuntimeBufferProvider",
+    "DeviceRuntimeStabilityDiagnostics",
+    "DeviceRuntimeStateEpoch",
+    "DeviceRuntimeTrafficDiagnostics",
     "DeviceTransition",
     "DeviceTransitionBuffer",
 ]

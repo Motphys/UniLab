@@ -9,8 +9,12 @@ transfer.
 
 from __future__ import annotations
 
+import gc
+import hashlib
+import json
 import time
 from collections.abc import Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 from weakref import WeakKeyDictionary
@@ -41,6 +45,12 @@ from unilab.base.backend.device import (
     DeviceBufferLease,
     DeviceTensorView,
     require_device_tensor_view,
+)
+from unilab.base.backend.graph import (
+    DeviceGraphBufferAddress,
+    DeviceGraphCaptureKey,
+    DeviceGraphDiagnostics,
+    DeviceGraphExecutionMode,
 )
 from unilab.base.backend.mutation import (
     BoundMutationPlan,
@@ -83,6 +93,21 @@ from .materialization import materialize_mjwarp_scene
 from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
 
+_GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
+
+
+@contextmanager
+def _suspend_gc():
+    """Prevent stale Warp graph destructors from entering a new capture."""
+
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
 
 @dataclass(frozen=True)
 class _MjwarpDeviceBridge:
@@ -98,6 +123,16 @@ class _MjwarpDeviceBridge:
     step_event: torch.cuda.Event
     read_event: torch.cuda.Event
     reset_event: torch.cuda.Event
+
+
+@dataclass(frozen=True)
+class _MjwarpDeviceGraphBundle:
+    """One reset/forward/step capture transaction under a complete key."""
+
+    key: DeviceGraphCaptureKey
+    reset_graph: Any
+    forward_graph: Any
+    step_graph: Any
 
 
 class MjwarpBackend(SimBackend):
@@ -237,6 +272,19 @@ class MjwarpBackend(SimBackend):
         # discarded runner buffers do not accumulate in a long rollout.
         self._device_control_epochs: WeakKeyDictionary[DeviceBufferLease, int] = WeakKeyDictionary()
         self._device_reset_epochs: WeakKeyDictionary[DeviceBufferLease, int] = WeakKeyDictionary()
+        self._device_graph_bundles: dict[str, _MjwarpDeviceGraphBundle] = {}
+        self._device_graph_captures = 0
+        self._device_graph_launches = 0
+        self._device_graph_recaptures = 0
+        self._device_graph_stale_rejections = 0
+        self._device_graph_eager_fallbacks = 0
+        self._device_graph_storage_verifications = 0
+        self._device_graph_storage_generation = 0
+        self._device_graph_storage_poisoned = False
+        self._device_graph_storage_buffers = self._snapshot_device_graph_storage()
+        self._device_graph_storage_fingerprint = self._graph_storage_fingerprint(
+            self._device_graph_storage_buffers
+        )
 
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
@@ -634,6 +682,10 @@ class MjwarpBackend(SimBackend):
                 requirements,
                 backend_instance_id=self._batch_instance_id,
             )
+            self._ensure_device_graphs(
+                plan=device_bound.public_plan,
+                nsteps=requirements.control.physics_substeps_per_control,
+            )
             existing_device = self._device_batch_plans.get(device_bound.public_plan.fingerprint)
             if existing_device is not None:
                 existing_device.public_plan.require_compatible(device_bound.public_plan)
@@ -804,6 +856,303 @@ class MjwarpBackend(SimBackend):
         if index is None:
             raise BackendBatchContractError("mjwarp device bridge has no CUDA device index")
         return BufferPlacement.device("cuda", int(index))
+
+    def _snapshot_device_graph_storage(self) -> tuple[DeviceGraphBufferAddress, ...]:
+        """Scan graph-reachable Warp storage on a diagnostics/capture cold path."""
+
+        buffers: list[DeviceGraphBufferAddress] = []
+        visited: set[int] = set()
+
+        def visit(value: Any, path: str, depth: int) -> None:
+            if isinstance(value, self._warp.array):
+                dtype = getattr(value.dtype, "__name__", str(value.dtype))
+                buffers.append(
+                    DeviceGraphBufferAddress(
+                        name=path,
+                        address=int(value.ptr or 0),
+                        shape=tuple(int(dim) for dim in value.shape),
+                        dtype=str(dtype),
+                        device=str(value.device),
+                    )
+                )
+                return
+            if (
+                depth >= 4
+                or value is None
+                or isinstance(value, (str, bytes, bool, int, float, complex, type))
+            ):
+                return
+            identity = id(value)
+            if identity in visited:
+                return
+            visited.add(identity)
+            if isinstance(value, dict):
+                for key in sorted(value, key=str):
+                    visit(value[key], f"{path}[{key!r}]", depth + 1)
+                return
+            if isinstance(value, (tuple, list)):
+                for index, item in enumerate(value):
+                    visit(item, f"{path}[{index}]", depth + 1)
+                return
+            try:
+                attributes = vars(value)
+            except TypeError:
+                return
+            for name in sorted(attributes):
+                if not name.startswith("_"):
+                    visit(attributes[name], f"{path}.{name}", depth + 1)
+
+        visit(self._device_model, "model", 0)
+        visit(self._device_data, "data", 0)
+        visit(self._reset_mask_device, "reset_mask", 0)
+        snapshot = tuple(sorted(buffers, key=lambda item: item.name))
+        names = tuple(buffer.name for buffer in snapshot)
+        if not snapshot or len(set(names)) != len(names):
+            raise BackendBatchContractError(
+                "mjwarp graph storage inventory must be non-empty and uniquely named"
+            )
+        required = {"data.qpos", "data.qvel", "data.ctrl", "data.sensordata", "reset_mask"}
+        missing = tuple(sorted(required - set(names)))
+        if missing:
+            raise BackendBatchContractError(
+                f"mjwarp graph storage inventory lacks device ABI buffers: {missing!r}"
+            )
+        return snapshot
+
+    @staticmethod
+    def _graph_storage_fingerprint(
+        buffers: tuple[DeviceGraphBufferAddress, ...],
+    ) -> str:
+        payload = tuple(
+            {
+                "name": buffer.name,
+                "address": buffer.address,
+                "shape": buffer.shape,
+                "dtype": buffer.dtype,
+                "device": buffer.device,
+            }
+            for buffer in buffers
+        )
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    def _verify_device_graph_storage(self) -> None:
+        actual = self._snapshot_device_graph_storage()
+        self._device_graph_storage_verifications += 1
+        if actual == self._device_graph_storage_buffers:
+            return
+        self._device_graph_storage_poisoned = True
+        self._device_graph_stale_rejections += 1
+        raise BackendBatchContractError(
+            "mjwarp graph storage addresses changed without an owner recapture barrier"
+        )
+
+    def _device_graph_key(self, *, plan: BoundBackendPlan, nsteps: int) -> DeviceGraphCaptureKey:
+        if isinstance(nsteps, bool) or not isinstance(nsteps, int) or nsteps <= 0:
+            raise BackendBatchContractError("mjwarp device graph requires positive nsteps")
+        state_dtypes = tuple(sorted({field.buffer.dtype for field in plan.state.fields}))
+        if not state_dtypes:
+            raise BackendBatchContractError("mjwarp graph key requires bound state fields")
+        return DeviceGraphCaptureKey(
+            backend_type=self.backend_type,
+            plan_fingerprint=plan.fingerprint,
+            num_envs=plan.num_envs,
+            state_dtype="+".join(state_dtypes),
+            control_dtype=plan.control.buffer.dtype,
+            physics_substeps=nsteps,
+            storage_generation=self._device_graph_storage_generation,
+            storage_fingerprint=self._device_graph_storage_fingerprint,
+        )
+
+    def _capture_device_graph_bundle(
+        self, key: DeviceGraphCaptureKey, *, recapture: bool
+    ) -> _MjwarpDeviceGraphBundle:
+        bridge = self._ensure_device_bridge()
+        device = self._warp.get_device()
+        driver = self._warp.get_cuda_driver_version()
+        if (
+            not bool(device.is_cuda)
+            or driver is None
+            or driver < _GRAPH_CAPTURE_MIN_DRIVER
+            or not bool(self._warp.is_mempool_enabled(device))
+        ):
+            raise BackendBatchContractError(
+                "mjwarp device_resident execution requires CUDA graph support "
+                "(CUDA driver >= 12.4 and Warp mempool enabled); eager physics "
+                "performs host roundtrips and is not an allowed fallback"
+            )
+        try:
+            with (
+                _suspend_gc(),
+                torch.cuda.stream(bridge.physics_stream),
+                self._warp.ScopedStream(bridge.warp_physics_stream),
+            ):
+                with self._warp.ScopedCapture() as reset_capture:
+                    self._mujoco_warp.reset_data(
+                        self._device_model,
+                        self._device_data,
+                        reset=self._reset_mask_device,
+                    )
+                with self._warp.ScopedCapture() as forward_capture:
+                    self._mujoco_warp.forward(self._device_model, self._device_data)
+                with self._warp.ScopedCapture() as step_capture:
+                    for _ in range(key.physics_substeps):
+                        self._mujoco_warp.step(self._device_model, self._device_data)
+        except Exception as exc:
+            raise BackendBatchContractError(
+                "mjwarp failed to capture the required device physics graph bundle"
+            ) from exc
+        self._device_graph_captures += 1
+        if recapture:
+            self._device_graph_recaptures += 1
+        return _MjwarpDeviceGraphBundle(
+            key=key,
+            reset_graph=reset_capture.graph,
+            forward_graph=forward_capture.graph,
+            step_graph=step_capture.graph,
+        )
+
+    def _ensure_device_graphs(self, *, plan: BoundBackendPlan, nsteps: int) -> None:
+        """Capture graph-only device physics under a complete cold-path key."""
+
+        self._verify_device_graph_storage()
+        key = self._device_graph_key(plan=plan, nsteps=nsteps)
+        existing = self._device_graph_bundles.get(plan.fingerprint)
+        if existing is not None:
+            if existing.key != key:
+                self._device_graph_stale_rejections += 1
+                raise BackendBatchContractError(
+                    "mjwarp refused to reuse a device graph under a changed capture key"
+                )
+            return
+        self._device_graph_bundles[plan.fingerprint] = self._capture_device_graph_bundle(
+            key, recapture=False
+        )
+
+    def _require_device_graph_bundle(
+        self, *, plan: BoundBackendPlan, nsteps: int
+    ) -> _MjwarpDeviceGraphBundle:
+        """Perform the constant-time generation/key check used by the hot path."""
+
+        if self._device_graph_storage_poisoned:
+            self._device_graph_stale_rejections += 1
+            raise BackendBatchContractError(
+                "mjwarp device graph storage is stale; rebuild or recapture on the owner path"
+            )
+        try:
+            bundle = self._device_graph_bundles[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp device graph was not captured for this plan and control cadence"
+            ) from exc
+        key = bundle.key
+        if (
+            key.plan_fingerprint != plan.fingerprint
+            or key.num_envs != plan.num_envs
+            or key.control_dtype != plan.control.buffer.dtype
+            or key.physics_substeps != nsteps
+            or key.storage_generation != self._device_graph_storage_generation
+            or key.storage_fingerprint != self._device_graph_storage_fingerprint
+        ):
+            self._device_graph_storage_poisoned = True
+            self._device_graph_stale_rejections += 1
+            raise BackendBatchContractError(
+                "mjwarp rejected a stale graph generation or changed capture key"
+            )
+        return bundle
+
+    def _recapture_device_graphs_after_storage_change(self) -> None:
+        """Owner-only recovery after model storage replacement on a cold path.
+
+        Device state/control/reset-mask aliases cannot be repaired in place;
+        replacing one of those allocations poisons this backend instance. Model
+        field expansion may recapture all existing graph keys atomically.
+        """
+
+        actual = self._snapshot_device_graph_storage()
+        if actual == self._device_graph_storage_buffers:
+            raise BackendBatchContractError(
+                "mjwarp graph recapture requires an observable storage replacement"
+            )
+        previous = {buffer.name: buffer for buffer in self._device_graph_storage_buffers}
+        current = {buffer.name: buffer for buffer in actual}
+        bridge_names = {"data.qpos", "data.qvel", "data.ctrl", "data.sensordata", "reset_mask"}
+        changed_bridge = tuple(
+            sorted(name for name in bridge_names if previous.get(name) != current.get(name))
+        )
+        if changed_bridge:
+            self._device_graph_storage_poisoned = True
+            self._device_graph_stale_rejections += 1
+            raise BackendBatchContractError(
+                "mjwarp cannot recapture after device ABI storage replacement: "
+                f"changed={changed_bridge!r}"
+            )
+
+        old_bundles = tuple(self._device_graph_bundles.values())
+        self._device_graph_bundles.clear()
+        self._device_graph_storage_generation += 1
+        self._device_graph_storage_buffers = actual
+        self._device_graph_storage_fingerprint = self._graph_storage_fingerprint(actual)
+        self._device_graph_storage_poisoned = False
+        try:
+            for old_bundle in old_bundles:
+                old_key = old_bundle.key
+                new_key = DeviceGraphCaptureKey(
+                    backend_type=old_key.backend_type,
+                    plan_fingerprint=old_key.plan_fingerprint,
+                    num_envs=old_key.num_envs,
+                    state_dtype=old_key.state_dtype,
+                    control_dtype=old_key.control_dtype,
+                    physics_substeps=old_key.physics_substeps,
+                    storage_generation=self._device_graph_storage_generation,
+                    storage_fingerprint=self._device_graph_storage_fingerprint,
+                )
+                self._device_graph_bundles[new_key.plan_fingerprint] = (
+                    self._capture_device_graph_bundle(new_key, recapture=True)
+                )
+        except Exception:
+            self._device_graph_bundles.clear()
+            self._device_graph_storage_poisoned = True
+            raise
+
+    def get_device_graph_diagnostics(
+        self, *, verify_storage: bool = False
+    ) -> DeviceGraphDiagnostics:
+        """Return graph counters and optionally rescan all captured storage."""
+
+        if not isinstance(verify_storage, bool):
+            raise BackendBatchContractError("verify_storage must be a bool")
+        if verify_storage:
+            self._verify_device_graph_storage()
+        keys: tuple[DeviceGraphCaptureKey, ...] = ()
+        if not self._device_graph_storage_poisoned:
+            keys = tuple(
+                sorted(
+                    (
+                        bundle.key
+                        for bundle in self._device_graph_bundles.values()
+                        if bundle.key.storage_generation == self._device_graph_storage_generation
+                        and bundle.key.storage_fingerprint == self._device_graph_storage_fingerprint
+                    ),
+                    key=lambda key: key.canonical_order,
+                )
+            )
+        return DeviceGraphDiagnostics(
+            backend_type=self.backend_type,
+            execution_mode=DeviceGraphExecutionMode.CUDA_GRAPH,
+            active_keys=keys,
+            storage_buffers=self._device_graph_storage_buffers,
+            storage_generation=self._device_graph_storage_generation,
+            storage_fingerprint=self._device_graph_storage_fingerprint,
+            capture_count=self._device_graph_captures,
+            launch_count=self._device_graph_launches,
+            recapture_count=self._device_graph_recaptures,
+            stale_rejection_count=self._device_graph_stale_rejections,
+            eager_fallback_count=self._device_graph_eager_fallbacks,
+            storage_verification_count=self._device_graph_storage_verifications,
+            instrumentation_complete=True,
+        )
 
     def _require_device_mutation_plan(
         self,
@@ -1023,13 +1372,17 @@ class MjwarpBackend(SimBackend):
             )
         action = control.torch()
         start = time.perf_counter()
+        graph_bundle = self._require_device_graph_bundle(
+            plan=bound.public_plan,
+            nsteps=nsteps,
+        )
         self._invalidate_device_batch_state()
         with torch.cuda.stream(bridge.physics_stream):
             producer.wait(bridge.physics_stream)
             bridge.ctrl.copy_(action, non_blocking=True)
             with self._warp.ScopedStream(bridge.warp_physics_stream):
-                for _ in range(nsteps):
-                    self._mujoco_warp.step(self._device_model, self._device_data)
+                self._warp.capture_launch(graph_bundle.step_graph)
+                self._device_graph_launches += 1
                 bound.refresh()
             bridge.step_event.record(bridge.physics_stream)
         result = bound.materialize(
@@ -1067,22 +1420,24 @@ class MjwarpBackend(SimBackend):
                 "mjwarp device reset completion event belongs to another CUDA device"
             )
         start = time.perf_counter()
+        graph_bundle = self._require_device_graph_bundle(
+            plan=bound.public_plan,
+            nsteps=bound.public_plan.control.physics_substeps_per_control,
+        )
         self._invalidate_device_batch_state()
         with torch.cuda.stream(bridge.physics_stream):
             completion.wait(bridge.physics_stream)
             bridge.reset_mask.copy_(mutation_plan.active_mask(mutation_batch), non_blocking=True)
             with self._warp.ScopedStream(bridge.warp_physics_stream):
-                self._mujoco_warp.reset_data(
-                    self._device_model,
-                    self._device_data,
-                    reset=self._reset_mask_device,
-                )
+                self._warp.capture_launch(graph_bundle.reset_graph)
+                self._device_graph_launches += 1
                 mutation_plan.stage_reset_state(
                     mutation_batch,
                     qpos=bridge.qpos,
                     qvel=bridge.qvel,
                 )
-                self._mujoco_warp.forward(self._device_model, self._device_data)
+                self._warp.capture_launch(graph_bundle.forward_graph)
+                self._device_graph_launches += 1
                 bound.refresh_masked(bridge.reset_mask)
             bridge.reset_event.record(bridge.physics_stream)
         result = bound.materialize(
