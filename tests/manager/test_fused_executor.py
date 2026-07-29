@@ -17,7 +17,16 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from unilab.base.backend import SimBackend, create_backend, env_backend_kwargs
+from unilab.base.backend import (
+    BoundMutationValueBufferGroup,
+    BoundMutationValueBuffers,
+    RowSelection,
+    SimBackend,
+    StateBatch,
+    TypedBackendMutationBatch,
+    create_backend,
+    env_backend_kwargs,
+)
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1 import managed_fused as fused_module
 from unilab.envs.locomotion.g1.joystick import G1WalkEnv, G1WalkFlatCfg, G1WalkRewardConfig
@@ -399,6 +408,100 @@ def test_fused_executor_matches_reference_generated_vectors() -> None:
         )
     finally:
         _cleanup(original_backend, permuted_backend)
+
+
+def test_fused_executor_uses_serial_numba_hot_kernels_for_host_profile() -> None:
+    """Guard the measured host strategy against accidental ``prange`` regression."""
+
+    dispatchers = (
+        fused_module._apply_action_kernel,
+        fused_module._write_observations_kernel,
+        fused_module._compute_terminal_kernel,
+        fused_module._copy_rows_kernel,
+        fused_module._gather_task_rows_kernel,
+        fused_module._complete_reset_task_state_kernel,
+    )
+    assert all(
+        dispatcher.targetoptions.get("parallel", False) is False for dispatcher in dispatchers
+    )
+
+
+def test_fused_terminal_state_views_are_validated_once_per_borrowed_batch() -> None:
+    """Terminal reward and observation share one valid typed-state mapping.
+
+    The cache remains keyed by the strong ``StateBatch`` object, rather than
+    its integer id, and the kernel still invokes ``assert_valid`` for each
+    lifecycle consumer.  This counts only field descriptor reads: a terminal
+    step needs the eleven G1 fields once for termination/reward math and must
+    not re-read them while writing its terminal observation.
+    """
+
+    cfg = _cfg(noise_level=0.0)
+    backend = _backend(deepcopy(cfg), num_envs=2)
+    try:
+        runtime = create_g1_managed_fused_runtime(backend=backend, cfg=cfg, reset_seed=17)
+        runtime.init_state()
+        original_buffer_at = StateBatch.buffer_at
+        field_reads: list[int] = []
+
+        def _record_buffer_at(state: StateBatch, field_index: int):
+            field_reads.append(field_index)
+            return original_buffer_at(state, field_index)
+
+        actions = _generated_actions(num_envs=2, action_dim=29)[1]
+        with patch.object(StateBatch, "buffer_at", new=_record_buffer_at):
+            runtime.step(actions)
+
+        state_indices = dict(runtime.kernel_binding.state_field_indices)
+        assert field_reads == [state_indices[key] for key in fused_module._STATE_KEYS]
+    finally:
+        _cleanup(backend)
+
+
+def test_fused_reset_uses_cold_bound_complete_mutation_window() -> None:
+    """Reset descriptor construction stays cold-bound for the fused profile."""
+
+    cfg = _cfg(noise_level=0.0)
+    backend = _backend(deepcopy(cfg), num_envs=4)
+    try:
+        runtime = create_g1_managed_fused_runtime(backend=backend, cfg=cfg, reset_seed=29)
+        runtime.init_state()
+        task = runtime.task_state
+        assert task is not None
+        buffer_set = getattr(task, "reset_value_buffer_set")
+        assert isinstance(buffer_set, BoundMutationValueBuffers)
+        assert all(isinstance(group, BoundMutationValueBufferGroup) for group in buffer_set.groups)
+        assert len(buffer_set.groups) == 2
+        position_values = getattr(task, "reset_dof_position_values")
+        velocity_values = getattr(task, "reset_dof_velocity_values")
+        position_indices = runtime._kernel._dof_position_reset_indices  # type: ignore[attr-defined]
+        velocity_indices = runtime._kernel._dof_velocity_reset_indices  # type: ignore[attr-defined]
+        assert position_indices is not None
+        assert velocity_indices is not None
+        for dof_index, field_index in enumerate(position_indices):
+            assert np.shares_memory(buffer_set.buffers[field_index], position_values[dof_index])
+            assert buffer_set.buffers[field_index].flags.c_contiguous
+        for dof_index, field_index in enumerate(velocity_indices):
+            assert np.shares_memory(buffer_set.buffers[field_index], velocity_values[dof_index])
+            assert buffer_set.buffers[field_index].flags.c_contiguous
+        mutation_plan = runtime.kernel_binding.mutation_plan
+        assert mutation_plan is not None
+        mutation_runtime = backend._host_mutation_plans[mutation_plan.fingerprint]  # type: ignore[attr-defined]
+        prepared = mutation_runtime._prepared_buffer_sets[id(buffer_set)]
+        assert prepared.owner is buffer_set
+        assert len(prepared.groups) == 2
+        assert len(prepared.individual) == 4
+        rows = RowSelection.selected(backend.num_envs, (3, 1))
+        request = runtime._kernel.prepare_reset(rows=rows, task_state=task)  # type: ignore[attr-defined]
+        assert isinstance(request.mutation_batch, TypedBackendMutationBatch)
+        assert request.mutation_batch.state.values == ()
+        window = request.mutation_batch.state.bound_buffer_window
+        assert window is not None
+        assert window.buffers is buffer_set
+        assert window.rows == rows
+        assert window.plan == runtime.kernel_binding.mutation_plan
+    finally:
+        _cleanup(backend)
 
 
 def test_fused_executor_never_silently_falls_back() -> None:

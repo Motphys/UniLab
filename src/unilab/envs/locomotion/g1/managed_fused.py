@@ -18,26 +18,26 @@ binding; no exception is converted into a NumPy/reference fallback.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 try:  # pragma: no cover - the negative path is exercised by fault tests.
-    from numba import njit, prange
+    from numba import njit
 
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - optional-import boundary.
-    njit = prange = None  # type: ignore[assignment]
+    njit = None  # type: ignore[assignment]
     NUMBA_AVAILABLE = False
 
 from unilab.base.backend import (
     BoundMutationPlan,
+    BoundMutationValueBufferGroup,
+    BoundMutationValueBuffers,
     BufferLifetime,
-    BufferView,
     ControlSpec,
     ExecutionProfile,
-    MutationValueBatch,
     RowSelection,
     SimulationStateMutationBatch,
     StateBatch,
@@ -138,6 +138,15 @@ _TERM_CODES = {
 
 
 if NUMBA_AVAILABLE:
+    # These kernels deliberately use serial Numba loops rather than ``prange``.
+    # The Phase-0 frozen host uses sixteen Numba threads but its available TBB
+    # runtime cannot service the parallel scheduler efficiently; entering five
+    # tiny parallel regions per control step dominated the full lifecycle at
+    # batches 128--4096.  Serial kernels retain nopython/GIL-free math while
+    # avoiding that scheduler cost.  Any future parallel strategy must be
+    # introduced as an explicit cold-bound dispatch mode and re-pass the
+    # independent-process Phase-4 host gate; it must not silently replace this
+    # measured default.
 
     @njit(inline="always", cache=True, nogil=True)  # type: ignore[misc]
     def _positive(value):
@@ -257,7 +266,7 @@ if NUMBA_AVAILABLE:
                 pelvis_local_linear_velocity[row, component] * linear_velocity_scale
             )
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _write_observations_kernel(
         row_indices,
         pelvis_local_linear_velocity,
@@ -275,7 +284,7 @@ if NUMBA_AVAILABLE:
         actor_out,
         critic_out,
     ):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             _write_observation_row(
                 row,
                 row_indices[row],
@@ -295,7 +304,7 @@ if NUMBA_AVAILABLE:
                 critic_out,
             )
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _compute_terminal_kernel(
         root_position,
         torso_upvector,
@@ -333,7 +342,7 @@ if NUMBA_AVAILABLE:
         critic_out,
     ):
         action_dim = dof_position.shape[1]
-        for row in prange(root_position.shape[0]):
+        for row in range(root_position.shape[0]):
             up_z = torso_upvector[row, 2]
             if up_z < -1.0:
                 up_z = -1.0
@@ -449,12 +458,12 @@ if NUMBA_AVAILABLE:
                 critic_out,
             )
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _copy_rows_kernel(row_indices, source, target):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             target[row_indices[row], :] = source[row, :]
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _gather_task_rows_kernel(
         row_indices,
         commands,
@@ -464,7 +473,7 @@ if NUMBA_AVAILABLE:
         current_actions_out,
         gait_phase_out,
     ):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             source_row = row_indices[row]
             for component in range(3):
                 commands_out[row, component] = commands[source_row, component]
@@ -473,7 +482,7 @@ if NUMBA_AVAILABLE:
             for phase_index in range(2):
                 gait_phase_out[row, phase_index] = gait_phase[source_row, phase_index]
 
-    @njit(parallel=True, cache=True, nogil=True)  # type: ignore[misc]
+    @njit(cache=True, nogil=True)  # type: ignore[misc]
     def _complete_reset_task_state_kernel(
         row_indices,
         reset_commands,
@@ -484,7 +493,7 @@ if NUMBA_AVAILABLE:
         gait_phase,
         steps,
     ):
-        for row in prange(row_indices.shape[0]):
+        for row in range(row_indices.shape[0]):
             target_row = row_indices[row]
             for component in range(3):
                 commands[target_row, component] = reset_commands[row, component]
@@ -509,12 +518,16 @@ class _G1ManagedFusedTaskState:
     reset_qvel: np.ndarray
     reset_commands: np.ndarray
     reset_gait_phase: np.ndarray
+    reset_dof_position_values: np.ndarray
+    reset_dof_velocity_values: np.ndarray
     reset_value_buffers: tuple[np.ndarray, ...]
+    reset_value_buffer_set: BoundMutationValueBuffers
     reset_rng: np.random.RandomState
     observation_noise_rng: np.random.Generator | None
     reward_means: np.ndarray
     logged_reward_means: np.ndarray
     has_logged_reward: np.ndarray
+    metrics_cache: tuple[ManagedMetric, ...]
     reward_scratch: np.ndarray
     weighted_term_scratch: np.ndarray
     actor_scratch: np.ndarray
@@ -528,6 +541,15 @@ class _G1ManagedFusedTaskState:
     noise_uniform_action_scratch: np.ndarray
     noise_value_action_scratch: np.ndarray
     terminal_state_token: int | None = None
+    # A terminal ``StateBatch`` is consumed first by termination/reward and
+    # then by terminal-observation materialization.  Keep a *strong* object
+    # identity cache for that one borrowed view so the second consumer does
+    # not repeat field-by-field validation.  ``_state_views`` still calls
+    # ``assert_valid`` before consulting the cache, so a reset/step barrier
+    # cannot make a stale lease usable.  Do not cache ``id(state)`` alone:
+    # Python may reuse an object id after the borrowed batch is released.
+    cached_state: StateBatch | None = field(default=None, repr=False, compare=False)
+    cached_state_views: _G1StateViews | None = field(default=None, repr=False, compare=False)
 
 
 def _require_numba() -> None:
@@ -963,10 +985,19 @@ class G1ManagedFusedKernel:
             raise G1ManagedFusedError("G1 managed fused executor received foreign task state")
         return task_state
 
-    def _state_views(self, state: StateBatch) -> _G1StateViews:
+    def _state_views(
+        self,
+        state: StateBatch,
+        task: _G1ManagedFusedTaskState,
+    ) -> _G1StateViews:
         """Validate and map typed fields without compiler-order assumptions."""
 
         state.assert_valid()
+        if task.cached_state is state:
+            cached = task.cached_state_views
+            if cached is None:  # pragma: no cover - task-state invariant guard.
+                raise G1ManagedFusedError("G1 fused state-view cache is incomplete")
+            return cached
         expected_dtype = np.dtype(self._require_binding().dtype)
         expected_shapes = (
             (self._action_dim,),
@@ -1005,7 +1036,7 @@ class G1ManagedFusedKernel:
                     f"G1 fused executor rejects non-finite typed state {key} before math dispatch"
                 )
             values.append(handle)
-        return _G1StateViews(
+        views = _G1StateViews(
             dof_angular_velocity=values[0],
             dof_position=values[1],
             root_angular_velocity=values[2],
@@ -1018,6 +1049,9 @@ class G1ManagedFusedKernel:
             torso_gyro=values[9],
             torso_upvector=values[10],
         )
+        task.cached_state = state
+        task.cached_state_views = views
+        return views
 
     def create_task_state(self, *, num_envs: int, dtype: np.dtype[Any]) -> object:
         binding = self._require_binding()
@@ -1027,9 +1061,47 @@ class G1ManagedFusedKernel:
             raise G1ManagedFusedError("G1 fused task state dtype differs from global dtype")
         if self._mutation_plan is None:
             raise G1ManagedFusedError("G1 fused task state requires a bound mutation plan")
-        reset_value_buffers = tuple(
-            np.empty((num_envs, *spec.value_buffer.row_shape), dtype=dtype)
-            for spec in self._mutation_plan.specs
+        _, position_indices, velocity_indices = self._require_reset_indices()
+        reset_dof_position_values = np.empty(
+            (self._action_dim, num_envs, 1, 1),
+            dtype=dtype,
+        )
+        reset_dof_velocity_values = np.empty(
+            (self._action_dim, num_envs, 1, 1),
+            dtype=dtype,
+        )
+        position_dof_by_field = {
+            field_index: dof_index for dof_index, field_index in enumerate(position_indices)
+        }
+        velocity_dof_by_field = {
+            field_index: dof_index for dof_index, field_index in enumerate(velocity_indices)
+        }
+        reset_value_buffers_list: list[np.ndarray] = []
+        for field_index, spec in enumerate(self._mutation_plan.specs):
+            if field_index in position_dof_by_field:
+                buffer = reset_dof_position_values[position_dof_by_field[field_index]]
+            elif field_index in velocity_dof_by_field:
+                buffer = reset_dof_velocity_values[velocity_dof_by_field[field_index]]
+            else:
+                buffer = np.empty(
+                    (num_envs, *spec.value_buffer.row_shape),
+                    dtype=dtype,
+                )
+            reset_value_buffers_list.append(buffer)
+        reset_value_buffers = tuple(reset_value_buffers_list)
+        reset_value_buffer_set = BoundMutationValueBuffers(
+            plan=self._mutation_plan,
+            buffers=reset_value_buffers,
+            groups=(
+                BoundMutationValueBufferGroup(
+                    field_indices=position_indices,
+                    buffer=reset_dof_position_values,
+                ),
+                BoundMutationValueBufferGroup(
+                    field_indices=velocity_indices,
+                    buffer=reset_dof_velocity_values,
+                ),
+            ),
         )
         noise_rng = (
             None
@@ -1046,12 +1118,16 @@ class G1ManagedFusedKernel:
             reset_qvel=np.empty((num_envs, 6 + self._action_dim), dtype=dtype),
             reset_commands=np.empty((num_envs, 3), dtype=dtype),
             reset_gait_phase=np.empty((num_envs, 2), dtype=dtype),
+            reset_dof_position_values=reset_dof_position_values,
+            reset_dof_velocity_values=reset_dof_velocity_values,
             reset_value_buffers=reset_value_buffers,
+            reset_value_buffer_set=reset_value_buffer_set,
             reset_rng=np.random.RandomState(self._config.reset_seed),
             observation_noise_rng=noise_rng,
             reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
             logged_reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
             has_logged_reward=np.zeros((len(self._config.reward_terms),), dtype=bool),
+            metrics_cache=(),
             reward_scratch=np.empty((num_envs,), dtype=dtype),
             weighted_term_scratch=np.empty((num_envs, len(self._config.reward_terms)), dtype=dtype),
             actor_scratch=np.empty((num_envs, _ACTOR_WIDTH), dtype=dtype),
@@ -1164,7 +1240,7 @@ class G1ManagedFusedKernel:
         terminated_out: np.ndarray,
     ) -> None:
         task = self._require_task_state(task_state)
-        views = self._state_views(state)
+        views = self._state_views(state, task)
         binding = self._require_binding()
         if not state.rows.is_all or state.rows.count != binding.num_envs:
             raise G1ManagedFusedError(
@@ -1208,8 +1284,6 @@ class G1ManagedFusedKernel:
             task.actor_scratch,
             task.critic_scratch,
         )
-        for index in range(len(self._config.reward_terms)):
-            task.reward_means[index] = np.mean(task.weighted_term_scratch[:, index])
         task.terminal_state_token = id(state)
 
     def evaluate_reward(
@@ -1245,13 +1319,15 @@ class G1ManagedFusedKernel:
         if int(task.steps[0]) % 4 == 0:
             for index, (_, scale) in enumerate(self._config.reward_terms):
                 if scale != 0.0:
+                    task.reward_means[index] = np.mean(task.weighted_term_scratch[:, index])
                     task.logged_reward_means[index] = task.reward_means[index]
                     task.has_logged_reward[index] = True
-        return tuple(
-            ManagedMetric(f"reward/{name}", float(task.logged_reward_means[index]))
-            for index, (name, scale) in enumerate(self._config.reward_terms)
-            if scale != 0.0 and task.has_logged_reward[index]
-        )
+            task.metrics_cache = tuple(
+                ManagedMetric(f"reward/{name}", float(task.logged_reward_means[index]))
+                for index, (name, scale) in enumerate(self._config.reward_terms)
+                if scale != 0.0 and task.has_logged_reward[index]
+            )
+        return task.metrics_cache
 
     @staticmethod
     def _rows_array(task: _G1ManagedFusedTaskState, rows: RowSelection) -> np.ndarray:
@@ -1277,7 +1353,7 @@ class G1ManagedFusedKernel:
         observation_buffers: tuple[np.ndarray, ...],
     ) -> None:
         task = self._require_task_state(task_state)
-        views = self._state_views(state)
+        views = self._state_views(state, task)
         actor_index, critic_index = self._require_observation_indices()
         try:
             actor_all = observation_buffers[actor_index]
@@ -1297,15 +1373,21 @@ class G1ManagedFusedKernel:
             or critic_all.dtype != task.current_actions.dtype
         ):
             raise G1ManagedFusedError("G1 fused runtime observation buffers have an invalid dtype")
-        row_indices = self._rows_array(task, state.rows)
         if state.phase.value == "terminal":
             if task.terminal_state_token != id(state):
                 raise G1ManagedFusedError(
                     "G1 fused terminal observation requires prior fused terminal math dispatch"
                 )
-            _copy_rows_kernel(row_indices, task.actor_scratch[: state.rows.count], actor_all)
-            _copy_rows_kernel(row_indices, task.critic_scratch[: state.rows.count], critic_all)
+            if state.rows.is_all:
+                np.copyto(actor_all, task.actor_scratch)
+                np.copyto(critic_all, task.critic_scratch)
+                row_indices = task.row_scratch
+            else:
+                row_indices = self._rows_array(task, state.rows)
+                _copy_rows_kernel(row_indices, task.actor_scratch[: state.rows.count], actor_all)
+                _copy_rows_kernel(row_indices, task.critic_scratch[: state.rows.count], critic_all)
         else:
+            row_indices = self._rows_array(task, state.rows)
             count = state.rows.count
             _gather_task_rows_kernel(
                 row_indices,
@@ -1460,14 +1542,18 @@ class G1ManagedFusedKernel:
         self._sample_commands(task, count)
         self._sample_gait_phase(task, count)
 
-        root_indices, position_indices, velocity_indices = self._require_reset_indices()
+        root_indices, _, _ = self._require_reset_indices()
         root_values = (qpos[:, :3], qpos[:, 3:7], qvel[:, :3], qvel[:, 3:6])
         for index, values in zip(root_indices, root_values, strict=True):
             task.reset_value_buffers[index][:count, 0, :] = values
-        for dof_index, mutation_index in enumerate(position_indices):
-            task.reset_value_buffers[mutation_index][:count, 0, 0] = qpos[:, 7 + dof_index]
-        for dof_index, mutation_index in enumerate(velocity_indices):
-            task.reset_value_buffers[mutation_index][:count, 0, 0] = qvel[:, 6 + dof_index]
+        np.copyto(
+            task.reset_dof_position_values[:, :count, 0, 0],
+            qpos[:, 7:].T,
+        )
+        np.copyto(
+            task.reset_dof_velocity_values[:, :count, 0, 0],
+            qvel[:, 6:].T,
+        )
 
     def prepare_reset(self, *, rows: RowSelection, task_state: object) -> ManagedResetRequest:
         task = self._require_task_state(task_state)
@@ -1477,25 +1563,14 @@ class G1ManagedFusedKernel:
         if self._mutation_plan is None:
             raise G1ManagedFusedError("G1 fused reset requires a bound mutation plan")
         self._prepare_reset_values(task, rows)
-        values = tuple(
-            MutationValueBatch(
-                plan=self._mutation_plan,
-                field_index=index,
-                rows=rows,
-                buffer=BufferView(
-                    handle=buffer[: rows.count],
-                    shape=(rows.count, *buffer.shape[1:]),
-                    contract=self._mutation_plan.specs[index].value_buffer,
-                ),
-            )
-            for index, buffer in enumerate(task.reset_value_buffers)
-        )
         return ManagedResetRequest(
             rows=rows,
             mutation_batch=TypedBackendMutationBatch(
                 plan=self._mutation_plan,
                 rows=rows,
-                state=SimulationStateMutationBatch(values=values),
+                state=SimulationStateMutationBatch(
+                    bound_buffer_window=task.reset_value_buffer_set.window(rows)
+                ),
             ),
             kernel_state=_G1ResetSample(rows=rows),
         )
