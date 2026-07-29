@@ -208,6 +208,27 @@ def test_supported_task_composes(
     _assert_reward_populated(cfg, task_file)
 
 
+def test_ppo_g1_mjwarp_owner_selects_strict_device_runtime_profile():
+    """The independent owner cannot silently route through host RSL-RL defaults."""
+
+    cfg = _compose("ppo", overrides=["task=g1_walk_flat/mjwarp"])
+
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.training.execution_profile == "device_resident"
+    assert cfg.training.no_play is True
+    assert cfg.training.play_render_mode == "none"
+    assert cfg.training.nan_guard.enabled is False
+    assert cfg.algo.runtime_impl == "mjwarp_device_v1"
+    assert (
+        cfg.algo.runtime_resolver
+        == "unilab.training.rsl_rl_device:resolve_mjwarp_device_ppo_runtime"
+    )
+    assert cfg.algo.check_for_nan is False
+    assert cfg.env.noise_config.level == pytest.approx(0.0)
+    assert cfg.env.domain_rand.randomize_kp is False
+    assert cfg.env.domain_rand.randomize_kd is False
+
+
 def test_ppo_go2_arm_manip_loco_motrix_preserves_backend_overrides():
     cfg = _compose("ppo", overrides=["task=go2_arm_manip_loco/motrix"])
 

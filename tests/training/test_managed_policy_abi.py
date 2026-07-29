@@ -347,6 +347,27 @@ def test_managed_policy_abi_matching_snapshot_persists_in_experiment_tracker(
     )
 
 
+def test_experiment_tracker_accepts_cold_compiled_abi_before_start(tmp_path: Path) -> None:
+    abi = managed_policy_abi_snapshot(_compiled_plan())
+    tracker = ExperimentTracker(
+        root_dir=tmp_path,
+        log_dir=tmp_path / "run",
+        algo_name="ppo",
+        task_name="managed_policy_abi_fixture",
+        sim_backend="mjwarp",
+        training_cfg={"logger": "tensorboard"},
+        full_cfg=_target_cfg(),
+    )
+    tracker.set_managed_policy_abi(abi)
+    tracker.start()
+    persisted = json.loads((tmp_path / "run" / "run_config.json").read_text(encoding="utf-8"))[
+        "contract_snapshot"
+    ]
+    assert persisted[MANAGED_POLICY_ABI_SNAPSHOT_KEY] == abi
+    with pytest.raises(RuntimeError, match="before ExperimentTracker.start"):
+        tracker.set_managed_policy_abi(abi)
+
+
 def test_sim2sim_resolver_facade_forwards_managed_policy_abi(tmp_path: Path) -> None:
     abi = managed_policy_abi_snapshot(_compiled_plan())
     snapshot = Sim2SimConfigResolver.extract_snapshot(_target_cfg(), managed_policy_abi=abi)

@@ -325,6 +325,27 @@ class G1WalkEnv(G1BaseEnv):
         # gyro(3) + gravity(3) + diff(29) + dof_vel(29) + action(29) + cmd(3) + phase(2) = 98
         return {"obs": 98, "critic": 101}
 
+    def create_device_managed_runtime(
+        self,
+        *,
+        reset_seed: int,
+        record_lifecycle: bool = False,
+        enable_stability_diagnostics: bool = False,
+    ):
+        """Build the strict G1 device runtime without exposing the backend."""
+
+        from unilab.envs.locomotion.g1.managed_device import (
+            create_g1_managed_device_runtime,
+        )
+
+        return create_g1_managed_device_runtime(
+            backend=self._backend,
+            cfg=self._cfg,
+            reset_seed=reset_seed,
+            record_lifecycle=record_lifecycle,
+            enable_stability_diagnostics=enable_stability_diagnostics,
+        )
+
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
             "tracking_lin_vel": rewards.tracking_lin_vel,
