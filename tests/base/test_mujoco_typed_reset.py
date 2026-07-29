@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gc
+import weakref
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -943,6 +945,15 @@ def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wra
                     bound_buffer_window=mutation.state.bound_buffer_window
                 ),
             )
+
+        buffer_set_id = id(window.buffers)
+        owner_ref = weakref.ref(window.buffers)
+        del prepared
+        del window
+        del mutation
+        gc.collect()
+        assert owner_ref() is None
+        assert buffer_set_id not in mutation_runtime._prepared_buffer_sets
     finally:
         _close(backend)
 
