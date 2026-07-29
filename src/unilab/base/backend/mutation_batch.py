@@ -250,15 +250,15 @@ def _validate_sub_batch(
             raise MutationContractError(
                 "bound mutation value window rows do not match the envelope"
             )
-        indices = window.field_indices
-        for field_index in indices:
+        bound_indices = window.field_indices
+        for field_index in bound_indices:
             spec = plan.specs[field_index]
             if spec.target.target_kind is not expected_kind:
                 raise MutationContractError(
                     f"mutation term {spec.term_key!r} is in the wrong typed sub-batch"
                 )
-        return indices
-    indices: list[int] = []
+        return bound_indices
+    value_indices: list[int] = []
     for value in batch.values:
         plan.require_compatible(value.plan)
         if value.rows != rows:
@@ -267,10 +267,10 @@ def _validate_sub_batch(
             raise MutationContractError(
                 f"mutation term {value.spec.term_key!r} is in the wrong typed sub-batch"
             )
-        indices.append(value.field_index)
-    if len(set(indices)) != len(indices):
+        value_indices.append(value.field_index)
+    if len(set(value_indices)) != len(value_indices):
         raise MutationContractError(f"{batch_type.__name__} contains duplicate mutation fields")
-    return tuple(indices)
+    return tuple(value_indices)
 
 
 @dataclass(frozen=True)
