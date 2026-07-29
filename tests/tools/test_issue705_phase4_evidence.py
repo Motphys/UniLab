@@ -138,14 +138,14 @@ def test_phase4_host_artifact_rejects_gate_matrix_and_candidate_tampering() -> N
     missing_case = deepcopy(artifact)
     missing_case["cases"].pop()
     assert any(
-        "complete frozen worker matrix" in error
+        "incomplete" in error and "process matrix" in error
         for error in validate_host_benchmark_payload(missing_case, root=REPO_ROOT)
     )
 
     candidate_tamper = deepcopy(artifact)
     candidate_tamper["candidate"]["candidate_commit"] = "0" * 40
     assert any(
-        "ancestor" in error or "candidate source" in error
+        "candidate_commit" in error or "candidate source" in error
         for error in validate_host_benchmark_payload(candidate_tamper, root=REPO_ROOT)
     )
 
