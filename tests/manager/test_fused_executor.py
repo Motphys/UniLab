@@ -259,7 +259,11 @@ def _cleanup(*backends: SimBackend) -> None:
 def test_fused_executor_matches_reference_generated_vectors() -> None:
     """Normal, boundary, reset, noise, logs, and lifecycle match independently."""
 
-    for reset_seed, num_envs, noise_level in ((0, 1, 0.0), (2, 8, 0.35)):
+    for reset_seed, num_envs, noise_level in (
+        (0, 1, 0.0),
+        (1, 128, 0.0),
+        (2, 4096, 0.35),
+    ):
         cfg = _cfg(noise_level=noise_level)
         reference_backend, reference, fused_backend, fused = _create_pair(
             cfg, num_envs=num_envs, reset_seed=reset_seed
