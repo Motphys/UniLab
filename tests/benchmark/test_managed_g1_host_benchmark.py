@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import pytest
 from benchmark.env import benchmark_managed_g1 as managed_benchmark
+
+from unilab.tools.issue705_phase4_evidence import validate_host_benchmark_artifact
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _raw(
@@ -255,6 +260,12 @@ def test_artifact_validator_accepts_complete_paired_frozen_matrix() -> None:
         )
         == ()
     )
+
+
+def test_fused_host_meets_preregistered_gate() -> None:
+    """The committed raw matrix must independently re-pass every frozen gate."""
+
+    assert validate_host_benchmark_artifact(root=REPO_ROOT) == ()
 
 
 def test_artifact_validator_rejects_missing_or_reordered_pair() -> None:
