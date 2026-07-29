@@ -70,6 +70,7 @@ from .mutation import (
     bind_mutation_plan,
 )
 from .mutation_batch import (
+    BoundMutationValueBufferGroup,
     BoundMutationValueBuffers,
     BoundMutationValueWindow,
     ExternalWrenchMutationBatch,
@@ -298,6 +299,7 @@ __all__ = [
     "BoundMutationPlan",
     "BoundMutationSpec",
     "BoundMutationTarget",
+    "BoundMutationValueBufferGroup",
     "BoundMutationValueBuffers",
     "BoundMutationValueWindow",
     "BorrowedBufferView",

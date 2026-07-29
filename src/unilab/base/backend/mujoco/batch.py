@@ -43,6 +43,7 @@ from unilab.base.backend.mutation import (
     MutationTargetKind,
 )
 from unilab.base.backend.mutation_batch import (
+    BoundMutationValueBufferGroup,
     BoundMutationValueBuffers,
     BoundMutationValueWindow,
     TypedBackendMutationBatch,
@@ -70,6 +71,26 @@ class _PreparedResetSlot:
     state_offset: int
     width: int
     dof_columns: np.ndarray | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class _PreparedResetBufferGroup:
+    """Backend-compiled vectorized assignment for homogeneous reset fields."""
+
+    destination_columns: np.ndarray = field(repr=False, compare=False)
+    row_values: np.ndarray = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class _PreparedResetBufferSet:
+    """Strongly-owned cache entry for one manager mutation buffer set."""
+
+    owner: BoundMutationValueBuffers = field(repr=False, compare=False)
+    individual: tuple[tuple[_PreparedResetSlot, np.ndarray], ...] = field(
+        repr=False,
+        compare=False,
+    )
+    groups: tuple[_PreparedResetBufferGroup, ...] = field(repr=False, compare=False)
 
 
 def _step_allocations(dtype: str) -> int:
@@ -337,7 +358,7 @@ class _MuJoCoHostMutationPlan:
     )
     _prepared_buffer_sets: dict[
         int,
-        tuple[BoundMutationValueBuffers, tuple[np.ndarray, ...]],
+        _PreparedResetBufferSet,
     ] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -603,24 +624,25 @@ class _MuJoCoHostMutationPlan:
 
         buffer_set = window.buffers
         buffer_set_id = id(buffer_set)
-        cached = self._prepared_buffer_sets.get(buffer_set_id)
-        if cached is None:
+        prepared = self._prepared_buffer_sets.get(buffer_set_id)
+        if prepared is None:
             # A manager-owned fixed-capacity set is validated once when it is
             # constructed and once when this backend first consumes it.  Keep
             # a strong object reference beside the id so Python id reuse can
             # never select a foreign set.  Subsequent reset windows only
             # change row mapping; their numeric addresses and metadata are a
             # cold-bound contract.
-            prepared_values = tuple(window.buffer_at(slot.field_index) for slot in slots)
-            self._prepared_buffer_sets[buffer_set_id] = (buffer_set, prepared_values)
+            prepared = self._compile_prepared_buffer_set(window=window, slots=slots)
+            self._prepared_buffer_sets[buffer_set_id] = prepared
         else:
-            cached_set, prepared_values = cached
-            if cached_set is not buffer_set:  # pragma: no cover - strong-ref invariant.
+            if prepared.owner is not buffer_set:  # pragma: no cover - strong-ref invariant.
                 raise BackendBatchContractError(
                     "MuJoCo prepared reset buffer identity cache is inconsistent"
                 )
 
-        for slot, values in zip(slots, prepared_values, strict=True):
+        for group in prepared.groups:
+            self._reset_state[:count, group.destination_columns] = group.row_values[:count]
+        for slot, values in prepared.individual:
             if slot.dof_columns is None:
                 np.copyto(
                     self._reset_state[:count, slot.state_offset : slot.state_offset + slot.width],
@@ -632,6 +654,67 @@ class _MuJoCoHostMutationPlan:
                     :count, :, 0
                 ]
         return self._reset_state[:count]
+
+    @staticmethod
+    def _compile_prepared_buffer_set(
+        *,
+        window: BoundMutationValueWindow,
+        slots: tuple[_PreparedResetSlot, ...],
+    ) -> _PreparedResetBufferSet:
+        """Compile supported group hints while retaining canonical fallback."""
+
+        values_by_field = {slot.field_index: window.buffer_at(slot.field_index) for slot in slots}
+        slots_by_field = {slot.field_index: slot for slot in slots}
+        grouped_fields: set[int] = set()
+        prepared_groups: list[_PreparedResetBufferGroup] = []
+        for group in window.buffers.groups:
+            compiled = _MuJoCoHostMutationPlan._compile_prepared_buffer_group(
+                group=group,
+                slots_by_field=slots_by_field,
+            )
+            if compiled is None:
+                continue
+            prepared_groups.append(compiled)
+            grouped_fields.update(group.field_indices)
+        individual = tuple(
+            (slot, values_by_field[slot.field_index])
+            for slot in slots
+            if slot.field_index not in grouped_fields
+        )
+        return _PreparedResetBufferSet(
+            owner=window.buffers,
+            individual=individual,
+            groups=tuple(prepared_groups),
+        )
+
+    @staticmethod
+    def _compile_prepared_buffer_group(
+        *,
+        group: BoundMutationValueBufferGroup,
+        slots_by_field: dict[int, _PreparedResetSlot],
+    ) -> _PreparedResetBufferGroup | None:
+        """Translate a singleton-DoF group to one field-major column write."""
+
+        slots = tuple(slots_by_field.get(field_index) for field_index in group.field_indices)
+        if any(slot is None for slot in slots) or group.buffer.shape[2:] != (1, 1):
+            return None
+        typed_slots = tuple(slot for slot in slots if slot is not None)
+        columns: list[int] = []
+        for slot in typed_slots:
+            dof_columns = slot.dof_columns
+            if slot.width != 1 or dof_columns is None or dof_columns.shape != (1,):
+                return None
+            columns.append(slot.state_offset + int(dof_columns[0]))
+        destination_columns = np.asarray(
+            columns,
+            dtype=np.intp,
+        )
+        if len(set(int(column) for column in destination_columns)) != len(destination_columns):
+            return None
+        return _PreparedResetBufferGroup(
+            destination_columns=destination_columns,
+            row_values=group.buffer[:, :, 0, 0].T,
+        )
 
     def stage_reset_state(
         self,

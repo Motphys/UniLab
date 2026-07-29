@@ -54,6 +54,51 @@ class MutationValueBatch:
 
 
 @dataclass(frozen=True)
+class BoundMutationValueBufferGroup:
+    """Homogeneous field-major storage hint for cold-bound mutation values.
+
+    ``field_indices`` maps the leading axis of ``buffer`` to canonical fields
+    in a :class:`BoundMutationValueBuffers` set.  Backends may use this hint to
+    commit homogeneous fields in one vectorized operation.  The canonical
+    per-field buffers remain authoritative, so an unsupported group can always
+    fall back without dropping a mutation field.
+    """
+
+    field_indices: tuple[int, ...]
+    buffer: np.ndarray = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.field_indices, tuple)
+            or not self.field_indices
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in self.field_indices
+            )
+        ):
+            raise MutationContractError(
+                "bound mutation value buffer group requires non-negative field indices"
+            )
+        if len(set(self.field_indices)) != len(self.field_indices):
+            raise MutationContractError(
+                "bound mutation value buffer group contains duplicate field indices"
+            )
+        if not isinstance(self.buffer, np.ndarray):
+            raise MutationContractError("bound mutation value buffer group must use a numpy array")
+
+
+def _same_array_view(left: np.ndarray, right: np.ndarray) -> bool:
+    """Return whether two arrays describe the exact same numeric view."""
+
+    return (
+        left.shape == right.shape
+        and left.dtype == right.dtype
+        and left.strides == right.strides
+        and int(left.__array_interface__["data"][0]) == int(right.__array_interface__["data"][0])
+    )
+
+
+@dataclass(frozen=True)
 class BoundMutationValueBuffers:
     """Cold-bound manager buffers for a complete typed mutation plan.
 
@@ -75,6 +120,11 @@ class BoundMutationValueBuffers:
 
     plan: BoundMutationPlan
     buffers: tuple[np.ndarray, ...] = field(repr=False, compare=False)
+    groups: tuple[BoundMutationValueBufferGroup, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
     _field_indices: tuple[int, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -107,6 +157,59 @@ class BoundMutationValueBuffers:
                 raise MutationContractError(
                     f"bound mutation value buffer {index} must remain manager-writeable"
                 )
+        if not isinstance(self.groups, tuple) or any(
+            not isinstance(group, BoundMutationValueBufferGroup) for group in self.groups
+        ):
+            raise MutationContractError(
+                "bound mutation value buffer groups must be typed buffer groups"
+            )
+        grouped_fields: set[int] = set()
+        for group_index, group in enumerate(self.groups):
+            overlap = grouped_fields.intersection(group.field_indices)
+            if overlap:
+                raise MutationContractError(
+                    "bound mutation value buffer groups overlap canonical fields: "
+                    + ", ".join(str(index) for index in sorted(overlap))
+                )
+            try:
+                specs = tuple(self.plan.specs[index] for index in group.field_indices)
+                field_buffers = tuple(self.buffers[index] for index in group.field_indices)
+            except IndexError as exc:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} references an unbound field"
+                ) from exc
+            first_contract = specs[0].value_buffer
+            if any(spec.value_buffer != first_contract for spec in specs[1:]):
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} fields are not homogeneous"
+                )
+            expected_shape = (
+                len(group.field_indices),
+                self.plan.num_envs,
+                *first_contract.row_shape,
+            )
+            if group.buffer.shape != expected_shape:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} requires shape "
+                    f"{expected_shape}, got {group.buffer.shape}"
+                )
+            if group.buffer.dtype.name != first_contract.dtype:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} dtype does not match "
+                    "its field contracts"
+                )
+            if not group.buffer.flags.c_contiguous or not group.buffer.flags.writeable:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} must be C-contiguous "
+                    "and manager-writeable"
+                )
+            for field_offset, field_buffer in enumerate(field_buffers):
+                if not _same_array_view(field_buffer, group.buffer[field_offset]):
+                    raise MutationContractError(
+                        f"bound mutation value buffer group {group_index} field slice does not "
+                        "match its canonical buffer"
+                    )
+            grouped_fields.update(group.field_indices)
         object.__setattr__(self, "_field_indices", tuple(range(len(self.buffers))))
 
     def window(self, rows: RowSelection) -> "BoundMutationValueWindow":
@@ -307,6 +410,7 @@ class TypedBackendMutationBatch:
 
 
 __all__ = [
+    "BoundMutationValueBufferGroup",
     "BoundMutationValueBuffers",
     "BoundMutationValueWindow",
     "ExternalWrenchMutationBatch",

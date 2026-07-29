@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from unilab.base.backend import (
+    BoundMutationValueBufferGroup,
     BoundMutationValueBuffers,
     RowSelection,
     SimBackend,
@@ -420,7 +421,9 @@ def test_fused_executor_uses_serial_numba_hot_kernels_for_host_profile() -> None
         fused_module._gather_task_rows_kernel,
         fused_module._complete_reset_task_state_kernel,
     )
-    assert all(dispatcher.targetoptions.get("parallel", False) is False for dispatcher in dispatchers)
+    assert all(
+        dispatcher.targetoptions.get("parallel", False) is False for dispatcher in dispatchers
+    )
 
 
 def test_fused_terminal_state_views_are_validated_once_per_borrowed_batch() -> None:
@@ -467,6 +470,8 @@ def test_fused_reset_uses_cold_bound_complete_mutation_window() -> None:
         assert task is not None
         buffer_set = getattr(task, "reset_value_buffer_set")
         assert isinstance(buffer_set, BoundMutationValueBuffers)
+        assert all(isinstance(group, BoundMutationValueBufferGroup) for group in buffer_set.groups)
+        assert len(buffer_set.groups) == 2
         position_values = getattr(task, "reset_dof_position_values")
         velocity_values = getattr(task, "reset_dof_velocity_values")
         position_indices = runtime._kernel._dof_position_reset_indices  # type: ignore[attr-defined]
@@ -482,9 +487,10 @@ def test_fused_reset_uses_cold_bound_complete_mutation_window() -> None:
         mutation_plan = runtime.kernel_binding.mutation_plan
         assert mutation_plan is not None
         mutation_runtime = backend._host_mutation_plans[mutation_plan.fingerprint]  # type: ignore[attr-defined]
-        cached_buffer_set, cached_values = mutation_runtime._prepared_buffer_sets[id(buffer_set)]
-        assert cached_buffer_set is buffer_set
-        assert len(cached_values) == len(buffer_set.buffers)
+        prepared = mutation_runtime._prepared_buffer_sets[id(buffer_set)]
+        assert prepared.owner is buffer_set
+        assert len(prepared.groups) == 2
+        assert len(prepared.individual) == 4
         rows = RowSelection.selected(backend.num_envs, (3, 1))
         request = runtime._kernel.prepare_reset(rows=rows, task_state=task)  # type: ignore[attr-defined]
         assert isinstance(request.mutation_batch, TypedBackendMutationBatch)

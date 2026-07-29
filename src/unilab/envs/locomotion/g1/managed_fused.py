@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover - optional-import boundary.
 
 from unilab.base.backend import (
     BoundMutationPlan,
+    BoundMutationValueBufferGroup,
     BoundMutationValueBuffers,
     BufferLifetime,
     ControlSpec,
@@ -137,7 +138,6 @@ _TERM_CODES = {
 
 
 if NUMBA_AVAILABLE:
-
     # These kernels deliberately use serial Numba loops rather than ``prange``.
     # The Phase-0 frozen host uses sixteen Numba threads but its available TBB
     # runtime cannot service the parallel scheduler efficiently; entering five
@@ -527,6 +527,7 @@ class _G1ManagedFusedTaskState:
     reward_means: np.ndarray
     logged_reward_means: np.ndarray
     has_logged_reward: np.ndarray
+    metrics_cache: tuple[ManagedMetric, ...]
     reward_scratch: np.ndarray
     weighted_term_scratch: np.ndarray
     actor_scratch: np.ndarray
@@ -1091,6 +1092,16 @@ class G1ManagedFusedKernel:
         reset_value_buffer_set = BoundMutationValueBuffers(
             plan=self._mutation_plan,
             buffers=reset_value_buffers,
+            groups=(
+                BoundMutationValueBufferGroup(
+                    field_indices=position_indices,
+                    buffer=reset_dof_position_values,
+                ),
+                BoundMutationValueBufferGroup(
+                    field_indices=velocity_indices,
+                    buffer=reset_dof_velocity_values,
+                ),
+            ),
         )
         noise_rng = (
             None
@@ -1116,6 +1127,7 @@ class G1ManagedFusedKernel:
             reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
             logged_reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
             has_logged_reward=np.zeros((len(self._config.reward_terms),), dtype=bool),
+            metrics_cache=(),
             reward_scratch=np.empty((num_envs,), dtype=dtype),
             weighted_term_scratch=np.empty((num_envs, len(self._config.reward_terms)), dtype=dtype),
             actor_scratch=np.empty((num_envs, _ACTOR_WIDTH), dtype=dtype),
@@ -1307,16 +1319,15 @@ class G1ManagedFusedKernel:
         if int(task.steps[0]) % 4 == 0:
             for index, (_, scale) in enumerate(self._config.reward_terms):
                 if scale != 0.0:
-                    task.reward_means[index] = np.mean(
-                        task.weighted_term_scratch[:, index]
-                    )
+                    task.reward_means[index] = np.mean(task.weighted_term_scratch[:, index])
                     task.logged_reward_means[index] = task.reward_means[index]
                     task.has_logged_reward[index] = True
-        return tuple(
-            ManagedMetric(f"reward/{name}", float(task.logged_reward_means[index]))
-            for index, (name, scale) in enumerate(self._config.reward_terms)
-            if scale != 0.0 and task.has_logged_reward[index]
-        )
+            task.metrics_cache = tuple(
+                ManagedMetric(f"reward/{name}", float(task.logged_reward_means[index]))
+                for index, (name, scale) in enumerate(self._config.reward_terms)
+                if scale != 0.0 and task.has_logged_reward[index]
+            )
+        return task.metrics_cache
 
     @staticmethod
     def _rows_array(task: _G1ManagedFusedTaskState, rows: RowSelection) -> np.ndarray:
@@ -1362,15 +1373,21 @@ class G1ManagedFusedKernel:
             or critic_all.dtype != task.current_actions.dtype
         ):
             raise G1ManagedFusedError("G1 fused runtime observation buffers have an invalid dtype")
-        row_indices = self._rows_array(task, state.rows)
         if state.phase.value == "terminal":
             if task.terminal_state_token != id(state):
                 raise G1ManagedFusedError(
                     "G1 fused terminal observation requires prior fused terminal math dispatch"
                 )
-            _copy_rows_kernel(row_indices, task.actor_scratch[: state.rows.count], actor_all)
-            _copy_rows_kernel(row_indices, task.critic_scratch[: state.rows.count], critic_all)
+            if state.rows.is_all:
+                np.copyto(actor_all, task.actor_scratch)
+                np.copyto(critic_all, task.critic_scratch)
+                row_indices = task.row_scratch
+            else:
+                row_indices = self._rows_array(task, state.rows)
+                _copy_rows_kernel(row_indices, task.actor_scratch[: state.rows.count], actor_all)
+                _copy_rows_kernel(row_indices, task.critic_scratch[: state.rows.count], critic_all)
         else:
+            row_indices = self._rows_array(task, state.rows)
             count = state.rows.count
             _gather_task_rows_kernel(
                 row_indices,
