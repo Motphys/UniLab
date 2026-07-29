@@ -11,13 +11,17 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import numpy as np
+import torch
 
 from unilab.base.backend.base import SimBackend
 from unilab.base.backend.batch import (
     BackendBatchContractError,
+    BackendBatchCounters,
     BackendBatchDiagnostics,
     BackendIORequirements,
     BackendMutationBatch,
@@ -27,8 +31,15 @@ from unilab.base.backend.batch import (
     BackendTiming,
     BoundBackendPlan,
     ControlBatch,
+    ExecutionProfile,
     RowSelection,
     StateBatchPhase,
+)
+from unilab.base.backend.device import (
+    DeviceBufferContractError,
+    DeviceBufferLease,
+    DeviceTensorView,
+    require_device_tensor_view,
 )
 from unilab.base.backend.mutation import (
     BoundMutationPlan,
@@ -62,9 +73,24 @@ from .batch import (
     transfer_delta_to_batch_counters,
 )
 from .dependencies import load_mjwarp_dependencies
+from .device import MjwarpDeviceBatchPlan, bind_mjwarp_device_batch
 from .materialization import materialize_mjwarp_scene
 from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
+
+
+@dataclass(frozen=True)
+class _MjwarpDeviceBridge:
+    """Cold-bound Torch aliases and stream/event objects for CUDA batches."""
+
+    qpos: torch.Tensor
+    qvel: torch.Tensor
+    ctrl: torch.Tensor
+    sensordata: torch.Tensor
+    physics_stream: torch.cuda.Stream
+    warp_physics_stream: Any
+    step_event: torch.cuda.Event
+    read_event: torch.cuda.Event
 
 
 class MjwarpBackend(SimBackend):
@@ -195,7 +221,14 @@ class MjwarpBackend(SimBackend):
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
         self._batch_instance_id = f"mjwarp:{id(self):x}"
         self._host_batch_plans: dict[str, MjwarpHostBatchPlan] = {}
+        self._device_batch_plans: dict[str, MjwarpDeviceBatchPlan] = {}
         self._host_mutation_plans: dict[str, MjwarpHostMutationPlan] = {}
+        self._device_bridge: _MjwarpDeviceBridge | None = None
+        # ``UNTIL_STEP_COMPLETE`` controls are runner-owned.  Keep only a
+        # weak epoch watermark per owner lease so replaying an already queued
+        # action cannot silently race a subsequent physics barrier, while
+        # discarded runner buffers do not accumulate in a long rollout.
+        self._device_control_epochs: WeakKeyDictionary[DeviceBufferLease, int] = WeakKeyDictionary()
 
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
@@ -285,6 +318,51 @@ class MjwarpBackend(SimBackend):
     def _synchronize(self) -> None:
         self._warp.synchronize_device()
         self._transfer_telemetry.synchronize()
+
+    def _ensure_device_bridge(self) -> _MjwarpDeviceBridge:
+        """Cold-bind stable Torch aliases and one explicit physics stream.
+
+        This method is only reached by ``bind_task_io`` for an explicit
+        ``device_resident`` plan.  It never downloads a Warp array and all
+        aliases retain backend ownership for the life of the backend instance.
+        """
+
+        existing = self._device_bridge
+        if existing is not None:
+            return existing
+        qpos = self._warp.to_torch(self._device_data.qpos)
+        qvel = self._warp.to_torch(self._device_data.qvel)
+        ctrl = self._warp.to_torch(self._device_data.ctrl)
+        sensordata = self._warp.to_torch(self._device_data.sensordata)
+        expected = {
+            "qpos": (qpos, (self._num_envs, self._nq)),
+            "qvel": (qvel, (self._num_envs, self._nv)),
+            "ctrl": (ctrl, (self._num_envs, self._nu)),
+            "sensordata": (sensordata, (self._num_envs, int(self._cpu_model.nsensordata))),
+        }
+        for name, (tensor, shape) in expected.items():
+            if tensor.device.type != "cuda" or tensor.dtype is not torch.float32:
+                raise BackendBatchContractError(
+                    f"mjwarp device bridge {name} must be a CUDA float32 Torch alias"
+                )
+            if tuple(int(dim) for dim in tensor.shape) != shape or not tensor.is_contiguous():
+                raise BackendBatchContractError(
+                    f"mjwarp device bridge {name} has an unexpected shape or layout"
+                )
+        device = qpos.device
+        physics_stream = torch.cuda.Stream(device=device)
+        bridge = _MjwarpDeviceBridge(
+            qpos=qpos,
+            qvel=qvel,
+            ctrl=ctrl,
+            sensordata=sensordata,
+            physics_stream=physics_stream,
+            warp_physics_stream=self._warp.stream_from_torch(physics_stream),
+            step_event=torch.cuda.Event(enable_timing=False),
+            read_event=torch.cuda.Event(enable_timing=False),
+        )
+        self._device_bridge = bridge
+        return bridge
 
     def _validate_rows(self, env_indices: np.ndarray) -> np.ndarray:
         rows = np.asarray(env_indices, dtype=np.intp)
@@ -502,19 +580,49 @@ class MjwarpBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def bind_task_io(self, requirements: BackendIORequirements) -> BoundBackendPlan:
-        bound = bind_mjwarp_host_batch(
-            self,
-            requirements,
-            backend_instance_id=self._batch_instance_id,
+        if not isinstance(requirements, BackendIORequirements):
+            raise BackendBatchContractError(
+                "mjwarp batch requirements must be BackendIORequirements"
+            )
+        if requirements.execution_profile is ExecutionProfile.HOST_NUMPY:
+            if self._device_batch_plans:
+                raise BackendBatchContractError(
+                    "mjwarp cannot mix host_numpy and device_resident batch plans in one backend "
+                    "instance; construct a dedicated backend for each explicit profile"
+                )
+            host_bound = bind_mjwarp_host_batch(
+                self,
+                requirements,
+                backend_instance_id=self._batch_instance_id,
+            )
+            existing_host = self._host_batch_plans.get(host_bound.public_plan.fingerprint)
+            if existing_host is not None:
+                existing_host.public_plan.require_compatible(host_bound.public_plan)
+                return existing_host.public_plan
+            self._host_batch_plans[host_bound.public_plan.fingerprint] = host_bound
+            for mutation_plan in self._host_mutation_plans.values():
+                mutation_plan.register_batch_plan(host_bound.public_plan)
+            return host_bound.public_plan
+        if requirements.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
+            if self._host_batch_plans:
+                raise BackendBatchContractError(
+                    "mjwarp cannot mix host_numpy and device_resident batch plans in one backend "
+                    "instance; construct a dedicated backend for each explicit profile"
+                )
+            device_bound = bind_mjwarp_device_batch(
+                self,
+                requirements,
+                backend_instance_id=self._batch_instance_id,
+            )
+            existing_device = self._device_batch_plans.get(device_bound.public_plan.fingerprint)
+            if existing_device is not None:
+                existing_device.public_plan.require_compatible(device_bound.public_plan)
+                return existing_device.public_plan
+            self._device_batch_plans[device_bound.public_plan.fingerprint] = device_bound
+            return device_bound.public_plan
+        raise BackendBatchContractError(
+            f"mjwarp does not support execution profile {requirements.execution_profile.value!r}"
         )
-        existing = self._host_batch_plans.get(bound.public_plan.fingerprint)
-        if existing is not None:
-            existing.public_plan.require_compatible(bound.public_plan)
-            return existing.public_plan
-        self._host_batch_plans[bound.public_plan.fingerprint] = bound
-        for mutation_plan in self._host_mutation_plans.values():
-            mutation_plan.register_batch_plan(bound.public_plan)
-        return bound.public_plan
 
     def _resolve_mjwarp_typed_mutation_selector(
         self,
@@ -652,9 +760,41 @@ class MjwarpBackend(SimBackend):
         bound.public_plan.require_compatible(plan)
         return bound
 
+    def _require_device_batch_plan(self, plan: BoundBackendPlan) -> MjwarpDeviceBatchPlan:
+        if not isinstance(plan, BoundBackendPlan):
+            raise BackendBatchContractError("mjwarp batch plan must be a BoundBackendPlan")
+        if plan.execution_profile is not ExecutionProfile.DEVICE_RESIDENT:
+            raise BackendBatchContractError("mjwarp plan is not a device-resident batch plan")
+        plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            bound = self._device_batch_plans[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp device batch plan was not bound by this backend instance"
+            ) from exc
+        bound.public_plan.require_compatible(plan)
+        return bound
+
     def _invalidate_host_batch_state(self) -> None:
         for bound in self._host_batch_plans.values():
             bound.lease.invalidate()
+
+    def _enqueue_device_refresh(
+        self,
+        bound: MjwarpDeviceBatchPlan,
+        *,
+        event: torch.cuda.Event,
+    ) -> None:
+        """Pack bound state fields on the dedicated physics stream only."""
+
+        bridge = self._ensure_device_bridge()
+        with torch.cuda.stream(bridge.physics_stream):
+            with self._warp.ScopedStream(bridge.warp_physics_stream):
+                bound.refresh()
+            event.record(bridge.physics_stream)
 
     def read_state_batch(
         self,
@@ -663,14 +803,26 @@ class MjwarpBackend(SimBackend):
         *,
         phase: StateBatchPhase = StateBatchPhase.CURRENT,
     ) -> BackendReadResult:
-        bound = self._require_host_batch_plan(plan)
         if not isinstance(rows, RowSelection):
             raise BackendBatchContractError("mjwarp rows must be a RowSelection")
         if rows.universe_size != self._num_envs:
             raise BackendBatchContractError("mjwarp row universe does not match backend num_envs")
         if not isinstance(phase, StateBatchPhase):
             raise BackendBatchContractError("mjwarp state phase must be a StateBatchPhase")
-        return bound.materialize(rows, phase)
+        if plan.execution_profile is ExecutionProfile.HOST_NUMPY:
+            return self._require_host_batch_plan(plan).materialize(rows, phase)
+        if plan.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
+            bound = self._require_device_batch_plan(plan)
+            bridge = self._ensure_device_bridge()
+            self._enqueue_device_refresh(bound, event=bridge.read_event)
+            return bound.materialize(
+                rows=rows,
+                phase=phase,
+                completion_event=bridge.read_event,
+            )
+        raise BackendBatchContractError(
+            f"mjwarp cannot read unsupported execution profile {plan.execution_profile.value!r}"
+        )
 
     def _execute_host_step(
         self,
@@ -755,6 +907,76 @@ class MjwarpBackend(SimBackend):
             transfer_delta,
         )
 
+    def _execute_device_step(
+        self,
+        bound: MjwarpDeviceBatchPlan,
+        control: DeviceTensorView,
+        nsteps: int,
+    ) -> BackendReadResult:
+        """Queue action handoff, physics and state packing without host sync.
+
+        The runner must record the action producer event.  The dedicated
+        mjwarp physics stream waits for that event, executes Warp physics on
+        the same native stream, packs the declared state fields, then records
+        one backend completion event for the device consumer.
+        """
+
+        bridge = self._ensure_device_bridge()
+        producer = control.require_completion()
+        if producer.placement.device_index != bridge.ctrl.device.index:
+            raise BackendBatchContractError(
+                "mjwarp device control completion event belongs to another CUDA device"
+            )
+        action = control.torch()
+        start = time.perf_counter()
+        with torch.cuda.stream(bridge.physics_stream):
+            producer.wait(bridge.physics_stream)
+            bridge.ctrl.copy_(action, non_blocking=True)
+            with self._warp.ScopedStream(bridge.warp_physics_stream):
+                for _ in range(nsteps):
+                    self._mujoco_warp.step(self._device_model, self._device_data)
+                bound.refresh()
+            bridge.step_event.record(bridge.physics_stream)
+        result = bound.materialize(
+            rows=RowSelection.all(self._num_envs),
+            phase=StateBatchPhase.TERMINAL,
+            completion_event=bridge.step_event,
+        )
+        return BackendReadResult(
+            state=result.state,
+            diagnostics=BackendBatchDiagnostics(
+                counters=BackendBatchCounters(
+                    state_materializations=1,
+                    instrumentation_complete=True,
+                ),
+                timings=(
+                    BackendTiming("device_enqueue", (time.perf_counter() - start) * 1000.0),
+                    *result.diagnostics.timings,
+                ),
+                completion_event=result.diagnostics.completion_event,
+            ),
+        )
+
+    def _require_unconsumed_device_control(self, control: DeviceTensorView) -> None:
+        """Reject reuse of a runner control before its lease advances.
+
+        A device action is not merely an address: its producer event denotes
+        one concrete write.  Reusing that event/lease epoch after a physics
+        barrier violates ``UNTIL_STEP_COMPLETE`` even if the tensor pointer is
+        stable.  The runner creates the next view only after advancing its own
+        lease epoch.
+        """
+
+        previous_epoch = self._device_control_epochs.get(control.lease)
+        if previous_epoch is not None and control.epoch <= previous_epoch:
+            raise DeviceBufferContractError(
+                "mjwarp device control lease epoch was already consumed; "
+                "record a new producer event after advancing the runner lease"
+            )
+
+    def _mark_device_control_consumed(self, control: DeviceTensorView) -> None:
+        self._device_control_epochs[control.lease] = control.epoch
+
     def step_batch(
         self,
         plan: BoundBackendPlan,
@@ -763,6 +985,13 @@ class MjwarpBackend(SimBackend):
         mutation_batch: BackendMutationBatch | None = None,
         nsteps: int = 1,
     ) -> BackendStepResult:
+        if plan.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
+            return self._step_device_batch(
+                plan,
+                control_batch,
+                mutation_batch=mutation_batch,
+                nsteps=nsteps,
+            )
         bound = self._require_host_batch_plan(plan)
         if self._pre_step_control_fn is not None:
             raise BackendBatchContractError(
@@ -817,6 +1046,53 @@ class MjwarpBackend(SimBackend):
             diagnostics=diagnostics,
         )
 
+    def _step_device_batch(
+        self,
+        plan: BoundBackendPlan,
+        control_batch: ControlBatch,
+        *,
+        mutation_batch: BackendMutationBatch | None,
+        nsteps: int,
+    ) -> BackendStepResult:
+        """Advance a device-resident plan with explicit event ownership."""
+
+        bound = self._require_device_batch_plan(plan)
+        if self._pre_step_control_fn is not None:
+            raise BackendBatchContractError("mjwarp device batches reject host pre-step callbacks")
+        if not isinstance(control_batch, ControlBatch):
+            raise BackendBatchContractError("mjwarp control must be a ControlBatch")
+        plan.require_compatible(control_batch.plan)
+        if not control_batch.rows.is_all:
+            raise BackendBatchContractError(
+                "mjwarp device physics steps require controls for all rows"
+            )
+        if (
+            isinstance(nsteps, bool)
+            or not isinstance(nsteps, int)
+            or nsteps != plan.control.physics_substeps_per_control
+        ):
+            raise BackendBatchContractError(
+                "mjwarp nsteps does not match the bound control cadence"
+            )
+        if mutation_batch is not None:
+            raise BackendBatchContractError(
+                "mjwarp device batch mutation is not implemented in the Phase 5A ABI slice"
+            )
+        control = require_device_tensor_view(
+            control_batch.buffer.handle,
+            contract=plan.control.buffer,
+            require_completion=True,
+        )
+        expected = (self._num_envs, *plan.control.buffer.row_shape)
+        if control.shape != expected:
+            raise BackendBatchContractError(
+                f"mjwarp device control shape must be {expected}, got {control.shape}"
+            )
+        self._require_unconsumed_device_control(control)
+        result = self._execute_device_step(bound, control, nsteps)
+        self._mark_device_control_consumed(control)
+        return BackendStepResult(terminal_state=result.state, diagnostics=result.diagnostics)
+
     def reset_batch(
         self,
         plan: BoundBackendPlan,
@@ -824,6 +1100,11 @@ class MjwarpBackend(SimBackend):
         *,
         mutation_batch: BackendMutationBatch | None = None,
     ) -> BackendResetResult:
+        if plan.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
+            raise BackendBatchContractError(
+                "mjwarp device-resident reset is not implemented in the Phase 5A ABI slice; "
+                "do not silently fall back to the host cache"
+            )
         bound = self._require_host_batch_plan(plan)
         if not isinstance(rows, RowSelection):
             raise BackendBatchContractError("mjwarp rows must be a RowSelection")

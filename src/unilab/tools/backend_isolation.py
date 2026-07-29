@@ -13,6 +13,7 @@ _SHARED_RUNTIME_MODULES = frozenset(
     {
         "base",
         "batch",
+        "device",
         "motrix_camera",
         "mutation",
         "mutation_batch",
