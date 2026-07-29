@@ -7,7 +7,15 @@ from typing import Any
 
 import numpy as np
 
-from .batch import BufferView, RowSelection
+from .batch import (
+    BufferLifetime,
+    BufferMutability,
+    BufferOwner,
+    BufferView,
+    MemorySpace,
+    RowSelection,
+)
+from .device import DeviceCompletion, DeviceTensorView, require_device_tensor_view
 from .mutation import (
     BoundMutationPlan,
     BoundMutationSpec,
@@ -409,10 +417,120 @@ class TypedBackendMutationBatch:
         return self.plan.fingerprint
 
 
+@dataclass(frozen=True)
+class DeviceResetMutationBatch:
+    """One all-world device reset envelope with a CUDA-active row mask.
+
+    The public batch API keeps :class:`RowSelection` host-visible and therefore
+    cannot represent a dynamically computed CUDA list of reset rows without a
+    device-to-host synchronization.  This envelope deliberately uses
+    ``RowSelection.all`` for descriptor shape/ownership and carries the exact
+    selected rows as an explicit CUDA bool mask.  The backend applies state
+    values only where that mask is true and returns an all-world reset state;
+    no Python index extraction is permitted on the hot path.
+
+    It is intentionally limited to simulation-state reset values.  Model
+    parameter, wrench and event semantics remain the typed Phase 6 contract
+    rather than being smuggled through this lifecycle primitive.
+    """
+
+    plan: BoundMutationPlan
+    rows: RowSelection
+    mutation: TypedBackendMutationBatch
+    active_mask: BufferView
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.plan, BoundMutationPlan):
+            raise MutationContractError("device reset mutation plan must be a BoundMutationPlan")
+        if not isinstance(self.rows, RowSelection):
+            raise MutationContractError("device reset rows must be a RowSelection")
+        if self.rows.universe_size != self.plan.num_envs or not self.rows.is_all:
+            raise MutationContractError(
+                "device reset mutation requires RowSelection.all for its bound row universe"
+            )
+        if not isinstance(self.mutation, TypedBackendMutationBatch):
+            raise MutationContractError(
+                "device reset mutation requires a TypedBackendMutationBatch"
+            )
+        self.plan.require_compatible(self.mutation.plan)
+        if self.mutation.rows != self.rows:
+            raise MutationContractError("device reset mutation rows differ from its envelope")
+        if (
+            self.mutation.model.values
+            or self.mutation.wrench.values
+            or self.mutation.task_state.values
+            or not self.mutation.state.values
+        ):
+            raise MutationContractError(
+                "device reset mutation only supports non-empty simulation-state values"
+            )
+        if not isinstance(self.active_mask, BufferView):
+            raise MutationContractError("device reset active mask must be a BufferView")
+        if self.active_mask.shape != (self.plan.num_envs,):
+            raise MutationContractError(
+                "device reset active mask must have one boolean entry per bound world"
+            )
+        contract = self.active_mask.contract
+        if (
+            contract.row_shape != ()
+            or contract.dtype != "bool"
+            or contract.placement.memory_space is not MemorySpace.DEVICE
+            or contract.placement.device_type != "cuda"
+            or contract.owner is not BufferOwner.MANAGER
+            or contract.mutability is not BufferMutability.READ_ONLY
+            or contract.lifetime is not BufferLifetime.UNTIL_COMMIT
+            or not contract.dlpack_exportable
+            or not contract.address_stable
+        ):
+            raise MutationContractError(
+                "device reset active mask must be a stable manager-owned CUDA bool commit buffer"
+            )
+        mask = require_device_tensor_view(
+            self.active_mask.handle,
+            contract=contract,
+            require_completion=True,
+        )
+        completion = mask.require_completion()
+        for value in self.mutation.state.values:
+            value_contract = value.spec.value_buffer
+            if value_contract.placement != contract.placement:
+                raise MutationContractError(
+                    "device reset values and active mask must use one CUDA placement"
+                )
+            device_value = require_device_tensor_view(
+                value.buffer.handle,
+                contract=value_contract,
+                require_completion=True,
+            )
+            value_completion = device_value.require_completion()
+            if (
+                value_completion.placement != completion.placement
+                or value_completion.owner_id != completion.owner_id
+                or value_completion.epoch != completion.epoch
+                or value_completion.event is not completion.event
+            ):
+                raise MutationContractError(
+                    "device reset values must share the active-mask completion event"
+                )
+
+    @property
+    def plan_fingerprint(self) -> str:
+        return self.plan.fingerprint
+
+    @property
+    def completion(self) -> DeviceCompletion:
+        """Return the single event after every reset value and mask is ready."""
+
+        mask = self.active_mask.handle
+        assert isinstance(mask, DeviceTensorView)  # validated in __post_init__.
+        return mask.require_completion()
+
+
 __all__ = [
     "BoundMutationValueBufferGroup",
     "BoundMutationValueBuffers",
     "BoundMutationValueWindow",
+    "DeviceResetMutationBatch",
     "ExternalWrenchMutationBatch",
     "ModelParameterMutationBatch",
     "MutationValueBatch",

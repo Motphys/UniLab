@@ -351,6 +351,29 @@ def test_device_control_epoch_cannot_be_reused_after_a_physics_barrier() -> None
     fixture.backend.step_batch(fixture.plan, renewed_control, nsteps=1)
 
 
+def test_physics_barrier_invalidates_borrowed_views_from_every_device_plan() -> None:
+    fixture = _fixture(4)
+    secondary_plan = fixture.backend.bind_task_io(
+        BackendIORequirements(
+            state_fields=(fixture.plan.state.fields[0],),
+            control=fixture.plan.control,
+            execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+        )
+    )
+    secondary_state = fixture.backend.read_state_batch(
+        secondary_plan,
+        RowSelection.all(fixture.backend.num_envs),
+    ).state
+    secondary_view = secondary_state.buffer_at(0).handle
+    assert isinstance(secondary_view, DeviceTensorView)
+
+    control, _ = _control_batch(fixture, completion=None, record_completion=True)
+    fixture.backend.step_batch(fixture.plan, control, nsteps=1)
+
+    with pytest.raises(DeviceBufferContractError, match="stale"):
+        secondary_view.torch()
+
+
 def test_device_control_from_another_backend_plan_is_rejected_before_physics() -> None:
     source = _fixture(1)
     target = _fixture(1)
