@@ -53,6 +53,14 @@ from .device import (
     DeviceTensorView,
     require_device_tensor_view,
 )
+from .graph import (
+    DEVICE_GRAPH_CONTRACT_VERSION,
+    DeviceGraphBufferAddress,
+    DeviceGraphCaptureKey,
+    DeviceGraphContractError,
+    DeviceGraphDiagnostics,
+    DeviceGraphExecutionMode,
+)
 from .mutation import (
     MUTATION_CONTRACT_VERSION,
     BoundMutationPlan,
@@ -280,6 +288,7 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "DEVICE_GRAPH_CONTRACT_VERSION",
     "MUTATION_CONTRACT_VERSION",
     "SimBackend",
     "BACKEND_BATCH_CONTRACT_VERSION",
@@ -328,6 +337,11 @@ __all__ = [
     "DeviceBufferLease",
     "DeviceCompletion",
     "DeviceTensorView",
+    "DeviceGraphBufferAddress",
+    "DeviceGraphCaptureKey",
+    "DeviceGraphContractError",
+    "DeviceGraphDiagnostics",
+    "DeviceGraphExecutionMode",
     "ExecutionProfile",
     "ExternalWrenchMutationBatch",
     "MemorySpace",
