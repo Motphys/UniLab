@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 from benchmark.rl import benchmark_mjwarp_ppo as ppo_benchmark
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 
 
 def _scalars(*, iterations: int, fps: float = 30_000.0, reward: float = -0.4) -> dict[str, Any]:
@@ -402,6 +404,34 @@ def test_production_benchmark_uses_side_effect_free_evidence_helpers() -> None:
     assert ppo_benchmark._event_scalars.__module__ == "benchmark.issue705.process_evidence"
     assert "benchmark/issue705/benchmark_g1_phase0.py" not in ppo_benchmark.SOURCE_INPUTS
     assert "benchmark/issue705/process_evidence.py" in ppo_benchmark.SOURCE_INPUTS
+
+
+@pytest.mark.parametrize("backend", ["mujoco", "mjwarp"])
+def test_common_performance_overrides_compose_for_both_owner_configs(backend: str) -> None:
+    """The paired lane must not rely on an owner-specific DR key layout."""
+
+    GlobalHydra.instance().clear()
+    try:
+        with initialize_config_dir(
+            config_dir=str(ppo_benchmark.ROOT_DIR / "conf/ppo"), version_base="1.3"
+        ):
+            cfg = compose(
+                config_name="config",
+                overrides=[
+                    f"task=g1_walk_flat/{backend}",
+                    *ppo_benchmark.COMMON_PERFORMANCE_OVERRIDES,
+                    "hydra.run.dir=.",
+                    "hydra.output_subdir=null",
+                    "hydra/job_logging=disabled",
+                    "hydra/hydra_logging=disabled",
+                ],
+            )
+        assert cfg.env.noise_config.level == 0.0
+        assert cfg.env.curriculum.enabled is False
+        assert cfg.env.domain_rand.randomize_kp is False
+        assert cfg.env.domain_rand.randomize_kd is False
+    finally:
+        GlobalHydra.instance().clear()
 
 
 def test_scalar_failure_nonfinite_value_and_filtered_iteration_fail_closed() -> None:
