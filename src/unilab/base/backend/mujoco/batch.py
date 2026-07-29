@@ -43,6 +43,7 @@ from unilab.base.backend.mutation import (
     MutationTargetKind,
 )
 from unilab.base.backend.mutation_batch import (
+    BoundMutationValueBuffers,
     BoundMutationValueWindow,
     TypedBackendMutationBatch,
 )
@@ -100,8 +101,13 @@ class _MuJoCoStateSource:
     _full: np.ndarray = field(init=False, repr=False)
     _copy_source: bool = field(init=False, repr=False)
     _all_view: np.ndarray = field(init=False, repr=False)
+    _all_descriptor: BufferView = field(init=False, repr=False)
     _selected: np.ndarray = field(init=False, repr=False)
-    _selected_views: dict[int, np.ndarray] = field(default_factory=dict, init=False, repr=False)
+    _selected_descriptors: dict[int, BufferView] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         num_envs = int(self.source.shape[0])
@@ -122,6 +128,11 @@ class _MuJoCoStateSource:
             self._copy_source = False
             self._full = np.empty(expected_shape, dtype=self.spec.buffer.dtype)
         self._all_view = _readonly_view(self._full)
+        self._all_descriptor = BufferView(
+            handle=self._all_view,
+            shape=expected_shape,
+            contract=self.spec.buffer,
+        )
         self._selected = np.empty(expected_shape, dtype=self.spec.buffer.dtype)
 
     def materialize(
@@ -139,19 +150,20 @@ class _MuJoCoStateSource:
         elif self._copy_source:
             np.copyto(self._full, self.source)
         if rows.is_all:
-            handle = self._all_view
+            return self._all_descriptor
         else:
             assert row_ids is not None
             np.take(self._full, row_ids, axis=0, out=self._selected[: rows.count])
-            handle = self._selected_views.get(rows.count)
-            if handle is None:
+            descriptor = self._selected_descriptors.get(rows.count)
+            if descriptor is None:
                 handle = _readonly_view(self._selected[: rows.count])
-                self._selected_views[rows.count] = handle
-        return BufferView(
-            handle=handle,
-            shape=(rows.count, *self.spec.buffer.row_shape),
-            contract=self.spec.buffer,
-        )
+                descriptor = BufferView(
+                    handle=handle,
+                    shape=(rows.count, *self.spec.buffer.row_shape),
+                    contract=self.spec.buffer,
+                )
+                self._selected_descriptors[rows.count] = descriptor
+            return descriptor
 
 
 @dataclass
@@ -323,6 +335,10 @@ class _MuJoCoHostMutationPlan:
         init=False,
         repr=False,
     )
+    _prepared_buffer_sets: dict[
+        int,
+        tuple[BoundMutationValueBuffers, tuple[np.ndarray, ...]],
+    ] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.num_bodies <= 0:
@@ -585,8 +601,26 @@ class _MuJoCoHostMutationPlan:
             rows=batch.rows,
         )
 
-        for slot in slots:
-            values = window.buffer_at(slot.field_index)
+        buffer_set = window.buffers
+        buffer_set_id = id(buffer_set)
+        cached = self._prepared_buffer_sets.get(buffer_set_id)
+        if cached is None:
+            # A manager-owned fixed-capacity set is validated once when it is
+            # constructed and once when this backend first consumes it.  Keep
+            # a strong object reference beside the id so Python id reuse can
+            # never select a foreign set.  Subsequent reset windows only
+            # change row mapping; their numeric addresses and metadata are a
+            # cold-bound contract.
+            prepared_values = tuple(window.buffer_at(slot.field_index) for slot in slots)
+            self._prepared_buffer_sets[buffer_set_id] = (buffer_set, prepared_values)
+        else:
+            cached_set, prepared_values = cached
+            if cached_set is not buffer_set:  # pragma: no cover - strong-ref invariant.
+                raise BackendBatchContractError(
+                    "MuJoCo prepared reset buffer identity cache is inconsistent"
+                )
+
+        for slot, values in zip(slots, prepared_values, strict=True):
             if slot.dof_columns is None:
                 np.copyto(
                     self._reset_state[:count, slot.state_offset : slot.state_offset + slot.width],

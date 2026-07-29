@@ -518,6 +518,8 @@ class _G1ManagedFusedTaskState:
     reset_qvel: np.ndarray
     reset_commands: np.ndarray
     reset_gait_phase: np.ndarray
+    reset_dof_position_values: np.ndarray
+    reset_dof_velocity_values: np.ndarray
     reset_value_buffers: tuple[np.ndarray, ...]
     reset_value_buffer_set: BoundMutationValueBuffers
     reset_rng: np.random.RandomState
@@ -1058,10 +1060,34 @@ class G1ManagedFusedKernel:
             raise G1ManagedFusedError("G1 fused task state dtype differs from global dtype")
         if self._mutation_plan is None:
             raise G1ManagedFusedError("G1 fused task state requires a bound mutation plan")
-        reset_value_buffers = tuple(
-            np.empty((num_envs, *spec.value_buffer.row_shape), dtype=dtype)
-            for spec in self._mutation_plan.specs
+        _, position_indices, velocity_indices = self._require_reset_indices()
+        reset_dof_position_values = np.empty(
+            (self._action_dim, num_envs, 1, 1),
+            dtype=dtype,
         )
+        reset_dof_velocity_values = np.empty(
+            (self._action_dim, num_envs, 1, 1),
+            dtype=dtype,
+        )
+        position_dof_by_field = {
+            field_index: dof_index for dof_index, field_index in enumerate(position_indices)
+        }
+        velocity_dof_by_field = {
+            field_index: dof_index for dof_index, field_index in enumerate(velocity_indices)
+        }
+        reset_value_buffers_list: list[np.ndarray] = []
+        for field_index, spec in enumerate(self._mutation_plan.specs):
+            if field_index in position_dof_by_field:
+                buffer = reset_dof_position_values[position_dof_by_field[field_index]]
+            elif field_index in velocity_dof_by_field:
+                buffer = reset_dof_velocity_values[velocity_dof_by_field[field_index]]
+            else:
+                buffer = np.empty(
+                    (num_envs, *spec.value_buffer.row_shape),
+                    dtype=dtype,
+                )
+            reset_value_buffers_list.append(buffer)
+        reset_value_buffers = tuple(reset_value_buffers_list)
         reset_value_buffer_set = BoundMutationValueBuffers(
             plan=self._mutation_plan,
             buffers=reset_value_buffers,
@@ -1081,6 +1107,8 @@ class G1ManagedFusedKernel:
             reset_qvel=np.empty((num_envs, 6 + self._action_dim), dtype=dtype),
             reset_commands=np.empty((num_envs, 3), dtype=dtype),
             reset_gait_phase=np.empty((num_envs, 2), dtype=dtype),
+            reset_dof_position_values=reset_dof_position_values,
+            reset_dof_velocity_values=reset_dof_velocity_values,
             reset_value_buffers=reset_value_buffers,
             reset_value_buffer_set=reset_value_buffer_set,
             reset_rng=np.random.RandomState(self._config.reset_seed),
@@ -1244,8 +1272,6 @@ class G1ManagedFusedKernel:
             task.actor_scratch,
             task.critic_scratch,
         )
-        for index in range(len(self._config.reward_terms)):
-            task.reward_means[index] = np.mean(task.weighted_term_scratch[:, index])
         task.terminal_state_token = id(state)
 
     def evaluate_reward(
@@ -1281,6 +1307,9 @@ class G1ManagedFusedKernel:
         if int(task.steps[0]) % 4 == 0:
             for index, (_, scale) in enumerate(self._config.reward_terms):
                 if scale != 0.0:
+                    task.reward_means[index] = np.mean(
+                        task.weighted_term_scratch[:, index]
+                    )
                     task.logged_reward_means[index] = task.reward_means[index]
                     task.has_logged_reward[index] = True
         return tuple(
@@ -1496,14 +1525,18 @@ class G1ManagedFusedKernel:
         self._sample_commands(task, count)
         self._sample_gait_phase(task, count)
 
-        root_indices, position_indices, velocity_indices = self._require_reset_indices()
+        root_indices, _, _ = self._require_reset_indices()
         root_values = (qpos[:, :3], qpos[:, 3:7], qvel[:, :3], qvel[:, 3:6])
         for index, values in zip(root_indices, root_values, strict=True):
             task.reset_value_buffers[index][:count, 0, :] = values
-        for dof_index, mutation_index in enumerate(position_indices):
-            task.reset_value_buffers[mutation_index][:count, 0, 0] = qpos[:, 7 + dof_index]
-        for dof_index, mutation_index in enumerate(velocity_indices):
-            task.reset_value_buffers[mutation_index][:count, 0, 0] = qvel[:, 6 + dof_index]
+        np.copyto(
+            task.reset_dof_position_values[:, :count, 0, 0],
+            qpos[:, 7:].T,
+        )
+        np.copyto(
+            task.reset_dof_velocity_values[:, :count, 0, 0],
+            qvel[:, 6:].T,
+        )
 
     def prepare_reset(self, *, rows: RowSelection, task_state: object) -> ManagedResetRequest:
         task = self._require_task_state(task_state)

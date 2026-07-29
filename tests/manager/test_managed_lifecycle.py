@@ -211,6 +211,7 @@ class _RecordingBackend:
         self.bind_calls = 0
         self.reset_calls: list[RowSelection] = []
         self.step_calls = 0
+        self.control_batches: list[ControlBatch] = []
         self.legacy_step_calls = 0
         self.legacy_set_state_calls = 0
         self.terminal_batches: list[StateBatch] = []
@@ -337,6 +338,7 @@ class _RecordingBackend:
         control = control_batch.buffer.handle
         if not isinstance(control, np.ndarray) or control.shape != (self._num_envs, 1):
             raise BackendBatchContractError("recording fixture received invalid control")
+        self.control_batches.append(control_batch)
         self._lease.invalidate()
         self._values[:, 0, 0] += control[:, 0]
         self.step_calls += 1
@@ -684,6 +686,8 @@ def test_terminal_and_autoreset_lifecycle_trace() -> None:
     np.testing.assert_array_equal(task_state["history"], (0, -1, 0))
     assert backend.legacy_step_calls == 0
     assert backend.legacy_set_state_calls == 0
+    assert len(backend.control_batches) == 2
+    assert backend.control_batches[0] is backend.control_batches[1]
 
 
 def test_no_done_branch_clears_final_observation_without_reallocating_outputs() -> None:

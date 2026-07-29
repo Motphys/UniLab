@@ -467,6 +467,24 @@ def test_fused_reset_uses_cold_bound_complete_mutation_window() -> None:
         assert task is not None
         buffer_set = getattr(task, "reset_value_buffer_set")
         assert isinstance(buffer_set, BoundMutationValueBuffers)
+        position_values = getattr(task, "reset_dof_position_values")
+        velocity_values = getattr(task, "reset_dof_velocity_values")
+        position_indices = runtime._kernel._dof_position_reset_indices  # type: ignore[attr-defined]
+        velocity_indices = runtime._kernel._dof_velocity_reset_indices  # type: ignore[attr-defined]
+        assert position_indices is not None
+        assert velocity_indices is not None
+        for dof_index, field_index in enumerate(position_indices):
+            assert np.shares_memory(buffer_set.buffers[field_index], position_values[dof_index])
+            assert buffer_set.buffers[field_index].flags.c_contiguous
+        for dof_index, field_index in enumerate(velocity_indices):
+            assert np.shares_memory(buffer_set.buffers[field_index], velocity_values[dof_index])
+            assert buffer_set.buffers[field_index].flags.c_contiguous
+        mutation_plan = runtime.kernel_binding.mutation_plan
+        assert mutation_plan is not None
+        mutation_runtime = backend._host_mutation_plans[mutation_plan.fingerprint]  # type: ignore[attr-defined]
+        cached_buffer_set, cached_values = mutation_runtime._prepared_buffer_sets[id(buffer_set)]
+        assert cached_buffer_set is buffer_set
+        assert len(cached_values) == len(buffer_set.buffers)
         rows = RowSelection.selected(backend.num_envs, (3, 1))
         request = runtime._kernel.prepare_reset(rows=rows, task_state=task)  # type: ignore[attr-defined]
         assert isinstance(request.mutation_batch, TypedBackendMutationBatch)
