@@ -87,13 +87,19 @@ def test_clean_runtime_and_cold_sibling_adapter_pass(tmp_path: Path) -> None:
     )
 
 
-def test_runtime_can_import_approved_shared_telemetry_contract(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("module_name", "symbol"),
+    (("telemetry", "TransferCounters"), ("graph", "GraphDiagnostics")),
+)
+def test_runtime_can_import_approved_shared_contract(
+    tmp_path: Path, module_name: str, symbol: str
+) -> None:
     root = _fixture_repo(
         tmp_path,
         {
-            "src/unilab/base/backend/telemetry.py": "class TransferCounters:\n    pass\n",
+            f"src/unilab/base/backend/{module_name}.py": f"class {symbol}:\n    pass\n",
             "src/unilab/base/backend/mujoco/backend.py": (
-                "from unilab.base.backend.telemetry import TransferCounters\n"
+                f"from unilab.base.backend.{module_name} import {symbol}\n"
                 "from ..base import SimBackend\n\n"
                 "class MuJoCoBackend(SimBackend):\n"
                 "    pass\n"
