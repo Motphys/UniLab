@@ -709,6 +709,13 @@ class DeviceManagedRuntime:
         self._control_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
         self._reset_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
         self._output_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
+        # RSL-RL initializes random episode lengths on its policy/default
+        # stream.  The runtime consumes the resulting buffer on
+        # ``_task_stream``.  Keep a dedicated event for this low-frequency
+        # handoff rather than relying on CUDA default-stream semantics.
+        self._episode_length_input_event = cast(
+            torch.cuda.Event, torch.cuda.Event(enable_timing=False)
+        )
         self._consumed_action_epochs: WeakKeyDictionary[DeviceBufferLease, int] = (
             WeakKeyDictionary()
         )
@@ -859,6 +866,60 @@ class DeviceManagedRuntime:
     @property
     def plan(self) -> CompiledTaskPlan:
         return self._plan
+
+    @property
+    def num_envs(self) -> int:
+        return self._num_envs
+
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    @property
+    def control_contract(self) -> BufferContract:
+        """Return the runner-owned action contract frozen by the bound plan."""
+
+        return self._bound_plan.control.buffer
+
+    @property
+    def episode_length_buffer(self) -> torch.Tensor:
+        """Return manager-owned episode steps for the RSL-RL VecEnv ABI.
+
+        Callers may read this tensor to construct an initial schedule.  A
+        replacement schedule must be submitted through
+        :meth:`set_episode_length_buffer` so its producer stream is ordered
+        before the task stream.
+        """
+
+        return self._episode_steps
+
+    def set_episode_length_buffer(self, values: torch.Tensor) -> None:
+        """Submit a cold-path initial episode schedule to stable runtime storage.
+
+        ``values`` can have been produced on any stream of the runtime CUDA
+        device.  The explicit event prevents the task stream from observing a
+        partially written schedule when upstream RSL-RL randomizes episode
+        lengths on its policy/default stream.
+        """
+
+        if (
+            not isinstance(values, torch.Tensor)
+            or values.device != self._device
+            or values.dtype is not torch.int64
+            or tuple(values.shape) != (self._num_envs,)
+            or not values.is_contiguous()
+        ):
+            raise DeviceManagedRuntimeError(
+                "device episode-length initialization differs from the runtime contract"
+            )
+        producer_stream = torch.cuda.current_stream(self._device)
+        with torch.cuda.stream(self._task_stream):
+            if producer_stream != self._task_stream:
+                self._episode_length_input_event.record(producer_stream)
+                # PyTorch's stubs expose two internal Event aliases here;
+                # runtime validation above still guarantees a CUDA event.
+                self._task_stream.wait_event(cast(Any, self._episode_length_input_event))
+            self._episode_steps.copy_(values, non_blocking=True)
 
     @property
     def bound_plan(self) -> BoundBackendPlan:
@@ -1323,10 +1384,14 @@ class DeviceManagedRuntime:
                 task_state=self._task_state,
                 observation_buffers=self._observations,
             )
-            for terminal, observation in zip(
-                self._terminal_observations, self._observations, strict=True
+            for terminal, final, observation in zip(
+                self._terminal_observations,
+                self._final_observations,
+                self._observations,
+                strict=True,
             ):
                 terminal.copy_(observation, non_blocking=True)
+                final.copy_(observation, non_blocking=True)
             self._reward.zero_()
             self._terminated.zero_()
             self._truncated.zero_()
@@ -1412,7 +1477,11 @@ class DeviceManagedRuntime:
             for final, terminal_observation in zip(
                 self._final_observations, self._terminal_observations, strict=True
             ):
-                torch.where(self._done[:, None], terminal_observation, final, out=final)
+                # RSL-RL evaluates timeout bootstrap values as one static batch
+                # and applies the timeout mask afterwards.  Every row must
+                # therefore contain a finite terminal observation; leaving
+                # non-done rows stale would let ``0 * NaN`` poison rewards.
+                final.copy_(terminal_observation, non_blocking=True)
             # The trace deliberately records a masked barrier even when no
             # row is done.  Looking at ``any(done)`` on the host would violate
             # the device-resident contract; the final-observation mask is the

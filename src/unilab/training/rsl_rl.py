@@ -123,6 +123,12 @@ class RslRlVecEnvWrapper:
         self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
         self.reset()
 
+    @property
+    def managed_policy_abi_snapshot(self) -> dict[str, Any] | None:
+        """Return a compiled manager ABI when this wrapper owns one."""
+
+        return None
+
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":
             return to_torch(obs["obs"], self.device)

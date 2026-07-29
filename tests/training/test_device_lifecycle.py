@@ -529,8 +529,8 @@ def _assert_final_contract(snapshot: _TransitionSnapshot, expected_done: torch.T
     )
     for key in _OBSERVATION_KEYS:
         torch.testing.assert_close(
-            snapshot.final_observations[key][expected_done],
-            snapshot.terminal_observations[key][expected_done],
+            snapshot.final_observations[key],
+            snapshot.terminal_observations[key],
             rtol=0,
             atol=0,
         )
@@ -681,6 +681,10 @@ def test_device_adapter_matches_host_terminal_contract(seed: int, num_envs: int)
         assert not initial_snapshot.terminated.any()
         assert not initial_snapshot.truncated.any()
         assert not initial_snapshot.final_observation_mask.any()
+        _assert_final_contract(
+            initial_snapshot,
+            torch.zeros((num_envs,), dtype=torch.bool),
+        )
         assert torch.count_nonzero(initial_snapshot.reward) == 0
         _assert_transition_diagnostics(initial)
         stale_initial = initial.observation("obs")

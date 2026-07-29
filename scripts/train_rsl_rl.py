@@ -16,7 +16,11 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+from unilab.algos.torch.rsl_rl_runtime import (
+    RslRlPPORuntime,
+    resolve_rsl_rl_ppo_runtime,
+    validate_rsl_rl_ppo_runtime_owner,
+)
 from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
@@ -110,20 +114,25 @@ def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], train_cfg_raw)
 
 
-def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]:
-    """Resolve the VecEnv wrapper class from the owner-selected PPO runtime.
+def _resolve_ppo_runtime(rl_cfg: dict[str, Any]) -> RslRlPPORuntime:
+    """Resolve wrapper, runner, and cold-path arguments from owner config."""
 
-    Args:
-        rl_cfg: Resolved algorithm config dictionary from Hydra composition.
-
-    Returns:
-        Wrapper class used to adapt the UniLab env contract to the active
-        RSL-RL PPO runtime.
-    """
     return resolve_rsl_rl_ppo_runtime(
         rl_cfg,
         default_wrapper_cls=RslRlVecEnvWrapper,
-    ).wrapper_cls
+        default_runner_cls=OnPolicyRunner,
+    )
+
+
+def _validate_ppo_runtime_owner(cfg: DictConfig, runtime: RslRlPPORuntime) -> None:
+    """Validate resolver-declared backend/profile constraints before env creation."""
+
+    execution_profile = OmegaConf.select(cfg, "training.execution_profile", default=None)
+    validate_rsl_rl_ppo_runtime_owner(
+        runtime,
+        sim_backend=str(cfg.training.sim_backend),
+        execution_profile=None if execution_profile is None else str(execution_profile),
+    )
 
 
 def _peak_process_rss_bytes() -> int | None:
@@ -204,9 +213,6 @@ def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
 
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
-    rl_cfg = _algo_config_dict(cfg)
-    wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
-
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
@@ -238,6 +244,13 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         )
         or cfg
     )
+    # ``resolve_sim2sim_config`` is allowed to return a composed owner config.
+    # Resolve and validate the runtime only after that boundary so the wrapper,
+    # runner, backend, and execution-profile checks all describe the same
+    # environment that will be materialized below.
+    rl_cfg = _algo_config_dict(cfg)
+    ppo_runtime = _resolve_ppo_runtime(rl_cfg)
+    _validate_ppo_runtime_owner(cfg, ppo_runtime)
 
     env_cfg_override = build_ppo_play_env_cfg_override(cfg)
 
@@ -246,7 +259,11 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         num_envs=cfg.training.play_env_num,
         env_cfg_override=env_cfg_override,
     )
-    wrapped_env = wrapper_cls(env, device=device)
+    wrapped_env = ppo_runtime.wrapper_cls(
+        env,
+        device=device,
+        **ppo_runtime.wrapper_kwargs,
+    )
     train_cfg = normalize_ppo_train_cfg(rl_cfg)
     apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=False)
     if "runner" not in train_cfg:
@@ -255,7 +272,12 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 
     runner = cast(
         Any,
-        OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=None, device=device),
+        ppo_runtime.runner_cls(
+            cast(Any, wrapped_env),
+            train_cfg,
+            log_dir=None,
+            device=device,
+        ),
     )
     with policy_load_dim_guard(
         env_obs_dim=getattr(wrapped_env, "num_obs", None),
@@ -318,6 +340,15 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
+    # Validate the owner-selected runtime before creating a log receipt or any
+    # CUDA/backend-facing object.  Play performs the equivalent check after its
+    # sim2sim resolution boundary inside ``play_rsl_rl``.
+    rl_cfg: dict[str, Any] | None = None
+    ppo_runtime: RslRlPPORuntime | None = None
+    if not cfg.training.play_only:
+        rl_cfg = _algo_config_dict(cfg)
+        ppo_runtime = _resolve_ppo_runtime(rl_cfg)
+        _validate_ppo_runtime_owner(cfg, ppo_runtime)
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = build_ppo_env_cfg_override(cfg)
 
@@ -356,17 +387,16 @@ def main(cfg: DictConfig) -> None:
             device=device,
             seed_info=seed_info,
         )
-        tracker.start()
 
     try:
         if not cfg.training.play_only:
+            assert rl_cfg is not None
+            assert ppo_runtime is not None
             env = create_env(
                 cfg,
                 num_envs=cfg.algo.num_envs,
                 env_cfg_override=env_cfg_override,
             )
-            rl_cfg = _algo_config_dict(cfg)
-            wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
             nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
             if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
@@ -384,7 +414,19 @@ def main(cfg: DictConfig) -> None:
                 )
                 env.set_nan_guard(guard)
 
-            wrapped_env = wrapper_cls(env, device=device)
+            wrapped_env = ppo_runtime.wrapper_cls(
+                env,
+                device=device,
+                **ppo_runtime.wrapper_kwargs,
+            )
+
+            if tracker is not None:
+                # Wrapper selection is owner-configured and this cold-path
+                # metadata hook is optional for non-managed third-party PPO runtimes.
+                tracker.set_managed_policy_abi(
+                    getattr(wrapped_env, "managed_policy_abi_snapshot", None)
+                )
+                tracker.start()
 
             train_cfg = normalize_ppo_train_cfg(rl_cfg)
             apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=True)
@@ -412,7 +454,12 @@ def main(cfg: DictConfig) -> None:
 
             runner = cast(
                 Any,
-                OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device),
+                ppo_runtime.runner_cls(
+                    cast(Any, wrapped_env),
+                    train_cfg,
+                    log_dir=log_dir,
+                    device=device,
+                ),
             )
             _patch_runner_action_std_logging(runner)
 
