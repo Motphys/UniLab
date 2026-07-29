@@ -26,6 +26,11 @@ algo:
     critic_hidden_dims: [512, 256, 128]
 env:
   numba_acceleration: false
+  # Cold-path mjwarp storage capacities. They are sized from the measured G1
+  # flat device diagnostic profile rather than inheriting the backend's conservative
+  # generic fallback; capacity/overflow coverage lives in the CUDA owner lane.
+  mjwarp_nconmax: 128
+  mjwarp_njmax: 256
   domain_rand:
     # G1 defaults these to true.  mjwarp must not claim per-world actuator
     # gain DR until a typed model-mutation path has an effect test.
