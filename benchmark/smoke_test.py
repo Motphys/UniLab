@@ -14,12 +14,18 @@ Two phases, each catching a distinct failure mode:
 
 Optional dependencies (motrixsim, genesis, mujoco_warp, ...) are not required:
 entrypoints guard those imports and only fail at run time with a clear error.
+Platform-exclusive packages (``mlx``, ``coremltools`` — Apple Silicon only)
+cannot be guarded this way when an entrypoint is single-platform by design;
+entries that fail to import solely because of them are reported as SKIP,
+not FAIL. Genuine import regressions (``benchmark``, ``core``, ``unilab``,
+or any cross-platform package) still fail the check.
 """
 
 from __future__ import annotations
 
 import importlib
 import pkgutil
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -69,6 +75,26 @@ runpy.run_path(str(script), run_name="__benchmark_smoke__")
 SCRIPT_MODE_TIMEOUT_SEC = 300
 SCRIPT_MODE_WORKERS = 4
 
+# Top-level packages that exist only on specific platforms (mlx/coremltools:
+# Apple Silicon). An entrypoint requiring one at import time is single-platform
+# by design, so a miss is reported as SKIP instead of FAIL. Keep this list
+# minimal: every other ModuleNotFoundError (benchmark, core, unilab, numpy,
+# torch, ...) is a real regression and must fail.
+PLATFORM_OPTIONAL_MODULES = frozenset({"mlx", "coremltools"})
+_MISSING_MODULE_RE = re.compile(r"No module named '([\w.]+)'")
+
+
+def platform_optional_miss(err: str | None) -> str | None:
+    """Return the missing platform-optional package, or None if `err` is a
+    genuine failure (or no error at all)."""
+    if err is None:
+        return None
+    match = _MISSING_MODULE_RE.search(err)
+    if match is None:
+        return None
+    package = match.group(1).split(".")[0]
+    return package if package in PLATFORM_OPTIONAL_MODULES else None
+
 
 def check_module_mode(name: str) -> str | None:
     try:
@@ -91,9 +117,19 @@ def check_script_mode(path: Path) -> str | None:
     return f"exit={proc.returncode}: {tail}"
 
 
-def report(phase: str, failures: list[tuple[str, str]], total: int) -> bool:
-    passed = total - len(failures)
-    print(f"\n[{phase}] Passed: {passed}/{total}")
+def report(
+    phase: str,
+    failures: list[tuple[str, str]],
+    skips: list[tuple[str, str]],
+    total: int,
+) -> bool:
+    passed = total - len(failures) - len(skips)
+    summary = f"\n[{phase}] Passed: {passed}/{total}"
+    if skips:
+        summary += f" ({len(skips)} skipped: platform-optional)"
+    print(summary)
+    for name, package in skips:
+        print(f"  - {name}: skipped (needs platform-optional '{package}')")
     for name, err in failures:
         print(f"  ✗ {name}: {err[:200]}")
     return not failures
@@ -102,26 +138,38 @@ def report(phase: str, failures: list[tuple[str, str]], total: int) -> bool:
 def main() -> int:
     print(f"Phase 1: module-mode import ({len(MODULES)} modules)...")
     module_failures = []
+    module_skips = []
     for name in MODULES:
         err = check_module_mode(name)
-        status = "✗" if err else "✓"
-        print(f"  {status} benchmark.{name}")
-        if err:
+        package = platform_optional_miss(err)
+        if err is None:
+            print(f"  ✓ benchmark.{name}")
+        elif package is not None:
+            print(f"  - benchmark.{name} (skipped: needs '{package}')")
+            module_skips.append((f"benchmark.{name}", package))
+        else:
+            print(f"  ✗ benchmark.{name}")
             module_failures.append((f"benchmark.{name}", err))
 
     print(f"\nPhase 2: script-mode import ({len(ENTRYPOINTS)} entrypoints)...")
     script_failures = []
+    script_skips = []
     with ThreadPoolExecutor(max_workers=SCRIPT_MODE_WORKERS) as pool:
         results = list(zip(ENTRYPOINTS, pool.map(check_script_mode, ENTRYPOINTS)))
     for path, err in results:
-        rel = path.relative_to(ROOT)
-        status = "✗" if err else "✓"
-        print(f"  {status} {rel}")
-        if err:
-            script_failures.append((str(rel), err))
+        rel = str(path.relative_to(ROOT))
+        package = platform_optional_miss(err)
+        if err is None:
+            print(f"  ✓ {rel}")
+        elif package is not None:
+            print(f"  - {rel} (skipped: needs '{package}')")
+            script_skips.append((rel, package))
+        else:
+            print(f"  ✗ {rel}")
+            script_failures.append((rel, err))
 
-    ok = report("module-mode", module_failures, len(MODULES))
-    ok = report("script-mode", script_failures, len(ENTRYPOINTS)) and ok
+    ok = report("module-mode", module_failures, module_skips, len(MODULES))
+    ok = report("script-mode", script_failures, script_skips, len(ENTRYPOINTS)) and ok
     return 0 if ok else 1
 
 
