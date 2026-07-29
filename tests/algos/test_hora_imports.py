@@ -38,6 +38,9 @@ def test_rsl_rl_runtime_resolver_loads_hora_wrapper_from_owner_marker() -> None:
     )
 
     assert runtime.wrapper_cls is HoraRslRlVecEnvWrapper
+    assert runtime.runner_cls is not None
+    assert runtime.required_backend is None
+    assert runtime.required_execution_profile is None
 
 
 def test_rsl_rl_runtime_resolver_rejects_unresolved_custom_runtime() -> None:

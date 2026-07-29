@@ -216,6 +216,17 @@ class ExperimentTracker:
         self._start_utc = ""
         self._summary: dict[str, Any] = {}
 
+    def set_managed_policy_abi(self, managed_policy_abi: Mapping[str, Any] | None) -> None:
+        """Attach a cold-compiled manager ABI before the run receipt is written."""
+
+        if self._started:
+            raise RuntimeError("managed policy ABI must be set before ExperimentTracker.start()")
+        self.managed_policy_abi = (
+            None
+            if managed_policy_abi is None
+            else normalize_managed_policy_abi_snapshot(managed_policy_abi)
+        )
+
     @property
     def run(self) -> Any | None:
         return self._run

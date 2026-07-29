@@ -1,14 +1,22 @@
 # @package _global_
 #
-# Independent mujoco-warp owner.  This is a host_numpy correctness profile:
-# policy ABI follows the G1 MuJoCo owner, while unsupported legacy DR terms are
-# explicitly disabled rather than silently filtered by the backend.
+# Independent mujoco-warp owner.  Training selects the strict device-resident
+# manager/runtime; unsupported legacy DR, Event, noise, and playback features
+# are explicitly disabled rather than silently filtered by the backend.
 training:
   task_name: G1WalkFlat
   sim_backend: mjwarp
+  execution_profile: device_resident
+  no_play: true
+  play_render_mode: none
+  nan_guard:
+    enabled: false
 algo:
   num_envs: 2048
   max_iterations: 2200
+  runtime_impl: mjwarp_device_v1
+  runtime_resolver: unilab.training.rsl_rl_device:resolve_mjwarp_device_ppo_runtime
+  check_for_nan: false
   empirical_normalization: false
   obs_groups:
     actor:
@@ -28,7 +36,8 @@ env:
   curriculum:
     enabled: false
   noise_config:
-    level: 1.0
+    # Keyed device observation noise is introduced with the Phase 6 RNG contract.
+    level: 0.0
     scale_joint_angle: 0.01
     scale_joint_vel: 1.5
     scale_gyro: 0.2

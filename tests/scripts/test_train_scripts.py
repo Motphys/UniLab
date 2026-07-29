@@ -749,6 +749,98 @@ def test_build_ppo_env_cfg_override_go1_motrix(
     assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
 
 
+def test_train_rsl_rl_rejects_mjwarp_profile_override_before_env_creation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Resolver-declared device profiles are checked before backend construction."""
+
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=g1_walk_flat/mjwarp",
+            "training.execution_profile=host_numpy",
+            f"training.log_root={tmp_path}",
+        ]
+    )
+    runtime = mod.RslRlPPORuntime(
+        wrapper_cls=object,
+        runner_cls=object,
+        wrapper_kwargs={},
+        required_backend="mjwarp",
+        required_execution_profile="device_resident",
+    )
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "apply_configured_training_seed", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mod, "build_ppo_env_cfg_override", lambda cfg: {})
+    monkeypatch.setattr(mod, "_resolve_ppo_runtime", lambda rl_cfg: runtime)
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("profile mismatch reached environment construction")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="execution_profile"):
+        mod.main.__wrapped__(cfg)
+
+
+def test_train_rsl_rl_play_resolves_runtime_from_post_sim2sim_owner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Play must bind wrapper/runner from the config used to create the env."""
+
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
+    resolved_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=False))
+    resolved_cfg.algo.seed = 91
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_0.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+    runtime = mod.RslRlPPORuntime(
+        wrapper_cls=object,
+        runner_cls=object,
+        wrapper_kwargs={},
+    )
+    trace: list[str] = []
+
+    def resolve_runtime(rl_cfg):
+        trace.append("runtime")
+        assert rl_cfg["seed"] == 91
+        return runtime
+
+    def validate_owner(owner_cfg, resolved_runtime):
+        trace.append("validate")
+        assert owner_cfg is resolved_cfg
+        assert resolved_runtime is runtime
+        raise RuntimeError("post-sim2sim owner validated")
+
+    monkeypatch.setattr(
+        mod,
+        "parse_checkpoint_path",
+        lambda *args, **kwargs: (checkpoint, run_dir),
+    )
+    monkeypatch.setattr(
+        mod,
+        "resolve_sim2sim_config",
+        lambda *args, **kwargs: resolved_cfg,
+    )
+    monkeypatch.setattr(mod, "_resolve_ppo_runtime", resolve_runtime)
+    monkeypatch.setattr(mod, "_validate_ppo_runtime_owner", validate_owner)
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("runtime owner validation must precede env construction")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="post-sim2sim owner validated"):
+        mod.play_rsl_rl(cfg, device="cpu")
+    assert trace == ["runtime", "validate"]
+
+
 def test_build_ppo_env_cfg_override_g1_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -2684,9 +2776,16 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
     monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
     monkeypatch.setattr(mod, "build_ppo_play_env_cfg_override", lambda cfg: {})
     monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
-    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: FakeWrapper)
+    monkeypatch.setattr(
+        mod,
+        "_resolve_ppo_runtime",
+        lambda rl_cfg: mod.RslRlPPORuntime(
+            wrapper_cls=FakeWrapper,
+            runner_cls=FakeRunner,
+            wrapper_kwargs={},
+        ),
+    )
     monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda rl_cfg: {})
-    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
 
     result = mod.play_rsl_rl(cfg, device="cpu")
 
@@ -2774,9 +2873,16 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
     monkeypatch.setattr(mod, "build_ppo_play_env_cfg_override", lambda cfg: {})
     monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
-    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: FakeWrapper)
+    monkeypatch.setattr(
+        mod,
+        "_resolve_ppo_runtime",
+        lambda rl_cfg: mod.RslRlPPORuntime(
+            wrapper_cls=FakeWrapper,
+            runner_cls=FakeRunner,
+            wrapper_kwargs={},
+        ),
+    )
     monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda rl_cfg: {})
-    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
 
     result = mod.play_rsl_rl(cfg, device="cpu")
 
