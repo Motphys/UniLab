@@ -92,8 +92,13 @@ CONTENTION_ITERATIONS = 20
 PROFILE_STEPS = 16
 COMMON_PERFORMANCE_OVERRIDES = (
     "env.noise_config.level=0.0",
-    "env.domain_rand.randomize_kp=false",
-    "env.domain_rand.randomize_kd=false",
+    # ``mujoco`` intentionally leaves these dataclass defaults out of its
+    # owner YAML, whereas the independent ``mjwarp`` owner declares them to
+    # fail closed.  Hydra's force-add/override form is the only config-first
+    # spelling that produces the same explicit benchmark profile for both
+    # owners without changing either production default.
+    "++env.domain_rand.randomize_kp=false",
+    "++env.domain_rand.randomize_kd=false",
     "env.curriculum.enabled=false",
 )
 SOURCE_INPUTS = (
