@@ -150,7 +150,7 @@ def _requirements(backend: MuJoCoBackend) -> BackendIORequirements:
         control=ControlSpec("payload.control", control_buffer),
         execution_profile=ExecutionProfile.HOST_NUMPY,
         hot_path_budget=BackendBatchCounterBudget(
-            allocations=2 if dtype == np.dtype(np.float64) else 4,
+            allocations=2 if dtype == np.dtype(np.float64) else 3,
             state_materializations=1,
         ),
     )

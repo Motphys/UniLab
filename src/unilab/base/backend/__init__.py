@@ -70,6 +70,8 @@ from .mutation import (
     bind_mutation_plan,
 )
 from .mutation_batch import (
+    BoundMutationValueBuffers,
+    BoundMutationValueWindow,
     ExternalWrenchMutationBatch,
     ModelParameterMutationBatch,
     MutationValueBatch,
@@ -296,6 +298,8 @@ __all__ = [
     "BoundMutationPlan",
     "BoundMutationSpec",
     "BoundMutationTarget",
+    "BoundMutationValueBuffers",
+    "BoundMutationValueWindow",
     "BorrowedBufferView",
     "BoundBackendPlan",
     "BoundFieldIdentity",

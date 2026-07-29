@@ -33,11 +33,10 @@ except Exception:  # pragma: no cover - optional-import boundary.
 
 from unilab.base.backend import (
     BoundMutationPlan,
+    BoundMutationValueBuffers,
     BufferLifetime,
-    BufferView,
     ControlSpec,
     ExecutionProfile,
-    MutationValueBatch,
     RowSelection,
     SimulationStateMutationBatch,
     StateBatch,
@@ -520,6 +519,7 @@ class _G1ManagedFusedTaskState:
     reset_commands: np.ndarray
     reset_gait_phase: np.ndarray
     reset_value_buffers: tuple[np.ndarray, ...]
+    reset_value_buffer_set: BoundMutationValueBuffers
     reset_rng: np.random.RandomState
     observation_noise_rng: np.random.Generator | None
     reward_means: np.ndarray
@@ -1041,6 +1041,10 @@ class G1ManagedFusedKernel:
             np.empty((num_envs, *spec.value_buffer.row_shape), dtype=dtype)
             for spec in self._mutation_plan.specs
         )
+        reset_value_buffer_set = BoundMutationValueBuffers(
+            plan=self._mutation_plan,
+            buffers=reset_value_buffers,
+        )
         noise_rng = (
             None
             if self._config.observation_noise_level <= 0.0
@@ -1057,6 +1061,7 @@ class G1ManagedFusedKernel:
             reset_commands=np.empty((num_envs, 3), dtype=dtype),
             reset_gait_phase=np.empty((num_envs, 2), dtype=dtype),
             reset_value_buffers=reset_value_buffers,
+            reset_value_buffer_set=reset_value_buffer_set,
             reset_rng=np.random.RandomState(self._config.reset_seed),
             observation_noise_rng=noise_rng,
             reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
@@ -1487,25 +1492,14 @@ class G1ManagedFusedKernel:
         if self._mutation_plan is None:
             raise G1ManagedFusedError("G1 fused reset requires a bound mutation plan")
         self._prepare_reset_values(task, rows)
-        values = tuple(
-            MutationValueBatch(
-                plan=self._mutation_plan,
-                field_index=index,
-                rows=rows,
-                buffer=BufferView(
-                    handle=buffer[: rows.count],
-                    shape=(rows.count, *buffer.shape[1:]),
-                    contract=self._mutation_plan.specs[index].value_buffer,
-                ),
-            )
-            for index, buffer in enumerate(task.reset_value_buffers)
-        )
         return ManagedResetRequest(
             rows=rows,
             mutation_batch=TypedBackendMutationBatch(
                 plan=self._mutation_plan,
                 rows=rows,
-                state=SimulationStateMutationBatch(values=values),
+                state=SimulationStateMutationBatch(
+                    bound_buffer_window=task.reset_value_buffer_set.window(rows)
+                ),
             ),
             kernel_state=_G1ResetSample(rows=rows),
         )
