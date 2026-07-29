@@ -44,6 +44,7 @@ from unilab.manager import (
     BackendEntityResolver,
     DeviceManagedRuntime,
     DeviceResetPayload,
+    DeviceRuntimeBuffer,
     ManagedKernelBinding,
     ManagerContractError,
     MutationTemplate,
@@ -381,7 +382,15 @@ class _G1DeviceTaskState:
     reset_mask: torch.Tensor
     reset_yaw: torch.Tensor
     reset_bool_scratch: torch.Tensor
+    bool_scratch_b: torch.Tensor
     reset_scalar_scratch: torch.Tensor
+    scalar_scratch_b: torch.Tensor
+    scalar_scratch_c: torch.Tensor
+    scalar_scratch_d: torch.Tensor
+    vector2_scratch: torch.Tensor
+    action_scratch: torch.Tensor
+    left_height_scratch: torch.Tensor
+    right_height_scratch: torch.Tensor
     zero_actions: torch.Tensor
     generator: torch.Generator
 
@@ -427,6 +436,7 @@ class G1ManagedDeviceKernel:
         self._initial_qvel = torch.as_tensor(
             config.initial_qvel, dtype=torch.float32, device=self._device
         )
+        self._initial_quaternion = tuple(float(value) for value in config.initial_qpos[3:7])
         self._command_low = torch.as_tensor(
             config.command_low, dtype=torch.float32, device=self._device
         )
@@ -557,10 +567,58 @@ class G1ManagedDeviceKernel:
             reset_mask=torch.empty((num_envs,), dtype=torch.bool, device=device),
             reset_yaw=torch.empty((num_envs,), dtype=dtype, device=device),
             reset_bool_scratch=torch.empty((num_envs,), dtype=torch.bool, device=device),
+            bool_scratch_b=torch.empty((num_envs,), dtype=torch.bool, device=device),
             reset_scalar_scratch=torch.empty((num_envs,), dtype=dtype, device=device),
+            scalar_scratch_b=torch.empty((num_envs,), dtype=dtype, device=device),
+            scalar_scratch_c=torch.empty((num_envs,), dtype=dtype, device=device),
+            scalar_scratch_d=torch.empty((num_envs,), dtype=dtype, device=device),
+            vector2_scratch=torch.empty((num_envs, 2), dtype=dtype, device=device),
+            action_scratch=torch.empty((num_envs, self._action_dim), dtype=dtype, device=device),
+            left_height_scratch=torch.empty((num_envs,), dtype=dtype, device=device),
+            right_height_scratch=torch.empty((num_envs,), dtype=dtype, device=device),
             zero_actions=torch.zeros((num_envs, self._action_dim), dtype=dtype, device=device),
             generator=generator,
         )
+
+    def device_runtime_buffers(self, *, task_state: object) -> tuple[DeviceRuntimeBuffer, ...]:
+        """Register all executor-owned CUDA storage for opt-in warm auditing."""
+
+        task = self._task(task_state)
+        candidates: list[tuple[str, torch.Tensor]] = [
+            ("kernel.action_scale", self._action_scale),
+            ("kernel.default_angles", self._default_angles),
+            ("kernel.initial_qpos", self._initial_qpos),
+            ("kernel.initial_qvel", self._initial_qvel),
+            ("kernel.command_low", self._command_low),
+            ("kernel.command_span", self._command_span),
+            ("kernel.pose_weights", self._pose_weights),
+            ("kernel.upper_body_pose_weights", self._upper_body_pose_weights),
+            ("task.commands", task.commands),
+            ("task.current_actions", task.current_actions),
+            ("task.last_actions", task.last_actions),
+            ("task.gait_phase", task.gait_phase),
+            ("task.reset_qpos", task.reset_qpos),
+            ("task.reset_qvel", task.reset_qvel),
+            ("task.reset_commands", task.reset_commands),
+            ("task.reset_gait_phase", task.reset_gait_phase),
+            ("task.reset_mask", task.reset_mask),
+            ("task.reset_yaw", task.reset_yaw),
+            ("task.bool_scratch_a", task.reset_bool_scratch),
+            ("task.bool_scratch_b", task.bool_scratch_b),
+            ("task.scalar_scratch_a", task.reset_scalar_scratch),
+            ("task.scalar_scratch_b", task.scalar_scratch_b),
+            ("task.scalar_scratch_c", task.scalar_scratch_c),
+            ("task.scalar_scratch_d", task.scalar_scratch_d),
+            ("task.vector2_scratch", task.vector2_scratch),
+            ("task.action_scratch", task.action_scratch),
+            ("task.left_height_scratch", task.left_height_scratch),
+            ("task.right_height_scratch", task.right_height_scratch),
+            ("task.zero_actions", task.zero_actions),
+        ]
+        candidates.extend(
+            (f"task.reset_values.{index}", value) for index, value in enumerate(task.reset_values)
+        )
+        return tuple(DeviceRuntimeBuffer(name=name, tensor=tensor) for name, tensor in candidates)
 
     def _state_views(self, state: StateBatch) -> _G1DeviceStateViews:
         state.assert_valid()
@@ -626,89 +684,155 @@ class G1ManagedDeviceKernel:
         control_out.add_(self._default_angles)
 
     @staticmethod
-    def _bezier_height(phase: torch.Tensor, swing_height: float) -> torch.Tensor:
-        normalized = torch.remainder(phase + math.pi, 2.0 * math.pi) - math.pi
-        x = (normalized + math.pi) / (2.0 * math.pi)
-        rise_t = 2.0 * x
-        fall_t = 2.0 * x - 1.0
-        rise = rise_t**3 + 3.0 * rise_t**2 * (1.0 - rise_t)
-        fall = fall_t**3 + 3.0 * fall_t**2 * (1.0 - fall_t)
-        return torch.where(x <= 0.5, swing_height * rise, swing_height * (1.0 - fall))
+    def _bezier_height_into(
+        phase: torch.Tensor,
+        swing_height: float,
+        *,
+        out: torch.Tensor,
+        task: _G1DeviceTaskState,
+    ) -> None:
+        """Evaluate the periodic smoothstep profile using registered scratch."""
 
-    def _reward_value(
+        a = task.reset_scalar_scratch
+        b = task.scalar_scratch_b
+        c = task.scalar_scratch_c
+        d = task.scalar_scratch_d
+        torch.add(phase, math.pi, out=a)
+        torch.remainder(a, 2.0 * math.pi, out=a)
+        a.div_(2.0 * math.pi)
+        torch.le(a, 0.5, out=task.reset_bool_scratch)
+
+        torch.mul(a, 2.0, out=b)
+        torch.square(b, out=out)
+        out.mul_(3.0)
+        torch.square(b, out=c)
+        c.mul_(b).mul_(2.0)
+        out.sub_(c)
+
+        b.sub_(1.0)
+        torch.square(b, out=c)
+        c.mul_(3.0)
+        torch.square(b, out=d)
+        d.mul_(b).mul_(2.0)
+        c.sub_(d).neg_().add_(1.0)
+        torch.where(task.reset_bool_scratch, out, c, out=d)
+        out.copy_(d, non_blocking=True)
+        out.mul_(swing_height)
+
+    def _reward_value_into(
         self,
         name: str,
         *,
         views: _G1DeviceStateViews,
         task: _G1DeviceTaskState,
-    ) -> torch.Tensor:
+        out: torch.Tensor,
+    ) -> None:
+        b = task.scalar_scratch_b
+        c = task.scalar_scratch_c
+        d = task.scalar_scratch_d
+        vector2 = task.vector2_scratch
+        action = task.action_scratch
         if name == "tracking_lin_vel":
-            error = torch.sum(
-                (task.commands[:, :2] - views.pelvis_local_linear_velocity[:, :2]) ** 2, dim=1
+            torch.sub(
+                task.commands[:, :2],
+                views.pelvis_local_linear_velocity[:, :2],
+                out=vector2,
             )
-            return torch.exp(-error / self._config.tracking_sigma)
-        if name == "tracking_ang_vel":
-            error = (task.commands[:, 2] - views.torso_gyro[:, 2]) ** 2
-            return torch.exp(-error / self._config.tracking_sigma)
-        if name == "forward_progress":
-            speed = torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0)
-            command = torch.clamp_min(task.commands[:, 0], 1.0e-6)
-            return torch.clamp_max(speed / command, 1.0)
-        if name == "under_speed":
-            command = torch.clamp_min(task.commands[:, 0], 1.0e-6)
-            speed = torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0)
-            return torch.clamp_min(task.commands[:, 0] - speed, 0.0) / command
-        if name == "lin_vel_z":
-            return views.pelvis_local_linear_velocity[:, 2] ** 2
-        if name in {"orientation", "penalty_orientation"}:
-            return torch.sum(views.torso_upvector[:, :2] ** 2, dim=1)
-        if name in {"ang_vel_xy", "penalty_ang_vel_xy"}:
-            return torch.sum(views.torso_gyro[:, :2] ** 2, dim=1)
-        if name in {"action_rate", "penalty_action_rate"}:
-            return torch.sum((task.current_actions - task.last_actions) ** 2, dim=1)
-        if name == "base_height":
-            return (views.root_position[:, 2] - self._config.base_height_target) ** 2
-        if name == "pose":
-            return torch.sum(
-                self._pose_weights * (views.dof_position - self._default_angles) ** 2,
-                dim=1,
+            torch.square(vector2, out=vector2)
+            torch.sum(vector2, dim=1, out=out)
+            out.mul_(-1.0 / self._config.tracking_sigma)
+            torch.exp(out, out=out)
+        elif name == "tracking_ang_vel":
+            torch.sub(task.commands[:, 2], views.torso_gyro[:, 2], out=out)
+            torch.square(out, out=out)
+            out.mul_(-1.0 / self._config.tracking_sigma)
+            torch.exp(out, out=out)
+        elif name == "forward_progress":
+            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=out)
+            torch.clamp_min(task.commands[:, 0], 1.0e-6, out=b)
+            out.div_(b)
+            torch.clamp_max(out, 1.0, out=out)
+        elif name == "under_speed":
+            torch.clamp_min(task.commands[:, 0], 1.0e-6, out=b)
+            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=out)
+            torch.sub(task.commands[:, 0], out, out=c)
+            torch.clamp_min(c, 0.0, out=c)
+            torch.div(c, b, out=out)
+        elif name == "lin_vel_z":
+            torch.square(views.pelvis_local_linear_velocity[:, 2], out=out)
+        elif name in {"orientation", "penalty_orientation"}:
+            torch.square(views.torso_upvector[:, :2], out=vector2)
+            torch.sum(vector2, dim=1, out=out)
+        elif name in {"ang_vel_xy", "penalty_ang_vel_xy"}:
+            torch.square(views.torso_gyro[:, :2], out=vector2)
+            torch.sum(vector2, dim=1, out=out)
+        elif name in {"action_rate", "penalty_action_rate"}:
+            torch.sub(task.current_actions, task.last_actions, out=action)
+            torch.square(action, out=action)
+            torch.sum(action, dim=1, out=out)
+        elif name == "base_height":
+            torch.sub(views.root_position[:, 2], self._config.base_height_target, out=out)
+            torch.square(out, out=out)
+        elif name == "pose":
+            torch.sub(views.dof_position, self._default_angles, out=action)
+            torch.square(action, out=action)
+            action.mul_(self._pose_weights)
+            torch.sum(action, dim=1, out=out)
+        elif name == "upper_body_pose":
+            torch.sub(views.dof_position, self._default_angles, out=action)
+            torch.square(action, out=action)
+            action.mul_(self._upper_body_pose_weights)
+            torch.sum(action, dim=1, out=out)
+        elif name == "penalty_close_feet_xy":
+            torch.sub(
+                views.left_foot_position[:, :2],
+                views.right_foot_position[:, :2],
+                out=vector2,
             )
-        if name == "upper_body_pose":
-            return torch.sum(
-                self._upper_body_pose_weights * (views.dof_position - self._default_angles) ** 2,
-                dim=1,
+            torch.linalg.vector_norm(vector2, dim=1, out=out)
+            torch.lt(out, self._config.close_feet_threshold, out=task.reset_bool_scratch)
+            torch.sub(out, self._config.close_feet_threshold, out=b)
+            torch.square(b, out=b)
+            c.zero_()
+            torch.where(task.reset_bool_scratch, b, c, out=out)
+        elif name in {"feet_phase", "feet_phase_contrast"}:
+            self._bezier_height_into(
+                task.gait_phase[:, 0],
+                self._config.feet_phase_swing_height,
+                out=task.left_height_scratch,
+                task=task,
             )
-        if name == "penalty_close_feet_xy":
-            distance = torch.linalg.vector_norm(
-                views.left_foot_position[:, :2] - views.right_foot_position[:, :2],
-                dim=1,
+            self._bezier_height_into(
+                task.gait_phase[:, 1],
+                self._config.feet_phase_swing_height,
+                out=task.right_height_scratch,
+                task=task,
             )
-            return torch.where(
-                distance < self._config.close_feet_threshold,
-                (distance - self._config.close_feet_threshold) ** 2,
-                torch.zeros_like(distance),
+            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=c)
+            torch.ge(
+                c,
+                self._config.min_forward_speed_for_gait_reward,
+                out=task.bool_scratch_b,
             )
-        if name in {"feet_phase", "feet_phase_contrast"}:
-            left = self._bezier_height(task.gait_phase[:, 0], self._config.feet_phase_swing_height)
-            right = self._bezier_height(task.gait_phase[:, 1], self._config.feet_phase_swing_height)
-            gate = (
-                torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0)
-                >= self._config.min_forward_speed_for_gait_reward
-            ).to(dtype=torch.float32)
+            d.copy_(task.bool_scratch_b, non_blocking=True)
             if name == "feet_phase":
-                error = (views.left_foot_position[:, 2] - left) ** 2 + (
-                    views.right_foot_position[:, 2] - right
-                ) ** 2
+                torch.sub(views.left_foot_position[:, 2], task.left_height_scratch, out=out)
+                torch.square(out, out=out)
+                torch.sub(views.right_foot_position[:, 2], task.right_height_scratch, out=b)
+                torch.square(b, out=b)
+                out.add_(b)
             else:
-                error = (
-                    views.left_foot_position[:, 2]
-                    - views.right_foot_position[:, 2]
-                    - (left - right)
-                ) ** 2
-            return torch.exp(-error / self._config.feet_phase_tracking_sigma) * gate
-        if name == "alive":
-            return torch.ones_like(views.root_position[:, 2])
-        raise G1ManagedDeviceError(f"unsupported G1 device reward term {name!r}")
+                torch.sub(views.left_foot_position[:, 2], views.right_foot_position[:, 2], out=out)
+                torch.sub(task.left_height_scratch, task.right_height_scratch, out=b)
+                out.sub_(b)
+                torch.square(out, out=out)
+            out.mul_(-1.0 / self._config.feet_phase_tracking_sigma)
+            torch.exp(out, out=out)
+            out.mul_(d)
+        elif name == "alive":
+            out.fill_(1.0)
+        else:
+            raise G1ManagedDeviceError(f"unsupported G1 device reward term {name!r}")
 
     def _write_observations(
         self,
@@ -801,16 +925,38 @@ class G1ManagedDeviceKernel:
     ) -> None:
         task = self._task(task_state)
         views = self._state_views(state)
-        tilt = torch.acos(torch.clamp(views.torso_upvector[:, 2], -1.0, 1.0))
+        torch.clamp(
+            views.torso_upvector[:, 2],
+            -1.0,
+            1.0,
+            out=task.reset_scalar_scratch,
+        )
+        torch.acos(task.reset_scalar_scratch, out=task.reset_scalar_scratch)
+        torch.gt(
+            task.reset_scalar_scratch,
+            self._config.max_tilt_rad,
+            out=task.reset_bool_scratch,
+        )
+        torch.lt(
+            views.root_position[:, 2],
+            self._config.min_base_height,
+            out=task.bool_scratch_b,
+        )
         torch.logical_or(
-            tilt > self._config.max_tilt_rad,
-            views.root_position[:, 2] < self._config.min_base_height,
+            task.reset_bool_scratch,
+            task.bool_scratch_b,
             out=terminated_out,
         )
         reward_out.zero_()
         for name, scale in self._reward_scales.items():
             if scale != 0.0:
-                reward_out.add_(self._reward_value(name, views=views, task=task), alpha=scale)
+                self._reward_value_into(
+                    name,
+                    views=views,
+                    task=task,
+                    out=task.reset_scalar_scratch,
+                )
+                reward_out.add_(task.reset_scalar_scratch, alpha=scale)
         reward_out.mul_(self._config.ctrl_dt)
         self._write_observations(
             views=views,
@@ -826,14 +972,20 @@ class G1ManagedDeviceKernel:
         qpos[:, :2].uniform_(-0.5, 0.5, generator=task.generator)
         qpos[:, :2].add_(self._initial_qpos[:2])
         task.reset_yaw.uniform_(-math.pi, math.pi, generator=task.generator)
-        half_yaw = task.reset_yaw * 0.5
-        cos_yaw = torch.cos(half_yaw)
-        sin_yaw = torch.sin(half_yaw)
-        qw, qx, qy, qz = self._initial_qpos[3:7]
-        qpos[:, 3] = qw * cos_yaw - qz * sin_yaw
-        qpos[:, 4] = qx * cos_yaw + qy * sin_yaw
-        qpos[:, 5] = qy * cos_yaw - qx * sin_yaw
-        qpos[:, 6] = qz * cos_yaw + qw * sin_yaw
+        torch.mul(task.reset_yaw, 0.5, out=task.reset_scalar_scratch)
+        torch.cos(task.reset_scalar_scratch, out=task.scalar_scratch_b)
+        torch.sin(task.reset_scalar_scratch, out=task.scalar_scratch_c)
+        cos_yaw = task.scalar_scratch_b
+        sin_yaw = task.scalar_scratch_c
+        qw, qx, qy, qz = self._initial_quaternion
+        torch.mul(cos_yaw, qw, out=qpos[:, 3])
+        qpos[:, 3].add_(sin_yaw, alpha=-qz)
+        torch.mul(cos_yaw, qx, out=qpos[:, 4])
+        qpos[:, 4].add_(sin_yaw, alpha=qy)
+        torch.mul(cos_yaw, qy, out=qpos[:, 5])
+        qpos[:, 5].add_(sin_yaw, alpha=-qx)
+        torch.mul(cos_yaw, qz, out=qpos[:, 6])
+        qpos[:, 6].add_(sin_yaw, alpha=qw)
         qvel[:, :6].uniform_(
             -self._config.reset_base_qvel_limit,
             self._config.reset_base_qvel_limit,
@@ -924,11 +1076,14 @@ def create_g1_managed_device_runtime(
     reset_seed: int = 0,
     max_episode_steps: int | None = None,
     record_lifecycle: bool = False,
+    enable_stability_diagnostics: bool = False,
 ) -> DeviceManagedRuntime:
     """Create the strict mjwarp G1 device runtime on the cold path."""
 
     if backend.backend_type != "mjwarp":
         raise G1ManagedDeviceError("G1 device runtime requires the independent mjwarp backend")
+    if not isinstance(enable_stability_diagnostics, bool):
+        raise G1ManagedDeviceError("enable_stability_diagnostics must be a bool")
     _validate_device_profile(cfg)
     try:
         config = _kernel_config(
@@ -955,6 +1110,7 @@ def create_g1_managed_device_runtime(
         kernel=kernel,
         max_episode_steps=cfg.max_episode_steps if max_episode_steps is None else max_episode_steps,
         record_lifecycle=record_lifecycle,
+        stability_buffer_provider=kernel if enable_stability_diagnostics else None,
     )
 
 
