@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Mapping, cast
@@ -192,6 +193,21 @@ def load_host_benchmark_artifact(root: Path) -> dict[str, Any]:
     return value
 
 
+def _host_benchmark_module(root: Path) -> Any:
+    """Import the benchmark owner from a script entrypoint's cold path.
+
+    ``uv run scripts/...`` places ``scripts/`` rather than the repository
+    root on ``sys.path``.  The benchmark is intentionally not a runtime
+    dependency of ``unilab``; this explicit, cold-path root insertion is only
+    used by the evidence CLI and preserves the benchmark module as its owner.
+    """
+
+    root_text = str(root.resolve())
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
+    return import_module("benchmark.env.benchmark_managed_g1")
+
+
 def validate_host_benchmark_payload(
     artifact: object,
     *,
@@ -200,7 +216,10 @@ def validate_host_benchmark_payload(
     """Recompute every frozen host gate, including candidate provenance."""
 
     root = root.resolve()
-    host_benchmark: Any = import_module("benchmark.env.benchmark_managed_g1")
+    try:
+        host_benchmark = _host_benchmark_module(root)
+    except ModuleNotFoundError as exc:
+        return (f"host benchmark module could not be imported: {exc}",)
     if root != host_benchmark.ROOT_DIR.resolve():
         return ("host benchmark validator must run from the UniLab repository root",)
     try:
