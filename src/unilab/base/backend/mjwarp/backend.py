@@ -135,6 +135,23 @@ class _MjwarpDeviceGraphBundle:
     step_graph: Any
 
 
+@dataclass(frozen=True)
+class MjwarpDeviceCapacityDiagnostics:
+    """Low-frequency evidence for a cold-bound mjwarp storage budget.
+
+    Reading these values synchronizes and materializes small device counters,
+    so this diagnostic is deliberately unavailable to rollout hot paths.
+    """
+
+    nconmax_per_world: int
+    njmax_per_world: int
+    global_contact_capacity: int
+    global_contact_count: int
+    max_constraints_per_world: int
+    overflow_world_count: int
+    overflow_mask: int
+
+
 class MjwarpBackend(SimBackend):
     """Independent CUDA backend with explicit host and device execution profiles.
 
@@ -152,6 +169,8 @@ class MjwarpBackend(SimBackend):
         *,
         base_name: str | None = None,
         push_body_name: str | None = None,
+        nconmax: int | None = None,
+        njmax: int | None = None,
         **unexpected_kwargs: Any,
     ) -> None:
         if unexpected_kwargs:
@@ -161,6 +180,8 @@ class MjwarpBackend(SimBackend):
             raise ValueError(f"num_envs must be a positive integer, got {num_envs!r}")
         if float(sim_dt) <= 0.0:
             raise ValueError(f"sim_dt must be positive, got {sim_dt!r}")
+        nconmax = self._require_capacity(nconmax, name="nconmax", default=512)
+        njmax = self._require_capacity(njmax, name="njmax", default=512)
         if push_body_name is not None:
             raise NotImplementedError(
                 "mjwarp host_numpy profile does not support interval push or external wrench "
@@ -184,6 +205,8 @@ class MjwarpBackend(SimBackend):
         self._sim_dt = float(sim_dt)
         self._base_name = base_name
         self._cuda_device_name = str(device)
+        self._nconmax = nconmax
+        self._njmax = njmax
 
         self._mujoco = deps.mujoco
         self._mujoco_warp = deps.mujoco_warp
@@ -195,12 +218,11 @@ class MjwarpBackend(SimBackend):
         self._device_data = deps.mujoco_warp.make_data(
             self._cpu_model,
             nworld=self._num_envs,
-            # G1 flat regularly has multiple simultaneous contacts.  These
-            # capacities are cold-path backend allocation parameters, not task
-            # semantics, and avoid silently overflowing the device constraint
-            # buffers under a normal standing pose.
-            nconmax=512,
-            njmax=512,
+            # These capacities are owner-configured cold-path physical storage
+            # limits.  They are intentionally not inferred or changed during a
+            # rollout: a task must select and validate its own safe budget.
+            nconmax=nconmax,
+            njmax=njmax,
         )
 
         self._nq = int(self._cpu_model.nq)
@@ -305,6 +327,14 @@ class MjwarpBackend(SimBackend):
     # ------------------------------------------------------------------ #
     # Cold-path model binding                                             #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _require_capacity(value: int | None, *, name: str, default: int) -> int:
+        if value is None:
+            return default
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"mjwarp {name} must be a positive integer, got {value!r}")
+        return value
 
     def _root_state_dims(self) -> tuple[int, int]:
         if int(self._cpu_model.njnt) == 0:
@@ -493,6 +523,29 @@ class MjwarpBackend(SimBackend):
     def get_transfer_trace(self) -> BackendTransferTrace:
         """Materialize immutable profiler events only when diagnostics request them."""
         return self._transfer_telemetry.trace()
+
+    def get_device_capacity_diagnostics(self) -> MjwarpDeviceCapacityDiagnostics:
+        """Synchronize once on a cold diagnostic path and report capacity headroom.
+
+        This method exists for backend-owner validation of an explicit task
+        allocation budget.  It must not be called from env/runner hot paths:
+        the Warp ``numpy()`` reads are intentionally observable host
+        materialization.
+        """
+
+        self._warp.synchronize_device()
+        global_contacts = np.asarray(self._device_data.nacon.numpy(), dtype=np.int64)
+        constraints = np.asarray(self._device_data.nefc.numpy(), dtype=np.int64)
+        overflow = np.asarray(self._device_data.overflow.numpy(), dtype=np.int64)
+        return MjwarpDeviceCapacityDiagnostics(
+            nconmax_per_world=self._nconmax,
+            njmax_per_world=self._njmax,
+            global_contact_capacity=int(self._device_data.naconmax),
+            global_contact_count=int(global_contacts.max(initial=0)),
+            max_constraints_per_world=int(constraints.max(initial=0)),
+            overflow_world_count=int(np.count_nonzero(overflow)),
+            overflow_mask=int(np.bitwise_or.reduce(overflow, initial=0)),
+        )
 
     def reset_transfer_telemetry(self) -> None:
         """Clear transfer diagnostics; simulator state and stable cache remain untouched."""

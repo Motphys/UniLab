@@ -119,6 +119,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "chunk_size": cfg.chunk_size,
         "adaptive_chunk_size": cfg.adaptive_chunk_size,
         "bench_nsteps": cfg.sim_substeps,
+        "mjwarp_nconmax": cfg.mjwarp_nconmax,
+        "mjwarp_njmax": cfg.mjwarp_njmax,
     }
 
 
@@ -216,6 +218,8 @@ def create_backend(
     chunk_size = kwargs.pop("chunk_size", None)
     adaptive_chunk_size = kwargs.pop("adaptive_chunk_size", False)
     bench_nsteps = kwargs.pop("bench_nsteps", 1)
+    mjwarp_nconmax = kwargs.pop("mjwarp_nconmax", None)
+    mjwarp_njmax = kwargs.pop("mjwarp_njmax", None)
     drake_backend_mode = kwargs.pop("drake_backend_mode", "batch")
     drake_nthread = kwargs.pop("drake_nthread", None)
     if backend_type == "mujoco":
@@ -240,6 +244,8 @@ def create_backend(
         # presence nor their default values here; MjwarpBackend intentionally
         # does not receive or interpret them.
         del post_step_forward_sensor, chunk_size, adaptive_chunk_size, bench_nsteps
+        kwargs["nconmax"] = mjwarp_nconmax
+        kwargs["njmax"] = mjwarp_njmax
         return cast(SimBackend, MjwarpBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "motrix":
         MotrixBackend, motrix_available = _load_motrix_backend()

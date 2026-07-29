@@ -22,6 +22,10 @@ from unilab.base.backend import (
     StateBatch,
     StateBatchLease,
 )
+from unilab.base.backend.mjwarp.backend import (
+    MjwarpBackend,
+    MjwarpDeviceCapacityDiagnostics,
+)
 from unilab.manager import DeviceManagedRuntimeError, DeviceRuntimeStabilityDiagnostics
 
 pytestmark = pytest.mark.slow
@@ -146,6 +150,55 @@ def test_long_rollout_memory_and_addresses_are_stable(
         assert max(reserved) - reserved[0] <= 64 * 1024 * 1024
         properties = torch.cuda.get_device_properties(harness.device)
         assert torch.cuda.max_memory_reserved(harness.device) / int(properties.total_memory) < 0.8
+
+
+def test_g1_device_owner_capacity_budget_has_real_cuda_headroom() -> None:
+    """The explicit G1 owner budget covers every sampled G1 device state.
+
+    Capacity reads deliberately synchronize and copy small Warp counters, so
+    the test-only wrapper samples immediately after each public ``step_batch``
+    return and before ``DeviceManagedRuntime`` can invoke its masked reset.
+    The wrapper is not installed in the runtime/runner path. The initialized
+    reset state is sampled as well. Sampling every subsequent physics barrier
+    matters because autoreset may otherwise clear an overflow bit before a
+    final-only diagnostic could observe it.
+    """
+
+    with runtime_harness(
+        num_envs=128,
+        seed=0,
+        max_episode_steps=10_000,
+        mjwarp_nconmax=128,
+        mjwarp_njmax=256,
+    ) as harness:
+        backend = harness.backend
+        assert isinstance(backend, MjwarpBackend)
+        samples: list[MjwarpDeviceCapacityDiagnostics] = [backend.get_device_capacity_diagnostics()]
+        original_step_batch = backend.step_batch
+
+        def record_step_capacity(*args: Any, **kwargs: Any) -> BackendStepResult:
+            result = original_step_batch(*args, **kwargs)
+            assert isinstance(result, BackendStepResult)
+            samples.append(backend.get_device_capacity_diagnostics())
+            return result
+
+        with patch.object(backend, "step_batch", side_effect=record_step_capacity):
+            for step in range(96):
+                harness.step(0.15 * float((step % 7) - 3))
+        harness.wait()
+
+    assert len(samples) == 97
+    assert all(sample.nconmax_per_world == 128 for sample in samples)
+    assert all(sample.njmax_per_world == 256 for sample in samples)
+    assert all(sample.global_contact_capacity == 128 * 128 for sample in samples)
+    peak_contacts = max(sample.global_contact_count for sample in samples)
+    peak_constraints = max(sample.max_constraints_per_world for sample in samples)
+    # Keep a material allocation margin, not merely a non-overflowing final
+    # state. Capacity/profile changes require an explicit owner re-evaluation.
+    assert peak_contacts <= samples[0].global_contact_capacity // 2
+    assert peak_constraints <= samples[0].njmax_per_world * 3 // 4
+    assert all(sample.overflow_world_count == 0 for sample in samples)
+    assert all(sample.overflow_mask == 0 for sample in samples)
 
 
 def _copied_device_state(result: BackendStepResult) -> BackendStepResult:
