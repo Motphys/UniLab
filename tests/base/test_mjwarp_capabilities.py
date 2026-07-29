@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from unilab.base.backend import create_backend
+from unilab.base.backend import MutationContractError, create_backend
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
@@ -45,7 +45,10 @@ def test_unsupported_matrix_fails_before_step() -> None:
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(push_perturbation_limit=np.ones((3,), dtype=np.float32))
         )
-    with pytest.raises(NotImplementedError, match="typed backend mutations"):
+    # Typed reset mutation is now an explicitly supported later-phase
+    # capability.  An empty plan remains invalid and must fail before any
+    # physics work instead of silently becoming a no-op.
+    with pytest.raises(MutationContractError, match="non-empty tuple"):
         backend.bind_mutation_plan(())
 
     qpos = np.tile(backend.get_keyframe_qpos("stand"), (1, 1))
