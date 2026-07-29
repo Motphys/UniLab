@@ -65,21 +65,44 @@ class _MjwarpDeviceStateSource:
     spec: StateFieldSpec
     source: torch.Tensor = field(repr=False)
     packed: torch.Tensor = field(repr=False)
+    reset_staging: torch.Tensor = field(repr=False)
 
     def __post_init__(self) -> None:
-        if self.source.device != self.packed.device:
+        if (
+            self.source.device != self.packed.device
+            or self.source.device != self.reset_staging.device
+        ):
             raise BackendBatchContractError("mjwarp device state source and pack differ in device")
-        if self.source.dtype != self.packed.dtype:
+        if self.source.dtype != self.packed.dtype or self.source.dtype != self.reset_staging.dtype:
             raise BackendBatchContractError("mjwarp device state source and pack differ in dtype")
-        if self.source.shape != self.packed.shape:
+        if self.source.shape != self.packed.shape or self.source.shape != self.reset_staging.shape:
             raise BackendBatchContractError("mjwarp device state source and pack differ in shape")
-        if not self.packed.is_contiguous():
+        if not self.packed.is_contiguous() or not self.reset_staging.is_contiguous():
             raise BackendBatchContractError("mjwarp device state pack must be C-contiguous")
 
     def refresh(self) -> None:
         """Enqueue one D2D pack copy on the caller-selected physics stream."""
 
         self.packed.copy_(self.source, non_blocking=True)
+
+    def refresh_masked(self, active_mask: torch.Tensor) -> None:
+        """Commit reset rows while preserving the preceding terminal pack."""
+
+        if (
+            active_mask.device != self.packed.device
+            or active_mask.dtype is not torch.bool
+            or tuple(active_mask.shape) != (self.packed.shape[0],)
+            or not active_mask.is_contiguous()
+        ):
+            raise BackendBatchContractError("mjwarp device state reset mask is incompatible")
+        self.reset_staging.copy_(self.source, non_blocking=True)
+        broadcast_shape = (self.packed.shape[0],) + (1,) * (self.packed.ndim - 1)
+        torch.where(
+            active_mask.view(broadcast_shape),
+            self.reset_staging,
+            self.packed,
+            out=self.packed,
+        )
 
 
 @dataclass
@@ -97,6 +120,13 @@ class MjwarpDeviceBatchPlan:
     def refresh(self) -> None:
         for source in self.sources:
             source.refresh()
+        self._refreshes += 1
+
+    def refresh_masked(self, active_mask: torch.Tensor) -> None:
+        """Refresh reset rows without changing terminal values for their complement."""
+
+        for source in self.sources:
+            source.refresh_masked(active_mask)
         self._refreshes += 1
 
     def invalidate(self) -> None:
@@ -296,7 +326,12 @@ def _root_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDeviceS
             f"unsupported mjwarp device root field kind {spec.identity.field_kind.value!r}"
         ) from exc
     _require_device_field_contract(backend, spec, row_shape=shape, frame=frame, unit=unit)
-    return _MjwarpDeviceStateSource(spec=spec, source=source, packed=_allocate_pack(source, spec))
+    return _MjwarpDeviceStateSource(
+        spec=spec,
+        source=source,
+        packed=_allocate_pack(source, spec),
+        reset_staging=_allocate_pack(source, spec),
+    )
 
 
 def _contiguous_columns(indices: tuple[int, ...], *, context: str) -> slice:
@@ -390,7 +425,12 @@ def _dof_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDeviceSt
         frame=ReferenceFrame.JOINT,
         unit=_dof_unit(backend, spec, indices),
     )
-    return _MjwarpDeviceStateSource(spec=spec, source=source, packed=_allocate_pack(source, spec))
+    return _MjwarpDeviceStateSource(
+        spec=spec,
+        source=source,
+        packed=_allocate_pack(source, spec),
+        reset_staging=_allocate_pack(source, spec),
+    )
 
 
 def _sensor_frame_unit(
@@ -461,7 +501,12 @@ def _sensor_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDevic
         )
     source = bridge.sensordata[:, column_slice]
     _require_device_field_contract(backend, spec, row_shape=(len(columns),))
-    return _MjwarpDeviceStateSource(spec=spec, source=source, packed=_allocate_pack(source, spec))
+    return _MjwarpDeviceStateSource(
+        spec=spec,
+        source=source,
+        packed=_allocate_pack(source, spec),
+        reset_staging=_allocate_pack(source, spec),
+    )
 
 
 def _bind_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDeviceStateSource:
