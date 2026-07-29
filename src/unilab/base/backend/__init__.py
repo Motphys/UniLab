@@ -46,6 +46,13 @@ from .batch import (
     StateFieldKind,
     StateFieldSpec,
 )
+from .device import (
+    DeviceBufferContractError,
+    DeviceBufferLease,
+    DeviceCompletion,
+    DeviceTensorView,
+    require_device_tensor_view,
+)
 from .mutation import (
     MUTATION_CONTRACT_VERSION,
     BoundMutationPlan,
@@ -315,6 +322,10 @@ __all__ = [
     "BufferView",
     "ControlBatch",
     "ControlSpec",
+    "DeviceBufferContractError",
+    "DeviceBufferLease",
+    "DeviceCompletion",
+    "DeviceTensorView",
     "ExecutionProfile",
     "ExternalWrenchMutationBatch",
     "MemorySpace",
@@ -338,6 +349,7 @@ __all__ = [
     "MutationValueBatch",
     "PhysicalUnit",
     "ReferenceFrame",
+    "require_device_tensor_view",
     "RowSelection",
     "StaleStateBatchError",
     "StateBatch",
