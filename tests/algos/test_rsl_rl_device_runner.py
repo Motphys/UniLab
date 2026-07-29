@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
+import torch
 
 from tests.manager.test_g1_reference_differential import _cfg
 from tests.training.device_runtime_harness import require_cuda
@@ -164,6 +165,46 @@ def test_device_runner_keeps_upstream_lifecycle_order(monkeypatch: pytest.Monkey
             "update",
             "log",
         ]
+
+
+def test_device_runner_storage_preserves_the_action_observation_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Borrowed runtime observations cannot be overwritten before PPO stores them."""
+
+    with _device_env(num_envs=32) as env:
+        wrapper = DeviceRslRlVecEnvWrapper(env, device="cuda:0", reset_seed=10)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = DeviceOnPolicyRunner(
+                wrapper,
+                _train_cfg(),
+                log_dir=tmpdir,
+                device="cuda:0",
+            )
+
+            def verify_storage() -> dict[str, float]:
+                storage = runner.alg.storage
+                observations = storage.observations.flatten(0, 1)
+                actions = storage.actions.flatten(0, 1)
+                old_log_prob = storage.actions_log_prob.flatten(0, 1).squeeze(-1)
+                old_values = storage.values.flatten(0, 1)
+                with torch.inference_mode():
+                    runner.alg.actor(observations, stochastic_output=True)
+                    actual_log_prob = runner.alg.actor.get_output_log_prob(actions)
+                    actual_values = runner.alg.critic(observations)
+
+                torch.testing.assert_close(actual_log_prob, old_log_prob, atol=1e-5, rtol=1e-5)
+                torch.testing.assert_close(actual_values, old_values, atol=1e-6, rtol=1e-5)
+                storage.clear()
+                return {"value": 0.0, "surrogate": 0.0, "entropy": 0.0}
+
+            monkeypatch.setattr(runner.alg, "update", verify_storage)
+            try:
+                runner.learn(num_learning_iterations=1, init_at_random_ep_len=False)
+            finally:
+                writer = getattr(runner.logger, "writer", None)
+                if writer is not None and hasattr(writer, "close"):
+                    writer.close()
 
 
 def test_real_mjwarp_device_ppo_one_iteration() -> None:

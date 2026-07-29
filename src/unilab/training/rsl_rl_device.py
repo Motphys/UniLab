@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 import torch
@@ -33,6 +33,8 @@ class DeviceRslRlTrafficDiagnostics:
 
     action_publications: int = 0
     action_device_to_device_bytes: int = 0
+    observation_snapshots: int = 0
+    observation_device_to_device_bytes: int = 0
     finite_metric_materializations: int = 0
     finite_metric_device_to_host_bytes: int = 0
 
@@ -180,6 +182,13 @@ class DeviceRslRlVecEnvWrapper:
             dtype=torch.float32,
             device=self.device,
         )
+        self._observation_snapshots: tuple[TensorDict, TensorDict] | None = None
+        self._observation_snapshot_events = (
+            cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False)),
+            cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False)),
+        )
+        self._observation_snapshot_index = -1
+        self._observation_snapshot_bytes = 0
         self._traffic = DeviceRslRlTrafficDiagnostics()
         self._last_transition = self.runtime.reset()
         self._last_observations, _, _, _ = self._consume_transition(self._last_transition)
@@ -230,14 +239,13 @@ class DeviceRslRlVecEnvWrapper:
             stream=stream,
             event=self._action_event,
         )
-        self._traffic = DeviceRslRlTrafficDiagnostics(
+        self._traffic = replace(
+            self._traffic,
             action_publications=self._traffic.action_publications + 1,
             action_device_to_device_bytes=(
                 self._traffic.action_device_to_device_bytes
                 + self._action_buffer.numel() * self._action_buffer.element_size()
             ),
-            finite_metric_materializations=self._traffic.finite_metric_materializations,
-            finite_metric_device_to_host_bytes=(self._traffic.finite_metric_device_to_host_bytes),
         )
         return DeviceTensorView(
             tensor_handle=self._action_buffer,
@@ -274,6 +282,45 @@ class DeviceRslRlVecEnvWrapper:
             batch_size=[self.num_envs],
             device=self.device,
         )
+
+    def _snapshot_observations(self, observations: TensorDict) -> TensorDict:
+        """Keep the policy input alive until RSL-RL records its transition."""
+
+        if self._observation_snapshots is None:
+            slots: list[TensorDict] = []
+            for _ in range(2):
+                actor = torch.empty_like(observations["actor"])
+                critic = torch.empty_like(observations["critic"])
+                slots.append(
+                    TensorDict(
+                        {"actor": actor, "policy": actor, "critic": critic},
+                        batch_size=[self.num_envs],
+                        device=self.device,
+                    )
+                )
+            self._observation_snapshots = cast(tuple[TensorDict, TensorDict], tuple(slots))
+            self._observation_snapshot_bytes = sum(
+                value.numel() * value.element_size()
+                for value in (
+                    self._observation_snapshots[0]["actor"],
+                    self._observation_snapshots[0]["critic"],
+                )
+            )
+
+        index = (self._observation_snapshot_index + 1) % len(self._observation_snapshots)
+        snapshot = self._observation_snapshots[index]
+        snapshot["actor"].copy_(observations["actor"], non_blocking=True)
+        snapshot["critic"].copy_(observations["critic"], non_blocking=True)
+        self._observation_snapshot_events[index].record(torch.cuda.current_stream(self.device))
+        self._observation_snapshot_index = index
+        self._traffic = replace(
+            self._traffic,
+            observation_snapshots=self._traffic.observation_snapshots + 1,
+            observation_device_to_device_bytes=(
+                self._traffic.observation_device_to_device_bytes + self._observation_snapshot_bytes
+            ),
+        )
+        return snapshot
 
     def _accumulate_finite_value(self, value: torch.Tensor, *, index: int) -> None:
         field_slice = self._finite_slices[index]
@@ -312,7 +359,7 @@ class DeviceRslRlVecEnvWrapper:
             raise DeviceRslRlContractError("device runtime returned an invalid transition")
         stream = torch.cuda.current_stream(self.device)
         transition.completion.wait(stream)
-        observations = self._as_tensordict(transition)
+        observations = self._snapshot_observations(self._as_tensordict(transition))
         final_observations = self._as_tensordict(transition, final=True)
         rewards = transition.reward.torch()
         terminated = transition.terminated.torch()
@@ -334,9 +381,8 @@ class DeviceRslRlVecEnvWrapper:
 
         host_flags = self._finite_accumulator.to(device="cpu", non_blocking=False)
         byte_count = host_flags.numel() * host_flags.element_size()
-        self._traffic = DeviceRslRlTrafficDiagnostics(
-            action_publications=self._traffic.action_publications,
-            action_device_to_device_bytes=self._traffic.action_device_to_device_bytes,
+        self._traffic = replace(
+            self._traffic,
             finite_metric_materializations=self._traffic.finite_metric_materializations + 1,
             finite_metric_device_to_host_bytes=(
                 self._traffic.finite_metric_device_to_host_bytes + byte_count
@@ -374,6 +420,11 @@ class DeviceRslRlVecEnvWrapper:
 
     def get_observations(self) -> TensorDict:
         self._last_transition.completion.wait(torch.cuda.current_stream(self.device))
+        if self._observation_snapshot_index < 0:
+            raise DeviceRslRlContractError("device observation snapshots are not initialized")
+        self._observation_snapshot_events[self._observation_snapshot_index].wait(
+            torch.cuda.current_stream(self.device)
+        )
         return self._last_observations
 
     def get_privileged_observations(self) -> torch.Tensor:
