@@ -18,7 +18,7 @@ binding; no exception is converted into a NumPy/reference fallback.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -538,6 +538,15 @@ class _G1ManagedFusedTaskState:
     noise_uniform_action_scratch: np.ndarray
     noise_value_action_scratch: np.ndarray
     terminal_state_token: int | None = None
+    # A terminal ``StateBatch`` is consumed first by termination/reward and
+    # then by terminal-observation materialization.  Keep a *strong* object
+    # identity cache for that one borrowed view so the second consumer does
+    # not repeat field-by-field validation.  ``_state_views`` still calls
+    # ``assert_valid`` before consulting the cache, so a reset/step barrier
+    # cannot make a stale lease usable.  Do not cache ``id(state)`` alone:
+    # Python may reuse an object id after the borrowed batch is released.
+    cached_state: StateBatch | None = field(default=None, repr=False, compare=False)
+    cached_state_views: _G1StateViews | None = field(default=None, repr=False, compare=False)
 
 
 def _require_numba() -> None:
@@ -973,10 +982,19 @@ class G1ManagedFusedKernel:
             raise G1ManagedFusedError("G1 managed fused executor received foreign task state")
         return task_state
 
-    def _state_views(self, state: StateBatch) -> _G1StateViews:
+    def _state_views(
+        self,
+        state: StateBatch,
+        task: _G1ManagedFusedTaskState,
+    ) -> _G1StateViews:
         """Validate and map typed fields without compiler-order assumptions."""
 
         state.assert_valid()
+        if task.cached_state is state:
+            cached = task.cached_state_views
+            if cached is None:  # pragma: no cover - task-state invariant guard.
+                raise G1ManagedFusedError("G1 fused state-view cache is incomplete")
+            return cached
         expected_dtype = np.dtype(self._require_binding().dtype)
         expected_shapes = (
             (self._action_dim,),
@@ -1015,7 +1033,7 @@ class G1ManagedFusedKernel:
                     f"G1 fused executor rejects non-finite typed state {key} before math dispatch"
                 )
             values.append(handle)
-        return _G1StateViews(
+        views = _G1StateViews(
             dof_angular_velocity=values[0],
             dof_position=values[1],
             root_angular_velocity=values[2],
@@ -1028,6 +1046,9 @@ class G1ManagedFusedKernel:
             torso_gyro=values[9],
             torso_upvector=values[10],
         )
+        task.cached_state = state
+        task.cached_state_views = views
+        return views
 
     def create_task_state(self, *, num_envs: int, dtype: np.dtype[Any]) -> object:
         binding = self._require_binding()
@@ -1179,7 +1200,7 @@ class G1ManagedFusedKernel:
         terminated_out: np.ndarray,
     ) -> None:
         task = self._require_task_state(task_state)
-        views = self._state_views(state)
+        views = self._state_views(state, task)
         binding = self._require_binding()
         if not state.rows.is_all or state.rows.count != binding.num_envs:
             raise G1ManagedFusedError(
@@ -1292,7 +1313,7 @@ class G1ManagedFusedKernel:
         observation_buffers: tuple[np.ndarray, ...],
     ) -> None:
         task = self._require_task_state(task_state)
-        views = self._state_views(state)
+        views = self._state_views(state, task)
         actor_index, critic_index = self._require_observation_indices()
         try:
             actor_all = observation_buffers[actor_index]

@@ -21,6 +21,7 @@ from unilab.base.backend import (
     BoundMutationValueBuffers,
     RowSelection,
     SimBackend,
+    StateBatch,
     TypedBackendMutationBatch,
     create_backend,
     env_backend_kwargs,
@@ -420,6 +421,38 @@ def test_fused_executor_uses_serial_numba_hot_kernels_for_host_profile() -> None
         fused_module._complete_reset_task_state_kernel,
     )
     assert all(dispatcher.targetoptions.get("parallel", False) is False for dispatcher in dispatchers)
+
+
+def test_fused_terminal_state_views_are_validated_once_per_borrowed_batch() -> None:
+    """Terminal reward and observation share one valid typed-state mapping.
+
+    The cache remains keyed by the strong ``StateBatch`` object, rather than
+    its integer id, and the kernel still invokes ``assert_valid`` for each
+    lifecycle consumer.  This counts only field descriptor reads: a terminal
+    step needs the eleven G1 fields once for termination/reward math and must
+    not re-read them while writing its terminal observation.
+    """
+
+    cfg = _cfg(noise_level=0.0)
+    backend = _backend(deepcopy(cfg), num_envs=2)
+    try:
+        runtime = create_g1_managed_fused_runtime(backend=backend, cfg=cfg, reset_seed=17)
+        runtime.init_state()
+        original_buffer_at = StateBatch.buffer_at
+        field_reads: list[int] = []
+
+        def _record_buffer_at(state: StateBatch, field_index: int):
+            field_reads.append(field_index)
+            return original_buffer_at(state, field_index)
+
+        actions = _generated_actions(num_envs=2, action_dim=29)[1]
+        with patch.object(StateBatch, "buffer_at", new=_record_buffer_at):
+            runtime.step(actions)
+
+        state_indices = dict(runtime.kernel_binding.state_field_indices)
+        assert field_reads == [state_indices[key] for key in fused_module._STATE_KEYS]
+    finally:
+        _cleanup(backend)
 
 
 def test_fused_reset_uses_cold_bound_complete_mutation_window() -> None:
