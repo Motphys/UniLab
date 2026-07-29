@@ -173,7 +173,9 @@ def test_g1_device_owner_capacity_budget_has_real_cuda_headroom() -> None:
     ) as harness:
         backend = harness.backend
         assert isinstance(backend, MjwarpBackend)
-        samples: list[MjwarpDeviceCapacityDiagnostics] = [backend.capture_device_capacity_diagnostics()]
+        samples: list[MjwarpDeviceCapacityDiagnostics] = [
+            backend.capture_device_capacity_diagnostics()
+        ]
         original_step_batch = backend.step_batch
 
         def record_step_capacity(*args: Any, **kwargs: Any) -> BackendStepResult:
