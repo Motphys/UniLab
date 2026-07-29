@@ -430,6 +430,9 @@ def test_common_performance_overrides_compose_for_both_owner_configs(backend: st
         assert cfg.env.curriculum.enabled is False
         assert cfg.env.domain_rand.randomize_kp is False
         assert cfg.env.domain_rand.randomize_kd is False
+        if backend == "mjwarp":
+            assert cfg.env.mjwarp_nconmax == 128
+            assert cfg.env.mjwarp_njmax == 256
     finally:
         GlobalHydra.instance().clear()
 

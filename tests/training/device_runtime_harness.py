@@ -84,6 +84,8 @@ def runtime_harness(
     max_episode_steps: int,
     record_lifecycle: bool = False,
     minimal_rewards: bool = False,
+    mjwarp_nconmax: int | None = None,
+    mjwarp_njmax: int | None = None,
 ) -> Iterator[DeviceRuntimeHarness]:
     require_cuda()
     cfg = _cfg(
@@ -97,6 +99,8 @@ def runtime_harness(
             "tracking_lin_vel": 2.0,
             "alive": 0.1,
         }
+    cfg.mjwarp_nconmax = mjwarp_nconmax
+    cfg.mjwarp_njmax = mjwarp_njmax
     assert cfg.scene is not None
     backend = create_backend(
         "mjwarp",

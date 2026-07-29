@@ -9,10 +9,13 @@ from __future__ import annotations
 
 
 def __getattr__(name: str):
-    if name == "MjwarpBackend":
-        from .backend import MjwarpBackend
+    if name in {"MjwarpBackend", "MjwarpDeviceCapacityDiagnostics"}:
+        from .backend import MjwarpBackend, MjwarpDeviceCapacityDiagnostics
 
-        return MjwarpBackend
+        return {
+            "MjwarpBackend": MjwarpBackend,
+            "MjwarpDeviceCapacityDiagnostics": MjwarpDeviceCapacityDiagnostics,
+        }[name]
     if name == "MJWARP_AVAILABLE":
         from .dependencies import mjwarp_dependencies_available
 
@@ -20,4 +23,4 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["MJWARP_AVAILABLE", "MjwarpBackend"]
+__all__ = ["MJWARP_AVAILABLE", "MjwarpBackend", "MjwarpDeviceCapacityDiagnostics"]
