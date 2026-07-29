@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,10 +19,12 @@ from unilab.algos.torch.rsl_rl_runtime import (
 )
 from unilab.envs.locomotion.g1.joystick import G1WalkEnv
 from unilab.structured_configs import PPOConfig
+from unilab.training import rsl_rl_device
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 from unilab.training.rsl_rl_device import (
     DeviceOnPolicyRunner,
     DeviceRslRlContractError,
+    DeviceRslRlHostMemoryDiagnostics,
     DeviceRslRlVecEnvWrapper,
     resolve_mjwarp_device_ppo_runtime,
 )
@@ -126,6 +129,21 @@ def test_device_runner_keeps_upstream_lifecycle_order(monkeypatch: pytest.Monkey
                 device="cuda:0",
             )
             trace: list[str] = []
+            memory_diagnostics = DeviceRslRlHostMemoryDiagnostics(
+                gc_collected_objects=7,
+                allocator_trim_attempted=True,
+                allocator_trimmed=True,
+            )
+
+            def release_cold_path_memory() -> DeviceRslRlHostMemoryDiagnostics:
+                trace.append("release_host_memory")
+                return memory_diagnostics
+
+            monkeypatch.setattr(
+                rsl_rl_device,
+                "_release_cold_path_host_memory",
+                release_cold_path_memory,
+            )
 
             def traced_method(owner, name: str, label: str) -> None:
                 original = getattr(owner, name)
@@ -152,6 +170,7 @@ def test_device_runner_keeps_upstream_lifecycle_order(monkeypatch: pytest.Monkey
                     writer.close()
 
         assert trace == [
+            "release_host_memory",
             "act",
             "step",
             "process",
@@ -165,6 +184,9 @@ def test_device_runner_keeps_upstream_lifecycle_order(monkeypatch: pytest.Monkey
             "update",
             "log",
         ]
+        assert runner.host_memory_diagnostics is memory_diagnostics
+        runner._release_cold_path_host_memory_once()
+        assert trace.count("release_host_memory") == 1
 
 
 def test_device_runner_storage_preserves_the_action_observation_pair(
@@ -229,6 +251,11 @@ def test_real_mjwarp_device_ppo_one_iteration() -> None:
                 assert storage.dones.device.type == "cuda"
                 assert runner.logger.device_diagnostics.metric_materializations == 1
                 assert runner.logger.device_diagnostics.metric_device_to_host_bytes > 0
+                memory_diagnostics = runner.host_memory_diagnostics
+                assert memory_diagnostics is not None
+                assert memory_diagnostics.gc_collected_objects >= 0
+                if sys.platform.startswith("linux"):
+                    assert memory_diagnostics.allocator_trim_attempted
                 assert (Path(tmpdir) / "model_0.pt").is_file()
                 assert wrapper.runtime.traffic_diagnostics.host_to_device_transfers == 0
                 assert wrapper.runtime.traffic_diagnostics.device_to_host_transfers == 0
