@@ -2,6 +2,14 @@
 
 from .backend_resolver import BackendEntityResolver
 from .compiler import TaskCompiler
+from .device_runtime import (
+    DeviceManagedRuntime,
+    DeviceManagedRuntimeError,
+    DeviceManagedTaskKernel,
+    DeviceResetPayload,
+    DeviceTransition,
+    DeviceTransitionBuffer,
+)
 from .entities import (
     CompiledSelector,
     EntityKind,
@@ -65,6 +73,12 @@ __all__ = [
     "CompiledSelector",
     "CompiledTaskPlan",
     "CompiledTerm",
+    "DeviceManagedRuntime",
+    "DeviceManagedRuntimeError",
+    "DeviceManagedTaskKernel",
+    "DeviceResetPayload",
+    "DeviceTransition",
+    "DeviceTransitionBuffer",
     "EntityKind",
     "EntityResolver",
     "EntitySelector",

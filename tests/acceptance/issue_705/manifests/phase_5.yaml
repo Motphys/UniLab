@@ -9,7 +9,7 @@ claims:
     risk: Zero-copy interfaces outlive backend buffers or hide dtype conversion and allocation.
     owner: runner-device
     oracle: Pointer, capsule-consumption, lifetime, and producer-consumer tests inspect independent device allocations and invalidation epochs.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_transition_abi.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/training/test_device_transition_abi.py -v]
     lane: C
     required: true
     required_test_ids: [tests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime]
@@ -24,7 +24,7 @@ claims:
     risk: Asynchronous races produce intermittent stale actions or observations.
     owner: runner-device
     oracle: Delayed kernels and fault-injected event removal make ordering errors deterministic under a recording stream fixture.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_stream_contract.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/training/test_device_stream_contract.py -v]
     lane: C
     required: true
     required_test_ids: [tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected]
@@ -39,7 +39,7 @@ claims:
     risk: Removing host materialization changes rollout semantics or loses final observations.
     owner: runner-device
     oracle: The verified host adapter and an independent terminal/reset schedule are compared field by field with the device adapter.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_lifecycle.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/training/test_device_lifecycle.py -v]
     lane: C
     required: true
     required_test_ids: [tests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract]
@@ -54,7 +54,7 @@ claims:
     risk: Device physics still crosses CPU for action, terms, observations, rewards, dones, or learner input.
     owner: runtime-instrumentation
     oracle: Instrumentation counters are reconciled against a CUDA profiler trace while term, getter, and logging counts are varied.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_transfer_budget.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/training/test_device_transfer_budget.py -v]
     lane: C
     required: true
     required_test_ids: [tests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip]
@@ -69,7 +69,7 @@ claims:
     risk: A captured graph executes stale pointers or a changed plan while appearing faster.
     owner: mjwarp-backend
     oracle: Address replacement and plan/batch/dtype mutations fault-inject stale graph inputs and verify recapture counters or rejection.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_mjwarp_graph_contract.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/base/test_mjwarp_graph_contract.py -v]
     lane: C
     required: true
     required_test_ids: [tests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed]
@@ -99,7 +99,7 @@ claims:
     risk: A zero-copy fast path leaks tensors or reallocates buffers slowly enough to evade short smoke and benchmark runs.
     owner: runner-device
     oracle: A long-loop sampler records allocator snapshots, pointer epochs, reset density, and graph recapture events independently from runtime counters.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/training/test_device_runtime_stability.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/training/test_device_runtime_stability.py -v]
     lane: C
     required: true
     required_test_ids: [tests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable]
