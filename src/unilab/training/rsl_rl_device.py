@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ctypes
+import gc
 import os
+import sys
 import time
 from dataclasses import dataclass, replace
 from typing import Any, cast
@@ -46,6 +49,42 @@ class DeviceRslRlLoggingDiagnostics:
     rollout_steps: int = 0
     metric_materializations: int = 0
     metric_device_to_host_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class DeviceRslRlHostMemoryDiagnostics:
+    """One-time release of temporary host allocations after materialization."""
+
+    gc_collected_objects: int
+    allocator_trim_attempted: bool
+    allocator_trimmed: bool
+
+
+def _release_cold_path_host_memory() -> DeviceRslRlHostMemoryDiagnostics:
+    collected = gc.collect()
+    if not sys.platform.startswith("linux"):
+        return DeviceRslRlHostMemoryDiagnostics(
+            gc_collected_objects=collected,
+            allocator_trim_attempted=False,
+            allocator_trimmed=False,
+        )
+
+    try:
+        malloc_trim = ctypes.CDLL(None).malloc_trim
+        malloc_trim.argtypes = [ctypes.c_size_t]
+        malloc_trim.restype = ctypes.c_int
+        trimmed = bool(malloc_trim(0))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return DeviceRslRlHostMemoryDiagnostics(
+            gc_collected_objects=collected,
+            allocator_trim_attempted=False,
+            allocator_trimmed=False,
+        )
+    return DeviceRslRlHostMemoryDiagnostics(
+        gc_collected_objects=collected,
+        allocator_trim_attempted=True,
+        allocator_trimmed=trimmed,
+    )
 
 
 class DeviceRslRlVecEnvWrapper:
@@ -595,6 +634,15 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
             device=self.device,
             rollout_steps=int(self.cfg["num_steps_per_env"]),
         )
+        self._host_memory_diagnostics: DeviceRslRlHostMemoryDiagnostics | None = None
+
+    @property
+    def host_memory_diagnostics(self) -> DeviceRslRlHostMemoryDiagnostics | None:
+        return self._host_memory_diagnostics
+
+    def _release_cold_path_host_memory_once(self) -> None:
+        if self._host_memory_diagnostics is None:
+            self._host_memory_diagnostics = _release_cold_path_host_memory()
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False) -> None:
         if init_at_random_ep_len:
@@ -609,6 +657,7 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
             print(f"Synchronizing parameters for rank {self.gpu_global_rank}...")
             self.alg.broadcast_parameters()
         self.logger.init_logging_writer()
+        self._release_cold_path_host_memory_once()
 
         start_it = self.current_learning_iteration
         total_it = start_it + num_learning_iterations
@@ -710,6 +759,7 @@ __all__ = [
     "DeviceOnPolicyRunner",
     "DeviceRolloutLogger",
     "DeviceRslRlContractError",
+    "DeviceRslRlHostMemoryDiagnostics",
     "DeviceRslRlLoggingDiagnostics",
     "DeviceRslRlPPORuntime",
     "DeviceRslRlTrafficDiagnostics",
