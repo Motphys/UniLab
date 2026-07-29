@@ -313,6 +313,7 @@ class _MuJoCoHostMutationPlan:
     root_qvel_dim: int
     _staged_xfrc: np.ndarray = field(init=False, repr=False)
     _reset_state: np.ndarray = field(init=False, repr=False)
+    _reset_source_state: np.ndarray | None = field(init=False, repr=False)
     _reset_env_ids: np.ndarray = field(init=False, repr=False)
     _reset_row_ids: np.ndarray = field(init=False, repr=False)
     _staged_reset_rows: RowSelection | None = field(default=None, init=False, repr=False)
@@ -334,9 +335,25 @@ class _MuJoCoHostMutationPlan:
             raise BackendBatchContractError(
                 "MuJoCo mutation binding requires a positive state size"
             )
+        # ``BatchEnvPool.reset`` normalizes ``initial_state`` to native
+        # float64.  Keep this backend-private staging array native too: the
+        # public state cache may intentionally be float32, but passing that
+        # cache dtype here would allocate/cast one full reset state on every
+        # autoreset.  Input mutation values are copied into this scratch with
+        # ordinary widening semantics; only the pool input representation is
+        # changed, not the public plan or the cached physics trajectory.
         self._reset_state = np.empty(
             (self.public_plan.num_envs, self.state_size),
-            dtype=self.state_dtype,
+            dtype=np.float64,
+        )
+        source_dtype = np.dtype(self.state_dtype)
+        self._reset_source_state = (
+            None
+            if source_dtype == np.dtype(np.float64)
+            else np.empty(
+                (self.public_plan.num_envs, self.state_size),
+                dtype=source_dtype,
+            )
         )
         self._reset_env_ids = np.empty(self.public_plan.num_envs, dtype=np.int32)
         self._reset_row_ids = np.empty(self.public_plan.num_envs, dtype=np.intp)
@@ -501,6 +518,33 @@ class _MuJoCoHostMutationPlan:
         self._require_staged_reset_rows(rows)
         return self._reset_row_ids[: rows.count]
 
+    def _stage_native_physics_state(
+        self,
+        *,
+        physics_state: np.ndarray,
+        row_ids: np.ndarray,
+        rows: RowSelection,
+    ) -> None:
+        """Copy selected public cache rows into the native pool scratch.
+
+        ``np.take`` rejects a float32 source with float64 ``out`` under its
+        safe-casting rule.  For the public float32 profile, use one additional
+        *cold-allocated* source scratch before widening into the native pool
+        staging array.  This preserves the no-warm-allocation contract while
+        ensuring ``BatchEnvPool.reset`` receives already-native memory.
+        """
+
+        count = rows.count
+        if rows.is_all:
+            np.copyto(self._reset_state, physics_state, casting="unsafe")
+            return
+        source = self._reset_source_state
+        if source is None:
+            np.take(physics_state, row_ids, axis=0, out=self._reset_state[:count])
+            return
+        np.take(physics_state, row_ids, axis=0, out=source[:count])
+        np.copyto(self._reset_state[:count], source[:count], casting="unsafe")
+
     def _stage_prepared_reset_state(
         self,
         *,
@@ -535,10 +579,11 @@ class _MuJoCoHostMutationPlan:
 
         row_ids = self._stage_reset_rows(batch.rows)
         count = batch.rows.count
-        if batch.rows.is_all:
-            np.copyto(self._reset_state, physics_state)
-        else:
-            np.take(physics_state, row_ids, axis=0, out=self._reset_state[:count])
+        self._stage_native_physics_state(
+            physics_state=physics_state,
+            row_ids=row_ids,
+            rows=batch.rows,
+        )
 
         for slot in slots:
             values = window.buffer_at(slot.field_index)
@@ -618,15 +663,11 @@ class _MuJoCoHostMutationPlan:
             staged_values.append((spec, self._require_value_handle(value, batch.rows)))
 
         row_ids = self._stage_reset_rows(batch.rows)
-        if batch.rows.is_all:
-            np.copyto(self._reset_state, physics_state)
-        else:
-            np.take(
-                physics_state,
-                row_ids,
-                axis=0,
-                out=self._reset_state[: batch.rows.count],
-            )
+        self._stage_native_physics_state(
+            physics_state=physics_state,
+            row_ids=row_ids,
+            rows=batch.rows,
+        )
 
         for spec, values in staged_values:
             target_key = spec.target.target_key

@@ -863,6 +863,13 @@ def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wra
         mutation = _prepared_full_reset_batch(mutation_plan, rows, values)
         assert mutation.state.values == ()
         assert mutation.state.bound_buffer_window is not None
+        # The public host cache intentionally follows ``np_dtype``, whereas
+        # ``BatchEnvPool.reset`` consumes native float64 input.  The typed
+        # backend owns a cold-allocated native staging buffer so a float32
+        # manager profile does not ask the pool to allocate/cast every reset.
+        mutation_runtime = backend._host_mutation_plans[mutation_plan.fingerprint]
+        assert mutation_runtime._reset_state.dtype == np.dtype(np.float64)
+        assert mutation_runtime._reset_state.flags.c_contiguous
 
         with (
             patch.object(backend, "get_body_ids", side_effect=AssertionError("getter fallback")),
