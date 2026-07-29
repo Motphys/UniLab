@@ -321,6 +321,67 @@ def test_gate_is_not_self_referential_and_recorded_result_must_match() -> None:
     )
 
 
+def test_diagnostic_validation_accepts_only_recomputed_threshold_failures() -> None:
+    artifact, binding = _artifact()
+    for case in artifact["cases"]:
+        if case["lane"] == "throughput" and case["mode"] == "mjwarp_device":
+            for point in case["raw"]["scalars"]["Perf/collection_time"]:
+                point["value"] = 2.0
+    _refresh(artifact, binding)
+
+    assert artifact["gate"]["passed"] is False
+    assert any("iteration p50 violates" in error for error in artifact["gate"]["errors"])
+    assert ppo_benchmark.validate_artifact(artifact, binding=binding) != ()
+    assert (
+        ppo_benchmark.validate_artifact(artifact, binding=binding, require_passing_gate=False) == ()
+    )
+
+    artifact["hardware"]["gpu_uuid"] = "wrong-gpu"
+    _refresh(artifact, binding)
+    errors = ppo_benchmark.validate_artifact(artifact, binding=binding, require_passing_gate=False)
+    assert any("hardware.gpu_uuid" in error for error in errors)
+
+
+def test_allow_gate_failure_is_execute_only_and_writes_diagnostic_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ppo_benchmark.MjwarpPpoBenchmarkError, match="only with --execute"):
+        ppo_benchmark.main(["--allow-gate-failure"])
+
+    artifact, binding = _artifact()
+    for case in artifact["cases"]:
+        if case["lane"] == "behavior":
+            for point in case["raw"]["scalars"]["Train/mean_reward"]:
+                point["value"] = -10.0
+    _refresh(artifact, binding)
+    calls: list[dict[str, Any]] = []
+
+    def fake_collect(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return artifact
+
+    monkeypatch.setattr(ppo_benchmark, "collect_artifact", fake_collect)
+    output = tmp_path / "diagnostic.json"
+    trace = tmp_path / "diagnostic_trace.json"
+    assert (
+        ppo_benchmark.main(
+            [
+                "--execute",
+                "--allow-gate-failure",
+                "--out",
+                str(output),
+                "--trace-out",
+                str(trace),
+            ]
+        )
+        == 2
+    )
+    assert json.loads(output.read_text(encoding="utf-8"))["gate"] == artifact["gate"]
+    assert calls == [
+        {"output": output.resolve(), "trace_output": trace, "allow_gate_failure": True}
+    ]
+
+
 def test_matrix_process_and_contention_tampering_fail_closed() -> None:
     artifact, binding = _artifact()
     artifact["cases"].pop()
@@ -408,6 +469,9 @@ def test_each_frozen_gate_failure_is_recomputed_from_raw(fault: str, expected_er
     errors = ppo_benchmark.validate_artifact(artifact, binding=binding)
     assert any(expected_error in error for error in errors)
     assert artifact["gate"]["passed"] is False
+    assert (
+        ppo_benchmark.validate_artifact(artifact, binding=binding, require_passing_gate=False) == ()
+    )
 
 
 def test_profiler_trace_sidecar_hash_and_counts_are_independently_checked(

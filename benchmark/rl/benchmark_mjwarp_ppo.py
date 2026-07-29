@@ -1010,7 +1010,95 @@ def _ratio(value: float | int, reference: float | int) -> float:
     return float(value) / float(reference)
 
 
+def _validate_device_evidence_contract(
+    artifact: Mapping[str, Any], binding: BenchmarkBinding, errors: list[str]
+) -> None:
+    """Validate device/profiler facts that must never become diagnostic-only.
+
+    A failed performance threshold is useful optimization evidence.  A trace
+    that cannot be reconciled, a different GPU, or a substituted backend is
+    not.  Keep those provenance and measurement-contract checks separate from
+    the threshold comparison so ``--allow-gate-failure`` cannot preserve an
+    artifact whose raw evidence is untrustworthy.
+    """
+
+    device = _mapping(artifact.get("device"), "device")
+    if _integer(device.get("gpu_capacity_bytes"), "device.capacity") != binding.gpu_capacity_bytes:
+        errors.append("device GPU capacity differs from frozen benchmark host")
+    peak_reserved = _integer(device.get("peak_gpu_reserved_bytes"), "device.reserved")
+    all_device_reserved = [
+        _integer(
+            _mapping(case.get("summary"), f"{case.get('case_id')}.summary").get(
+                "peak_gpu_memory_reserved_bytes"
+            ),
+            f"{case.get('case_id')}.summary.reserved",
+        )
+        for case in _mapping(artifact, "artifact").get("cases", [])
+        if isinstance(case, Mapping) and case.get("mode") == "mjwarp_device"
+    ]
+    if not all_device_reserved or peak_reserved != max(all_device_reserved):
+        errors.append("device reserved memory does not reconcile with all mjwarp cases")
+    if device.get("profiler_reconciled") is not True:
+        errors.append("device profiler reconciliation is required")
+    profile_summary = _mapping(device.get("profiler_summary"), "device.profiler_summary")
+    profile_steps = _integer(
+        profile_summary.get("steps"), "device.profiler_summary.steps", minimum=1
+    )
+    if profile_steps != PROFILE_STEPS:
+        errors.append("device profiler summary steps differ from frozen profile protocol")
+    runtime_delta = _mapping(
+        profile_summary.get("runtime_delta"), "device.profiler_summary.runtime_delta"
+    )
+    trace_counts = _mapping(
+        profile_summary.get("trace_counts"), "device.profiler_summary.trace_counts"
+    )
+    counter_keys = (
+        ("host_to_device_transfers", "h2d_per_policy_step"),
+        ("device_to_host_transfers", "d2h_per_policy_step"),
+        ("global_synchronizations", "host_global_sync_per_policy_step"),
+    )
+    for counter_key, metric_key in counter_keys:
+        count = _integer(runtime_delta.get(counter_key), f"device.runtime_delta.{counter_key}")
+        if _integer(trace_counts.get(counter_key), f"device.trace_counts.{counter_key}") != count:
+            errors.append(f"device profiler trace does not reconcile {counter_key}")
+        if _number(device.get(metric_key), f"device.{metric_key}") != count / profile_steps:
+            errors.append(f"device {metric_key} does not reconcile profiler summary")
+    wrapper_delta = _mapping(
+        profile_summary.get("wrapper_delta"), "device.profiler_summary.wrapper_delta"
+    )
+    if _integer(
+        wrapper_delta.get("finite_metric_materializations"),
+        "device.profiler_summary.wrapper_delta.finite_metric_materializations",
+    ) != _integer(device.get("metrics_materializations"), "device.metrics_materializations"):
+        errors.append(
+            "device finite metric materialization count does not reconcile profiler summary"
+        )
+    if _integer(
+        wrapper_delta.get("finite_metric_device_to_host_bytes"),
+        "device.profiler_summary.wrapper_delta.finite_metric_device_to_host_bytes",
+    ) != _integer(
+        device.get("metrics_device_to_host_bytes"), "device.metrics_device_to_host_bytes"
+    ):
+        errors.append("device finite metric bytes do not reconcile profiler summary")
+    backend_receipt = _mapping(
+        profile_summary.get("backend_receipt"), "device.profiler_summary.backend_receipt"
+    )
+    if backend_receipt.get("backend_type") != "mjwarp":
+        errors.append("device profiler backend receipt is not mjwarp")
+    if backend_receipt.get("execution_profile") != PROFILE:
+        errors.append("device profiler execution profile is not device_resident")
+    for key in ("task_plan_fingerprint", "policy_abi_fingerprint", "backend_plan_fingerprint"):
+        if not isinstance(backend_receipt.get(key), str) or not backend_receipt[key].strip():
+            errors.append(f"device profiler backend receipt lacks {key}")
+    trace = _mapping(device.get("profiler_trace"), "device.profiler_trace")
+    _sha256(trace.get("sha256"), "device profiler trace hash")
+    if not _string(trace.get("filename"), "device profiler trace filename"):
+        errors.append("device profiler trace filename is required")
+
+
 def _recompute_gate(artifact: Mapping[str, Any], binding: BenchmarkBinding) -> list[str]:
+    """Recompute only frozen threshold outcomes from a valid raw artifact."""
+
     errors: list[str] = []
     aggregates = _mapping(artifact.get("aggregates"), "aggregates")
     behavior = _mapping(aggregates.get("behavior"), "aggregates.behavior")
@@ -1112,21 +1200,7 @@ def _recompute_gate(artifact: Mapping[str, Any], binding: BenchmarkBinding) -> l
         errors.append("behavior RSS violates frozen memory gate")
 
     device = _mapping(artifact.get("device"), "device")
-    if _integer(device.get("gpu_capacity_bytes"), "device.capacity") != binding.gpu_capacity_bytes:
-        errors.append("device GPU capacity differs from frozen benchmark host")
     peak_reserved = _integer(device.get("peak_gpu_reserved_bytes"), "device.reserved")
-    all_device_reserved = [
-        _integer(
-            _mapping(case.get("summary"), f"{case.get('case_id')}.summary").get(
-                "peak_gpu_memory_reserved_bytes"
-            ),
-            f"{case.get('case_id')}.summary.reserved",
-        )
-        for case in _mapping(artifact, "artifact").get("cases", [])
-        if isinstance(case, Mapping) and case.get("mode") == "mjwarp_device"
-    ]
-    if not all_device_reserved or peak_reserved != max(all_device_reserved):
-        errors.append("device reserved memory does not reconcile with all mjwarp cases")
     if (
         _ratio(peak_reserved, binding.gpu_capacity_bytes)
         > binding.device_peak_reserved_capacity_ratio_max
@@ -1145,62 +1219,6 @@ def _recompute_gate(artifact: Mapping[str, Any], binding: BenchmarkBinding) -> l
     for name, limit in limits.items():
         if _number(device.get(name), f"device.{name}") > limit:
             errors.append(f"device {name} violates frozen transfer gate")
-    if device.get("profiler_reconciled") is not True:
-        errors.append("device profiler reconciliation is required")
-    profile_summary = _mapping(device.get("profiler_summary"), "device.profiler_summary")
-    profile_steps = _integer(
-        profile_summary.get("steps"), "device.profiler_summary.steps", minimum=1
-    )
-    if profile_steps != PROFILE_STEPS:
-        errors.append("device profiler summary steps differ from frozen profile protocol")
-    runtime_delta = _mapping(
-        profile_summary.get("runtime_delta"), "device.profiler_summary.runtime_delta"
-    )
-    trace_counts = _mapping(
-        profile_summary.get("trace_counts"), "device.profiler_summary.trace_counts"
-    )
-    counter_keys = (
-        ("host_to_device_transfers", "h2d_per_policy_step"),
-        ("device_to_host_transfers", "d2h_per_policy_step"),
-        ("global_synchronizations", "host_global_sync_per_policy_step"),
-    )
-    for counter_key, metric_key in counter_keys:
-        count = _integer(runtime_delta.get(counter_key), f"device.runtime_delta.{counter_key}")
-        if _integer(trace_counts.get(counter_key), f"device.trace_counts.{counter_key}") != count:
-            errors.append(f"device profiler trace does not reconcile {counter_key}")
-        if _number(device.get(metric_key), f"device.{metric_key}") != count / profile_steps:
-            errors.append(f"device {metric_key} does not reconcile profiler summary")
-    wrapper_delta = _mapping(
-        profile_summary.get("wrapper_delta"), "device.profiler_summary.wrapper_delta"
-    )
-    if _integer(
-        wrapper_delta.get("finite_metric_materializations"),
-        "device.profiler_summary.wrapper_delta.finite_metric_materializations",
-    ) != _integer(device.get("metrics_materializations"), "device.metrics_materializations"):
-        errors.append(
-            "device finite metric materialization count does not reconcile profiler summary"
-        )
-    if _integer(
-        wrapper_delta.get("finite_metric_device_to_host_bytes"),
-        "device.profiler_summary.wrapper_delta.finite_metric_device_to_host_bytes",
-    ) != _integer(
-        device.get("metrics_device_to_host_bytes"), "device.metrics_device_to_host_bytes"
-    ):
-        errors.append("device finite metric bytes do not reconcile profiler summary")
-    backend_receipt = _mapping(
-        profile_summary.get("backend_receipt"), "device.profiler_summary.backend_receipt"
-    )
-    if backend_receipt.get("backend_type") != "mjwarp":
-        errors.append("device profiler backend receipt is not mjwarp")
-    if backend_receipt.get("execution_profile") != PROFILE:
-        errors.append("device profiler execution profile is not device_resident")
-    for key in ("task_plan_fingerprint", "policy_abi_fingerprint", "backend_plan_fingerprint"):
-        if not isinstance(backend_receipt.get(key), str) or not backend_receipt[key].strip():
-            errors.append(f"device profiler backend receipt lacks {key}")
-    trace = _mapping(device.get("profiler_trace"), "device.profiler_trace")
-    _sha256(trace.get("sha256"), "device profiler trace hash")
-    if not _string(trace.get("filename"), "device profiler trace filename"):
-        errors.append("device profiler trace filename is required")
     return errors
 
 
@@ -1280,18 +1298,19 @@ def _validate_trace_sibling(
         errors.append(f"profiler trace cannot be validated: {type(exc).__name__}: {exc}")
 
 
-def _core_validation_errors(
+def _integrity_validation_errors(
     artifact: object,
     *,
     binding: BenchmarkBinding | None = None,
     repo_root: Path | None = None,
     artifact_path: Path | None = None,
 ) -> tuple[str, ...]:
-    """Recompute all raw/provenance/gate facts without inspecting ``artifact.gate``.
+    """Recompute raw/provenance facts without inspecting threshold gate outcome.
 
-    Keeping this function independent of the recorded gate prevents a newly
-    generated artifact from having to validate a self-referential ``gate``
-    member before that member exists.
+    This deliberately excludes frozen performance/training/memory/transfer
+    thresholds.  A complete result that misses one of those thresholds is
+    valuable diagnostic evidence; a broken source receipt, matrix, profiler,
+    or raw-to-summary reconciliation is not.
     """
 
     errors: list[str] = []
@@ -1354,6 +1373,10 @@ def _core_validation_errors(
                 errors.append(f"execution.{preflight_key} records foreign GPU compute processes")
 
         device_receipt = _mapping(root.get("device"), "device")
+        try:
+            _validate_device_evidence_contract(root, active_binding, errors)
+        except MjwarpPpoBenchmarkError as exc:
+            errors.append(f"device evidence contract is invalid: {exc}")
         profiler_process = _mapping(
             device_receipt.get("profiler_process"), "device.profiler_process"
         )
@@ -1443,9 +1466,8 @@ def _core_validation_errors(
             expected_aggregates = build_aggregates(cases, active_binding)
             if root.get("aggregates") != expected_aggregates:
                 errors.append("aggregates are not an exact recomputation of every raw case")
-            errors.extend(_recompute_gate(root, active_binding))
         except (KeyError, TypeError, ValueError, MjwarpPpoBenchmarkError) as exc:
-            errors.append(f"aggregate/gate recomputation failed: {type(exc).__name__}: {exc}")
+            errors.append(f"aggregate recomputation failed: {type(exc).__name__}: {exc}")
 
         if repo_root is not None:
             repository = repo_root.resolve()
@@ -1463,18 +1485,75 @@ def _core_validation_errors(
     return tuple(errors)
 
 
-def validate_artifact(
+def _validation_error_parts(
+    artifact: object,
+    *,
+    binding: BenchmarkBinding | None = None,
+    repo_root: Path | None = None,
+    artifact_path: Path | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return non-negotiable evidence errors separately from threshold misses."""
+
+    integrity_errors = list(
+        _integrity_validation_errors(
+            artifact,
+            binding=binding,
+            repo_root=repo_root,
+            artifact_path=artifact_path,
+        )
+    )
+    gate_errors: tuple[str, ...] = ()
+    try:
+        root = _mapping(artifact, "artifact")
+        active_binding = binding or load_binding()
+        gate_errors = tuple(_recompute_gate(root, active_binding))
+    except MjwarpPpoBenchmarkError as exc:
+        integrity_errors.append(f"gate recomputation failed: {type(exc).__name__}: {exc}")
+    return tuple(integrity_errors), gate_errors
+
+
+def _core_validation_errors(
     artifact: object,
     *,
     binding: BenchmarkBinding | None = None,
     repo_root: Path | None = None,
     artifact_path: Path | None = None,
 ) -> tuple[str, ...]:
-    """Validate the raw artifact and then verify its recorded gate exactly."""
+    """Recompute all raw/provenance/gate facts without inspecting ``artifact.gate``."""
 
-    core_errors = _core_validation_errors(
-        artifact, binding=binding, repo_root=repo_root, artifact_path=artifact_path
+    integrity_errors, gate_errors = _validation_error_parts(
+        artifact,
+        binding=binding,
+        repo_root=repo_root,
+        artifact_path=artifact_path,
     )
+    return (*integrity_errors, *gate_errors)
+
+
+def validate_artifact(
+    artifact: object,
+    *,
+    binding: BenchmarkBinding | None = None,
+    repo_root: Path | None = None,
+    artifact_path: Path | None = None,
+    require_passing_gate: bool = True,
+) -> tuple[str, ...]:
+    """Validate raw evidence and the recorded gate.
+
+    ``require_passing_gate=False`` is intentionally narrow: it accepts only a
+    fully reconciled artifact whose *sole* failures are recomputed frozen
+    thresholds.  It is useful for retaining diagnostic measurements, but the
+    default remains evidence-grade validation and therefore rejects every
+    failed gate.
+    """
+
+    integrity_errors, threshold_errors = _validation_error_parts(
+        artifact,
+        binding=binding,
+        repo_root=repo_root,
+        artifact_path=artifact_path,
+    )
+    core_errors = (*integrity_errors, *threshold_errors)
     gate_errors: list[str] = []
     try:
         recorded_gate = _mapping(_mapping(artifact, "artifact").get("gate"), "gate")
@@ -1483,7 +1562,9 @@ def validate_artifact(
             gate_errors.append("recorded gate does not match independent core validation")
     except MjwarpPpoBenchmarkError as exc:
         gate_errors.append(str(exc))
-    return (*core_errors, *gate_errors)
+    if require_passing_gate:
+        return (*core_errors, *gate_errors)
+    return (*integrity_errors, *gate_errors)
 
 
 def _device_profile_worker(*, output: Path, steps: int) -> int:
@@ -1761,8 +1842,16 @@ def _run_registered_case_process(
     return result
 
 
-def collect_artifact(*, output: Path, trace_output: Path) -> dict[str, Any]:
-    """Execute the complete pre-registered matrix and return a self-validating artifact."""
+def collect_artifact(
+    *, output: Path, trace_output: Path, allow_gate_failure: bool = False
+) -> dict[str, Any]:
+    """Execute the pre-registered matrix and return a validated artifact.
+
+    A diagnostic capture is permitted only when all raw/provenance contracts
+    pass and the recomputed failures are frozen thresholds.  This gives an
+    optimization child issue the complete evidence it needs without allowing a
+    malformed or substituted result to escape as a benchmark artifact.
+    """
 
     output = output.resolve()
     trace_output = trace_output.resolve()
@@ -1861,6 +1950,7 @@ def collect_artifact(*, output: Path, trace_output: Path) -> dict[str, Any]:
         binding=binding,
         repo_root=ROOT_DIR,
         artifact_path=output,
+        require_passing_gate=not allow_gate_failure,
     )
     if errors:
         raise MjwarpPpoBenchmarkError(
@@ -1872,6 +1962,14 @@ def collect_artifact(*, output: Path, trace_output: Path) -> dict[str, Any]:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument(
+        "--allow-gate-failure",
+        action="store_true",
+        help=(
+            "write a structurally validated diagnostic artifact when only frozen "
+            "thresholds fail; it remains invalid as Phase 5 evidence"
+        ),
+    )
     parser.add_argument("--list-cases", action="store_true")
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--case-id")
@@ -1889,6 +1987,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.allow_gate_failure and not args.execute:
+        raise MjwarpPpoBenchmarkError("--allow-gate-failure is valid only with --execute")
     if args.list_cases:
         for case_id in expected_case_specs(load_binding()):
             print(case_id)
@@ -1920,8 +2020,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("Refusing to run implicitly; pass --execute or --validate-artifact")
     output = args.out.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    artifact = collect_artifact(output=output, trace_output=args.trace_out)
+    artifact = collect_artifact(
+        output=output,
+        trace_output=args.trace_out,
+        allow_gate_failure=args.allow_gate_failure,
+    )
     output.write_text(json.dumps(_json_safe(artifact), indent=2, sort_keys=True), encoding="utf-8")
+    if artifact["gate"]["passed"] is not True:
+        print(f"DIAGNOSTIC gate failed; wrote non-evidence artifact to {output}")
+        return 2
     print(f"PASS wrote {output}")
     return 0
 
