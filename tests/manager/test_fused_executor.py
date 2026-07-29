@@ -17,7 +17,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from unilab.base.backend import SimBackend, create_backend, env_backend_kwargs
+from unilab.base.backend import (
+    BoundMutationValueBuffers,
+    RowSelection,
+    SimBackend,
+    TypedBackendMutationBatch,
+    create_backend,
+    env_backend_kwargs,
+)
 from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1 import managed_fused as fused_module
 from unilab.envs.locomotion.g1.joystick import G1WalkEnv, G1WalkFlatCfg, G1WalkRewardConfig
@@ -413,6 +420,31 @@ def test_fused_executor_uses_serial_numba_hot_kernels_for_host_profile() -> None
         fused_module._complete_reset_task_state_kernel,
     )
     assert all(dispatcher.targetoptions.get("parallel", False) is False for dispatcher in dispatchers)
+
+
+def test_fused_reset_uses_cold_bound_complete_mutation_window() -> None:
+    """Reset descriptor construction stays cold-bound for the fused profile."""
+
+    cfg = _cfg(noise_level=0.0)
+    backend = _backend(deepcopy(cfg), num_envs=4)
+    try:
+        runtime = create_g1_managed_fused_runtime(backend=backend, cfg=cfg, reset_seed=29)
+        runtime.init_state()
+        task = runtime.task_state
+        assert task is not None
+        buffer_set = getattr(task, "reset_value_buffer_set")
+        assert isinstance(buffer_set, BoundMutationValueBuffers)
+        rows = RowSelection.selected(backend.num_envs, (3, 1))
+        request = runtime._kernel.prepare_reset(rows=rows, task_state=task)  # type: ignore[attr-defined]
+        assert isinstance(request.mutation_batch, TypedBackendMutationBatch)
+        assert request.mutation_batch.state.values == ()
+        window = request.mutation_batch.state.bound_buffer_window
+        assert window is not None
+        assert window.buffers is buffer_set
+        assert window.rows == rows
+        assert window.plan == runtime.kernel_binding.mutation_plan
+    finally:
+        _cleanup(backend)
 
 
 def test_fused_executor_never_silently_falls_back() -> None:
