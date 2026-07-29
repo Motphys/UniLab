@@ -44,6 +44,8 @@ def test_device_adapter_preserves_terminal_timeout_and_storage_contract() -> Non
         episode_lengths = torch.zeros_like(wrapper.episode_length_buf)
         episode_lengths[::2].fill_(wrapper.max_episode_length - 1)
         wrapper.episode_length_buf = episode_lengths
+        previous_observations = wrapper.get_observations()
+        previous_actor = previous_observations["actor"].clone()
 
         observations, rewards, dones, extras = wrapper.step(
             torch.zeros((wrapper.num_envs, wrapper.num_actions), device=wrapper.device)
@@ -52,10 +54,13 @@ def test_device_adapter_preserves_terminal_timeout_and_storage_contract() -> Non
         transition.completion.event.synchronize()
 
         assert observations.device == wrapper.device
-        assert observations["actor"].data_ptr() == transition.observation("obs").torch().data_ptr()
-        assert (
-            observations["critic"].data_ptr() == transition.observation("critic").torch().data_ptr()
+        assert observations["actor"].data_ptr() != transition.observation("obs").torch().data_ptr()
+        assert observations["critic"].data_ptr() != (
+            transition.observation("critic").torch().data_ptr()
         )
+        assert observations["actor"].data_ptr() == observations["policy"].data_ptr()
+        assert observations["actor"].data_ptr() != previous_observations["actor"].data_ptr()
+        assert torch.equal(previous_observations["actor"], previous_actor)
         assert rewards.device == wrapper.device
         assert dones.device == wrapper.device
         assert extras["time_outs"].device == wrapper.device
@@ -94,7 +99,38 @@ def test_device_adapter_step_has_no_host_roundtrip_or_done_index_branch() -> Non
         traffic = wrapper.traffic_diagnostics
         assert traffic.action_publications == 1
         assert traffic.action_device_to_device_bytes == actions.numel() * actions.element_size()
+        assert traffic.observation_snapshots == 2
+        expected_observation_bytes = (
+            observations["actor"].numel() + observations["critic"].numel()
+        ) * observations["actor"].element_size()
+        assert traffic.observation_device_to_device_bytes == 2 * expected_observation_bytes
         assert traffic.finite_metric_materializations == 0
+
+
+def test_device_adapter_reuses_two_stable_observation_snapshot_slots() -> None:
+    """The lifetime fix remains allocation-stable over repeated CUDA steps."""
+
+    with _device_env(num_envs=32) as env:
+        wrapper = DeviceRslRlVecEnvWrapper(env, device="cuda:0", reset_seed=15)
+        observations = wrapper.get_observations()
+        actor_addresses = [observations["actor"].data_ptr()]
+        critic_addresses = [observations["critic"].data_ptr()]
+        actions = torch.zeros((wrapper.num_envs, wrapper.num_actions), device=wrapper.device)
+
+        with forbid_host_roundtrip(env._backend):
+            for _ in range(6):
+                observations, _, _, _ = wrapper.step(actions)
+                actor_addresses.append(observations["actor"].data_ptr())
+                critic_addresses.append(observations["critic"].data_ptr())
+        wrapper.last_transition.completion.event.synchronize()
+
+        assert len(set(actor_addresses)) == 2
+        assert len(set(critic_addresses)) == 2
+        assert actor_addresses[::2] == [actor_addresses[0]] * 4
+        assert actor_addresses[1::2] == [actor_addresses[1]] * 3
+        assert critic_addresses[::2] == [critic_addresses[0]] * 4
+        assert critic_addresses[1::2] == [critic_addresses[1]] * 3
+        assert wrapper.traffic_diagnostics.observation_snapshots == 7
 
 
 @pytest.mark.parametrize("invalid", (float("nan"), float("inf"), -float("inf")))
