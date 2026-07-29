@@ -524,7 +524,7 @@ class MjwarpBackend(SimBackend):
         """Materialize immutable profiler events only when diagnostics request them."""
         return self._transfer_telemetry.trace()
 
-    def get_device_capacity_diagnostics(self) -> MjwarpDeviceCapacityDiagnostics:
+    def capture_device_capacity_diagnostics(self) -> MjwarpDeviceCapacityDiagnostics:
         """Synchronize once on a cold diagnostic path and report capacity headroom.
 
         This method exists for backend-owner validation of an explicit task
