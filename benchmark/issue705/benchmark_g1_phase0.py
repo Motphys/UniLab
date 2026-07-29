@@ -509,7 +509,20 @@ def _gpu_idle_sample() -> dict[str, Any]:
     }
 
 
-def _preflight_payload(plan: G1BaselinePlan) -> dict[str, Any]:
+def _preflight_payload(
+    plan: G1BaselinePlan,
+    *,
+    enforce_cpu_load: bool = True,
+) -> dict[str, Any]:
+    """Capture benchmark-host readiness with an optional CPU-load gate.
+
+    A post-capture sample for a CPU benchmark necessarily includes the
+    benchmark's own recent worker load in Linux's one-minute average.  Callers
+    may therefore record that sample with ``enforce_cpu_load=False`` while
+    still fail-closing on foreign GPU activity and excessive GPU utilization.
+    The default preserves the Phase-0 preflight gate.
+    """
+
     load_average = float(os.getloadavg()[0])
     load_per_core = load_average / plan.hardware.cpu_physical_cores
     processes = _gpu_compute_processes()
@@ -525,7 +538,7 @@ def _preflight_payload(plan: G1BaselinePlan) -> dict[str, Any]:
         "gpu_compute_processes": processes,
         "gpu_samples": samples,
     }
-    if load_per_core > plan.preflight.max_load_per_physical_core:
+    if enforce_cpu_load and load_per_core > plan.preflight.max_load_per_physical_core:
         raise RuntimeError(
             f"preflight CPU load {load_per_core:.3f} exceeds "
             f"{plan.preflight.max_load_per_physical_core:.3f} per physical core"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gc
+import weakref
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +14,8 @@ from unilab.base.backend import (
     BackendBatchCounterBudget,
     BackendIORequirements,
     BoundFieldIdentity,
+    BoundMutationValueBufferGroup,
+    BoundMutationValueBuffers,
     BufferContract,
     BufferLayout,
     BufferLifetime,
@@ -196,7 +200,7 @@ def _requirements(backend: MuJoCoBackend) -> BackendIORequirements:
         control=ControlSpec("hinge.control", control_buffer),
         execution_profile=ExecutionProfile.HOST_NUMPY,
         hot_path_budget=BackendBatchCounterBudget(
-            allocations=2 if dtype == np.dtype(np.float64) else 4,
+            allocations=2 if dtype == np.dtype(np.float64) else 3,
             state_materializations=1,
         ),
     )
@@ -292,7 +296,7 @@ def _full_reset_requirements(backend: MuJoCoBackend) -> BackendIORequirements:
         control=ControlSpec("hinge.control", control_buffer),
         execution_profile=ExecutionProfile.HOST_NUMPY,
         hot_path_budget=BackendBatchCounterBudget(
-            allocations=2 if dtype == np.dtype(np.float64) else 4,
+            allocations=2 if dtype == np.dtype(np.float64) else 3,
             state_materializations=1,
         ),
     )
@@ -480,6 +484,55 @@ def _full_reset_batch(
                 for term_key, value in values.items()
             )
         ),
+    )
+
+
+def _prepared_full_reset_batch(
+    mutation_plan,
+    rows: RowSelection,
+    values: dict[str, np.ndarray],
+    *,
+    group_hinge: bool = False,
+) -> TypedBackendMutationBatch:
+    """Build the cold-bound complete-value path used by fused reset kernels."""
+
+    buffers_list = [
+        np.empty(
+            (mutation_plan.num_envs, *spec.value_buffer.row_shape),
+            dtype=spec.value_buffer.dtype,
+        )
+        for spec in mutation_plan.specs
+    ]
+    groups: tuple[BoundMutationValueBufferGroup, ...] = ()
+    if group_hinge:
+        group_indices = (
+            mutation_plan.spec_index("reset.hinge.position"),
+            mutation_plan.spec_index("reset.hinge.velocity"),
+        )
+        group_buffer = np.empty(
+            (len(group_indices), mutation_plan.num_envs, 1, 1),
+            dtype=mutation_plan.specs[group_indices[0]].value_buffer.dtype,
+        )
+        for group_offset, field_index in enumerate(group_indices):
+            buffers_list[field_index] = group_buffer[group_offset]
+        groups = (
+            BoundMutationValueBufferGroup(
+                field_indices=group_indices,
+                buffer=group_buffer,
+            ),
+        )
+    buffers = tuple(buffers_list)
+    for index, spec in enumerate(mutation_plan.specs):
+        np.copyto(buffers[index][: rows.count], values[spec.term_key], casting="unsafe")
+    bound_buffers = BoundMutationValueBuffers(
+        plan=mutation_plan,
+        buffers=buffers,
+        groups=groups,
+    )
+    return TypedBackendMutationBatch(
+        plan=mutation_plan,
+        rows=rows,
+        state=SimulationStateMutationBatch(bound_buffer_window=bound_buffers.window(rows)),
     )
 
 
@@ -796,6 +849,165 @@ def test_mujoco_typed_reset_commits_full_floating_root_and_hinge_slice(
     finally:
         _close(backend)
         _close(reference)
+
+
+@pytest.mark.parametrize(
+    ("np_dtype", "atol"),
+    ((np.float32, 3e-6), (np.float64, 1e-12)),
+)
+def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wrappers(
+    tmp_path: Path,
+    np_dtype: type[np.floating],
+    atol: float,
+) -> None:
+    """A complete cold-bound window is equivalent to the public reset envelope.
+
+    The test intentionally supplies no ``MutationValueBatch`` descriptors.
+    If the backend regresses to the generic descriptor path it must fail
+    closed instead of silently reading a manager-private reset layout.
+    """
+
+    backend = _backend(tmp_path, np_dtype=np_dtype)
+    try:
+        plan = backend.bind_task_io(_full_reset_requirements(backend))
+        mutation_plan = backend.bind_mutation_plan(_full_reset_specs(np.dtype(np_dtype)))
+        rows = RowSelection.selected(backend.num_envs, (3, 1))
+        values = {
+            "reset.root.position": np.asarray(
+                [[[1.25, -0.75, 0.55]], [[-0.5, 0.75, 1.1]]], dtype=np_dtype
+            ),
+            "reset.root.orientation": np.asarray(
+                [[[0.5, 0.5, 0.5, 0.5]], [[0.0, 0.0, 0.0, 1.0]]], dtype=np_dtype
+            ),
+            "reset.root.linear_velocity": np.asarray(
+                [[[2.5, -3.0, 1.0]], [[-1.5, 0.25, 0.75]]], dtype=np_dtype
+            ),
+            "reset.root.angular_velocity": np.asarray(
+                [[[0.2, 0.4, 0.6]], [[-0.3, -0.2, -0.1]]], dtype=np_dtype
+            ),
+            "reset.hinge.position": np.asarray([[[1.25]], [[-0.75]]], dtype=np_dtype),
+            "reset.hinge.velocity": np.asarray([[[2.5]], [[-3.0]]], dtype=np_dtype),
+        }
+        mutation = _prepared_full_reset_batch(
+            mutation_plan,
+            rows,
+            values,
+            group_hinge=True,
+        )
+        assert mutation.state.values == ()
+        assert mutation.state.bound_buffer_window is not None
+        # The public host cache intentionally follows ``np_dtype``, whereas
+        # ``BatchEnvPool.reset`` consumes native float64 input.  The typed
+        # backend owns a cold-allocated native staging buffer so a float32
+        # manager profile does not ask the pool to allocate/cast every reset.
+        mutation_runtime = backend._host_mutation_plans[mutation_plan.fingerprint]
+        assert mutation_runtime._reset_state.dtype == np.dtype(np.float64)
+        assert mutation_runtime._reset_state.flags.c_contiguous
+
+        with (
+            patch.object(backend, "get_body_ids", side_effect=AssertionError("getter fallback")),
+            patch.object(
+                backend, "get_joint_dof_pos_indices", side_effect=AssertionError("getter fallback")
+            ),
+            patch.object(
+                backend, "get_joint_dof_vel_indices", side_effect=AssertionError("getter fallback")
+            ),
+            patch.object(backend, "set_state", side_effect=AssertionError("legacy reset fallback")),
+            patch.object(Path, "read_bytes", side_effect=AssertionError("asset fallback")),
+            patch.object(Path, "read_text", side_effect=AssertionError("asset fallback")),
+        ):
+            result = backend.reset_batch(plan, rows, mutation_batch=mutation)
+
+        window = mutation.state.bound_buffer_window
+        assert window is not None
+        prepared = mutation_runtime._prepared_buffer_sets[id(window.buffers)]
+        assert prepared.owner is window.buffers
+        assert len(prepared.groups) == 1
+        assert len(prepared.individual) == 4
+
+        reset_values = _full_state_arrays(result.reset_state)
+        expected_by_state_key = {
+            "root.position": values["reset.root.position"][:, 0, :],
+            "root.orientation": values["reset.root.orientation"][:, 0, :],
+            "root.linear_velocity": values["reset.root.linear_velocity"][:, 0, :],
+            "root.angular_velocity": values["reset.root.angular_velocity"][:, 0, :],
+            "hinge.position": values["reset.hinge.position"][:, 0, :],
+            "hinge.angular_velocity": values["reset.hinge.velocity"][:, 0, :],
+        }
+        for key, expected in expected_by_state_key.items():
+            np.testing.assert_allclose(reset_values[key], expected, atol=atol, rtol=atol)
+
+        with pytest.raises(MutationContractError, match="rows do not match"):
+            TypedBackendMutationBatch(
+                plan=mutation_plan,
+                rows=RowSelection.all(backend.num_envs),
+                state=SimulationStateMutationBatch(
+                    bound_buffer_window=mutation.state.bound_buffer_window
+                ),
+            )
+
+        buffer_set_id = id(window.buffers)
+        owner_ref = weakref.ref(window.buffers)
+        del prepared
+        del window
+        del mutation
+        gc.collect()
+        assert owner_ref() is None
+        assert buffer_set_id not in mutation_runtime._prepared_buffer_sets
+    finally:
+        _close(backend)
+
+
+def test_cold_bound_reset_buffer_groups_fail_closed_on_invalid_aliasing(tmp_path: Path) -> None:
+    backend = _backend(tmp_path)
+    try:
+        mutation_plan = backend.bind_mutation_plan(_full_reset_specs(np.dtype(np.float64)))
+        position_index = mutation_plan.spec_index("reset.hinge.position")
+        velocity_index = mutation_plan.spec_index("reset.hinge.velocity")
+        group_indices = (position_index, velocity_index)
+        group_buffer = np.empty((2, mutation_plan.num_envs, 1, 1), dtype=np.float64)
+        canonical = tuple(
+            np.empty(
+                (mutation_plan.num_envs, *spec.value_buffer.row_shape),
+                dtype=spec.value_buffer.dtype,
+            )
+            for spec in mutation_plan.specs
+        )
+        group = BoundMutationValueBufferGroup(
+            field_indices=group_indices,
+            buffer=group_buffer,
+        )
+
+        with pytest.raises(MutationContractError, match="field slice does not match"):
+            BoundMutationValueBuffers(
+                plan=mutation_plan,
+                buffers=canonical,
+                groups=(group,),
+            )
+
+        aliased = list(canonical)
+        aliased[position_index] = group_buffer[0]
+        aliased[velocity_index] = group_buffer[1]
+        with pytest.raises(MutationContractError, match="overlap canonical fields"):
+            BoundMutationValueBuffers(
+                plan=mutation_plan,
+                buffers=tuple(aliased),
+                groups=(group, group),
+            )
+
+        root_position_index = mutation_plan.spec_index("reset.root.position")
+        heterogeneous = BoundMutationValueBufferGroup(
+            field_indices=(root_position_index, position_index),
+            buffer=np.empty((2, mutation_plan.num_envs, 1, 3), dtype=np.float64),
+        )
+        with pytest.raises(MutationContractError, match="not homogeneous"):
+            BoundMutationValueBuffers(
+                plan=mutation_plan,
+                buffers=canonical,
+                groups=(heterogeneous,),
+            )
+    finally:
+        _close(backend)
 
 
 def test_mujoco_typed_reset_binding_and_commit_faults_fail_closed(tmp_path: Path) -> None:

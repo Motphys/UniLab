@@ -653,6 +653,19 @@ class ManagedReferenceRuntime:
         self._control = np.empty(
             (self._num_envs, *bound.control.buffer.row_shape), dtype=self._dtype
         )
+        # Full-row control has a plan-stable address and contract.  Bind its
+        # typed envelope once on the cold path; only the numeric contents are
+        # manager-written before each backend barrier.
+        self._all_rows = RowSelection.all(self._num_envs)
+        self._control_batch = ControlBatch(
+            plan=self._bound_plan,
+            rows=self._all_rows,
+            buffer=BufferView(
+                handle=self._control,
+                shape=self._control.shape,
+                contract=self._bound_plan.control.buffer,
+            ),
+        )
         self._observation_keys, self._observation_buffers = self._allocate_observations()
         self._obs = dict(zip(self._observation_keys, self._observation_buffers, strict=True))
         self._reward = np.zeros((self._num_envs,), dtype=self._dtype)
@@ -1091,7 +1104,7 @@ class ManagedReferenceRuntime:
             final_observation=None,
         )
         self._clear_final_observation()
-        self._reset_rows(RowSelection.all(self._num_envs), initial=True)
+        self._reset_rows(self._all_rows, initial=True)
         self._clear_final_observation()
         self._arm_stability_monitor()
         self._trace(ManagedLifecyclePhase.COMPLETE)
@@ -1134,23 +1147,14 @@ class ManagedReferenceRuntime:
         mutation = self._kernel.build_pre_physics_mutation(task_state=task_state)
         self._validate_mutation(
             mutation,
-            rows=RowSelection.all(self._num_envs),
+            rows=self._all_rows,
             context="managed pre-physics",
             required=False,
-        )
-        control = ControlBatch(
-            plan=self._bound_plan,
-            rows=RowSelection.all(self._num_envs),
-            buffer=BufferView(
-                handle=self._control,
-                shape=self._control.shape,
-                contract=self._bound_plan.control.buffer,
-            ),
         )
         self._trace(ManagedLifecyclePhase.PHYSICS)
         step_result = self._backend.step_batch(
             self._bound_plan,
-            control,
+            self._control_batch,
             mutation_batch=mutation,
             nsteps=self._bound_plan.control.physics_substeps_per_control,
         )
@@ -1158,8 +1162,11 @@ class ManagedReferenceRuntime:
             raise ManagedRuntimeError("backend step_batch must return a BackendStepResult")
         self._record_backend_diagnostics(phase="step", diagnostics=step_result.diagnostics)
         terminal = step_result.terminal_state
-        all_rows = RowSelection.all(self._num_envs)
-        self._validate_state(terminal, phase=StateBatchPhase.TERMINAL, rows=all_rows)
+        self._validate_state(
+            terminal,
+            phase=StateBatchPhase.TERMINAL,
+            rows=self._all_rows,
+        )
         self._observe_stability_state(terminal)
 
         self._trace(ManagedLifecyclePhase.TERMINATION)

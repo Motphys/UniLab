@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from .batch import BufferView, RowSelection
 from .mutation import (
     BoundMutationPlan,
@@ -51,6 +53,231 @@ class MutationValueBatch:
         return self.plan.specs[self.field_index]
 
 
+@dataclass(frozen=True)
+class BoundMutationValueBufferGroup:
+    """Homogeneous field-major storage hint for cold-bound mutation values.
+
+    ``field_indices`` maps the leading axis of ``buffer`` to canonical fields
+    in a :class:`BoundMutationValueBuffers` set.  Backends may use this hint to
+    commit homogeneous fields in one vectorized operation.  The canonical
+    per-field buffers remain authoritative, so an unsupported group can always
+    fall back without dropping a mutation field.
+    """
+
+    field_indices: tuple[int, ...]
+    buffer: np.ndarray = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.field_indices, tuple)
+            or not self.field_indices
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in self.field_indices
+            )
+        ):
+            raise MutationContractError(
+                "bound mutation value buffer group requires non-negative field indices"
+            )
+        if len(set(self.field_indices)) != len(self.field_indices):
+            raise MutationContractError(
+                "bound mutation value buffer group contains duplicate field indices"
+            )
+        if not isinstance(self.buffer, np.ndarray):
+            raise MutationContractError("bound mutation value buffer group must use a numpy array")
+
+
+def _same_array_view(left: np.ndarray, right: np.ndarray) -> bool:
+    """Return whether two arrays describe the exact same numeric view."""
+
+    return (
+        left.shape == right.shape
+        and left.dtype == right.dtype
+        and left.strides == right.strides
+        and int(left.__array_interface__["data"][0]) == int(right.__array_interface__["data"][0])
+    )
+
+
+@dataclass(frozen=True)
+class BoundMutationValueBuffers:
+    """Cold-bound manager buffers for a complete typed mutation plan.
+
+    A normal :class:`MutationValueBatch` intentionally carries a freshly
+    shaped ``BufferView`` for each value at every barrier.  That is the right
+    general API for sparse, heterogeneous mutation batches, but it creates a
+    substantial amount of descriptor/validation work for a task which always
+    writes every field of one already-bound plan (for example G1's complete
+    reset state).
+
+    This class is the explicit, opt-in alternative for that narrow case.  It
+    validates fixed-capacity manager-owned arrays *once* on the cold path.
+    A later :meth:`window` only supplies the row mapping; values always occupy
+    the leading ``rows.count`` entries of each stable backing array.  The
+    enclosing typed sub-batch still checks plan ownership, exact rows, target
+    kind, and canonical field coverage, so this does not introduce an
+    untyped dictionary or relax backend ownership.
+    """
+
+    plan: BoundMutationPlan
+    buffers: tuple[np.ndarray, ...] = field(repr=False, compare=False)
+    groups: tuple[BoundMutationValueBufferGroup, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
+    _field_indices: tuple[int, ...] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.plan, BoundMutationPlan):
+            raise MutationContractError("bound mutation value buffers require a BoundMutationPlan")
+        if not isinstance(self.buffers, tuple) or len(self.buffers) != len(self.plan.specs):
+            raise MutationContractError(
+                "bound mutation value buffers must contain one array per bound mutation field"
+            )
+        for index, (spec, buffer) in enumerate(zip(self.plan.specs, self.buffers, strict=True)):
+            if not isinstance(buffer, np.ndarray):
+                raise MutationContractError(
+                    f"bound mutation value buffer {index} must be a numpy array"
+                )
+            expected_shape = (self.plan.num_envs, *spec.value_buffer.row_shape)
+            if buffer.shape != expected_shape:
+                raise MutationContractError(
+                    f"bound mutation value buffer {index} requires shape {expected_shape}, "
+                    f"got {buffer.shape}"
+                )
+            if buffer.dtype.name != spec.value_buffer.dtype:
+                raise MutationContractError(
+                    f"bound mutation value buffer {index} dtype does not match its field contract"
+                )
+            if not buffer.flags.c_contiguous:
+                raise MutationContractError(
+                    f"bound mutation value buffer {index} must be C-contiguous"
+                )
+            if not buffer.flags.writeable:
+                raise MutationContractError(
+                    f"bound mutation value buffer {index} must remain manager-writeable"
+                )
+        if not isinstance(self.groups, tuple) or any(
+            not isinstance(group, BoundMutationValueBufferGroup) for group in self.groups
+        ):
+            raise MutationContractError(
+                "bound mutation value buffer groups must be typed buffer groups"
+            )
+        grouped_fields: set[int] = set()
+        for group_index, group in enumerate(self.groups):
+            overlap = grouped_fields.intersection(group.field_indices)
+            if overlap:
+                raise MutationContractError(
+                    "bound mutation value buffer groups overlap canonical fields: "
+                    + ", ".join(str(index) for index in sorted(overlap))
+                )
+            try:
+                specs = tuple(self.plan.specs[index] for index in group.field_indices)
+                field_buffers = tuple(self.buffers[index] for index in group.field_indices)
+            except IndexError as exc:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} references an unbound field"
+                ) from exc
+            first_contract = specs[0].value_buffer
+            if any(spec.value_buffer != first_contract for spec in specs[1:]):
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} fields are not homogeneous"
+                )
+            expected_shape = (
+                len(group.field_indices),
+                self.plan.num_envs,
+                *first_contract.row_shape,
+            )
+            if group.buffer.shape != expected_shape:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} requires shape "
+                    f"{expected_shape}, got {group.buffer.shape}"
+                )
+            if group.buffer.dtype.name != first_contract.dtype:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} dtype does not match "
+                    "its field contracts"
+                )
+            if not group.buffer.flags.c_contiguous or not group.buffer.flags.writeable:
+                raise MutationContractError(
+                    f"bound mutation value buffer group {group_index} must be C-contiguous "
+                    "and manager-writeable"
+                )
+            for field_offset, field_buffer in enumerate(field_buffers):
+                if not _same_array_view(field_buffer, group.buffer[field_offset]):
+                    raise MutationContractError(
+                        f"bound mutation value buffer group {group_index} field slice does not "
+                        "match its canonical buffer"
+                    )
+            grouped_fields.update(group.field_indices)
+        object.__setattr__(self, "_field_indices", tuple(range(len(self.buffers))))
+
+    def window(self, rows: RowSelection) -> "BoundMutationValueWindow":
+        """Bind a runtime row selection without allocating per-field views."""
+
+        return BoundMutationValueWindow(buffers=self, rows=rows)
+
+
+@dataclass(frozen=True)
+class BoundMutationValueWindow:
+    """Row-scoped use of a cold-bound :class:`BoundMutationValueBuffers` set."""
+
+    buffers: BoundMutationValueBuffers = field(repr=False, compare=False)
+    rows: RowSelection
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.buffers, BoundMutationValueBuffers):
+            raise MutationContractError(
+                "bound mutation value window requires cold-bound mutation value buffers"
+            )
+        if not isinstance(self.rows, RowSelection):
+            raise MutationContractError("bound mutation value window rows must be a RowSelection")
+        if self.rows.universe_size != self.buffers.plan.num_envs:
+            raise MutationContractError(
+                "bound mutation value window row universe does not match its bound plan"
+            )
+
+    @property
+    def plan(self) -> BoundMutationPlan:
+        """Expose the immutable plan identity needed by the typed envelope."""
+
+        return self.buffers.plan
+
+    @property
+    def field_indices(self) -> tuple[int, ...]:
+        """The canonical, complete field set represented by this window."""
+
+        return self.buffers._field_indices
+
+    def buffer_at(self, field_index: int) -> np.ndarray:
+        """Return stable full-capacity storage; consumers use ``rows.count``.
+
+        Returning the backing storage rather than a prefix view is deliberate:
+        it avoids constructing one temporary ndarray view per field per reset.
+        Backend consumers already receive ``rows`` and must only read the
+        leading local rows of this manager-owned staging contract.
+        """
+
+        if isinstance(field_index, bool) or not isinstance(field_index, int) or field_index < 0:
+            raise MutationContractError("bound mutation field_index must be an integer")
+        try:
+            buffer = self.buffers.buffers[field_index]
+            spec = self.plan.specs[field_index]
+        except IndexError as exc:
+            raise MutationContractError("bound mutation field_index is not bound") from exc
+        expected_shape = (self.plan.num_envs, *spec.value_buffer.row_shape)
+        if (
+            buffer.shape != expected_shape
+            or buffer.dtype.name != spec.value_buffer.dtype
+            or not buffer.flags.c_contiguous
+            or not buffer.flags.writeable
+        ):
+            raise MutationContractError(
+                "cold-bound mutation value buffer changed after materialization"
+            )
+        return buffer
+
+
 def _validate_values(values: tuple[MutationValueBatch, ...], name: str) -> None:
     if not isinstance(values, tuple) or any(
         not isinstance(value, MutationValueBatch) for value in values
@@ -69,9 +296,21 @@ class ModelParameterMutationBatch:
 @dataclass(frozen=True)
 class SimulationStateMutationBatch:
     values: tuple[MutationValueBatch, ...] = ()
+    bound_buffer_window: BoundMutationValueWindow | None = None
 
     def __post_init__(self) -> None:
         _validate_values(self.values, self.__class__.__name__)
+        if self.bound_buffer_window is not None:
+            if not isinstance(self.bound_buffer_window, BoundMutationValueWindow):
+                raise MutationContractError(
+                    "SimulationStateMutationBatch bound_buffer_window must be a "
+                    "BoundMutationValueWindow"
+                )
+            if self.values:
+                raise MutationContractError(
+                    "SimulationStateMutationBatch cannot mix value descriptors with "
+                    "cold-bound buffers"
+                )
 
 
 @dataclass(frozen=True)
@@ -107,7 +346,22 @@ def _validate_sub_batch(
 ) -> tuple[int, ...]:
     if not isinstance(batch, batch_type):
         raise MutationContractError(f"mutation envelope requires {batch_type.__name__}")
-    indices: list[int] = []
+    if isinstance(batch, SimulationStateMutationBatch) and batch.bound_buffer_window is not None:
+        window = batch.bound_buffer_window
+        window.plan.require_compatible(plan)
+        if window.rows != rows:
+            raise MutationContractError(
+                "bound mutation value window rows do not match the envelope"
+            )
+        bound_indices = window.field_indices
+        for field_index in bound_indices:
+            spec = plan.specs[field_index]
+            if spec.target.target_kind is not expected_kind:
+                raise MutationContractError(
+                    f"mutation term {spec.term_key!r} is in the wrong typed sub-batch"
+                )
+        return bound_indices
+    value_indices: list[int] = []
     for value in batch.values:
         plan.require_compatible(value.plan)
         if value.rows != rows:
@@ -116,10 +370,10 @@ def _validate_sub_batch(
             raise MutationContractError(
                 f"mutation term {value.spec.term_key!r} is in the wrong typed sub-batch"
             )
-        indices.append(value.field_index)
-    if len(set(indices)) != len(indices):
+        value_indices.append(value.field_index)
+    if len(set(value_indices)) != len(value_indices):
         raise MutationContractError(f"{batch_type.__name__} contains duplicate mutation fields")
-    return tuple(indices)
+    return tuple(value_indices)
 
 
 @dataclass(frozen=True)
@@ -156,6 +410,9 @@ class TypedBackendMutationBatch:
 
 
 __all__ = [
+    "BoundMutationValueBufferGroup",
+    "BoundMutationValueBuffers",
+    "BoundMutationValueWindow",
     "ExternalWrenchMutationBatch",
     "ModelParameterMutationBatch",
     "MutationValueBatch",

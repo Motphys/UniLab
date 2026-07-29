@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -42,7 +43,12 @@ from unilab.base.backend.mutation import (
     MutationFieldKind,
     MutationTargetKind,
 )
-from unilab.base.backend.mutation_batch import TypedBackendMutationBatch
+from unilab.base.backend.mutation_batch import (
+    BoundMutationValueBufferGroup,
+    BoundMutationValueBuffers,
+    BoundMutationValueWindow,
+    TypedBackendMutationBatch,
+)
 
 if TYPE_CHECKING:
     from .backend import MuJoCoBackend
@@ -58,9 +64,56 @@ _ROOT_RESET_VALUE_SHAPES = {
 _DOF_RESET_TARGETS = frozenset({"state.dof.position", "state.dof.angular_velocity"})
 
 
+@dataclass(frozen=True)
+class _PreparedResetSlot:
+    """Cold-bound translation from a semantic reset field to state columns."""
+
+    field_index: int
+    state_offset: int
+    width: int
+    dof_columns: np.ndarray | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class _PreparedResetBufferGroup:
+    """Backend-compiled vectorized assignment for homogeneous reset fields."""
+
+    destination_columns: np.ndarray = field(repr=False, compare=False)
+    row_values: np.ndarray = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class _PreparedResetBufferSet:
+    """Prepared views retained only while their manager buffer set is alive."""
+
+    owner_ref: weakref.ReferenceType[BoundMutationValueBuffers] = field(
+        repr=False,
+        compare=False,
+    )
+    individual: tuple[tuple[_PreparedResetSlot, np.ndarray], ...] = field(
+        repr=False,
+        compare=False,
+    )
+    groups: tuple[_PreparedResetBufferGroup, ...] = field(repr=False, compare=False)
+
+    @property
+    def owner(self) -> BoundMutationValueBuffers | None:
+        """Return the live identity owner without extending its lifetime."""
+
+        return self.owner_ref()
+
+
 def _step_allocations(dtype: str) -> int:
-    """Count Python-visible native outputs plus required float64 input casts."""
-    input_conversions = 0 if dtype == "float64" else 2
+    """Count pool outputs plus the remaining float64 physics-state coercion.
+
+    ``BatchEnvPool`` consumes float64 trajectories.  The typed host plan owns
+    a cold-allocated float64 control trajectory, so control is no longer
+    cast/allocated by the pool on every step.  The backend state cache still
+    uses the public plan dtype and therefore needs one conversion when that
+    dtype is float32.
+    """
+
+    input_conversions = 0 if dtype == "float64" else 1
     return 2 + input_conversions
 
 
@@ -79,8 +132,13 @@ class _MuJoCoStateSource:
     _full: np.ndarray = field(init=False, repr=False)
     _copy_source: bool = field(init=False, repr=False)
     _all_view: np.ndarray = field(init=False, repr=False)
+    _all_descriptor: BufferView = field(init=False, repr=False)
     _selected: np.ndarray = field(init=False, repr=False)
-    _selected_views: dict[int, np.ndarray] = field(default_factory=dict, init=False, repr=False)
+    _selected_descriptors: dict[int, BufferView] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         num_envs = int(self.source.shape[0])
@@ -101,6 +159,11 @@ class _MuJoCoStateSource:
             self._copy_source = False
             self._full = np.empty(expected_shape, dtype=self.spec.buffer.dtype)
         self._all_view = _readonly_view(self._full)
+        self._all_descriptor = BufferView(
+            handle=self._all_view,
+            shape=expected_shape,
+            contract=self.spec.buffer,
+        )
         self._selected = np.empty(expected_shape, dtype=self.spec.buffer.dtype)
 
     def materialize(
@@ -118,19 +181,20 @@ class _MuJoCoStateSource:
         elif self._copy_source:
             np.copyto(self._full, self.source)
         if rows.is_all:
-            handle = self._all_view
+            return self._all_descriptor
         else:
             assert row_ids is not None
             np.take(self._full, row_ids, axis=0, out=self._selected[: rows.count])
-            handle = self._selected_views.get(rows.count)
-            if handle is None:
+            descriptor = self._selected_descriptors.get(rows.count)
+            if descriptor is None:
                 handle = _readonly_view(self._selected[: rows.count])
-                self._selected_views[rows.count] = handle
-        return BufferView(
-            handle=handle,
-            shape=(rows.count, *self.spec.buffer.row_shape),
-            contract=self.spec.buffer,
-        )
+                descriptor = BufferView(
+                    handle=handle,
+                    shape=(rows.count, *self.spec.buffer.row_shape),
+                    contract=self.spec.buffer,
+                )
+                self._selected_descriptors[rows.count] = descriptor
+            return descriptor
 
 
 @dataclass
@@ -149,12 +213,15 @@ class _MuJoCoHostBatchPlan:
                 control.physics_substeps_per_control,
                 *control.buffer.row_shape,
             ),
-            dtype=control.buffer.dtype,
+            # mujoco_uni always consumes float64 controls.  Keep this storage
+            # native from the cold path onward so ``BatchEnvPool.step`` does
+            # not allocate/cast the full trajectory every control barrier.
+            dtype=np.float64,
         )
         self._row_ids = np.empty(self.public_plan.num_envs, dtype=np.intp)
 
     def stage_control(self, control: np.ndarray) -> np.ndarray:
-        np.copyto(self._control_trajectory, control[:, None, ...])
+        np.copyto(self._control_trajectory, control[:, None, ...], casting="unsafe")
         return self._control_trajectory
 
     @property
@@ -191,6 +258,77 @@ class _MuJoCoHostBatchPlan:
         )
 
 
+def _compile_prepared_reset_slots(
+    plan: BoundMutationPlan,
+    *,
+    qpos_state_offset: int,
+    qvel_state_offset: int,
+    root_qpos_dim: int,
+    root_qvel_dim: int,
+) -> tuple[_PreparedResetSlot, ...] | None:
+    """Compile a complete state-only mutation plan into direct reset slots.
+
+    This is deliberately a capability of the backend-owned mutation binding,
+    not a G1 special case.  A cold-bound value-buffer window can only be used
+    when *every* mutation field is a supported simulation-state field, which
+    preserves the typed sub-batch's exact coverage semantics.  Other plans
+    retain the ordinary per-value validation path below.
+    """
+
+    slots: list[_PreparedResetSlot] = []
+    root_layout = {
+        "state.root.position": (qpos_state_offset, 3),
+        "state.root.orientation": (qpos_state_offset + 3, 4),
+        "state.root.linear_velocity": (qvel_state_offset, 3),
+        "state.root.angular_velocity": (qvel_state_offset + 3, 3),
+    }
+    for field_index, spec in enumerate(plan.specs):
+        if spec.target.target_kind is not MutationTargetKind.SIMULATION_STATE:
+            return None
+        target_key = spec.target.target_key
+        root = root_layout.get(target_key)
+        if root is not None:
+            expected_shape = _ROOT_RESET_VALUE_SHAPES[target_key]
+            if (
+                spec.target.entity_kind is not MutationEntityKind.BODY
+                or len(spec.target.entity_ids) != 1
+                or spec.value_buffer.row_shape != expected_shape
+                or (root_qpos_dim, root_qvel_dim) != (7, 6)
+            ):
+                return None
+            state_offset, width = root
+            slots.append(
+                _PreparedResetSlot(
+                    field_index=field_index,
+                    state_offset=state_offset,
+                    width=width,
+                )
+            )
+            continue
+        if target_key not in _DOF_RESET_TARGETS:
+            return None
+        if (
+            spec.target.entity_kind is not MutationEntityKind.DOF
+            or not spec.target.entity_ids
+            or spec.value_buffer.row_shape != (len(spec.target.entity_ids), 1)
+        ):
+            return None
+        state_offset = (
+            qpos_state_offset + root_qpos_dim
+            if target_key == "state.dof.position"
+            else qvel_state_offset + root_qvel_dim
+        )
+        slots.append(
+            _PreparedResetSlot(
+                field_index=field_index,
+                state_offset=state_offset,
+                width=1,
+                dof_columns=np.asarray(spec.target.entity_ids, dtype=np.intp),
+            )
+        )
+    return tuple(slots)
+
+
 @dataclass
 class _MuJoCoHostMutationPlan:
     """MuJoCo-owned cold-path staging for one typed mutation plan.
@@ -218,10 +356,20 @@ class _MuJoCoHostMutationPlan:
     root_qvel_dim: int
     _staged_xfrc: np.ndarray = field(init=False, repr=False)
     _reset_state: np.ndarray = field(init=False, repr=False)
+    _reset_source_state: np.ndarray | None = field(init=False, repr=False)
     _reset_env_ids: np.ndarray = field(init=False, repr=False)
     _reset_row_ids: np.ndarray = field(init=False, repr=False)
     _staged_reset_rows: RowSelection | None = field(default=None, init=False, repr=False)
     _control_trajectories: dict[str, np.ndarray] = field(default_factory=dict, init=False)
+    _prepared_reset_slots: tuple[_PreparedResetSlot, ...] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _prepared_buffer_sets: dict[
+        int,
+        _PreparedResetBufferSet,
+    ] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.num_bodies <= 0:
@@ -234,15 +382,38 @@ class _MuJoCoHostMutationPlan:
             raise BackendBatchContractError(
                 "MuJoCo mutation binding requires a positive state size"
             )
+        # ``BatchEnvPool.reset`` normalizes ``initial_state`` to native
+        # float64.  Keep this backend-private staging array native too: the
+        # public state cache may intentionally be float32, but passing that
+        # cache dtype here would allocate/cast one full reset state on every
+        # autoreset.  Input mutation values are copied into this scratch with
+        # ordinary widening semantics; only the pool input representation is
+        # changed, not the public plan or the cached physics trajectory.
         self._reset_state = np.empty(
             (self.public_plan.num_envs, self.state_size),
-            dtype=self.state_dtype,
+            dtype=np.float64,
+        )
+        source_dtype = np.dtype(self.state_dtype)
+        self._reset_source_state = (
+            None
+            if source_dtype == np.dtype(np.float64)
+            else np.empty(
+                (self.public_plan.num_envs, self.state_size),
+                dtype=source_dtype,
+            )
         )
         self._reset_env_ids = np.empty(self.public_plan.num_envs, dtype=np.int32)
         self._reset_row_ids = np.empty(self.public_plan.num_envs, dtype=np.intp)
         for row_id in range(self.public_plan.num_envs):
             self._reset_env_ids[row_id] = row_id
             self._reset_row_ids[row_id] = row_id
+        self._prepared_reset_slots = _compile_prepared_reset_slots(
+            self.public_plan,
+            qpos_state_offset=self.qpos_state_offset,
+            qvel_state_offset=self.qvel_state_offset,
+            root_qpos_dim=self.root_qpos_dim,
+            root_qvel_dim=self.root_qvel_dim,
+        )
 
     def register_batch_plan(self, plan: BoundBackendPlan) -> None:
         """Allocate the plan-paired pool control trajectory on the cold path."""
@@ -312,7 +483,12 @@ class _MuJoCoHostMutationPlan:
             raise BackendBatchContractError(
                 "MuJoCo typed mutation rows do not match the backend row universe"
             )
-        if batch.model.values or batch.state.values or batch.task_state.values:
+        if (
+            batch.model.values
+            or batch.state.values
+            or batch.state.bound_buffer_window is not None
+            or batch.task_state.values
+        ):
             raise BackendBatchContractError(
                 "MuJoCo host mutation commit only supports external force values"
             )
@@ -389,6 +565,181 @@ class _MuJoCoHostMutationPlan:
         self._require_staged_reset_rows(rows)
         return self._reset_row_ids[: rows.count]
 
+    def _stage_native_physics_state(
+        self,
+        *,
+        physics_state: np.ndarray,
+        row_ids: np.ndarray,
+        rows: RowSelection,
+    ) -> None:
+        """Copy selected public cache rows into the native pool scratch.
+
+        ``np.take`` rejects a float32 source with float64 ``out`` under its
+        safe-casting rule.  For the public float32 profile, use one additional
+        *cold-allocated* source scratch before widening into the native pool
+        staging array.  This preserves the no-warm-allocation contract while
+        ensuring ``BatchEnvPool.reset`` receives already-native memory.
+        """
+
+        count = rows.count
+        if rows.is_all:
+            np.copyto(self._reset_state, physics_state, casting="unsafe")
+            return
+        source = self._reset_source_state
+        if source is None:
+            np.take(physics_state, row_ids, axis=0, out=self._reset_state[:count])
+            return
+        np.take(physics_state, row_ids, axis=0, out=source[:count])
+        np.copyto(self._reset_state[:count], source[:count], casting="unsafe")
+
+    def _stage_prepared_reset_state(
+        self,
+        *,
+        batch: TypedBackendMutationBatch,
+        physics_state: np.ndarray,
+        window: BoundMutationValueWindow,
+    ) -> np.ndarray:
+        """Commit a cold-bound complete state window without per-field wrappers.
+
+        The typed envelope has already validated that the window belongs to
+        this plan, covers every field exactly once, and is exclusively a
+        simulation-state sub-batch.  This backend-owned fast path still
+        rechecks the public owner/row identity and uses only the immutable
+        cold-bound slot map; it never infers selectors or reaches into a task
+        kernel.
+        """
+
+        window.plan.require_compatible(self.public_plan)
+        if window.rows != batch.rows:
+            raise BackendBatchContractError(
+                "MuJoCo prepared reset window rows do not match the mutation envelope"
+            )
+        slots = self._prepared_reset_slots
+        if slots is None:
+            raise BackendBatchContractError(
+                "MuJoCo prepared reset window is unsupported by this mutation plan"
+            )
+        if len(slots) != len(window.buffers.buffers):
+            raise BackendBatchContractError(
+                "MuJoCo prepared reset window field coverage differs from the bound plan"
+            )
+
+        row_ids = self._stage_reset_rows(batch.rows)
+        count = batch.rows.count
+        self._stage_native_physics_state(
+            physics_state=physics_state,
+            row_ids=row_ids,
+            rows=batch.rows,
+        )
+
+        buffer_set = window.buffers
+        buffer_set_id = id(buffer_set)
+        prepared = self._prepared_buffer_sets.get(buffer_set_id)
+        if prepared is None:
+            # A manager-owned fixed-capacity set is validated once when it is
+            # constructed and once when this backend first consumes it.  Keep
+            # a weak identity reference beside the id so Python id reuse can
+            # never select a foreign set, while retired runtime buffer sets do
+            # not accumulate for the lifetime of the backend.  Subsequent
+            # reset windows only change row mapping; their numeric addresses
+            # and metadata are a cold-bound contract.
+            cache = self._prepared_buffer_sets
+
+            def _release(dead_ref: weakref.ReferenceType[BoundMutationValueBuffers]) -> None:
+                cached = cache.get(buffer_set_id)
+                if cached is not None and cached.owner_ref is dead_ref:
+                    del cache[buffer_set_id]
+
+            owner_ref = weakref.ref(buffer_set, _release)
+            prepared = self._compile_prepared_buffer_set(
+                window=window,
+                slots=slots,
+                owner_ref=owner_ref,
+            )
+            self._prepared_buffer_sets[buffer_set_id] = prepared
+        else:
+            if prepared.owner is not buffer_set:  # pragma: no cover - weak-ref callback invariant.
+                raise BackendBatchContractError(
+                    "MuJoCo prepared reset buffer identity cache is inconsistent"
+                )
+
+        for group in prepared.groups:
+            self._reset_state[:count, group.destination_columns] = group.row_values[:count]
+        for slot, values in prepared.individual:
+            if slot.dof_columns is None:
+                np.copyto(
+                    self._reset_state[:count, slot.state_offset : slot.state_offset + slot.width],
+                    values[:count, 0, :],
+                    casting="unsafe",
+                )
+            else:
+                self._reset_state[:count, slot.state_offset + slot.dof_columns] = values[
+                    :count, :, 0
+                ]
+        return self._reset_state[:count]
+
+    @staticmethod
+    def _compile_prepared_buffer_set(
+        *,
+        window: BoundMutationValueWindow,
+        slots: tuple[_PreparedResetSlot, ...],
+        owner_ref: weakref.ReferenceType[BoundMutationValueBuffers],
+    ) -> _PreparedResetBufferSet:
+        """Compile supported group hints while retaining canonical fallback."""
+
+        values_by_field = {slot.field_index: window.buffer_at(slot.field_index) for slot in slots}
+        slots_by_field = {slot.field_index: slot for slot in slots}
+        grouped_fields: set[int] = set()
+        prepared_groups: list[_PreparedResetBufferGroup] = []
+        for group in window.buffers.groups:
+            compiled = _MuJoCoHostMutationPlan._compile_prepared_buffer_group(
+                group=group,
+                slots_by_field=slots_by_field,
+            )
+            if compiled is None:
+                continue
+            prepared_groups.append(compiled)
+            grouped_fields.update(group.field_indices)
+        individual = tuple(
+            (slot, values_by_field[slot.field_index])
+            for slot in slots
+            if slot.field_index not in grouped_fields
+        )
+        return _PreparedResetBufferSet(
+            owner_ref=owner_ref,
+            individual=individual,
+            groups=tuple(prepared_groups),
+        )
+
+    @staticmethod
+    def _compile_prepared_buffer_group(
+        *,
+        group: BoundMutationValueBufferGroup,
+        slots_by_field: dict[int, _PreparedResetSlot],
+    ) -> _PreparedResetBufferGroup | None:
+        """Translate a singleton-DoF group to one field-major column write."""
+
+        slots = tuple(slots_by_field.get(field_index) for field_index in group.field_indices)
+        if any(slot is None for slot in slots) or group.buffer.shape[2:] != (1, 1):
+            return None
+        typed_slots = tuple(slot for slot in slots if slot is not None)
+        columns: list[int] = []
+        for slot in typed_slots:
+            dof_columns = slot.dof_columns
+            if slot.width != 1 or dof_columns is None or dof_columns.shape != (1,):
+                return None
+            columns.append(slot.state_offset + int(dof_columns[0]))
+        destination_columns = np.asarray(
+            columns,
+            dtype=np.intp,
+        )
+        if len(set(int(column) for column in destination_columns)) != len(destination_columns):
+            return None
+        return _PreparedResetBufferGroup(
+            destination_columns=destination_columns,
+            row_values=group.buffer[:, :, 0, 0].T,
+        )
+
     def stage_reset_state(
         self,
         batch: TypedBackendMutationBatch,
@@ -404,12 +755,20 @@ class _MuJoCoHostMutationPlan:
             raise BackendBatchContractError(
                 "MuJoCo host reset commit only supports simulation-state values"
             )
-        if not batch.state.values:
-            raise BackendBatchContractError("MuJoCo typed reset requires at least one state value")
         if physics_state.shape != (self.public_plan.num_envs, self.state_size):
             raise BackendBatchContractError(
                 "MuJoCo typed reset source state does not match the bound mutation plan"
             )
+
+        prepared_window = batch.state.bound_buffer_window
+        if prepared_window is not None:
+            return self._stage_prepared_reset_state(
+                batch=batch,
+                physics_state=physics_state,
+                window=prepared_window,
+            )
+        if not batch.state.values:
+            raise BackendBatchContractError("MuJoCo typed reset requires at least one state value")
 
         staged_values: list[tuple[BoundMutationSpec, np.ndarray]] = []
         for value in batch.state.values:
@@ -445,15 +804,11 @@ class _MuJoCoHostMutationPlan:
             staged_values.append((spec, self._require_value_handle(value, batch.rows)))
 
         row_ids = self._stage_reset_rows(batch.rows)
-        if batch.rows.is_all:
-            np.copyto(self._reset_state, physics_state)
-        else:
-            np.take(
-                physics_state,
-                row_ids,
-                axis=0,
-                out=self._reset_state[: batch.rows.count],
-            )
+        self._stage_native_physics_state(
+            physics_state=physics_state,
+            row_ids=row_ids,
+            rows=batch.rows,
+        )
 
         for spec, values in staged_values:
             target_key = spec.target.target_key
