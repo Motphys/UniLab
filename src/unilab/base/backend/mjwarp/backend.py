@@ -30,6 +30,7 @@ from unilab.base.backend.batch import (
     BackendStepResult,
     BackendTiming,
     BoundBackendPlan,
+    BufferPlacement,
     ControlBatch,
     ExecutionProfile,
     RowSelection,
@@ -53,7 +54,10 @@ from unilab.base.backend.mutation import (
 from unilab.base.backend.mutation import (
     bind_mutation_plan as bind_typed_mutation_plan,
 )
-from unilab.base.backend.mutation_batch import TypedBackendMutationBatch
+from unilab.base.backend.mutation_batch import (
+    DeviceResetMutationBatch,
+    TypedBackendMutationBatch,
+)
 from unilab.base.backend.telemetry import (
     BackendTransferBuffer,
     BackendTransferCounters,
@@ -74,6 +78,7 @@ from .batch import (
 )
 from .dependencies import load_mjwarp_dependencies
 from .device import MjwarpDeviceBatchPlan, bind_mjwarp_device_batch
+from .device_mutation import MjwarpDeviceMutationPlan, mjwarp_device_mutation_capabilities
 from .materialization import materialize_mjwarp_scene
 from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
@@ -87,20 +92,21 @@ class _MjwarpDeviceBridge:
     qvel: torch.Tensor
     ctrl: torch.Tensor
     sensordata: torch.Tensor
+    reset_mask: torch.Tensor
     physics_stream: torch.cuda.Stream
     warp_physics_stream: Any
     step_event: torch.cuda.Event
     read_event: torch.cuda.Event
+    reset_event: torch.cuda.Event
 
 
 class MjwarpBackend(SimBackend):
-    """CUDA-only, host-NumPy compatibility profile for ``mujoco_warp``.
+    """Independent CUDA backend with explicit host and device execution profiles.
 
-    The profile is intentionally narrow: it provides the state/control/reset
-    surface required by ``g1_walk_flat`` while unsupported render, terrain,
-    Jacobian, typed model-mutation, interval-DR, and host-substep-controller paths
-    remain fail-closed.  It is a correctness migration path, not a performance
-    claim or a replacement for the later device-resident executor.
+    ``host_numpy`` remains a bounded-transfer compatibility path.  The separate
+    ``device_resident`` batch path exposes only typed CUDA state/control/reset
+    buffers and events.  Unsupported render, terrain, model mutation, interval
+    DR, and host-substep-controller combinations remain fail-closed.
     """
 
     def __init__(
@@ -223,12 +229,14 @@ class MjwarpBackend(SimBackend):
         self._host_batch_plans: dict[str, MjwarpHostBatchPlan] = {}
         self._device_batch_plans: dict[str, MjwarpDeviceBatchPlan] = {}
         self._host_mutation_plans: dict[str, MjwarpHostMutationPlan] = {}
+        self._device_mutation_plans: dict[str, MjwarpDeviceMutationPlan] = {}
         self._device_bridge: _MjwarpDeviceBridge | None = None
         # ``UNTIL_STEP_COMPLETE`` controls are runner-owned.  Keep only a
         # weak epoch watermark per owner lease so replaying an already queued
         # action cannot silently race a subsequent physics barrier, while
         # discarded runner buffers do not accumulate in a long rollout.
         self._device_control_epochs: WeakKeyDictionary[DeviceBufferLease, int] = WeakKeyDictionary()
+        self._device_reset_epochs: WeakKeyDictionary[DeviceBufferLease, int] = WeakKeyDictionary()
 
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
@@ -334,6 +342,7 @@ class MjwarpBackend(SimBackend):
         qvel = self._warp.to_torch(self._device_data.qvel)
         ctrl = self._warp.to_torch(self._device_data.ctrl)
         sensordata = self._warp.to_torch(self._device_data.sensordata)
+        reset_mask = self._warp.to_torch(self._reset_mask_device)
         expected = {
             "qpos": (qpos, (self._num_envs, self._nq)),
             "qvel": (qvel, (self._num_envs, self._nv)),
@@ -349,6 +358,15 @@ class MjwarpBackend(SimBackend):
                 raise BackendBatchContractError(
                     f"mjwarp device bridge {name} has an unexpected shape or layout"
                 )
+        if (
+            reset_mask.device != qpos.device
+            or reset_mask.dtype is not torch.bool
+            or tuple(int(dim) for dim in reset_mask.shape) != (self._num_envs,)
+            or not reset_mask.is_contiguous()
+        ):
+            raise BackendBatchContractError(
+                "mjwarp device bridge reset_mask must be a contiguous CUDA bool Torch alias"
+            )
         device = qpos.device
         physics_stream = torch.cuda.Stream(device=device)
         bridge = _MjwarpDeviceBridge(
@@ -356,10 +374,12 @@ class MjwarpBackend(SimBackend):
             qvel=qvel,
             ctrl=ctrl,
             sensordata=sensordata,
+            reset_mask=reset_mask,
             physics_stream=physics_stream,
             warp_physics_stream=self._warp.stream_from_torch(physics_stream),
             step_event=torch.cuda.Event(enable_timing=False),
             read_event=torch.cuda.Event(enable_timing=False),
+            reset_event=torch.cuda.Event(enable_timing=False),
         )
         self._device_bridge = bridge
         return bridge
@@ -600,8 +620,8 @@ class MjwarpBackend(SimBackend):
                 existing_host.public_plan.require_compatible(host_bound.public_plan)
                 return existing_host.public_plan
             self._host_batch_plans[host_bound.public_plan.fingerprint] = host_bound
-            for mutation_plan in self._host_mutation_plans.values():
-                mutation_plan.register_batch_plan(host_bound.public_plan)
+            for host_mutation_plan in self._host_mutation_plans.values():
+                host_mutation_plan.register_batch_plan(host_bound.public_plan)
             return host_bound.public_plan
         if requirements.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
             if self._host_batch_plans:
@@ -619,6 +639,8 @@ class MjwarpBackend(SimBackend):
                 existing_device.public_plan.require_compatible(device_bound.public_plan)
                 return existing_device.public_plan
             self._device_batch_plans[device_bound.public_plan.fingerprint] = device_bound
+            for device_mutation_plan in self._device_mutation_plans.values():
+                device_mutation_plan.register_batch_plan(device_bound.public_plan)
             return device_bound.public_plan
         raise BackendBatchContractError(
             f"mjwarp does not support execution profile {requirements.execution_profile.value!r}"
@@ -700,6 +722,36 @@ class MjwarpBackend(SimBackend):
     def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
         """Bind the narrow typed reset contract without exposing raw Warp objects."""
 
+        if self._device_batch_plans:
+            if self._host_batch_plans:
+                raise BackendBatchContractError(
+                    "mjwarp cannot bind host and device mutation plans in one backend instance"
+                )
+            device_bound = bind_typed_mutation_plan(
+                backend_type=self.backend_type,
+                backend_instance_id=self._batch_instance_id,
+                num_envs=self._num_envs,
+                specs=specs,
+                capabilities=mjwarp_device_mutation_capabilities(self),
+                resolve_selector=self._resolve_mjwarp_typed_mutation_selector,
+            )
+            existing_device = self._device_mutation_plans.get(device_bound.fingerprint)
+            if existing_device is not None:
+                existing_device.public_plan.require_compatible(device_bound)
+                return existing_device.public_plan
+            device_runtime_plan = MjwarpDeviceMutationPlan(
+                public_plan=device_bound,
+                nq=self._nq,
+                nv=self._nv,
+                root_qpos_dim=self._root_qpos_dim,
+                root_qvel_dim=self._root_qvel_dim,
+                placement=self._device_plan_placement(),
+            )
+            for device_batch_plan in self._device_batch_plans.values():
+                device_runtime_plan.register_batch_plan(device_batch_plan.public_plan)
+            self._device_mutation_plans[device_bound.fingerprint] = device_runtime_plan
+            return device_bound
+
         bound = bind_typed_mutation_plan(
             backend_type=self.backend_type,
             backend_instance_id=self._batch_instance_id,
@@ -712,7 +764,7 @@ class MjwarpBackend(SimBackend):
         if existing is not None:
             existing.public_plan.require_compatible(bound)
             return existing.public_plan
-        runtime_plan = MjwarpHostMutationPlan(
+        host_runtime_plan = MjwarpHostMutationPlan(
             public_plan=bound,
             nq=self._nq,
             nv=self._nv,
@@ -720,9 +772,9 @@ class MjwarpBackend(SimBackend):
             root_qpos_dim=self._root_qpos_dim,
             root_qvel_dim=self._root_qvel_dim,
         )
-        for batch_plan in self._host_batch_plans.values():
-            runtime_plan.register_batch_plan(batch_plan.public_plan)
-        self._host_mutation_plans[bound.fingerprint] = runtime_plan
+        for host_batch_plan in self._host_batch_plans.values():
+            host_runtime_plan.register_batch_plan(host_batch_plan.public_plan)
+        self._host_mutation_plans[bound.fingerprint] = host_runtime_plan
         return bound
 
     def _require_host_mutation_plan(
@@ -739,6 +791,42 @@ class MjwarpBackend(SimBackend):
         except KeyError as exc:
             raise BackendBatchContractError(
                 "mjwarp typed mutation plan was not bound by this backend instance"
+            ) from exc
+        runtime_plan.public_plan.require_compatible(mutation_batch.plan)
+        runtime_plan.require_registered_batch_plan(plan)
+        return runtime_plan
+
+    def _device_plan_placement(self) -> BufferPlacement:
+        """Return the cold-bound CUDA placement without exposing Warp to callers."""
+
+        bridge = self._ensure_device_bridge()
+        index = bridge.qpos.device.index
+        if index is None:
+            raise BackendBatchContractError("mjwarp device bridge has no CUDA device index")
+        return BufferPlacement.device("cuda", int(index))
+
+    def _require_device_mutation_plan(
+        self,
+        mutation_batch: DeviceResetMutationBatch,
+        plan: BoundBackendPlan,
+    ) -> MjwarpDeviceMutationPlan:
+        if not isinstance(mutation_batch, DeviceResetMutationBatch):
+            raise BackendBatchContractError(
+                "mjwarp device reset requires a DeviceResetMutationBatch"
+            )
+        if mutation_batch.rows != RowSelection.all(self._num_envs):
+            raise BackendBatchContractError(
+                "mjwarp device reset requires an all-world typed reset envelope"
+            )
+        mutation_batch.plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            runtime_plan = self._device_mutation_plans[mutation_batch.plan_fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp device reset mutation plan was not bound by this backend instance"
             ) from exc
         runtime_plan.public_plan.require_compatible(mutation_batch.plan)
         runtime_plan.require_registered_batch_plan(plan)
@@ -781,6 +869,12 @@ class MjwarpBackend(SimBackend):
     def _invalidate_host_batch_state(self) -> None:
         for bound in self._host_batch_plans.values():
             bound.lease.invalidate()
+
+    def _invalidate_device_batch_state(self) -> None:
+        """Invalidate every borrowed device view before a physics mutation."""
+
+        for bound in self._device_batch_plans.values():
+            bound.invalidate()
 
     def _enqueue_device_refresh(
         self,
@@ -929,6 +1023,7 @@ class MjwarpBackend(SimBackend):
             )
         action = control.torch()
         start = time.perf_counter()
+        self._invalidate_device_batch_state()
         with torch.cuda.stream(bridge.physics_stream):
             producer.wait(bridge.physics_stream)
             bridge.ctrl.copy_(action, non_blocking=True)
@@ -957,6 +1052,59 @@ class MjwarpBackend(SimBackend):
             ),
         )
 
+    def _execute_device_reset(
+        self,
+        bound: MjwarpDeviceBatchPlan,
+        mutation_plan: MjwarpDeviceMutationPlan,
+        mutation_batch: DeviceResetMutationBatch,
+    ) -> BackendReadResult:
+        """Queue one masked CUDA reset/forward/state-pack lifecycle barrier."""
+
+        bridge = self._ensure_device_bridge()
+        completion = mutation_batch.completion
+        if completion.placement.device_index != bridge.qpos.device.index:
+            raise BackendBatchContractError(
+                "mjwarp device reset completion event belongs to another CUDA device"
+            )
+        start = time.perf_counter()
+        self._invalidate_device_batch_state()
+        with torch.cuda.stream(bridge.physics_stream):
+            completion.wait(bridge.physics_stream)
+            bridge.reset_mask.copy_(mutation_plan.active_mask(mutation_batch), non_blocking=True)
+            with self._warp.ScopedStream(bridge.warp_physics_stream):
+                self._mujoco_warp.reset_data(
+                    self._device_model,
+                    self._device_data,
+                    reset=self._reset_mask_device,
+                )
+                mutation_plan.stage_reset_state(
+                    mutation_batch,
+                    qpos=bridge.qpos,
+                    qvel=bridge.qvel,
+                )
+                self._mujoco_warp.forward(self._device_model, self._device_data)
+                bound.refresh_masked(bridge.reset_mask)
+            bridge.reset_event.record(bridge.physics_stream)
+        result = bound.materialize(
+            rows=RowSelection.all(self._num_envs),
+            phase=StateBatchPhase.RESET,
+            completion_event=bridge.reset_event,
+        )
+        return BackendReadResult(
+            state=result.state,
+            diagnostics=BackendBatchDiagnostics(
+                counters=BackendBatchCounters(
+                    state_materializations=1,
+                    instrumentation_complete=True,
+                ),
+                timings=(
+                    BackendTiming("device_reset_enqueue", (time.perf_counter() - start) * 1000.0),
+                    *result.diagnostics.timings,
+                ),
+                completion_event=result.diagnostics.completion_event,
+            ),
+        )
+
     def _require_unconsumed_device_control(self, control: DeviceTensorView) -> None:
         """Reject reuse of a runner control before its lease advances.
 
@@ -976,6 +1124,23 @@ class MjwarpBackend(SimBackend):
 
     def _mark_device_control_consumed(self, control: DeviceTensorView) -> None:
         self._device_control_epochs[control.lease] = control.epoch
+
+    def _require_unconsumed_device_reset(self, batch: DeviceResetMutationBatch) -> None:
+        mask = batch.active_mask.handle
+        if not isinstance(mask, DeviceTensorView):  # pragma: no cover - envelope invariant.
+            raise DeviceBufferContractError("mjwarp device reset mask is not a DeviceTensorView")
+        mask.assert_valid()
+        previous_epoch = self._device_reset_epochs.get(mask.lease)
+        if previous_epoch is not None and mask.epoch <= previous_epoch:
+            raise DeviceBufferContractError(
+                "mjwarp device reset lease epoch was already committed; "
+                "advance the manager lease and publish a new event"
+            )
+
+    def _mark_device_reset_consumed(self, batch: DeviceResetMutationBatch) -> None:
+        mask = batch.active_mask.handle
+        assert isinstance(mask, DeviceTensorView)  # validated by the envelope.
+        self._device_reset_epochs[mask.lease] = mask.epoch
 
     def step_batch(
         self,
@@ -1076,7 +1241,8 @@ class MjwarpBackend(SimBackend):
             )
         if mutation_batch is not None:
             raise BackendBatchContractError(
-                "mjwarp device batch mutation is not implemented in the Phase 5A ABI slice"
+                "mjwarp device physics steps do not support mutation batches; "
+                "simulation-state mutation is only accepted by reset_batch"
             )
         control = require_device_tensor_view(
             control_batch.buffer.handle,
@@ -1101,9 +1267,10 @@ class MjwarpBackend(SimBackend):
         mutation_batch: BackendMutationBatch | None = None,
     ) -> BackendResetResult:
         if plan.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
-            raise BackendBatchContractError(
-                "mjwarp device-resident reset is not implemented in the Phase 5A ABI slice; "
-                "do not silently fall back to the host cache"
+            return self._reset_device_batch(
+                plan,
+                rows,
+                mutation_batch=mutation_batch,
             )
         bound = self._require_host_batch_plan(plan)
         if not isinstance(rows, RowSelection):
@@ -1140,6 +1307,30 @@ class MjwarpBackend(SimBackend):
             ),
         )
         return BackendResetResult(reset_state=read_result.state, diagnostics=diagnostics)
+
+    def _reset_device_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        mutation_batch: BackendMutationBatch | None,
+    ) -> BackendResetResult:
+        """Commit an all-world device reset whose active rows stay on CUDA."""
+
+        bound = self._require_device_batch_plan(plan)
+        if not isinstance(rows, RowSelection) or rows != RowSelection.all(self._num_envs):
+            raise BackendBatchContractError(
+                "mjwarp device reset requires RowSelection.all; selected rows live in the CUDA mask"
+            )
+        if not isinstance(mutation_batch, DeviceResetMutationBatch):
+            raise BackendBatchContractError(
+                "mjwarp device reset requires a DeviceResetMutationBatch"
+            )
+        mutation_plan = self._require_device_mutation_plan(mutation_batch, plan)
+        self._require_unconsumed_device_reset(mutation_batch)
+        result = self._execute_device_reset(bound, mutation_plan, mutation_batch)
+        self._mark_device_reset_consumed(mutation_batch)
+        return BackendResetResult(reset_state=result.state, diagnostics=result.diagnostics)
 
     def set_pre_step_control(self, fn: Any | None) -> None:
         if fn is not None:
