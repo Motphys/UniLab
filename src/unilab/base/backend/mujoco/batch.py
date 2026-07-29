@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -83,14 +84,23 @@ class _PreparedResetBufferGroup:
 
 @dataclass(frozen=True)
 class _PreparedResetBufferSet:
-    """Strongly-owned cache entry for one manager mutation buffer set."""
+    """Prepared views retained only while their manager buffer set is alive."""
 
-    owner: BoundMutationValueBuffers = field(repr=False, compare=False)
+    owner_ref: weakref.ReferenceType[BoundMutationValueBuffers] = field(
+        repr=False,
+        compare=False,
+    )
     individual: tuple[tuple[_PreparedResetSlot, np.ndarray], ...] = field(
         repr=False,
         compare=False,
     )
     groups: tuple[_PreparedResetBufferGroup, ...] = field(repr=False, compare=False)
+
+    @property
+    def owner(self) -> BoundMutationValueBuffers | None:
+        """Return the live identity owner without extending its lifetime."""
+
+        return self.owner_ref()
 
 
 def _step_allocations(dtype: str) -> int:
@@ -628,14 +638,27 @@ class _MuJoCoHostMutationPlan:
         if prepared is None:
             # A manager-owned fixed-capacity set is validated once when it is
             # constructed and once when this backend first consumes it.  Keep
-            # a strong object reference beside the id so Python id reuse can
-            # never select a foreign set.  Subsequent reset windows only
-            # change row mapping; their numeric addresses and metadata are a
-            # cold-bound contract.
-            prepared = self._compile_prepared_buffer_set(window=window, slots=slots)
+            # a weak identity reference beside the id so Python id reuse can
+            # never select a foreign set, while retired runtime buffer sets do
+            # not accumulate for the lifetime of the backend.  Subsequent
+            # reset windows only change row mapping; their numeric addresses
+            # and metadata are a cold-bound contract.
+            cache = self._prepared_buffer_sets
+
+            def _release(dead_ref: weakref.ReferenceType[BoundMutationValueBuffers]) -> None:
+                cached = cache.get(buffer_set_id)
+                if cached is not None and cached.owner_ref is dead_ref:
+                    del cache[buffer_set_id]
+
+            owner_ref = weakref.ref(buffer_set, _release)
+            prepared = self._compile_prepared_buffer_set(
+                window=window,
+                slots=slots,
+                owner_ref=owner_ref,
+            )
             self._prepared_buffer_sets[buffer_set_id] = prepared
         else:
-            if prepared.owner is not buffer_set:  # pragma: no cover - strong-ref invariant.
+            if prepared.owner is not buffer_set:  # pragma: no cover - weak-ref callback invariant.
                 raise BackendBatchContractError(
                     "MuJoCo prepared reset buffer identity cache is inconsistent"
                 )
@@ -660,6 +683,7 @@ class _MuJoCoHostMutationPlan:
         *,
         window: BoundMutationValueWindow,
         slots: tuple[_PreparedResetSlot, ...],
+        owner_ref: weakref.ReferenceType[BoundMutationValueBuffers],
     ) -> _PreparedResetBufferSet:
         """Compile supported group hints while retaining canonical fallback."""
 
@@ -682,7 +706,7 @@ class _MuJoCoHostMutationPlan:
             if slot.field_index not in grouped_fields
         )
         return _PreparedResetBufferSet(
-            owner=window.buffers,
+            owner_ref=owner_ref,
             individual=individual,
             groups=tuple(prepared_groups),
         )
