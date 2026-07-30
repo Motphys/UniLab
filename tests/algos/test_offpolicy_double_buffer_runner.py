@@ -98,10 +98,17 @@ def test_invalid_replay_pipeline_rejected():
         _offpolicy().build_runner("sac", cfg)
 
 
-def test_gpu_resident_replay_pipeline_rejected_for_multi_gpu():
-    cfg = _offpolicy_cfg(["training.replay_pipeline=gpu_resident", "training.num_gpus=2"])
-    with pytest.raises(ValueError, match="single-GPU only"):
-        _offpolicy().build_runner("sac", cfg)
+def test_gpu_resident_replay_pipeline_accepted_for_multi_gpu():
+    cfg = _offpolicy_cfg(
+        [
+            "training.replay_pipeline=gpu_resident",
+            "training.num_gpus=2",
+            "algo.use_symmetry=false",
+        ]
+    )
+    runner = _offpolicy().build_runner("sac", cfg)
+    assert runner.__class__.__name__ == "MultiGPUOffPolicyRunner"
+    assert runner.replay_pipeline_impl == "gpu_resident"
 
 
 # ---------------------------------------------------------------------------

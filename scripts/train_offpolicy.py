@@ -191,11 +191,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
         )
     verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
     num_gpus = int(getattr(cfg.training, "num_gpus", 1))
-    if num_gpus > 1 and replay_pipeline == "gpu_resident":
-        raise ValueError(
-            "training.replay_pipeline='gpu_resident' is single-GPU only; "
-            "multi-GPU replay placement is tracked separately (issue #694 Tier2)"
-        )
     multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
     multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
     collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
@@ -339,6 +334,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 distributed_backend="nccl",
                 multi_gpu_sync_mode=multi_gpu_sync_mode,
                 multi_gpu_sync_interval=multi_gpu_sync_interval,
+                replay_pipeline=replay_pipeline,
                 num_envs=cfg.algo.num_envs,
                 replay_buffer_n=cfg.algo.replay_buffer_n,
                 batch_size=_batch_size,
