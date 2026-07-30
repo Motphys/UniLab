@@ -72,7 +72,10 @@ def test_device_runtime_resolver_and_finite_guard_are_strict() -> None:
     runtime = resolve_mjwarp_device_ppo_runtime({"runtime_impl": "mjwarp_device_v1", "seed": 3})
     assert runtime.wrapper_cls is DeviceRslRlVecEnvWrapper
     assert runtime.runner_cls is DeviceOnPolicyRunner
-    assert runtime.wrapper_kwargs == {"reset_seed": 3}
+    assert runtime.wrapper_kwargs == {
+        "reset_seed": 3,
+        "enable_stability_diagnostics": True,
+    }
     assert runtime.required_backend == "mjwarp"
     assert runtime.required_execution_profile == "device_resident"
 
