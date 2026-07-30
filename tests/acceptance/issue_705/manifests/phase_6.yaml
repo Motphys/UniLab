@@ -54,7 +54,7 @@ claims:
     risk: Refactoring term order silently changes all randomization streams and training behavior.
     owner: manager-runtime
     oracle: Metamorphic tests permute rows and add unrelated terms while comparing the original term's samples by env and trigger count.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_keyed_rng.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms -v]
     lane: C
     required: true
     required_test_ids: [tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms]
