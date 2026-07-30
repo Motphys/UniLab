@@ -1,0 +1,202 @@
+schema_version: 1
+issue: 829
+parent_issue: 705
+benchmark_id: mjwarp-dr-performance-v1
+state: frozen
+
+source_contract:
+  integration_branch: feat/issue-705-manager-mjwarp
+  owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
+  phase_manifest: tests/acceptance/issue_705/manifests/phase_6.yaml
+  capability_inventory: tests/acceptance/issue_705/mjwarp_dr_inventory.yaml
+  candidate_must_be_clean: true
+  candidate_must_descend_from_freeze: true
+  candidate_must_differ_from_freeze: true
+
+dependencies:
+  lockfile: uv.lock
+  packages:
+    mujoco-warp: ">=3.10.0.3,~=3.10.0"
+    warp-lang: ">=1.14.0"
+    torch: "2.7.0+cu128"
+
+hardware:
+  hostname: tatp
+  cpu_model: Intel(R) Xeon(R) w5-3435X
+  affinity_cpus: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  gpu_name: NVIDIA RTX 6000 Ada Generation
+  gpu_uuid: GPU-e154a732-d539-0424-cdb2-de408e0c5a21
+  gpu_memory_mib: 49140
+  driver_version: "570.133.07"
+  cuda_runtime: "12.8"
+  environment_variables:
+    MKL_NUM_THREADS: "16"
+    NUMBA_NUM_THREADS: "16"
+    OMP_NUM_THREADS: "16"
+    OPENBLAS_NUM_THREADS: "16"
+
+profiles:
+  - profile_id: disabled
+    tier: none
+    model_targets: []
+    direct_fields: []
+    derived_fields: []
+    strongest_recompute: none
+    g1_owner_overrides:
+      env.domain_rand.randomize_kp: false
+      env.domain_rand.randomize_kd: false
+      env.domain_rand.randomize_dof_armature: false
+    lanes: [reset, env, train]
+  - profile_id: tier_b_pd
+    tier: B
+    model_targets: [actuator.pd_stiffness, actuator.pd_damping]
+    direct_fields: [actuator_biasprm, actuator_gainprm]
+    derived_fields: []
+    strongest_recompute: none
+    g1_owner_overrides:
+      env.domain_rand.randomize_kp: true
+      env.domain_rand.randomize_kd: true
+      env.domain_rand.randomize_dof_armature: false
+    lanes: [reset, env, train]
+  - profile_id: tier_c_armature
+    tier: C
+    model_targets: [joint.armature]
+    direct_fields: [dof_armature]
+    derived_fields:
+      [actuator_acc0, body_invweight0, dof_invweight0, tendon_invweight0, tendon_length0]
+    strongest_recompute: set_const_0
+    g1_owner_overrides:
+      env.domain_rand.randomize_kp: false
+      env.domain_rand.randomize_kd: false
+      env.domain_rand.randomize_dof_armature: true
+    lanes: [reset, env, train]
+  - profile_id: tier_c_mixed
+    tier: C
+    model_targets: [body.gravity_compensation, joint.armature]
+    direct_fields: [body_gravcomp, dof_armature]
+    derived_fields:
+      [actuator_acc0, body_invweight0, body_subtreemass, dof_invweight0, tendon_invweight0, tendon_length0]
+    strongest_recompute: set_const
+    g1_owner_overrides: null
+    lanes: [reset]
+
+tier_d_eligibility:
+  production_capability_ids: []
+  expected_count: 0
+  disposition: not_applicable_until_capability_bijection_and_effect_evidence
+  synthetic_cases_forbidden: true
+
+measurement:
+  dtype: float32
+  process_repeats: 5
+  seeds: [0, 1, 2, 3, 4]
+  reset:
+    batch_sizes: [128, 1024, 4096]
+    densities: [0.0, 0.01, 0.1, 1.0]
+    warmup_barriers: 32
+    measured_barriers: 128
+    memory_windows: 4
+    samples_per_memory_window: 32
+    profiles: [disabled, tier_b_pd, tier_c_armature, tier_c_mixed]
+  env:
+    batch_sizes: [128, 1024, 4096]
+    warmup_steps: 32
+    measured_steps: 128
+    memory_windows: 4
+    samples_per_memory_window: 32
+    profiles: [disabled, tier_b_pd, tier_c_armature]
+  train:
+    batch_size: 1024
+    num_steps_per_env: 8
+    iterations: 12
+    warmup_iterations: 4
+    profiles: [disabled, tier_b_pd, tier_c_armature]
+  phase_metrics:
+    [mutation_sample_ms, mutation_commit_ms, recompute_constants_ms, reset_forward_ms,
+     reset_barrier_ms, env_step_ms, ppo_iteration_ms]
+  timing:
+    source: cuda_events
+    synchronize_per_phase_forbidden: true
+    materialize_after_window: true
+    event_storage_preallocated: true
+  process_isolation: true
+  case_filtering_forbidden: true
+
+gates:
+  completeness:
+    minimum_process_repeats: 5
+    maximum_primary_metric_population_cv: 0.10
+    missing_cases: 0
+    duplicate_cases: 0
+    failed_cases: 0
+    skipped_cases: 0
+    xfailed_cases: 0
+    xpassed_cases: 0
+  traffic:
+    warm_host_to_device_transfers: 0
+    warm_device_to_host_transfers: 0
+    warm_global_synchronizations: 0
+    warm_numeric_allocations: 0
+    profiler_reconciliation_required: true
+  graph:
+    warm_recaptures: 0
+    warm_address_churn: 0
+    eager_fallbacks: 0
+    stale_rejections: 0
+  recompute:
+    disabled_per_barrier_max: 0
+    tier_b_per_barrier_max: 0
+    tier_c_per_model_mutation_barrier_max: 1
+    forward_per_barrier_max: 1
+    refresh_per_barrier_max: 1
+  storage:
+    receipt_field_sum_exact: true
+    batch_linear_scaling_exact: true
+    absolute_rss_ceiling: null
+  steady_state_memory:
+    minimum_post_warmup_windows: 4
+    host_rss_positive_slope_bytes_per_window_max: 4194304
+    host_rss_last_minus_first_median_bytes_max: 16777216
+    cuda_allocated_positive_growth_bytes_max: 4194304
+    cuda_reserved_positive_growth_bytes_max: 67108864
+    stable_buffer_addresses_required: true
+  reset_latency:
+    all_profile_barrier_p95_ms_max: 20.0
+    tier_b_to_disabled_p95_ratio_max: 1.25
+    tier_b_additive_p95_ms: 0.25
+    tier_c_armature_additive_p95_ms: 10.0
+    tier_c_mixed_additive_p95_ms: 15.0
+  env:
+    tier_b_throughput_ratio_min: 0.80
+    tier_b_step_p95_ratio_max: 1.25
+    tier_c_throughput_ratio_min: 0.67
+    tier_c_step_p95_ratio_max: 1.50
+  train:
+    tier_b_throughput_ratio_min: 0.80
+    tier_b_iteration_p95_ratio_max: 1.25
+    tier_c_throughput_ratio_min: 0.67
+    tier_c_iteration_p95_ratio_max: 1.50
+    completed_iterations: 12
+    failed_runs: 0
+    nan_runs: 0
+
+artifact_contract:
+  output: tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json
+  raw_samples_required: true
+  diagnostic_failure_artifact_allowed: true
+  recorded_gate_must_equal_recomputed_gate: true
+  source_tree_hash_required: true
+  plan_hash_required: true
+  freeze_receipt_required: true
+  owner_yaml_hash_required: true
+  lockfile_hash_required: true
+  hardware_match_required: true
+  process_receipts_required: true
+  case_order_must_match_plan: true
+
+governance:
+  issue_url: https://github.com/unilabsim/UniLab/issues/829
+  thresholds_frozen_before_candidate_capture: true
+  threshold_change_requires_new_issue_and_freeze_receipt: true
+  phase_promotion_is_out_of_scope: true
+  failure_semantics: Any missing raw sample, matrix dimension, provenance binding, steady-state window, phase metric, or single gate failure is FAIL.
