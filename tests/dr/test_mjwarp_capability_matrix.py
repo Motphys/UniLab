@@ -73,8 +73,20 @@ _NUM_ENVS = 32
 _BASE = "pelvis"
 _HINGE = "left_hip_pitch_joint"
 _CAPABILITY_ID = "state.qpos_qvel_reset"
+_MODEL_CAPABILITY_ID = "actuator.position_servo_pd_gain"
+_MODEL_GRAPH_INVALIDATIONS = (
+    MutationGraphInvalidation.FORWARD_GRAPH,
+    MutationGraphInvalidation.MODEL_BRIDGE_CACHE,
+    MutationGraphInvalidation.RESET_GRAPH,
+    MutationGraphInvalidation.SENSE_GRAPH,
+    MutationGraphInvalidation.SENSOR_CONTEXT,
+    MutationGraphInvalidation.STEP_GRAPH,
+)
 _MANDATORY_NODE = (
     "tests/dr/test_mjwarp_capability_matrix.py::test_mjwarp_advertised_capability_case"
+)
+_MANDATORY_MODEL_NODE = (
+    "tests/dr/test_mjwarp_model_mutation.py::test_mjwarp_advertised_model_capability_case"
 )
 _SELECTED = (29, 3, 17, 8, 25, 1, 14, 21)
 _PAIRED_CONTROLS = (28, 2, 16, 9, 24, 0, 15, 20)
@@ -126,8 +138,8 @@ class _CapabilityRecord:
         return f"{self.execution_profile.value}-{self.target_key}"
 
     @property
-    def semantic_identity(self) -> tuple[ExecutionProfile, str]:
-        return self.execution_profile, self.target_key
+    def semantic_identity(self) -> tuple[ExecutionProfile, str, MutationOperation]:
+        return self.execution_profile, self.target_key, self.operation
 
 
 @dataclass(frozen=True)
@@ -259,7 +271,75 @@ _MANDATORY_CASES = tuple(
     for profile in (ExecutionProfile.HOST_NUMPY, ExecutionProfile.DEVICE_RESIDENT)
     for field in _FIELD_EXPECTATIONS
 )
-_MANDATORY_RECORDS = tuple(case.record for case in _MANDATORY_CASES)
+
+
+def _mandatory_model_record(
+    *,
+    target_key: str,
+    field_kind: MutationFieldKind,
+    direct_fields: tuple[str, ...],
+    operation: MutationOperation,
+) -> _CapabilityRecord:
+    parameter_id = f"device_resident-{target_key}-{operation.value}"
+    return _CapabilityRecord(
+        mandatory_test_id=f"{_MANDATORY_MODEL_NODE}[{parameter_id}]",
+        case_id=f"mjwarp.device_resident.{target_key}.reset.{operation.value}",
+        capability_id=_MODEL_CAPABILITY_ID,
+        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+        target_key=target_key,
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        entity_kind=MutationEntityKind.ACTUATOR,
+        field_kind=field_kind,
+        value_row_shape=(1,),
+        value_dtype="float32",
+        value_layout=BufferLayout.C_CONTIGUOUS,
+        value_memory_space=MemorySpace.DEVICE,
+        value_device_type="cuda",
+        value_owner=BufferOwner.MANAGER,
+        value_mutability=BufferMutability.READ_ONLY,
+        value_lifetime=BufferLifetime.UNTIL_COMMIT,
+        value_dlpack_exportable=True,
+        value_address_stable=True,
+        direct_fields=direct_fields,
+        derived_fields=(),
+        storage_kind=MutationFieldStorageKind.MODEL_FIELD_EXPANSION,
+        graph_impact=MutationGraphImpact.RECAPTURE_REQUIRED,
+        graph_invalidations=_MODEL_GRAPH_INVALIDATIONS,
+        trigger=MutationTrigger.RESET,
+        commit_phase=MutationCommitPhase.RESET,
+        operation=operation,
+        baseline=MutationBaseline.DEFAULT,
+        persistence=MutationPersistence.EPISODE,
+        recompute=MutationRecomputeLevel.NONE,
+        row_scope=MutationCapabilityRowScope.SELECTED_ROWS,
+    )
+
+
+_MANDATORY_MODEL_RECORDS = tuple(
+    _mandatory_model_record(
+        target_key=target_key,
+        field_kind=field_kind,
+        direct_fields=direct_fields,
+        operation=operation,
+    )
+    for target_key, field_kind, direct_fields in (
+        (
+            "actuator.pd_stiffness",
+            MutationFieldKind.STIFFNESS,
+            ("actuator_biasprm", "actuator_gainprm"),
+        ),
+        (
+            "actuator.pd_damping",
+            MutationFieldKind.DAMPING,
+            ("actuator_biasprm",),
+        ),
+    )
+    for operation in (MutationOperation.SET, MutationOperation.SCALE)
+)
+_MANDATORY_RECORDS = (
+    *(case.record for case in _MANDATORY_CASES),
+    *_MANDATORY_MODEL_RECORDS,
+)
 
 
 def _duplicate_values(values: Sequence[Any]) -> tuple[Any, ...]:
@@ -768,6 +848,7 @@ def _zero_control(runtime: _ProfileRuntime, *, owner_suffix: str) -> ControlBatc
     )
 
 
+@pytest.mark.slow
 def test_advertised_capabilities_equal_mandatory_parameter_cases(
     mjwarp_profile_runtimes: dict[ExecutionProfile, _ProfileRuntime],
 ) -> None:
@@ -779,9 +860,11 @@ def test_advertised_capabilities_equal_mandatory_parameter_cases(
     )
     advertised = tuple(record for manifest in manifests for record in _manifest_records(manifest))
     _require_exact_case_bijection(advertised, _MANDATORY_RECORDS)
-    assert len(advertised) == len(_MANDATORY_CASES) == 12
+    assert len(_MANDATORY_CASES) == 12
+    assert len(advertised) == len(_MANDATORY_RECORDS) == 16
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("case", _MANDATORY_CASES, ids=lambda case: case.parameter_id)
 def test_mjwarp_advertised_capability_case(
     case: _MandatoryCase,
@@ -881,6 +964,7 @@ def test_case_bijection_audit_rejects_capability_metadata_tamper() -> None:
         )
 
 
+@pytest.mark.slow
 def test_manifest_rejects_profile_mix_duplicate_evidence_and_fingerprint_tamper(
     mjwarp_profile_runtimes: dict[ExecutionProfile, _ProfileRuntime],
 ) -> None:
@@ -934,6 +1018,7 @@ def test_manifest_rejects_profile_mix_duplicate_evidence_and_fingerprint_tamper(
         fingerprint_tamper.require_valid()
 
 
+@pytest.mark.slow
 def test_manifest_rejects_profile_placement_mismatch(
     mjwarp_profile_runtimes: dict[ExecutionProfile, _ProfileRuntime],
 ) -> None:

@@ -1,11 +1,11 @@
-"""CUDA simulation-state reset support for the ``mjwarp`` device profile.
+"""CUDA reset-time mutation support for the ``mjwarp`` device profile.
 
 The device lifecycle deliberately keeps dynamic done/reset membership on CUDA.
 ``RowSelection.all`` describes the stable all-world value layout while the
 typed :class:`~unilab.base.backend.mutation_batch.DeviceResetMutationBatch`
-carries the selected rows as one CUDA bool mask.  This module owns the only
-translation from semantic reset fields to Warp qpos/qvel coordinates; manager
-and runner code never receive the raw physics tensors.
+carries the selected rows as one CUDA bool mask.  This module coordinates the
+backend-owned state and Model plans; manager and runner code never receive raw
+physics tensors or MuJoCo parameter slots.
 """
 
 from __future__ import annotations
@@ -43,7 +43,8 @@ from ..mutation import (
     MutationTrigger,
 )
 from ..mutation_batch import DeviceResetMutationBatch, MutationValueBatch
-from .capability import mjwarp_state_reset_descriptor
+from .capability import mjwarp_actuator_pd_descriptor, mjwarp_state_reset_descriptor
+from .model_mutation import MjwarpDeviceModelMutationPlan
 
 if TYPE_CHECKING:
     from .backend import MjwarpBackend
@@ -109,13 +110,39 @@ def _reset_capability(
     )
 
 
+def _model_capability(
+    *,
+    target_key: str,
+    field_kind: MutationFieldKind,
+    entity_count: int,
+    placement: BufferPlacement,
+) -> MutationCapability:
+    return MutationCapability(
+        target_key=target_key,
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        entity_kind=MutationEntityKind.ACTUATOR,
+        field_kind=field_kind,
+        entity_count=entity_count,
+        value_template=_device_manager_value_template(
+            placement=placement,
+            row_shape=(1,),
+        ),
+        triggers=frozenset({MutationTrigger.RESET}),
+        commit_phases=frozenset({MutationCommitPhase.RESET}),
+        operations=frozenset({MutationOperation.SET, MutationOperation.SCALE}),
+        baselines=frozenset({MutationBaseline.DEFAULT}),
+        persistences=frozenset({MutationPersistence.EPISODE}),
+        recompute_levels=frozenset({MutationRecomputeLevel.NONE}),
+        descriptor=mjwarp_actuator_pd_descriptor(target_key=target_key),
+    )
+
+
 def mjwarp_device_mutation_capabilities(backend: MjwarpBackend) -> tuple[MutationCapability, ...]:
     """Declare the explicit CUDA reset-state capability surface.
 
-    This is deliberately the same narrow semantic surface as the host typed
-    reset path, but its value buffers are CUDA manager buffers and every
-    runtime commit uses one active mask.  Model/randomization/Event features
-    remain unavailable until Phase 6 has effect/graph evidence.
+    State values and the verified native position-actuator Model fields use
+    CUDA manager buffers and one active mask.  Other randomization and Event
+    features remain unavailable until they have their own effect evidence.
     """
 
     bridge = backend._ensure_device_bridge()
@@ -166,6 +193,23 @@ def mjwarp_device_mutation_capabilities(backend: MjwarpBackend) -> tuple[Mutatio
                 row_shape=(1,),
             )
         )
+    if backend._position_actuator_ids:
+        capabilities.extend(
+            (
+                _model_capability(
+                    target_key="actuator.pd_stiffness",
+                    field_kind=MutationFieldKind.STIFFNESS,
+                    entity_count=backend._nu,
+                    placement=placement,
+                ),
+                _model_capability(
+                    target_key="actuator.pd_damping",
+                    field_kind=MutationFieldKind.DAMPING,
+                    entity_count=backend._nu,
+                    placement=placement,
+                ),
+            )
+        )
     if not capabilities:
         raise BackendBatchContractError(
             "mjwarp device typed state mutation requires a floating root or at least one DoF"
@@ -177,13 +221,14 @@ def mjwarp_device_mutation_capabilities(backend: MjwarpBackend) -> tuple[Mutatio
 class _DeviceResetTarget:
     """Cold-bound raw coordinate map for one semantic mutation field."""
 
+    field_index: int
     spec: BoundMutationSpec
     coordinates: torch.Tensor | None = field(repr=False, compare=False)
 
 
 @dataclass
 class MjwarpDeviceMutationPlan:
-    """Stable CUDA staging for one semantic all-world reset plan."""
+    """Coordinate state and Model commits under one all-world reset mask."""
 
     public_plan: BoundMutationPlan
     nq: int
@@ -191,10 +236,11 @@ class MjwarpDeviceMutationPlan:
     root_qpos_dim: int
     root_qvel_dim: int
     placement: BufferPlacement
-    _reset_qpos: torch.Tensor = field(init=False, repr=False)
-    _reset_qvel: torch.Tensor = field(init=False, repr=False)
-    _masked_qpos: torch.Tensor = field(init=False, repr=False)
-    _masked_qvel: torch.Tensor = field(init=False, repr=False)
+    model_plan: MjwarpDeviceModelMutationPlan | None = field(default=None, repr=False)
+    _reset_qpos: torch.Tensor | None = field(init=False, repr=False)
+    _reset_qvel: torch.Tensor | None = field(init=False, repr=False)
+    _masked_qpos: torch.Tensor | None = field(init=False, repr=False)
+    _masked_qvel: torch.Tensor | None = field(init=False, repr=False)
     _targets: tuple[_DeviceResetTarget, ...] = field(init=False, repr=False)
     _registered_batch_plans: dict[str, BoundBackendPlan] = field(
         default_factory=dict,
@@ -210,12 +256,10 @@ class MjwarpDeviceMutationPlan:
         device = torch.device(f"cuda:{self.placement.device_index}")
         shape_qpos = (self.public_plan.num_envs, self.nq)
         shape_qvel = (self.public_plan.num_envs, self.nv)
-        self._reset_qpos = torch.empty(shape_qpos, dtype=torch.float32, device=device)
-        self._reset_qvel = torch.empty(shape_qvel, dtype=torch.float32, device=device)
-        self._masked_qpos = torch.empty(shape_qpos, dtype=torch.float32, device=device)
-        self._masked_qvel = torch.empty(shape_qvel, dtype=torch.float32, device=device)
         targets: list[_DeviceResetTarget] = []
-        for spec in self.public_plan.specs:
+        for field_index, spec in enumerate(self.public_plan.specs):
+            if spec.target.target_kind is not MutationTargetKind.SIMULATION_STATE:
+                continue
             target_key = spec.target.target_key
             if target_key in _ROOT_TARGETS:
                 if (
@@ -247,8 +291,34 @@ class MjwarpDeviceMutationPlan:
                 raise MutationContractError(
                     "mjwarp device reset plan contains an unsupported simulation-state target"
                 )
-            targets.append(_DeviceResetTarget(spec=spec, coordinates=coordinates))
+            targets.append(
+                _DeviceResetTarget(
+                    field_index=field_index,
+                    spec=spec,
+                    coordinates=coordinates,
+                )
+            )
         self._targets = tuple(targets)
+        if targets:
+            self._reset_qpos = torch.empty(shape_qpos, dtype=torch.float32, device=device)
+            self._reset_qvel = torch.empty(shape_qvel, dtype=torch.float32, device=device)
+            self._masked_qpos = torch.empty(shape_qpos, dtype=torch.float32, device=device)
+            self._masked_qvel = torch.empty(shape_qvel, dtype=torch.float32, device=device)
+        else:
+            self._reset_qpos = None
+            self._reset_qvel = None
+            self._masked_qpos = None
+            self._masked_qvel = None
+        has_model_specs = any(
+            spec.target.target_kind is MutationTargetKind.MODEL_PARAMETER
+            for spec in self.public_plan.specs
+        )
+        if has_model_specs != bool(self.model_plan and self.model_plan.has_targets):
+            raise MutationContractError(
+                "mjwarp device mutation plan Model targets do not match their runtime owner"
+            )
+        if self.model_plan is not None:
+            self.model_plan.public_plan.require_compatible(self.public_plan)
 
     def register_batch_plan(self, plan: BoundBackendPlan) -> None:
         """Pair one device state/control plan on the cold path."""
@@ -297,14 +367,14 @@ class MjwarpDeviceMutationPlan:
     ) -> tuple[torch.Tensor, ...]:
         mutation = batch.mutation
         values_by_index = {value.field_index: value for value in mutation.state.values}
-        expected_indices = tuple(range(len(self._targets)))
-        if tuple(sorted(values_by_index)) != expected_indices:
+        expected_indices = tuple(target.field_index for target in self._targets)
+        if tuple(sorted(values_by_index)) != tuple(sorted(expected_indices)):
             raise BackendBatchContractError(
                 "mjwarp device reset must supply every bound simulation-state field once"
             )
         return tuple(
-            self._value_tensor(values_by_index[index], expected=target.spec)
-            for index, target in enumerate(self._targets)
+            self._value_tensor(values_by_index[target.field_index], expected=target.spec)
+            for target in self._targets
         )
 
     def active_mask(self, batch: DeviceResetMutationBatch) -> torch.Tensor:
@@ -326,12 +396,66 @@ class MjwarpDeviceMutationPlan:
         if (
             tuple(mask.shape) != (self.public_plan.num_envs,)
             or mask.dtype is not torch.bool
-            or mask.device != self._reset_qpos.device
+            or mask.device != torch.device(f"cuda:{self.placement.device_index}")
         ):
             raise BackendBatchContractError(
                 "mjwarp device reset active mask does not match the cold-bound CUDA plan"
             )
         return mask
+
+    @property
+    def numeric_buffer_addresses(self) -> tuple[int, ...]:
+        """Return stable scratch identity for low-frequency allocation gates."""
+
+        buffers = tuple(
+            value
+            for value in (
+                self._reset_qpos,
+                self._reset_qvel,
+                self._masked_qpos,
+                self._masked_qvel,
+            )
+            if value is not None
+        )
+        addresses = tuple(int(value.data_ptr()) for value in buffers)
+        if self.model_plan is not None:
+            addresses = (*addresses, *self.model_plan.numeric_buffer_addresses)
+        return addresses
+
+    def validate_batch(self, batch: DeviceResetMutationBatch) -> None:
+        """Validate complete typed coverage before launching a reset graph."""
+
+        self.public_plan.require_compatible(batch.plan)
+        self.active_mask(batch)
+        self._ordered_values(batch)
+        if self.model_plan is None:
+            if batch.mutation.model.values:
+                raise BackendBatchContractError(
+                    "mjwarp device reset supplied Model values without a bound Model plan"
+                )
+        else:
+            self.model_plan.ordered_values(batch)
+
+    def commit_model(
+        self,
+        batch: DeviceResetMutationBatch,
+        *,
+        active_mask: torch.Tensor,
+    ) -> None:
+        if self.model_plan is not None:
+            self.model_plan.commit(batch, active_mask=active_mask)
+
+    def effective_active_mask(
+        self,
+        batch: DeviceResetMutationBatch,
+        *,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Gate malformed Model values on CUDA before any reset-side write."""
+
+        if self.model_plan is None:
+            return active_mask
+        return self.model_plan.effective_active_mask(batch, active_mask=active_mask)
 
     def stage_reset_state(
         self,
@@ -339,6 +463,7 @@ class MjwarpDeviceMutationPlan:
         *,
         qpos: torch.Tensor,
         qvel: torch.Tensor,
+        active_mask: torch.Tensor,
     ) -> None:
         """Apply all semantic values under a CUDA mask without host indexing."""
 
@@ -350,14 +475,28 @@ class MjwarpDeviceMutationPlan:
             or tuple(qvel.shape) != expected_qvel
             or qpos.dtype is not torch.float32
             or qvel.dtype is not torch.float32
-            or qpos.device != self._reset_qpos.device
-            or qvel.device != self._reset_qvel.device
+            or qpos.device != torch.device(f"cuda:{self.placement.device_index}")
+            or qvel.device != torch.device(f"cuda:{self.placement.device_index}")
         ):
             raise BackendBatchContractError(
                 "mjwarp device reset source tensors do not match the cold-bound plan"
             )
         values = self._ordered_values(batch)
-        mask = self.active_mask(batch)
+        if not self._targets:
+            return
+        mask = active_mask
+        if (
+            tuple(mask.shape) != (self.public_plan.num_envs,)
+            or mask.dtype is not torch.bool
+            or mask.device != qpos.device
+        ):
+            raise BackendBatchContractError(
+                "mjwarp device reset effective mask does not match the cold-bound plan"
+            )
+        assert self._reset_qpos is not None
+        assert self._reset_qvel is not None
+        assert self._masked_qpos is not None
+        assert self._masked_qvel is not None
         self._reset_qpos.copy_(qpos, non_blocking=True)
         self._reset_qvel.copy_(qvel, non_blocking=True)
         for target, value in zip(self._targets, values, strict=True):
