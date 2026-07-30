@@ -26,6 +26,14 @@ ISSUE = 705
 THRESHOLD_SET_ID = "g1-manager-mjwarp-v1"
 THRESHOLD_MANIFEST_PATH = Path("tests/acceptance/issue_705/g1_threshold_manifest.yaml")
 FREEZE_RECEIPT_PATH = Path("tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml")
+AMENDMENT_SCHEMA_VERSION = 1
+AMENDMENT_ISSUE = 807
+AMENDMENT_ID = "g1-phase5-ppo-rss-ratio-v1"
+AMENDMENT_MANIFEST_PATH = Path("tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml")
+AMENDMENT_FREEZE_RECEIPT_PATH = Path(
+    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml"
+)
+AMENDMENT_ADR_PATH = Path("docs/sphinx/source/adr/ADR-0006-phase5-ppo-rss-threshold-amendment.md")
 BASELINE_PLAN_PATH = Path("tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml")
 BASELINE_ARTIFACT_PATH = Path("tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json")
 
@@ -58,6 +66,32 @@ class ThresholdManifest:
 
 @dataclass(frozen=True)
 class FreezeReceipt:
+    source_path: Path
+    data: Mapping[str, Any]
+    git_history_verified: bool = False
+
+    @property
+    def freeze_commit(self) -> str:
+        return str(self.data["freeze_commit"])
+
+
+@dataclass(frozen=True)
+class ThresholdAmendment:
+    source_path: Path
+    data: Mapping[str, Any]
+
+    @property
+    def amendment_id(self) -> str:
+        return str(self.data["amendment_id"])
+
+    @property
+    def host_memory_ratio_max(self) -> float:
+        change = cast(Mapping[str, Any], self.data["change"])
+        return float(change["amended_value"])
+
+
+@dataclass(frozen=True)
+class AmendmentFreezeReceipt:
     source_path: Path
     data: Mapping[str, Any]
     git_history_verified: bool = False
@@ -282,6 +316,69 @@ _GOVERNANCE_KEYS = (
     "candidate_result_and_threshold_change_same_pr_forbidden",
     "threshold_change_requires",
     "failure_semantics",
+)
+_AMENDMENT_ROOT_KEYS = (
+    "schema_version",
+    "issue",
+    "amendment_id",
+    "state",
+    "base_threshold",
+    "scope",
+    "change",
+    "governance",
+)
+_AMENDMENT_BASE_KEYS = (
+    "threshold_set_id",
+    "manifest_path",
+    "manifest_sha256",
+    "freeze_commit",
+)
+_AMENDMENT_SCOPE_KEYS = (
+    "phase",
+    "artifact_kind",
+    "profile",
+    "benchmark_path",
+    "metric",
+    "threshold_path",
+    "lanes",
+    "references",
+    "aggregation",
+    "comparison",
+)
+_AMENDMENT_CHANGE_KEYS = (
+    "previous_value",
+    "amended_value",
+    "owner_decision_date",
+    "rationale",
+)
+_AMENDMENT_GOVERNANCE_KEYS = (
+    "adr_path",
+    "child_issue_url",
+    "base_manifest_immutable",
+    "all_unlisted_thresholds_inherit_base",
+    "candidate_commit_must_descend_from_amendment_freeze",
+    "candidate_and_amendment_same_commit_forbidden",
+    "amendment_and_candidate_same_pr_forbidden",
+    "threshold_only_pr",
+    "no_protocol_change",
+)
+_AMENDMENT_RECEIPT_KEYS = (
+    "schema_version",
+    "issue",
+    "amendment_id",
+    "manifest_path",
+    "manifest_sha256",
+    "manifest_git_blob",
+    "freeze_commit",
+    "base_threshold_set_id",
+    "base_manifest_sha256",
+    "base_freeze_commit",
+    "issue_url",
+    "adr_path",
+    "change_policy",
+    "creation_verification",
+    "shallow_checkout_policy",
+    "final_merge_method",
 )
 
 
@@ -772,6 +869,214 @@ def load_threshold_manifest(path: Path, *, repo_root: Path) -> ThresholdManifest
     if errors:
         raise ThresholdValidationError(path, errors)
     return ThresholdManifest(source_path=path, data=raw)
+
+
+def _validate_amendment_schema(raw: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    root = _mapping(raw, "amendment", _AMENDMENT_ROOT_KEYS, errors)
+    base = _mapping(
+        root.get("base_threshold"),
+        "base_threshold",
+        _AMENDMENT_BASE_KEYS,
+        errors,
+    )
+    scope = _mapping(root.get("scope"), "scope", _AMENDMENT_SCOPE_KEYS, errors)
+    references = _mapping(
+        scope.get("references"),
+        "scope.references",
+        ("throughput", "behavior"),
+        errors,
+    )
+    change = _mapping(root.get("change"), "change", _AMENDMENT_CHANGE_KEYS, errors)
+    governance = _mapping(
+        root.get("governance"),
+        "governance",
+        _AMENDMENT_GOVERNANCE_KEYS,
+        errors,
+    )
+
+    _integer(root.get("schema_version"), "schema_version", errors, minimum=1)
+    _integer(root.get("issue"), "issue", errors, minimum=1)
+    for key in ("amendment_id", "state"):
+        _string(root.get(key), key, errors)
+    for key in _AMENDMENT_BASE_KEYS:
+        _string(base.get(key), f"base_threshold.{key}", errors)
+    _integer(scope.get("phase"), "scope.phase", errors, minimum=1)
+    for key in (
+        "artifact_kind",
+        "profile",
+        "benchmark_path",
+        "metric",
+        "threshold_path",
+        "aggregation",
+        "comparison",
+    ):
+        _string(scope.get(key), f"scope.{key}", errors)
+    for index, lane in enumerate(_list(scope.get("lanes"), "scope.lanes", errors)):
+        _string(lane, f"scope.lanes[{index}]", errors)
+    for key in ("throughput", "behavior"):
+        _string(references.get(key), f"scope.references.{key}", errors)
+    for key in ("previous_value", "amended_value"):
+        _number(change.get(key), f"change.{key}", errors)
+    for key in ("owner_decision_date", "rationale"):
+        _string(change.get(key), f"change.{key}", errors)
+    for key in ("adr_path", "child_issue_url"):
+        _string(governance.get(key), f"governance.{key}", errors)
+    for key in _AMENDMENT_GOVERNANCE_KEYS[2:]:
+        _boolean(governance.get(key), f"governance.{key}", errors)
+    return errors
+
+
+def _amendment_policy_errors(raw: Mapping[str, Any]) -> list[str]:
+    expected: dict[str, Any] = {
+        "schema_version": AMENDMENT_SCHEMA_VERSION,
+        "issue": AMENDMENT_ISSUE,
+        "amendment_id": AMENDMENT_ID,
+        "state": "frozen",
+        "base_threshold.threshold_set_id": THRESHOLD_SET_ID,
+        "base_threshold.manifest_path": THRESHOLD_MANIFEST_PATH.as_posix(),
+        "scope.phase": 5,
+        "scope.artifact_kind": "issue705-mjwarp-device-ppo-benchmark-v1",
+        "scope.profile": "device_resident",
+        "scope.benchmark_path": "benchmark/rl/benchmark_mjwarp_ppo.py",
+        "scope.metric": "process_tree_peak_rss_median_bytes_ratio",
+        "scope.threshold_path": "gates.memory.host_preferred_metric_ratio_max",
+        "scope.lanes": ["throughput", "behavior"],
+        "scope.references": {
+            "throughput": "paired_mujoco_host_same_batch",
+            "behavior": "phase0_mujoco_ppo",
+        },
+        "scope.aggregation": "median_of_independent_process_peaks",
+        "scope.comparison": "candidate_over_reference_lte",
+        "change.previous_value": 1.25,
+        "change.amended_value": 1.26,
+        "change.owner_decision_date": "2026-07-30",
+        "governance.adr_path": AMENDMENT_ADR_PATH.as_posix(),
+        "governance.child_issue_url": "https://github.com/unilabsim/UniLab/issues/807",
+        "governance.base_manifest_immutable": True,
+        "governance.all_unlisted_thresholds_inherit_base": True,
+        "governance.candidate_commit_must_descend_from_amendment_freeze": True,
+        "governance.candidate_and_amendment_same_commit_forbidden": True,
+        "governance.amendment_and_candidate_same_pr_forbidden": True,
+        "governance.threshold_only_pr": True,
+        "governance.no_protocol_change": True,
+    }
+    errors: list[str] = []
+    for path, wanted in expected.items():
+        actual = _get_path(raw, path)
+        if isinstance(wanted, float) and isinstance(actual, (int, float)):
+            if math.isclose(float(actual), wanted, rel_tol=0.0, abs_tol=1e-12):
+                continue
+        elif actual == wanted:
+            continue
+        errors.append(f"{path}: frozen amendment value is {wanted!r}, got {actual!r}")
+    return errors
+
+
+def load_threshold_amendment(
+    path: Path,
+    *,
+    base_manifest: ThresholdManifest,
+    base_receipt: FreezeReceipt,
+    repo_root: Path,
+) -> ThresholdAmendment:
+    """Load the narrowly scoped Phase-5 PPO RSS threshold amendment."""
+
+    raw = _load_yaml_mapping(path)
+    errors = _validate_amendment_schema(raw)
+    errors.extend(_amendment_policy_errors(raw))
+    base = cast(Mapping[str, Any], raw.get("base_threshold", {}))
+    expected_base = {
+        "threshold_set_id": base_manifest.data["threshold_set_id"],
+        "manifest_path": THRESHOLD_MANIFEST_PATH.as_posix(),
+        "manifest_sha256": sha256_file(base_manifest.source_path),
+        "freeze_commit": base_receipt.freeze_commit,
+    }
+    for key, expected in expected_base.items():
+        if base.get(key) != expected:
+            errors.append(
+                f"base_threshold.{key}: expected frozen base {expected!r}, got {base.get(key)!r}"
+            )
+    if base_receipt.data.get("manifest_sha256") != expected_base["manifest_sha256"]:
+        errors.append("base_threshold: base receipt does not bind the current base manifest")
+    base_memory = cast(Mapping[str, Any], base_manifest.gates["memory"])
+    previous = cast(Mapping[str, Any], raw.get("change", {})).get("previous_value")
+    if previous != base_memory.get("host_preferred_metric_ratio_max"):
+        errors.append("change.previous_value: does not match the immutable base threshold")
+    if not (repo_root / AMENDMENT_ADR_PATH).is_file():
+        errors.append(f"governance.adr_path: file does not exist: {AMENDMENT_ADR_PATH}")
+    if errors:
+        raise ThresholdValidationError(path, errors)
+    return ThresholdAmendment(source_path=path, data=raw)
+
+
+def load_amendment_freeze_receipt(
+    path: Path,
+    *,
+    amendment: ThresholdAmendment,
+    base_receipt: FreezeReceipt,
+    repo_root: Path,
+    verify_git: bool = True,
+) -> AmendmentFreezeReceipt:
+    """Validate the amendment's own commit/hash/blob receipt."""
+
+    raw = _load_yaml_mapping(path)
+    errors: list[str] = []
+    receipt = _mapping(raw, "receipt", _AMENDMENT_RECEIPT_KEYS, errors)
+    for key in _AMENDMENT_RECEIPT_KEYS:
+        if key in {"schema_version", "issue"}:
+            _integer(receipt.get(key), key, errors, minimum=1)
+        else:
+            _string(receipt.get(key), key, errors)
+    expected_values = {
+        "schema_version": AMENDMENT_SCHEMA_VERSION,
+        "issue": AMENDMENT_ISSUE,
+        "amendment_id": AMENDMENT_ID,
+        "manifest_path": AMENDMENT_MANIFEST_PATH.as_posix(),
+        "base_threshold_set_id": THRESHOLD_SET_ID,
+        "base_manifest_sha256": base_receipt.data["manifest_sha256"],
+        "base_freeze_commit": base_receipt.freeze_commit,
+        "issue_url": "https://github.com/unilabsim/UniLab/issues/807",
+        "adr_path": AMENDMENT_ADR_PATH.as_posix(),
+        "change_policy": "phase5_ppo_only_base_thresholds_immutable",
+        "creation_verification": "full_git_history",
+        "shallow_checkout_policy": "current_hash_and_receipt",
+        "final_merge_method": "merge_commit",
+    }
+    for key, expected in expected_values.items():
+        if receipt.get(key) != expected:
+            errors.append(f"{key}: expected {expected!r}, got {receipt.get(key)!r}")
+    manifest_sha = sha256_file(amendment.source_path)
+    if receipt.get("manifest_sha256") != manifest_sha:
+        errors.append(
+            f"manifest_sha256: expected current {manifest_sha}, got {receipt.get('manifest_sha256')!r}"
+        )
+    for key in ("manifest_sha256", "base_manifest_sha256"):
+        if not _SHA256_RE.fullmatch(str(receipt.get(key, ""))):
+            errors.append(f"{key}: expected sha256:<64 lowercase hex>")
+    freeze_commit = str(receipt.get("freeze_commit", ""))
+    if not _COMMIT_RE.fullmatch(freeze_commit):
+        errors.append("freeze_commit: expected full lowercase commit SHA")
+    manifest_blob = str(receipt.get("manifest_git_blob", ""))
+    if not _GIT_BLOB_RE.fullmatch(manifest_blob):
+        errors.append("manifest_git_blob: expected full Git object ID")
+    git_history_verified = False
+    if verify_git and _COMMIT_RE.fullmatch(freeze_commit):
+        git_errors, git_history_verified = _git_receipt_errors(
+            repo_root=repo_root,
+            freeze_commit=freeze_commit,
+            manifest_path=AMENDMENT_MANIFEST_PATH,
+            manifest_bytes=amendment.source_path.read_bytes(),
+            expected_blob=manifest_blob,
+        )
+        errors.extend(git_errors)
+    if errors:
+        raise ThresholdValidationError(path, errors)
+    return AmendmentFreezeReceipt(
+        source_path=path,
+        data=raw,
+        git_history_verified=git_history_verified,
+    )
 
 
 _RECEIPT_KEYS = (
