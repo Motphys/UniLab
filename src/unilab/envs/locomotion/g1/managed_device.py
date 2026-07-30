@@ -39,14 +39,19 @@ from unilab.base.backend import (
     StateBatch,
 )
 from unilab.base.backend.base import SimBackend
+from unilab.dr.keyed_rng import RandomCorrelation, RandomDistribution
 from unilab.dtype_config import get_global_dtype
 from unilab.manager import (
     BackendEntityResolver,
     DeviceManagedRuntime,
     DeviceResetPayload,
+    DeviceResetValue,
     DeviceRuntimeBuffer,
+    EntityKind,
+    EntitySelector,
     ManagedKernelBinding,
     ManagerContractError,
+    MutationRandomization,
     MutationTemplate,
     PolicySpec,
     TaskCompiler,
@@ -78,6 +83,8 @@ from .managed_reference import (
 )
 
 G1_MANAGED_DEVICE_EXECUTOR_KEY = "device.torch.g1-walk-flat.v1"
+_KP_EVENT_TERM = "g1_randomize_kp"
+_KD_EVENT_TERM = "g1_randomize_kd"
 
 
 class G1ManagedDeviceError(ManagerContractError):
@@ -169,9 +176,45 @@ def _device_reset_templates(
     return tuple(templates)
 
 
+def _device_pd_event_template(
+    *,
+    placement: BufferPlacement,
+    actuators: EntitySelector,
+    target_key: str,
+    field_kind: MutationFieldKind,
+    multiplier_range: list[float],
+) -> MutationTemplate:
+    if len(multiplier_range) != 2:
+        raise G1ManagedDeviceError("G1 PD multiplier range must contain two values")
+    parameters = (float(multiplier_range[0]), float(multiplier_range[1]))
+    return MutationTemplate(
+        key_suffix="",
+        target_key=target_key,
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        selector=actuators,
+        field_kind=field_kind,
+        trigger=MutationTrigger.RESET,
+        commit_phase=MutationCommitPhase.RESET,
+        operation=MutationOperation.SCALE,
+        baseline=MutationBaseline.DEFAULT,
+        persistence=MutationPersistence.EPISODE,
+        recompute=MutationRecomputeLevel.NONE,
+        value_template=_device_manager_buffer(
+            placement=placement,
+            row_shape=(1,),
+            lifetime=BufferLifetime.UNTIL_COMMIT,
+        ),
+        randomization=MutationRandomization(
+            distribution=RandomDistribution.UNIFORM,
+            parameters=parameters,
+            correlation=RandomCorrelation.PER_ENV,
+        ),
+    )
+
+
 def _validate_device_profile(cfg: G1WalkEnvCfg) -> G1WalkRewardConfig:
     try:
-        reward = _validate_reference_profile(cfg)
+        reward = _validate_reference_profile(cfg, allow_pd_randomization=True)
     except G1ManagedReferenceError as exc:
         raise G1ManagedDeviceError(
             str(exc).replace("managed reference", "device executor")
@@ -212,6 +255,12 @@ def compile_g1_managed_device_task(
     action_dim = len(actuator_names)
     _action_scale(cfg, action_dim)
     root, dofs, _, _ = _g1_selectors(actuator_names)
+    actuators = EntitySelector(
+        key="g1.position_actuators",
+        entity="g1",
+        kind=EntityKind.ACTUATOR,
+        expressions=actuator_names,
+    )
     state_requirements = _g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
     reset_templates = _device_reset_templates(
         placement=placement,
@@ -229,6 +278,42 @@ def compile_g1_managed_device_task(
             mutation_templates=reset_templates,
         )
     )
+    if cfg.domain_rand.randomize_kp:
+        registry.register(
+            TermDefinition(
+                key="g1.device.randomize_kp",
+                version="1",
+                phase=TermPhase.RESET,
+                role=TermRole.EVENT,
+                mutation_templates=(
+                    _device_pd_event_template(
+                        placement=placement,
+                        actuators=actuators,
+                        target_key="actuator.pd_stiffness",
+                        field_kind=MutationFieldKind.STIFFNESS,
+                        multiplier_range=cfg.domain_rand.kp_multiplier_range,
+                    ),
+                ),
+            )
+        )
+    if cfg.domain_rand.randomize_kd:
+        registry.register(
+            TermDefinition(
+                key="g1.device.randomize_kd",
+                version="1",
+                phase=TermPhase.RESET,
+                role=TermRole.EVENT,
+                mutation_templates=(
+                    _device_pd_event_template(
+                        placement=placement,
+                        actuators=actuators,
+                        target_key="actuator.pd_damping",
+                        field_kind=MutationFieldKind.DAMPING,
+                        multiplier_range=cfg.domain_rand.kd_multiplier_range,
+                    ),
+                ),
+            )
+        )
     registry.register(
         TermDefinition(
             key="g1.device.termination",
@@ -271,14 +356,32 @@ def compile_g1_managed_device_task(
             output=TensorSpec((_CRITIC_WIDTH,), "float32"),
         )
     )
+    reset_terms = [TermInvocation.create(key=_RESET_TERM, definition_key="g1.device.reset")]
+    if cfg.domain_rand.randomize_kp:
+        reset_terms.append(
+            TermInvocation.create(
+                key=_KP_EVENT_TERM,
+                definition_key="g1.device.randomize_kp",
+                dependencies=(_RESET_TERM,),
+            )
+        )
+    if cfg.domain_rand.randomize_kd:
+        reset_terms.append(
+            TermInvocation.create(
+                key=_KD_EVENT_TERM,
+                definition_key="g1.device.randomize_kd",
+                dependencies=(_RESET_TERM,),
+            )
+        )
+    reset_dependencies = tuple(term.key for term in reset_terms)
     task = TaskSpec.create(
         key="g1_walk_flat.managed_device",
         terms=(
-            TermInvocation.create(key=_RESET_TERM, definition_key="g1.device.reset"),
+            *reset_terms,
             TermInvocation.create(
                 key="g1_termination",
                 definition_key="g1.device.termination",
-                dependencies=(_RESET_TERM,),
+                dependencies=reset_dependencies,
             ),
             TermInvocation.create(
                 key="g1_reward",
@@ -324,6 +427,8 @@ def compile_g1_managed_device_task(
             "state.dof.position",
             "state.dof.angular_velocity",
             "state.sensor.value",
+            *(("actuator.pd_stiffness",) if cfg.domain_rand.randomize_kp else ()),
+            *(("actuator.pd_damping",) if cfg.domain_rand.randomize_kd else ()),
         }
     )
     plan = TaskCompiler(registry).compile(
@@ -364,7 +469,7 @@ class _G1DeviceTaskState:
     reset_qvel: torch.Tensor
     reset_commands: torch.Tensor
     reset_gait_phase: torch.Tensor
-    reset_values: tuple[torch.Tensor, ...]
+    reset_values: tuple[DeviceResetValue, ...]
     reset_mask: torch.Tensor
     reset_yaw: torch.Tensor
     reset_bool_scratch: torch.Tensor
@@ -407,9 +512,10 @@ class G1ManagedDeviceKernel:
         self._state_indices: tuple[int, ...] | None = None
         self._observation_indices: tuple[int, int] | None = None
         self._mutation_plan: BoundMutationPlan | None = None
-        self._root_reset_indices: tuple[int, int, int, int] | None = None
-        self._position_reset_index: int | None = None
-        self._velocity_reset_index: int | None = None
+        self._deterministic_reset_indices: tuple[int, ...] | None = None
+        self._root_reset_offsets: tuple[int, int, int, int] | None = None
+        self._position_reset_offset: int | None = None
+        self._velocity_reset_offset: int | None = None
         self._action_scale = torch.as_tensor(
             config.action_scale, dtype=torch.float32, device=self._device
         )
@@ -475,32 +581,50 @@ class G1ManagedDeviceKernel:
             raise G1ManagedDeviceError(
                 "G1 device plan is missing reset mutations: " + ", ".join(missing_mutations)
             )
+        event_indices = binding.event_mutation_indices
+        event_keys = tuple(mutation_plan.specs[index].term_key for index in event_indices)
+        if any(key not in {_KP_EVENT_TERM, _KD_EVENT_TERM} for key in event_keys):
+            raise G1ManagedDeviceError("G1 device plan contains an unsupported random Event")
+        deterministic_indices = tuple(
+            index
+            for index in range(len(mutation_plan.specs))
+            if index not in frozenset(event_indices)
+        )
+        required_indices = tuple(
+            sorted(mutation_indices[key] for key in (*root_keys, position_key, velocity_key))
+        )
+        if deterministic_indices != required_indices:
+            raise G1ManagedDeviceError(
+                "G1 device deterministic reset plan has unexpected mutation fields"
+            )
+        offsets = {index: offset for offset, index in enumerate(deterministic_indices)}
         self._binding = binding
         self._state_indices = tuple(state_indices[key] for key in _STATE_KEYS)
         self._observation_indices = observation_indices
         self._mutation_plan = mutation_plan
-        self._root_reset_indices = tuple(mutation_indices[key] for key in root_keys)  # type: ignore[assignment]
-        self._position_reset_index = mutation_indices[position_key]
-        self._velocity_reset_index = mutation_indices[velocity_key]
+        self._deterministic_reset_indices = deterministic_indices
+        self._root_reset_offsets = tuple(offsets[mutation_indices[key]] for key in root_keys)  # type: ignore[assignment]
+        self._position_reset_offset = offsets[mutation_indices[position_key]]
+        self._velocity_reset_offset = offsets[mutation_indices[velocity_key]]
 
     def _require_binding(self) -> ManagedKernelBinding:
         if self._binding is None:
             raise G1ManagedDeviceError("G1 device kernel has not been bound")
         return self._binding
 
-    def _require_reset_indices(
+    def _require_reset_offsets(
         self,
     ) -> tuple[tuple[int, int, int, int], int, int]:
         if (
-            self._root_reset_indices is None
-            or self._position_reset_index is None
-            or self._velocity_reset_index is None
+            self._root_reset_offsets is None
+            or self._position_reset_offset is None
+            or self._velocity_reset_offset is None
         ):
-            raise G1ManagedDeviceError("G1 device reset indices are not bound")
+            raise G1ManagedDeviceError("G1 device reset offsets are not bound")
         return (
-            self._root_reset_indices,
-            self._position_reset_index,
-            self._velocity_reset_index,
+            self._root_reset_offsets,
+            self._position_reset_offset,
+            self._velocity_reset_offset,
         )
 
     @staticmethod
@@ -520,15 +644,19 @@ class G1ManagedDeviceKernel:
         if num_envs != binding.num_envs or dtype is not torch.float32 or device != self._device:
             raise G1ManagedDeviceError("G1 device task-state placement differs from its binding")
         mutation_plan = self._mutation_plan
-        if mutation_plan is None:  # pragma: no cover - bind invariant.
+        deterministic_indices = self._deterministic_reset_indices
+        if mutation_plan is None or deterministic_indices is None:  # pragma: no cover
             raise G1ManagedDeviceError("G1 device task state lacks mutation plan")
         reset_values = tuple(
-            torch.empty(
-                (num_envs, *spec.value_buffer.row_shape),
-                dtype=dtype,
-                device=device,
+            DeviceResetValue(
+                field_index=field_index,
+                tensor=torch.empty(
+                    (num_envs, *mutation_plan.specs[field_index].value_buffer.row_shape),
+                    dtype=dtype,
+                    device=device,
+                ),
             )
-            for spec in mutation_plan.specs
+            for field_index in deterministic_indices
         )
         generator = torch.Generator(device=device)
         generator.manual_seed(self._config.reset_seed)
@@ -594,7 +722,7 @@ class G1ManagedDeviceKernel:
             ("task.zero_actions", task.zero_actions),
         ]
         candidates.extend(
-            (f"task.reset_values.{index}", value) for index, value in enumerate(task.reset_values)
+            (f"task.reset_values.{value.field_index}", value.tensor) for value in task.reset_values
         )
         return tuple(DeviceRuntimeBuffer(name=name, tensor=tensor) for name, tensor in candidates)
 
@@ -1007,17 +1135,21 @@ class G1ManagedDeviceKernel:
             raise G1ManagedDeviceError("G1 device reset mask is incompatible")
         self._sample_reset(task)
         task.reset_mask.copy_(active_mask, non_blocking=True)
-        root_indices, position_index, velocity_index = self._require_reset_indices()
+        root_offsets, position_offset, velocity_offset = self._require_reset_offsets()
         root_values = (
             task.reset_qpos[:, :3],
             task.reset_qpos[:, 3:7],
             task.reset_qvel[:, :3],
             task.reset_qvel[:, 3:6],
         )
-        for mutation_index, source in zip(root_indices, root_values, strict=True):
-            task.reset_values[mutation_index][:, 0, :].copy_(source, non_blocking=True)
-        task.reset_values[position_index][:, :, 0].copy_(task.reset_qpos[:, 7:], non_blocking=True)
-        task.reset_values[velocity_index][:, :, 0].copy_(task.reset_qvel[:, 6:], non_blocking=True)
+        for value_offset, source in zip(root_offsets, root_values, strict=True):
+            task.reset_values[value_offset].tensor[:, 0, :].copy_(source, non_blocking=True)
+        task.reset_values[position_offset].tensor[:, :, 0].copy_(
+            task.reset_qpos[:, 7:], non_blocking=True
+        )
+        task.reset_values[velocity_offset].tensor[:, :, 0].copy_(
+            task.reset_qvel[:, 6:], non_blocking=True
+        )
         return DeviceResetPayload(active_mask=task.reset_mask, values=task.reset_values)
 
     def complete_reset(
@@ -1063,6 +1195,7 @@ def create_g1_managed_device_runtime(
             cfg=cfg,
             reset_seed=reset_seed,
             observation_noise_seed=None,
+            allow_pd_randomization=True,
         )
     except G1ManagedReferenceError as exc:
         raise G1ManagedDeviceError(
@@ -1081,6 +1214,7 @@ def create_g1_managed_device_runtime(
         plan=plan,
         kernel=kernel,
         max_episode_steps=cfg.max_episode_steps if max_episode_steps is None else max_episode_steps,
+        run_seed=reset_seed,
         record_lifecycle=record_lifecycle,
         stability_buffer_provider=kernel if enable_stability_diagnostics else None,
     )

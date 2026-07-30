@@ -18,6 +18,7 @@ from unilab.base.backend.batch import (
 )
 from unilab.base.backend.mutation import MutationSelectorSpec
 
+from .entities import ManagerContractError
 from .plan import MANAGER_TASK_CONTRACT_VERSION, CompiledTaskPlan
 from .spec import ParameterValue, TensorSpec
 
@@ -528,6 +529,27 @@ def compiled_plan_payload(
             }
             for item in plan.mutation_specs
         ],
+        **(
+            {
+                "mutation_events": [
+                    {
+                        "mutation_index": item.mutation_index,
+                        "term_index": item.term_index,
+                        "term_key": item.term_key,
+                        "term_version": item.term_version,
+                        "trigger": item.trigger.value,
+                        "commit_phase": item.commit_phase.value,
+                        "distribution": item.distribution.value,
+                        "parameters": list(item.parameters),
+                        "correlation": item.correlation.value,
+                        "algorithm": item.algorithm,
+                    }
+                    for item in plan.mutation_events
+                ]
+            }
+            if plan.mutation_events
+            else {}
+        ),
         "output_channels": [
             {"key": item.key, "buffer": _buffer_payload(item.buffer)}
             for item in plan.output_channels
@@ -536,3 +558,22 @@ def compiled_plan_payload(
         "executor_key": plan.executor_key,
         "required_capabilities": list(plan.required_capabilities),
     }
+
+
+def validate_compiled_plan_fingerprints(plan: CompiledTaskPlan) -> None:
+    """Fail closed when a frozen plan was forged after compilation."""
+
+    if not isinstance(plan, CompiledTaskPlan):
+        raise ManagerContractError("compiled plan integrity requires a CompiledTaskPlan")
+    semantic = (
+        f"{plan.contract_version}:"
+        f"{canonical_digest(compiled_plan_payload(plan, include_bindings=False))}"
+    )
+    binding = (
+        "manager-selector-binding-v1:"
+        f"{canonical_digest(compiled_plan_payload(plan, include_bindings=True))}"
+    )
+    if plan.fingerprint != semantic or plan.selector_binding_fingerprint != binding:
+        raise ManagerContractError(
+            "compiled task plan fingerprints do not match its immutable payload"
+        )

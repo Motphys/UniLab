@@ -35,7 +35,7 @@ from unilab.base.backend.mutation import BoundMutationPlan
 from unilab.base.np_env import NpEnvState
 
 from .entities import ManagerContractError
-from .fingerprint import managed_policy_abi_snapshot
+from .fingerprint import managed_policy_abi_snapshot, validate_compiled_plan_fingerprints
 from .plan import CompiledTaskPlan
 
 
@@ -383,6 +383,7 @@ class ManagedKernelBinding:
     state_field_indices: tuple[tuple[str, int], ...]
     observation_buffer_indices: tuple[tuple[str, int], ...]
     mutation_plan: BoundMutationPlan | None
+    event_mutation_indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -442,6 +443,24 @@ class ManagedKernelBinding:
             )
         if self.mutation_plan is not None and not isinstance(self.mutation_plan, BoundMutationPlan):
             raise ManagedRuntimeError("managed kernel binding mutation_plan is invalid")
+        if (
+            not isinstance(self.event_mutation_indices, tuple)
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in self.event_mutation_indices
+            )
+            or self.event_mutation_indices != tuple(sorted(set(self.event_mutation_indices)))
+        ):
+            raise ManagedRuntimeError(
+                "managed kernel binding Event mutation indices must be canonical"
+            )
+        if self.event_mutation_indices:
+            if self.mutation_plan is None or any(
+                index >= len(self.mutation_plan.specs) for index in self.event_mutation_indices
+            ):
+                raise ManagedRuntimeError(
+                    "managed kernel binding Event mutation index is not bound"
+                )
 
 
 class ManagedTaskKernel(Protocol):
@@ -567,6 +586,7 @@ class ManagedReferenceRuntime:
             raise ManagedRuntimeError("managed runtime requires a SimBackend")
         if not isinstance(plan, CompiledTaskPlan):
             raise ManagedRuntimeError("managed runtime requires a CompiledTaskPlan")
+        validate_compiled_plan_fingerprints(plan)
         if plan.backend_io.execution_profile is not ExecutionProfile.HOST_NUMPY:
             raise ManagedRuntimeError("managed reference runtime only supports host_numpy plans")
         if not isinstance(autoreset, bool):
@@ -648,6 +668,7 @@ class ManagedReferenceRuntime:
                 (group.key, index) for index, group in enumerate(plan.policy_abi.observation_groups)
             ),
             mutation_plan=self._mutation_plan,
+            event_mutation_indices=tuple(event.mutation_index for event in plan.mutation_events),
         )
         self._bind_kernel()
         self._control = np.empty(
