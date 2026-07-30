@@ -43,8 +43,14 @@ from ..mutation import (
     MutationTrigger,
 )
 from ..mutation_batch import DeviceResetMutationBatch, MutationValueBatch
-from .capability import mjwarp_actuator_pd_descriptor, mjwarp_state_reset_descriptor
+from .capability import (
+    mjwarp_actuator_pd_descriptor,
+    mjwarp_recompute_model_descriptor,
+    mjwarp_state_reset_descriptor,
+)
+from .materialization import MjwarpModelMaterializationReceipt
 from .model_mutation import MjwarpDeviceModelMutationPlan
+from .recompute import MjwarpModelRecomputeDiagnostics, MjwarpModelRecomputeRuntime
 
 if TYPE_CHECKING:
     from .backend import MjwarpBackend
@@ -137,6 +143,35 @@ def _model_capability(
     )
 
 
+def _recompute_model_capability(
+    *,
+    target_key: str,
+    entity_kind: MutationEntityKind,
+    field_kind: MutationFieldKind,
+    entity_count: int,
+    placement: BufferPlacement,
+    recompute: MutationRecomputeLevel,
+) -> MutationCapability:
+    return MutationCapability(
+        target_key=target_key,
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        entity_kind=entity_kind,
+        field_kind=field_kind,
+        entity_count=entity_count,
+        value_template=_device_manager_value_template(
+            placement=placement,
+            row_shape=(1,),
+        ),
+        triggers=frozenset({MutationTrigger.RESET}),
+        commit_phases=frozenset({MutationCommitPhase.RESET}),
+        operations=frozenset({MutationOperation.SET, MutationOperation.SCALE}),
+        baselines=frozenset({MutationBaseline.DEFAULT}),
+        persistences=frozenset({MutationPersistence.EPISODE}),
+        recompute_levels=frozenset({recompute}),
+        descriptor=mjwarp_recompute_model_descriptor(target_key=target_key),
+    )
+
+
 def mjwarp_device_mutation_capabilities(backend: MjwarpBackend) -> tuple[MutationCapability, ...]:
     """Declare the explicit CUDA reset-state capability surface.
 
@@ -210,6 +245,28 @@ def mjwarp_device_mutation_capabilities(backend: MjwarpBackend) -> tuple[Mutatio
                 ),
             )
         )
+    if backend._num_dof_vel > 0:
+        capabilities.append(
+            _recompute_model_capability(
+                target_key="joint.armature",
+                entity_kind=MutationEntityKind.DOF,
+                field_kind=MutationFieldKind.ARMATURE,
+                entity_count=backend._num_dof_vel,
+                placement=placement,
+                recompute=MutationRecomputeLevel.DYNAMICS,
+            )
+        )
+    if backend._nbody > 1:
+        capabilities.append(
+            _recompute_model_capability(
+                target_key="body.gravity_compensation",
+                entity_kind=MutationEntityKind.BODY,
+                field_kind=MutationFieldKind.GRAVITY_COMPENSATION,
+                entity_count=backend._nbody,
+                placement=placement,
+                recompute=MutationRecomputeLevel.KINEMATICS,
+            )
+        )
     if not capabilities:
         raise BackendBatchContractError(
             "mjwarp device typed state mutation requires a floating root or at least one DoF"
@@ -237,6 +294,7 @@ class MjwarpDeviceMutationPlan:
     root_qvel_dim: int
     placement: BufferPlacement
     model_plan: MjwarpDeviceModelMutationPlan | None = field(default=None, repr=False)
+    recompute_runtime: MjwarpModelRecomputeRuntime | None = field(default=None, repr=False)
     _reset_qpos: torch.Tensor | None = field(init=False, repr=False)
     _reset_qvel: torch.Tensor | None = field(init=False, repr=False)
     _masked_qpos: torch.Tensor | None = field(init=False, repr=False)
@@ -319,6 +377,12 @@ class MjwarpDeviceMutationPlan:
             )
         if self.model_plan is not None:
             self.model_plan.public_plan.require_compatible(self.public_plan)
+        if has_model_specs != bool(self.recompute_runtime):
+            raise MutationContractError(
+                "mjwarp device mutation plan Model targets do not match recompute ownership"
+            )
+        if self.recompute_runtime is not None:
+            self.recompute_runtime.public_plan.require_compatible(self.public_plan)
 
     def register_batch_plan(self, plan: BoundBackendPlan) -> None:
         """Pair one device state/control plan on the cold path."""
@@ -444,6 +508,37 @@ class MjwarpDeviceMutationPlan:
     ) -> None:
         if self.model_plan is not None:
             self.model_plan.commit(batch, active_mask=active_mask)
+
+    def require_current_recompute(
+        self,
+        *,
+        storage_generation: int,
+        storage_fingerprint: str,
+        materialization_receipt: MjwarpModelMaterializationReceipt | None,
+    ) -> None:
+        """Reject stale plan-scoped Model graphs before any reset-side write."""
+
+        if self.recompute_runtime is None:
+            return
+        self.recompute_runtime.require_current(
+            plan=self.public_plan,
+            storage_generation=storage_generation,
+            storage_fingerprint=storage_fingerprint,
+            materialization_receipt=materialization_receipt,
+        )
+
+    def launch_model_recompute(self, warp: object) -> bool:
+        """Launch at most one cold-selected recompute graph for this barrier."""
+
+        if self.recompute_runtime is None:
+            return False
+        return self.recompute_runtime.launch(warp)
+
+    @property
+    def recompute_diagnostics(self) -> MjwarpModelRecomputeDiagnostics | None:
+        if self.recompute_runtime is None:
+            return None
+        return self.recompute_runtime.diagnostics
 
     def effective_active_mask(
         self,

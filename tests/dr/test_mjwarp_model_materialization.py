@@ -254,9 +254,31 @@ def test_direct_and_derived_fields_materialize_atomically() -> None:
             assert new_bundle.key.storage_fingerprint == after.storage_fingerprint
 
         assert backend._materialize_model_fields(_request()) is receipt
-        with pytest.raises(BackendBatchContractError, match="conflicting request"):
+        assert (
+            backend._materialize_model_fields(
+                _request(direct_fields=("dof_armature",), derived_fields=())
+            )
+            is receipt
+        )
+        assert (
+            backend._materialize_model_fields(
+                _request(
+                    direct_fields=("dof_armature",),
+                    derived_fields=("dof_invweight0",),
+                )
+            )
+            is receipt
+        )
+        with pytest.raises(BackendBatchContractError, match="without the requested subset"):
             backend._materialize_model_fields(
                 _request(direct_fields=("dof_damping",), derived_fields=())
+            )
+        with pytest.raises(
+            BackendBatchContractError,
+            match=r"mismatched=\('dof_invweight0',\)",
+        ):
+            backend._materialize_model_fields(
+                _request(direct_fields=("dof_invweight0",), derived_fields=())
             )
 
         with forbid_host_roundtrip(backend):

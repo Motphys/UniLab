@@ -74,6 +74,8 @@ _BASE = "pelvis"
 _HINGE = "left_hip_pitch_joint"
 _CAPABILITY_ID = "state.qpos_qvel_reset"
 _MODEL_CAPABILITY_ID = "actuator.position_servo_pd_gain"
+_ARMATURE_CAPABILITY_ID = "joint.armature"
+_GRAVCOMP_CAPABILITY_ID = "body.gravity_compensation"
 _MODEL_GRAPH_INVALIDATIONS = (
     MutationGraphInvalidation.FORWARD_GRAPH,
     MutationGraphInvalidation.MODEL_BRIDGE_CACHE,
@@ -87,6 +89,9 @@ _MANDATORY_NODE = (
 )
 _MANDATORY_MODEL_NODE = (
     "tests/dr/test_mjwarp_model_mutation.py::test_mjwarp_advertised_model_capability_case"
+)
+_MANDATORY_RECOMPUTE_NODE = (
+    "tests/dr/test_mjwarp_recompute.py::test_mjwarp_advertised_recompute_capability_case"
 )
 _SELECTED = (29, 3, 17, 8, 25, 1, 14, 21)
 _PAIRED_CONTROLS = (28, 2, 16, 9, 24, 0, 15, 20)
@@ -336,9 +341,81 @@ _MANDATORY_MODEL_RECORDS = tuple(
     )
     for operation in (MutationOperation.SET, MutationOperation.SCALE)
 )
+_MANDATORY_RECOMPUTE_RECORDS = tuple(
+    _CapabilityRecord(
+        mandatory_test_id=(
+            f"{_MANDATORY_RECOMPUTE_NODE}[device_resident-{target_key}-{operation.value}]"
+        ),
+        case_id=f"mjwarp.device_resident.{target_key}.reset.{operation.value}",
+        capability_id=capability_id,
+        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+        target_key=target_key,
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        entity_kind=entity_kind,
+        field_kind=field_kind,
+        value_row_shape=(1,),
+        value_dtype="float32",
+        value_layout=BufferLayout.C_CONTIGUOUS,
+        value_memory_space=MemorySpace.DEVICE,
+        value_device_type="cuda",
+        value_owner=BufferOwner.MANAGER,
+        value_mutability=BufferMutability.READ_ONLY,
+        value_lifetime=BufferLifetime.UNTIL_COMMIT,
+        value_dlpack_exportable=True,
+        value_address_stable=True,
+        direct_fields=direct_fields,
+        derived_fields=derived_fields,
+        storage_kind=MutationFieldStorageKind.MODEL_FIELD_EXPANSION,
+        graph_impact=MutationGraphImpact.RECAPTURE_REQUIRED,
+        graph_invalidations=_MODEL_GRAPH_INVALIDATIONS,
+        trigger=MutationTrigger.RESET,
+        commit_phase=MutationCommitPhase.RESET,
+        operation=operation,
+        baseline=MutationBaseline.DEFAULT,
+        persistence=MutationPersistence.EPISODE,
+        recompute=recompute,
+        row_scope=MutationCapabilityRowScope.SELECTED_ROWS,
+    )
+    for (
+        target_key,
+        capability_id,
+        entity_kind,
+        field_kind,
+        direct_fields,
+        derived_fields,
+        recompute,
+    ) in (
+        (
+            "joint.armature",
+            _ARMATURE_CAPABILITY_ID,
+            MutationEntityKind.DOF,
+            MutationFieldKind.ARMATURE,
+            ("dof_armature",),
+            (
+                "actuator_acc0",
+                "body_invweight0",
+                "dof_invweight0",
+                "tendon_invweight0",
+                "tendon_length0",
+            ),
+            MutationRecomputeLevel.DYNAMICS,
+        ),
+        (
+            "body.gravity_compensation",
+            _GRAVCOMP_CAPABILITY_ID,
+            MutationEntityKind.BODY,
+            MutationFieldKind.GRAVITY_COMPENSATION,
+            ("body_gravcomp",),
+            ("body_subtreemass",),
+            MutationRecomputeLevel.KINEMATICS,
+        ),
+    )
+    for operation in (MutationOperation.SET, MutationOperation.SCALE)
+)
 _MANDATORY_RECORDS = (
     *(case.record for case in _MANDATORY_CASES),
     *_MANDATORY_MODEL_RECORDS,
+    *_MANDATORY_RECOMPUTE_RECORDS,
 )
 
 
@@ -861,7 +938,7 @@ def test_advertised_capabilities_equal_mandatory_parameter_cases(
     advertised = tuple(record for manifest in manifests for record in _manifest_records(manifest))
     _require_exact_case_bijection(advertised, _MANDATORY_RECORDS)
     assert len(_MANDATORY_CASES) == 12
-    assert len(advertised) == len(_MANDATORY_RECORDS) == 16
+    assert len(advertised) == len(_MANDATORY_RECORDS) == 20
 
 
 @pytest.mark.slow

@@ -20,11 +20,16 @@ from .materialization import MJWARP_MODEL_INVALIDATIONS
 
 MJWARP_STATE_RESET_CAPABILITY_ID = "state.qpos_qvel_reset"
 MJWARP_ACTUATOR_PD_CAPABILITY_ID = "actuator.position_servo_pd_gain"
+MJWARP_JOINT_ARMATURE_CAPABILITY_ID = "joint.armature"
+MJWARP_BODY_GRAVITY_COMPENSATION_CAPABILITY_ID = "body.gravity_compensation"
 _MANDATORY_TEST = (
     "tests/dr/test_mjwarp_capability_matrix.py::test_mjwarp_advertised_capability_case"
 )
 _MANDATORY_MODEL_TEST = (
     "tests/dr/test_mjwarp_model_mutation.py::test_mjwarp_advertised_model_capability_case"
+)
+_MANDATORY_RECOMPUTE_TEST = (
+    "tests/dr/test_mjwarp_recompute.py::test_mjwarp_advertised_recompute_capability_case"
 )
 _QPOS_TARGETS = frozenset(
     {
@@ -123,9 +128,69 @@ def mjwarp_actuator_pd_descriptor(*, target_key: str) -> MutationCapabilityDescr
     )
 
 
+def mjwarp_recompute_model_descriptor(*, target_key: str) -> MutationCapabilityDescriptor:
+    """Describe one Model mutation whose derived constants require recomputation."""
+
+    direct_fields: tuple[str, ...]
+    derived_fields: tuple[str, ...]
+    if target_key == "joint.armature":
+        capability_id = MJWARP_JOINT_ARMATURE_CAPABILITY_ID
+        direct_fields = ("dof_armature",)
+        derived_fields = (
+            "actuator_acc0",
+            "body_invweight0",
+            "dof_invweight0",
+            "tendon_invweight0",
+            "tendon_length0",
+        )
+        recompute = MutationRecomputeLevel.DYNAMICS
+    elif target_key == "body.gravity_compensation":
+        capability_id = MJWARP_BODY_GRAVITY_COMPENSATION_CAPABILITY_ID
+        direct_fields = ("body_gravcomp",)
+        derived_fields = ("body_subtreemass",)
+        recompute = MutationRecomputeLevel.KINEMATICS
+    else:
+        raise ValueError(f"unsupported mjwarp recompute Model target {target_key!r}")
+    cases = tuple(
+        sorted(
+            (
+                MutationCapabilityCase(
+                    case_id=(f"mjwarp.device_resident.{target_key}.reset.{operation.value}"),
+                    mandatory_test_id=(
+                        f"{_MANDATORY_RECOMPUTE_TEST}"
+                        f"[device_resident-{target_key}-{operation.value}]"
+                    ),
+                    execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+                    trigger=MutationTrigger.RESET,
+                    commit_phase=MutationCommitPhase.RESET,
+                    operation=operation,
+                    baseline=MutationBaseline.DEFAULT,
+                    persistence=MutationPersistence.EPISODE,
+                    recompute=recompute,
+                    row_scope=MutationCapabilityRowScope.SELECTED_ROWS,
+                )
+                for operation in (MutationOperation.SET, MutationOperation.SCALE)
+            ),
+            key=lambda case: case.case_id,
+        )
+    )
+    return MutationCapabilityDescriptor(
+        capability_id=capability_id,
+        direct_fields=direct_fields,
+        derived_fields=derived_fields,
+        storage_kind=MutationFieldStorageKind.MODEL_FIELD_EXPANSION,
+        graph_impact=MutationGraphImpact.RECAPTURE_REQUIRED,
+        graph_invalidations=frozenset(MJWARP_MODEL_INVALIDATIONS),
+        cases=cases,
+    )
+
+
 __all__ = [
     "MJWARP_ACTUATOR_PD_CAPABILITY_ID",
+    "MJWARP_BODY_GRAVITY_COMPENSATION_CAPABILITY_ID",
+    "MJWARP_JOINT_ARMATURE_CAPABILITY_ID",
     "MJWARP_STATE_RESET_CAPABILITY_ID",
     "mjwarp_actuator_pd_descriptor",
+    "mjwarp_recompute_model_descriptor",
     "mjwarp_state_reset_descriptor",
 ]
