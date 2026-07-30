@@ -74,6 +74,24 @@ def _armature_snapshot(harness: DeviceRuntimeHarness) -> tuple[np.ndarray, np.nd
     return selected, selected_default
 
 
+def _gravity_compensation_snapshot(harness: DeviceRuntimeHarness) -> np.ndarray:
+    backend = harness.backend
+    assert isinstance(backend, MjwarpBackend)
+    mutation_plan = harness.runtime.kernel_binding.mutation_plan
+    assert mutation_plan is not None
+    binding = next(
+        item
+        for item in harness.runtime.event_bindings
+        if item.event.term_key == "g1_randomize_body_gravity_compensation"
+    )
+    spec = mutation_plan.specs[binding.event.mutation_index]
+    assert spec.target.entity_ids == (1, 16)
+    gravity_compensation = (
+        backend._get_model_field_bridge("body_gravcomp").detach().cpu().numpy().copy()
+    )
+    return gravity_compensation[:, np.asarray(spec.target.entity_ids, dtype=np.intp)]
+
+
 def _expected_event_values(
     harness: DeviceRuntimeHarness,
     *,
@@ -313,6 +331,128 @@ def test_g1_armature_event_recomputes_selected_worlds_on_device() -> None:
         assert addresses_after.buffers == addresses_before.buffers
         assert addresses_after.warm_numeric_allocations == 0
         assert addresses_after.address_churn == 0
+
+
+def test_g1_mixed_tier_c_events_join_one_strongest_recompute() -> None:
+    with runtime_harness(
+        num_envs=_NUM_ENVS,
+        seed=_SEED,
+        max_episode_steps=_MAX_EPISODE_STEPS,
+        randomize_dof_armature=True,
+        randomize_body_gravity_compensation=True,
+        dof_armature_multiplier_range=(0.6, 1.4),
+        body_gravity_compensation_range=(-0.2, 0.4),
+    ) as harness:
+        harness.wait()
+        backend = harness.backend
+        assert isinstance(backend, MjwarpBackend)
+        mutation_plan = harness.runtime.kernel_binding.mutation_plan
+        assert mutation_plan is not None
+        terms = {binding.event.term_key for binding in harness.runtime.event_bindings}
+        assert {
+            "g1_randomize_dof_armature",
+            "g1_randomize_body_gravity_compensation",
+        }.issubset(terms)
+
+        diagnostics = backend.get_model_recompute_diagnostics(mutation_plan)
+        assert diagnostics is not None
+        assert diagnostics.kind.value == "set_const"
+        assert diagnostics.direct_fields == ("body_gravcomp", "dof_armature")
+        assert diagnostics.derived_fields == (
+            "actuator_acc0",
+            "body_invweight0",
+            "body_subtreemass",
+            "dof_invweight0",
+            "tendon_invweight0",
+            "tendon_length0",
+        )
+        launch_count = diagnostics.launch_count
+
+        initial_armature, initial_armature_default = _armature_snapshot(harness)
+        initial_gravity_compensation = _gravity_compensation_snapshot(harness)
+        initial_expected = _expected_event_values(
+            harness,
+            trigger_counts=np.zeros(_NUM_ENVS, dtype=np.int64),
+        )
+        np.testing.assert_allclose(
+            initial_armature / initial_armature_default,
+            initial_expected["g1_randomize_dof_armature"],
+            rtol=1e-6,
+        )
+        np.testing.assert_allclose(
+            initial_gravity_compensation,
+            initial_expected["g1_randomize_body_gravity_compensation"],
+            rtol=1e-6,
+            atol=1e-8,
+        )
+
+        for other, expected_count in ((1, 2), (2, 3)):
+            before_armature, _ = _armature_snapshot(harness)
+            before_gravity_compensation = _gravity_compensation_snapshot(harness)
+            _set_episode_steps(harness, _MAX_EPISODE_STEPS - 1, other)
+            with forbid_host_roundtrip(backend):
+                harness.step(0.0)
+            harness.wait()
+
+            mask = harness.transition.final_observation_mask.torch().cpu().numpy().copy()
+            np.testing.assert_array_equal(
+                mask,
+                np.asarray([index in _SELECTED for index in range(_NUM_ENVS)]),
+            )
+            after_armature, after_armature_default = _armature_snapshot(harness)
+            after_gravity_compensation = _gravity_compensation_snapshot(harness)
+            np.testing.assert_array_equal(
+                after_armature[list(_COMPLEMENT)],
+                before_armature[list(_COMPLEMENT)],
+            )
+            np.testing.assert_array_equal(
+                after_gravity_compensation[list(_COMPLEMENT)],
+                before_gravity_compensation[list(_COMPLEMENT)],
+            )
+            assert not np.array_equal(
+                after_armature[list(_SELECTED)],
+                before_armature[list(_SELECTED)],
+            )
+            assert not np.array_equal(
+                after_gravity_compensation[list(_SELECTED)],
+                before_gravity_compensation[list(_SELECTED)],
+            )
+
+            trigger_counts = np.ones(_NUM_ENVS, dtype=np.int64)
+            trigger_counts[list(_SELECTED)] = expected_count
+            expected = _expected_event_values(
+                harness,
+                trigger_counts=trigger_counts - 1,
+            )
+            np.testing.assert_allclose(
+                after_armature / after_armature_default,
+                expected["g1_randomize_dof_armature"],
+                rtol=1e-6,
+            )
+            np.testing.assert_allclose(
+                after_gravity_compensation,
+                expected["g1_randomize_body_gravity_compensation"],
+                rtol=1e-6,
+                atol=1e-8,
+            )
+            for term_key in (
+                "g1_randomize_dof_armature",
+                "g1_randomize_body_gravity_compensation",
+            ):
+                counts = dict(harness.runtime.capture_event_trigger_counts())[term_key]
+                np.testing.assert_array_equal(counts, trigger_counts)
+
+            diagnostics = backend.get_model_recompute_diagnostics(mutation_plan)
+            assert diagnostics is not None
+            launch_count += 1
+            assert diagnostics.kind.value == "set_const"
+            assert diagnostics.launch_count == launch_count
+
+        traffic = harness.runtime.traffic_diagnostics
+        assert traffic.host_to_device_transfers == 0
+        assert traffic.device_to_host_transfers == 0
+        assert traffic.global_synchronizations == 0
+        assert traffic.backend_allocations == 0
 
 
 def _set_uniform_state(harness: DeviceRuntimeHarness) -> None:

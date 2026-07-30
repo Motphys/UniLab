@@ -227,6 +227,8 @@ def test_ppo_g1_mjwarp_owner_selects_strict_device_runtime_profile():
     assert cfg.env.noise_config.level == pytest.approx(0.0)
     assert cfg.env.domain_rand.randomize_kp is False
     assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.domain_rand.randomize_dof_armature is False
+    assert cfg.env.domain_rand.randomize_body_gravity_compensation is False
 
 
 def test_ppo_go2_arm_manip_loco_motrix_preserves_backend_overrides():

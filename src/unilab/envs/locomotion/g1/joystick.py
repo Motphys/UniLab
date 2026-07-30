@@ -37,6 +37,12 @@ class G1DomainRandConfig(DomainRandConfig):
     randomize_kd: bool = True
     kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
 
+    randomize_body_gravity_compensation: bool = False
+    body_gravity_compensation_range: list[float] = field(default_factory=lambda: [-0.1, 0.3])
+    body_gravity_compensation_bodies: list[str] = field(
+        default_factory=lambda: ["pelvis", "torso_link"]
+    )
+
 
 @dataclass
 class InitState:
