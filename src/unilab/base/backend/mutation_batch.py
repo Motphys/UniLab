@@ -429,9 +429,11 @@ class DeviceResetMutationBatch:
     values only where that mask is true and returns an all-world reset state;
     no Python index extraction is permitted on the hot path.
 
-    It is intentionally limited to simulation-state reset values.  Model
-    parameter, wrench and event semantics remain the typed Phase 6 contract
-    rather than being smuggled through this lifecycle primitive.
+    Simulation-state and Model-parameter values may share this lifecycle
+    barrier.  They must use the same CUDA placement, producer lease, epoch,
+    and completion event so a backend can commit both categories before one
+    reset forward without extracting selected rows on the host.  Wrench and
+    task-state scheduling remain separate lifecycle contracts.
     """
 
     plan: BoundMutationPlan
@@ -455,14 +457,18 @@ class DeviceResetMutationBatch:
         self.plan.require_compatible(self.mutation.plan)
         if self.mutation.rows != self.rows:
             raise MutationContractError("device reset mutation rows differ from its envelope")
-        if (
-            self.mutation.model.values
-            or self.mutation.wrench.values
-            or self.mutation.task_state.values
-            or not self.mutation.state.values
-        ):
+        if self.mutation.wrench.values or self.mutation.task_state.values:
             raise MutationContractError(
-                "device reset mutation only supports non-empty simulation-state values"
+                "device reset mutation only supports simulation-state and Model values"
+            )
+        if self.mutation.state.bound_buffer_window is not None:
+            raise MutationContractError(
+                "device reset mutation does not support cold-bound host state buffers"
+            )
+        reset_values = (*self.mutation.model.values, *self.mutation.state.values)
+        if not reset_values:
+            raise MutationContractError(
+                "device reset mutation requires at least one simulation-state or Model value"
             )
         if not isinstance(self.active_mask, BufferView):
             raise MutationContractError("device reset active mask must be a BufferView")
@@ -491,7 +497,7 @@ class DeviceResetMutationBatch:
             require_completion=True,
         )
         completion = mask.require_completion()
-        for value in self.mutation.state.values:
+        for value in reset_values:
             value_contract = value.spec.value_buffer
             if value_contract.placement != contract.placement:
                 raise MutationContractError(

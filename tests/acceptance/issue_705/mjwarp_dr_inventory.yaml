@@ -153,7 +153,9 @@ capabilities:
       - mjlab@f643d245:src/mjlab/envs/mdp/dr/actuator.py:pd_gains
       - mjlab@f643d245:tests/test_builtin_pd_actuator.py
       - unilab:benchmark/mjwarp/backend.py:get_dr_capabilities
-    notes: G1 owner must either pass selected-row next-step effect tests or explicitly disable kp and kd; the benchmark silently discards these fields and is a negative example.
+      - unilab:src/unilab/base/backend/mjwarp/model_mutation.py:MjwarpDeviceModelMutationPlan
+      - unilab:tests/dr/test_mjwarp_physics_effect.py:test_each_supported_mutation_has_next_step_effect
+    notes: This frozen rollout decision does not advertise full PD-gain DR support. The production subset now covers named native position servos under device_resident reset-time set/scale with compiled defaults, selected-row atomic commit and next-step effect; startup, per-world variant defaults, Event scheduling and G1 owner enablement remain pending. The benchmark silently discards these fields and remains a negative example.
 
   - capability_id: geom.friction
     tier: B
