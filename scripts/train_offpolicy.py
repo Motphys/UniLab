@@ -183,8 +183,19 @@ def build_runner(algo_name: str, cfg: DictConfig):
             f"Unsupported training.replay_prefetch_mode={replay_prefetch_mode!r}; "
             "expected 'one_tick'"
         )
+    replay_pipeline = str(getattr(cfg.training, "replay_pipeline", "cpu_pinned_double_buffer"))
+    if replay_pipeline not in {"cpu_pinned_double_buffer", "gpu_resident"}:
+        raise ValueError(
+            f"Unsupported training.replay_pipeline={replay_pipeline!r}; "
+            "expected 'cpu_pinned_double_buffer' or 'gpu_resident'"
+        )
     verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
     num_gpus = int(getattr(cfg.training, "num_gpus", 1))
+    if num_gpus > 1 and replay_pipeline == "gpu_resident":
+        raise ValueError(
+            "training.replay_pipeline='gpu_resident' is single-GPU only; "
+            "multi-GPU replay placement is tracked separately (issue #694 Tier2)"
+        )
     multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
     multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
     collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
@@ -379,6 +390,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
             verbose_metrics=verbose_metrics,
+            replay_pipeline=replay_pipeline,
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
             collector_infer_device=collector_infer_device,
@@ -466,6 +478,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
             verbose_metrics=verbose_metrics,
+            replay_pipeline=replay_pipeline,
             actor_kwargs=_actor_kwargs,
             nan_guard_cfg=_nan_guard_cfg,
             collector_infer_device=collector_infer_device,
@@ -482,6 +495,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             env_cfg_override=env_cfg_override,
             replay_prefetch_mode=replay_prefetch_mode,
             verbose_metrics=verbose_metrics,
+            replay_pipeline=replay_pipeline,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
         )

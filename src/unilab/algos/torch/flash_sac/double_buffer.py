@@ -47,6 +47,7 @@ def build_flashsac_double_buffer_runner(
     env_cfg_override: dict[str, Any] | None,
     replay_prefetch_mode: str,
     verbose_metrics: bool,
+    replay_pipeline: str = "cpu_pinned_double_buffer",
     nan_guard_cfg: NanGuardCfg | None = None,
     torch_thread_runtime: dict[str, Any] | None = None,
 ) -> Any:
@@ -194,6 +195,7 @@ def build_flashsac_double_buffer_runner(
         trace_cuda_events=cfg.training.trace_cuda_events,
         replay_prefetch_mode=replay_prefetch_mode,
         verbose_metrics=verbose_metrics,
+        replay_pipeline=replay_pipeline,
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
         torch_thread_runtime=torch_thread_runtime,
