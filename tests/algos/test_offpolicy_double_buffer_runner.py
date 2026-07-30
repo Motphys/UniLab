@@ -87,6 +87,23 @@ def test_same_tick_replay_prefetch_mode_rejected():
         _offpolicy().build_runner("sac", cfg)
 
 
+def test_default_replay_pipeline_is_cpu_pinned_double_buffer():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.replay_pipeline == "cpu_pinned_double_buffer"
+
+
+def test_invalid_replay_pipeline_rejected():
+    cfg = _offpolicy_cfg(["training.replay_pipeline=invalid_pipeline"])
+    with pytest.raises(ValueError, match="Unsupported training.replay_pipeline"):
+        _offpolicy().build_runner("sac", cfg)
+
+
+def test_gpu_resident_replay_pipeline_rejected_for_multi_gpu():
+    cfg = _offpolicy_cfg(["training.replay_pipeline=gpu_resident", "training.num_gpus=2"])
+    with pytest.raises(ValueError, match="single-GPU only"):
+        _offpolicy().build_runner("sac", cfg)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch rejections
 # ---------------------------------------------------------------------------
@@ -1031,7 +1048,9 @@ def test_sac_double_buffer_dispatches_to_correct_runner(monkeypatch: pytest.Monk
     assert replay_kwargs == {
         "replay_buffer_n",
         "replay_prefetch_mode",
+        "replay_pipeline",
     }
+    assert runner.kwargs["replay_pipeline"] == "cpu_pinned_double_buffer"
 
 
 def test_hora_sac_dispatches_through_double_buffer_runner(monkeypatch: pytest.MonkeyPatch):
