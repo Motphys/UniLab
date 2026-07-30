@@ -64,8 +64,8 @@ from unilab.base.backend import (
     StateFieldKind,
     StateFieldSpec,
     TypedBackendMutationBatch,
-    create_backend,
 )
+from unilab.base.backend.mjwarp.backend import MjwarpBackend as ProductionMjwarpBackend
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
 from unilab.base.scene import SceneCfg
 
@@ -437,13 +437,14 @@ def _build_runtime(profile: ExecutionProfile) -> _ProfileRuntime:
         if profile is ExecutionProfile.HOST_NUMPY
         else BufferPlacement.device("cuda", int(torch.cuda.current_device()))
     )
-    backend = create_backend(
-        "mjwarp",
+    backend = ProductionMjwarpBackend(
         SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")),
         _NUM_ENVS,
         0.02 / 3.0,
         base_name=_BASE,
     )
+    assert type(backend) is ProductionMjwarpBackend
+    assert type(backend).__module__ == "unilab.base.backend.mjwarp.backend"
     manifest_before_bind = backend.get_mutation_capability_manifest(profile)
     base_id = int(backend.get_body_ids((_BASE,))[0])
     all_dofs = tuple(range(backend.num_dof_vel))
