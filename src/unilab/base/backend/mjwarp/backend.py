@@ -58,6 +58,7 @@ from unilab.base.backend.mutation import (
     MutationContractError,
     MutationEntityKind,
     MutationFieldKind,
+    MutationGraphInvalidation,
     MutationSelectorMode,
     MutationSpec,
     MutationTargetKind,
@@ -91,7 +92,17 @@ from .batch import (
 from .dependencies import load_mjwarp_dependencies
 from .device import MjwarpDeviceBatchPlan, bind_mjwarp_device_batch
 from .device_mutation import MjwarpDeviceMutationPlan, mjwarp_device_mutation_capabilities
-from .materialization import materialize_mjwarp_scene
+from .materialization import (
+    MJWARP_MODEL_INVALIDATIONS,
+    MjwarpModelFieldReceipt,
+    MjwarpModelFieldRole,
+    MjwarpModelInvalidationOutcome,
+    MjwarpModelInvalidationReceipt,
+    MjwarpModelMaterializationContractError,
+    MjwarpModelMaterializationReceipt,
+    MjwarpModelMaterializationRequest,
+    materialize_mjwarp_scene,
+)
 from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
 
@@ -135,6 +146,43 @@ class _MjwarpDeviceGraphBundle:
     reset_graph: Any
     forward_graph: Any
     step_graph: Any
+
+
+@dataclass(frozen=True)
+class _MjwarpModelDefaultBaseline:
+    """Backend-owned immutable-by-contract device defaults for one direct field."""
+
+    compiled_default: Any
+    per_world_default: Any | None
+
+
+@dataclass(frozen=True)
+class _MjwarpStagedModelField:
+    """Fully validated allocation staged before any Model pointer is replaced."""
+
+    field_name: str
+    original: Any
+    materialized: Any
+    baseline: _MjwarpModelDefaultBaseline | None
+    receipt: MjwarpModelFieldReceipt
+    baseline_bytes: int
+
+
+@dataclass(frozen=True)
+class _MjwarpDeviceGraphState:
+    """Rollback snapshot for graph identity and diagnostics counters."""
+
+    bundles: dict[str, _MjwarpDeviceGraphBundle]
+    storage_generation: int
+    storage_buffers: tuple[DeviceGraphBufferAddress, ...]
+    storage_fingerprint: str
+    storage_poisoned: bool
+    captures: int
+    launches: int
+    recaptures: int
+    stale_rejections: int
+    eager_fallbacks: int
+    storage_verifications: int
 
 
 @dataclass(frozen=True)
@@ -290,6 +338,16 @@ class MjwarpBackend(SimBackend):
         self._host_mutation_plans: dict[str, MjwarpHostMutationPlan] = {}
         self._device_mutation_plans: dict[str, MjwarpDeviceMutationPlan] = {}
         self._device_bridge: _MjwarpDeviceBridge | None = None
+        self._model_bridge_cache: dict[str, torch.Tensor] = {}
+        self._model_bridge_generation = 0
+        self._model_sensor_context: Any | None = None
+        self._model_sensor_generation = 0
+        self._model_default_baselines: dict[str, _MjwarpModelDefaultBaseline] = {}
+        self._expanded_model_fields: frozenset[str] = frozenset()
+        self._model_materialization_receipt: MjwarpModelMaterializationReceipt | None = None
+        self._model_materialization_in_progress = False
+        self._model_materialization_poisoned = False
+        self._runtime_barrier_count = 0
         # ``UNTIL_STEP_COMPLETE`` controls are runner-owned.  Keep only a
         # weak epoch watermark per owner lease so replaying an already queued
         # action cannot silently race a subsequent physics barrier, while
@@ -384,6 +442,501 @@ class MjwarpBackend(SimBackend):
         mask = np.asarray(self._cpu_model.jnt_type, dtype=np.int32) != free_joint
         joint_range = np.asarray(self._cpu_model.jnt_range, dtype=np.float32)[mask]
         return None if joint_range.size == 0 else joint_range.copy()
+
+    # ------------------------------------------------------------------ #
+    # Cold-path Model field materialization                              #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _model_host_fingerprint(value: np.ndarray) -> str:
+        contiguous = np.ascontiguousarray(value)
+        digest = hashlib.sha256()
+        digest.update(
+            json.dumps(
+                {"shape": contiguous.shape, "dtype": contiguous.dtype.str},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        digest.update(contiguous.tobytes(order="C"))
+        return f"mjwarp-model-default-v1:{digest.hexdigest()}"
+
+    def _snapshot_compiled_model_default(
+        self,
+        field_name: str,
+        source_host: np.ndarray,
+    ) -> np.ndarray:
+        """Clone one final compiled CPU default before any Model mutation."""
+
+        try:
+            raw_default = getattr(self._cpu_model, field_name)
+        except AttributeError as exc:
+            raise BackendBatchContractError(
+                f"mjwarp CPU model has no default field {field_name!r}"
+            ) from exc
+        default = np.ascontiguousarray(np.asarray(raw_default, dtype=source_host.dtype))
+        expected = source_host.shape[1:]
+        if default.shape != expected:
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} default shape {default.shape} "
+                f"does not match Warp storage tail {expected}"
+            )
+        return default
+
+    def _allocate_model_array(
+        self,
+        field_name: str,
+        source: Any,
+        host_values: np.ndarray,
+    ) -> Any:
+        """Allocate and populate one staged Warp array without publishing it."""
+
+        logical_shape = (int(host_values.shape[0]), *tuple(int(dim) for dim in source.shape[1:]))
+        try:
+            allocated = self._warp.empty(
+                shape=logical_shape,
+                dtype=source.dtype,
+                device=source.device,
+            )
+            allocated.assign(np.ascontiguousarray(host_values))
+        except Exception as exc:
+            raise BackendBatchContractError(
+                f"mjwarp failed to allocate staged model field {field_name!r}"
+            ) from exc
+        return allocated
+
+    @staticmethod
+    def _host_rows_equal(left: np.ndarray, right: np.ndarray) -> bool:
+        if np.issubdtype(left.dtype, np.inexact):
+            return bool(np.array_equal(left, right, equal_nan=True))
+        return bool(np.array_equal(left, right))
+
+    def _stage_model_field(
+        self,
+        request: MjwarpModelMaterializationRequest,
+        field_name: str,
+    ) -> _MjwarpStagedModelField:
+        try:
+            source = getattr(self._device_model, field_name)
+        except AttributeError as exc:
+            raise BackendBatchContractError(
+                f"mjwarp device model has no field {field_name!r}"
+            ) from exc
+        if not isinstance(source, self._warp.array):
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} is not Warp array storage"
+            )
+        source_shape = tuple(int(dim) for dim in source.shape)
+        if not source_shape:
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} has no world dimension"
+            )
+        if source_shape[0] not in {1, self._num_envs}:
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} has illegal world dimension "
+                f"{source_shape[0]}; expected 1 or {self._num_envs}"
+            )
+
+        source_host = np.ascontiguousarray(source.numpy())
+        compiled_default = self._snapshot_compiled_model_default(field_name, source_host)
+        compiled_world = np.ascontiguousarray(compiled_default[np.newaxis, ...])
+        per_world = field_name in request.per_world_default_fields
+        if per_world and source_shape[0] != self._num_envs:
+            raise BackendBatchContractError(
+                f"mjwarp per-world default field {field_name!r} must already have "
+                f"{self._num_envs} worlds"
+            )
+        requires_compiled_match = not per_world and (
+            field_name in request.direct_fields or source_shape[0] == 1
+        )
+        if requires_compiled_match:
+            expected_current = np.broadcast_to(
+                compiled_world,
+                (source_shape[0], *compiled_world.shape[1:]),
+            )
+            if not self._host_rows_equal(source_host, expected_current):
+                raise BackendBatchContractError(
+                    f"mjwarp model field {field_name!r} differs from its compiled default "
+                    "before baseline materialization"
+                )
+
+        if source_shape[0] == 1 and self._num_envs > 1:
+            materialized_host = np.ascontiguousarray(
+                np.broadcast_to(
+                    source_host,
+                    (self._num_envs, *source_host.shape[1:]),
+                )
+            )
+            materialized = self._allocate_model_array(
+                field_name,
+                source,
+                materialized_host,
+            )
+        else:
+            materialized_host = source_host
+            materialized = source
+
+        baseline: _MjwarpModelDefaultBaseline | None = None
+        baseline_bytes = 0
+        if field_name in request.direct_fields:
+            compiled_device = self._allocate_model_array(
+                f"{field_name}.compiled_default",
+                source,
+                compiled_world,
+            )
+            per_world_device = None
+            if per_world:
+                per_world_device = self._allocate_model_array(
+                    f"{field_name}.per_world_default",
+                    source,
+                    source_host,
+                )
+            baseline = _MjwarpModelDefaultBaseline(
+                compiled_default=compiled_device,
+                per_world_default=per_world_device,
+            )
+            baseline_bytes = int(compiled_world.nbytes)
+            if per_world_device is not None:
+                baseline_bytes += int(source_host.nbytes)
+
+        role = (
+            MjwarpModelFieldRole.DIRECT
+            if field_name in request.direct_fields
+            else MjwarpModelFieldRole.DERIVED
+        )
+        per_world_shape = tuple(int(dim) for dim in source_host.shape) if per_world else None
+        receipt = MjwarpModelFieldReceipt(
+            field_name=field_name,
+            role=role,
+            source_shape=source_shape,
+            materialized_shape=tuple(int(dim) for dim in materialized.shape),
+            source_address=int(source.ptr or 0),
+            materialized_address=int(materialized.ptr or 0),
+            replaced=materialized is not source,
+            model_bytes=int(materialized_host.nbytes),
+            compiled_default_shape=tuple(int(dim) for dim in compiled_default.shape),
+            compiled_default_fingerprint=self._model_host_fingerprint(compiled_default),
+            per_world_default_shape=per_world_shape,
+            per_world_default_fingerprint=(
+                self._model_host_fingerprint(source_host) if per_world else None
+            ),
+        )
+        return _MjwarpStagedModelField(
+            field_name=field_name,
+            original=source,
+            materialized=materialized,
+            baseline=baseline,
+            receipt=receipt,
+            baseline_bytes=baseline_bytes,
+        )
+
+    def _prepare_model_sensor_context(self, fields: frozenset[str]) -> Any | None:
+        """Prepare the optional model-dependent sensor owner before commit.
+
+        UniLab's current mjwarp state sensors consume stable ``Data.sensordata``
+        storage and therefore have no separate context.  Keeping this explicit
+        preparation boundary makes absence observable and gives future custom
+        sensors one transactional owner rather than an ad-hoc cache probe.
+        """
+
+        del fields
+        return self._model_sensor_context
+
+    def _prepare_model_bridge_cache(
+        self,
+        staged: tuple[_MjwarpStagedModelField, ...],
+        existing: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Build aliases for every existing cache entry without publishing them."""
+
+        replacements = {item.field_name: item.materialized for item in staged}
+        prepared: dict[str, torch.Tensor] = {}
+        for field_name in sorted(existing):
+            try:
+                model_field = replacements.get(field_name)
+                if model_field is None:
+                    model_field = getattr(self._device_model, field_name)
+                bridge = self._warp.to_torch(model_field)
+            except Exception as exc:
+                raise BackendBatchContractError(
+                    f"mjwarp failed to rebuild model bridge {field_name!r}"
+                ) from exc
+            if int(bridge.data_ptr()) != int(model_field.ptr or 0):
+                raise BackendBatchContractError(
+                    f"mjwarp rebuilt model bridge {field_name!r} does not alias Model storage"
+                )
+            prepared[field_name] = bridge
+        return prepared
+
+    def _get_model_field_bridge(self, field_name: str) -> torch.Tensor:
+        """Return a cold-bound Torch alias for a materialized Model field."""
+
+        try:
+            return self._model_bridge_cache[field_name]
+        except KeyError:
+            pass
+        if field_name not in self._expanded_model_fields:
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} was not materialized"
+            )
+        try:
+            model_field = getattr(self._device_model, field_name)
+        except AttributeError as exc:  # pragma: no cover - guarded by receipt verification.
+            raise BackendBatchContractError(
+                f"mjwarp materialized field {field_name!r} disappeared"
+            ) from exc
+        bridge = self._warp.to_torch(model_field)
+        self._model_bridge_cache[field_name] = bridge
+        return bridge
+
+    def _get_model_default_baseline(
+        self,
+        field_name: str,
+        *,
+        per_world: bool,
+    ) -> Any:
+        """Return backend-owned device baseline storage for a future mutation plan."""
+
+        try:
+            baseline = self._model_default_baselines[field_name]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} has no materialized default"
+            ) from exc
+        if not per_world:
+            return baseline.compiled_default
+        if baseline.per_world_default is None:
+            raise BackendBatchContractError(
+                f"mjwarp model field {field_name!r} has no per-world variant default"
+            )
+        return baseline.per_world_default
+
+    def _model_invalidation_receipts(
+        self,
+        *,
+        storage_replaced: bool,
+        bridge_entries: int,
+        sensor_present: bool,
+        graph_keys: int,
+    ) -> tuple[MjwarpModelInvalidationReceipt, ...]:
+        counts = {
+            MutationGraphInvalidation.MODEL_BRIDGE_CACHE: bridge_entries,
+            MutationGraphInvalidation.SENSOR_CONTEXT: int(sensor_present),
+            MutationGraphInvalidation.STEP_GRAPH: graph_keys,
+            MutationGraphInvalidation.FORWARD_GRAPH: graph_keys,
+            MutationGraphInvalidation.RESET_GRAPH: graph_keys,
+            MutationGraphInvalidation.SENSE_GRAPH: 0,
+        }
+        receipts: list[MjwarpModelInvalidationReceipt] = []
+        for consumer in MJWARP_MODEL_INVALIDATIONS:
+            count = counts[consumer]
+            if not count:
+                outcome = MjwarpModelInvalidationOutcome.NOT_PRESENT
+            elif not storage_replaced:
+                outcome = MjwarpModelInvalidationOutcome.UNCHANGED
+            else:
+                outcome = MjwarpModelInvalidationOutcome.REBUILT
+            receipts.append(
+                MjwarpModelInvalidationReceipt(
+                    consumer=consumer,
+                    outcome=outcome,
+                    affected_count=count if storage_replaced else 0,
+                )
+            )
+        return tuple(receipts)
+
+    def _verify_model_materialization_receipt(
+        self,
+        receipt: MjwarpModelMaterializationReceipt,
+    ) -> None:
+        try:
+            receipt.verify_fingerprint()
+        except MjwarpModelMaterializationContractError as exc:
+            self._model_materialization_poisoned = True
+            self._device_graph_storage_poisoned = True
+            raise BackendBatchContractError(
+                "mjwarp model materialization receipt identity is corrupt"
+            ) from exc
+        self._verify_device_graph_storage()
+        for field in receipt.fields:
+            try:
+                actual = getattr(self._device_model, field.field_name)
+            except AttributeError as exc:
+                self._model_materialization_poisoned = True
+                raise BackendBatchContractError(
+                    f"mjwarp materialized model field {field.field_name!r} disappeared"
+                ) from exc
+            if (
+                tuple(int(dim) for dim in actual.shape) != field.materialized_shape
+                or int(actual.ptr or 0) != field.materialized_address
+            ):
+                self._model_materialization_poisoned = True
+                self._device_graph_storage_poisoned = True
+                raise BackendBatchContractError(
+                    f"mjwarp materialized model field {field.field_name!r} changed address or shape"
+                )
+
+    def _materialize_model_fields(
+        self,
+        request: MjwarpModelMaterializationRequest,
+    ) -> MjwarpModelMaterializationReceipt:
+        """Atomically publish per-world Model storage and all graph consumers."""
+
+        if not isinstance(request, MjwarpModelMaterializationRequest):
+            raise BackendBatchContractError(
+                "mjwarp model materialization requires an immutable request"
+            )
+        try:
+            request.verify_fingerprint()
+        except MjwarpModelMaterializationContractError as exc:
+            raise BackendBatchContractError(
+                "mjwarp model materialization request identity is corrupt"
+            ) from exc
+        if request.num_worlds != self._num_envs:
+            raise BackendBatchContractError(
+                "mjwarp model materialization world count does not match the backend"
+            )
+        if self._model_materialization_poisoned:
+            raise BackendBatchContractError(
+                "mjwarp model materialization owner is permanently poisoned"
+            )
+        if self._model_materialization_in_progress:
+            raise BackendBatchContractError("mjwarp model materialization is not reentrant")
+
+        existing = self._model_materialization_receipt
+        if existing is not None:
+            self._verify_model_materialization_receipt(existing)
+            if existing.request_fingerprint != request.fingerprint:
+                raise BackendBatchContractError(
+                    "mjwarp model fields were already frozen by a conflicting request"
+                )
+            return existing
+        if self._runtime_barrier_count:
+            raise BackendBatchContractError(
+                "mjwarp model fields must materialize before the first runtime physics barrier"
+            )
+
+        self._verify_device_graph_storage()
+        self._model_materialization_in_progress = True
+        staged: tuple[_MjwarpStagedModelField, ...] = ()
+        graph_before = self._snapshot_device_graph_state()
+        bridge_cache_before = dict(self._model_bridge_cache)
+        bridge_generation_before = self._model_bridge_generation
+        sensor_before = self._model_sensor_context
+        sensor_generation_before = self._model_sensor_generation
+        baselines_before = dict(self._model_default_baselines)
+        expanded_before = self._expanded_model_fields
+        try:
+            staged = tuple(
+                self._stage_model_field(request, field_name) for field_name in request.all_fields
+            )
+            # Staged arrays are populated on Warp's current stream, while graph
+            # capture uses the dedicated physics stream.  Publish only after all
+            # model and baseline copies are visible to every capture consumer.
+            self._warp.synchronize_device()
+            storage_replaced = any(item.receipt.replaced for item in staged)
+            prepared_bridge_cache = bridge_cache_before
+            prepared_sensor = sensor_before
+            if storage_replaced:
+                prepared_bridge_cache = self._prepare_model_bridge_cache(
+                    staged,
+                    bridge_cache_before,
+                )
+                prepared_sensor = self._prepare_model_sensor_context(
+                    frozenset((*self._expanded_model_fields, *request.all_fields))
+                )
+                self._warp.synchronize_device()
+            graph_keys_before = tuple(sorted(graph_before.bundles))
+
+            try:
+                for item in staged:
+                    if item.receipt.replaced:
+                        setattr(self._device_model, item.field_name, item.materialized)
+                self._model_default_baselines.update(
+                    {item.field_name: item.baseline for item in staged if item.baseline is not None}
+                )
+                self._expanded_model_fields = frozenset(
+                    (*self._expanded_model_fields, *request.all_fields)
+                )
+                if storage_replaced:
+                    self._model_bridge_cache = prepared_bridge_cache
+                    self._model_bridge_generation += 1
+                    self._model_sensor_context = prepared_sensor
+                    self._model_sensor_generation += 1
+                    self._recapture_device_graphs_after_storage_change()
+
+                graph_after = self._snapshot_device_graph_state()
+                graph_keys_after = tuple(sorted(graph_after.bundles))
+                if graph_keys_after != graph_keys_before:
+                    raise BackendBatchContractError(
+                        "mjwarp model materialization changed the active graph plan set"
+                    )
+                receipt = MjwarpModelMaterializationReceipt(
+                    request_fingerprint=request.fingerprint,
+                    backend_instance_id=self._batch_instance_id,
+                    num_worlds=self._num_envs,
+                    fields=tuple(item.receipt for item in staged),
+                    invalidations=self._model_invalidation_receipts(
+                        storage_replaced=storage_replaced,
+                        bridge_entries=len(bridge_cache_before),
+                        sensor_present=prepared_sensor is not None,
+                        graph_keys=len(graph_keys_before),
+                    ),
+                    storage_generation_before=graph_before.storage_generation,
+                    storage_generation_after=graph_after.storage_generation,
+                    storage_fingerprint_before=graph_before.storage_fingerprint,
+                    storage_fingerprint_after=graph_after.storage_fingerprint,
+                    graph_plan_fingerprints_before=graph_keys_before,
+                    graph_plan_fingerprints_after=graph_keys_after,
+                    model_bridge_generation_before=bridge_generation_before,
+                    model_bridge_generation_after=self._model_bridge_generation,
+                    sensor_generation_before=sensor_generation_before,
+                    sensor_generation_after=self._model_sensor_generation,
+                    expanded_model_bytes=sum(
+                        item.receipt.model_bytes for item in staged if item.receipt.replaced
+                    ),
+                    baseline_bytes=sum(item.baseline_bytes for item in staged),
+                )
+                self._model_materialization_receipt = receipt
+                return receipt
+            except Exception as exc:
+                rollback_error: Exception | None = None
+                try:
+                    for item in staged:
+                        setattr(self._device_model, item.field_name, item.original)
+                    self._model_bridge_cache = bridge_cache_before
+                    self._model_bridge_generation = bridge_generation_before
+                    self._model_sensor_context = sensor_before
+                    self._model_sensor_generation = sensor_generation_before
+                    self._model_default_baselines = baselines_before
+                    self._expanded_model_fields = expanded_before
+                    self._restore_device_graph_state(graph_before)
+                    actual = self._snapshot_device_graph_storage()
+                    if actual != graph_before.storage_buffers:
+                        raise BackendBatchContractError(
+                            "mjwarp model materialization rollback left stale storage"
+                        )
+                except Exception as rollback_exc:  # pragma: no cover - hard fault path.
+                    rollback_error = rollback_exc
+                if rollback_error is not None:
+                    self._model_materialization_poisoned = True
+                    self._device_graph_storage_poisoned = True
+                    self._device_graph_bundles.clear()
+                    raise BackendBatchContractError(
+                        "mjwarp model materialization failed and rollback could not restore "
+                        "graph storage; backend is permanently poisoned"
+                    ) from rollback_error
+                raise BackendBatchContractError(
+                    "mjwarp model materialization transaction rolled back"
+                ) from exc
+        except BackendBatchContractError:
+            raise
+        except Exception as exc:
+            raise BackendBatchContractError(
+                "mjwarp model materialization preparation failed before publication"
+            ) from exc
+        finally:
+            self._model_materialization_in_progress = False
 
     # ------------------------------------------------------------------ #
     # Explicit host-cache barriers                                        #
@@ -963,6 +1516,34 @@ class MjwarpBackend(SimBackend):
             raise BackendBatchContractError("mjwarp device bridge has no CUDA device index")
         return BufferPlacement.device("cuda", int(index))
 
+    def _snapshot_device_graph_state(self) -> _MjwarpDeviceGraphState:
+        return _MjwarpDeviceGraphState(
+            bundles=dict(self._device_graph_bundles),
+            storage_generation=self._device_graph_storage_generation,
+            storage_buffers=self._device_graph_storage_buffers,
+            storage_fingerprint=self._device_graph_storage_fingerprint,
+            storage_poisoned=self._device_graph_storage_poisoned,
+            captures=self._device_graph_captures,
+            launches=self._device_graph_launches,
+            recaptures=self._device_graph_recaptures,
+            stale_rejections=self._device_graph_stale_rejections,
+            eager_fallbacks=self._device_graph_eager_fallbacks,
+            storage_verifications=self._device_graph_storage_verifications,
+        )
+
+    def _restore_device_graph_state(self, state: _MjwarpDeviceGraphState) -> None:
+        self._device_graph_bundles = dict(state.bundles)
+        self._device_graph_storage_generation = state.storage_generation
+        self._device_graph_storage_buffers = state.storage_buffers
+        self._device_graph_storage_fingerprint = state.storage_fingerprint
+        self._device_graph_storage_poisoned = state.storage_poisoned
+        self._device_graph_captures = state.captures
+        self._device_graph_launches = state.launches
+        self._device_graph_recaptures = state.recaptures
+        self._device_graph_stale_rejections = state.stale_rejections
+        self._device_graph_eager_fallbacks = state.eager_fallbacks
+        self._device_graph_storage_verifications = state.storage_verifications
+
     def _snapshot_device_graph_storage(self) -> tuple[DeviceGraphBufferAddress, ...]:
         """Scan graph-reachable Warp storage on a diagnostics/capture cold path."""
 
@@ -1176,6 +1757,7 @@ class MjwarpBackend(SimBackend):
         field expansion may recapture all existing graph keys atomically.
         """
 
+        before = self._snapshot_device_graph_state()
         actual = self._snapshot_device_graph_storage()
         if actual == self._device_graph_storage_buffers:
             raise BackendBatchContractError(
@@ -1183,7 +1765,13 @@ class MjwarpBackend(SimBackend):
             )
         previous = {buffer.name: buffer for buffer in self._device_graph_storage_buffers}
         current = {buffer.name: buffer for buffer in actual}
-        bridge_names = {"data.qpos", "data.qvel", "data.ctrl", "data.sensordata", "reset_mask"}
+        bridge_names = {
+            "data.qpos",
+            "data.qvel",
+            "data.ctrl",
+            "data.sensordata",
+            "reset_mask",
+        }
         changed_bridge = tuple(
             sorted(name for name in bridge_names if previous.get(name) != current.get(name))
         )
@@ -1195,14 +1783,11 @@ class MjwarpBackend(SimBackend):
                 f"changed={changed_bridge!r}"
             )
 
-        old_bundles = tuple(self._device_graph_bundles.values())
-        self._device_graph_bundles.clear()
-        self._device_graph_storage_generation += 1
-        self._device_graph_storage_buffers = actual
-        self._device_graph_storage_fingerprint = self._graph_storage_fingerprint(actual)
-        self._device_graph_storage_poisoned = False
+        next_generation = self._device_graph_storage_generation + 1
+        next_fingerprint = self._graph_storage_fingerprint(actual)
+        new_bundles: dict[str, _MjwarpDeviceGraphBundle] = {}
         try:
-            for old_bundle in old_bundles:
+            for old_bundle in before.bundles.values():
                 old_key = old_bundle.key
                 new_key = DeviceGraphCaptureKey(
                     backend_type=old_key.backend_type,
@@ -1211,16 +1796,22 @@ class MjwarpBackend(SimBackend):
                     state_dtype=old_key.state_dtype,
                     control_dtype=old_key.control_dtype,
                     physics_substeps=old_key.physics_substeps,
-                    storage_generation=self._device_graph_storage_generation,
-                    storage_fingerprint=self._device_graph_storage_fingerprint,
+                    storage_generation=next_generation,
+                    storage_fingerprint=next_fingerprint,
                 )
-                self._device_graph_bundles[new_key.plan_fingerprint] = (
-                    self._capture_device_graph_bundle(new_key, recapture=True)
+                new_bundles[new_key.plan_fingerprint] = self._capture_device_graph_bundle(
+                    new_key,
+                    recapture=True,
                 )
         except Exception:
-            self._device_graph_bundles.clear()
+            self._restore_device_graph_state(before)
             self._device_graph_storage_poisoned = True
             raise
+        self._device_graph_bundles = new_bundles
+        self._device_graph_storage_generation = next_generation
+        self._device_graph_storage_buffers = actual
+        self._device_graph_storage_fingerprint = next_fingerprint
+        self._device_graph_storage_poisoned = False
 
     def get_device_graph_diagnostics(
         self, *, verify_storage: bool = False
@@ -1379,6 +1970,7 @@ class MjwarpBackend(SimBackend):
         nsteps: int,
     ) -> tuple[dict[str, float], BackendTransferCounters]:
         """Execute the single owner-layer host-cache barrier used by both APIs."""
+        self._runtime_barrier_count += 1
         before = self._transfer_telemetry.counters()
         t0 = time.perf_counter()
         np.copyto(self._ctrl_staging, ctrl)
@@ -1419,6 +2011,7 @@ class MjwarpBackend(SimBackend):
         ordering: reset mask/qpos/qvel H2D, forward/sync, then cache D2H.
         """
 
+        self._runtime_barrier_count += 1
         before = self._transfer_telemetry.counters()
         t0 = time.perf_counter()
         self._transfer_telemetry.begin_barrier("reset")
@@ -1482,6 +2075,7 @@ class MjwarpBackend(SimBackend):
             plan=bound.public_plan,
             nsteps=nsteps,
         )
+        self._runtime_barrier_count += 1
         self._invalidate_device_batch_state()
         with torch.cuda.stream(bridge.physics_stream):
             producer.wait(bridge.physics_stream)
@@ -1530,6 +2124,7 @@ class MjwarpBackend(SimBackend):
             plan=bound.public_plan,
             nsteps=bound.public_plan.control.physics_substeps_per_control,
         )
+        self._runtime_barrier_count += 1
         self._invalidate_device_batch_state()
         with torch.cuda.stream(bridge.physics_stream):
             completion.wait(bridge.physics_stream)
