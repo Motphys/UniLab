@@ -69,7 +69,7 @@ claims:
     risk: Captured kernels retain pre-expansion array addresses and ignore visible randomization writes.
     owner: mjwarp-backend
     oracle: Stale-address fault injection replaces arrays around capture and checks pointer identity plus next-step physics effect.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_graph_mutation.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/dr/test_mjwarp_graph_mutation.py -v]
     lane: C
     required: true
     required_test_ids: [tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers]
@@ -114,7 +114,7 @@ claims:
     risk: Individual terms trigger redundant recompute or weaker recompute leaves derived constants stale.
     owner: backend-DR
     oracle: A mixed-tier mutation fixture predicts the strongest semantic requirement and traces backend recompute and forward calls.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_recompute.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/dr/test_mjwarp_recompute.py -v]
     lane: C
     required: true
     required_test_ids: [tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier]
