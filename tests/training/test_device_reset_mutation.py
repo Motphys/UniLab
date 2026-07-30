@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import torch
 
@@ -21,6 +22,7 @@ from unilab.base.backend import (
     BackendBatchContractError,
     BackendIORequirements,
     BoundFieldIdentity,
+    BoundMutationValueBuffers,
     BufferContract,
     BufferLayout,
     BufferLifetime,
@@ -557,6 +559,33 @@ def test_device_reset_rejects_host_or_foreign_envelopes_before_physics() -> None
         lease=lease,
         completion=completion,
     )
+    host_buffers = BoundMutationValueBuffers(
+        plan=fixture.mutation_plan,
+        buffers=tuple(
+            np.zeros(
+                (fixture.mutation_plan.num_envs, *spec.value_buffer.row_shape),
+                dtype=spec.value_buffer.dtype,
+            )
+            for spec in fixture.mutation_plan.specs
+        ),
+    )
+    host_window_mutation = TypedBackendMutationBatch(
+        plan=fixture.mutation_plan,
+        rows=RowSelection.all(4),
+        state=SimulationStateMutationBatch(
+            bound_buffer_window=host_buffers.window(RowSelection.all(4))
+        ),
+    )
+    with pytest.raises(
+        BackendBatchContractError,
+        match="does not support cold-bound host state buffers",
+    ):
+        DeviceResetMutationBatch(
+            plan=fixture.mutation_plan,
+            rows=RowSelection.all(4),
+            mutation=host_window_mutation,
+            active_mask=valid.active_mask,
+        )
 
     with pytest.raises(BackendBatchContractError, match="DeviceResetMutationBatch"):
         fixture.backend.reset_batch(

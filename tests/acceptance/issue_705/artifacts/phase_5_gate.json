@@ -66,7 +66,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.529501661978429,
+      "duration_sec": 5.417346058995463,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_abi#1",
@@ -82,7 +82,7 @@
       ],
       "series": "lane_c_device_abi",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[1] PASSED [ 33%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[128] PASSED [ 66%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[4096] PASSED [100%]\n\n============================== 3 passed in 2.40s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[1] PASSED [ 33%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[128] PASSED [ 66%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[4096] PASSED [100%]\n\n============================== 3 passed in 2.45s ===============================\n"
     },
     {
       "argv": [
@@ -99,7 +99,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.441900376987178,
+      "duration_sec": 5.469655287015485,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_abi#2",
@@ -115,7 +115,7 @@
       ],
       "series": "lane_c_device_abi",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[1] PASSED [ 33%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[128] PASSED [ 66%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[4096] PASSED [100%]\n\n============================== 3 passed in 2.37s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[1] PASSED [ 33%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[128] PASSED [ 66%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[4096] PASSED [100%]\n\n============================== 3 passed in 2.23s ===============================\n"
     },
     {
       "argv": [
@@ -132,7 +132,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.710266740003135,
+      "duration_sec": 5.246953427005792,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_abi#3",
@@ -148,7 +148,7 @@
       ],
       "series": "lane_c_device_abi",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[1] PASSED [ 33%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[128] PASSED [ 66%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[4096] PASSED [100%]\n\n============================== 3 passed in 2.42s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[1] PASSED [ 33%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[128] PASSED [ 66%]\ntests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime[4096] PASSED [100%]\n\n============================== 3 passed in 2.33s ===============================\n"
     },
     {
       "argv": [
@@ -165,7 +165,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.636090368992882,
+      "duration_sec": 5.074648648995208,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_stream_lifetime#1",
@@ -176,138 +176,6 @@
         "xpassed": 0
       },
       "repetition": 1,
-      "required_test_ids": [
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
-      ],
-      "series": "lane_c_stream_lifetime",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.63s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 4.7752978969947435,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_stream_lifetime#2",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 2,
-      "required_test_ids": [
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
-      ],
-      "series": "lane_c_stream_lifetime",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.75s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 4.539582919998793,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_stream_lifetime#3",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 3,
-      "required_test_ids": [
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
-      ],
-      "series": "lane_c_stream_lifetime",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.63s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 4.555055492994143,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_stream_lifetime#4",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 4,
-      "required_test_ids": [
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
-      ],
-      "series": "lane_c_stream_lifetime",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.63s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 4.792392826027935,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_stream_lifetime#5",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 5,
       "required_test_ids": [
         "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
       ],
@@ -330,23 +198,23 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.7007431050005835,
+      "duration_sec": 4.565902853995794,
       "exit_code": 0,
       "lane": "C",
-      "name": "lane_c_stream_lifetime#6",
+      "name": "lane_c_stream_lifetime#2",
       "pytest": {
         "passed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0
       },
-      "repetition": 6,
+      "repetition": 2,
       "required_test_ids": [
         "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
       ],
       "series": "lane_c_stream_lifetime",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.68s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.64s ===============================\n"
     },
     {
       "argv": [
@@ -363,7 +231,139 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.581349329993827,
+      "duration_sec": 4.69917936398997,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_stream_lifetime#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
+      ],
+      "series": "lane_c_stream_lifetime",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.74s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 4.767635727999732,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_stream_lifetime#4",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 4,
+      "required_test_ids": [
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
+      ],
+      "series": "lane_c_stream_lifetime",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.74s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 4.59252551800455,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_stream_lifetime#5",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 5,
+      "required_test_ids": [
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
+      ],
+      "series": "lane_c_stream_lifetime",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.65s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 4.887946604023455,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_stream_lifetime#6",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 6,
+      "required_test_ids": [
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected"
+      ],
+      "series": "lane_c_stream_lifetime",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.85s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 4.526788984978339,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_stream_lifetime#7",
@@ -396,7 +396,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.547974023997085,
+      "duration_sec": 4.631606098002521,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_stream_lifetime#8",
@@ -412,7 +412,7 @@
       ],
       "series": "lane_c_stream_lifetime",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.64s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.69s ===============================\n"
     },
     {
       "argv": [
@@ -429,7 +429,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.607936834014254,
+      "duration_sec": 4.686626799986698,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_stream_lifetime#9",
@@ -445,7 +445,7 @@
       ],
       "series": "lane_c_stream_lifetime",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.66s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.68s ===============================\n"
     },
     {
       "argv": [
@@ -462,7 +462,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.9648549090197776,
+      "duration_sec": 5.241485147998901,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_stream_lifetime#10",
@@ -478,7 +478,7 @@
       ],
       "series": "lane_c_stream_lifetime",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 1.67s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected PASSED [100%]\n\n============================== 1 passed in 2.07s ===============================\n"
     },
     {
       "argv": [
@@ -495,7 +495,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.449144945014268,
+      "duration_sec": 5.507934789988212,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_lifecycle#1",
@@ -511,7 +511,7 @@
       ],
       "series": "lane_c_device_lifecycle",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[0-32] PASSED [ 33%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[1-128] PASSED [ 66%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[2-32] PASSED [100%]\n\n============================== 3 passed in 2.44s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[0-32] PASSED [ 33%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[1-128] PASSED [ 66%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[2-32] PASSED [100%]\n\n============================== 3 passed in 2.51s ===============================\n"
     },
     {
       "argv": [
@@ -528,7 +528,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.445201587019255,
+      "duration_sec": 5.510266497993143,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_lifecycle#2",
@@ -544,7 +544,7 @@
       ],
       "series": "lane_c_device_lifecycle",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[0-32] PASSED [ 33%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[1-128] PASSED [ 66%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[2-32] PASSED [100%]\n\n============================== 3 passed in 2.43s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[0-32] PASSED [ 33%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[1-128] PASSED [ 66%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[2-32] PASSED [100%]\n\n============================== 3 passed in 2.47s ===============================\n"
     },
     {
       "argv": [
@@ -561,7 +561,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.910171587020159,
+      "duration_sec": 6.063566928001819,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_lifecycle#3",
@@ -577,7 +577,7 @@
       ],
       "series": "lane_c_device_lifecycle",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[0-32] PASSED [ 33%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[1-128] PASSED [ 66%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[2-32] PASSED [100%]\n\n============================== 3 passed in 2.79s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[0-32] PASSED [ 33%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[1-128] PASSED [ 66%]\ntests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract[2-32] PASSED [100%]\n\n============================== 3 passed in 2.80s ===============================\n"
     },
     {
       "argv": [
@@ -594,7 +594,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.004836837993935,
+      "duration_sec": 5.902638496016152,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_transfer_budget#1",
@@ -610,7 +610,7 @@
       ],
       "series": "lane_c_transfer_budget",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip PASSED [100%]\n\n============================== 1 passed in 2.91s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip PASSED [100%]\n\n============================== 1 passed in 2.85s ===============================\n"
     },
     {
       "argv": [
@@ -627,7 +627,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.154161679995013,
+      "duration_sec": 5.885338665015297,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_transfer_budget#2",
@@ -643,7 +643,7 @@
       ],
       "series": "lane_c_transfer_budget",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip PASSED [100%]\n\n============================== 1 passed in 3.04s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip PASSED [100%]\n\n============================== 1 passed in 2.84s ===============================\n"
     },
     {
       "argv": [
@@ -660,7 +660,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.164229504996911,
+      "duration_sec": 5.900729265995324,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_transfer_budget#3",
@@ -676,7 +676,7 @@
       ],
       "series": "lane_c_transfer_budget",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip PASSED [100%]\n\n============================== 1 passed in 3.11s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip PASSED [100%]\n\n============================== 1 passed in 2.87s ===============================\n"
     },
     {
       "argv": [
@@ -693,7 +693,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.868501194025157,
+      "duration_sec": 4.886706388002494,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_contract#1",
@@ -709,7 +709,7 @@
       ],
       "series": "lane_c_graph_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed PASSED [100%]\n\n============================== 1 passed in 1.90s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed PASSED [100%]\n\n============================== 1 passed in 1.92s ===============================\n"
     },
     {
       "argv": [
@@ -726,7 +726,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.934290091012372,
+      "duration_sec": 4.926523570989957,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_contract#2",
@@ -742,7 +742,7 @@
       ],
       "series": "lane_c_graph_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed PASSED [100%]\n\n============================== 1 passed in 1.93s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed PASSED [100%]\n\n============================== 1 passed in 1.92s ===============================\n"
     },
     {
       "argv": [
@@ -759,7 +759,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.15578663701308,
+      "duration_sec": 4.918742893991293,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_contract#3",
@@ -775,7 +775,7 @@
       ],
       "series": "lane_c_graph_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed PASSED [100%]\n\n============================== 1 passed in 2.01s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed PASSED [100%]\n\n============================== 1 passed in 1.92s ===============================\n"
     },
     {
       "argv": [
@@ -786,7 +786,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.3842819450073875,
+      "duration_sec": 3.362301914981799,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_train_performance#1",
@@ -802,7 +802,7 @@
       ],
       "series": "lane_d_train_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.64s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.62s ===============================\n"
     },
     {
       "argv": [
@@ -813,7 +813,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.711421953019453,
+      "duration_sec": 3.4130482009786647,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_train_performance#2",
@@ -829,7 +829,7 @@
       ],
       "series": "lane_d_train_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.76s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.65s ===============================\n"
     },
     {
       "argv": [
@@ -840,7 +840,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.5580940030049533,
+      "duration_sec": 3.659270222997293,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_train_performance#3",
@@ -851,33 +851,6 @@
         "xpassed": 0
       },
       "repetition": 3,
-      "required_test_ids": [
-        "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate"
-      ],
-      "series": "lane_d_train_performance",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.64s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "pytest",
-        "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 3.474682073981967,
-      "exit_code": 0,
-      "lane": "D",
-      "name": "lane_d_train_performance#4",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 4,
       "required_test_ids": [
         "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate"
       ],
@@ -894,7 +867,34 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.3856136669928674,
+      "duration_sec": 3.6261219359876122,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_train_performance#4",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 4,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate"
+      ],
+      "series": "lane_d_train_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.78s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "pytest",
+        "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 4.007440385001246,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_train_performance#5",
@@ -910,7 +910,7 @@
       ],
       "series": "lane_d_train_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.62s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate PASSED [100%]\n\n============================== 1 passed in 1.78s ===============================\n"
     },
     {
       "argv": [
@@ -927,7 +927,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 8.340802029997576,
+      "duration_sec": 8.775363369000843,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_stability#1",
@@ -943,7 +943,7 @@
       ],
       "series": "lane_c_device_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-10000-96] PASSED [ 25%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-1-96] PASSED [ 50%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-10000-32] PASSED [ 75%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-1-32] PASSED [100%]\n\n============================== 4 passed in 5.32s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-10000-96] PASSED [ 25%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-1-96] PASSED [ 50%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-10000-32] PASSED [ 75%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-1-32] PASSED [100%]\n\n============================== 4 passed in 5.45s ===============================\n"
     },
     {
       "argv": [
@@ -960,7 +960,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 8.761220137996133,
+      "duration_sec": 8.976331137993839,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_stability#2",
@@ -976,7 +976,7 @@
       ],
       "series": "lane_c_device_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-10000-96] PASSED [ 25%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-1-96] PASSED [ 50%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-10000-32] PASSED [ 75%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-1-32] PASSED [100%]\n\n============================== 4 passed in 5.42s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-10000-96] PASSED [ 25%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-1-96] PASSED [ 50%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-10000-32] PASSED [ 75%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-1-32] PASSED [100%]\n\n============================== 4 passed in 5.79s ===============================\n"
     },
     {
       "argv": [
@@ -993,7 +993,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 8.596585835999576,
+      "duration_sec": 8.358000325999456,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_device_stability#3",
@@ -1009,7 +1009,7 @@
       ],
       "series": "lane_c_device_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-10000-96] PASSED [ 25%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-1-96] PASSED [ 50%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-10000-32] PASSED [ 75%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-1-32] PASSED [100%]\n\n============================== 4 passed in 5.39s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-10000-96] PASSED [ 25%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[128-1-96] PASSED [ 50%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-10000-32] PASSED [ 75%]\ntests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable[4096-1-32] PASSED [100%]\n\n============================== 4 passed in 5.30s ===============================\n"
     }
   ],
   "environment": {
@@ -1021,7 +1021,7 @@
     "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
     "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]"
   },
-  "generated_at_utc": "2026-07-30T10:35:03.866482+00:00",
+  "generated_at_utc": "2026-07-30T12:12:10.070624+00:00",
   "inputs": {
     "claim_config_hashes": {
       "P5-DEVICE-ABI": "sha256:5dcee81a3e8809a3b5d27e543c2ad641bafc01a59ddb0b1f7af7d4651d6a0838",
@@ -1052,13 +1052,14 @@
       "src/unilab/base/backend/drake/playback.py": "sha256:33f1d3a2abdae8686133d0e57a0d89ff1f4add9a764c8a9289b581253ec38221",
       "src/unilab/base/backend/graph.py": "sha256:46bff9de87e02c067b4478fc3c53725e27a1a279d342564a6f51009c76cddbf3",
       "src/unilab/base/backend/mjwarp/__init__.py": "sha256:07100364beff307b0ac5149b7e794ecc0e8900ef672ce4b10a89025475d8d46b",
-      "src/unilab/base/backend/mjwarp/backend.py": "sha256:4d2901a214d88114d146a310f72375d64608217c0daf14f75ee000e6282299c1",
+      "src/unilab/base/backend/mjwarp/backend.py": "sha256:23ff2aa331ba4a9a83d9def7d0e97e56c6675082144d6713281471b58010eabc",
       "src/unilab/base/backend/mjwarp/batch.py": "sha256:339310f974715c61c4a306a056b83e89be3bec6242d95964734403944da20627",
-      "src/unilab/base/backend/mjwarp/capability.py": "sha256:027d83a2e90ee35cc77de193e885377c0d2d850375bce252c1d5040b4da0d684",
+      "src/unilab/base/backend/mjwarp/capability.py": "sha256:dd53463c21228eb31a446db093454429de17a951e50b6f3143ee7c8195650d20",
       "src/unilab/base/backend/mjwarp/dependencies.py": "sha256:8eebd3a884c79ec06aa8be287ee41fc709d91a16ce1947fa57b6566c34460319",
       "src/unilab/base/backend/mjwarp/device.py": "sha256:25e9fbe67f0ec9c376c7bf69cffb1d6c14b8319cdd81c3d14c39640d7488616f",
-      "src/unilab/base/backend/mjwarp/device_mutation.py": "sha256:3400997f2b66d45d8d9591cbe8d9d9b29cf770cdf9f17311728646fdb552d0f9",
+      "src/unilab/base/backend/mjwarp/device_mutation.py": "sha256:3d284895073a22e57a22144523689b6c80710c942b6e734f83cf15a7ac28470c",
       "src/unilab/base/backend/mjwarp/materialization.py": "sha256:c62b95641c7d83300a6e68dc95fd322d5b8b97d5ffd94168aa6949b9ac4f94e2",
+      "src/unilab/base/backend/mjwarp/model_mutation.py": "sha256:569c86e75d1d7667564b78d2a84dbe8845d127d72a20b04b8ca8b7105c2037f6",
       "src/unilab/base/backend/mjwarp/mutation.py": "sha256:ff8b9489cd71dec55068b8e84915d63f2bc28920f5df1ef7e0d70940cb1f85e4",
       "src/unilab/base/backend/mjwarp/telemetry.py": "sha256:704427777dda2d6d22a020b1ed339ff0a16dc7aef0fab31ff32ba60fe031033d",
       "src/unilab/base/backend/motrix/__init__.py": "sha256:30f7ab8c09de649939e019b9ae0b6f9c474f0f4b103b0ff0ff6ee618baaf4727",
@@ -1073,7 +1074,7 @@
       "src/unilab/base/backend/mujoco/playback.py": "sha256:e4dd61203a91512066928fc12d64ab3a6d94817b12ce11579627771db39c5fce",
       "src/unilab/base/backend/mujoco/xml.py": "sha256:d089852e5d3f0a45b61dfef98ae814f8ff20d332f9a52f8b8aa31a5ac7136f6d",
       "src/unilab/base/backend/mutation.py": "sha256:cc4c78224224fae7f010c7f14b7ade7362b36e39443c85c40a2c0080b619a9b1",
-      "src/unilab/base/backend/mutation_batch.py": "sha256:8e2fadd72f09e6db6508d4429cf5ce730d4b5251cb01a93ae02041eb2e7e61e7",
+      "src/unilab/base/backend/mutation_batch.py": "sha256:94d0afa47943cbc64b771e027dacf323a0fd60587f0d1c899450893391f1b7e6",
       "src/unilab/base/backend/playback_common.py": "sha256:5f1ca916f4c240c4ddf239ca2dfd00b54a8c5f8cee266f4e4a00ad53e4932250",
       "src/unilab/base/backend/telemetry.py": "sha256:acadf708d0de93f0c968f48d6e7ed027ff49a2f04468d37a1dae0200e93c1a73",
       "src/unilab/base/np_env.py": "sha256:1a0cc5978453ecbd75b2c7ade6493843e5f75f5916efa36448b996d1b7f8a78d",
@@ -1112,7 +1113,7 @@
       "src/unilab/training/sim2sim.py": "sha256:f0b84d7ba1c87d33f159d5aa5c86fb69fcf23b9ab6ae3307bb4b7d69a414001c",
       "tests/acceptance/issue_705/artifacts/issue705_phase5_ppo_5593eea8_trace.json": "sha256:6f4119a7b8e18cfb5d947bbd1dfef42b8b04ae00b9054400c94293b054b28c7f",
       "tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json": "sha256:41a0b3970789656a6afbf39d2b5dd1491cc6d8fed0035b6f5989f47ef514dfe8",
-      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:289520cd7b95ffac8a3e073ea0c0bb44ba988593337575661811a27f81563e86",
+      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:235147d84cf6442d4c03d7289433a51a148627384095fccbcd81fb00bd24b27a",
       "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml": "sha256:3c2c9a1f788b6e7600398589cf644d2d4cfb90e6116ea67b5ede75564ef7dede",
       "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml": "sha256:9d4d9df42ec6312964ff29fffc86af7ff452cf000cfd3e37645f3358b9428656",
       "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml": "sha256:0de8c9b4677b37531747162d57247601a36f9bb1c7adb0d68bf45b8dc91f451c",
@@ -1129,8 +1130,8 @@
   "phase": 5,
   "schema_version": 1,
   "source": {
-    "branch": "feat/issue-816-mjwarp-model-materialization",
-    "commit_sha": "8f713b107a334204299702fd33b3a91652deb349",
+    "branch": "feat/issue-819-mjwarp-pd-model-mutation",
+    "commit_sha": "231863cdd2a1430405c25b82331ff29281617758",
     "tree_clean": true
   }
 }
