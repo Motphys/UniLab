@@ -572,6 +572,24 @@ def test_mjwarp_typed_reset_binding_and_commit_faults_fail_closed() -> None:
         == mutation_plan.specs[mutation_plan.spec_index("reset.hinge.position")].target.entity_ids
     )
 
+    grouped_hinges = (_HINGE, "right_hip_pitch_joint")
+    grouped_selector = MutationSelectorSpec(
+        semantic_key="robot.managed_hinges",
+        mode=MutationSelectorMode.EXACT,
+        expressions=grouped_hinges,
+        entity_ids=(17, 23),
+    )
+    grouped = replace(
+        specs[4],
+        target=replace(specs[4].target, selector=grouped_selector),
+    )
+    grouped_plan = backend.bind_mutation_plan((grouped,))
+    expected_coordinates = tuple(
+        int(value) for value in backend.get_joint_dof_pos_indices(grouped_hinges)
+    )
+    assert grouped_plan.specs[0].target.entity_ids == expected_coordinates
+    assert grouped_plan.specs[0].value_buffer.row_shape == (2, 1)
+
     compiled_root_selector = MutationSelectorSpec(
         semantic_key="robot.managed_root",
         mode=MutationSelectorMode.EXACT,
@@ -604,18 +622,6 @@ def test_mjwarp_typed_reset_binding_and_commit_faults_fail_closed() -> None:
                     mode=MutationSelectorMode.REGEX,
                     expressions=(".*hip.*",),
                     entity_ids=(17,),
-                ),
-            ),
-        ),
-        replace(
-            specs[4],
-            target=replace(
-                specs[4].target,
-                selector=MutationSelectorSpec(
-                    semantic_key="robot.two_hinges",
-                    mode=MutationSelectorMode.EXACT,
-                    expressions=(_HINGE, "right_hip_pitch_joint"),
-                    entity_ids=(17, 23),
                 ),
             ),
         ),
