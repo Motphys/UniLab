@@ -88,8 +88,10 @@ def runtime_harness(
     mjwarp_njmax: int | None = None,
     randomize_kp: bool = False,
     randomize_kd: bool = False,
+    randomize_dof_armature: bool = False,
     kp_multiplier_range: tuple[float, float] = (0.9, 1.1),
     kd_multiplier_range: tuple[float, float] = (0.9, 1.1),
+    dof_armature_multiplier_range: tuple[float, float] = (0.8, 1.2),
 ) -> Iterator[DeviceRuntimeHarness]:
     require_cuda()
     cfg = _cfg(
@@ -107,8 +109,10 @@ def runtime_harness(
     cfg.mjwarp_njmax = mjwarp_njmax
     cfg.domain_rand.randomize_kp = randomize_kp
     cfg.domain_rand.randomize_kd = randomize_kd
+    cfg.domain_rand.randomize_dof_armature = randomize_dof_armature
     cfg.domain_rand.kp_multiplier_range = list(kp_multiplier_range)
     cfg.domain_rand.kd_multiplier_range = list(kd_multiplier_range)
+    cfg.domain_rand.dof_armature_multiplier_range = list(dof_armature_multiplier_range)
     assert cfg.scene is not None
     backend = create_backend(
         "mjwarp",
