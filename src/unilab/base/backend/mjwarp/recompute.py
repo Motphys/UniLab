@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from types import FunctionType
+from typing import TYPE_CHECKING, Any
+
+import torch
 
 from ..batch import BackendBatchContractError
 from ..mutation import (
@@ -17,6 +21,9 @@ from ..mutation import (
 )
 from .materialization import MjwarpModelFieldRole, MjwarpModelMaterializationReceipt
 
+if TYPE_CHECKING:
+    from .armature_recompute import MjwarpArmatureRecomputeWorkspace
+
 
 class MjwarpModelRecomputeKind(str, Enum):
     """Backend operation selected by the Model recompute lattice."""
@@ -25,6 +32,306 @@ class MjwarpModelRecomputeKind(str, Enum):
     SET_CONST_FIXED = "set_const_fixed"
     SET_CONST_0 = "set_const_0"
     SET_CONST = "set_const"
+
+
+@dataclass(frozen=True)
+class _MjwarpRecomputeWorkspaceEntry:
+    operation: str
+    signature: tuple[Any, ...]
+    value: Any = field(repr=False, compare=False)
+
+
+def _workspace_function(function: Any, *, globals_update: dict[str, Any]) -> FunctionType:
+    source = getattr(function, "__wrapped__", function)
+    if not isinstance(source, FunctionType):
+        raise BackendBatchContractError(
+            "mjwarp recompute workspace requires inspectable dependency functions"
+        )
+    function_globals = dict(source.__globals__)
+    function_globals.update(globals_update)
+    cloned = FunctionType(
+        source.__code__,
+        function_globals,
+        name=source.__name__,
+        argdefs=source.__defaults__,
+        closure=source.__closure__,
+    )
+    cloned.__kwdefaults__ = source.__kwdefaults__
+    return cloned
+
+
+class _MjwarpSmoothWorkspaceProxy:
+    """Route the two allocating smooth operations through stable scratch."""
+
+    def __init__(self, smooth: Any, workspace: MjwarpModelRecomputeWorkspace) -> None:
+        self._smooth = smooth
+        self.tendon = _workspace_function(
+            smooth.tendon,
+            globals_update={"wp": workspace},
+        )
+        self.transmission = _workspace_function(
+            smooth.transmission,
+            globals_update={"wp": workspace},
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._smooth, name)
+
+
+class MjwarpModelRecomputeWorkspace:
+    """Replace dependency-local temporary allocations with cold-owned arrays.
+
+    CUDA conditional graph bodies reject allocation/free nodes.  The dependency
+    currently allocates temporary arrays inside ``set_const_0``, spring setup,
+    tendon, and transmission.  This proxy records their exact call sequence once
+    on the cold path, then emits only memset/copy/kernel nodes during capture.
+    Any dependency call-shape drift fails before the runtime graph is published.
+    """
+
+    def __init__(self, warp: Any, mujoco_warp: Any) -> None:
+        self._warp = warp
+        self._mujoco_warp = mujoco_warp
+        set_const_0 = mujoco_warp.set_const_0
+        set_const_spring = mujoco_warp.set_const_spring
+        smooth = getattr(set_const_0, "__globals__", {}).get("smooth")
+        if smooth is None:
+            raise BackendBatchContractError(
+                "mjwarp recompute workspace cannot inspect dependency smooth operations"
+            )
+        smooth_proxy = _MjwarpSmoothWorkspaceProxy(smooth, self)
+        self._set_const_0 = _workspace_function(
+            set_const_0,
+            globals_update={"wp": self, "smooth": smooth_proxy},
+        )
+        self._set_const_spring = _workspace_function(
+            set_const_spring,
+            globals_update={"wp": self, "smooth": smooth_proxy},
+        )
+        self._entries: list[_MjwarpRecomputeWorkspaceEntry] = []
+        self._mode = "idle"
+        self._cursor = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._warp, name)
+
+    @staticmethod
+    def _shape(value: int | tuple[int, ...] | list[int] | None) -> tuple[int, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, int):
+            return (value,)
+        return tuple(value)
+
+    @staticmethod
+    def _options(
+        *,
+        device: Any,
+        requires_grad: bool,
+        pinned: bool,
+        retain_grad: bool,
+        kwargs: dict[str, Any],
+    ) -> tuple[Any, ...]:
+        return (
+            None if device is None else str(device),
+            requires_grad,
+            pinned,
+            retain_grad,
+            tuple(sorted(kwargs.items())),
+        )
+
+    def _entry(
+        self,
+        operation: str,
+        signature: tuple[Any, ...],
+        allocate: Any,
+    ) -> Any:
+        if self._mode == "record":
+            value = allocate()
+            self._entries.append(
+                _MjwarpRecomputeWorkspaceEntry(
+                    operation=operation,
+                    signature=signature,
+                    value=value,
+                )
+            )
+            return value
+        if self._mode != "capture" or self._cursor >= len(self._entries):
+            raise BackendBatchContractError(
+                "mjwarp recompute workspace received an unexpected allocation request"
+            )
+        entry = self._entries[self._cursor]
+        self._cursor += 1
+        if entry.operation != operation or entry.signature != signature:
+            raise BackendBatchContractError(
+                "mjwarp recompute dependency allocation sequence changed after preparation"
+            )
+        return entry.value
+
+    def zeros(
+        self,
+        shape: int | tuple[int, ...] | list[int] | None = None,
+        dtype: Any = float,
+        device: Any = None,
+        requires_grad: bool = False,
+        pinned: bool = False,
+        retain_grad: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        signature = (
+            self._shape(shape),
+            dtype,
+            *self._options(
+                device=device,
+                requires_grad=requires_grad,
+                pinned=pinned,
+                retain_grad=retain_grad,
+                kwargs=kwargs,
+            ),
+        )
+        value = self._entry(
+            "zeros",
+            signature,
+            lambda: self._warp.zeros(
+                shape,
+                dtype=dtype,
+                device=device,
+                requires_grad=requires_grad,
+                pinned=pinned,
+                retain_grad=retain_grad,
+                **kwargs,
+            ),
+        )
+        if self._mode == "capture":
+            value.zero_()
+        return value
+
+    def empty(
+        self,
+        shape: int | tuple[int, ...] | list[int] | None = None,
+        dtype: Any = float,
+        device: Any = None,
+        requires_grad: bool = False,
+        pinned: bool = False,
+        retain_grad: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        signature = (
+            self._shape(shape),
+            dtype,
+            *self._options(
+                device=device,
+                requires_grad=requires_grad,
+                pinned=pinned,
+                retain_grad=retain_grad,
+                kwargs=kwargs,
+            ),
+        )
+        return self._entry(
+            "empty",
+            signature,
+            lambda: self._warp.empty(
+                shape,
+                dtype=dtype,
+                device=device,
+                requires_grad=requires_grad,
+                pinned=pinned,
+                retain_grad=retain_grad,
+                **kwargs,
+            ),
+        )
+
+    def clone(
+        self,
+        source: Any,
+        device: Any = None,
+        requires_grad: bool | None = None,
+        pinned: bool | None = None,
+        retain_grad: bool = False,
+    ) -> Any:
+        signature = (
+            int(source.ptr),
+            tuple(source.shape),
+            source.dtype,
+            None if device is None else str(device),
+            requires_grad,
+            pinned,
+            retain_grad,
+        )
+        value = self._entry(
+            "clone",
+            signature,
+            lambda: self._warp.clone(
+                source,
+                device=device,
+                requires_grad=requires_grad,
+                pinned=pinned,
+                retain_grad=retain_grad,
+            ),
+        )
+        if self._mode == "capture":
+            self._warp.copy(value, source)
+        return value
+
+    def _recompute(
+        self,
+        kind: MjwarpModelRecomputeKind,
+        model: Any,
+        data: Any,
+    ) -> None:
+        if kind is MjwarpModelRecomputeKind.SET_CONST:
+            self._mujoco_warp.set_const_fixed(model, data)
+        self._set_const_0(model, data, restore=False)
+        if kind is MjwarpModelRecomputeKind.SET_CONST:
+            self._set_const_spring(model, data, restore=False)
+
+    def prepare(
+        self,
+        kind: MjwarpModelRecomputeKind,
+        model: Any,
+        data: Any,
+    ) -> None:
+        if kind not in {
+            MjwarpModelRecomputeKind.SET_CONST_0,
+            MjwarpModelRecomputeKind.SET_CONST,
+        }:
+            raise BackendBatchContractError(
+                "mjwarp recompute workspace was requested for an allocation-free operation"
+            )
+        if self._mode != "idle" or self._entries:
+            raise BackendBatchContractError("mjwarp recompute workspace preparation is not fresh")
+        self._mode = "record"
+        try:
+            self._recompute(kind, model, data)
+        finally:
+            self._mode = "idle"
+        if not self._entries:
+            raise BackendBatchContractError(
+                "mjwarp recompute workspace recorded no dependency allocations"
+            )
+
+    @contextmanager
+    def capture_body(
+        self,
+        kind: MjwarpModelRecomputeKind,
+    ) -> Any:
+        if self._mode != "idle" or not self._entries:
+            raise BackendBatchContractError("mjwarp recompute workspace is not prepared")
+        self._cursor = 0
+        self._mode = "capture"
+        completed = False
+        try:
+            yield lambda model, data: self._recompute(kind, model, data)
+            completed = True
+        finally:
+            self._mode = "idle"
+        if completed and self._cursor != len(self._entries):
+            raise BackendBatchContractError(
+                "mjwarp recompute dependency allocation sequence was not fully consumed"
+            )
+
+    @property
+    def numeric_buffer_addresses(self) -> tuple[int, ...]:
+        return tuple(int(entry.value.ptr) for entry in self._entries)
 
 
 _FIXED_DERIVED_FIELDS = ("body_subtreemass",)
@@ -257,6 +564,12 @@ class MjwarpModelRecomputeRuntime:
     public_plan: BoundMutationPlan
     contract: MjwarpModelRecomputeContract
     graph: Any | None = field(repr=False)
+    condition_reduction: torch.Tensor | None = field(repr=False)
+    graph_condition: torch.Tensor | None = field(repr=False)
+    warp_graph_condition: Any | None = field(repr=False)
+    workspace: MjwarpModelRecomputeWorkspace | MjwarpArmatureRecomputeWorkspace | None = field(
+        repr=False
+    )
     storage_generation: int
     storage_fingerprint: str
     materialization_receipt: MjwarpModelMaterializationReceipt = field(repr=False)
@@ -303,6 +616,37 @@ class MjwarpModelRecomputeRuntime:
             raise BackendBatchContractError(
                 "mjwarp recompute graph presence does not match the compiled operation"
             )
+        condition_values = (
+            self.condition_reduction,
+            self.graph_condition,
+            self.warp_graph_condition,
+        )
+        if any(value is not None for value in condition_values) and not all(
+            value is not None for value in condition_values
+        ):
+            raise BackendBatchContractError(
+                "mjwarp recompute conditional graph scratch is incomplete"
+            )
+        if self.condition_reduction is not None:
+            if self.graph is None:
+                raise BackendBatchContractError(
+                    "mjwarp recompute condition requires a captured graph"
+                )
+            if (
+                tuple(self.condition_reduction.shape) != ()
+                or self.condition_reduction.dtype is not torch.bool
+                or not self.condition_reduction.is_cuda
+                or self.graph_condition is None
+                or tuple(self.graph_condition.shape) != (1,)
+                or self.graph_condition.dtype is not torch.int32
+                or self.graph_condition.device != self.condition_reduction.device
+                or self.warp_graph_condition is None
+                or int(getattr(self.warp_graph_condition, "ptr", 0))
+                != int(self.graph_condition.data_ptr())
+            ):
+                raise BackendBatchContractError(
+                    "mjwarp recompute conditional graph scratch has an invalid CUDA ABI"
+                )
         if self.storage_generation < 0 or not self.storage_fingerprint:
             raise BackendBatchContractError("mjwarp recompute storage identity is invalid")
         self._receipt_identity_snapshot = _receipt_identity(self.materialization_receipt)
@@ -332,9 +676,35 @@ class MjwarpModelRecomputeRuntime:
                 "mjwarp Model recompute materialization receipt changed after binding"
             )
 
-    def launch(self, warp: Any) -> bool:
+    @property
+    def numeric_buffer_addresses(self) -> tuple[int, ...]:
+        """Return condition scratch addresses guarded by warm-path stability tests."""
+
+        condition_addresses = tuple(
+            int(value.data_ptr())
+            for value in (self.condition_reduction, self.graph_condition)
+            if value is not None
+        )
+        workspace_addresses = (
+            () if self.workspace is None else self.workspace.numeric_buffer_addresses
+        )
+        return (*condition_addresses, *workspace_addresses)
+
+    def launch(self, warp: Any, *, active_mask: torch.Tensor) -> bool:
         if self.graph is None:
             return False
+        if self.condition_reduction is not None:
+            if (
+                tuple(active_mask.shape) != (self.public_plan.num_envs,)
+                or active_mask.dtype is not torch.bool
+                or active_mask.device != self.condition_reduction.device
+            ):
+                raise BackendBatchContractError(
+                    "mjwarp recompute active mask does not match its conditional graph"
+                )
+            torch.any(active_mask, out=self.condition_reduction)
+            assert self.graph_condition is not None
+            self.graph_condition.copy_(self.condition_reduction, non_blocking=True)
         warp.capture_launch(self.graph)
         self._launch_count += 1
         return True
@@ -360,6 +730,7 @@ __all__ = [
     "MjwarpModelRecomputeDiagnostics",
     "MjwarpModelRecomputeKind",
     "MjwarpModelRecomputeRuntime",
+    "MjwarpModelRecomputeWorkspace",
     "compile_model_recompute_contract",
     "join_model_recompute",
     "model_recompute_kind",

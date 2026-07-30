@@ -95,6 +95,7 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 
+from .armature_recompute import MjwarpArmatureRecomputeWorkspace
 from .batch import (
     MjwarpHostBatchPlan,
     bind_mjwarp_host_batch,
@@ -121,6 +122,7 @@ from .recompute import (
     MjwarpModelRecomputeDiagnostics,
     MjwarpModelRecomputeKind,
     MjwarpModelRecomputeRuntime,
+    MjwarpModelRecomputeWorkspace,
     compile_model_recompute_contract,
 )
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
@@ -1694,10 +1696,61 @@ class MjwarpBackend(SimBackend):
                     default_fields=default_fields,
                     root_qvel_dim=self._root_qvel_dim,
                 )
+                condition_reduction = None
+                graph_condition = None
+                warp_graph_condition = None
+                recompute_workspace: (
+                    MjwarpModelRecomputeWorkspace | MjwarpArmatureRecomputeWorkspace | None
+                ) = None
+                if (
+                    recompute_contract.kind is not MjwarpModelRecomputeKind.NONE
+                    and self._warp.is_conditional_graph_supported()
+                ):
+                    device = self._ensure_device_bridge().qpos.device
+                    condition_reduction = torch.empty((), dtype=torch.bool, device=device)
+                    graph_condition = torch.zeros((1,), dtype=torch.int32, device=device)
+                    warp_graph_condition = self._warp.from_torch(graph_condition)
+                    if MjwarpArmatureRecomputeWorkspace.supports(
+                        recompute_contract.direct_fields,
+                        recompute_contract.kind.value,
+                        self._cpu_model,
+                        self._mujoco,
+                    ):
+                        recompute_workspace = MjwarpArmatureRecomputeWorkspace.create(
+                            mujoco=self._mujoco,
+                            mujoco_warp=self._mujoco_warp,
+                            model=self._cpu_model,
+                            device_model=self._device_model,
+                            device_data=self._device_data,
+                            active_mask=model_plan.effective_mask,
+                            num_worlds=self._num_envs,
+                        )
+                    elif recompute_contract.kind in {
+                        MjwarpModelRecomputeKind.SET_CONST_0,
+                        MjwarpModelRecomputeKind.SET_CONST,
+                    }:
+                        try:
+                            recompute_workspace = MjwarpModelRecomputeWorkspace(
+                                self._warp,
+                                self._mujoco_warp,
+                            )
+                        except Exception as exc:
+                            raise BackendBatchContractError(
+                                "mjwarp failed to capture Model recompute graph "
+                                f"{recompute_contract.kind.value!r}"
+                            ) from exc
                 recompute_runtime = MjwarpModelRecomputeRuntime(
                     public_plan=device_bound,
                     contract=recompute_contract,
-                    graph=self._capture_model_recompute_graph(recompute_contract),
+                    graph=self._capture_model_recompute_graph(
+                        recompute_contract,
+                        condition=warp_graph_condition,
+                        workspace=recompute_workspace,
+                    ),
+                    condition_reduction=condition_reduction,
+                    graph_condition=graph_condition,
+                    warp_graph_condition=warp_graph_condition,
+                    workspace=recompute_workspace,
                     storage_generation=self._device_graph_storage_generation,
                     storage_fingerprint=self._device_graph_storage_fingerprint,
                     materialization_receipt=receipt,
@@ -1950,6 +2003,9 @@ class MjwarpBackend(SimBackend):
     def _capture_model_recompute_graph(
         self,
         contract: MjwarpModelRecomputeContract,
+        *,
+        condition: Any | None,
+        workspace: MjwarpModelRecomputeWorkspace | MjwarpArmatureRecomputeWorkspace | None,
     ) -> Any | None:
         """Capture one plan-scoped derived-constant operation without fallback."""
 
@@ -1960,6 +2016,16 @@ class MjwarpBackend(SimBackend):
             MjwarpModelRecomputeKind.SET_CONST_0: self._mujoco_warp.set_const_0,
             MjwarpModelRecomputeKind.SET_CONST: self._mujoco_warp.set_const,
         }[contract.kind]
+
+        def recompute() -> None:
+            if workspace is not None:
+                with workspace.capture_body(contract.kind) as workspace_recompute:
+                    workspace_recompute(self._device_model, self._device_data)
+            elif contract.kind is MjwarpModelRecomputeKind.SET_CONST_FIXED:
+                operation(self._device_model, self._device_data)
+            else:
+                operation(self._device_model, self._device_data, restore=False)
+
         bridge = self._ensure_device_bridge()
         try:
             with (
@@ -1967,8 +2033,17 @@ class MjwarpBackend(SimBackend):
                 torch.cuda.stream(bridge.physics_stream),
                 self._warp.ScopedStream(bridge.warp_physics_stream),
             ):
+                if workspace is not None:
+                    workspace.prepare(
+                        contract.kind,
+                        self._device_model,
+                        self._device_data,
+                    )
                 with self._warp.ScopedCapture() as capture:
-                    operation(self._device_model, self._device_data)
+                    if condition is None:
+                        recompute()
+                    else:
+                        self._warp.capture_if(condition, on_true=recompute)
         except Exception as exc:
             raise BackendBatchContractError(
                 f"mjwarp failed to capture Model recompute graph {contract.kind.value!r}"
@@ -2669,7 +2744,10 @@ class MjwarpBackend(SimBackend):
                         "recompute_constants",
                         bridge.physics_stream,
                     )
-                mutation_plan.launch_model_recompute(self._warp)
+                mutation_plan.launch_model_recompute(
+                    self._warp,
+                    active_mask=effective_mask,
+                )
                 if timing is not None:
                     timing[0].end_backend_phase(
                         timing[1],

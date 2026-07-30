@@ -695,6 +695,49 @@ def test_complete_synthetic_artifact_accepts_high_but_stable_rss(
     )
 
 
+def test_materialization_accepts_backend_canonical_model_target_order(
+    plan: contract.MjwarpDrPerformancePlan,
+) -> None:
+    profile = plan.profile("tier_b_pd")
+    performance = _performance(profile, 128, steps=1)
+    performance["model_targets"] = list(reversed(profile.model_targets))
+
+    contract._validate_materialization(
+        performance,
+        profile=profile,
+        batch_size=128,
+        path="test.performance",
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_targets", "message"),
+    (
+        (["actuator.pd_damping"], "differs from frozen profile"),
+        (
+            ["actuator.pd_damping", "actuator.pd_damping"],
+            "duplicate targets are not allowed",
+        ),
+    ),
+)
+def test_materialization_rejects_incomplete_or_duplicate_model_targets(
+    plan: contract.MjwarpDrPerformancePlan,
+    model_targets: list[str],
+    message: str,
+) -> None:
+    profile = plan.profile("tier_b_pd")
+    performance = _performance(profile, 128, steps=1)
+    performance["model_targets"] = model_targets
+
+    with pytest.raises(ValueError, match=message):
+        contract._validate_materialization(
+            performance,
+            profile=profile,
+            batch_size=128,
+            path="test.performance",
+        )
+
+
 def test_artifact_tampering_fails_closed(
     passing_artifact: dict[str, Any],
     plan: contract.MjwarpDrPerformancePlan,
