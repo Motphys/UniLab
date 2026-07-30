@@ -569,10 +569,13 @@ def test_model_plan_binding_after_first_runtime_barrier_fails_without_recapture(
         assert late_runtime.backend._model_materialization_receipt is None
         assert late_runtime.backend._expanded_model_fields == frozenset()
         assert after.storage_verification_count == before.storage_verification_count + 1
-        assert replace(
-            after,
-            storage_verification_count=before.storage_verification_count,
-        ) == before
+        assert (
+            replace(
+                after,
+                storage_verification_count=before.storage_verification_count,
+            )
+            == before
+        )
 
 
 def test_incomplete_model_envelope_fails_before_graph_launch_or_model_write(
@@ -604,7 +607,10 @@ def test_incomplete_model_envelope_fails_before_graph_launch_or_model_write(
     torch.testing.assert_close(runtime.gain, gain_before)
     torch.testing.assert_close(runtime.bias, bias_before)
     assert graph_after.storage_verification_count == graph_before.storage_verification_count + 1
-    assert replace(
-        graph_after,
-        storage_verification_count=graph_before.storage_verification_count,
-    ) == graph_before
+    assert (
+        replace(
+            graph_after,
+            storage_verification_count=graph_before.storage_verification_count,
+        )
+        == graph_before
+    )
