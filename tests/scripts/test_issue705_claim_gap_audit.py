@@ -103,7 +103,7 @@ def test_all_phase_manifests_exist_and_pass_schema() -> None:
     assert {
         manifest.phase: {claim.claim_id for claim in manifest.claims} for manifest in manifests
     } == EXPECTED_CLAIMS
-    # Phase gates 0--4 have their independently captured evidence promoted in
+    # Phase gates 0--5 have their independently captured evidence promoted in
     # their respective gate PRs.  Keep this frozen expectation aligned with
     # the manifests so a newly completed phase cannot make ``make test-all``
     # fail solely because this governance test still describes an older
@@ -111,13 +111,13 @@ def test_all_phase_manifests_exist_and_pass_schema() -> None:
     assert all(
         claim.status == ClaimStatus.VERIFIED
         for manifest in manifests
-        if manifest.phase in {0, 1, 2, 3, 4}
+        if manifest.phase in {0, 1, 2, 3, 4, 5}
         for claim in manifest.claims
     )
     assert all(
         claim.status == ClaimStatus.PLANNED
         for manifest in manifests
-        if manifest.phase not in {0, 1, 2, 3, 4}
+        if manifest.phase not in {0, 1, 2, 3, 4, 5}
         for claim in manifest.claims
     )
 
@@ -170,7 +170,7 @@ def test_only_evidenced_phase_gates_are_open() -> None:
 
     assert errors == ()
     open_phases = {manifest.phase for manifest in manifests if not phase_gate_errors(manifest)}
-    assert open_phases == {0, 1, 2, 3, 4}
+    assert open_phases == {0, 1, 2, 3, 4, 5}
 
 
 def test_phase_schema_cli_accepts_each_frozen_manifest(capsys) -> None:
