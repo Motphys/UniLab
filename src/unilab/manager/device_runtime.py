@@ -21,6 +21,7 @@ from unilab.base.backend import (
     BackendBatchContractError,
     BackendBatchDiagnostics,
     BackendCompletionEvent,
+    BackendMutationPerformanceDiagnostics,
     BackendResetResult,
     BackendStepResult,
     BoundBackendPlan,
@@ -1219,6 +1220,29 @@ class DeviceManagedRuntime:
             ) from exc
         self._reset_phase_timing_session = None
         return trace
+
+    def capture_performance_diagnostics(self) -> BackendMutationPerformanceDiagnostics:
+        """Capture plan-scoped backend evidence outside the device hot path."""
+
+        try:
+            diagnostics = self._backend.get_mutation_performance_diagnostics(self._mutation_plan)
+        except (BackendBatchContractError, NotImplementedError) as exc:
+            raise DeviceManagedRuntimeError(
+                f"backend could not capture mutation performance diagnostics: {exc}"
+            ) from exc
+        if not isinstance(diagnostics, BackendMutationPerformanceDiagnostics):
+            raise DeviceManagedRuntimeError(
+                "backend returned invalid mutation performance diagnostics"
+            )
+        if (
+            diagnostics.backend_type != self._bound_plan.backend_type
+            or diagnostics.backend_instance_id != self._bound_plan.backend_instance_id
+            or diagnostics.mutation_plan_fingerprint != self._mutation_plan.fingerprint
+        ):
+            raise DeviceManagedRuntimeError(
+                "backend mutation performance diagnostics have a different owner"
+            )
+        return diagnostics
 
     @property
     def stability_diagnostics(self) -> DeviceRuntimeStabilityDiagnostics | None:

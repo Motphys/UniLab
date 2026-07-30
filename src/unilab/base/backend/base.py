@@ -27,6 +27,7 @@ from .batch import (
 )
 from .graph import DeviceGraphDiagnostics
 from .mutation import BoundMutationPlan, MutationCapabilityManifest, MutationSpec
+from .performance import BackendMutationPerformanceDiagnostics
 from .phase_timing import (
     DeviceResetPhaseTimingSampleToken,
     DeviceResetPhaseTimingSession,
@@ -184,6 +185,16 @@ class SimBackend(abc.ABC):
         del verify_storage
         raise NotImplementedError(
             f"{self.__class__.__name__} does not expose device graph diagnostics"
+        )
+
+    def get_mutation_performance_diagnostics(
+        self, plan: BoundMutationPlan
+    ) -> BackendMutationPerformanceDiagnostics:
+        """Return cold, plan-scoped mutation/storage/lifecycle evidence."""
+
+        del plan
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose mutation performance diagnostics"
         )
 
     def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:

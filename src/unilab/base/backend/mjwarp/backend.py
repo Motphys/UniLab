@@ -71,6 +71,12 @@ from unilab.base.backend.mutation_batch import (
     DeviceResetMutationBatch,
     TypedBackendMutationBatch,
 )
+from unilab.base.backend.performance import (
+    BackendDeviceLifecycleDiagnostics,
+    BackendModelFieldDiagnostics,
+    BackendModelMaterializationDiagnostics,
+    BackendMutationPerformanceDiagnostics,
+)
 from unilab.base.backend.phase_timing import (
     DevicePhaseTimingError,
     DeviceResetPhaseTimingSampleToken,
@@ -376,6 +382,10 @@ class MjwarpBackend(SimBackend):
         self._device_graph_bundles: dict[str, _MjwarpDeviceGraphBundle] = {}
         self._device_graph_captures = 0
         self._device_graph_launches = 0
+        self._device_step_graph_launches = 0
+        self._device_reset_graph_launches = 0
+        self._device_forward_graph_launches = 0
+        self._device_state_refreshes = 0
         self._device_graph_recaptures = 0
         self._device_graph_stale_rejections = 0
         self._device_graph_eager_fallbacks = 0
@@ -2216,6 +2226,116 @@ class MjwarpBackend(SimBackend):
         runtime_plan.public_plan.require_compatible(plan)
         return runtime_plan.recompute_diagnostics
 
+    def get_mutation_performance_diagnostics(
+        self,
+        plan: BoundMutationPlan,
+    ) -> BackendMutationPerformanceDiagnostics:
+        """Project backend-owned Model and lifecycle evidence at a cold boundary."""
+
+        if not isinstance(plan, BoundMutationPlan):
+            raise BackendBatchContractError(
+                "mjwarp mutation performance diagnostics require a bound mutation plan"
+            )
+        plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            runtime_plan = self._device_mutation_plans[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp mutation performance diagnostics plan was not published"
+            ) from exc
+        runtime_plan.public_plan.require_compatible(plan)
+
+        model_targets = tuple(
+            sorted(
+                {
+                    spec.target.target_key
+                    for spec in plan.specs
+                    if spec.target.target_kind is MutationTargetKind.MODEL_PARAMETER
+                }
+            )
+        )
+        recompute = runtime_plan.recompute_diagnostics
+        materialization = None
+        recompute_kind = "none"
+        direct_fields: tuple[str, ...] = ()
+        derived_fields: tuple[str, ...] = ()
+        recompute_capture_count = 0
+        recompute_launch_count = 0
+        if model_targets:
+            if recompute is None or runtime_plan.recompute_runtime is None:
+                raise BackendBatchContractError(
+                    "mjwarp Model performance diagnostics lack a recompute owner"
+                )
+            receipt = runtime_plan.recompute_runtime.materialization_receipt
+            if receipt is not self._model_materialization_receipt:
+                raise BackendBatchContractError(
+                    "mjwarp Model performance diagnostics have a stale materialization receipt"
+                )
+            self._verify_model_materialization_receipt(receipt)
+            if (
+                recompute.mutation_plan_fingerprint != plan.fingerprint
+                or recompute.materialization_receipt_fingerprint != receipt.fingerprint
+                or recompute.storage_generation != receipt.storage_generation_after
+                or recompute.storage_fingerprint != receipt.storage_fingerprint_after
+            ):
+                raise BackendBatchContractError(
+                    "mjwarp recompute and materialization diagnostics have different identities"
+                )
+            materialization = BackendModelMaterializationDiagnostics(
+                receipt_fingerprint=receipt.fingerprint,
+                num_worlds=receipt.num_worlds,
+                fields=tuple(
+                    BackendModelFieldDiagnostics(
+                        field_name=field.field_name,
+                        role=field.role.value,
+                        materialized_shape=field.materialized_shape,
+                        materialized_address=field.materialized_address,
+                        model_bytes=field.model_bytes,
+                        replaced=field.replaced,
+                        compiled_default_shape=field.compiled_default_shape,
+                        per_world_default_shape=field.per_world_default_shape,
+                    )
+                    for field in receipt.fields
+                ),
+                expanded_model_bytes=receipt.expanded_model_bytes,
+                baseline_bytes=receipt.baseline_bytes,
+                storage_generation=receipt.storage_generation_after,
+                storage_fingerprint=receipt.storage_fingerprint_after,
+            )
+            recompute_kind = recompute.kind.value
+            direct_fields = recompute.direct_fields
+            derived_fields = recompute.derived_fields
+            recompute_capture_count = recompute.capture_count
+            recompute_launch_count = recompute.launch_count
+        elif recompute is not None:
+            raise BackendBatchContractError(
+                "mjwarp state-only performance diagnostics unexpectedly own Model recompute"
+            )
+
+        return BackendMutationPerformanceDiagnostics(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+            mutation_plan_fingerprint=plan.fingerprint,
+            model_targets=model_targets,
+            recompute_kind=recompute_kind,
+            direct_fields=direct_fields,
+            derived_fields=derived_fields,
+            recompute_capture_count=recompute_capture_count,
+            recompute_launch_count=recompute_launch_count,
+            materialization=materialization,
+            lifecycle=BackendDeviceLifecycleDiagnostics(
+                runtime_barriers=self._runtime_barrier_count,
+                step_graph_launches=self._device_step_graph_launches,
+                reset_graph_launches=self._device_reset_graph_launches,
+                forward_graph_launches=self._device_forward_graph_launches,
+                state_refreshes=self._device_state_refreshes,
+            ),
+            graph=self.get_device_graph_diagnostics(verify_storage=True),
+        )
+
     def _require_device_mutation_plan(
         self,
         mutation_batch: DeviceResetMutationBatch,
@@ -2304,6 +2424,7 @@ class MjwarpBackend(SimBackend):
         with torch.cuda.stream(bridge.physics_stream):
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 bound.refresh()
+                self._device_state_refreshes += 1
             event.record(bridge.physics_stream)
 
     def read_state_batch(
@@ -2454,7 +2575,9 @@ class MjwarpBackend(SimBackend):
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 self._warp.capture_launch(graph_bundle.step_graph)
                 self._device_graph_launches += 1
+                self._device_step_graph_launches += 1
                 bound.refresh()
+                self._device_state_refreshes += 1
             bridge.step_event.record(bridge.physics_stream)
         result = bound.materialize(
             rows=RowSelection.all(self._num_envs),
@@ -2524,6 +2647,7 @@ class MjwarpBackend(SimBackend):
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 self._warp.capture_launch(graph_bundle.reset_graph)
                 self._device_graph_launches += 1
+                self._device_reset_graph_launches += 1
                 if timing is not None:
                     timing[0].begin_backend_phase(
                         timing[1],
@@ -2566,6 +2690,7 @@ class MjwarpBackend(SimBackend):
                     )
                 self._warp.capture_launch(graph_bundle.forward_graph)
                 self._device_graph_launches += 1
+                self._device_forward_graph_launches += 1
                 if timing is not None:
                     timing[0].end_backend_phase(
                         timing[1],
@@ -2573,6 +2698,7 @@ class MjwarpBackend(SimBackend):
                         bridge.physics_stream,
                     )
                 bound.refresh_masked(bridge.reset_mask)
+                self._device_state_refreshes += 1
                 if timing is not None:
                     timing[0].end_sample(
                         timing[1],

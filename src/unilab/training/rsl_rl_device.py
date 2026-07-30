@@ -97,6 +97,7 @@ class DeviceRslRlVecEnvWrapper:
         policy_obs_mode: str = "flat",
         *,
         reset_seed: int = 0,
+        enable_stability_diagnostics: bool = False,
     ) -> None:
         if policy_obs_mode == "auto":
             policy_obs_mode = "flat"
@@ -106,6 +107,8 @@ class DeviceRslRlVecEnvWrapper:
             )
         if isinstance(reset_seed, bool) or not isinstance(reset_seed, int) or reset_seed < 0:
             raise DeviceRslRlContractError("device reset_seed must be a non-negative integer")
+        if not isinstance(enable_stability_diagnostics, bool):
+            raise DeviceRslRlContractError("enable_stability_diagnostics must be a bool")
         requested_device = torch.device(device)
         if requested_device.type != "cuda" or not torch.cuda.is_available():
             raise DeviceRslRlContractError(
@@ -125,7 +128,10 @@ class DeviceRslRlVecEnvWrapper:
         requested_device = torch.device(f"cuda:{requested_index}")
 
         try:
-            runtime = env.create_device_managed_runtime(reset_seed=reset_seed)
+            runtime = env.create_device_managed_runtime(
+                reset_seed=reset_seed,
+                enable_stability_diagnostics=enable_stability_diagnostics,
+            )
         except AttributeError as exc:
             raise DeviceRslRlContractError(
                 "environment does not declare the device-managed runtime factory contract"
@@ -751,7 +757,10 @@ def resolve_mjwarp_device_ppo_runtime(
     return DeviceRslRlPPORuntime(
         wrapper_cls=DeviceRslRlVecEnvWrapper,
         runner_cls=DeviceOnPolicyRunner,
-        wrapper_kwargs={"reset_seed": seed},
+        wrapper_kwargs={
+            "reset_seed": seed,
+            "enable_stability_diagnostics": True,
+        },
     )
 
 

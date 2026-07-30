@@ -112,6 +112,14 @@ from .mutation_batch import (
     TaskStateMutationBatch,
     TypedBackendMutationBatch,
 )
+from .performance import (
+    BACKEND_PERFORMANCE_DIAGNOSTICS_VERSION,
+    BackendDeviceLifecycleDiagnostics,
+    BackendModelFieldDiagnostics,
+    BackendModelMaterializationDiagnostics,
+    BackendMutationPerformanceDiagnostics,
+    BackendPerformanceDiagnosticsError,
+)
 from .phase_timing import (
     DEVICE_RESET_TIMING_PHASES,
     DevicePhaseTimingError,
@@ -321,6 +329,7 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "BACKEND_PERFORMANCE_DIAGNOSTICS_VERSION",
     "DEVICE_GRAPH_CONTRACT_VERSION",
     "MUTATION_CAPABILITY_MANIFEST_VERSION",
     "MUTATION_CONTRACT_VERSION",
@@ -333,8 +342,13 @@ __all__ = [
     "BackendBatchDiagnostics",
     "BackendCompletionEvent",
     "BackendCounterViolation",
+    "BackendDeviceLifecycleDiagnostics",
     "BackendHotPathViolationError",
     "BackendIORequirements",
+    "BackendModelFieldDiagnostics",
+    "BackendModelMaterializationDiagnostics",
+    "BackendMutationPerformanceDiagnostics",
+    "BackendPerformanceDiagnosticsError",
     "BackendMutationBatch",
     "BackendReadResult",
     "BackendResetResult",
