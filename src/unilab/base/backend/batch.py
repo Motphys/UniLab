@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import InitVar, dataclass, field
 from enum import Enum
+from numbers import Real
 from typing import Any, Protocol
 
 import numpy as np
 
 BACKEND_BATCH_CONTRACT_VERSION = "backend-batch-contract-v1"
+DEVICE_CONTROLLER_CONTRACT_VERSION = "device-controller-v1"
 
 
 class BackendBatchContractError(ValueError):
@@ -27,6 +29,16 @@ class MemorySpace(str, Enum):
 class ExecutionProfile(str, Enum):
     HOST_NUMPY = "host_numpy"
     DEVICE_RESIDENT = "device_resident"
+
+
+class ControlImplementation(str, Enum):
+    CONTROL_STEP_CONSTANT = "control_step_constant"
+    DEVICE_SUBSTEP_CONTROLLER = "device_substep_controller"
+    HOST_SUBSTEP_CALLBACK = "host_substep_callback"
+
+
+class ControllerStateReadPhase(str, Enum):
+    PRE_SUBSTEP = "pre_substep"
 
 
 class BufferOwner(str, Enum):
@@ -268,10 +280,86 @@ class StateFieldSpec:
 
 
 @dataclass(frozen=True)
+class ControllerStateRead:
+    semantic_key: str
+    phase: ControllerStateReadPhase = ControllerStateReadPhase.PRE_SUBSTEP
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "semantic_key", _non_empty(self.semantic_key, "semantic_key"))
+        _enum(self.phase, ControllerStateReadPhase, "controller state read phase")
+
+
+@dataclass(frozen=True)
+class ControllerParameter:
+    semantic_key: str
+    values: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "semantic_key", _non_empty(self.semantic_key, "semantic_key"))
+        if not isinstance(self.values, tuple) or not self.values:
+            raise BackendBatchContractError("controller parameter values must be a non-empty tuple")
+        if any(isinstance(value, bool) or not isinstance(value, Real) for value in self.values):
+            raise BackendBatchContractError("controller parameter values must be real numbers")
+        normalized = tuple(float(value) for value in self.values)
+        if not np.isfinite(np.asarray(normalized, dtype=np.float64)).all():
+            raise BackendBatchContractError("controller parameter values must be finite")
+        object.__setattr__(self, "values", normalized)
+
+
+@dataclass(frozen=True)
+class DeviceControllerSpec:
+    implementation_key: str
+    state_reads: tuple[ControllerStateRead, ...]
+    parameters: tuple[ControllerParameter, ...]
+    contract_version: str = DEVICE_CONTROLLER_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "implementation_key",
+            _non_empty(self.implementation_key, "controller implementation_key"),
+        )
+        if not isinstance(self.state_reads, tuple) or not self.state_reads:
+            raise BackendBatchContractError("device controller requires declared state reads")
+        if any(not isinstance(item, ControllerStateRead) for item in self.state_reads):
+            raise BackendBatchContractError(
+                "device controller state_reads must contain ControllerStateRead values"
+            )
+        read_keys = tuple(item.semantic_key for item in self.state_reads)
+        if read_keys != tuple(sorted(set(read_keys))):
+            raise BackendBatchContractError(
+                "device controller state reads must use unique canonical key order"
+            )
+        if not isinstance(self.parameters, tuple) or any(
+            not isinstance(item, ControllerParameter) for item in self.parameters
+        ):
+            raise BackendBatchContractError(
+                "device controller parameters must contain ControllerParameter values"
+            )
+        parameter_keys = tuple(item.semantic_key for item in self.parameters)
+        if parameter_keys != tuple(sorted(set(parameter_keys))):
+            raise BackendBatchContractError(
+                "device controller parameters must use unique canonical key order"
+            )
+        if self.contract_version != DEVICE_CONTROLLER_CONTRACT_VERSION:
+            raise BackendBatchContractError(
+                f"unsupported device controller contract version {self.contract_version!r}"
+            )
+
+    def parameter(self, semantic_key: str) -> ControllerParameter:
+        for item in self.parameters:
+            if item.semantic_key == semantic_key:
+                return item
+        raise BackendBatchContractError(f"controller parameter {semantic_key!r} is not declared")
+
+
+@dataclass(frozen=True)
 class ControlSpec:
     semantic_key: str
     buffer: BufferContract
     physics_substeps_per_control: int = 1
+    implementation: ControlImplementation = ControlImplementation.CONTROL_STEP_CONSTANT
+    controller: DeviceControllerSpec | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "semantic_key", _non_empty(self.semantic_key, "semantic_key"))
@@ -289,6 +377,39 @@ class ControlSpec:
             self.physics_substeps_per_control,
             "physics_substeps_per_control",
             minimum=1,
+        )
+        _enum(self.implementation, ControlImplementation, "control implementation")
+        if self.implementation is ControlImplementation.DEVICE_SUBSTEP_CONTROLLER:
+            if not isinstance(self.controller, DeviceControllerSpec):
+                raise BackendBatchContractError(
+                    "device_substep_controller requires a DeviceControllerSpec"
+                )
+        elif self.controller is not None:
+            raise BackendBatchContractError(
+                "only device_substep_controller may carry a controller descriptor"
+            )
+
+
+def _validate_control_requirements(
+    execution_profile: ExecutionProfile,
+    fields: tuple[StateFieldSpec, ...],
+    control: ControlSpec,
+) -> None:
+    if control.implementation is ControlImplementation.HOST_SUBSTEP_CALLBACK:
+        raise BackendBatchContractError("managed typed batch plans reject host substep callbacks")
+    if control.implementation is not ControlImplementation.DEVICE_SUBSTEP_CONTROLLER:
+        return
+    if execution_profile is not ExecutionProfile.DEVICE_RESIDENT:
+        raise BackendBatchContractError(
+            "device substep controllers require execution_profile=device_resident"
+        )
+    assert control.controller is not None
+    available = {field.semantic_key for field in fields}
+    declared = {item.semantic_key for item in control.controller.state_reads}
+    missing = tuple(sorted(declared - available))
+    if missing:
+        raise BackendBatchContractError(
+            f"device controller state reads are not bound state fields: {missing!r}"
         )
 
 
@@ -361,6 +482,11 @@ class BackendIORequirements:
         if not isinstance(self.control, ControlSpec):
             raise BackendBatchContractError("control must be a ControlSpec")
         _validate_profile(self.execution_profile, self.state_fields, self.control)
+        _validate_control_requirements(
+            self.execution_profile,
+            self.state_fields,
+            self.control,
+        )
         for name, budget in (
             ("hot_path_budget", self.hot_path_budget),
             ("reset_hot_path_budget", self.reset_hot_path_budget),
@@ -423,6 +549,7 @@ class BoundBackendPlan:
         if self.state.execution_profile is not self.execution_profile:
             raise BackendBatchContractError("state and backend execution profiles must match")
         _validate_profile(self.execution_profile, self.state.fields, self.control)
+        _validate_control_requirements(self.execution_profile, self.state.fields, self.control)
         object.__setattr__(self, "fingerprint", _non_empty(self.fingerprint, "fingerprint"))
         for name, budget in (
             ("hot_path_budget", self.hot_path_budget),
@@ -958,6 +1085,7 @@ class BackendResetResult:
 
 __all__ = [
     "BACKEND_BATCH_CONTRACT_VERSION",
+    "DEVICE_CONTROLLER_CONTRACT_VERSION",
     "BackendBatchContractError",
     "BackendBatchCounterBudget",
     "BackendBatchCounters",
@@ -983,7 +1111,12 @@ __all__ = [
     "BufferPlacement",
     "BufferView",
     "ControlBatch",
+    "ControlImplementation",
     "ControlSpec",
+    "ControllerParameter",
+    "ControllerStateRead",
+    "ControllerStateReadPhase",
+    "DeviceControllerSpec",
     "ExecutionProfile",
     "MemorySpace",
     "PhysicalUnit",

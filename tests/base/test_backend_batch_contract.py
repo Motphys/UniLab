@@ -35,7 +35,11 @@ from unilab.base.backend.batch import (
     BufferPlacement,
     BufferView,
     ControlBatch,
+    ControlImplementation,
+    ControllerParameter,
+    ControllerStateRead,
     ControlSpec,
+    DeviceControllerSpec,
     ExecutionProfile,
     MemorySpace,
     PhysicalUnit,
@@ -678,6 +682,110 @@ def test_device_profile_requires_explicit_device_placement() -> None:
         control=control,
     )
     assert requirements.state_fields[0].buffer.placement.memory_space is MemorySpace.DEVICE
+
+
+def test_device_controller_descriptor_and_profile_fail_closed() -> None:
+    placement = BufferPlacement.device("cuda", 0)
+    fields = (
+        _field(
+            "dof.position",
+            entity_ids=(0,),
+            buffer=_state_buffer(placement=placement, dlpack_exportable=True),
+        ),
+        _field(
+            "dof.velocity",
+            entity_ids=(1,),
+            buffer=_state_buffer(placement=placement, dlpack_exportable=True),
+        ),
+    )
+    descriptor = DeviceControllerSpec(
+        implementation_key="test.pd.v1",
+        state_reads=(
+            ControllerStateRead("dof.position"),
+            ControllerStateRead("dof.velocity"),
+        ),
+        parameters=(
+            ControllerParameter("damping", (0.5,)),
+            ControllerParameter("stiffness", (4.0,)),
+        ),
+    )
+    control_buffer = replace(
+        _control_buffer(placement=placement),
+        dlpack_exportable=True,
+    )
+    control = ControlSpec(
+        "joint.command",
+        control_buffer,
+        physics_substeps_per_control=4,
+        implementation=ControlImplementation.DEVICE_SUBSTEP_CONTROLLER,
+        controller=descriptor,
+    )
+    requirements = _requirements(
+        fields=fields,
+        profile=ExecutionProfile.DEVICE_RESIDENT,
+        control=control,
+    )
+    assert requirements.control.controller is descriptor
+
+    with pytest.raises(BackendBatchContractError, match="unique canonical key order"):
+        replace(
+            descriptor,
+            state_reads=(
+                ControllerStateRead("dof.velocity"),
+                ControllerStateRead("dof.position"),
+            ),
+        )
+    with pytest.raises(BackendBatchContractError, match="unique canonical key order"):
+        replace(
+            descriptor,
+            parameters=(
+                ControllerParameter("damping", (0.5,)),
+                ControllerParameter("damping", (0.6,)),
+            ),
+        )
+    with pytest.raises(BackendBatchContractError, match="real numbers"):
+        ControllerParameter("damping", (True,))
+    with pytest.raises(BackendBatchContractError, match="finite"):
+        ControllerParameter("damping", (float("nan"),))
+    with pytest.raises(BackendBatchContractError, match="unsupported device controller"):
+        replace(descriptor, contract_version="device-controller-v0")
+    with pytest.raises(BackendBatchContractError, match="requires a DeviceControllerSpec"):
+        replace(control, controller=None)
+    with pytest.raises(BackendBatchContractError, match="only device_substep_controller"):
+        replace(
+            control,
+            implementation=ControlImplementation.CONTROL_STEP_CONSTANT,
+        )
+    with pytest.raises(BackendBatchContractError, match="execution_profile=device_resident"):
+        _requirements(
+            fields=tuple(
+                replace(field, buffer=replace(field.buffer, placement=BufferPlacement.host()))
+                for field in fields
+            ),
+            profile=ExecutionProfile.HOST_NUMPY,
+            control=replace(
+                control,
+                buffer=replace(control.buffer, placement=BufferPlacement.host()),
+            ),
+        )
+    with pytest.raises(BackendBatchContractError, match="not bound state fields"):
+        _requirements(
+            fields=(fields[0],),
+            profile=ExecutionProfile.DEVICE_RESIDENT,
+            control=control,
+        )
+
+    callback_control = ControlSpec(
+        "joint.command",
+        control_buffer,
+        implementation=ControlImplementation.HOST_SUBSTEP_CALLBACK,
+    )
+    with pytest.raises(BackendBatchContractError, match="reject host substep callbacks"):
+        _requirements(
+            fields=fields,
+            profile=ExecutionProfile.DEVICE_RESIDENT,
+            control=callback_control,
+        )
 
 
 def test_sim_backend_batch_extensions_are_additive_and_fail_closed() -> None:
