@@ -73,7 +73,6 @@ from .managed_reference import (
     _g1_state_requirements,
     _G1KernelConfig,
     _kernel_config,
-    _reset_suffix_for_dof,
     _reset_term_key,
     _validate_reference_profile,
 )
@@ -112,8 +111,7 @@ def _device_reset_templates(
     *,
     placement: BufferPlacement,
     root: Any,
-    reset_position: tuple[Any, ...],
-    reset_velocity: tuple[Any, ...],
+    dofs: Any,
 ) -> tuple[MutationTemplate, ...]:
     templates: list[MutationTemplate] = []
     for suffix, target_key, field_kind, row_shape in _ROOT_RESET_SUFFIXES:
@@ -137,35 +135,24 @@ def _device_reset_templates(
                 ),
             )
         )
-    for index, selector in enumerate(reset_position):
+    # The bound contract expands this scalar template to one row per selected
+    # DoF, preserving selector order while reducing DoF index-copy dispatches
+    # from 58 to 2 per reset barrier.
+    for key_suffix, target_key, field_kind in (
+        ("dof_position", "state.dof.position", MutationFieldKind.POSITION),
+        (
+            "dof_angular_velocity",
+            "state.dof.angular_velocity",
+            MutationFieldKind.ANGULAR_VELOCITY,
+        ),
+    ):
         templates.append(
             MutationTemplate(
-                key_suffix=_reset_suffix_for_dof(kind="position", index=index),
-                target_key="state.dof.position",
+                key_suffix=key_suffix,
+                target_key=target_key,
                 target_kind=MutationTargetKind.SIMULATION_STATE,
-                selector=selector,
-                field_kind=MutationFieldKind.POSITION,
-                trigger=MutationTrigger.RESET,
-                commit_phase=MutationCommitPhase.RESET,
-                operation=MutationOperation.SET,
-                baseline=MutationBaseline.DEFAULT,
-                persistence=MutationPersistence.EPISODE,
-                recompute=MutationRecomputeLevel.KINEMATICS,
-                value_template=_device_manager_buffer(
-                    placement=placement,
-                    row_shape=(1,),
-                    lifetime=BufferLifetime.UNTIL_COMMIT,
-                ),
-            )
-        )
-    for index, selector in enumerate(reset_velocity):
-        templates.append(
-            MutationTemplate(
-                key_suffix=_reset_suffix_for_dof(kind="velocity", index=index),
-                target_key="state.dof.angular_velocity",
-                target_kind=MutationTargetKind.SIMULATION_STATE,
-                selector=selector,
-                field_kind=MutationFieldKind.ANGULAR_VELOCITY,
+                selector=dofs,
+                field_kind=field_kind,
                 trigger=MutationTrigger.RESET,
                 commit_phase=MutationCommitPhase.RESET,
                 operation=MutationOperation.SET,
@@ -224,13 +211,12 @@ def compile_g1_managed_device_task(
         raise G1ManagedDeviceError("G1 device executor requires unique named actuators")
     action_dim = len(actuator_names)
     _action_scale(cfg, action_dim)
-    root, dofs, reset_position, reset_velocity = _g1_selectors(actuator_names)
+    root, dofs, _, _ = _g1_selectors(actuator_names)
     state_requirements = _g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
     reset_templates = _device_reset_templates(
         placement=placement,
         root=root,
-        reset_position=reset_position,
-        reset_velocity=reset_velocity,
+        dofs=dofs,
     )
 
     registry = TermRegistry()
@@ -422,8 +408,8 @@ class G1ManagedDeviceKernel:
         self._observation_indices: tuple[int, int] | None = None
         self._mutation_plan: BoundMutationPlan | None = None
         self._root_reset_indices: tuple[int, int, int, int] | None = None
-        self._position_reset_indices: tuple[int, ...] | None = None
-        self._velocity_reset_indices: tuple[int, ...] | None = None
+        self._position_reset_index: int | None = None
+        self._velocity_reset_index: int | None = None
         self._action_scale = torch.as_tensor(
             config.action_scale, dtype=torch.float32, device=self._device
         )
@@ -480,18 +466,10 @@ class G1ManagedDeviceKernel:
             raise G1ManagedDeviceError("G1 device plan requires typed reset mutations")
         mutation_indices = {spec.term_key: index for index, spec in enumerate(mutation_plan.specs)}
         root_keys = tuple(_reset_term_key(suffix=item[0]) for item in _ROOT_RESET_SUFFIXES)
-        position_keys = tuple(
-            _reset_term_key(suffix=_reset_suffix_for_dof(kind="position", index=index))
-            for index in range(self._action_dim)
-        )
-        velocity_keys = tuple(
-            _reset_term_key(suffix=_reset_suffix_for_dof(kind="velocity", index=index))
-            for index in range(self._action_dim)
-        )
+        position_key = _reset_term_key(suffix="dof_position")
+        velocity_key = _reset_term_key(suffix="dof_angular_velocity")
         missing_mutations = tuple(
-            key
-            for key in (*root_keys, *position_keys, *velocity_keys)
-            if key not in mutation_indices
+            key for key in (*root_keys, position_key, velocity_key) if key not in mutation_indices
         )
         if missing_mutations:
             raise G1ManagedDeviceError(
@@ -502,8 +480,8 @@ class G1ManagedDeviceKernel:
         self._observation_indices = observation_indices
         self._mutation_plan = mutation_plan
         self._root_reset_indices = tuple(mutation_indices[key] for key in root_keys)  # type: ignore[assignment]
-        self._position_reset_indices = tuple(mutation_indices[key] for key in position_keys)
-        self._velocity_reset_indices = tuple(mutation_indices[key] for key in velocity_keys)
+        self._position_reset_index = mutation_indices[position_key]
+        self._velocity_reset_index = mutation_indices[velocity_key]
 
     def _require_binding(self) -> ManagedKernelBinding:
         if self._binding is None:
@@ -512,17 +490,17 @@ class G1ManagedDeviceKernel:
 
     def _require_reset_indices(
         self,
-    ) -> tuple[tuple[int, int, int, int], tuple[int, ...], tuple[int, ...]]:
+    ) -> tuple[tuple[int, int, int, int], int, int]:
         if (
             self._root_reset_indices is None
-            or self._position_reset_indices is None
-            or self._velocity_reset_indices is None
+            or self._position_reset_index is None
+            or self._velocity_reset_index is None
         ):
             raise G1ManagedDeviceError("G1 device reset indices are not bound")
         return (
             self._root_reset_indices,
-            self._position_reset_indices,
-            self._velocity_reset_indices,
+            self._position_reset_index,
+            self._velocity_reset_index,
         )
 
     @staticmethod
@@ -1029,7 +1007,7 @@ class G1ManagedDeviceKernel:
             raise G1ManagedDeviceError("G1 device reset mask is incompatible")
         self._sample_reset(task)
         task.reset_mask.copy_(active_mask, non_blocking=True)
-        root_indices, position_indices, velocity_indices = self._require_reset_indices()
+        root_indices, position_index, velocity_index = self._require_reset_indices()
         root_values = (
             task.reset_qpos[:, :3],
             task.reset_qpos[:, 3:7],
@@ -1038,14 +1016,8 @@ class G1ManagedDeviceKernel:
         )
         for mutation_index, source in zip(root_indices, root_values, strict=True):
             task.reset_values[mutation_index][:, 0, :].copy_(source, non_blocking=True)
-        for dof_index, mutation_index in enumerate(position_indices):
-            task.reset_values[mutation_index][:, 0, 0].copy_(
-                task.reset_qpos[:, 7 + dof_index], non_blocking=True
-            )
-        for dof_index, mutation_index in enumerate(velocity_indices):
-            task.reset_values[mutation_index][:, 0, 0].copy_(
-                task.reset_qvel[:, 6 + dof_index], non_blocking=True
-            )
+        task.reset_values[position_index][:, :, 0].copy_(task.reset_qpos[:, 7:], non_blocking=True)
+        task.reset_values[velocity_index][:, :, 0].copy_(task.reset_qvel[:, 6:], non_blocking=True)
         return DeviceResetPayload(active_mask=task.reset_mask, values=task.reset_values)
 
     def complete_reset(
