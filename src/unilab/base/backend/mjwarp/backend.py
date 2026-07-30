@@ -105,6 +105,13 @@ from .materialization import (
 )
 from .model_mutation import MjwarpDeviceModelMutationPlan
 from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
+from .recompute import (
+    MjwarpModelRecomputeContract,
+    MjwarpModelRecomputeDiagnostics,
+    MjwarpModelRecomputeKind,
+    MjwarpModelRecomputeRuntime,
+    compile_model_recompute_contract,
+)
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
 
 _GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
@@ -764,36 +771,16 @@ class MjwarpBackend(SimBackend):
             )
         return bridge
 
-    def _materialize_advertised_device_model_fields(
+    def _materialize_bound_device_model_fields(
         self,
-        manifest: MutationCapabilityManifest,
-    ) -> MjwarpModelMaterializationReceipt | None:
-        """Freeze the union of advertised Model fields before any runtime barrier."""
+        contract: MjwarpModelRecomputeContract,
+    ) -> MjwarpModelMaterializationReceipt:
+        """Freeze only direct and derived fields required by one bound plan."""
 
-        direct_fields: set[str] = set()
-        derived_fields: set[str] = set()
-        for capability in manifest.capabilities:
-            if capability.target_kind is not MutationTargetKind.MODEL_PARAMETER:
-                continue
-            descriptor = capability.descriptor
-            if descriptor is None:
-                raise BackendBatchContractError(
-                    "mjwarp advertised Model capability lacks a field descriptor"
-                )
-            direct_fields.update(descriptor.direct_fields)
-            derived_fields.update(descriptor.derived_fields)
-        if not direct_fields:
-            return None
-        overlap = direct_fields & derived_fields
-        if overlap:
-            raise BackendBatchContractError(
-                "mjwarp advertised Model fields disagree on direct/derived ownership: "
-                f"{tuple(sorted(overlap))!r}"
-            )
         request = MjwarpModelMaterializationRequest(
             num_worlds=self._num_envs,
-            direct_fields=tuple(sorted(direct_fields)),
-            derived_fields=tuple(sorted(derived_fields)),
+            direct_fields=contract.direct_fields,
+            derived_fields=contract.derived_fields,
         )
         return self._materialize_model_fields(request)
 
@@ -892,9 +879,36 @@ class MjwarpBackend(SimBackend):
         existing = self._model_materialization_receipt
         if existing is not None:
             self._verify_model_materialization_receipt(existing)
-            if existing.request_fingerprint != request.fingerprint:
+            required_roles = {
+                **{field_name: MjwarpModelFieldRole.DIRECT for field_name in request.direct_fields},
+                **{
+                    field_name: MjwarpModelFieldRole.DERIVED
+                    for field_name in request.derived_fields
+                },
+            }
+            existing_fields = {field.field_name: field for field in existing.fields}
+            missing = tuple(sorted(set(required_roles).difference(existing_fields)))
+            mismatched = tuple(
+                sorted(
+                    field_name
+                    for field_name, role in required_roles.items()
+                    if field_name in existing_fields
+                    and existing_fields[field_name].role is not role
+                )
+            )
+            missing_defaults = tuple(
+                sorted(
+                    field_name
+                    for field_name in request.per_world_default_fields
+                    if field_name in existing_fields
+                    and existing_fields[field_name].per_world_default_shape is None
+                )
+            )
+            if missing or mismatched or missing_defaults:
                 raise BackendBatchContractError(
-                    "mjwarp model fields were already frozen by a conflicting request"
+                    "mjwarp model fields were already frozen without the requested subset: "
+                    f"missing={missing!r}, mismatched={mismatched!r}, "
+                    f"missing_defaults={missing_defaults!r}"
                 )
             return existing
         if self._runtime_barrier_count:
@@ -1402,41 +1416,112 @@ class MjwarpBackend(SimBackend):
         if selector is None:
             raise MutationContractError("mjwarp typed mutation selector must be explicit")
         if spec.target_kind is MutationTargetKind.MODEL_PARAMETER:
-            expected_field = {
+            if selector.mode is not MutationSelectorMode.EXACT:
+                raise MutationContractError(
+                    "mjwarp typed Model mutation only supports exact mutation selectors"
+                )
+            expected_pd_field = {
                 "actuator.pd_stiffness": MutationFieldKind.STIFFNESS,
                 "actuator.pd_damping": MutationFieldKind.DAMPING,
             }.get(spec.target_key)
-            if (
-                spec.entity_kind is not MutationEntityKind.ACTUATOR
-                or spec.field_kind is not expected_field
-            ):
-                raise MutationContractError(
-                    "mjwarp typed Model mutation only supports actuator PD fields"
-                )
-            if selector.mode is not MutationSelectorMode.EXACT:
-                raise MutationContractError(
-                    "mjwarp typed actuator mutation only supports exact mutation selectors"
-                )
-            supported = frozenset(self._position_actuator_ids)
-            actuator_ids: list[int] = []
-            for raw_selector in selector.expressions:
-                try:
-                    actuator_id = self._actuator_ids[raw_selector]
-                except KeyError as exc:
+            if expected_pd_field is not None:
+                if (
+                    spec.entity_kind is not MutationEntityKind.ACTUATOR
+                    or spec.field_kind is not expected_pd_field
+                ):
                     raise MutationContractError(
-                        f"mjwarp typed actuator selector {raw_selector!r} did not resolve an actuator"
-                    ) from exc
-                if actuator_id not in supported:
-                    raise MutationContractError(
-                        f"mjwarp typed actuator selector {raw_selector!r} is not a supported "
-                        "native position servo"
+                        "mjwarp typed actuator Model mutation has an invalid semantic target"
                     )
-                actuator_ids.append(actuator_id)
-            if len(set(actuator_ids)) != len(actuator_ids):
-                raise MutationContractError(
-                    "mjwarp typed actuator selector resolved duplicate actuators"
-                )
-            return tuple(actuator_ids)
+                supported = frozenset(self._position_actuator_ids)
+                actuator_ids: list[int] = []
+                for raw_selector in selector.expressions:
+                    try:
+                        actuator_id = self._actuator_ids[raw_selector]
+                    except KeyError as exc:
+                        raise MutationContractError(
+                            f"mjwarp typed actuator selector {raw_selector!r} did not resolve "
+                            "an actuator"
+                        ) from exc
+                    if actuator_id not in supported:
+                        raise MutationContractError(
+                            f"mjwarp typed actuator selector {raw_selector!r} is not a supported "
+                            "native position servo"
+                        )
+                    actuator_ids.append(actuator_id)
+                if len(set(actuator_ids)) != len(actuator_ids):
+                    raise MutationContractError(
+                        "mjwarp typed actuator selector resolved duplicate actuators"
+                    )
+                return tuple(actuator_ids)
+
+            if spec.target_key == "joint.armature":
+                if (
+                    spec.entity_kind is not MutationEntityKind.DOF
+                    or spec.field_kind is not MutationFieldKind.ARMATURE
+                ):
+                    raise MutationContractError(
+                        "mjwarp typed armature mutation has an invalid semantic target"
+                    )
+                armature_coordinates: list[int] = []
+                for raw_selector in selector.expressions:
+                    joint_id = self._mujoco.mj_name2id(
+                        self._cpu_model,
+                        self._mujoco.mjtObj.mjOBJ_JOINT,
+                        raw_selector,
+                    )
+                    if joint_id < 0:
+                        raise MutationContractError(
+                            f"mjwarp typed armature selector {raw_selector!r} did not resolve "
+                            "a joint"
+                        )
+                    if int(self._cpu_model.jnt_type[joint_id]) != int(
+                        self._mujoco.mjtJoint.mjJNT_HINGE
+                    ):
+                        raise MutationContractError(
+                            f"mjwarp typed armature selector {raw_selector!r} must resolve "
+                            "one hinge joint"
+                        )
+                    coordinate = int(self._cpu_model.jnt_dofadr[joint_id]) - self._root_qvel_dim
+                    if coordinate < 0 or coordinate >= self._num_dof_vel:
+                        raise MutationContractError(
+                            "mjwarp typed armature coordinate is out of range"
+                        )
+                    armature_coordinates.append(coordinate)
+                if len(set(armature_coordinates)) != len(armature_coordinates):
+                    raise MutationContractError(
+                        "mjwarp typed armature selector resolved duplicate DoFs"
+                    )
+                return tuple(armature_coordinates)
+
+            if spec.target_key == "body.gravity_compensation":
+                if (
+                    spec.entity_kind is not MutationEntityKind.BODY
+                    or spec.field_kind is not MutationFieldKind.GRAVITY_COMPENSATION
+                ):
+                    raise MutationContractError(
+                        "mjwarp typed gravity compensation mutation has an invalid semantic target"
+                    )
+                body_ids: list[int] = []
+                for raw_selector in selector.expressions:
+                    try:
+                        body_id = self._body_ids[raw_selector]
+                    except KeyError as exc:
+                        raise MutationContractError(
+                            f"mjwarp typed gravity compensation selector {raw_selector!r} "
+                            "did not resolve a body"
+                        ) from exc
+                    if body_id <= 0:
+                        raise MutationContractError(
+                            "mjwarp typed gravity compensation cannot target the world body"
+                        )
+                    body_ids.append(body_id)
+                if len(set(body_ids)) != len(body_ids):
+                    raise MutationContractError(
+                        "mjwarp typed gravity compensation selector resolved duplicate bodies"
+                    )
+                return tuple(body_ids)
+
+            raise MutationContractError("mjwarp typed Model mutation target is unsupported")
 
         if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
             raise MutationContractError("mjwarp typed mutation selector has an unsupported target")
@@ -1533,25 +1618,44 @@ class MjwarpBackend(SimBackend):
                 resolve_selector=self._resolve_mjwarp_typed_mutation_selector,
                 capability_manifest=capability_manifest,
             )
-            has_model_specs = any(
-                spec.target.target_kind is MutationTargetKind.MODEL_PARAMETER
-                for spec in device_bound.specs
-            )
-            if has_model_specs:
-                self._materialize_advertised_device_model_fields(capability_manifest)
             existing_device = self._device_mutation_plans.get(device_bound.fingerprint)
             if existing_device is not None:
                 existing_device.public_plan.require_compatible(device_bound)
                 return existing_device.public_plan
+            has_model_specs = any(
+                spec.target.target_kind is MutationTargetKind.MODEL_PARAMETER
+                for spec in device_bound.specs
+            )
             model_plan = None
+            recompute_runtime = None
             if has_model_specs:
+                recompute_contract = compile_model_recompute_contract(
+                    device_bound,
+                    capability_manifest,
+                )
+                receipt = self._materialize_bound_device_model_fields(recompute_contract)
+                model_fields = {
+                    field_name: self._get_model_field_bridge(field_name)
+                    for field_name in recompute_contract.direct_fields
+                }
+                default_fields = {
+                    field_name: self._get_model_default_bridge(field_name)
+                    for field_name in recompute_contract.direct_fields
+                }
                 model_plan = MjwarpDeviceModelMutationPlan(
                     public_plan=device_bound,
                     placement=self._device_plan_placement(),
-                    actuator_gainprm=self._get_model_field_bridge("actuator_gainprm"),
-                    actuator_biasprm=self._get_model_field_bridge("actuator_biasprm"),
-                    default_gainprm=self._get_model_default_bridge("actuator_gainprm"),
-                    default_biasprm=self._get_model_default_bridge("actuator_biasprm"),
+                    model_fields=model_fields,
+                    default_fields=default_fields,
+                    root_qvel_dim=self._root_qvel_dim,
+                )
+                recompute_runtime = MjwarpModelRecomputeRuntime(
+                    public_plan=device_bound,
+                    contract=recompute_contract,
+                    graph=self._capture_model_recompute_graph(recompute_contract),
+                    storage_generation=self._device_graph_storage_generation,
+                    storage_fingerprint=self._device_graph_storage_fingerprint,
+                    materialization_receipt=receipt,
                 )
             device_runtime_plan = MjwarpDeviceMutationPlan(
                 public_plan=device_bound,
@@ -1561,6 +1665,7 @@ class MjwarpBackend(SimBackend):
                 root_qvel_dim=self._root_qvel_dim,
                 placement=self._device_plan_placement(),
                 model_plan=model_plan,
+                recompute_runtime=recompute_runtime,
             )
             for device_batch_plan in self._device_batch_plans.values():
                 device_runtime_plan.register_batch_plan(device_batch_plan.public_plan)
@@ -1792,6 +1897,38 @@ class MjwarpBackend(SimBackend):
             storage_fingerprint=self._device_graph_storage_fingerprint,
         )
 
+    def _capture_model_recompute_graph(
+        self,
+        contract: MjwarpModelRecomputeContract,
+    ) -> Any | None:
+        """Capture one plan-scoped derived-constant operation without fallback."""
+
+        if contract.kind is MjwarpModelRecomputeKind.NONE:
+            return None
+        operation = {
+            MjwarpModelRecomputeKind.SET_CONST_FIXED: self._mujoco_warp.set_const_fixed,
+            MjwarpModelRecomputeKind.SET_CONST_0: self._mujoco_warp.set_const_0,
+            MjwarpModelRecomputeKind.SET_CONST: self._mujoco_warp.set_const,
+        }[contract.kind]
+        bridge = self._ensure_device_bridge()
+        try:
+            with (
+                _suspend_gc(),
+                torch.cuda.stream(bridge.physics_stream),
+                self._warp.ScopedStream(bridge.warp_physics_stream),
+            ):
+                with self._warp.ScopedCapture() as capture:
+                    operation(self._device_model, self._device_data)
+        except Exception as exc:
+            raise BackendBatchContractError(
+                f"mjwarp failed to capture Model recompute graph {contract.kind.value!r}"
+            ) from exc
+        if capture.graph is None:
+            raise BackendBatchContractError(
+                f"mjwarp Model recompute capture {contract.kind.value!r} produced no graph"
+            )
+        return capture.graph
+
     def _capture_device_graph_bundle(
         self, key: DeviceGraphCaptureKey, *, recapture: bool
     ) -> _MjwarpDeviceGraphBundle:
@@ -1991,6 +2128,29 @@ class MjwarpBackend(SimBackend):
             instrumentation_complete=True,
         )
 
+    def get_model_recompute_diagnostics(
+        self,
+        plan: BoundMutationPlan,
+    ) -> MjwarpModelRecomputeDiagnostics | None:
+        """Return low-frequency evidence for one bound mutation plan."""
+
+        if not isinstance(plan, BoundMutationPlan):
+            raise BackendBatchContractError(
+                "mjwarp Model recompute diagnostics require a bound mutation plan"
+            )
+        plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            runtime_plan = self._device_mutation_plans[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp Model recompute diagnostics plan was not published"
+            ) from exc
+        runtime_plan.public_plan.require_compatible(plan)
+        return runtime_plan.recompute_diagnostics
+
     def _require_device_mutation_plan(
         self,
         mutation_batch: DeviceResetMutationBatch,
@@ -2016,6 +2176,11 @@ class MjwarpBackend(SimBackend):
             ) from exc
         runtime_plan.public_plan.require_compatible(mutation_batch.plan)
         runtime_plan.require_registered_batch_plan(plan)
+        runtime_plan.require_current_recompute(
+            storage_generation=self._device_graph_storage_generation,
+            storage_fingerprint=self._device_graph_storage_fingerprint,
+            materialization_receipt=self._model_materialization_receipt,
+        )
         return runtime_plan
 
     def _require_host_batch_plan(self, plan: BoundBackendPlan) -> MjwarpHostBatchPlan:
@@ -2281,6 +2446,7 @@ class MjwarpBackend(SimBackend):
                     mutation_batch,
                     active_mask=effective_mask,
                 )
+                mutation_plan.launch_model_recompute(self._warp)
                 mutation_plan.stage_reset_state(
                     mutation_batch,
                     qpos=bridge.qpos,

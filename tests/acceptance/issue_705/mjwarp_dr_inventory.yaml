@@ -283,11 +283,11 @@ capabilities:
       bytes_formula: nworld * (nv * 2 + nbody + ntendon * 2 + nu) * 4
       measurement_test_id: *memory_test
     mutation:
-      operations: [replace, add, scale]
-      baseline_sources: [compiled_default, per_world_variant_default]
-      triggers: [startup, reset]
-      commit_phases: [startup, reset_pre_forward]
-      persistence: [until_next_reset, persistent]
+      operations: [replace, scale]
+      baseline_sources: [compiled_default]
+      triggers: [reset]
+      commit_phases: [reset_pre_forward]
+      persistence: [until_next_reset]
     recompute: {semantic: reference_constants, backend: set_const_0, scope: all_worlds}
     graph: {impact: recapture_required, invalidations: *model_invalidations}
     validity_constraints: [nonnegative armature, strongest recompute exactly once, selected writes with complement isolation]
@@ -295,7 +295,10 @@ capabilities:
     evidence_refs:
       - mjlab@f643d245:src/mjlab/envs/mdp/dr/joint.py:joint_armature
       - mjlab@f643d245:src/mjlab/managers/event_manager.py:_DERIVED_FIELDS
-    notes: The pinned recompute API has no row mask; reset-density scaling remains a mandatory benchmark question.
+      - unilab:src/unilab/base/backend/mjwarp/recompute.py:MjwarpModelRecomputeRuntime
+      - unilab:tests/dr/test_mjwarp_recompute.py:test_mjwarp_advertised_recompute_capability_case
+      - unilab:tests/dr/test_mjwarp_recompute.py:test_recompute_mutation_changes_next_step_physics
+    notes: Production support is limited to device-resident reset-time SET/SCALE with DEFAULT baseline and EPISODE persistence. Startup, ADD, per-world variant defaults, interval/step triggers and persistent mutation remain unsupported and unclaimed. The pinned recompute API has no row mask, so reset-density scaling remains a mandatory benchmark question.
 
   - capability_id: joint.qpos0
     tier: C
@@ -459,11 +462,11 @@ capabilities:
       bytes_formula: nworld * nbody * 2 * 4
       measurement_test_id: *memory_test
     mutation:
-      operations: [replace, add, scale]
-      baseline_sources: [compiled_default, per_world_variant_default]
-      triggers: [startup, reset]
-      commit_phases: [startup, reset_pre_forward]
-      persistence: [until_next_reset, persistent]
+      operations: [replace, scale]
+      baseline_sources: [compiled_default]
+      triggers: [reset]
+      commit_phases: [reset_pre_forward]
+      persistence: [until_next_reset]
     recompute: {semantic: fixed_constants, backend: set_const_fixed, scope: all_worlds}
     graph: {impact: recapture_required, invalidations: *model_invalidations}
     validity_constraints: [finite coefficient, body selector, strongest recompute exactly once]
@@ -471,7 +474,10 @@ capabilities:
     evidence_refs:
       - mjlab@f643d245:src/mjlab/managers/event_manager.py:RecomputeLevel.set_const_fixed
       - mjlab@f643d245:src/mjlab/managers/event_manager.py:_DERIVED_FIELDS
-    notes: Included to cover the cheapest pinned recompute level even though it is not in the first G1 owner.
+      - unilab:src/unilab/base/backend/mjwarp/recompute.py:MjwarpModelRecomputeRuntime
+      - unilab:tests/dr/test_mjwarp_recompute.py:test_mjwarp_advertised_recompute_capability_case
+      - unilab:tests/dr/test_mjwarp_recompute.py:test_recompute_mutation_changes_next_step_physics
+    notes: Production support is limited to device-resident reset-time SET/SCALE with DEFAULT baseline and EPISODE persistence. Startup, ADD, per-world variant defaults, interval/step triggers and persistent mutation remain unsupported and unclaimed. This capability is not enabled by the first G1 owner.
 
   - capability_id: geom.primitive_size
     tier: E
