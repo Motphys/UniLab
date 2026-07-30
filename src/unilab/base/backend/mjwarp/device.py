@@ -49,6 +49,7 @@ from ..batch import (
     StateFieldKind,
     StateFieldSpec,
 )
+from .controller import MjwarpDeviceControllerRuntime, bind_mjwarp_device_controller
 
 if TYPE_CHECKING:
     from .backend import MjwarpBackend
@@ -115,6 +116,7 @@ class MjwarpDeviceBatchPlan:
     device_lease: DeviceBufferLease
     placement: BufferPlacement
     owner_id: str
+    controller: MjwarpDeviceControllerRuntime | None
     _refreshes: int = field(default=0, init=False, repr=False)
 
     def refresh(self) -> None:
@@ -584,6 +586,29 @@ def _binding_payload(backend: MjwarpBackend, requirements: BackendIORequirements
             "semantic_key": requirements.control.semantic_key,
             "buffer": _buffer_payload(requirements.control.buffer),
             "cadence": requirements.control.physics_substeps_per_control,
+            "implementation": requirements.control.implementation.value,
+            "controller": (
+                None
+                if requirements.control.controller is None
+                else {
+                    "contract_version": requirements.control.controller.contract_version,
+                    "implementation_key": requirements.control.controller.implementation_key,
+                    "state_reads": tuple(
+                        {
+                            "semantic_key": item.semantic_key,
+                            "phase": item.phase.value,
+                        }
+                        for item in requirements.control.controller.state_reads
+                    ),
+                    "parameters": tuple(
+                        {
+                            "semantic_key": item.semantic_key,
+                            "values": item.values,
+                        }
+                        for item in requirements.control.controller.parameters
+                    ),
+                }
+            ),
         },
         "hot_path_budget": (
             None
@@ -637,6 +662,11 @@ def bind_mjwarp_device_batch(
         reset_hot_path_budget=requirements.reset_hot_path_budget,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
+    controller = bind_mjwarp_device_controller(
+        backend,
+        requirements.control,
+        state_sources=tuple((source.spec, source.source) for source in sources),
+    )
     return MjwarpDeviceBatchPlan(
         public_plan=public_plan,
         sources=sources,
@@ -644,6 +674,7 @@ def bind_mjwarp_device_batch(
         device_lease=DeviceBufferLease(backend_instance_id),
         placement=_device_placement(backend),
         owner_id=backend_instance_id,
+        controller=controller,
     )
 
 

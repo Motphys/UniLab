@@ -12,7 +12,11 @@ from unilab.base.backend import (
     BufferMutability,
     BufferOwner,
     BufferPlacement,
+    ControlImplementation,
+    ControllerParameter,
+    ControllerStateRead,
     ControlSpec,
+    DeviceControllerSpec,
     ExecutionProfile,
     MutationBaseline,
     MutationCommitPhase,
@@ -51,6 +55,7 @@ from unilab.manager import (
     TermRegistry,
     TermRole,
 )
+from unilab.manager.fingerprint import canonical_digest, compiled_plan_payload
 
 
 class RecordingResolver:
@@ -392,6 +397,97 @@ def test_compiler_fingerprint_is_canonical_and_sensitive() -> None:
     assert changed_parameter.policy_abi.fingerprint == plan.policy_abi.fingerprint
     assert changed_binding.fingerprint == plan.fingerprint
     assert changed_binding.selector_binding_fingerprint != plan.selector_binding_fingerprint
+
+
+def test_controller_contract_changes_manager_semantic_fingerprint() -> None:
+    plan, _, _ = _compile()
+    placement = BufferPlacement.device("cuda", 0)
+    state_fields = tuple(
+        replace(
+            field,
+            buffer=replace(
+                field.buffer,
+                placement=placement,
+                dlpack_exportable=True,
+            ),
+        )
+        for field in plan.backend_io.state_fields
+    )
+    controller = DeviceControllerSpec(
+        implementation_key="test.controller.v1",
+        state_reads=(
+            ControllerStateRead("robot.base.position"),
+            ControllerStateRead("robot.joint.position"),
+        ),
+        parameters=(ControllerParameter("gain", (1.0, 2.0)),),
+    )
+    control = replace(
+        plan.backend_io.control,
+        buffer=replace(
+            plan.backend_io.control.buffer,
+            placement=placement,
+            dlpack_exportable=True,
+        ),
+        implementation=ControlImplementation.DEVICE_SUBSTEP_CONTROLLER,
+        controller=controller,
+    )
+    backend_io = replace(
+        plan.backend_io,
+        state_fields=state_fields,
+        control=control,
+        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+    )
+
+    variants = (
+        backend_io,
+        replace(backend_io, control=replace(control, physics_substeps_per_control=3)),
+        replace(
+            backend_io,
+            control=replace(
+                control,
+                controller=replace(
+                    controller,
+                    state_reads=(ControllerStateRead("robot.base.position"),),
+                ),
+            ),
+        ),
+        replace(
+            backend_io,
+            control=replace(
+                control,
+                controller=replace(
+                    controller,
+                    parameters=(ControllerParameter("gain", (1.0, 3.0)),),
+                ),
+            ),
+        ),
+        replace(
+            backend_io,
+            control=replace(
+                control,
+                controller=replace(controller, implementation_key="test.controller.v2"),
+            ),
+        ),
+        replace(
+            backend_io,
+            control=replace(
+                control,
+                implementation=ControlImplementation.CONTROL_STEP_CONSTANT,
+                controller=None,
+            ),
+        ),
+    )
+    digests = {
+        canonical_digest(
+            compiled_plan_payload(
+                replace(plan, backend_io=variant),
+                include_bindings=False,
+            )
+        )
+        for variant in variants
+    }
+
+    assert len(digests) == len(variants)
 
 
 def test_compiled_mutation_selector_must_match_its_immutable_selector_binding() -> None:
