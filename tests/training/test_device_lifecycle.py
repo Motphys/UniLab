@@ -447,9 +447,10 @@ def _force_root_state(
                 elif target_key == "state.root.orientation":
                     root_orientation = value
             else:
-                entity_id = spec.target.entity_ids[0]
-                column = dof_columns[target_key][entity_id]
-                value[:, 0, 0].copy_(source[:, column], non_blocking=True)
+                columns = tuple(
+                    dof_columns[target_key][entity_id] for entity_id in spec.target.entity_ids
+                )
+                value[:, :, 0].copy_(source[:, columns], non_blocking=True)
             values.append(value)
         assert root_position is not None
         assert root_orientation is not None
@@ -517,6 +518,34 @@ def _force_root_state(
     handle = completion_event.handle
     assert isinstance(handle, DeviceCompletion)
     return handle
+
+
+def test_device_g1_reset_plan_groups_all_actuated_dofs() -> None:
+    """The production reset barrier stages two DoF fields, not one field per joint."""
+
+    with _runtime_fixture(num_envs=4, seed=0, max_episode_steps=100) as fixture:
+        runtime = fixture.runtime
+        mutation_plan = runtime.kernel_binding.mutation_plan
+        assert mutation_plan is not None
+        assert len(runtime.plan.mutation_specs) == len(mutation_plan.specs) == 6
+
+        compiled_by_target = {spec.target.target_key: spec for spec in runtime.plan.mutation_specs}
+        bound_by_target = {spec.target.target_key: spec for spec in mutation_plan.specs}
+        state_by_key = {field.key: field for field in runtime.bound_plan.state.fields}
+
+        for target_key, state_key in (
+            ("state.dof.position", "g1.dof.position"),
+            ("state.dof.angular_velocity", "g1.dof.angular_velocity"),
+        ):
+            compiled = compiled_by_target[target_key]
+            selector = compiled.target.selector_spec
+            assert selector is not None
+            assert len(selector.expressions) == fixture.backend.num_actuators == 29
+
+            bound = bound_by_target[target_key]
+            assert bound.target.entity_ids == state_by_key[state_key].identity.entity_ids
+            assert len(bound.target.entity_ids) == fixture.backend.num_actuators
+            assert bound.value_buffer.row_shape == (fixture.backend.num_actuators, 1)
 
 
 def _assert_final_contract(snapshot: _TransitionSnapshot, expected_done: torch.Tensor) -> None:
