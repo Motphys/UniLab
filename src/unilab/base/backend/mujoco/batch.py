@@ -1274,6 +1274,29 @@ def _binding_payloads(
             "semantic_key": requirements.control.semantic_key,
             "buffer": _buffer_payload(requirements.control.buffer),
             "cadence": requirements.control.physics_substeps_per_control,
+            "implementation": requirements.control.implementation.value,
+            "controller": (
+                None
+                if requirements.control.controller is None
+                else {
+                    "contract_version": requirements.control.controller.contract_version,
+                    "implementation_key": requirements.control.controller.implementation_key,
+                    "state_reads": tuple(
+                        {
+                            "semantic_key": item.semantic_key,
+                            "phase": item.phase.value,
+                        }
+                        for item in requirements.control.controller.state_reads
+                    ),
+                    "parameters": tuple(
+                        {
+                            "semantic_key": item.semantic_key,
+                            "values": item.values,
+                        }
+                        for item in requirements.control.controller.parameters
+                    ),
+                }
+            ),
         },
         "hot_path_budget": (
             None

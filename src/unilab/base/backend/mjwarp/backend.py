@@ -1390,15 +1390,23 @@ class MjwarpBackend(SimBackend):
                 requirements,
                 backend_instance_id=self._batch_instance_id,
             )
-            self._ensure_device_graphs(
-                plan=device_bound.public_plan,
-                nsteps=requirements.control.physics_substeps_per_control,
-            )
             existing_device = self._device_batch_plans.get(device_bound.public_plan.fingerprint)
             if existing_device is not None:
                 existing_device.public_plan.require_compatible(device_bound.public_plan)
+                self._ensure_device_graphs(bound=existing_device)
                 return existing_device.public_plan
-            self._device_batch_plans[device_bound.public_plan.fingerprint] = device_bound
+
+            fingerprint = device_bound.public_plan.fingerprint
+            graph_state = self._snapshot_device_graph_state()
+            self._device_batch_plans[fingerprint] = device_bound
+            try:
+                if self._snapshot_device_graph_storage() != self._device_graph_storage_buffers:
+                    self._recapture_device_graphs_after_storage_change()
+                self._ensure_device_graphs(bound=device_bound)
+            except Exception:
+                self._device_batch_plans.pop(fingerprint, None)
+                self._restore_device_graph_state(graph_state)
+                raise
             for device_mutation_plan in self._device_mutation_plans.values():
                 device_mutation_plan.register_batch_plan(device_bound.public_plan)
             return device_bound.public_plan
@@ -1837,6 +1845,11 @@ class MjwarpBackend(SimBackend):
         visit(self._device_model, "model", 0)
         visit(self._device_data, "data", 0)
         visit(self._reset_mask_device, "reset_mask", 0)
+        for fingerprint, plan in sorted(self._device_batch_plans.items()):
+            if plan.controller is not None:
+                buffers.extend(
+                    plan.controller.storage_buffers(prefix=f"controller[{fingerprint!r}]")
+                )
         snapshot = tuple(sorted(buffers, key=lambda item: item.name))
         names = tuple(buffer.name for buffer in snapshot)
         if not snapshot or len(set(names)) != len(names):
@@ -1930,8 +1943,20 @@ class MjwarpBackend(SimBackend):
         return capture.graph
 
     def _capture_device_graph_bundle(
-        self, key: DeviceGraphCaptureKey, *, recapture: bool
+        self,
+        key: DeviceGraphCaptureKey,
+        *,
+        bound: MjwarpDeviceBatchPlan,
+        recapture: bool,
     ) -> _MjwarpDeviceGraphBundle:
+        plan = bound.public_plan
+        if (
+            plan.fingerprint != key.plan_fingerprint
+            or plan.control.physics_substeps_per_control != key.physics_substeps
+        ):
+            raise BackendBatchContractError(
+                "mjwarp graph capture runtime does not match its immutable capture key"
+            )
         bridge = self._ensure_device_bridge()
         device = self._warp.get_device()
         driver = self._warp.get_cuda_driver_version()
@@ -1962,6 +1987,8 @@ class MjwarpBackend(SimBackend):
                     self._mujoco_warp.forward(self._device_model, self._device_data)
                 with self._warp.ScopedCapture() as step_capture:
                     for _ in range(key.physics_substeps):
+                        if bound.controller is not None:
+                            bound.controller.compute()
                         self._mujoco_warp.step(self._device_model, self._device_data)
         except Exception as exc:
             raise BackendBatchContractError(
@@ -1977,9 +2004,11 @@ class MjwarpBackend(SimBackend):
             step_graph=step_capture.graph,
         )
 
-    def _ensure_device_graphs(self, *, plan: BoundBackendPlan, nsteps: int) -> None:
+    def _ensure_device_graphs(self, *, bound: MjwarpDeviceBatchPlan) -> None:
         """Capture graph-only device physics under a complete cold-path key."""
 
+        plan = bound.public_plan
+        nsteps = plan.control.physics_substeps_per_control
         self._verify_device_graph_storage()
         key = self._device_graph_key(plan=plan, nsteps=nsteps)
         existing = self._device_graph_bundles.get(plan.fingerprint)
@@ -1991,7 +2020,9 @@ class MjwarpBackend(SimBackend):
                 )
             return
         self._device_graph_bundles[plan.fingerprint] = self._capture_device_graph_bundle(
-            key, recapture=False
+            key,
+            bound=bound,
+            recapture=False,
         )
 
     def _require_device_graph_bundle(
@@ -2066,6 +2097,12 @@ class MjwarpBackend(SimBackend):
         try:
             for old_bundle in before.bundles.values():
                 old_key = old_bundle.key
+                try:
+                    bound = self._device_batch_plans[old_key.plan_fingerprint]
+                except KeyError as exc:
+                    raise BackendBatchContractError(
+                        "mjwarp graph recapture lacks its bound device runtime plan"
+                    ) from exc
                 new_key = DeviceGraphCaptureKey(
                     backend_type=old_key.backend_type,
                     plan_fingerprint=old_key.plan_fingerprint,
@@ -2078,6 +2115,7 @@ class MjwarpBackend(SimBackend):
                 )
                 new_bundles[new_key.plan_fingerprint] = self._capture_device_graph_bundle(
                     new_key,
+                    bound=bound,
                     recapture=True,
                 )
         except Exception:
@@ -2384,7 +2422,8 @@ class MjwarpBackend(SimBackend):
         self._invalidate_device_batch_state()
         with torch.cuda.stream(bridge.physics_stream):
             producer.wait(bridge.physics_stream)
-            bridge.ctrl.copy_(action, non_blocking=True)
+            command = bridge.ctrl if bound.controller is None else bound.controller.command
+            command.copy_(action, non_blocking=True)
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 self._warp.capture_launch(graph_bundle.step_graph)
                 self._device_graph_launches += 1
