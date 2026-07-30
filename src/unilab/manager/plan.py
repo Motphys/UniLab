@@ -11,7 +11,13 @@ from unilab.base.backend.batch import (
     BufferMutability,
     BufferOwner,
 )
-from unilab.base.backend.mutation import MutationEntityKind, MutationSpec
+from unilab.base.backend.mutation import (
+    MutationCommitPhase,
+    MutationEntityKind,
+    MutationSpec,
+    MutationTrigger,
+)
+from unilab.dr.keyed_rng import RandomCorrelation, RandomDistribution
 
 from .entities import CompiledSelector, EntityKind, ManagerContractError
 from .spec import (
@@ -125,6 +131,51 @@ class CompiledTerm:
 
 
 @dataclass(frozen=True)
+class CompiledMutationEvent:
+    """Canonical random Event identity attached to one compiled mutation."""
+
+    mutation_index: int
+    term_index: int
+    term_key: str
+    term_version: str
+    trigger: MutationTrigger
+    commit_phase: MutationCommitPhase
+    distribution: RandomDistribution
+    parameters: tuple[float, float]
+    correlation: RandomCorrelation
+    algorithm: str
+
+    def __post_init__(self) -> None:
+        for name, index in (
+            ("mutation_index", self.mutation_index),
+            ("term_index", self.term_index),
+        ):
+            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+                raise ManagerContractError(f"compiled Event {name} must be non-negative")
+        object.__setattr__(self, "term_key", _non_empty(self.term_key, "Event term key"))
+        object.__setattr__(
+            self,
+            "term_version",
+            _non_empty(self.term_version, "Event term version"),
+        )
+        if not isinstance(self.trigger, MutationTrigger):
+            raise ManagerContractError("compiled Event trigger must be a MutationTrigger")
+        if not isinstance(self.commit_phase, MutationCommitPhase):
+            raise ManagerContractError("compiled Event commit_phase must be a MutationCommitPhase")
+        if not isinstance(self.distribution, RandomDistribution):
+            raise ManagerContractError("compiled Event distribution must be a RandomDistribution")
+        if not isinstance(self.correlation, RandomCorrelation):
+            raise ManagerContractError("compiled Event correlation must be a RandomCorrelation")
+        if (
+            not isinstance(self.parameters, tuple)
+            or len(self.parameters) != 2
+            or any(not isinstance(value, float) for value in self.parameters)
+        ):
+            raise ManagerContractError("compiled Event parameters must be a frozen pair of floats")
+        object.__setattr__(self, "algorithm", _non_empty(self.algorithm, "Event algorithm"))
+
+
+@dataclass(frozen=True)
 class ObservationOutput:
     term_index: int
     semantic_key: str
@@ -226,6 +277,7 @@ class CompiledTaskPlan:
     terms: tuple[CompiledTerm, ...]
     backend_io: BackendIORequirements
     mutation_specs: tuple[MutationSpec, ...]
+    mutation_events: tuple[CompiledMutationEvent, ...]
     output_channels: tuple[OutputChannelPlan, ...]
     policy_abi: PolicyABI
     executor_key: str
@@ -262,6 +314,17 @@ class CompiledTaskPlan:
             raise ManagerContractError(
                 "compiled mutation specs must use unique canonical key order"
             )
+        if not isinstance(self.mutation_events, tuple) or any(
+            not isinstance(item, CompiledMutationEvent) for item in self.mutation_events
+        ):
+            raise ManagerContractError(
+                "compiled mutation_events must be a tuple of CompiledMutationEvent"
+            )
+        event_indices = tuple(item.mutation_index for item in self.mutation_events)
+        if event_indices != tuple(sorted(set(event_indices))):
+            raise ManagerContractError(
+                "compiled mutation Events must use unique canonical mutation order"
+            )
         if not isinstance(self.output_channels, tuple) or not self.output_channels:
             raise ManagerContractError("compiled task requires output channels")
         if any(not isinstance(item, OutputChannelPlan) for item in self.output_channels):
@@ -291,8 +354,35 @@ class CompiledTaskPlan:
                 f"unsupported manager task contract version {self.contract_version!r}"
             )
         self._validate_mutation_selectors()
+        self._validate_mutation_events()
         self._validate_indices_and_outputs()
         self._validate_policy_abi()
+
+    def _validate_mutation_events(self) -> None:
+        for event in self.mutation_events:
+            if event.mutation_index >= len(self.mutation_specs):
+                raise ManagerContractError("compiled Event references an unknown mutation")
+            if event.term_index >= len(self.terms):
+                raise ManagerContractError("compiled Event references an unknown term")
+            mutation = self.mutation_specs[event.mutation_index]
+            term = self.terms[event.term_index]
+            if term.role is not TermRole.EVENT:
+                raise ManagerContractError("compiled random mutation must belong to an Event term")
+            if event.mutation_index not in term.mutation_indices:
+                raise ManagerContractError(
+                    "compiled Event mutation does not belong to its declared term"
+                )
+            if event.term_key != mutation.term_key or event.term_version != term.definition_version:
+                raise ManagerContractError(
+                    "compiled Event key/version differs from its mutation owner"
+                )
+            if (
+                event.trigger is not mutation.trigger
+                or event.commit_phase is not mutation.commit_phase
+            ):
+                raise ManagerContractError(
+                    "compiled Event trigger/phase differs from its mutation contract"
+                )
 
     def _validate_mutation_selectors(self) -> None:
         """Keep mutation raw expressions tied to the compiled selector table.
