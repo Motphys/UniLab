@@ -1102,7 +1102,12 @@ def _validate_materialization(
 ) -> None:
     if performance.get("backend_type") != "mjwarp":
         raise ValueError(f"{path}.backend_type: expected mjwarp")
-    if performance.get("model_targets") != list(profile.model_targets):
+    model_targets = _artifact_list(performance.get("model_targets"), f"{path}.model_targets")
+    if any(not isinstance(item, str) or not item for item in model_targets):
+        raise ValueError(f"{path}.model_targets: expected non-empty strings")
+    if len(model_targets) != len(set(model_targets)):
+        raise ValueError(f"{path}.model_targets: duplicate targets are not allowed")
+    if set(model_targets) != set(profile.model_targets):
         raise ValueError(f"{path}.model_targets: differs from frozen profile")
     if performance.get("direct_fields") != list(profile.direct_fields):
         raise ValueError(f"{path}.direct_fields: differs from frozen profile")
