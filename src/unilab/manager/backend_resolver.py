@@ -73,6 +73,33 @@ class BackendEntityResolver:
             resolve = self._backend.get_joint_dof_pos_indices
         elif selector.kind is EntityKind.SENSOR:
             resolve = self._backend.get_sensor_ids
+        elif selector.kind is EntityKind.ACTUATOR:
+            try:
+                names = self._backend.get_actuator_names()
+            except NotImplementedError as exc:
+                raise ManagerContractError(
+                    f"failed to resolve backend selector {selector.key!r}: {exc}"
+                ) from exc
+            if (
+                not isinstance(names, tuple)
+                or any(not isinstance(name, str) or not name for name in names)
+                or len(set(names)) != len(names)
+            ):
+                raise ManagerContractError(
+                    "backend actuator metadata must contain unique non-empty names"
+                )
+            ids_by_name = {name: index for index, name in enumerate(names)}
+            try:
+                ids = np.asarray(
+                    tuple(ids_by_name[name] for name in selector.expressions),
+                    dtype=np.int64,
+                )
+            except KeyError as exc:
+                raise ManagerContractError(
+                    f"failed to resolve backend selector {selector.key!r}: "
+                    f"unknown actuator {exc.args[0]!r}"
+                ) from exc
+            return self._normalize_ids(ids, selector=selector)
         else:
             raise ManagerContractError(
                 f"backend entity resolver does not support selector kind {selector.kind.value!r}"
