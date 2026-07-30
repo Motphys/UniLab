@@ -36,7 +36,12 @@ from unilab.base.backend import (
     DeviceBufferLease,
     DeviceCompletion,
     DeviceGraphDiagnostics,
+    DevicePhaseTimingError,
     DeviceResetMutationBatch,
+    DeviceResetPhaseTimingDiagnostics,
+    DeviceResetPhaseTimingSampleToken,
+    DeviceResetPhaseTimingSession,
+    DeviceResetPhaseTimingTrace,
     DeviceTensorView,
     ExecutionProfile,
     MemorySpace,
@@ -746,6 +751,7 @@ class DeviceManagedRuntime:
         self._placement = placement
         self._device = torch.device(f"cuda:{placement.device_index}")
         self._dtype = _torch_dtype(bound.control.buffer.dtype)
+        self._reset_phase_timing_session: DeviceResetPhaseTimingSession | None = None
         if self._dtype is not torch.float32:
             raise DeviceManagedRuntimeError("mjwarp device managed runtime requires float32")
         self._num_envs = bound.num_envs
@@ -1166,6 +1172,55 @@ class DeviceManagedRuntime:
         return self._traffic
 
     @property
+    def reset_phase_timing_diagnostics(
+        self,
+    ) -> DeviceResetPhaseTimingDiagnostics | None:
+        """Return host-only timing lifecycle counters without querying CUDA."""
+
+        session = self._reset_phase_timing_session
+        return None if session is None else session.diagnostics
+
+    def begin_reset_phase_timing(self, *, capacity: int) -> None:
+        """Preallocate and prime an explicit reset timing window."""
+
+        if self._reset_phase_timing_session is not None:
+            raise DeviceManagedRuntimeError("a reset phase timing window is already active")
+        try:
+            session = self._backend.create_reset_phase_timing_session(capacity=capacity)
+        except (BackendBatchContractError, DevicePhaseTimingError, NotImplementedError) as exc:
+            raise DeviceManagedRuntimeError(
+                f"backend could not create reset phase timing: {exc}"
+            ) from exc
+        if not isinstance(session, DeviceResetPhaseTimingSession):
+            raise DeviceManagedRuntimeError(
+                "backend returned an invalid reset phase timing session"
+            )
+        if (
+            session.backend_type != self._bound_plan.backend_type
+            or session.backend_instance_id != self._bound_plan.backend_instance_id
+            or session.placement != self._placement
+        ):
+            raise DeviceManagedRuntimeError(
+                "reset phase timing session belongs to another bound backend plan"
+            )
+        self._reset_phase_timing_session = session
+
+    def materialize_reset_phase_timings(self) -> DeviceResetPhaseTimingTrace:
+        """Close the active timing window with one low-frequency event wait."""
+
+        session = self._reset_phase_timing_session
+        if session is None:
+            raise DeviceManagedRuntimeError("no reset phase timing window is active")
+        try:
+            trace = session.materialize()
+        except DevicePhaseTimingError as exc:
+            raise DeviceManagedRuntimeError(
+                f"could not materialize reset phase timing: {exc}"
+            ) from exc
+        self._reset_phase_timing_session = None
+        return trace
+
+    @property
     def stability_diagnostics(self) -> DeviceRuntimeStabilityDiagnostics | None:
         """Return the opt-in registered-buffer snapshot after initial reset."""
 
@@ -1393,7 +1448,9 @@ class DeviceManagedRuntime:
         self._consumed_action_epochs[view.lease] = view.epoch
         return view.torch()
 
-    def _build_reset_batch(self, payload: DeviceResetPayload) -> DeviceResetMutationBatch:
+    def _build_reset_batch(
+        self, payload: DeviceResetPayload
+    ) -> tuple[DeviceResetMutationBatch, DeviceResetPhaseTimingSampleToken | None]:
         if not isinstance(payload, DeviceResetPayload):
             raise DeviceManagedRuntimeError(
                 "device kernel prepare_reset returned an invalid payload"
@@ -1442,19 +1499,29 @@ class DeviceManagedRuntime:
                     "cold-bound mutation contract"
                 )
             tensors[descriptor.field_index] = tensor
-        for binding, stream in zip(self._event_bindings, self._event_streams, strict=True):
-            sampled = stream.sample(mask).values
-            expected_shape = (self._num_envs, *binding.value_contract.row_shape)
-            if (
-                sampled.device != self._device
-                or sampled.dtype is not _torch_dtype(binding.value_contract.dtype)
-                or tuple(sampled.shape) != expected_shape
-                or not sampled.is_contiguous()
-            ):
-                raise DeviceManagedRuntimeError(
-                    f"manager Event {binding.event.term_key!r} produced an invalid value buffer"
-                )
-            tensors[binding.event.mutation_index] = sampled
+        phase_timing = self._reset_phase_timing_session
+        phase_timing_token: DeviceResetPhaseTimingSampleToken | None = None
+        try:
+            if phase_timing is not None:
+                phase_timing_token = phase_timing.begin_sample(self._task_stream)
+            for binding, stream in zip(self._event_bindings, self._event_streams, strict=True):
+                sampled = stream.sample(mask).values
+                expected_shape = (self._num_envs, *binding.value_contract.row_shape)
+                if (
+                    sampled.device != self._device
+                    or sampled.dtype is not _torch_dtype(binding.value_contract.dtype)
+                    or tuple(sampled.shape) != expected_shape
+                    or not sampled.is_contiguous()
+                ):
+                    raise DeviceManagedRuntimeError(
+                        f"manager Event {binding.event.term_key!r} produced an invalid value buffer"
+                    )
+                tensors[binding.event.mutation_index] = sampled
+            if phase_timing is not None:
+                assert phase_timing_token is not None
+                phase_timing.end_mutation_sample(phase_timing_token, self._task_stream)
+        except DevicePhaseTimingError as exc:
+            raise DeviceManagedRuntimeError(f"reset phase timing failed: {exc}") from exc
         if any(tensor is None for tensor in tensors):
             raise DeviceManagedRuntimeError(
                 "device reset values do not cover the complete bound mutation plan"
@@ -1507,7 +1574,7 @@ class DeviceManagedRuntime:
                 tuple(values[index] for index in self._state_mutation_indices)
             ),
         )
-        return DeviceResetMutationBatch(
+        batch = DeviceResetMutationBatch(
             plan=self._mutation_plan,
             rows=self._all_rows,
             mutation=mutation,
@@ -1516,6 +1583,25 @@ class DeviceManagedRuntime:
                 shape=(self._num_envs,),
                 contract=_mask_contract(placement=self._placement),
             ),
+        )
+        return batch, phase_timing_token
+
+    def _submit_reset_batch(
+        self,
+        batch: DeviceResetMutationBatch,
+        phase_timing: DeviceResetPhaseTimingSampleToken | None,
+    ) -> BackendResetResult:
+        if phase_timing is None:
+            return self._backend.reset_batch(
+                self._bound_plan,
+                self._all_rows,
+                mutation_batch=batch,
+            )
+        return self._backend.reset_batch(
+            self._bound_plan,
+            self._all_rows,
+            mutation_batch=batch,
+            phase_timing=phase_timing,
         )
 
     def _control_batch(self) -> ControlBatch:
@@ -1616,13 +1702,9 @@ class DeviceManagedRuntime:
             all_mask = self._done
             all_mask.fill_(True)
             payload = self._kernel.prepare_reset(active_mask=all_mask, task_state=self._task_state)
-            reset_batch = self._build_reset_batch(payload)
+            reset_batch, phase_timing = self._build_reset_batch(payload)
         self._trace(ManagedLifecyclePhase.RESET_BACKEND)
-        result = self._backend.reset_batch(
-            self._bound_plan,
-            self._all_rows,
-            mutation_batch=reset_batch,
-        )
+        result = self._submit_reset_batch(reset_batch, phase_timing)
         if not isinstance(result, BackendResetResult):
             raise DeviceManagedRuntimeError(
                 "device backend reset_batch must return BackendResetResult"
@@ -1751,13 +1833,9 @@ class DeviceManagedRuntime:
             payload = self._kernel.prepare_reset(
                 active_mask=self._done, task_state=self._task_state
             )
-            reset_batch = self._build_reset_batch(payload)
+            reset_batch, phase_timing = self._build_reset_batch(payload)
         self._trace(ManagedLifecyclePhase.RESET_BACKEND)
-        reset_result = self._backend.reset_batch(
-            self._bound_plan,
-            self._all_rows,
-            mutation_batch=reset_batch,
-        )
+        reset_result = self._submit_reset_batch(reset_batch, phase_timing)
         if not isinstance(reset_result, BackendResetResult):
             raise DeviceManagedRuntimeError(
                 "device backend reset_batch must return BackendResetResult"

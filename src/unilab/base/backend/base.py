@@ -27,6 +27,10 @@ from .batch import (
 )
 from .graph import DeviceGraphDiagnostics
 from .mutation import BoundMutationPlan, MutationCapabilityManifest, MutationSpec
+from .phase_timing import (
+    DeviceResetPhaseTimingSampleToken,
+    DeviceResetPhaseTimingSession,
+)
 from .telemetry import (
     BackendTransferBuffer,
     BackendTransferCounters,
@@ -158,6 +162,14 @@ class SimBackend(abc.ABC):
     def reset_transfer_telemetry(self) -> None:
         """Clear diagnostic transfer counters without mutating physics state."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose transfer telemetry")
+
+    def create_reset_phase_timing_session(self, *, capacity: int) -> DeviceResetPhaseTimingSession:
+        """Preallocate an opt-in device reset timing window on a cold path."""
+
+        del capacity
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose device reset phase timing"
+        )
 
     def get_device_graph_diagnostics(
         self, *, verify_storage: bool = False
@@ -374,6 +386,7 @@ class SimBackend(abc.ABC):
         rows: RowSelection,
         *,
         mutation_batch: BackendMutationBatch | None = None,
+        phase_timing: DeviceResetPhaseTimingSampleToken | None = None,
     ) -> BackendResetResult:
         """Reset selected rows through a bound typed batch plan."""
         raise NotImplementedError(
