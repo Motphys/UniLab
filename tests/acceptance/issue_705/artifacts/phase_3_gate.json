@@ -53,7 +53,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.0441445790056605,
+      "duration_sec": 1.9291951569903176,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_task_compiler#1",
@@ -80,7 +80,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.7666536509932484,
+      "duration_sec": 1.7542540350113995,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_task_compiler#2",
@@ -96,7 +96,7 @@
       ],
       "series": "lane_a_task_compiler",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_task_compiler.py::test_compiler_binds_and_freezes_complete_plan PASSED [100%]\n\n============================== 1 passed in 0.03s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_task_compiler.py::test_compiler_binds_and_freezes_complete_plan PASSED [100%]\n\n============================== 1 passed in 0.04s ===============================\n"
     },
     {
       "argv": [
@@ -107,7 +107,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.8080058050109074,
+      "duration_sec": 1.7800124229979701,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_policy_abi#1",
@@ -134,7 +134,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.9072862119937781,
+      "duration_sec": 1.760404788015876,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_lifecycle#1",
@@ -161,7 +161,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.784762094001053,
+      "duration_sec": 1.766673122998327,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_lifecycle#2",
@@ -188,7 +188,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.0274480379885063,
+      "duration_sec": 2.7722178710100707,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_g1_reference#1",
@@ -204,7 +204,7 @@
       ],
       "series": "lane_b_g1_reference",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None] PASSED [ 33%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None] PASSED [ 66%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 3 passed, 6 warnings in 0.97s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None] PASSED [ 33%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None] PASSED [ 66%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 3 passed, 6 warnings in 0.95s =========================\n"
     },
     {
       "argv": [
@@ -215,7 +215,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.883639226987725,
+      "duration_sec": 2.814528787013842,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_g1_reference#2",
@@ -231,7 +231,7 @@
       ],
       "series": "lane_b_g1_reference",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None] PASSED [ 33%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None] PASSED [ 66%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 3 passed, 6 warnings in 1.00s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None] PASSED [ 33%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None] PASSED [ 66%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 3 passed, 6 warnings in 0.97s =========================\n"
     },
     {
       "argv": [
@@ -242,7 +242,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.9466978069976903,
+      "duration_sec": 2.7847736040130258,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_g1_reference#3",
@@ -258,7 +258,7 @@
       ],
       "series": "lane_b_g1_reference",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None] PASSED [ 33%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None] PASSED [ 66%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 3 passed, 6 warnings in 0.97s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 3 items\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None] PASSED [ 33%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None] PASSED [ 66%]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[0-1-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[1-32-0.0-None]\ntests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env[2-128-0.35-41]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 3 passed, 6 warnings in 0.96s =========================\n"
     },
     {
       "argv": [
@@ -269,7 +269,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.9565437230048701,
+      "duration_sec": 1.7430784719763324,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_generality#1",
@@ -285,7 +285,7 @@
       ],
       "series": "lane_b_generality",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_manipulation_compile_fixture.py::test_multi_entity_manipulation_fixture_compiles PASSED [100%]\n\n============================== 1 passed in 0.04s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_manipulation_compile_fixture.py::test_multi_entity_manipulation_fixture_compiles PASSED [100%]\n\n============================== 1 passed in 0.03s ===============================\n"
     },
     {
       "argv": [
@@ -302,7 +302,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.223550358001376,
+      "duration_sec": 5.213088082004106,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_cross_backend#1",
@@ -335,7 +335,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.045299374003662,
+      "duration_sec": 5.245012924016919,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_cross_backend#2",
@@ -351,7 +351,7 @@
       ],
       "series": "lane_c_cross_backend",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp[0] PASSED [ 50%]\ntests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp[1] PASSED [100%]\n\n============================== 2 passed in 2.69s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp[0] PASSED [ 50%]\ntests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp[1] PASSED [100%]\n\n============================== 2 passed in 2.22s ===============================\n"
     }
   ],
   "environment": {
@@ -367,7 +367,7 @@
     "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]",
     "warp_device": "cuda:0"
   },
-  "generated_at_utc": "2026-07-29T13:38:57.014551+00:00",
+  "generated_at_utc": "2026-07-30T09:30:17.603920+00:00",
   "inputs": {
     "claim_config_hashes": {
       "P3-CROSS-BACKEND-PLAN": "sha256:5dcee81a3e8809a3b5d27e543c2ad641bafc01a59ddb0b1f7af7d4651d6a0838",
@@ -384,7 +384,7 @@
       "src/unilab/tools/issue705_phase3_evidence.py": "sha256:de64cf7afb818e79787416f73341a6b7d46e6f7298b175b3fcdd94248dfb1f30",
       "tests/manager/test_cross_backend_plan.py": "sha256:ef472d18af13743471806b77b9cc9dfa8a9b7a7cffe599480e45ad7574901acd",
       "tests/manager/test_g1_reference_differential.py": "sha256:2e3c9318a1e4df642f42a9915abcb6b71658d61bfc146cb9bec605a06e3eec97",
-      "tests/manager/test_managed_lifecycle.py": "sha256:1e91cb053ef469a542d98d2c1a722f06fdabf86292d0403a59701b5832da6570",
+      "tests/manager/test_managed_lifecycle.py": "sha256:2a38a933147a2c81bcc3c0395bdbb89a0233d42629e4b2532932acc5281ad036",
       "tests/manager/test_manipulation_compile_fixture.py": "sha256:8a588a4980bcb81270ff28f73428d94a7ee92014a3e253f93ac1de15769cb8b0",
       "tests/manager/test_task_compiler.py": "sha256:c7a48c57f915b4e9e0a2146480493bd1f2de250e5eecf74c86df63549842fefc",
       "tests/tools/test_issue705_phase3_evidence.py": "sha256:361d1ea577cbe3acfe1e103c6986d740dc40b5fd3a1f4a37b405a40fe9588d03",
@@ -397,8 +397,8 @@
   "phase": 3,
   "schema_version": 1,
   "source": {
-    "branch": "feat/issue-803-mjwarp-rss-margin",
-    "commit_sha": "0e1f2eb2de67411e7d66af5e604b79fdf276dfb9",
+    "branch": "feat/issue-814-mutation-capability-manifest",
+    "commit_sha": "913a6fad6a0d60d182129f893742d808ec38e70e",
     "tree_clean": true
   }
 }
