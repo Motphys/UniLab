@@ -218,12 +218,24 @@ class G1WalkEnvCfg(G1BaseCfg):
 
 
 class G1WalkDomainRandomizationProvider(LocomotionDRProvider):
-    def __init__(self, *, base_kp: np.ndarray | None = None, base_kd: np.ndarray | None = None):
+    def __init__(
+        self,
+        *,
+        base_kp: np.ndarray | None = None,
+        base_kd: np.ndarray | None = None,
+        base_dof_armature: np.ndarray | None = None,
+    ):
         self._base_kp = base_kp
         self._base_kd = base_kd
+        self._base_dof_armature = base_dof_armature
 
     def _get_base_actuator_gains(self, env: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
         return self._base_kp, self._base_kd
+
+    def _get_reset_randomization_baselines(
+        self, env: Any
+    ) -> tuple[np.ndarray | None, np.ndarray | None, int | None, np.ndarray | None]:
+        return None, None, None, self._base_dof_armature
 
     def _get_qvel_limit(self, env: Any) -> float:
         return float(env.cfg.reset_base_qvel_limit)
@@ -319,11 +331,18 @@ class G1WalkEnv(G1BaseEnv):
             self._numba_accelerator = G1WalkNumbaAccelerator.from_env(
                 self, num_threads=cfg.numba_num_threads
             )
+        base_kp: np.ndarray | None = None
+        base_kd: np.ndarray | None = None
         if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
             base_kp, base_kd = backend.get_actuator_gains()
-            dr_provider = G1WalkDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
-        else:
-            dr_provider = G1WalkDomainRandomizationProvider()
+        base_dof_armature = (
+            backend.get_dof_armature() if cfg.domain_rand.randomize_dof_armature else None
+        )
+        dr_provider = G1WalkDomainRandomizationProvider(
+            base_kp=base_kp,
+            base_kd=base_kd,
+            base_dof_armature=base_dof_armature,
+        )
         self._init_domain_randomization(dr_provider)
 
     @property

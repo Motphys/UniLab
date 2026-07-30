@@ -1135,6 +1135,10 @@ class DeviceManagedRuntime:
                 # runtime validation above still guarantees a CUDA event.
                 self._task_stream.wait_event(cast(Any, self._episode_length_input_event))
             self._episode_steps.copy_(values, non_blocking=True)
+            # The caller may release this temporary tensor as soon as the
+            # setter returns. Keep its allocator storage alive until the task
+            # stream has consumed the asynchronous copy.
+            values.record_stream(self._task_stream)
 
     @property
     def bound_plan(self) -> BoundBackendPlan:
