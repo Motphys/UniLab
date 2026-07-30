@@ -161,12 +161,7 @@ def _artifact() -> tuple[dict[str, Any], ppo_benchmark.BenchmarkBinding]:
             "uv_lock_sha256": "sha256:" + "6" * 64,
             "owner_yaml_sha256": "sha256:" + "7" * 64,
         },
-        "threshold": {
-            "threshold_set_id": binding.threshold_set_id,
-            "manifest_path": binding.threshold_manifest_path.as_posix(),
-            "manifest_sha256": binding.threshold_manifest_sha256,
-            "freeze_commit": binding.threshold_freeze_commit,
-        },
+        "threshold": ppo_benchmark._threshold_payload(binding),
         "hardware": {
             "gpu_name": binding.gpu_name,
             "gpu_uuid": binding.gpu_uuid,
@@ -304,6 +299,51 @@ def test_complete_artifact_passes_independent_gate_recomputation() -> None:
     artifact, binding = _artifact()
     assert artifact["gate"] == {"passed": True, "errors": []}
     assert ppo_benchmark.validate_artifact(artifact, binding=binding) == ()
+
+
+def test_phase5_rss_amendment_boundary_passes_and_excess_fails() -> None:
+    artifact, binding = _artifact()
+    assert binding.host_memory_ratio_max == pytest.approx(1.26)
+    for case in artifact["cases"]:
+        if case["lane"] != "throughput" or case["batch_size"] != 128:
+            continue
+        peak_rss = 1_000_000_000 if case["mode"] == "mujoco_host" else 1_260_000_000
+        case["raw"]["memory_samples"][0]["rss_bytes"] = peak_rss
+        case["raw"]["run_summary"]["peak_process_rss_bytes"] = peak_rss
+    _refresh(artifact, binding)
+    assert ppo_benchmark.validate_artifact(artifact, binding=binding) == ()
+
+    for case in artifact["cases"]:
+        if (
+            case["lane"] == "throughput"
+            and case["batch_size"] == 128
+            and case["mode"] == "mjwarp_device"
+        ):
+            case["raw"]["memory_samples"][0]["rss_bytes"] += 1
+            case["raw"]["run_summary"]["peak_process_rss_bytes"] += 1
+    _refresh(artifact, binding)
+    assert any("RSS violates" in error for error in artifact["gate"]["errors"])
+
+
+@pytest.mark.parametrize(
+    ("commit_field", "message"),
+    [
+        ("threshold_freeze_commit", "does not descend from amendment freeze"),
+        ("amendment_freeze_commit", "cannot equal amendment freeze commit"),
+    ],
+)
+def test_candidate_must_strictly_descend_from_amendment_freeze(
+    commit_field: str, message: str
+) -> None:
+    binding = ppo_benchmark.load_binding()
+    errors: list[str] = []
+    ppo_benchmark._validate_source_at_commit(
+        {"commit": getattr(binding, commit_field)},
+        binding,
+        ppo_benchmark.ROOT_DIR,
+        errors,
+    )
+    assert any(message in error for error in errors)
 
 
 def test_gate_is_not_self_referential_and_recorded_result_must_match() -> None:
@@ -450,7 +490,7 @@ def test_scalar_failure_nonfinite_value_and_filtered_iteration_fail_closed() -> 
 
 def test_provenance_owner_policy_and_aggregate_tampering_fail_closed() -> None:
     artifact, binding = _artifact()
-    artifact["threshold"]["manifest_sha256"] = "sha256:" + "0" * 64
+    artifact["threshold"]["amendment"]["manifest_sha256"] = "sha256:" + "0" * 64
     artifact["hardware"]["gpu_uuid"] = "wrong-gpu"
     artifact["source"]["dirty"] = True
     device_case = next(case for case in artifact["cases"] if case["mode"] == "mjwarp_device")
@@ -464,6 +504,14 @@ def test_provenance_owner_policy_and_aggregate_tampering_fail_closed() -> None:
     assert any("source must be clean" in error for error in errors)
     assert any("execution profile" in error for error in errors)
     assert any("aggregates are not" in error for error in errors)
+
+
+@pytest.mark.parametrize("provenance_key", ["base", "amendment"])
+def test_threshold_requires_base_and_amendment_provenance(provenance_key: str) -> None:
+    artifact, binding = _artifact()
+    artifact["threshold"].pop(provenance_key)
+    errors = ppo_benchmark.validate_artifact(artifact, binding=binding)
+    assert any("threshold differs from frozen binding" in error for error in errors)
 
 
 @pytest.mark.parametrize(
