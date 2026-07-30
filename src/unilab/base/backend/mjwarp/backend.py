@@ -54,6 +54,7 @@ from unilab.base.backend.graph import (
 )
 from unilab.base.backend.mutation import (
     BoundMutationPlan,
+    MutationCapabilityManifest,
     MutationContractError,
     MutationEntityKind,
     MutationFieldKind,
@@ -707,7 +708,7 @@ class MjwarpBackend(SimBackend):
                 "mjwarp batch requirements must be BackendIORequirements"
             )
         if requirements.execution_profile is ExecutionProfile.HOST_NUMPY:
-            if self._device_batch_plans:
+            if self._device_batch_plans or self._device_mutation_plans:
                 raise BackendBatchContractError(
                     "mjwarp cannot mix host_numpy and device_resident batch plans in one backend "
                     "instance; construct a dedicated backend for each explicit profile"
@@ -726,7 +727,7 @@ class MjwarpBackend(SimBackend):
                 host_mutation_plan.register_batch_plan(host_bound.public_plan)
             return host_bound.public_plan
         if requirements.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
-            if self._host_batch_plans:
+            if self._host_batch_plans or self._host_mutation_plans:
                 raise BackendBatchContractError(
                     "mjwarp cannot mix host_numpy and device_resident batch plans in one backend "
                     "instance; construct a dedicated backend for each explicit profile"
@@ -844,13 +845,17 @@ class MjwarpBackend(SimBackend):
                 raise BackendBatchContractError(
                     "mjwarp cannot bind host and device mutation plans in one backend instance"
                 )
+            capability_manifest = self.get_mutation_capability_manifest(
+                ExecutionProfile.DEVICE_RESIDENT
+            )
             device_bound = bind_typed_mutation_plan(
                 backend_type=self.backend_type,
                 backend_instance_id=self._batch_instance_id,
                 num_envs=self._num_envs,
                 specs=specs,
-                capabilities=mjwarp_device_mutation_capabilities(self),
+                capabilities=capability_manifest.capabilities,
                 resolve_selector=self._resolve_mjwarp_typed_mutation_selector,
+                capability_manifest=capability_manifest,
             )
             existing_device = self._device_mutation_plans.get(device_bound.fingerprint)
             if existing_device is not None:
@@ -869,13 +874,15 @@ class MjwarpBackend(SimBackend):
             self._device_mutation_plans[device_bound.fingerprint] = device_runtime_plan
             return device_bound
 
+        capability_manifest = self.get_mutation_capability_manifest(ExecutionProfile.HOST_NUMPY)
         bound = bind_typed_mutation_plan(
             backend_type=self.backend_type,
             backend_instance_id=self._batch_instance_id,
             num_envs=self._num_envs,
             specs=specs,
-            capabilities=mjwarp_host_mutation_capabilities(self),
+            capabilities=capability_manifest.capabilities,
             resolve_selector=self._resolve_mjwarp_typed_mutation_selector,
+            capability_manifest=capability_manifest,
         )
         existing = self._host_mutation_plans.get(bound.fingerprint)
         if existing is not None:
@@ -893,6 +900,40 @@ class MjwarpBackend(SimBackend):
             host_runtime_plan.register_batch_plan(host_batch_plan.public_plan)
         self._host_mutation_plans[bound.fingerprint] = host_runtime_plan
         return bound
+
+    def get_mutation_capability_manifest(
+        self,
+        execution_profile: ExecutionProfile,
+    ) -> MutationCapabilityManifest:
+        """Return only effect-tested typed mutations for the requested profile."""
+
+        if not isinstance(execution_profile, ExecutionProfile):
+            raise MutationContractError(
+                "mjwarp mutation capability profile must be an ExecutionProfile"
+            )
+        if execution_profile is ExecutionProfile.HOST_NUMPY:
+            if self._device_batch_plans or self._device_mutation_plans:
+                raise BackendBatchContractError(
+                    "mjwarp cannot advertise host_numpy mutation capabilities after a "
+                    "device_resident plan was bound"
+                )
+            capabilities = mjwarp_host_mutation_capabilities(self)
+        elif execution_profile is ExecutionProfile.DEVICE_RESIDENT:
+            if self._host_batch_plans or self._host_mutation_plans:
+                raise BackendBatchContractError(
+                    "mjwarp cannot advertise device_resident mutation capabilities after a "
+                    "host_numpy plan was bound"
+                )
+            capabilities = mjwarp_device_mutation_capabilities(self)
+        else:  # pragma: no cover - ExecutionProfile is currently exhaustive.
+            raise MutationContractError(
+                f"mjwarp does not support mutation profile {execution_profile.value!r}"
+            )
+        return MutationCapabilityManifest(
+            backend_type=self.backend_type,
+            execution_profile=execution_profile,
+            capabilities=capabilities,
+        )
 
     def _require_host_mutation_plan(
         self,

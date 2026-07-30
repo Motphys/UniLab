@@ -21,11 +21,12 @@ from .batch import (
     BackendStepResult,
     BoundBackendPlan,
     ControlBatch,
+    ExecutionProfile,
     RowSelection,
     StateBatchPhase,
 )
 from .graph import DeviceGraphDiagnostics
-from .mutation import BoundMutationPlan, MutationSpec
+from .mutation import BoundMutationPlan, MutationCapabilityManifest, MutationSpec
 from .telemetry import (
     BackendTransferBuffer,
     BackendTransferCounters,
@@ -331,6 +332,15 @@ class SimBackend(abc.ABC):
         """Bind managed mutation requirements on the cold path."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support typed backend mutations"
+        )
+
+    def get_mutation_capability_manifest(
+        self,
+        execution_profile: ExecutionProfile,
+    ) -> MutationCapabilityManifest:
+        """Return the verified field-level mutation surface for one profile."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose a mutation capability manifest"
         )
 
     def step_batch(

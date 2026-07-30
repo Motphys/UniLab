@@ -18,14 +18,22 @@ from unilab.base.backend import (
     BufferOwner,
     BufferPlacement,
     BufferView,
+    ExecutionProfile,
     ExternalWrenchMutationBatch,
     ModelParameterMutationBatch,
     MutationBaseline,
     MutationCapability,
+    MutationCapabilityCase,
+    MutationCapabilityDescriptor,
+    MutationCapabilityManifest,
+    MutationCapabilityRowScope,
     MutationCommitPhase,
     MutationContractError,
     MutationEntityKind,
     MutationFieldKind,
+    MutationFieldStorageKind,
+    MutationGraphImpact,
+    MutationGraphInvalidation,
     MutationOperation,
     MutationPersistence,
     MutationRecomputeLevel,
@@ -144,6 +152,43 @@ def _capability(
         baselines=frozenset({baseline}),
         persistences=frozenset({persistence}),
         recompute_levels=frozenset({recompute}),
+    )
+
+
+def _verification_case(
+    spec: MutationSpec,
+    *,
+    case_id: str = "fake.host.state-reset",
+    test_id: str = "tests/dr/test_mutation_contract.py::test_manifest_case",
+    execution_profile: ExecutionProfile = ExecutionProfile.HOST_NUMPY,
+) -> MutationCapabilityCase:
+    return MutationCapabilityCase(
+        case_id=case_id,
+        mandatory_test_id=test_id,
+        execution_profile=execution_profile,
+        trigger=spec.trigger,
+        commit_phase=spec.commit_phase,
+        operation=spec.operation,
+        baseline=spec.baseline,
+        persistence=spec.persistence,
+        recompute=spec.recompute,
+        row_scope=MutationCapabilityRowScope.SELECTED_ROWS,
+    )
+
+
+def _descriptor(
+    spec: MutationSpec,
+    *,
+    cases: tuple[MutationCapabilityCase, ...] | None = None,
+) -> MutationCapabilityDescriptor:
+    return MutationCapabilityDescriptor(
+        capability_id="fake.state-reset",
+        direct_fields=("data.qpos",),
+        derived_fields=(),
+        storage_kind=MutationFieldStorageKind.DATA_NATIVE,
+        graph_impact=MutationGraphImpact.STABLE_ADDRESS,
+        graph_invalidations=frozenset(),
+        cases=cases or (_verification_case(spec),),
     )
 
 
@@ -550,6 +595,171 @@ def test_mutation_plan_fingerprint_is_canonical_and_semantically_sensitive() -> 
         assert changed.fingerprint != original.fingerprint
 
 
+def test_capability_manifest_is_bound_as_the_complete_plan_identity() -> None:
+    specs, capabilities, selectors = _fixtures()
+    spec = specs[1]
+    capability = replace(capabilities[1], descriptor=_descriptor(spec))
+    manifest = MutationCapabilityManifest(
+        backend_type="fake",
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        capabilities=(capability,),
+    )
+    resolver = _Resolver(selectors)
+    plan = bind_mutation_plan(
+        backend_type="fake",
+        backend_instance_id="fake:0",
+        num_envs=19,
+        specs=(spec,),
+        capabilities=(capability,),
+        resolve_selector=resolver,
+        capability_manifest=manifest,
+    )
+    assert plan.capability_manifest_fingerprint == manifest.fingerprint
+
+    descriptor = capability.descriptor
+    assert descriptor is not None
+    changed_capability = replace(
+        capability,
+        descriptor=replace(descriptor, direct_fields=("data.qpos_expanded",)),
+    )
+    changed_manifest = MutationCapabilityManifest(
+        backend_type="fake",
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        capabilities=(changed_capability,),
+    )
+    changed_plan = bind_mutation_plan(
+        backend_type="fake",
+        backend_instance_id="fake:0",
+        num_envs=19,
+        specs=(spec,),
+        capabilities=(changed_capability,),
+        resolve_selector=_Resolver(selectors),
+        capability_manifest=changed_manifest,
+    )
+    assert changed_manifest.fingerprint != manifest.fingerprint
+    assert changed_plan.fingerprint != plan.fingerprint
+
+    tampered_plan = replace(
+        plan,
+        capability_manifest_fingerprint="mutation-capability-manifest-v1:tampered",
+    )
+    with pytest.raises(MutationContractError, match="different plan or fingerprint"):
+        plan.require_compatible(tampered_plan)
+
+    object.__setattr__(manifest, "fingerprint", "mutation-capability-manifest-v1:tampered")
+    with pytest.raises(MutationContractError, match="fingerprint does not match"):
+        bind_mutation_plan(
+            backend_type="fake",
+            backend_instance_id="fake:0",
+            num_envs=19,
+            specs=(spec,),
+            capabilities=(capability,),
+            resolve_selector=_Resolver(selectors),
+            capability_manifest=manifest,
+        )
+
+
+def test_capability_cases_reject_unverified_cartesian_combinations() -> None:
+    specs, capabilities, selectors = _fixtures()
+    first = specs[1]
+    second = replace(
+        first,
+        term_key="interval.state",
+        trigger=MutationTrigger.INTERVAL,
+        commit_phase=MutationCommitPhase.PRE_PHYSICS,
+        baseline=MutationBaseline.CURRENT,
+        persistence=MutationPersistence.ONE_STEP,
+        recompute=MutationRecomputeLevel.NONE,
+    )
+    cases = (
+        _verification_case(
+            second,
+            case_id="fake.host.interval",
+            test_id="tests/dr/test_mutation_contract.py::test_interval_manifest_case",
+        ),
+        _verification_case(first, case_id="fake.host.reset"),
+    )
+    capability = replace(
+        capabilities[1],
+        triggers=frozenset({first.trigger, second.trigger}),
+        commit_phases=frozenset({first.commit_phase, second.commit_phase}),
+        baselines=frozenset({first.baseline, second.baseline}),
+        persistences=frozenset({first.persistence, second.persistence}),
+        recompute_levels=frozenset({first.recompute, second.recompute}),
+        descriptor=_descriptor(first, cases=cases),
+    )
+    manifest = MutationCapabilityManifest(
+        backend_type="fake",
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        capabilities=(capability,),
+    )
+    mixed = replace(first, commit_phase=second.commit_phase)
+    with pytest.raises(MutationContractError, match="unverified capability combination"):
+        bind_mutation_plan(
+            backend_type="fake",
+            backend_instance_id="fake:0",
+            num_envs=19,
+            specs=(mixed,),
+            capabilities=(capability,),
+            resolve_selector=_Resolver(selectors),
+            capability_manifest=manifest,
+        )
+
+
+def test_capability_manifest_validation_fails_near_malformed_metadata() -> None:
+    specs, capabilities, _ = _fixtures()
+    spec = specs[1]
+    case = _verification_case(spec)
+
+    with pytest.raises(MutationContractError, match="duplicate semantic"):
+        _descriptor(
+            spec,
+            cases=(
+                case,
+                replace(
+                    case,
+                    case_id="fake.host.state-reset.alias",
+                    mandatory_test_id="tests/dr/test_mutation_contract.py::test_manifest_alias",
+                ),
+            ),
+        )
+    with pytest.raises(MutationContractError, match="native mutation storage"):
+        replace(
+            _descriptor(spec),
+            graph_impact=MutationGraphImpact.RECAPTURE_REQUIRED,
+            graph_invalidations=frozenset({MutationGraphInvalidation.RESET_GRAPH}),
+        )
+    with pytest.raises(MutationContractError, match="no field-level descriptor"):
+        MutationCapabilityManifest(
+            backend_type="fake",
+            execution_profile=ExecutionProfile.HOST_NUMPY,
+            capabilities=(capabilities[1],),
+        )
+
+    capability = replace(capabilities[1], descriptor=_descriptor(spec))
+    with pytest.raises(MutationContractError, match="placement does not match profile"):
+        MutationCapabilityManifest(
+            backend_type="fake",
+            execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+            capabilities=(capability,),
+        )
+    manifest = MutationCapabilityManifest(
+        backend_type="fake",
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        capabilities=(capability,),
+    )
+    with pytest.raises(MutationContractError, match="does not match the supplied capability"):
+        bind_mutation_plan(
+            backend_type="fake",
+            backend_instance_id="fake:0",
+            num_envs=19,
+            specs=(spec,),
+            capabilities=(replace(capability, entity_count=13),),
+            resolve_selector=_Resolver({}),
+            capability_manifest=manifest,
+        )
+
+
 def _unsupported_target() -> None:
     specs, capabilities, selectors = _fixtures()
     invalid = replace(
@@ -843,6 +1053,9 @@ def test_sim_backend_mutation_extension_is_additive_and_fail_closed() -> None:
     assert "bind_mutation_plan" not in SimBackend.__abstractmethods__
     with pytest.raises(NotImplementedError, match="typed backend mutations"):
         SimBackend.bind_mutation_plan(backend, specs)
+    assert "get_mutation_capability_manifest" not in SimBackend.__abstractmethods__
+    with pytest.raises(NotImplementedError, match="mutation capability manifest"):
+        SimBackend.get_mutation_capability_manifest(backend, ExecutionProfile.HOST_NUMPY)
 
 
 def test_global_mutation_target_binds_without_runtime_selector() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum, IntEnum
 from typing import Any
 
@@ -15,9 +15,12 @@ from .batch import (
     BufferLifetime,
     BufferMutability,
     BufferOwner,
+    ExecutionProfile,
+    MemorySpace,
 )
 
 MUTATION_CONTRACT_VERSION = "backend-mutation-contract-v1"
+MUTATION_CAPABILITY_MANIFEST_VERSION = "mutation-capability-manifest-v1"
 
 
 class MutationContractError(BackendBatchContractError):
@@ -109,6 +112,42 @@ class MutationRecomputeLevel(IntEnum):
     KINEMATICS = 1
     DYNAMICS = 2
     FULL = 3
+
+
+class MutationFieldStorageKind(str, Enum):
+    """Backend-neutral ownership class for a mutation's physical fields."""
+
+    DATA_NATIVE = "data_native"
+    MODEL_FIELD_EXPANSION = "model_field_expansion"
+    TASK_NATIVE = "task_native"
+    COLD_MATERIALIZATION = "cold_materialization"
+
+
+class MutationCapabilityRowScope(str, Enum):
+    """Rows a verified capability case may mutate at one commit barrier."""
+
+    SELECTED_ROWS = "selected_rows"
+    ALL_WORLDS = "all_worlds"
+    COLD_PATH = "cold_path"
+
+
+class MutationGraphImpact(str, Enum):
+    """Required graph action when capability storage is materialized."""
+
+    STABLE_ADDRESS = "stable_address"
+    RECAPTURE_REQUIRED = "recapture_required"
+    REBUILD_REQUIRED = "rebuild_required"
+
+
+class MutationGraphInvalidation(str, Enum):
+    """Graph or bridge consumer invalidated by model-storage replacement."""
+
+    MODEL_BRIDGE_CACHE = "model_bridge_cache"
+    SENSOR_CONTEXT = "sensor_context"
+    STEP_GRAPH = "step_graph"
+    FORWARD_GRAPH = "forward_graph"
+    RESET_GRAPH = "reset_graph"
+    SENSE_GRAPH = "sense_graph"
 
 
 _TARGET_ENTITY_KINDS = {
@@ -268,6 +307,157 @@ def _validate_value_template(value: BufferContract) -> None:
         raise MutationContractError("mutation values must use until_commit lifetime")
     if not value.address_stable:
         raise MutationContractError("mutation value addresses must be plan-stable")
+
+
+@dataclass(frozen=True)
+class MutationCapabilityCase:
+    """One exact advertised semantic combination with a mandatory test node.
+
+    Aggregate option sets on :class:`MutationCapability` are useful for
+    diagnostics but cannot represent relationships between trigger, phase,
+    persistence, and recompute values. Cases close that ambiguity: strict
+    manifests only bind a mutation when one complete case matches.
+    """
+
+    case_id: str
+    mandatory_test_id: str
+    execution_profile: ExecutionProfile
+    trigger: MutationTrigger
+    commit_phase: MutationCommitPhase
+    operation: MutationOperation
+    baseline: MutationBaseline
+    persistence: MutationPersistence
+    recompute: MutationRecomputeLevel
+    row_scope: MutationCapabilityRowScope
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "case_id", _non_empty(self.case_id, "capability case_id"))
+        test_id = _non_empty(self.mandatory_test_id, "mandatory_test_id")
+        if "::" not in test_id:
+            raise MutationContractError("mandatory_test_id must be a fully qualified test node")
+        object.__setattr__(self, "mandatory_test_id", test_id)
+        _enum(self.execution_profile, ExecutionProfile, "execution_profile")
+        _enum(self.trigger, MutationTrigger, "trigger")
+        _enum(self.commit_phase, MutationCommitPhase, "commit_phase")
+        _enum(self.operation, MutationOperation, "operation")
+        _enum(self.baseline, MutationBaseline, "baseline")
+        _enum(self.persistence, MutationPersistence, "persistence")
+        _enum(self.recompute, MutationRecomputeLevel, "recompute")
+        _enum(self.row_scope, MutationCapabilityRowScope, "row_scope")
+
+    def matches(self, spec: MutationSpec) -> bool:
+        """Return whether ``spec`` is the exact verified semantic combination."""
+
+        return (
+            self.trigger is spec.trigger
+            and self.commit_phase is spec.commit_phase
+            and self.operation is spec.operation
+            and self.baseline is spec.baseline
+            and self.persistence is spec.persistence
+            and self.recompute is spec.recompute
+        )
+
+
+@dataclass(frozen=True)
+class MutationCapabilityDescriptor:
+    """Field-level storage, graph, and evidence identity for one capability."""
+
+    capability_id: str
+    direct_fields: tuple[str, ...]
+    derived_fields: tuple[str, ...]
+    storage_kind: MutationFieldStorageKind
+    graph_impact: MutationGraphImpact
+    graph_invalidations: frozenset[MutationGraphInvalidation]
+    cases: tuple[MutationCapabilityCase, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "capability_id",
+            _non_empty(self.capability_id, "capability_id"),
+        )
+        for name in ("direct_fields", "derived_fields"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple):
+                raise MutationContractError(f"{name} must be a tuple")
+            normalized = tuple(_non_empty(value, name) for value in values)
+            if normalized != tuple(sorted(normalized)) or len(set(normalized)) != len(normalized):
+                raise MutationContractError(f"{name} must be canonical and unique")
+            object.__setattr__(self, name, normalized)
+        if not self.direct_fields:
+            raise MutationContractError("capability descriptor requires direct_fields")
+        overlap = set(self.direct_fields).intersection(self.derived_fields)
+        if overlap:
+            raise MutationContractError(
+                "direct_fields and derived_fields overlap: " + ", ".join(sorted(overlap))
+            )
+        _enum(self.storage_kind, MutationFieldStorageKind, "storage_kind")
+        _enum(self.graph_impact, MutationGraphImpact, "graph_impact")
+        if not isinstance(self.graph_invalidations, frozenset) or any(
+            not isinstance(item, MutationGraphInvalidation) for item in self.graph_invalidations
+        ):
+            raise MutationContractError(
+                "graph_invalidations must be a frozenset of MutationGraphInvalidation values"
+            )
+        if not isinstance(self.cases, tuple) or not self.cases:
+            raise MutationContractError("capability descriptor requires verification cases")
+        if any(not isinstance(case, MutationCapabilityCase) for case in self.cases):
+            raise MutationContractError("capability descriptor contains an invalid case")
+        case_ids = tuple(case.case_id for case in self.cases)
+        if case_ids != tuple(sorted(case_ids)) or len(set(case_ids)) != len(case_ids):
+            raise MutationContractError("capability cases must use canonical unique case IDs")
+        test_ids = tuple(case.mandatory_test_id for case in self.cases)
+        if len(set(test_ids)) != len(test_ids):
+            raise MutationContractError("capability cases must map to unique mandatory test IDs")
+        semantic_cases = tuple(
+            (
+                case.execution_profile,
+                case.trigger,
+                case.commit_phase,
+                case.operation,
+                case.baseline,
+                case.persistence,
+                case.recompute,
+                case.row_scope,
+            )
+            for case in self.cases
+        )
+        if len(set(semantic_cases)) != len(semantic_cases):
+            raise MutationContractError(
+                "capability descriptor contains duplicate semantic verification cases"
+            )
+
+        stable_storage = self.storage_kind in {
+            MutationFieldStorageKind.DATA_NATIVE,
+            MutationFieldStorageKind.TASK_NATIVE,
+        }
+        if stable_storage and (
+            self.graph_impact is not MutationGraphImpact.STABLE_ADDRESS or self.graph_invalidations
+        ):
+            raise MutationContractError(
+                "native mutation storage must preserve graph addresses without invalidations"
+            )
+        if self.storage_kind is MutationFieldStorageKind.MODEL_FIELD_EXPANSION and (
+            self.graph_impact is not MutationGraphImpact.RECAPTURE_REQUIRED
+            or not self.graph_invalidations
+        ):
+            raise MutationContractError(
+                "model field expansion requires graph recapture and explicit invalidations"
+            )
+        if self.storage_kind is MutationFieldStorageKind.COLD_MATERIALIZATION and (
+            self.graph_impact is not MutationGraphImpact.REBUILD_REQUIRED
+            or not self.graph_invalidations
+        ):
+            raise MutationContractError(
+                "cold materialization requires graph rebuild and explicit invalidations"
+            )
+        if self.derived_fields and self.storage_kind not in {
+            MutationFieldStorageKind.MODEL_FIELD_EXPANSION,
+            MutationFieldStorageKind.COLD_MATERIALIZATION,
+        }:
+            raise MutationContractError(
+                "derived fields require model expansion or cold materialization storage"
+            )
 
 
 @dataclass(frozen=True)
@@ -443,6 +633,7 @@ class MutationCapability:
     baselines: frozenset[MutationBaseline]
     persistences: frozenset[MutationPersistence]
     recompute_levels: frozenset[MutationRecomputeLevel]
+    descriptor: MutationCapabilityDescriptor | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "target_key", _non_empty(self.target_key, "target_key"))
@@ -469,6 +660,168 @@ class MutationCapability:
         _enum_set(self.baselines, MutationBaseline, "baselines")
         _enum_set(self.persistences, MutationPersistence, "persistences")
         _enum_set(self.recompute_levels, MutationRecomputeLevel, "recompute_levels")
+        if self.descriptor is not None and not isinstance(
+            self.descriptor, MutationCapabilityDescriptor
+        ):
+            raise MutationContractError(
+                "capability descriptor must be a MutationCapabilityDescriptor"
+            )
+
+
+@dataclass(frozen=True)
+class MutationCapabilityManifest:
+    """Canonical advertised mutation surface for one backend execution profile."""
+
+    backend_type: str
+    execution_profile: ExecutionProfile
+    capabilities: tuple[MutationCapability, ...]
+    fingerprint: str = field(init=False)
+    contract_version: str = MUTATION_CAPABILITY_MANIFEST_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "backend_type", _non_empty(self.backend_type, "backend_type"))
+        _enum(self.execution_profile, ExecutionProfile, "execution_profile")
+        if not isinstance(self.capabilities, tuple) or not self.capabilities:
+            raise MutationContractError("capability manifest requires capabilities")
+        if any(not isinstance(item, MutationCapability) for item in self.capabilities):
+            raise MutationContractError("capability manifest contains an invalid capability")
+        if self.contract_version != MUTATION_CAPABILITY_MANIFEST_VERSION:
+            raise MutationContractError(
+                f"unsupported capability manifest version {self.contract_version!r}"
+            )
+
+        canonical = tuple(
+            sorted(
+                self.capabilities,
+                key=lambda item: (
+                    item.descriptor.capability_id if item.descriptor is not None else "",
+                    item.target_key,
+                    item.target_kind.value,
+                    item.entity_kind.value,
+                    item.field_kind.value,
+                ),
+            )
+        )
+        object.__setattr__(self, "capabilities", canonical)
+        target_keys = tuple(item.target_key for item in canonical)
+        if len(set(target_keys)) != len(target_keys):
+            raise MutationContractError("capability manifest target keys must be unique")
+
+        case_ids: list[str] = []
+        mandatory_test_ids: list[str] = []
+        expected_space = (
+            MemorySpace.HOST
+            if self.execution_profile is ExecutionProfile.HOST_NUMPY
+            else MemorySpace.DEVICE
+        )
+        for capability in canonical:
+            descriptor = capability.descriptor
+            if descriptor is None:
+                raise MutationContractError(
+                    f"capability {capability.target_key!r} has no field-level descriptor"
+                )
+            if capability.value_template.placement.memory_space is not expected_space:
+                raise MutationContractError(
+                    f"capability {capability.target_key!r} placement does not match "
+                    f"profile {self.execution_profile.value!r}"
+                )
+            if self.execution_profile is ExecutionProfile.DEVICE_RESIDENT and (
+                capability.value_template.placement.device_type != "cuda"
+                or not capability.value_template.dlpack_exportable
+            ):
+                raise MutationContractError(
+                    "device-resident mutation capabilities require DLPack-exportable CUDA values"
+                )
+            if any(
+                case.execution_profile is not self.execution_profile for case in descriptor.cases
+            ):
+                raise MutationContractError(
+                    f"capability {capability.target_key!r} mixes execution profiles"
+                )
+            aggregate_checks = (
+                ({case.trigger for case in descriptor.cases}, set(capability.triggers), "triggers"),
+                (
+                    {case.commit_phase for case in descriptor.cases},
+                    set(capability.commit_phases),
+                    "commit phases",
+                ),
+                (
+                    {case.operation for case in descriptor.cases},
+                    set(capability.operations),
+                    "operations",
+                ),
+                (
+                    {case.baseline for case in descriptor.cases},
+                    set(capability.baselines),
+                    "baselines",
+                ),
+                (
+                    {case.persistence for case in descriptor.cases},
+                    set(capability.persistences),
+                    "persistences",
+                ),
+                (
+                    {case.recompute for case in descriptor.cases},
+                    set(capability.recompute_levels),
+                    "recompute levels",
+                ),
+            )
+            for verified, advertised, label in aggregate_checks:
+                if verified != advertised:
+                    raise MutationContractError(
+                        f"capability {capability.target_key!r} {label} differ from verified cases"
+                    )
+            case_ids.extend(case.case_id for case in descriptor.cases)
+            mandatory_test_ids.extend(case.mandatory_test_id for case in descriptor.cases)
+
+        if len(set(case_ids)) != len(case_ids):
+            raise MutationContractError("capability manifest case IDs must be globally unique")
+        if len(set(mandatory_test_ids)) != len(mandatory_test_ids):
+            raise MutationContractError(
+                "capability manifest mandatory test IDs must be globally unique"
+            )
+        payload = {
+            "contract_version": self.contract_version,
+            "backend_type": self.backend_type,
+            "execution_profile": self.execution_profile.value,
+            "capabilities": [_capability_payload(item) for item in canonical],
+        }
+        object.__setattr__(
+            self,
+            "fingerprint",
+            _mutation_capability_manifest_fingerprint(payload),
+        )
+
+    @property
+    def cases(self) -> tuple[MutationCapabilityCase, ...]:
+        cases: list[MutationCapabilityCase] = []
+        for capability in self.capabilities:
+            descriptor = capability.descriptor
+            if descriptor is None:
+                raise MutationContractError(
+                    f"capability {capability.target_key!r} has no field-level descriptor"
+                )
+            cases.extend(descriptor.cases)
+        return tuple(cases)
+
+    def require_valid(self) -> None:
+        """Reject a manifest whose immutable identity was tampered after construction."""
+
+        payload = {
+            "contract_version": self.contract_version,
+            "backend_type": self.backend_type,
+            "execution_profile": self.execution_profile.value,
+            "capabilities": [_capability_payload(item) for item in self.capabilities],
+        }
+        if self.fingerprint != _mutation_capability_manifest_fingerprint(payload):
+            raise MutationContractError(
+                "capability manifest fingerprint does not match its content"
+            )
+
+    def require_backend(self, backend_type: str) -> None:
+        self.require_valid()
+        if self.backend_type != backend_type:
+            raise MutationContractError("capability manifest belongs to a different backend")
 
 
 @dataclass(frozen=True)
@@ -540,6 +893,7 @@ class BoundMutationPlan:
     backend_instance_id: str
     num_envs: int
     specs: tuple[BoundMutationSpec, ...]
+    capability_manifest_fingerprint: str
     fingerprint: str
     contract_version: str = MUTATION_CONTRACT_VERSION
 
@@ -560,6 +914,14 @@ class BoundMutationPlan:
             raise MutationContractError("bound mutation term keys must be unique")
         if tuple(term_keys) != tuple(sorted(term_keys)):
             raise MutationContractError("bound mutation specs must use canonical term-key order")
+        object.__setattr__(
+            self,
+            "capability_manifest_fingerprint",
+            _non_empty(
+                self.capability_manifest_fingerprint,
+                "capability_manifest_fingerprint",
+            ),
+        )
         object.__setattr__(self, "fingerprint", _non_empty(self.fingerprint, "fingerprint"))
         if self.contract_version != MUTATION_CONTRACT_VERSION:
             raise MutationContractError(
@@ -588,6 +950,35 @@ class BoundMutationPlan:
 MutationSelectorResolver = Callable[[MutationTargetSpec], tuple[int, ...]]
 
 
+def _capability_case_payload(case: MutationCapabilityCase) -> dict[str, Any]:
+    return {
+        "case_id": case.case_id,
+        "mandatory_test_id": case.mandatory_test_id,
+        "execution_profile": case.execution_profile.value,
+        "trigger": case.trigger.value,
+        "commit_phase": case.commit_phase.value,
+        "operation": case.operation.value,
+        "baseline": case.baseline.value,
+        "persistence": case.persistence.value,
+        "recompute": int(case.recompute),
+        "row_scope": case.row_scope.value,
+    }
+
+
+def _capability_descriptor_payload(
+    descriptor: MutationCapabilityDescriptor,
+) -> dict[str, Any]:
+    return {
+        "capability_id": descriptor.capability_id,
+        "direct_fields": descriptor.direct_fields,
+        "derived_fields": descriptor.derived_fields,
+        "storage_kind": descriptor.storage_kind.value,
+        "graph_impact": descriptor.graph_impact.value,
+        "graph_invalidations": sorted(item.value for item in descriptor.graph_invalidations),
+        "cases": [_capability_case_payload(case) for case in descriptor.cases],
+    }
+
+
 def _capability_payload(capability: MutationCapability) -> dict[str, Any]:
     return {
         "target_key": capability.target_key,
@@ -602,6 +993,11 @@ def _capability_payload(capability: MutationCapability) -> dict[str, Any]:
         "baselines": sorted(item.value for item in capability.baselines),
         "persistences": sorted(item.value for item in capability.persistences),
         "recompute_levels": sorted(int(item) for item in capability.recompute_levels),
+        "descriptor": (
+            None
+            if capability.descriptor is None
+            else _capability_descriptor_payload(capability.descriptor)
+        ),
     }
 
 
@@ -627,6 +1023,33 @@ def _digest(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def _mutation_capability_manifest_fingerprint(payload: Any) -> str:
+    return f"{MUTATION_CAPABILITY_MANIFEST_VERSION}:{_digest(payload)}"
+
+
+def mutation_capability_fingerprint(capability: MutationCapability) -> str:
+    """Return the immutable field/semantic/evidence identity of one capability."""
+
+    if not isinstance(capability, MutationCapability):
+        raise MutationContractError("capability fingerprint requires MutationCapability")
+    return f"mutation-capability-v1:{_digest(_capability_payload(capability))}"
+
+
+def mutation_capability_set_fingerprint(
+    *, backend_type: str, capabilities: tuple[MutationCapability, ...]
+) -> str:
+    """Fingerprint a complete legacy capability tuple in canonical order."""
+
+    backend_type = _non_empty(backend_type, "backend_type")
+    if not isinstance(capabilities, tuple) or not capabilities:
+        raise MutationContractError("mutation capability set must be a non-empty tuple")
+    if any(not isinstance(item, MutationCapability) for item in capabilities):
+        raise MutationContractError("mutation capability set contains an invalid value")
+    payloads = [_capability_payload(item) for item in capabilities]
+    payloads.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+    return f"mutation-capability-set-v1:{_digest({'backend_type': backend_type, 'capabilities': payloads})}"
 
 
 def _require_supported(spec: MutationSpec, capability: MutationCapability) -> None:
@@ -658,6 +1081,11 @@ def _require_supported(spec: MutationSpec, capability: MutationCapability) -> No
             raise MutationContractError(
                 f"mutation term {spec.term_key!r} uses unsupported {label} {value.value!r}"
             )
+    descriptor = capability.descriptor
+    if descriptor is not None and not any(case.matches(spec) for case in descriptor.cases):
+        raise MutationContractError(
+            f"mutation term {spec.term_key!r} uses an unverified capability combination"
+        )
 
 
 def _resolve_entity_ids(
@@ -733,7 +1161,7 @@ def _bound_spec(
         persistence=spec.persistence,
         recompute=spec.recompute,
         value_buffer=replace(spec.value_template, row_shape=row_shape),
-        capability_fingerprint=_digest(_capability_payload(capability)),
+        capability_fingerprint=mutation_capability_fingerprint(capability),
     )
 
 
@@ -788,6 +1216,7 @@ def bind_mutation_plan(
     specs: tuple[MutationSpec, ...],
     capabilities: tuple[MutationCapability, ...],
     resolve_selector: MutationSelectorResolver,
+    capability_manifest: MutationCapabilityManifest | None = None,
 ) -> BoundMutationPlan:
     """Bind registry-owned mutation specs to one backend on the cold path."""
 
@@ -805,6 +1234,31 @@ def bind_mutation_plan(
         raise MutationContractError("mutation capabilities must be a non-empty tuple")
     if any(not isinstance(capability, MutationCapability) for capability in capabilities):
         raise MutationContractError("mutation capabilities contain an invalid value")
+    if capability_manifest is not None:
+        if not isinstance(capability_manifest, MutationCapabilityManifest):
+            raise MutationContractError("capability_manifest must be a MutationCapabilityManifest")
+        capability_manifest.require_backend(backend_type)
+        if tuple(capability_manifest.capabilities) != tuple(
+            sorted(
+                capabilities,
+                key=lambda item: (
+                    item.descriptor.capability_id if item.descriptor is not None else "",
+                    item.target_key,
+                    item.target_kind.value,
+                    item.entity_kind.value,
+                    item.field_kind.value,
+                ),
+            )
+        ):
+            raise MutationContractError(
+                "capability_manifest does not match the supplied capability tuple"
+            )
+        capability_manifest_fingerprint = capability_manifest.fingerprint
+    else:
+        capability_manifest_fingerprint = mutation_capability_set_fingerprint(
+            backend_type=backend_type,
+            capabilities=capabilities,
+        )
     capability_map = {capability.target_key: capability for capability in capabilities}
     if len(capability_map) != len(capabilities):
         raise MutationContractError("mutation capability target keys must be unique")
@@ -839,6 +1293,7 @@ def bind_mutation_plan(
         "contract_version": MUTATION_CONTRACT_VERSION,
         "backend_type": backend_type,
         "num_envs": num_envs,
+        "capability_manifest_fingerprint": capability_manifest_fingerprint,
         "specs": [_bound_spec_payload(spec) for spec in canonical_specs],
     }
     return BoundMutationPlan(
@@ -846,21 +1301,30 @@ def bind_mutation_plan(
         backend_instance_id=backend_instance_id,
         num_envs=num_envs,
         specs=canonical_specs,
+        capability_manifest_fingerprint=capability_manifest_fingerprint,
         fingerprint=f"{MUTATION_CONTRACT_VERSION}:{_digest(payload)}",
     )
 
 
 __all__ = [
     "MUTATION_CONTRACT_VERSION",
+    "MUTATION_CAPABILITY_MANIFEST_VERSION",
     "BoundMutationPlan",
     "BoundMutationSpec",
     "BoundMutationTarget",
     "MutationBaseline",
+    "MutationCapabilityCase",
     "MutationCapability",
+    "MutationCapabilityDescriptor",
+    "MutationCapabilityManifest",
+    "MutationCapabilityRowScope",
     "MutationCommitPhase",
     "MutationContractError",
     "MutationEntityKind",
     "MutationFieldKind",
+    "MutationFieldStorageKind",
+    "MutationGraphImpact",
+    "MutationGraphInvalidation",
     "MutationOperation",
     "MutationPersistence",
     "MutationRecomputeLevel",
@@ -872,4 +1336,6 @@ __all__ = [
     "MutationTargetSpec",
     "MutationTrigger",
     "bind_mutation_plan",
+    "mutation_capability_fingerprint",
+    "mutation_capability_set_fingerprint",
 ]
