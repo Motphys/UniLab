@@ -12,6 +12,9 @@ from benchmark.rl import benchmark_mjwarp_ppo as ppo_benchmark
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PHASE5_PPO_ARTIFACT = REPO_ROOT / "tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json"
+
 
 def _scalars(*, iterations: int, fps: float = 30_000.0, reward: float = -0.4) -> dict[str, Any]:
     values = {
@@ -299,6 +302,22 @@ def test_complete_artifact_passes_independent_gate_recomputation() -> None:
     artifact, binding = _artifact()
     assert artifact["gate"] == {"passed": True, "errors": []}
     assert ppo_benchmark.validate_artifact(artifact, binding=binding) == ()
+
+
+def test_device_profile_meets_end_to_end_gate() -> None:
+    """The committed 40-worker artifact must independently re-pass every gate."""
+
+    artifact = json.loads(PHASE5_PPO_ARTIFACT.read_text(encoding="utf-8"))
+    assert len(artifact["cases"]) == 40
+    assert artifact["gate"] == {"errors": [], "passed": True}
+    assert (
+        ppo_benchmark.validate_artifact(
+            artifact,
+            repo_root=REPO_ROOT,
+            artifact_path=PHASE5_PPO_ARTIFACT,
+        )
+        == ()
+    )
 
 
 def test_phase5_rss_amendment_boundary_passes_and_excess_fails() -> None:
