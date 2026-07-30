@@ -197,6 +197,7 @@ def _validate_reference_profile(
     *,
     allow_pd_randomization: bool = False,
     allow_dof_armature_randomization: bool = False,
+    allow_body_gravity_compensation_randomization: bool = False,
 ) -> G1WalkRewardConfig:
     """Reject legacy features whose effects are not in this compiled slice."""
 
@@ -204,6 +205,10 @@ def _validate_reference_profile(
         raise G1ManagedReferenceError("allow_pd_randomization must be a bool")
     if not isinstance(allow_dof_armature_randomization, bool):
         raise G1ManagedReferenceError("allow_dof_armature_randomization must be a bool")
+    if not isinstance(allow_body_gravity_compensation_randomization, bool):
+        raise G1ManagedReferenceError(
+            "allow_body_gravity_compensation_randomization must be a bool"
+        )
 
     reward = cfg.reward_config
     if not isinstance(reward, G1WalkRewardConfig):
@@ -249,6 +254,11 @@ def _validate_reference_profile(
             (
                 "randomize_dof_armature",
                 dr.randomize_dof_armature and not allow_dof_armature_randomization,
+            ),
+            (
+                "randomize_body_gravity_compensation",
+                dr.randomize_body_gravity_compensation
+                and not allow_body_gravity_compensation_randomization,
             ),
             ("push_robots", dr.push_robots),
             ("randomize_kp", dr.randomize_kp and not allow_pd_randomization),
@@ -1349,11 +1359,15 @@ def _kernel_config(
     observation_noise_seed: int | None,
     allow_pd_randomization: bool = False,
     allow_dof_armature_randomization: bool = False,
+    allow_body_gravity_compensation_randomization: bool = False,
 ) -> _G1KernelConfig:
     reward = _validate_reference_profile(
         cfg,
         allow_pd_randomization=allow_pd_randomization,
         allow_dof_armature_randomization=allow_dof_armature_randomization,
+        allow_body_gravity_compensation_randomization=(
+            allow_body_gravity_compensation_randomization
+        ),
     )
     if not np.isfinite(float(cfg.sim_dt)) or float(cfg.sim_dt) <= 0.0:
         raise G1ManagedReferenceError("G1 sim_dt must be finite and positive")
