@@ -1070,6 +1070,27 @@ def load_amendment_freeze_receipt(
             expected_blob=manifest_blob,
         )
         errors.extend(git_errors)
+        if git_history_verified and base_receipt.git_history_verified:
+            if freeze_commit == base_receipt.freeze_commit:
+                errors.append("freeze_commit: amendment must be after the base threshold freeze")
+            else:
+                try:
+                    base_ancestor = _git(
+                        repo_root,
+                        [
+                            "merge-base",
+                            "--is-ancestor",
+                            base_receipt.freeze_commit,
+                            freeze_commit,
+                        ],
+                        check=False,
+                    )
+                    if base_ancestor.returncode != 0:
+                        errors.append(
+                            "freeze_commit: amendment must descend from the base threshold freeze"
+                        )
+                except OSError as exc:
+                    errors.append(f"freeze_commit: cannot verify base ancestry: {exc}")
     if errors:
         raise ThresholdValidationError(path, errors)
     return AmendmentFreezeReceipt(
