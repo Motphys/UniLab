@@ -30,6 +30,12 @@ from unilab.base.backend.mutation import (
     MutationTargetKind,
     MutationTrigger,
 )
+from unilab.dr.keyed_rng import (
+    KEYED_RNG_ALGORITHM,
+    KeyedRandomSpec,
+    RandomCorrelation,
+    RandomDistribution,
+)
 
 from .entities import EntityKind, EntitySelector, ManagerContractError
 
@@ -289,6 +295,37 @@ _MUTATION_ENTITY_KINDS = {
 
 
 @dataclass(frozen=True)
+class MutationRandomization:
+    """Backend-neutral random semantics for one managed mutation Event.
+
+    The backend mutation ABI deliberately does not carry this descriptor.
+    A compiler freezes the semantic identity here, then a device runtime adds
+    the actual row shape from the backend-bound mutation value contract.
+    """
+
+    distribution: RandomDistribution
+    parameters: tuple[float, float]
+    correlation: RandomCorrelation
+    algorithm: str = KEYED_RNG_ALGORITHM
+
+    def __post_init__(self) -> None:
+        try:
+            probe = KeyedRandomSpec(
+                term_key="manager.randomization.validation",
+                term_version="1",
+                row_shape=(1,),
+                distribution=self.distribution,
+                correlation=self.correlation,
+                parameters=self.parameters,
+                algorithm=self.algorithm,
+            )
+        except ValueError as exc:
+            raise ManagerContractError(f"invalid mutation randomization: {exc}") from exc
+        object.__setattr__(self, "parameters", probe.parameters)
+        object.__setattr__(self, "algorithm", probe.algorithm)
+
+
+@dataclass(frozen=True)
 class MutationTemplate:
     key_suffix: str
     target_key: str
@@ -303,6 +340,7 @@ class MutationTemplate:
     recompute: MutationRecomputeLevel
     value_template: BufferContract
     capability_key: str | None = None
+    randomization: MutationRandomization | None = None
 
     def __post_init__(self) -> None:
         suffix = self.key_suffix.strip() if isinstance(self.key_suffix, str) else None
@@ -338,6 +376,12 @@ class MutationTemplate:
                 raise ManagerContractError(f"mutation {name} must be a {expected.__name__}")
         if not isinstance(self.value_template, BufferContract):
             raise ManagerContractError("mutation value_template must be a BufferContract")
+        if self.randomization is not None and not isinstance(
+            self.randomization, MutationRandomization
+        ):
+            raise ManagerContractError(
+                "mutation randomization must be a MutationRandomization or None"
+            )
         capability = self.capability_key or self.target_key
         object.__setattr__(
             self, "capability_key", _non_empty(capability, "mutation capability key")

@@ -192,8 +192,15 @@ def _state_requirement(
     )
 
 
-def _validate_reference_profile(cfg: G1WalkEnvCfg) -> G1WalkRewardConfig:
+def _validate_reference_profile(
+    cfg: G1WalkEnvCfg,
+    *,
+    allow_pd_randomization: bool = False,
+) -> G1WalkRewardConfig:
     """Reject legacy features whose effects are not in this compiled slice."""
+
+    if not isinstance(allow_pd_randomization, bool):
+        raise G1ManagedReferenceError("allow_pd_randomization must be a bool")
 
     reward = cfg.reward_config
     if not isinstance(reward, G1WalkRewardConfig):
@@ -238,8 +245,8 @@ def _validate_reference_profile(cfg: G1WalkEnvCfg) -> G1WalkRewardConfig:
             ("randomize_ground_friction", dr.randomize_ground_friction),
             ("randomize_dof_armature", dr.randomize_dof_armature),
             ("push_robots", dr.push_robots),
-            ("randomize_kp", dr.randomize_kp),
-            ("randomize_kd", dr.randomize_kd),
+            ("randomize_kp", dr.randomize_kp and not allow_pd_randomization),
+            ("randomize_kd", dr.randomize_kd and not allow_pd_randomization),
         )
         if enabled
     )
@@ -1334,8 +1341,12 @@ def _kernel_config(
     cfg: G1WalkEnvCfg,
     reset_seed: int,
     observation_noise_seed: int | None,
+    allow_pd_randomization: bool = False,
 ) -> _G1KernelConfig:
-    reward = _validate_reference_profile(cfg)
+    reward = _validate_reference_profile(
+        cfg,
+        allow_pd_randomization=allow_pd_randomization,
+    )
     if not np.isfinite(float(cfg.sim_dt)) or float(cfg.sim_dt) <= 0.0:
         raise G1ManagedReferenceError("G1 sim_dt must be finite and positive")
     if not np.isfinite(float(cfg.ctrl_dt)) or float(cfg.ctrl_dt) <= 0.0:

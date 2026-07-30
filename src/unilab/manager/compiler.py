@@ -14,19 +14,24 @@ from unilab.base.backend.batch import (
     BufferOwner,
     BufferPlacement,
     ExecutionProfile,
+    MemorySpace,
     StateFieldSpec,
 )
 from unilab.base.backend.mutation import (
+    MutationCommitPhase,
     MutationSelectorMode,
     MutationSelectorSpec,
     MutationSpec,
+    MutationTargetKind,
     MutationTargetSpec,
+    MutationTrigger,
 )
 
 from .entities import CompiledSelector, EntityResolver, EntitySelector, ManagerContractError
 from .fingerprint import canonical_digest, compiled_plan_payload, tensor_payload
 from .plan import (
     MANAGER_TASK_CONTRACT_VERSION,
+    CompiledMutationEvent,
     CompiledTaskPlan,
     CompiledTerm,
     ObservationGroupPlan,
@@ -39,6 +44,7 @@ from .registry import TermRegistry
 from .spec import (
     TERM_PHASE_ORDER,
     FrozenParameters,
+    MutationRandomization,
     MutationTemplate,
     ParameterKind,
     ParameterSpec,
@@ -48,6 +54,7 @@ from .spec import (
     TaskSpec,
     TermDefinition,
     TermInvocation,
+    TermPhase,
     TermRole,
 )
 
@@ -57,6 +64,13 @@ class _ResolvedInvocation:
     invocation: TermInvocation
     definition: TermDefinition
     parameters: FrozenParameters
+
+
+@dataclass(frozen=True)
+class _RandomMutationOwner:
+    invocation_key: str
+    definition_version: str
+    randomization: MutationRandomization
 
 
 def _validate_parameter(spec: ParameterSpec, value: ParameterValue) -> ParameterValue:
@@ -277,19 +291,59 @@ def _compile_mutations(
     resolved: dict[str, _ResolvedInvocation],
     selectors: dict[str, CompiledSelector],
     placement: BufferPlacement,
-) -> tuple[tuple[MutationSpec, ...], dict[str, tuple[str, ...]]]:
+) -> tuple[
+    tuple[MutationSpec, ...],
+    dict[str, tuple[str, ...]],
+    dict[str, _RandomMutationOwner],
+]:
     specs: dict[str, MutationSpec] = {}
     writes: dict[tuple[object, ...], str] = {}
     term_mutation_keys: dict[str, tuple[str, ...]] = {}
+    random_owners: dict[str, _RandomMutationOwner] = {}
     for term_key, item in resolved.items():
         keys: list[str] = []
         for template in item.definition.mutation_templates:
+            key = _mutation_key(term_key, template)
+            if template.randomization is not None:
+                if item.definition.role is not TermRole.EVENT:
+                    raise ManagerContractError(
+                        f"random mutation {key!r} must belong to an Event term"
+                    )
+                if (
+                    item.definition.phase is not TermPhase.RESET
+                    or template.trigger is not MutationTrigger.RESET
+                    or template.commit_phase is not MutationCommitPhase.RESET
+                ):
+                    raise ManagerContractError(
+                        f"random mutation {key!r} currently requires reset trigger and phase"
+                    )
+                value = template.value_template
+                if (
+                    value.placement.memory_space is not MemorySpace.DEVICE
+                    or value.placement.device_type != "cuda"
+                    or value.placement.device_index is None
+                    or value.dtype not in {"float32", "float64"}
+                    or value.owner is not BufferOwner.MANAGER
+                    or value.mutability is not BufferMutability.READ_ONLY
+                    or value.lifetime is not BufferLifetime.UNTIL_COMMIT
+                    or not value.dlpack_exportable
+                    or not value.address_stable
+                ):
+                    raise ManagerContractError(
+                        f"random mutation {key!r} requires a stable manager-owned CUDA "
+                        "float commit buffer"
+                    )
+                if template.target_kind not in {
+                    MutationTargetKind.MODEL_PARAMETER,
+                    MutationTargetKind.SIMULATION_STATE,
+                }:
+                    raise ManagerContractError(
+                        f"random reset mutation {key!r} has an unsupported target kind"
+                    )
             if template.value_template.placement != placement:
                 raise ManagerContractError(
-                    f"mutation {_mutation_key(term_key, template)!r} placement does not match "
-                    "the task control/state placement"
+                    f"mutation {key!r} placement does not match the task control/state placement"
                 )
-            key = _mutation_key(term_key, template)
             selector = selectors[template.selector.key] if template.selector is not None else None
             target = MutationTargetSpec(
                 target_key=template.target_key,
@@ -335,10 +389,16 @@ def _compile_mutations(
                 )
             writes[write_key] = key
             specs[key] = spec
+            if template.randomization is not None:
+                random_owners[key] = _RandomMutationOwner(
+                    invocation_key=term_key,
+                    definition_version=item.definition.version,
+                    randomization=template.randomization,
+                )
             keys.append(key)
         term_mutation_keys[term_key] = tuple(keys)
     ordered = tuple(specs[key] for key in sorted(specs))
-    return ordered, term_mutation_keys
+    return ordered, term_mutation_keys, random_owners
 
 
 def _required_capabilities(resolved: dict[str, _ResolvedInvocation]) -> tuple[str, ...]:
@@ -556,7 +616,7 @@ class TaskCompiler:
             task.execution_profile,
             task.control.buffer.placement,
         )
-        mutations, term_mutation_keys = _compile_mutations(
+        mutations, term_mutation_keys, random_owners = _compile_mutations(
             resolved,
             selector_map,
             task.control.buffer.placement,
@@ -594,6 +654,23 @@ class TaskCompiler:
             )
             for key in ordered_keys
         )
+        mutation_events = tuple(
+            CompiledMutationEvent(
+                mutation_index=mutation_indices[key],
+                term_index=term_indices[owner.invocation_key],
+                term_key=key,
+                term_version=owner.definition_version,
+                trigger=mutations[mutation_indices[key]].trigger,
+                commit_phase=mutations[mutation_indices[key]].commit_phase,
+                distribution=owner.randomization.distribution,
+                parameters=owner.randomization.parameters,
+                correlation=owner.randomization.correlation,
+                algorithm=owner.randomization.algorithm,
+            )
+            for key, owner in sorted(
+                random_owners.items(), key=lambda item: mutation_indices[item[0]]
+            )
+        )
         policy_abi = _build_policy_abi(task, ordered_keys, resolved, outputs, term_indices)
         diagnostic_signature = (
             MANAGER_TASK_CONTRACT_VERSION,
@@ -603,6 +680,7 @@ class TaskCompiler:
             f"terms={len(compiled_terms)}",
             f"state_fields={len(state_fields)}",
             f"mutations={len(mutations)}",
+            *((f"mutation_events={len(mutation_events)}",) if mutation_events else ()),
             f"output_channels={len(output_channels)}",
             f"policy_abi={policy_abi.fingerprint}",
         )
@@ -612,6 +690,7 @@ class TaskCompiler:
             terms=compiled_terms,
             backend_io=backend_io,
             mutation_specs=mutations,
+            mutation_events=mutation_events,
             output_channels=output_channels,
             policy_abi=policy_abi,
             executor_key=task.executor_key,
@@ -634,6 +713,7 @@ class TaskCompiler:
             terms=provisional.terms,
             backend_io=provisional.backend_io,
             mutation_specs=provisional.mutation_specs,
+            mutation_events=provisional.mutation_events,
             output_channels=provisional.output_channels,
             policy_abi=provisional.policy_abi,
             executor_key=provisional.executor_key,

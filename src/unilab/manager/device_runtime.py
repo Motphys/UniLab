@@ -40,6 +40,7 @@ from unilab.base.backend import (
     DeviceTensorView,
     ExecutionProfile,
     MemorySpace,
+    ModelParameterMutationBatch,
     MutationValueBatch,
     RowSelection,
     SimulationStateMutationBatch,
@@ -49,10 +50,19 @@ from unilab.base.backend import (
     require_device_tensor_view,
 )
 from unilab.base.backend.base import SimBackend
-from unilab.base.backend.mutation import BoundMutationPlan
+from unilab.base.backend.mutation import (
+    BoundMutationPlan,
+    MutationEntityKind,
+    MutationTargetKind,
+)
+from unilab.dr.keyed_rng import (
+    KeyedRandomSpec,
+    KeyedRandomStream,
+    KeyedRandomTrafficDiagnostics,
+)
 
-from .fingerprint import managed_policy_abi_snapshot
-from .plan import CompiledTaskPlan
+from .fingerprint import managed_policy_abi_snapshot, validate_compiled_plan_fingerprints
+from .plan import CompiledMutationEvent, CompiledTaskPlan
 from .runtime import ManagedKernelBinding, ManagedLifecyclePhase, ManagedRuntimeError
 
 
@@ -179,25 +189,73 @@ class DeviceTransition:
 
 
 @dataclass(frozen=True)
-class DeviceResetPayload:
-    """Kernel-owned CUDA reset staging consumed by the generic runtime envelope.
+class DeviceResetValue:
+    """One deterministic kernel-owned reset field in canonical plan coordinates."""
 
-    The values are ordered exactly like ``BoundMutationPlan.specs``.  The
-    runtime attaches leases/completion events and constructs the public
-    :class:`DeviceResetMutationBatch`; task code never has to manufacture a
-    backend envelope or access a raw physics tensor.
+    field_index: int
+    tensor: torch.Tensor = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.field_index, bool)
+            or not isinstance(self.field_index, int)
+            or self.field_index < 0
+        ):
+            raise DeviceManagedRuntimeError("device reset field_index must be non-negative")
+        if not isinstance(self.tensor, torch.Tensor):
+            raise DeviceManagedRuntimeError("device reset value must contain a tensor")
+
+
+@dataclass(frozen=True)
+class DeviceResetPayload:
+    """Sparse deterministic CUDA reset staging supplied by a task kernel.
+
+    Random Event fields are manager-owned and therefore must not appear here.
+    The runtime validates exact deterministic coverage, samples its keyed
+    streams, and constructs one public :class:`DeviceResetMutationBatch`.
     """
 
     active_mask: torch.Tensor = field(repr=False, compare=False)
-    values: tuple[torch.Tensor, ...] = field(repr=False, compare=False)
+    values: tuple[DeviceResetValue, ...] = field(default=(), repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.active_mask, torch.Tensor):
             raise DeviceManagedRuntimeError("device reset payload active_mask must be a tensor")
-        if not isinstance(self.values, tuple) or not self.values:
-            raise DeviceManagedRuntimeError("device reset payload requires value tensors")
-        if any(not isinstance(value, torch.Tensor) for value in self.values):
-            raise DeviceManagedRuntimeError("device reset payload values must contain only tensors")
+        if not isinstance(self.values, tuple) or any(
+            not isinstance(value, DeviceResetValue) for value in self.values
+        ):
+            raise DeviceManagedRuntimeError(
+                "device reset payload values must contain DeviceResetValue descriptors"
+            )
+
+
+@dataclass(frozen=True)
+class DeviceMutationEventBinding:
+    """Backend-bound shape and placement for one compiled random Event."""
+
+    event: CompiledMutationEvent
+    value_contract: BufferContract
+    random_spec: KeyedRandomSpec
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.event, CompiledMutationEvent):
+            raise DeviceManagedRuntimeError("device Event binding requires a compiled Event")
+        if not isinstance(self.value_contract, BufferContract):
+            raise DeviceManagedRuntimeError("device Event binding requires a value contract")
+        if not isinstance(self.random_spec, KeyedRandomSpec):
+            raise DeviceManagedRuntimeError("device Event binding requires a keyed random spec")
+        if (
+            self.random_spec.term_key != self.event.term_key
+            or self.random_spec.term_version != self.event.term_version
+            or self.random_spec.row_shape != self.value_contract.row_shape
+            or self.random_spec.distribution is not self.event.distribution
+            or self.random_spec.parameters != self.event.parameters
+            or self.random_spec.correlation is not self.event.correlation
+            or self.random_spec.algorithm != self.event.algorithm
+        ):
+            raise DeviceManagedRuntimeError(
+                "device Event binding differs from its compiled random semantics"
+            )
 
 
 @dataclass(frozen=True)
@@ -629,6 +687,7 @@ class DeviceManagedRuntime:
         plan: CompiledTaskPlan,
         kernel: DeviceManagedTaskKernel,
         max_episode_steps: int | None,
+        run_seed: int = 0,
         record_lifecycle: bool = False,
         stability_buffer_provider: DeviceRuntimeBufferProvider | None = None,
     ) -> None:
@@ -636,6 +695,7 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError("device managed runtime requires a SimBackend")
         if not isinstance(plan, CompiledTaskPlan):
             raise DeviceManagedRuntimeError("device managed runtime requires a CompiledTaskPlan")
+        validate_compiled_plan_fingerprints(plan)
         if plan.backend_io.execution_profile is not ExecutionProfile.DEVICE_RESIDENT:
             raise DeviceManagedRuntimeError(
                 "device managed runtime only supports device_resident plans"
@@ -658,6 +718,8 @@ class DeviceManagedRuntime:
             or max_episode_steps <= 0
         ):
             raise DeviceManagedRuntimeError("max_episode_steps must be a positive integer or None")
+        if isinstance(run_seed, bool) or not isinstance(run_seed, int):
+            raise DeviceManagedRuntimeError("device managed runtime run_seed must be an integer")
         self._validate_kernel(kernel, plan)
 
         bound = backend.bind_task_io(plan.backend_io)
@@ -687,6 +749,115 @@ class DeviceManagedRuntime:
         if self._dtype is not torch.float32:
             raise DeviceManagedRuntimeError("mjwarp device managed runtime requires float32")
         self._num_envs = bound.num_envs
+        event_bindings: list[DeviceMutationEventBinding] = []
+        event_streams: list[KeyedRandomStream] = []
+        for event in plan.mutation_events:
+            try:
+                spec = mutation_plan.specs[event.mutation_index]
+            except IndexError as exc:  # pragma: no cover - plan validation guards this.
+                raise DeviceManagedRuntimeError(
+                    "compiled Event mutation is absent from the bound backend plan"
+                ) from exc
+            source = plan.mutation_specs[event.mutation_index]
+            if source.target.entity_kind is MutationEntityKind.GLOBAL:
+                expected_entity_count = 0
+                expected_row_shape = source.value_template.row_shape
+            else:
+                selector = source.target.selector_spec
+                if (
+                    selector is None or not selector.entity_ids
+                ):  # pragma: no cover - plan invariant.
+                    raise DeviceManagedRuntimeError(
+                        f"compiled Event {event.term_key!r} has no selector binding"
+                    )
+                expected_entity_count = len(selector.entity_ids)
+                expected_row_shape = (expected_entity_count, *source.value_template.row_shape)
+            expected_value_contract = replace(
+                source.value_template,
+                row_shape=expected_row_shape,
+            )
+            if (
+                spec.term_key != event.term_key
+                or spec.target.target_key != source.target.target_key
+                or spec.target.target_kind is not source.target.target_kind
+                or spec.target.entity_kind is not source.target.entity_kind
+                or spec.target.field_kind is not source.target.field_kind
+                or len(spec.target.entity_ids) != expected_entity_count
+                or spec.trigger is not event.trigger
+                or spec.commit_phase is not event.commit_phase
+                or spec.operation is not source.operation
+                or spec.baseline is not source.baseline
+                or spec.persistence is not source.persistence
+                or spec.recompute is not source.recompute
+                or spec.target.target_kind
+                not in {
+                    MutationTargetKind.MODEL_PARAMETER,
+                    MutationTargetKind.SIMULATION_STATE,
+                }
+                or spec.value_buffer != expected_value_contract
+                or spec.value_buffer.placement != placement
+            ):
+                raise DeviceManagedRuntimeError(
+                    f"bound mutation Event {event.term_key!r} is incompatible with its plan"
+                )
+            random_spec = KeyedRandomSpec(
+                term_key=event.term_key,
+                term_version=event.term_version,
+                row_shape=spec.value_buffer.row_shape,
+                distribution=event.distribution,
+                correlation=event.correlation,
+                parameters=event.parameters,
+                algorithm=event.algorithm,
+            )
+            event_bindings.append(
+                DeviceMutationEventBinding(
+                    event=event,
+                    value_contract=spec.value_buffer,
+                    random_spec=random_spec,
+                )
+            )
+            event_streams.append(
+                KeyedRandomStream(
+                    random_spec,
+                    run_seed=run_seed,
+                    num_envs=self._num_envs,
+                    device=self._device,
+                    dtype=_torch_dtype(spec.value_buffer.dtype),
+                )
+            )
+        self._event_bindings = tuple(event_bindings)
+        self._event_streams = tuple(event_streams)
+        self._event_mutation_indices = tuple(
+            binding.event.mutation_index for binding in self._event_bindings
+        )
+        unsupported_targets = tuple(
+            spec.term_key
+            for spec in mutation_plan.specs
+            if spec.target.target_kind
+            not in {
+                MutationTargetKind.MODEL_PARAMETER,
+                MutationTargetKind.SIMULATION_STATE,
+            }
+        )
+        if unsupported_targets:
+            raise DeviceManagedRuntimeError(
+                "device reset runtime does not support mutation targets for: "
+                + ", ".join(unsupported_targets)
+            )
+        self._model_mutation_indices = tuple(
+            index
+            for index, spec in enumerate(mutation_plan.specs)
+            if spec.target.target_kind is MutationTargetKind.MODEL_PARAMETER
+        )
+        self._state_mutation_indices = tuple(
+            index
+            for index, spec in enumerate(mutation_plan.specs)
+            if spec.target.target_kind is MutationTargetKind.SIMULATION_STATE
+        )
+        event_index_set = frozenset(self._event_mutation_indices)
+        self._deterministic_mutation_indices = tuple(
+            index for index in range(len(mutation_plan.specs)) if index not in event_index_set
+        )
         self._all_rows = RowSelection.all(self._num_envs)
         self._max_episode_steps = max_episode_steps
         self._record_lifecycle = record_lifecycle
@@ -733,6 +904,7 @@ class DeviceManagedRuntime:
                 (group.key, index) for index, group in enumerate(plan.policy_abi.observation_groups)
             ),
             mutation_plan=mutation_plan,
+            event_mutation_indices=self._event_mutation_indices,
         )
         kernel.bind(binding=binding)
         self._validate_kernel(kernel, plan)
@@ -771,6 +943,15 @@ class DeviceManagedRuntime:
         )
         self._terminal_observations = tuple(torch.empty_like(value) for value in self._observations)
         self._final_observations = tuple(torch.empty_like(value) for value in self._observations)
+        # Construction may run on a policy/default stream while every warm
+        # lifecycle operation runs on ``_task_stream``.  Publish all cold-path
+        # tensor initialization explicitly before the first reset instead of
+        # relying on CUDA default-stream ordering.
+        self._cold_init_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
+        cold_init_stream = torch.cuda.current_stream(self._device)
+        if cold_init_stream != self._task_stream:
+            self._cold_init_event.record(cold_init_stream)
+            self._task_stream.wait_event(cast(Any, self._cold_init_event))
         self._initialized = False
 
     @staticmethod
@@ -874,6 +1055,33 @@ class DeviceManagedRuntime:
     @property
     def device(self) -> torch.device:
         return self._device
+
+    @property
+    def event_bindings(self) -> tuple[DeviceMutationEventBinding, ...]:
+        """Return immutable backend-bound Event metadata without exposing samplers."""
+
+        return self._event_bindings
+
+    def capture_event_trigger_counts(self) -> tuple[tuple[str, Any], ...]:
+        """Materialize per-world counters at an explicit diagnostic boundary."""
+
+        if self._initialized:
+            torch.cuda.current_stream(self._device).wait_event(cast(Any, self._output_event))
+        return tuple(
+            (binding.event.term_key, stream.capture_trigger_counts())
+            for binding, stream in zip(self._event_bindings, self._event_streams, strict=True)
+        )
+
+    @property
+    def event_traffic_diagnostics(
+        self,
+    ) -> tuple[tuple[str, KeyedRandomTrafficDiagnostics], ...]:
+        """Return allocation/transfer counters without materializing Event data."""
+
+        return tuple(
+            (binding.event.term_key, stream.traffic_diagnostics)
+            for binding, stream in zip(self._event_bindings, self._event_streams, strict=True)
+        )
 
     @property
     def control_contract(self) -> BufferContract:
@@ -994,6 +1202,12 @@ class DeviceManagedRuntime:
                     DeviceRuntimeBuffer(f"runtime.terminal_observation.{key}", terminal),
                     DeviceRuntimeBuffer(f"runtime.final_observation.{key}", final),
                 )
+            )
+        for binding, stream in zip(self._event_bindings, self._event_streams, strict=True):
+            prefix = f"runtime.event.{binding.event.term_key}"
+            buffers.extend(
+                DeviceRuntimeBuffer(f"{prefix}.{name}", tensor)
+                for name, tensor in stream.named_buffers
             )
         return tuple(buffers)
 
@@ -1194,9 +1408,56 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError(
                 "device reset active mask must be a contiguous CUDA bool all-world buffer"
             )
-        if len(payload.values) != len(self._mutation_plan.specs):
+        payload_indices = tuple(value.field_index for value in payload.values)
+        if len(set(payload_indices)) != len(payload_indices):
             raise DeviceManagedRuntimeError(
-                "device reset payload must provide every bound mutation value exactly once"
+                "device reset payload contains a duplicate deterministic field"
+            )
+        if any(index >= len(self._mutation_plan.specs) for index in payload_indices):
+            raise DeviceManagedRuntimeError(
+                "device reset payload references an unbound mutation field"
+            )
+        if any(index in self._event_mutation_indices for index in payload_indices):
+            raise DeviceManagedRuntimeError(
+                "device task kernel must not provide a manager-owned Event field"
+            )
+        if payload_indices != self._deterministic_mutation_indices:
+            raise DeviceManagedRuntimeError(
+                "device reset payload must provide every deterministic field once in "
+                "canonical mutation order"
+            )
+        tensors: list[torch.Tensor | None] = [None] * len(self._mutation_plan.specs)
+        for descriptor in payload.values:
+            spec = self._mutation_plan.specs[descriptor.field_index]
+            tensor = descriptor.tensor
+            expected_shape = (self._num_envs, *spec.value_buffer.row_shape)
+            if (
+                tensor.device != self._device
+                or tensor.dtype is not _torch_dtype(spec.value_buffer.dtype)
+                or tuple(tensor.shape) != expected_shape
+                or not tensor.is_contiguous()
+            ):
+                raise DeviceManagedRuntimeError(
+                    f"device reset value {descriptor.field_index} differs from its "
+                    "cold-bound mutation contract"
+                )
+            tensors[descriptor.field_index] = tensor
+        for binding, stream in zip(self._event_bindings, self._event_streams, strict=True):
+            sampled = stream.sample(mask).values
+            expected_shape = (self._num_envs, *binding.value_contract.row_shape)
+            if (
+                sampled.device != self._device
+                or sampled.dtype is not _torch_dtype(binding.value_contract.dtype)
+                or tuple(sampled.shape) != expected_shape
+                or not sampled.is_contiguous()
+            ):
+                raise DeviceManagedRuntimeError(
+                    f"manager Event {binding.event.term_key!r} produced an invalid value buffer"
+                )
+            tensors[binding.event.mutation_index] = sampled
+        if any(tensor is None for tensor in tensors):
+            raise DeviceManagedRuntimeError(
+                "device reset values do not cover the complete bound mutation plan"
             )
         completion = DeviceCompletion.record(
             placement=self._placement,
@@ -1211,20 +1472,13 @@ class DeviceManagedRuntime:
             lease=self._reset_lease,
             completion=completion,
         )
-        values: list[Any] = []
-        for field_index, (spec, tensor) in enumerate(
-            zip(self._mutation_plan.specs, payload.values, strict=True)
+        values: list[MutationValueBatch] = []
+        for field_index, (spec, optional_tensor) in enumerate(
+            zip(self._mutation_plan.specs, tensors, strict=True)
         ):
+            assert optional_tensor is not None
+            tensor = optional_tensor
             expected_shape = (self._num_envs, *spec.value_buffer.row_shape)
-            if (
-                tensor.device != self._device
-                or tensor.dtype is not self._dtype
-                or tuple(tensor.shape) != expected_shape
-                or not tensor.is_contiguous()
-            ):
-                raise DeviceManagedRuntimeError(
-                    f"device reset value {field_index} differs from its cold-bound mutation contract"
-                )
             view = DeviceTensorView(
                 tensor_handle=tensor,
                 contract=spec.value_buffer,
@@ -1246,7 +1500,12 @@ class DeviceManagedRuntime:
         mutation = TypedBackendMutationBatch(
             plan=self._mutation_plan,
             rows=self._all_rows,
-            state=SimulationStateMutationBatch(tuple(values)),
+            model=ModelParameterMutationBatch(
+                tuple(values[index] for index in self._model_mutation_indices)
+            ),
+            state=SimulationStateMutationBatch(
+                tuple(values[index] for index in self._state_mutation_indices)
+            ),
         )
         return DeviceResetMutationBatch(
             plan=self._mutation_plan,
@@ -1539,7 +1798,9 @@ __all__ = [
     "DeviceManagedRuntime",
     "DeviceManagedRuntimeError",
     "DeviceManagedTaskKernel",
+    "DeviceMutationEventBinding",
     "DeviceResetPayload",
+    "DeviceResetValue",
     "DeviceRuntimeBuffer",
     "DeviceRuntimeBufferAddress",
     "DeviceRuntimeBufferProvider",

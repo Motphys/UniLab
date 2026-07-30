@@ -333,6 +333,25 @@ class KeyedRandomStream:
     def output_address(self) -> int:
         return int(self._values.data_ptr())
 
+    @property
+    def named_buffers(self) -> tuple[tuple[str, torch.Tensor], ...]:
+        """Return preallocated numeric storage for explicit stability audits."""
+
+        return (
+            ("active_mask", self._active_mask),
+            ("candidate", self._candidate),
+            ("component_keys", self._component_keys),
+            ("env_keys", self._env_keys),
+            ("float_a", self._float_a),
+            ("float_b", self._float_b),
+            ("key", self._key),
+            ("key_tmp", self._key_tmp),
+            ("row_key", self._row_key),
+            ("row_tmp", self._row_tmp),
+            ("trigger_counts", self._trigger_counts),
+            ("values", self._values),
+        )
+
     def _fill_key(self, *, salt: int = 0) -> None:
         torch.mul(self._env_keys, _ENV_MULTIPLIER, out=self._row_key)
         torch.mul(

@@ -24,14 +24,14 @@ claims:
     risk: Randomized values look plausible while lifecycle, baseline, or correlation semantics are wrong.
     owner: backend-DR
     oracle: Predetermined sample tensors and sentinel baselines independently define expected values for each operation and row schedule.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_mutation_semantics.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_mutation_semantics.py tests/dr/test_mjwarp_g1_event_dr.py::test_g1_reset_events_are_keyed_partial_and_stable -m slow -v]
     lane: C
     required: true
     required_test_ids: [tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [17, 128], dtype: float32, plan_fingerprint: mjwarp-mutation-semantics-v1}
     acceptance: {tolerance: {atol: 1.0e-6, rtol: 1.0e-5}, thresholds: {accumulation_errors: 0, complement_changes: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any baseline accumulation, row leak, correlation mismatch, or expiry/reset-clear error is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_mutation_semantics.py], capabilities: [mjwarp-dr-semantics], fingerprints: [mjwarp-mutation-semantics-v1]}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, src/unilab/manager/**, src/unilab/envs/locomotion/g1/managed_device.py, tests/dr/test_mjwarp_mutation_semantics.py, tests/dr/test_mjwarp_g1_event_dr.py], capabilities: [mjwarp-dr-semantics], fingerprints: [mjwarp-mutation-semantics-v1]}
     status: planned
 
   - claim_id: P6-PHYSICS-EFFECT
@@ -39,14 +39,14 @@ claims:
     risk: Direct fields are writable but derived constants, bounds, or physics kernels still consume shared stale values.
     owner: backend-DR
     oracle: Randomized/control world pairs compare next-step acceleration, contact, or trajectory outcomes and independent validity invariants.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_physics_effect.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/dr/test_mjwarp_physics_effect.py tests/dr/test_mjwarp_g1_event_dr.py::test_partial_event_changes_only_selected_world_physics_not_control -m slow -v]
     lane: C
     required: true
     required_test_ids: [tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 1, 2], batch_sizes: [2, 32], dtype: float32, plan_fingerprint: mjwarp-dr-effect-v1}
     acceptance: {tolerance: {effect_min: 1.0e-7}, thresholds: {ineffective_capabilities: 0, invalid_inertias: 0}, repetitions: 5, max_dispersion: 0, failure_semantics: "A written field without next-step effect, stale derived constants, invalid inertia, or stale geom bounds is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, tests/dr/test_mjwarp_physics_effect.py], capabilities: [mjwarp-dr-effect], fingerprints: [mjwarp-dr-effect-v1]}
+    invalidation: {paths: [src/unilab/base/backend/mjwarp/**, src/unilab/dr/**, src/unilab/manager/**, src/unilab/envs/locomotion/g1/managed_device.py, tests/dr/test_mjwarp_physics_effect.py, tests/dr/test_mjwarp_g1_event_dr.py], capabilities: [mjwarp-dr-effect], fingerprints: [mjwarp-dr-effect-v1]}
     status: planned
 
   - claim_id: P6-RNG-REPRODUCIBILITY
@@ -54,14 +54,14 @@ claims:
     risk: Refactoring term order silently changes all randomization streams and training behavior.
     owner: manager-runtime
     oracle: Metamorphic tests permute rows and add unrelated terms while comparing the original term's samples by env and trigger count.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms tests/manager/test_device_event_runtime.py::test_runtime_composes_sparse_kernel_and_event_values_by_target_kind -v]
     lane: C
     required: true
     required_test_ids: [tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms]
     environment: {dependencies: [uv.lock, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: CUDA-capable Linux GPU, owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml, seeds: [0, 7, 29], batch_sizes: [17, 128], dtype: float32, plan_fingerprint: keyed-dr-rng-v1}
     acceptance: {tolerance: {}, thresholds: {sequence_mismatches: 0}, repetitions: 3, max_dispersion: 0, failure_semantics: "Any existing-term sequence change from row order or unrelated term insertion is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/manager/**, src/unilab/dr/**, tests/dr/test_keyed_rng.py], capabilities: [keyed-dr-rng], fingerprints: [keyed-dr-rng-v1]}
+    invalidation: {paths: [src/unilab/manager/**, src/unilab/dr/**, tests/dr/test_keyed_rng.py, tests/manager/test_device_event_runtime.py], capabilities: [keyed-dr-rng], fingerprints: [keyed-dr-rng-v1]}
     status: planned
 
   - claim_id: P6-GRAPH-RECAPTURE
