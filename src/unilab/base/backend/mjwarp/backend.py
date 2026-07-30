@@ -57,6 +57,7 @@ from unilab.base.backend.mutation import (
     MutationContractError,
     MutationEntityKind,
     MutationFieldKind,
+    MutationSelectorMode,
     MutationSpec,
     MutationTargetKind,
     MutationTargetSpec,
@@ -760,11 +761,11 @@ class MjwarpBackend(SimBackend):
         selector = spec.selector_spec
         if selector is None:
             raise MutationContractError("mjwarp typed mutation selector must be explicit")
-        raw_selector = selector.require_exact_singleton(context="mjwarp typed reset")
         if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
             raise MutationContractError("mjwarp typed mutation selector has an unsupported target")
 
         if spec.entity_kind is MutationEntityKind.BODY:
+            raw_selector = selector.require_exact_singleton(context="mjwarp typed root reset")
             root_targets = {
                 "state.root.position": MutationFieldKind.POSITION,
                 "state.root.orientation": MutationFieldKind.ORIENTATION,
@@ -803,26 +804,37 @@ class MjwarpBackend(SimBackend):
         expected_field = field_targets.get(spec.target_key)
         if expected_field is None or spec.field_kind is not expected_field:
             raise MutationContractError("mjwarp typed DoF reset has an unsupported field kind")
-        joint_id = self._mujoco.mj_name2id(
-            self._cpu_model,
-            self._mujoco.mjtObj.mjOBJ_JOINT,
-            raw_selector,
-        )
-        if joint_id < 0 or int(self._cpu_model.jnt_type[joint_id]) != int(
-            self._mujoco.mjtJoint.mjJNT_HINGE
-        ):
+        if selector.mode is not MutationSelectorMode.EXACT:
             raise MutationContractError(
-                f"mjwarp typed reset selector {raw_selector!r} must resolve one hinge joint"
+                "mjwarp typed DoF reset only supports exact mutation selectors"
             )
-        if spec.field_kind is MutationFieldKind.POSITION:
-            coordinate = int(self._cpu_model.jnt_qposadr[joint_id]) - self._root_qpos_dim
-            count = self._num_dof_pos
-        else:
-            coordinate = int(self._cpu_model.jnt_dofadr[joint_id]) - self._root_qvel_dim
-            count = self._num_dof_vel
-        if coordinate < 0 or coordinate >= count:
-            raise MutationContractError("mjwarp typed reset coordinate is out of range")
-        return (coordinate,)
+        coordinates: list[int] = []
+        for raw_selector in selector.expressions:
+            joint_id = self._mujoco.mj_name2id(
+                self._cpu_model,
+                self._mujoco.mjtObj.mjOBJ_JOINT,
+                raw_selector,
+            )
+            if joint_id < 0 or int(self._cpu_model.jnt_type[joint_id]) != int(
+                self._mujoco.mjtJoint.mjJNT_HINGE
+            ):
+                raise MutationContractError(
+                    f"mjwarp typed reset selector {raw_selector!r} must resolve one hinge joint"
+                )
+            if spec.field_kind is MutationFieldKind.POSITION:
+                coordinate = int(self._cpu_model.jnt_qposadr[joint_id]) - self._root_qpos_dim
+                count = self._num_dof_pos
+            else:
+                coordinate = int(self._cpu_model.jnt_dofadr[joint_id]) - self._root_qvel_dim
+                count = self._num_dof_vel
+            if coordinate < 0 or coordinate >= count:
+                raise MutationContractError("mjwarp typed reset coordinate is out of range")
+            coordinates.append(coordinate)
+        if len(set(coordinates)) != len(coordinates):
+            raise MutationContractError(
+                "mjwarp typed DoF reset selector resolved duplicate coordinates"
+            )
+        return tuple(coordinates)
 
     def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
         """Bind the narrow typed reset contract without exposing raw Warp objects."""
