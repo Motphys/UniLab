@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
@@ -98,6 +99,7 @@ def test_invalid_replay_pipeline_rejected():
         _offpolicy().build_runner("sac", cfg)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="multi-GPU runner requires CUDA")
 def test_gpu_resident_replay_pipeline_accepted_for_multi_gpu():
     cfg = _offpolicy_cfg(
         [
