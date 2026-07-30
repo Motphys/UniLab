@@ -38,7 +38,6 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence, cast
 
 import numpy as np
-from omegaconf import OmegaConf
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
@@ -74,6 +73,9 @@ from unilab.tools.g1_baseline_provenance import (  # noqa: E402
 )
 from unilab.tools.issue705_thresholds import (  # noqa: E402
     ThresholdManifest,
+    load_amendment_freeze_receipt,
+    load_freeze_receipt,
+    load_threshold_amendment,
     load_threshold_manifest,
 )
 
@@ -84,6 +86,12 @@ PROFILE = "device_resident"
 DEFAULT_BASELINE_PLAN = Path("tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml")
 DEFAULT_THRESHOLD_MANIFEST = Path("tests/acceptance/issue_705/g1_threshold_manifest.yaml")
 DEFAULT_THRESHOLD_RECEIPT = Path("tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml")
+DEFAULT_THRESHOLD_AMENDMENT = Path(
+    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml"
+)
+DEFAULT_THRESHOLD_AMENDMENT_RECEIPT = Path(
+    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml"
+)
 DEFAULT_OUTPUT = Path("/tmp/unilab_issue705_mjwarp_device_ppo.json")
 DEFAULT_TRACE_OUTPUT = Path("/tmp/unilab_issue705_mjwarp_device_ppo_trace.json")
 THROUGHPUT_MODES = ("mujoco_host", "mjwarp_device")
@@ -120,6 +128,9 @@ SOURCE_INPUTS = (
     "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml",
     "tests/acceptance/issue_705/g1_threshold_manifest.yaml",
     "tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml",
+    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml",
+    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml",
+    "docs/sphinx/source/adr/ADR-0006-phase5-ppo-rss-threshold-amendment.md",
     "tests/benchmark/test_mjwarp_ppo_benchmark.py",
     "uv.lock",
 )
@@ -162,6 +173,10 @@ class BenchmarkBinding:
     threshold_manifest_path: Path
     threshold_manifest_sha256: str
     threshold_freeze_commit: str
+    amendment_id: str
+    amendment_manifest_path: Path
+    amendment_manifest_sha256: str
+    amendment_freeze_commit: str
     batch_sizes: tuple[int, ...]
     process_repeats: int
     behavior_seeds: tuple[int, ...]
@@ -245,18 +260,12 @@ def _git(*args: str) -> str:
     return result.stdout.strip()
 
 
-def _load_yaml(path: Path) -> Mapping[str, Any]:
-    try:
-        value = OmegaConf.to_container(OmegaConf.load(path), resolve=False)
-    except Exception as exc:  # noqa: BLE001 - normalize YAML failures at the benchmark boundary.
-        raise MjwarpPpoBenchmarkError(f"cannot load {path}: {type(exc).__name__}: {exc}") from exc
-    return _mapping(value, str(path))
-
-
 def load_binding(
     *,
     threshold_manifest_path: Path = DEFAULT_THRESHOLD_MANIFEST,
     threshold_receipt_path: Path = DEFAULT_THRESHOLD_RECEIPT,
+    threshold_amendment_path: Path = DEFAULT_THRESHOLD_AMENDMENT,
+    threshold_amendment_receipt_path: Path = DEFAULT_THRESHOLD_AMENDMENT_RECEIPT,
     baseline_plan_path: Path = DEFAULT_BASELINE_PLAN,
 ) -> BenchmarkBinding:
     """Bind the exact frozen matrix before a benchmark command can be constructed."""
@@ -271,11 +280,37 @@ def load_binding(
         if threshold_receipt_path.is_absolute()
         else ROOT_DIR / threshold_receipt_path
     )
+    amendment_path = (
+        threshold_amendment_path
+        if threshold_amendment_path.is_absolute()
+        else ROOT_DIR / threshold_amendment_path
+    )
+    amendment_receipt_path = (
+        threshold_amendment_receipt_path
+        if threshold_amendment_receipt_path.is_absolute()
+        else ROOT_DIR / threshold_amendment_receipt_path
+    )
     plan_path = (
         baseline_plan_path if baseline_plan_path.is_absolute() else ROOT_DIR / baseline_plan_path
     )
     manifest: ThresholdManifest = load_threshold_manifest(manifest_path, repo_root=ROOT_DIR)
-    receipt = _load_yaml(receipt_path)
+    receipt = load_freeze_receipt(
+        receipt_path,
+        manifest=manifest,
+        repo_root=ROOT_DIR,
+    )
+    amendment = load_threshold_amendment(
+        amendment_path,
+        base_manifest=manifest,
+        base_receipt=receipt,
+        repo_root=ROOT_DIR,
+    )
+    amendment_receipt = load_amendment_freeze_receipt(
+        amendment_receipt_path,
+        amendment=amendment,
+        base_receipt=receipt,
+        repo_root=ROOT_DIR,
+    )
     data = manifest.data
     measurement = _mapping(data.get("measurement"), "measurement")
     gates = _mapping(data.get("gates"), "gates")
@@ -290,17 +325,7 @@ def load_binding(
     baseline_plan = _load_plan(plan_path)
 
     manifest_sha = sha256_file(manifest_path)
-    if receipt.get("threshold_set_id") != data.get("threshold_set_id"):
-        raise MjwarpPpoBenchmarkError("threshold receipt set id differs from manifest")
-    if receipt.get("manifest_path") != threshold_manifest_path.as_posix():
-        raise MjwarpPpoBenchmarkError(
-            "threshold receipt manifest path differs from benchmark binding"
-        )
-    if receipt.get("manifest_sha256") != manifest_sha:
-        raise MjwarpPpoBenchmarkError("threshold receipt SHA does not match manifest")
-    freeze_commit = receipt.get("freeze_commit")
-    if not _is_commit(freeze_commit):
-        raise MjwarpPpoBenchmarkError("threshold receipt freeze_commit must be a full SHA")
+    freeze_commit = receipt.freeze_commit
 
     batches_raw = measurement.get("batch_sizes")
     if not isinstance(batches_raw, list):
@@ -326,7 +351,11 @@ def load_binding(
         threshold_set_id=_string(data.get("threshold_set_id"), "threshold_set_id"),
         threshold_manifest_path=threshold_manifest_path,
         threshold_manifest_sha256=manifest_sha,
-        threshold_freeze_commit=cast(str, freeze_commit),
+        threshold_freeze_commit=freeze_commit,
+        amendment_id=amendment.amendment_id,
+        amendment_manifest_path=threshold_amendment_path,
+        amendment_manifest_sha256=sha256_file(amendment_path),
+        amendment_freeze_commit=amendment_receipt.freeze_commit,
         batch_sizes=batch_sizes,
         process_repeats=_integer(
             measurement.get("env_process_repeats"), "env_process_repeats", minimum=5
@@ -349,9 +378,7 @@ def load_binding(
         episode_length_median_ratio_min=_number(
             training.get("episode_length_median_ratio_min"), "episode length gate"
         ),
-        host_memory_ratio_max=_number(
-            memory.get("host_preferred_metric_ratio_max"), "host memory gate"
-        ),
+        host_memory_ratio_max=amendment.host_memory_ratio_max,
         device_peak_reserved_capacity_ratio_max=_number(
             memory.get("device_peak_reserved_capacity_ratio_max"), "device capacity gate"
         ),
@@ -375,6 +402,23 @@ def load_binding(
         gpu_capacity_bytes=_integer(hardware.get("gpu_memory_mib"), "GPU memory MiB", minimum=1)
         * 1024**2,
     )
+
+
+def _threshold_payload(binding: BenchmarkBinding) -> dict[str, Any]:
+    return {
+        "base": {
+            "threshold_set_id": binding.threshold_set_id,
+            "manifest_path": binding.threshold_manifest_path.as_posix(),
+            "manifest_sha256": binding.threshold_manifest_sha256,
+            "freeze_commit": binding.threshold_freeze_commit,
+        },
+        "amendment": {
+            "amendment_id": binding.amendment_id,
+            "manifest_path": binding.amendment_manifest_path.as_posix(),
+            "manifest_sha256": binding.amendment_manifest_sha256,
+            "freeze_commit": binding.amendment_freeze_commit,
+        },
+    }
 
 
 def expected_case_ids(binding: BenchmarkBinding) -> tuple[str, ...]:
@@ -1243,12 +1287,12 @@ def _validate_source_at_commit(
     commit = source.get("commit")
     if not isinstance(commit, str) or not _is_commit(commit):
         return
-    if commit == binding.threshold_freeze_commit:
-        errors.append("candidate commit cannot equal threshold freeze commit")
+    if commit == binding.amendment_freeze_commit:
+        errors.append("candidate commit cannot equal amendment freeze commit")
     for command, error in (
         (
-            ["git", "merge-base", "--is-ancestor", binding.threshold_freeze_commit, commit],
-            "candidate commit does not descend from threshold freeze",
+            ["git", "merge-base", "--is-ancestor", binding.amendment_freeze_commit, commit],
+            "candidate commit does not descend from amendment freeze",
         ),
         (
             ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
@@ -1329,12 +1373,7 @@ def _integrity_validation_errors(
         if root.get("profile") != PROFILE:
             errors.append("artifact profile must be device_resident")
         threshold = _mapping(root.get("threshold"), "threshold")
-        expected_threshold = {
-            "threshold_set_id": active_binding.threshold_set_id,
-            "manifest_path": active_binding.threshold_manifest_path.as_posix(),
-            "manifest_sha256": active_binding.threshold_manifest_sha256,
-            "freeze_commit": active_binding.threshold_freeze_commit,
-        }
+        expected_threshold = _threshold_payload(active_binding)
         if threshold != expected_threshold:
             errors.append("threshold differs from frozen binding")
         source = _mapping(root.get("source"), "source")
@@ -1346,8 +1385,8 @@ def _integrity_validation_errors(
         _sha256(source.get("tree_sha256"), "source.tree_sha256")
         _sha256(source.get("uv_lock_sha256"), "source.uv_lock_sha256")
         _sha256(source.get("owner_yaml_sha256"), "source.owner_yaml_sha256")
-        if commit == active_binding.threshold_freeze_commit:
-            errors.append("candidate commit cannot equal threshold freeze commit")
+        if commit == active_binding.amendment_freeze_commit:
+            errors.append("candidate commit cannot equal amendment freeze commit")
 
         hardware = _mapping(root.get("hardware"), "hardware")
         expected_hardware = {
@@ -1870,9 +1909,9 @@ def collect_artifact(
     binding = load_binding()
     baseline_plan = _load_plan(ROOT_DIR / DEFAULT_BASELINE_PLAN)
     source = _source_payload()
-    if source["commit"] == binding.threshold_freeze_commit:
+    if source["commit"] == binding.amendment_freeze_commit:
         raise MjwarpPpoBenchmarkError(
-            "candidate benchmark cannot run at the threshold freeze commit"
+            "candidate benchmark cannot run at the amendment freeze commit"
         )
     hardware = _hardware_payload(baseline_plan)
     preflight_before = _preflight_payload(baseline_plan)
@@ -1897,12 +1936,7 @@ def collect_artifact(
         "profile": PROFILE,
         "generated_at": _utc_now(),
         "source": source,
-        "threshold": {
-            "threshold_set_id": binding.threshold_set_id,
-            "manifest_path": binding.threshold_manifest_path.as_posix(),
-            "manifest_sha256": binding.threshold_manifest_sha256,
-            "freeze_commit": binding.threshold_freeze_commit,
-        },
+        "threshold": _threshold_payload(binding),
         "hardware": hardware,
         "execution": {
             "process_isolation": True,
