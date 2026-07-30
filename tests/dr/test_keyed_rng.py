@@ -240,11 +240,19 @@ def test_borrowed_batch_lifetime_and_output_address_are_stable() -> None:
     address = stream.output_address
     first = stream.sample(active)
     assert first.values.data_ptr() == address
+    mask_address = first.active_mask.data_ptr()
+    active.zero_()
+    assert torch.all(first.active_mask)
     stream.sample(active)
     with pytest.raises(StaleKeyedRandomBatchError, match="stream advanced"):
         _ = first.values
+    with pytest.raises(StaleKeyedRandomBatchError, match="stream advanced"):
+        _ = first.active_mask
+    active.fill_(True)
     for _ in range(32):
-        assert stream.sample(active).values.data_ptr() == address
+        batch = stream.sample(active)
+        assert batch.values.data_ptr() == address
+        assert batch.active_mask.data_ptr() == mask_address
 
 
 @pytest.mark.parametrize(
@@ -314,6 +322,13 @@ def test_reference_rejects_invalid_rows_and_matches_torch_float64() -> None:
             env_ids=np.array([-1]),
             trigger_counts=np.array([0]),
         )
+    with pytest.raises(KeyedRandomContractError, match="fit signed int64"):
+        keyed_random_reference(
+            spec,
+            run_seed=0,
+            env_ids=np.array([0], dtype=np.uint64),
+            trigger_counts=np.array([1 << 63], dtype=np.uint64),
+        )
     expected = keyed_random_reference(
         spec,
         run_seed=5,
@@ -335,6 +350,51 @@ def test_reference_rejects_invalid_rows_and_matches_torch_float64() -> None:
     # Counter/hash bits are identical; Box-Muller log/cos implementations are
     # numerically, not bitwise, portable across NumPy and Torch kernels.
     np.testing.assert_allclose(actual, expected, rtol=1.0e-6, atol=1.0e-6)
+
+
+@pytest.mark.slow
+def test_cuda_normal_sampling_matches_reference_across_row_permutations() -> None:
+    if not torch.cuda.is_available():
+        pytest.fail("keyed RNG CUDA normal oracle requires a real CUDA device")
+    spec = _spec(
+        distribution=RandomDistribution.NORMAL,
+        parameters=(0.75, 1.25),
+        correlation=RandomCorrelation.PER_ENTITY,
+        row_shape=(3, 4),
+    )
+    canonical = ((0, 3, 7, 12), (2, 7, 15), (12, 1, 2), (5, 7, 0))
+    permuted = tuple(tuple(reversed(rows)) for rows in canonical)
+    expected, expected_counts = _run_schedule(
+        spec=spec,
+        run_seed=23,
+        num_envs=17,
+        device=torch.device("cpu"),
+        schedule=canonical,
+        insert_unrelated=False,
+    )
+    actual, actual_counts = _run_schedule(
+        spec=spec,
+        run_seed=23,
+        num_envs=17,
+        device=torch.device("cuda", torch.cuda.current_device()),
+        schedule=permuted,
+        insert_unrelated=True,
+    )
+    np.testing.assert_array_equal(actual_counts, expected_counts)
+    torch.testing.assert_close(actual.cpu(), expected, rtol=1.0e-6, atol=1.0e-6)
+    active = np.flatnonzero(expected_counts)
+    reference = keyed_random_reference(
+        spec,
+        run_seed=23,
+        env_ids=active,
+        trigger_counts=expected_counts[active] - 1,
+    )
+    np.testing.assert_allclose(
+        actual.cpu().numpy()[active],
+        reference,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
 
 
 @pytest.mark.slow
