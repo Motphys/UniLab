@@ -199,6 +199,9 @@ def keyed_random_reference(
         raise KeyedRandomContractError("env_ids and trigger_counts must use integer dtypes")
     if np.any(env_ids < 0) or np.any(trigger_counts < 0):
         raise KeyedRandomContractError("env_ids and trigger_counts must be non-negative")
+    int64_max = np.iinfo(np.int64).max
+    if np.any(env_ids > int64_max) or np.any(trigger_counts > int64_max):
+        raise KeyedRandomContractError("env_ids and trigger_counts must fit signed int64")
 
     env_key = np.zeros_like(env_ids, dtype=np.int64)
     if spec.correlation is not RandomCorrelation.GLOBAL:
@@ -234,25 +237,26 @@ class KeyedRandomBatch:
 
     _stream: KeyedRandomStream
     _epoch: int
-    active_mask: torch.Tensor
+
+    def _live_stream(self) -> KeyedRandomStream:
+        stream = self._stream
+        if stream.epoch != self._epoch:
+            raise StaleKeyedRandomBatchError(
+                "keyed random batch is stale because its stream advanced"
+            )
+        return stream
 
     @property
     def values(self) -> torch.Tensor:
-        stream = self._stream
-        if stream.epoch != self._epoch:
-            raise StaleKeyedRandomBatchError(
-                "keyed random batch is stale because its stream advanced"
-            )
-        return stream._values
+        return self._live_stream()._values
+
+    @property
+    def active_mask(self) -> torch.Tensor:
+        return self._live_stream()._active_mask
 
     @property
     def fingerprint(self) -> str:
-        stream = self._stream
-        if stream.epoch != self._epoch:
-            raise StaleKeyedRandomBatchError(
-                "keyed random batch is stale because its stream advanced"
-            )
-        return stream.spec.fingerprint
+        return self._live_stream().spec.fingerprint
 
 
 class KeyedRandomStream:
@@ -291,6 +295,7 @@ class KeyedRandomStream:
         shape = (num_envs, spec.width)
         row_shape = (num_envs, 1)
         self._trigger_counts = torch.zeros(num_envs, dtype=torch.int64, device=resolved_device)
+        self._active_mask = torch.empty(num_envs, dtype=torch.bool, device=resolved_device)
         self._env_keys = torch.arange(num_envs, dtype=torch.int64, device=resolved_device).view(
             row_shape
         )
@@ -388,13 +393,14 @@ class KeyedRandomStream:
             raise KeyedRandomContractError(
                 "active_mask must be a contiguous bool vector on the stream device"
             )
+        self._active_mask.copy_(active_mask)
         self._sample_candidate()
         candidate = self._candidate.view(self.num_envs, *self.spec.row_shape)
-        mask = active_mask.view(self.num_envs, *((1,) * len(self.spec.row_shape)))
+        mask = self._active_mask.view(self.num_envs, *((1,) * len(self.spec.row_shape)))
         torch.where(mask, candidate, self._values, out=self._values)
-        self._trigger_counts.add_(active_mask)
+        self._trigger_counts.add_(self._active_mask)
         self._epoch += 1
-        return KeyedRandomBatch(self, self._epoch, active_mask)
+        return KeyedRandomBatch(self, self._epoch)
 
     def capture_trigger_counts(self) -> np.ndarray:
         """Materialize counters at an explicit diagnostics/oracle boundary."""
