@@ -272,6 +272,7 @@ class _RecordingBackend:
             backend_instance_id=self._instance_id,
             num_envs=self._num_envs,
             specs=(bound_spec,),
+            capability_manifest_fingerprint="recording-capability-manifest-v1",
             fingerprint="recording-mutation-v1",
         )
         return self._mutation_plan

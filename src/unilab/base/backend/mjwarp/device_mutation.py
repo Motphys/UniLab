@@ -43,6 +43,7 @@ from ..mutation import (
     MutationTrigger,
 )
 from ..mutation_batch import DeviceResetMutationBatch, MutationValueBatch
+from .capability import mjwarp_state_reset_descriptor
 
 if TYPE_CHECKING:
     from .backend import MjwarpBackend
@@ -101,6 +102,10 @@ def _reset_capability(
         baselines=frozenset({MutationBaseline.DEFAULT}),
         persistences=frozenset({MutationPersistence.EPISODE}),
         recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+        descriptor=mjwarp_state_reset_descriptor(
+            target_key=target_key,
+            execution_profile=ExecutionProfile.DEVICE_RESIDENT,
+        ),
     )
 
 
