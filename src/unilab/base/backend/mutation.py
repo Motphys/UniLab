@@ -60,6 +60,7 @@ class MutationSelectorMode(str, Enum):
 
 class MutationFieldKind(str, Enum):
     GRAVITY = "gravity"
+    GRAVITY_COMPENSATION = "gravity_compensation"
     MASS = "mass"
     CENTER_OF_MASS = "center_of_mass"
     INERTIA = "inertia"
@@ -179,6 +180,7 @@ _ENTITY_FIELD_KINDS = {
     ),
     (MutationTargetKind.MODEL_PARAMETER, MutationEntityKind.BODY): frozenset(
         {
+            MutationFieldKind.GRAVITY_COMPENSATION,
             MutationFieldKind.MASS,
             MutationFieldKind.CENTER_OF_MASS,
             MutationFieldKind.INERTIA,
@@ -245,6 +247,7 @@ _TARGET_FIELD_KINDS = {
     MutationTargetKind.MODEL_PARAMETER: frozenset(
         {
             MutationFieldKind.GRAVITY,
+            MutationFieldKind.GRAVITY_COMPENSATION,
             MutationFieldKind.MASS,
             MutationFieldKind.CENTER_OF_MASS,
             MutationFieldKind.INERTIA,

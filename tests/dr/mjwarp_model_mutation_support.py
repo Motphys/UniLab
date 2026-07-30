@@ -74,6 +74,13 @@ class ModelMutationRuntime:
     placement: BufferPlacement
     device: torch.device
     num_envs: int
+    base_name: str
+    body_name: str
+    joint_name: str
+    actuator_name: str
+    keyframe_name: str | None
+    body_id: int
+    joint_id: int
     actuator_id: int
     dof_position_index: int
     dof_velocity_index: int
@@ -97,9 +104,22 @@ class ModelMutationRuntime:
     def default_bias(self) -> torch.Tensor:
         return self.backend._get_model_default_bridge("actuator_biasprm")
 
+    def model_field(self, field_name: str) -> torch.Tensor:
+        return self.backend._get_model_field_bridge(field_name)
+
+    def model_default(self, field_name: str) -> torch.Tensor:
+        return self.backend._get_model_default_bridge(field_name)
+
     def restore_compiled_model_defaults(self) -> None:
-        self.gain.copy_(self.default_gain.expand_as(self.gain), non_blocking=True)
-        self.bias.copy_(self.default_bias.expand_as(self.bias), non_blocking=True)
+        receipt = self.backend._model_materialization_receipt
+        if receipt is None:
+            return
+        for field in receipt.fields:
+            if field.role.value != "direct":
+                continue
+            target = self.model_field(field.field_name)
+            default = self.model_default(field.field_name)
+            target.copy_(default.expand_as(target), non_blocking=True)
         torch.cuda.current_stream(self.device).synchronize()
 
     def set_uniform_state(
@@ -108,9 +128,12 @@ class ModelMutationRuntime:
         target_position: float | None = None,
         target_velocity: float = 0.0,
     ) -> tuple[np.ndarray, np.ndarray]:
-        qpos = np.tile(self.backend.get_keyframe_qpos("stand"), (self.num_envs, 1)).astype(
-            np.float32
+        default_qpos = (
+            self.backend.get_keyframe_qpos(self.keyframe_name)
+            if self.keyframe_name is not None
+            else self.backend.get_default_qpos()
         )
+        qpos = np.tile(default_qpos, (self.num_envs, 1)).astype(np.float32)
         qvel = np.zeros((self.num_envs, self.backend.get_init_qvel().size), dtype=np.float32)
         if target_position is not None:
             qpos[:, self.raw_qpos_index] = target_position
@@ -147,30 +170,46 @@ def _state_contract(placement: BufferPlacement, row_shape: tuple[int, ...]) -> B
     )
 
 
-def _bind_io(backend: MjwarpBackend, placement: BufferPlacement) -> BoundBackendPlan:
-    all_dofs = tuple(range(backend.num_dof_vel))
+def _bind_io(
+    backend: MjwarpBackend,
+    placement: BufferPlacement,
+) -> tuple[BoundBackendPlan, tuple[int, ...], tuple[int, ...]]:
+    hinge_type = int(backend._mujoco.mjtJoint.mjJNT_HINGE)
+    hinge_joint_ids = tuple(
+        joint_id
+        for joint_id in range(backend._cpu_model.njnt)
+        if int(backend._cpu_model.jnt_type[joint_id]) == hinge_type
+    )
+    position_dofs = tuple(
+        int(backend._cpu_model.jnt_qposadr[joint_id]) - backend._root_qpos_dim
+        for joint_id in hinge_joint_ids
+    )
+    velocity_dofs = tuple(
+        int(backend._cpu_model.jnt_dofadr[joint_id]) - backend._root_qvel_dim
+        for joint_id in hinge_joint_ids
+    )
     fields = (
         StateFieldSpec(
             semantic_key="dof.position",
             identity=BoundFieldIdentity(
                 StateEntityKind.DOF,
                 StateFieldKind.POSITION,
-                all_dofs,
+                position_dofs,
             ),
             frame=ReferenceFrame.JOINT,
             unit=PhysicalUnit.RADIAN,
-            buffer=_state_contract(placement, (len(all_dofs),)),
+            buffer=_state_contract(placement, (len(position_dofs),)),
         ),
         StateFieldSpec(
             semantic_key="dof.angular_velocity",
             identity=BoundFieldIdentity(
                 StateEntityKind.DOF,
                 StateFieldKind.ANGULAR_VELOCITY,
-                all_dofs,
+                velocity_dofs,
             ),
             frame=ReferenceFrame.JOINT,
             unit=PhysicalUnit.RADIAN_PER_SECOND,
-            buffer=_state_contract(placement, (len(all_dofs),)),
+            buffer=_state_contract(placement, (len(velocity_dofs),)),
         ),
     )
     control = BufferContract(
@@ -183,7 +222,7 @@ def _bind_io(backend: MjwarpBackend, placement: BufferPlacement) -> BoundBackend
         lifetime=BufferLifetime.UNTIL_STEP_COMPLETE,
         dlpack_exportable=True,
     )
-    return backend.bind_task_io(
+    plan = backend.bind_task_io(
         BackendIORequirements(
             state_fields=fields,
             control=ControlSpec(
@@ -194,9 +233,10 @@ def _bind_io(backend: MjwarpBackend, placement: BufferPlacement) -> BoundBackend
             execution_profile=ExecutionProfile.DEVICE_RESIDENT,
         )
     )
+    return plan, position_dofs, velocity_dofs
 
 
-def _mutation_spec(
+def model_mutation_spec(
     runtime: ModelMutationRuntime,
     *,
     target_key: str,
@@ -210,6 +250,14 @@ def _mutation_spec(
         ).capabilities
     }
     capability = capabilities[target_key]
+    if len(capability.recompute_levels) != 1:
+        raise AssertionError(f"test fixture requires one recompute level for {target_key!r}")
+    if capability.entity_kind is MutationEntityKind.ACTUATOR:
+        selector = runtime.actuator_name
+    elif capability.entity_kind is MutationEntityKind.BODY:
+        selector = runtime.body_name
+    else:
+        selector = runtime.joint_name
     return MutationSpec(
         term_key=term_key,
         target=MutationTargetSpec(
@@ -217,27 +265,21 @@ def _mutation_spec(
             target_kind=capability.target_kind,
             entity_kind=capability.entity_kind,
             field_kind=capability.field_kind,
-            selector=ACTUATOR_NAME
-            if capability.entity_kind is MutationEntityKind.ACTUATOR
-            else JOINT_NAME,
+            selector=selector,
         ),
         trigger=MutationTrigger.RESET,
         commit_phase=MutationCommitPhase.RESET,
         operation=operation,
         baseline=MutationBaseline.DEFAULT,
         persistence=MutationPersistence.EPISODE,
-        recompute=(
-            MutationRecomputeLevel.NONE
-            if capability.target_kind is MutationTargetKind.MODEL_PARAMETER
-            else MutationRecomputeLevel.KINEMATICS
-        ),
+        recompute=next(iter(capability.recompute_levels)),
         value_template=capability.value_template,
     )
 
 
 def bind_model_plan(runtime: ModelMutationRuntime, key: PlanKey) -> BoundMutationPlan:
     specs = [
-        _mutation_spec(
+        model_mutation_spec(
             runtime,
             target_key=key.target_key,
             operation=key.operation,
@@ -247,13 +289,13 @@ def bind_model_plan(runtime: ModelMutationRuntime, key: PlanKey) -> BoundMutatio
     if key.mixed_state:
         specs.extend(
             (
-                _mutation_spec(
+                model_mutation_spec(
                     runtime,
                     target_key="state.dof.position",
                     operation=MutationOperation.SET,
                     term_key="state.position",
                 ),
-                _mutation_spec(
+                model_mutation_spec(
                     runtime,
                     target_key="state.dof.angular_velocity",
                     operation=MutationOperation.SET,
@@ -270,7 +312,7 @@ def bind_combined_pd_plan(
     mixed_state: bool,
 ) -> BoundMutationPlan:
     specs = [
-        _mutation_spec(
+        model_mutation_spec(
             runtime,
             target_key=target_key,
             operation=MutationOperation.SET,
@@ -284,13 +326,13 @@ def bind_combined_pd_plan(
     if mixed_state:
         specs.extend(
             (
-                _mutation_spec(
+                model_mutation_spec(
                     runtime,
                     target_key="state.dof.position",
                     operation=MutationOperation.SET,
                     term_key="state.position",
                 ),
-                _mutation_spec(
+                model_mutation_spec(
                     runtime,
                     target_key="state.dof.angular_velocity",
                     operation=MutationOperation.SET,
@@ -301,36 +343,122 @@ def bind_combined_pd_plan(
     return runtime.backend.bind_mutation_plan(tuple(specs))
 
 
+def bind_combined_model_plan(
+    runtime: ModelMutationRuntime,
+    *,
+    targets: tuple[tuple[str, MutationOperation, str], ...],
+    mixed_state: bool,
+) -> BoundMutationPlan:
+    specs = [
+        model_mutation_spec(
+            runtime,
+            target_key=target_key,
+            operation=operation,
+            term_key=term_key,
+        )
+        for target_key, operation, term_key in targets
+    ]
+    if mixed_state:
+        specs.extend(
+            (
+                model_mutation_spec(
+                    runtime,
+                    target_key="state.dof.position",
+                    operation=MutationOperation.SET,
+                    term_key="state.position",
+                ),
+                model_mutation_spec(
+                    runtime,
+                    target_key="state.dof.angular_velocity",
+                    operation=MutationOperation.SET,
+                    term_key="state.velocity",
+                ),
+            )
+        )
+    return runtime.backend.bind_mutation_plan(tuple(specs))
+
+
+def bind_state_reset_plan(runtime: ModelMutationRuntime) -> BoundMutationPlan:
+    return runtime.backend.bind_mutation_plan(
+        (
+            model_mutation_spec(
+                runtime,
+                target_key="state.dof.position",
+                operation=MutationOperation.SET,
+                term_key="state.position",
+            ),
+            model_mutation_spec(
+                runtime,
+                target_key="state.dof.angular_velocity",
+                operation=MutationOperation.SET,
+                term_key="state.velocity",
+            ),
+        )
+    )
+
+
 @contextmanager
 def model_mutation_runtime(
     *,
     num_envs: int,
     plan_keys: tuple[PlanKey, ...],
+    model_file: str | None = None,
+    base_name: str = BASE_NAME,
+    body_name: str = BASE_NAME,
+    joint_name: str = JOINT_NAME,
+    actuator_name: str = ACTUATOR_NAME,
+    keyframe_name: str | None = "stand",
 ) -> Iterator[ModelMutationRuntime]:
     require_cuda()
+    if model_file is None:
+        model_file = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     backend = MjwarpBackend(
-        SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")),
+        SceneCfg(model_file=model_file),
         num_envs,
         0.02 / 3.0,
-        base_name=BASE_NAME,
+        base_name=base_name,
     )
     try:
         bridge = backend._ensure_device_bridge()
         device_index = bridge.qpos.device.index
         assert device_index is not None
         placement = BufferPlacement.device("cuda", int(device_index))
-        plan = _bind_io(backend, placement)
-        actuator_id = backend.get_actuator_names().index(ACTUATOR_NAME)
-        joint_id = int(backend._cpu_model.actuator_trnid[actuator_id, 0])
+        plan, position_dofs, velocity_dofs = _bind_io(backend, placement)
+        actuator_id = backend.get_actuator_names().index(actuator_name)
+        joint_id = int(
+            backend._mujoco.mj_name2id(
+                backend._cpu_model,
+                backend._mujoco.mjtObj.mjOBJ_JOINT,
+                joint_name,
+            )
+        )
+        body_id = int(
+            backend._mujoco.mj_name2id(
+                backend._cpu_model,
+                backend._mujoco.mjtObj.mjOBJ_BODY,
+                body_name,
+            )
+        )
+        assert joint_id >= 0
+        assert body_id > 0
+        logical_position_index = int(backend.get_joint_dof_pos_indices((joint_name,))[0])
+        logical_velocity_index = int(backend.get_joint_dof_vel_indices((joint_name,))[0])
         runtime = ModelMutationRuntime(
             backend=backend,
             plan=plan,
             placement=placement,
             device=bridge.qpos.device,
             num_envs=num_envs,
+            base_name=base_name,
+            body_name=body_name,
+            joint_name=joint_name,
+            actuator_name=actuator_name,
+            keyframe_name=keyframe_name,
+            body_id=body_id,
+            joint_id=joint_id,
             actuator_id=actuator_id,
-            dof_position_index=int(backend.get_joint_dof_pos_indices((JOINT_NAME,))[0]),
-            dof_velocity_index=int(backend.get_joint_dof_vel_indices((JOINT_NAME,))[0]),
+            dof_position_index=position_dofs.index(logical_position_index),
+            dof_velocity_index=velocity_dofs.index(logical_velocity_index),
             raw_qpos_index=int(backend._cpu_model.jnt_qposadr[joint_id]),
             raw_qvel_index=int(backend._cpu_model.jnt_dofadr[joint_id]),
             mutation_plans={},
@@ -478,10 +606,13 @@ __all__ = [
     "ModelMutationRuntime",
     "PlanKey",
     "ResetBatchBuffers",
+    "bind_combined_model_plan",
     "bind_combined_pd_plan",
     "bind_model_plan",
+    "bind_state_reset_plan",
     "control_batch",
     "model_mutation_runtime",
+    "model_mutation_spec",
     "state_tensor",
     "wait_result",
 ]
