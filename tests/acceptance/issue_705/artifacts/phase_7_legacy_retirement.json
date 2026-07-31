@@ -13,7 +13,7 @@
         "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix",
         "-vv"
       ],
-      "duration_sec": 115.46585718600545,
+      "duration_sec": 117.91341960203135,
       "exit_code": 0,
       "pytest": {
         "deselected": 0,
@@ -25,7 +25,7 @@
       "repetition": 1,
       "required_test_id": "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 112.68s (0:01:52) =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 114.91s (0:01:54) =========================\n"
     },
     {
       "argv": [
@@ -37,7 +37,7 @@
         "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix",
         "-vv"
       ],
-      "duration_sec": 115.91894339496503,
+      "duration_sec": 117.28945388301509,
       "exit_code": 0,
       "pytest": {
         "deselected": 0,
@@ -49,7 +49,7 @@
       "repetition": 2,
       "required_test_id": "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 113.11s (0:01:53) =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 114.52s (0:01:54) =========================\n"
     }
   ],
   "environment": {
@@ -71,7 +71,7 @@
     "src/unilab/envs/locomotion/g1/managed_reference.py": "sha256:e9a7c688611aa4cadb1d9c3707722933c489d99602bd17a625b3c687e1040f80",
     "src/unilab/tools/issue705_legacy_retirement.py": "sha256:07fca05c6c34d11e873c6109c7ebf869d07086b7e0fd48a97e3e17e3887a8998",
     "src/unilab/training/entrypoints.py": "sha256:92d72a5e539de00aaf844178a23fca93c1e5585722fc5f307df23edfe7f90bee",
-    "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:166488ba16bd2a88ab314b352abbcbf7266ca6e2a2647c7a6d4020f97650fa5b",
+    "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:05e0e76c37406d8d07ae5d80f6f52abe55b26a7152e2de0a8bbc09608b71bee5",
     "tests/acceptance/issue_705/legacy_retirement_plan.yaml": "sha256:c74377f2364c20d87471371bc2ab54bc8424ad2bf60b3441a84a5c2b6331bc69",
     "tests/acceptance/issue_705/legacy_retirement_rollback.yaml": "sha256:461b09732271aa33a3584d6582fcc59e9b020c29001059fcd4d6675d92feda96",
     "tests/benchmark/test_managed_g1_host_benchmark.py": "sha256:f1f84e51ed974cbaf2c65042aa44c9855cbe57a80487fd81c66cbd3657c1bee8",
@@ -86,7 +86,7 @@
   "plan_fingerprint": "issue705-legacy-retirement-v2",
   "schema_version": 1,
   "source": {
-    "commit_sha": "949a65a14e023c83db30f943d29419a7f834c26c",
+    "commit_sha": "81c64746348c06b541ac237e003679b19937de2e",
     "git_status": ""
   },
   "summary": {
