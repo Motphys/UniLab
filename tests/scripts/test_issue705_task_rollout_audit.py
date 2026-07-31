@@ -96,7 +96,9 @@ def test_task_rollout_audit_rejects_owner_registry_budget_and_signature_faults()
             policy_abi_fingerprint="managed-policy-abi-v1:" + "0" * 64,
         ),
     )
-    _assert_error(_audit(bad_rollout_signature), "rollout and support compiled policy_abi_fingerprint")
+    _assert_error(
+        _audit(bad_rollout_signature), "rollout and support compiled policy_abi_fingerprint"
+    )
 
 
 def test_task_rollout_audit_rejects_prerequisite_and_phase_receipt_faults(
