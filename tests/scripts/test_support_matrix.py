@@ -21,11 +21,11 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
     assert row.cells["mjwarp"].level == EvidenceLevel.MISSING
 
 
-def test_support_matrix_has_independent_mjwarp_benchmarked_cell():
+def test_support_matrix_has_independent_mjwarp_recommended_cell():
     row = _row("PPO (torch)", "g1_walk_flat")
 
     assert BACKENDS == ("mujoco", "mjwarp", "motrix")
-    assert row.cells["mjwarp"].level == EvidenceLevel.BENCHMARKED
+    assert row.cells["mjwarp"].level == EvidenceLevel.RECOMMENDED
     assert row.cells["mjwarp"].execution_profile == "device_resident"
 
 

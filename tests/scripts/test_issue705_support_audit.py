@@ -59,8 +59,8 @@ def test_supported_combinations_have_fresh_bidirectional_evidence() -> None:
 
     assert report.ok, report.errors
     assert report.combinations == 1
-    assert report.benchmarked == 1
-    assert report.recommended == 0
+    assert report.benchmarked == 0
+    assert report.recommended == 1
     assert report.phase_gates == 4
 
 
