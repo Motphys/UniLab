@@ -14,11 +14,11 @@ phase_gates:
   - phase: 5
     manifest: tests/acceptance/issue_705/manifests/phase_5.yaml
     gate_artifact: tests/acceptance/issue_705/artifacts/phase_5_gate.json
-    sha256: sha256:0a4d9db95a677ae6690a9f8b0f664c48c564eaab7ce294c9a683e38cd54ed85d
+    sha256: sha256:8fb356665ceff933ebb99005c3362303a0402e2c6b265e37949d3513f9829ad7
   - phase: 6
     manifest: tests/acceptance/issue_705/manifests/phase_6.yaml
     gate_artifact: tests/acceptance/issue_705/artifacts/phase_6_gate.json
-    sha256: sha256:fa710070bf01f5b34199bf2c727292b5f24c1d14509776c5c618de9b1023f8ec
+    sha256: sha256:eb7366d9e18b5fea174b70fb86024354f4516b360f2adf7311165bfaa89f5069
 combinations:
   - entrypoint_id: ppo_torch
     task_slug: g1_walk_flat

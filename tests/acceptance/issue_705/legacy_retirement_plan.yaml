@@ -1,0 +1,73 @@
+schema_version: 1
+issue: 705
+child_issue: 841
+claim_id: P7-LEGACY-RETIREMENT
+plan_fingerprint: issue705-legacy-retirement-v2
+
+integration_base:
+  commit: f9920a7f0d86317e36383e1266918755cb8841c2
+  entrypoint_pr: 840
+  entrypoint_merge_commit: f9920a7f0d86317e36383e1266918755cb8841c2
+
+# Freeze the narrow retirement diff independently from later evidence refresh commits.
+implementation_scope_commit: be9ce520c461cd959d9c842a19b5309bec3e17a0
+
+retired_route:
+  env_name: G1WalkFlat
+  backend: mjwarp
+  owner_module: src/unilab/envs/locomotion/g1/joystick.py
+  previous_owner_class: G1WalkEnv
+  replacement_owner_class: G1MjwarpManagedEnv
+  replacement_base_class: NpEnv
+  runtime_factory: create_device_managed_runtime
+  prohibited_operations: [init_state, reset, step, apply_action, update_state, play]
+
+retained_routes:
+  - route_id: g1_walk_flat_mujoco_owner
+    env_name: G1WalkFlat
+    backend: mujoco
+    owner_class: G1WalkEnv
+    reason: Independent MuJoCo production owner remains outside the promoted mjwarp device profile.
+  - route_id: g1_walk_flat_motrix_owner
+    env_name: G1WalkFlat
+    backend: motrix
+    owner_class: G1WalkEnv
+    reason: Motrix has no promoted managed G1 batch plan in Issue 705.
+  - route_id: g1_managed_reference_oracle
+    env_name: G1WalkFlat
+    backend: mujoco
+    owner_class: G1WalkEnv
+    reason: Phase 3 differential evidence requires an independent hand-written MuJoCo oracle.
+
+entrypoint_prerequisite:
+  contract_fingerprint: issue705-entrypoints-v1
+  owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
+  required_test_id: tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix
+  repetitions: 2
+  required_routes: [train, play, visualize, export, checkpoint_save, checkpoint_load, resume]
+
+diagnostic_contract:
+  exception_class: G1MjwarpManagedOnlyError
+  required_fragments:
+    - G1WalkFlat + mjwarp is managed-only
+    - retired hand-written NpEnv lifecycle
+    - task=g1_walk_flat/mjwarp
+    - training.operation=train
+    - training.operation=export
+    - task=g1_walk_flat/mujoco
+
+rollback_receipt: tests/acceptance/issue_705/legacy_retirement_rollback.yaml
+evidence_artifact: tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json
+
+implementation_paths:
+  - scripts/audit_issue705_legacy_retirement.py
+  - scripts/capture_issue705_legacy_retirement.py
+  - src/unilab/envs/locomotion/g1/__init__.py
+  - src/unilab/envs/locomotion/g1/joystick.py
+  - src/unilab/tools/issue705_legacy_retirement.py
+  - tests/acceptance/issue_705/claim_test_inventory.yaml
+  - tests/acceptance/issue_705/legacy_retirement_plan.yaml
+  - tests/acceptance/issue_705/legacy_retirement_rollback.yaml
+  - tests/envs/locomotion/g1/test_mjwarp_managed_env.py
+  - tests/integration/test_issue705_legacy_retirement.py
+  - tests/scripts/test_issue705_legacy_retirement_audit.py
