@@ -18,6 +18,8 @@ _SHARED_RUNTIME_MODULES = frozenset(
         "motrix_camera",
         "mutation",
         "mutation_batch",
+        "performance",
+        "phase_timing",
         "playback_common",
         "telemetry",
     }
