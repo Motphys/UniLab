@@ -1,0 +1,1132 @@
+{
+  "claims": [
+    {
+      "claim_id": "P6-CAPABILITY-BIJECTION",
+      "command": "lane_b_capability_bijection",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 1,
+      "required_test_id": "tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases"
+    },
+    {
+      "claim_id": "P6-DR-SEMANTICS",
+      "command": "lane_c_dr_semantics",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 3,
+      "required_test_id": "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence"
+    },
+    {
+      "claim_id": "P6-PHYSICS-EFFECT",
+      "command": "lane_c_physics_effect",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 5,
+      "required_test_id": "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+    },
+    {
+      "claim_id": "P6-RNG-REPRODUCIBILITY",
+      "command": "lane_c_rng_reproducibility",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 3,
+      "required_test_id": "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms"
+    },
+    {
+      "claim_id": "P6-GRAPH-RECAPTURE",
+      "command": "lane_c_graph_recapture",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 3,
+      "required_test_id": "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers"
+    },
+    {
+      "claim_id": "P6-CONTROLLER-CONTRACT",
+      "command": "lane_c_controller_contract",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 3,
+      "required_test_id": "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
+    },
+    {
+      "claim_id": "P6-DR-PERFORMANCE",
+      "command": "lane_d_dr_performance",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 5,
+      "required_test_id": "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+    },
+    {
+      "claim_id": "P6-RECOMPUTE-AGGREGATION",
+      "command": "lane_c_recompute_aggregation",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
+      "minimum_repetitions": 3,
+      "required_test_id": "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.041577565018088,
+      "exit_code": 0,
+      "lane": "B",
+      "name": "lane_b_capability_bijection#1",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases"
+      ],
+      "series": "lane_b_capability_bijection",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 2.00s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.033442416985054,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_dr_semantics#1",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence"
+      ],
+      "series": "lane_c_dr_semantics",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.04s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.057685638021212,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_dr_semantics#2",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence"
+      ],
+      "series": "lane_c_dr_semantics",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.06s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.064063118014019,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_dr_semantics#3",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence"
+      ],
+      "series": "lane_c_dr_semantics",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.05s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.0861258350196294,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#1",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.07s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.067696777987294,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#2",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.06s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.1215270010288805,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#3",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.05s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.225653191970196,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#4",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 4,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.06s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.13892975501949,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#5",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 5,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.08s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 2.0837949109845795,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_rng_reproducibility#1",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms"
+      ],
+      "series": "lane_c_rng_reproducibility",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 0.30s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 2.078697994002141,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_rng_reproducibility#2",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms"
+      ],
+      "series": "lane_c_rng_reproducibility",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 0.30s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 2.0982145989546552,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_rng_reproducibility#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms"
+      ],
+      "series": "lane_c_rng_reproducibility",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 0.30s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.5315071329823695,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_graph_recapture#1",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers"
+      ],
+      "series": "lane_c_graph_recapture",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.46s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.601888585952111,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_graph_recapture#2",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers"
+      ],
+      "series": "lane_c_graph_recapture",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.50s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.598350127984304,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_graph_recapture#3",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers"
+      ],
+      "series": "lane_c_graph_recapture",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.51s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.956068055995274,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_controller_contract#1",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
+      ],
+      "series": "lane_c_controller_contract",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 3.00s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.993194474955089,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_controller_contract#2",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
+      ],
+      "series": "lane_c_controller_contract",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 3.03s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.547093114000745,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_controller_contract#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
+      ],
+      "series": "lane_c_controller_contract",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 3.42s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.538836429943331,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#1",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.42s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.281231663015205,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#2",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.47s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.091131137975026,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.34s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.194969010015484,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#4",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 4,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.40s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.230151971976738,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#5",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 5,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.45s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.097875093983021,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_recompute_aggregation#1",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 1,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier"
+      ],
+      "series": "lane_c_recompute_aggregation",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 2.01s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.051603535015602,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_recompute_aggregation#2",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier"
+      ],
+      "series": "lane_c_recompute_aggregation",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 2.02s =========================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.030172284983564,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_recompute_aggregation#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier"
+      ],
+      "series": "lane_c_recompute_aggregation",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 1.99s =========================\n"
+    }
+  ],
+  "environment": {
+    "packages": {
+      "mujoco-warp": "3.10.0.3",
+      "torch": "2.7.0+cu128",
+      "warp-lang": "1.15.0"
+    },
+    "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
+    "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]"
+  },
+  "generated_at_utc": "2026-07-31T02:53:28.071127+00:00",
+  "inputs": {
+    "claim_config_hashes": {
+      "P6-CAPABILITY-BIJECTION": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-CONTROLLER-CONTRACT": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-DR-PERFORMANCE": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-DR-SEMANTICS": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-GRAPH-RECAPTURE": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-PHYSICS-EFFECT": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-RECOMPUTE-AGGREGATION": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "P6-RNG-REPRODUCIBILITY": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61"
+    },
+    "files": {
+      "benchmark/issue705/process_evidence.py": "sha256:a402a9145cf776bbd70ab3eb2052ddca9026c322cbfa72ad0eb2312325477730",
+      "benchmark/mjwarp/benchmark_dr_profiles.py": "sha256:e39bbb6a50b83d5f586ab217ccf16138b54d60ae6d875b05ebfe588a18373fbc",
+      "conf/ppo/task/g1_walk_flat/mjwarp.yaml": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "pyproject.toml": "sha256:a3568e67e2ce03ee83aa59f6eee3f0eac510e7ad2cb8681b824f0ccb36e8ac14",
+      "scripts/capture_issue705_phase6_evidence.py": "sha256:686e4a0f9b1b833d3773859e814c1083626d6acd30cfff8e18b3b4311202397d",
+      "scripts/train_rsl_rl.py": "sha256:d69b924dcd56dae67769709376a34e22ad61cf76a68daf5083617933180d08e7",
+      "src/unilab/assets/robots/g1/assets/box_tracking/largebox.obj": "sha256:dbcc11281f62e9226f49165252375080d2e490e5a3f0ab6ba917acbd8f7abc1c",
+      "src/unilab/assets/robots/g1/assets/climb_20_z_scale_1/box1.obj": "sha256:7cce9d9c4d4c90c0c486f0b198f881fd45893e812a6e5bdfcf7d9704d45f193b",
+      "src/unilab/assets/robots/g1/assets/climb_20_z_scale_1/box2.obj": "sha256:e8fc2031698548e30327fa5219cf221ea12c12bf4bba316376b365cc8e6969e1",
+      "src/unilab/assets/robots/g1/assets/crawl_slope/ground.obj": "sha256:1eedb1ab6eb7dfbc9e058e78b0d0162898aeb5c62b1d11cdceaccac532d1959c",
+      "src/unilab/assets/robots/g1/assets/crawl_slope/plateau.obj": "sha256:0223800c05dbd0475cda21dfc5ec9cf085e76c33f4d6420b45c83ffd74c1f078",
+      "src/unilab/assets/robots/g1/assets/crawl_slope/slope.obj": "sha256:be5535061a2dc87544afe328aacba4dd4768e8fb1e88dbf79ee53b5fae11491e",
+      "src/unilab/assets/robots/g1/assets/head_link.STL": "sha256:005fb67fbd3eff94aa8bf4a6e83238174e9f91b6721f7111594322f223724411",
+      "src/unilab/assets/robots/g1/assets/left_ankle_pitch_link.STL": "sha256:d49e3abc6f5b12e532062cd575b87b5ef40cd2a3fc18f54a1ca5bba4f773d51d",
+      "src/unilab/assets/robots/g1/assets/left_ankle_roll_link.STL": "sha256:c4092af943141d4d9f74232f3cfa345afc6565f46a077793b8ae0e68b39dc33f",
+      "src/unilab/assets/robots/g1/assets/left_elbow_link.STL": "sha256:fa752198accd104d5c4c3a01382e45165b944fbbc5acce085059223324e5bed3",
+      "src/unilab/assets/robots/g1/assets/left_hand_index_0_link.STL": "sha256:6b35f2f77211d5a366f0b9a4e47c4ee35e536731266f1a34e9efa12db579b892",
+      "src/unilab/assets/robots/g1/assets/left_hand_index_1_link.STL": "sha256:9e315ebc8a7a0cb98e033985b586b20d81cf8aa761181ae61ce56fcb14077a06",
+      "src/unilab/assets/robots/g1/assets/left_hand_middle_0_link.STL": "sha256:6b35f2f77211d5a366f0b9a4e47c4ee35e536731266f1a34e9efa12db579b892",
+      "src/unilab/assets/robots/g1/assets/left_hand_middle_1_link.STL": "sha256:9e315ebc8a7a0cb98e033985b586b20d81cf8aa761181ae61ce56fcb14077a06",
+      "src/unilab/assets/robots/g1/assets/left_hand_palm_link.STL": "sha256:23a486b75bd78a9bf03cec25d84d87f97f3dae038cf21a743b6d469b337e4004",
+      "src/unilab/assets/robots/g1/assets/left_hand_thumb_0_link.STL": "sha256:a90c721661c0622685488a3c74d1e122c7da89242d3a1daef75edb83422d05e0",
+      "src/unilab/assets/robots/g1/assets/left_hand_thumb_1_link.STL": "sha256:445c54a45bc13ce36001556f66bc0f49c83cb40321205ae4d676bb2874325684",
+      "src/unilab/assets/robots/g1/assets/left_hand_thumb_2_link.STL": "sha256:3d8dbe5085acfc213d21aa8b0782e89cd79084e9678f3a85fc7b04a86b029db5",
+      "src/unilab/assets/robots/g1/assets/left_hip_pitch_link.STL": "sha256:4725168105ee768ee31638ef22b53f6be2d7641bfd7cfefe803488d884776fa4",
+      "src/unilab/assets/robots/g1/assets/left_hip_roll_link.STL": "sha256:91f25922ee8a7c3152790051bebad17b4d9cd243569c38fe340285ff93a97acf",
+      "src/unilab/assets/robots/g1/assets/left_hip_yaw_link.STL": "sha256:a16d88aa6ddac8083aa7ad55ed317bea44b1fa003d314fba88965b7ed0f3b55b",
+      "src/unilab/assets/robots/g1/assets/left_knee_link.STL": "sha256:8d92b9e3d3a636761150bb8025e32514c4602b91c7028d523ee42b3e632de477",
+      "src/unilab/assets/robots/g1/assets/left_rubber_hand.STL": "sha256:cff2221a690fa69303f61fce68f2d155c1517b52efb6ca9262dd56e0bc6e70fe",
+      "src/unilab/assets/robots/g1/assets/left_shoulder_pitch_link.STL": "sha256:f0d1cfd02fcf0d42f95e678eeca33da3afbcc366ffba5c052847773ec4f31d52",
+      "src/unilab/assets/robots/g1/assets/left_shoulder_roll_link.STL": "sha256:fb9df21687773522598dc384f1a2945c7519f11cbc8bd372a49170316d6eee88",
+      "src/unilab/assets/robots/g1/assets/left_shoulder_yaw_link.STL": "sha256:1aa97e9748e924336567992181f78c7cd0652fd52a4afcca3df6b2ef6f9e712e",
+      "src/unilab/assets/robots/g1/assets/left_wrist_pitch_link.STL": "sha256:b251d8e05047f695d0f536cd78c11973cfa4e78d08cfe82759336cc3471de3a9",
+      "src/unilab/assets/robots/g1/assets/left_wrist_roll_link.STL": "sha256:edc387c9a0ba8c2237e9b296d32531426fabeb6f53e58df45c76106bca74148c",
+      "src/unilab/assets/robots/g1/assets/left_wrist_roll_rubber_hand.STL": "sha256:e81030abd023bd9e4a308ef376d814a2c12d684d8a7670c335bbd5cd7809c909",
+      "src/unilab/assets/robots/g1/assets/left_wrist_yaw_link.STL": "sha256:83f8fb3a726bf9613d65dd14f0f447cb918c3c95b3938042a0c9c09749267d3b",
+      "src/unilab/assets/robots/g1/assets/logo_link.STL": "sha256:8571a0a19bc4916fa55f91449f51d5fdefd751000054865a842449429d5f155b",
+      "src/unilab/assets/robots/g1/assets/pelvis.STL": "sha256:5ba6bbc888e630550140d3c26763f10206da8c8bd30ed886b8ede41c61f57a31",
+      "src/unilab/assets/robots/g1/assets/pelvis_contour_link.STL": "sha256:5cc5c2c7a312329e3feeb2b03d3fc09fc29705bd01864f6767e51be959662420",
+      "src/unilab/assets/robots/g1/assets/right_ankle_pitch_link.STL": "sha256:15be426539ec1be70246d4d82a168806db64a41301af8b35c197a33348c787a9",
+      "src/unilab/assets/robots/g1/assets/right_ankle_roll_link.STL": "sha256:4b66222ea56653e627711b56d0a8949b4920da5df091da0ceb343f54e884e3a5",
+      "src/unilab/assets/robots/g1/assets/right_elbow_link.STL": "sha256:1be925d7aa268bb8fddf5362b9173066890c7d32092c05638608126e59d1e2ab",
+      "src/unilab/assets/robots/g1/assets/right_hand_index_0_link.STL": "sha256:12ab4300c95e437e834f9aef772b3b431c671bf34338930b52ad11aef73bbd0d",
+      "src/unilab/assets/robots/g1/assets/right_hand_index_1_link.STL": "sha256:c9c34efce4563cacdcfd29fc838a982976d40f5442c71219811dcbbf3923a33d",
+      "src/unilab/assets/robots/g1/assets/right_hand_middle_0_link.STL": "sha256:12ab4300c95e437e834f9aef772b3b431c671bf34338930b52ad11aef73bbd0d",
+      "src/unilab/assets/robots/g1/assets/right_hand_middle_1_link.STL": "sha256:c9c34efce4563cacdcfd29fc838a982976d40f5442c71219811dcbbf3923a33d",
+      "src/unilab/assets/robots/g1/assets/right_hand_palm_link.STL": "sha256:86c0b231cc44477d64a6493e5a427ba16617a00738112dd187c652675b086fb9",
+      "src/unilab/assets/robots/g1/assets/right_hand_thumb_0_link.STL": "sha256:544298d0ea1088f5b276a10cc6a6a9e533efdd91594955fdc956c46211d07f83",
+      "src/unilab/assets/robots/g1/assets/right_hand_thumb_1_link.STL": "sha256:0a9a820da8dd10f298778b714f1364216e8a5976f4fd3a05689ea26327d44bf6",
+      "src/unilab/assets/robots/g1/assets/right_hand_thumb_2_link.STL": "sha256:3f1bfb37668e8f61801c8d25f171fa1949e08666be86c67acad7e0079937cc45",
+      "src/unilab/assets/robots/g1/assets/right_hip_pitch_link.STL": "sha256:e4f3c99d7f4a7d34eadbef9461fc66e3486cb5442db1ec50c86317d459f1a9c6",
+      "src/unilab/assets/robots/g1/assets/right_hip_roll_link.STL": "sha256:4c254ef66a356f492947f360dd931965477b631e3fcc841f91ccc46d945d54f6",
+      "src/unilab/assets/robots/g1/assets/right_hip_yaw_link.STL": "sha256:e479c2936ca2057e9eb2f7dff6c189b7419d7b8484dea0b298cbb36a2a6aa668",
+      "src/unilab/assets/robots/g1/assets/right_knee_link.STL": "sha256:63c4008449c9bbe701a6e2b557b7a252e90cf3a5abcf54cee46862b9a69f8ec8",
+      "src/unilab/assets/robots/g1/assets/right_rubber_hand.STL": "sha256:99533b778bca6246144fa511bb9d4e555e075c641f2a0251e04372869cd99d67",
+      "src/unilab/assets/robots/g1/assets/right_shoulder_pitch_link.STL": "sha256:24cdb387e0128dfe602770a81c56cdce3a0181d34d039a11d1aaf8819b7b8c02",
+      "src/unilab/assets/robots/g1/assets/right_shoulder_roll_link.STL": "sha256:962b97c48f9ce9e8399f45dd9522e0865d19aa9fd299406b2d475a8fc4a53e81",
+      "src/unilab/assets/robots/g1/assets/right_shoulder_yaw_link.STL": "sha256:a0b76489271da0c72461a344c9ffb0f0c6e64f019ea5014c1624886c442a2fe5",
+      "src/unilab/assets/robots/g1/assets/right_wrist_pitch_link.STL": "sha256:d22f8f3b3127f15a63e5be1ee273cd5075786c3142f1c3d9f76cbf43d2a26477",
+      "src/unilab/assets/robots/g1/assets/right_wrist_roll_link.STL": "sha256:a7ee9212ff5b94d6cb7f52bb1bbf3f352194d5b598acff74f4c77d340c5b344f",
+      "src/unilab/assets/robots/g1/assets/right_wrist_roll_rubber_hand.STL": "sha256:0729aff1ac4356f9314de13a46906267642e58bc47f0d8a7f17f6590a6242ccf",
+      "src/unilab/assets/robots/g1/assets/right_wrist_yaw_link.STL": "sha256:bc9dece2d12509707e0057ba2e48df8f3d56db0c79410212963a25e8a50f61a6",
+      "src/unilab/assets/robots/g1/assets/scene_crawl_slope.xml": "sha256:1ec4695d4e12a64f1320dea0ae8034e613c99408544d9b153c4528e284db167b",
+      "src/unilab/assets/robots/g1/assets/torso_link_23dof_rev_1_0.STL": "sha256:3cd0d56fde14b73c1623304684805029971c4f84b596f9914e823ca70a107fd2",
+      "src/unilab/assets/robots/g1/assets/torso_link_rev_1_0.STL": "sha256:11ddb46f2098efbbd8816b1d65893632d8e78be936376c7cdcd6771899ccc723",
+      "src/unilab/assets/robots/g1/assets/waist_roll_link_rev_1_0.STL": "sha256:b67c347a05abc3e8ddae600d98a082bee273bb39f8e651647708b0a7140a8a97",
+      "src/unilab/assets/robots/g1/assets/waist_yaw_link_rev_1_0.STL": "sha256:ec6db442b11f25eed898b5add07940c85d804f300de24dcbd264ccd8be7d554c",
+      "src/unilab/assets/robots/g1/g1.xml": "sha256:bb6089243f8fe1c97a6410ccde8754eaa58e5d8e476aca69d790ce501cb4a48e",
+      "src/unilab/assets/robots/g1/g1_23dof.xml": "sha256:1008503a142e6babdf8dc123cf711507361768255b765bac8a13a8a9b17ce7cb",
+      "src/unilab/assets/robots/g1/g1_23dof_sphere_hand.xml": "sha256:2739e386ef3aa21d0686e3a5728e56a9c8637ad0e1c629e3d96adf9faf0f3b69",
+      "src/unilab/assets/robots/g1/g1_sphere_hand.xml": "sha256:fde984441ad264aec9db7d98c00b2176769c504e7e6bd7837198d364fb4f7c39",
+      "src/unilab/assets/robots/g1/hfields/hfield.png": "sha256:9e2fc5b8a1979fec9fc8f9c72aa0c249aaecb5876813f739bc3a1e675450e926",
+      "src/unilab/assets/robots/g1/locomotion_task.xml": "sha256:fff63a58544cc39f5672103b578847565b36d161c1be0850e660d499878759ea",
+      "src/unilab/assets/robots/g1/scene_climb_20_z_scale_1.xml": "sha256:320331abcdc12054fb38cb34d8a2a74ac4749f51210b4d28d0db99dbef2a4698",
+      "src/unilab/assets/robots/g1/scene_climb_20_z_scale_1_23dof.xml": "sha256:129e8288f8575e95d7944fa698544e95c65aaaa163af2a5bcb21cabf1abf0551",
+      "src/unilab/assets/robots/g1/scene_crawl_slope.xml": "sha256:1ec4695d4e12a64f1320dea0ae8034e613c99408544d9b153c4528e284db167b",
+      "src/unilab/assets/robots/g1/scene_flat.xml": "sha256:1d996d6f96345d322525571da2559ebd9639e9950b2f995370a88da55ba465dc",
+      "src/unilab/assets/robots/g1/scene_flat_23dof.xml": "sha256:1ad252ee852004a0ba68652557c6575433672f6efbd4ecf80c2a5f6d91332b5a",
+      "src/unilab/assets/robots/g1/scene_flat_23dof_with_largebox.xml": "sha256:bb6c135bd3f6220b153d91999ff6b44273a60558941829fa6776cdd9e5740c74",
+      "src/unilab/assets/robots/g1/scene_flat_23dof_with_wall.xml": "sha256:7e41029729928528a9ffbdd42641b8cf8c787a50f2ce3468fe1c1971200f13d7",
+      "src/unilab/assets/robots/g1/scene_flat_with_largebox.xml": "sha256:7eb17201d83cf20cbba884ed3d2318d106153f64ed18bedf853c515a1c531fab",
+      "src/unilab/assets/robots/g1/scene_flat_with_wall.xml": "sha256:7f95fdea50b9fc5ea10f2e8b35ed7320a6c5ea6bb672fd29254d4d4f4fcb3c1f",
+      "src/unilab/assets/robots/g1/scene_rough.xml": "sha256:202a4bc002a4abc2406f8408e6e5db2fd5dd81556c6e109dc5d5bd8f1f1d5d55",
+      "src/unilab/assets/robots/g1/scene_rough_23dof.xml": "sha256:1e8baa2404f2cb2257bc97ac93bb64c793a9c007c7326070658279fca5b3cf27",
+      "src/unilab/assets/robots/g1/textures/floor.png": "sha256:9ee06a1800f840506d48461c26f097937ad9b17097d186b71e90a5940d2222bb",
+      "src/unilab/assets/robots/g1/textures/rocky.png": "sha256:b1babd00bf75dd6977cca0a6433d2eebfe3696ae1e479818f108962e95e09c10",
+      "src/unilab/assets/robots/g1/tmp00xihxis.xml": "sha256:a3d94095e42a3db0fa0571309fd30c13da18c450d686e0af54f9befa0d60d315",
+      "src/unilab/assets/robots/g1/tmp4wuf19pf.xml": "sha256:f6d0a588abf80910db235e0e9a099395cfa6feaa62cf726c5e18c814d32c3448",
+      "src/unilab/assets/robots/g1/tmp85dmbe0x.xml": "sha256:f6d0a588abf80910db235e0e9a099395cfa6feaa62cf726c5e18c814d32c3448",
+      "src/unilab/assets/robots/g1/tmp97ul4yaz.xml": "sha256:f6d0a588abf80910db235e0e9a099395cfa6feaa62cf726c5e18c814d32c3448",
+      "src/unilab/assets/robots/g1/tmpibbwc4q_.xml": "sha256:9288781da2d8eeb252a132085b69eb0cc4c7e9a421d03949853c1656713b93a8",
+      "src/unilab/assets/robots/g1/tmpkiyp0bl4.xml": "sha256:f6d0a588abf80910db235e0e9a099395cfa6feaa62cf726c5e18c814d32c3448",
+      "src/unilab/assets/robots/g1/tmpv6lb1kh_.xml": "sha256:9288781da2d8eeb252a132085b69eb0cc4c7e9a421d03949853c1656713b93a8",
+      "src/unilab/assets/robots/g1/tmpwhys0liu.xml": "sha256:a3d94095e42a3db0fa0571309fd30c13da18c450d686e0af54f9befa0d60d315",
+      "src/unilab/assets/robots/go2w/go2w.xml": "sha256:8eceae83661ae11612ec743a5e4b399eb63b2ff22d8168bf95c2b89dd10015eb",
+      "src/unilab/assets/robots/go2w/go2w_mujoco.xml": "sha256:1e00ad45ee81fe2afb279f700a30bf082c6d715e3e73aa2d1d8a914a093513f2",
+      "src/unilab/assets/robots/go2w/locomotion_task.xml": "sha256:4352a04421a17bd65992f05f48ef2c17fd897bc8947f1206b87b0024482e685c",
+      "src/unilab/assets/robots/go2w/scene_flat.xml": "sha256:6c5e5c24817fa2e3f4795828d0e854ebfac662097448a0c69428f11293c53083",
+      "src/unilab/base/backend/__init__.py": "sha256:d64b90a6912791a5f409b6206ecb7b7d29d1cb2374326dfe4fbbc0546c48f04b",
+      "src/unilab/base/backend/base.py": "sha256:4261762afa6b693fd679a58803100d3bdb6b4583b6333b2563b211040c773bba",
+      "src/unilab/base/backend/batch.py": "sha256:489419b37fb9fb8af9215652b09c2675648631f027ce63bde30854784a514653",
+      "src/unilab/base/backend/device.py": "sha256:87ea3c9167d2992c2183be648b311cc6c6f57ff8f3e5e9ad81ce11234a8906c8",
+      "src/unilab/base/backend/drake/__init__.py": "sha256:d4dce08737f5091a2c761a370e62e54e645ed5afe683d0055a6736bc1f9bda10",
+      "src/unilab/base/backend/drake/backend.py": "sha256:c21fde1c4f027b94eb5b2da041bb57269faf2fc5a01a8160042a5b45fd51af72",
+      "src/unilab/base/backend/drake/playback.py": "sha256:33f1d3a2abdae8686133d0e57a0d89ff1f4add9a764c8a9289b581253ec38221",
+      "src/unilab/base/backend/graph.py": "sha256:46bff9de87e02c067b4478fc3c53725e27a1a279d342564a6f51009c76cddbf3",
+      "src/unilab/base/backend/mjwarp/__init__.py": "sha256:07100364beff307b0ac5149b7e794ecc0e8900ef672ce4b10a89025475d8d46b",
+      "src/unilab/base/backend/mjwarp/armature_recompute.py": "sha256:2ae6cc894b504ecf29ee917c55838338adb2dfaca68f14f1758b805bb2a1f4e2",
+      "src/unilab/base/backend/mjwarp/backend.py": "sha256:c795df063f4e6934cd20ccf5c1a9f0949e9f7b8ca70221c2676aa000ba972b9e",
+      "src/unilab/base/backend/mjwarp/batch.py": "sha256:5f137c126c7c91bc58ec54b414f04e8d7927f9bede81fa7cb5f9cf9f6bc4e176",
+      "src/unilab/base/backend/mjwarp/capability.py": "sha256:37f23d74807b9aa018650c3fdc2cdc2b479a5755da30fa64e17f4d9945657002",
+      "src/unilab/base/backend/mjwarp/controller.py": "sha256:a4776857e669e142b3d51a64b3c2e10f22978d3ef0802c95c1c3268797b7828c",
+      "src/unilab/base/backend/mjwarp/dependencies.py": "sha256:8eebd3a884c79ec06aa8be287ee41fc709d91a16ce1947fa57b6566c34460319",
+      "src/unilab/base/backend/mjwarp/device.py": "sha256:e08bbd9dc9e923520fc66bb78aafbe002cee4093ebf46c2f352cf9144dfd4ba6",
+      "src/unilab/base/backend/mjwarp/device_mutation.py": "sha256:45994ccd88be5adb99a55fea3e1d8b54c595502fbbbc91a9d55fe50cb8eb292a",
+      "src/unilab/base/backend/mjwarp/materialization.py": "sha256:c62b95641c7d83300a6e68dc95fd322d5b8b97d5ffd94168aa6949b9ac4f94e2",
+      "src/unilab/base/backend/mjwarp/model_mutation.py": "sha256:b6ca124e89aa15591e7939844468b810d7a8180d85ee885e1f5d4133de67704c",
+      "src/unilab/base/backend/mjwarp/mutation.py": "sha256:ff8b9489cd71dec55068b8e84915d63f2bc28920f5df1ef7e0d70940cb1f85e4",
+      "src/unilab/base/backend/mjwarp/recompute.py": "sha256:e10dfa36b56abf1200c355f2e8fd8fe9d8c358d88f58392b9eafe570a72a4978",
+      "src/unilab/base/backend/mjwarp/telemetry.py": "sha256:704427777dda2d6d22a020b1ed339ff0a16dc7aef0fab31ff32ba60fe031033d",
+      "src/unilab/base/backend/motrix/__init__.py": "sha256:30f7ab8c09de649939e019b9ae0b6f9c474f0f4b103b0ff0ff6ee618baaf4727",
+      "src/unilab/base/backend/motrix/backend.py": "sha256:159c8c5b03a3a6a60d6f179735a352c16776020b43001707d276260db6307a49",
+      "src/unilab/base/backend/motrix/playback.py": "sha256:424ba1122d8ffbf33a231220362d403d10a631cc2df721bbb7cc1b3838dc2272",
+      "src/unilab/base/backend/motrix/scene.py": "sha256:0bcd29302b680e1f2730d0754d5a1fe531232b8e67aaa56a8559411edb436abc",
+      "src/unilab/base/backend/motrix_camera.py": "sha256:18dbf06fc3334891e98ab9182db267ca0510c2d99f1730e3cf4b9898d8a97dde",
+      "src/unilab/base/backend/mujoco/__init__.py": "sha256:c305f99214d4950550b8a34c5399b102a52c1de46366a6dbc778c796e9f601da",
+      "src/unilab/base/backend/mujoco/backend.py": "sha256:079b06485ad6702e6d94aa8bb3b4959d3c8e1fcd9d995146cdb837579aa7c8c0",
+      "src/unilab/base/backend/mujoco/batch.py": "sha256:d6db49af8b3744ebfb2f4f4d470352aea3a134004f9a4d5b424f44a69d3515c5",
+      "src/unilab/base/backend/mujoco/chunk_tuner.py": "sha256:a122d0380ce712f6baf3cb8315f555fc8a24c81187709cf22d384e74fead497f",
+      "src/unilab/base/backend/mujoco/playback.py": "sha256:e4dd61203a91512066928fc12d64ab3a6d94817b12ce11579627771db39c5fce",
+      "src/unilab/base/backend/mujoco/xml.py": "sha256:d089852e5d3f0a45b61dfef98ae814f8ff20d332f9a52f8b8aa31a5ac7136f6d",
+      "src/unilab/base/backend/mutation.py": "sha256:35d375f3adc16e4a8d84a18fcb16b7d8141b92c132bf295dba1ff5e7cc348a95",
+      "src/unilab/base/backend/mutation_batch.py": "sha256:94d0afa47943cbc64b771e027dacf323a0fd60587f0d1c899450893391f1b7e6",
+      "src/unilab/base/backend/performance.py": "sha256:b40b8775ef8c8c34b82a43148fdd2a65321beb738071347758eb9a85aff5d709",
+      "src/unilab/base/backend/phase_timing.py": "sha256:2f0c760c8decc3d27b1d75c41487509562228acb810249ea9b415ee27716ad79",
+      "src/unilab/base/backend/playback_common.py": "sha256:5f1ca916f4c240c4ddf239ca2dfd00b54a8c5f8cee266f4e4a00ad53e4932250",
+      "src/unilab/base/backend/telemetry.py": "sha256:acadf708d0de93f0c968f48d6e7ed027ff49a2f04468d37a1dae0200e93c1a73",
+      "src/unilab/dr/__init__.py": "sha256:56b529db1f5d23370fa6a79ca553f5d7f18eb3da93ccdce14d1b5f5e9dc02063",
+      "src/unilab/dr/dr_utils.py": "sha256:34edd9d898fa43826faa3bbc578a48157c9faeaf85cfb8094671105c5fcc00f3",
+      "src/unilab/dr/keyed_rng.py": "sha256:a9b5076291ed56ae99e22753a3301eda73f900070d4a1fd4fb9113877de52940",
+      "src/unilab/dr/manager.py": "sha256:5947e17a8325e024b4a9f53af9fa22a9a90113c6f83d57d7031f3c5837970981",
+      "src/unilab/dr/provider.py": "sha256:52ec3ce89a2a8588df5bafee3c08e92c3cb8c58bfeacdda60faf68c6cba1113f",
+      "src/unilab/dr/types.py": "sha256:2cf909b7369f86ddf90d2d586d092c1ffcb1c5db73c7b35888aed74442e1b160",
+      "src/unilab/envs/locomotion/g1/__init__.py": "sha256:46b8fb145c1146413b24fff200dcd326b2ecd1b33809c11fb1c13dbded8fb243",
+      "src/unilab/envs/locomotion/g1/base.py": "sha256:01487a7b26570e6e491c0af98c8306b9747256eed17f4f04ca0a702f15fb4c3d",
+      "src/unilab/envs/locomotion/g1/joystick.py": "sha256:c9634092e5648135d248b2486209c2bb11fc0793be767e27c6b5562eb1214756",
+      "src/unilab/envs/locomotion/g1/joystick_numba.py": "sha256:bcb57465a3c97004cfd4e0f20cbef010d6dd642081cb1f7026df649e83f08ff4",
+      "src/unilab/envs/locomotion/g1/managed_device.py": "sha256:afad58871714fe156445756fa084f6708c2b0fb6c5e5e2aaf699f96c88e3b165",
+      "src/unilab/envs/locomotion/g1/managed_fused.py": "sha256:36bfc0ea08a9f99e0b7dc47ab7b02753fe423977a298079d6e3e79049e21c065",
+      "src/unilab/envs/locomotion/g1/managed_reference.py": "sha256:e9a7c688611aa4cadb1d9c3707722933c489d99602bd17a625b3c687e1040f80",
+      "src/unilab/envs/locomotion/g1/symmetry.py": "sha256:5ac02744d18800b222b3d72171b9fcc9f0ab1981a490ce37536fc6aad14e996d",
+      "src/unilab/manager/__init__.py": "sha256:720b6af1571caca4dab02da6c5640097b69e38b36fe61fd6369c2f980213779b",
+      "src/unilab/manager/backend_resolver.py": "sha256:bcb5e420a3137ff6dacc5848211c0d73e50f5e9c85a4a960ec2700409179e7f2",
+      "src/unilab/manager/compiler.py": "sha256:1cb875dfcab4f48afc64b28eaa0fb9dad425a33b7f6c1c768d0ef7155c20c7aa",
+      "src/unilab/manager/device_runtime.py": "sha256:6211b38d5829c9a0ac69d13a02037e51bf7ab5df7d429b34437075a07cc8e727",
+      "src/unilab/manager/entities.py": "sha256:0def431d615d7d2b4337f57954d54f5be9cc4c295dbe3a4f6dadd96a46a63307",
+      "src/unilab/manager/fingerprint.py": "sha256:9b3725069ae780a55766f12e21ffb9c75eec66496ef2d3e94562f3d590e01475",
+      "src/unilab/manager/plan.py": "sha256:2176d6791ad6b1f77b828e56ada1662a5a31f7f1aa4329189aa7dafc49e54f4c",
+      "src/unilab/manager/registry.py": "sha256:8ec2335b5ac5c7d37df837437b523aef89d445c478883f1aa6fa25c5d05b2bff",
+      "src/unilab/manager/runtime.py": "sha256:5b636a8fc442e4ed468e024b1ec1ba35ab70dc937f916308c3157a69a4451ddf",
+      "src/unilab/manager/spec.py": "sha256:2c24918a72f08cefc1d25cc922eccd21e918b20b108d87b1f416b43a2af77337",
+      "src/unilab/tools/g1_baseline_provenance.py": "sha256:ac605d3193862b3533707c132268533ef87d603551d9fdda6fb9099cb973a18f",
+      "src/unilab/tools/issue705_phase6_evidence.py": "sha256:0ef6670d5deb89c0cb4d3cd968ef7f618d4a0ea295948c3a2084c14efff11dfc",
+      "src/unilab/tools/issue705_phase_evidence.py": "sha256:4149f7098d95b91fdbb9749cb455bb5eb49b5115ee30cf7d66bc4e28af2e1b3b",
+      "src/unilab/tools/mjwarp_dr_performance.py": "sha256:31f096148d85379b3b8c87736f04299f036c827dab4247a49c582a2bdd7046ba",
+      "src/unilab/training/rsl_rl_device.py": "sha256:5bca6101c39c0d39b2917ef49b43fad8cd2529c2b19757452863de0c66d1f456",
+      "tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json": "sha256:58dea886865aee7fb011e07bdaf7fc33aef7a33d5adb1b0391892da336bb8481",
+      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:dd3a137df31bcc8922796dc81d894f5c212e9cc64644239f1a771a9a92f88dbd",
+      "tests/acceptance/issue_705/mjwarp_dr_performance_freeze_receipt.yaml": "sha256:ab61f25274bc60ebc7cb5d44cae01531ae38a6cab59f6e95bea530a2d302880b",
+      "tests/acceptance/issue_705/mjwarp_dr_performance_plan.yaml": "sha256:094a49b35be6a7860d1c67716721700886912b765964b153dc06fbd1f1866950",
+      "tests/acceptance/issue_705/test_phase6_evidence.py": "sha256:c60d0f89e59d7133ce0ac8f66e43520271d4bb6d663949c47f3186adae3473bd",
+      "tests/base/test_device_controller_contract.py": "sha256:95eaab43408821ce7356249172d24cd0044fb4c43c87aa1f1e727c07a6da36f2",
+      "tests/benchmark/test_mjwarp_dr_benchmark.py": "sha256:b5df520c993eee8cd82c815b6a514139942650e1a37f29189335e453e19162b3",
+      "tests/dr/mjwarp_model_mutation_support.py": "sha256:457f398752634bcd53c6f90e3acbbd50489760288c231773af755274b1689d01",
+      "tests/dr/test_keyed_rng.py": "sha256:185478af309b0b6dbce415677249021936ad789edf4ea5778f38432e91b91c60",
+      "tests/dr/test_manager.py": "sha256:e0fb150f159a652ae58ce7744c96508145f032b583223a4d2a31be635881b35d",
+      "tests/dr/test_mjwarp_capability_matrix.py": "sha256:a7188a7d4bd292835407bb8b8b99090084fdb3d4b8921c3011620f3e8135cebf",
+      "tests/dr/test_mjwarp_g1_dr.py": "sha256:1d9f3b089de4f536d4ef6693cda67334a50df9abf6a439735388e97cd66f0305",
+      "tests/dr/test_mjwarp_g1_event_dr.py": "sha256:21fedd022a09dbfe5d7e3bc3d3f64b6fa5b1f2a6589dc0b2ff5e5f8f7eb302eb",
+      "tests/dr/test_mjwarp_graph_mutation.py": "sha256:de4819be212abee9cad5f54f02d8891371ed1fdf49bb8002a0aa238a8cfb2b01",
+      "tests/dr/test_mjwarp_model_materialization.py": "sha256:59fa93c9c0676b20a8781d213d91169ae56992a5593f6acb25474f25408c703b",
+      "tests/dr/test_mjwarp_model_mutation.py": "sha256:b002c232f0d197e2fb9ad60f0fe88fa7453e1aec20a5f9480c0145595452df65",
+      "tests/dr/test_mjwarp_mutation_semantics.py": "sha256:041fc0cf81ef9c9371c282b9d2726a66723ca61f7df98bb12439825e6e8b8cc8",
+      "tests/dr/test_mjwarp_performance_diagnostics.py": "sha256:3ab5270c602726b88b0559fc6d0f80514abf265e1a404f3ec6eba1b11646a6b0",
+      "tests/dr/test_mjwarp_physics_effect.py": "sha256:d1b82f7b57d09ab7b03206fbe04413bac4aaef4301ea4af420d1c908f7fbe78f",
+      "tests/dr/test_mjwarp_recompute.py": "sha256:ca963943d3381e0389e28ade64ef59ab65c3e892bf72d1d02917414a1bf144da",
+      "tests/dr/test_mutation_contract.py": "sha256:9a922b96dee08916d9041557ad46f824c27dd3828e7c8657ccd07fd601f812c1",
+      "tests/tools/test_issue705_phase6_evidence.py": "sha256:8b4c8844efd4c7e17be9423a35ab2c0acc10bc1f35944445c16446294895ca54",
+      "uv.lock": "sha256:fe3b4c9dc315a7556464d636b9da02bece2e1ef0b0b8fec1c28d14edbba7540c"
+    }
+  },
+  "issue": 705,
+  "kind": "issue705-phase6-gate-v1",
+  "phase": 6,
+  "schema_version": 1,
+  "source": {
+    "branch": "test/issue-831-phase6-evidence-promotion",
+    "commit_sha": "66b5d01231b98f7fbe82f56f45f44f0d7088c47a",
+    "tree_clean": true
+  }
+}
