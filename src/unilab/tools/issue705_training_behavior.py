@@ -1026,9 +1026,10 @@ def evaluate_training_behavior_cases(
     if observed_ids != expected_ids:
         errors.append("candidate case order must exactly match frozen seeds")
     seeds = [case.get("seed") for case in candidate_cases]
-    if len(seeds) != len(set(seeds)):
+    integer_seeds = [seed for seed in seeds if isinstance(seed, int) and not isinstance(seed, bool)]
+    if len(integer_seeds) != len(set(integer_seeds)):
         errors.append("candidate contains duplicate seeds")
-    if tuple(seed for seed in seeds if isinstance(seed, int)) != plan.seeds:
+    if len(integer_seeds) != len(seeds) or tuple(integer_seeds) != plan.seeds:
         errors.append("candidate seed set differs from frozen plan")
     if len(candidate_cases) != len(plan.seeds):
         errors.append("candidate omitted or added a training run")
@@ -1215,7 +1216,10 @@ def _validate_candidate_case(
     )
     worker_command = worker.get("command")
     if isinstance(worker_command, list):
-        if not {"--seed", str(seed), "--worker-out"}.issubset(set(worker_command)):
+        worker_tokens = {item for item in worker_command if isinstance(item, str)}
+        if not all(isinstance(item, str) for item in worker_command):
+            errors.append(f"{label}.worker_process.command: expected string tokens")
+        if not {"--seed", str(seed), "--worker-out"}.issubset(worker_tokens):
             errors.append(f"{label}.worker_process.command: seed/output binding missing")
     process = _mapping(case.get("process"), f"{label}.process", errors)
     _validate_process_receipt(
@@ -1227,6 +1231,9 @@ def _validate_candidate_case(
     )
     command = process.get("command")
     if isinstance(command, list):
+        command_tokens = {item for item in command if isinstance(item, str)}
+        if not all(isinstance(item, str) for item in command):
+            errors.append(f"{label}.process.command: expected string tokens")
         required = {
             "task=g1_walk_flat/mjwarp",
             f"algo.seed={seed}",
@@ -1239,7 +1246,7 @@ def _validate_candidate_case(
             "training.logger=tensorboard",
             *cast(Sequence[str], plan.measurement["hydra_overrides"]),
         }
-        if not required.issubset(set(command)):
+        if not required.issubset(command_tokens):
             errors.append(f"{label}.process.command: differs from frozen public owner protocol")
         log_roots = [item for item in command if str(item).startswith("training.log_root=")]
         if len(log_roots) != 1:

@@ -1,0 +1,13 @@
+schema_version: 1
+issue: 837
+parent_issue: 705
+benchmark_id: issue705-training-behavior-v1
+plan_path: tests/acceptance/issue_705/training_behavior_plan.yaml
+plan_sha256: sha256:e1e2121ec8873e8bb6c6493abb34b70b1860efd414487f16da0d311de30699dc
+plan_git_blob: 3006e9249c11d1fd562bc917aff4fe3e69a2c2b6
+freeze_commit: 6e3008d5ab7461a3320f0dea0a9e466e7c45323e
+issue_url: https://github.com/unilabsim/UniLab/issues/837
+change_policy: Threshold or protocol changes require a new child issue and freeze receipt before candidate capture.
+creation_verification: full_git_history
+shallow_checkout_policy: current_hash_and_receipt
+final_merge_method: merge_commit
