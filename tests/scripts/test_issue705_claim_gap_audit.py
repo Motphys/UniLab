@@ -103,23 +103,23 @@ def test_all_phase_manifests_exist_and_pass_schema() -> None:
     assert {
         manifest.phase: {claim.claim_id for claim in manifest.claims} for manifest in manifests
     } == EXPECTED_CLAIMS
-    # Phase gates 0--6 have their independently captured evidence promoted in
-    # their respective gate PRs.  Keep this frozen expectation aligned with
-    # the manifests so a newly completed phase cannot make ``make test-all``
-    # fail solely because this governance test still describes an older
-    # integration head.
+    # Keep promotion state explicit so a claim cannot become verified merely
+    # because its test node exists in the inventory.
     assert all(
         claim.status == ClaimStatus.VERIFIED
         for manifest in manifests
         if manifest.phase in {0, 1, 2, 3, 4, 5, 6}
         for claim in manifest.claims
     )
-    assert all(
-        claim.status == ClaimStatus.PLANNED
-        for manifest in manifests
-        if manifest.phase not in {0, 1, 2, 3, 4, 5, 6}
-        for claim in manifest.claims
-    )
+    phase7 = next(manifest for manifest in manifests if manifest.phase == 7)
+    assert {claim.claim_id: claim.status for claim in phase7.claims} == {
+        "P7-SUPPORT-MATRIX": ClaimStatus.PLANNED,
+        "P7-TASK-ROLLOUT": ClaimStatus.PLANNED,
+        "P7-TRAINING-BEHAVIOR": ClaimStatus.VERIFIED,
+        "P7-ENTRYPOINT-MATRIX": ClaimStatus.PLANNED,
+        "P7-FINAL-REGRESSION": ClaimStatus.PLANNED,
+        "P7-LEGACY-RETIREMENT": ClaimStatus.PLANNED,
+    }
 
 
 def test_repository_claim_inventory_is_bidirectional_for_all_phases(capsys) -> None:
