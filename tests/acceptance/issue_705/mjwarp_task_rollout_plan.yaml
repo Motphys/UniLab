@@ -1,0 +1,73 @@
+schema_version: 1
+issue: 705
+claim_id: P7-TASK-ROLLOUT
+plan_fingerprint: mjwarp-task-rollout-v1
+entries:
+  - entrypoint_id: ppo_torch
+    task_slug: g1_walk_flat
+    env_name: G1WalkFlat
+    backend: mjwarp
+    execution_profile: device_resident
+    owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
+    owner_yaml_sha256: sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61
+    seeds: [0, 1]
+    num_envs: 128
+    num_steps_per_env: 2
+    max_iterations: 1
+    runtime_impl: mjwarp_device_v1
+    runtime_resolver: unilab.training.rsl_rl_device:resolve_mjwarp_device_ppo_runtime
+    required_capabilities:
+      - device_resident_ppo
+      - flat_scene
+      - g1_managed_device
+      - g1_position_target_control
+      - no_observation_noise
+      - no_render
+      - owner_disabled_dr
+      - typed_state_reset
+    disabled_domain_rand:
+      - randomize_body_gravity_compensation
+      - randomize_dof_armature
+      - randomize_kd
+      - randomize_kp
+    expected_model_targets: []
+    support_compiled_signature:
+      task_key: g1_walk_flat.managed_device
+      executor_key: device.torch.g1-walk-flat.v1
+      task_plan_fingerprint: manager-task-contract-v1:51654b40da528186ad1a05cc1c54f463f8358f446fff1a3a0c492438542f10a9
+      policy_abi_fingerprint: managed-policy-abi-v1:931aaecc6db37967f05db6439ec509a071bea1dce6ee53fec3f8069a2c030ae9
+      backend_plan_fingerprint: mjwarp-device-batch-v1:6046ec598106f8c84770f2e751702a7322762ba0fb29f1383091237260843ea6
+    rollout_compiled_signature:
+      task_key: g1_walk_flat.managed_device
+      executor_key: device.torch.g1-walk-flat.v1
+      task_plan_fingerprint: manager-task-contract-v1:8172ed8bb3a3ac6ea1e1d011770b7df8d306e604d81333669baccb838ec89a57
+      policy_abi_fingerprint: managed-policy-abi-v1:931aaecc6db37967f05db6439ec509a071bea1dce6ee53fec3f8069a2c030ae9
+      backend_plan_fingerprint: mjwarp-device-batch-v1:78f6434ae1a3ffa3daae3abe6461692755b7801ef86179424a1bad143c434d71
+    prerequisites:
+      - {phase: 2, claim_id: P2-BACKEND-IDENTITY, test_id: tests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco}
+      - {phase: 2, claim_id: P2-GPU-CORRECTNESS, test_id: tests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step}
+      - {phase: 2, claim_id: P2-RESET-ISOLATION, test_id: tests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated}
+      - {phase: 2, claim_id: P2-TRAJECTORY-DIFFERENTIAL, test_id: tests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco}
+      - {phase: 2, claim_id: P2-DR-OWNER-SEMANTICS, test_id: tests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled}
+      - {phase: 2, claim_id: P2-TRANSFER-ACCOUNTING, test_id: tests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan}
+      - {phase: 2, claim_id: P2-UNSUPPORTED-FAIL-CLOSED, test_id: tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step}
+      - {phase: 2, claim_id: P2-TRAIN-LIVENESS, test_id: tests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp}
+      - {phase: 3, claim_id: P3-TASK-COMPILER, test_id: tests/manager/test_task_compiler.py::test_compiler_binds_and_freezes_complete_plan}
+      - {phase: 3, claim_id: P3-LIFECYCLE-PARITY, test_id: tests/manager/test_managed_lifecycle.py::test_terminal_and_autoreset_lifecycle_trace}
+      - {phase: 3, claim_id: P3-G1-REFERENCE-DIFFERENTIAL, test_id: tests/manager/test_g1_reference_differential.py::test_g1_managed_reference_matches_handwritten_env}
+      - {phase: 3, claim_id: P3-POLICY-ABI, test_id: tests/training/test_managed_policy_abi.py::test_managed_policy_abi_mismatch_fails_closed}
+      - {phase: 3, claim_id: P3-CROSS-BACKEND-PLAN, test_id: tests/manager/test_cross_backend_plan.py::test_g1_plan_is_shared_by_mujoco_and_mjwarp}
+      - {phase: 5, claim_id: P5-DEVICE-ABI, test_id: tests/training/test_device_transition_abi.py::test_dlpack_pointer_shape_dtype_and_lifetime}
+      - {phase: 5, claim_id: P5-STREAM-LIFETIME, test_id: tests/training/test_device_stream_contract.py::test_missing_completion_event_is_detected}
+      - {phase: 5, claim_id: P5-DEVICE-LIFECYCLE, test_id: tests/training/test_device_lifecycle.py::test_device_adapter_matches_host_terminal_contract}
+      - {phase: 5, claim_id: P5-NO-HOST-ROUNDTRIP, test_id: tests/training/test_device_transfer_budget.py::test_rollout_has_no_per_step_host_roundtrip}
+      - {phase: 5, claim_id: P5-GRAPH-CONTRACT, test_id: tests/base/test_mjwarp_graph_contract.py::test_graph_key_change_recaptures_or_fails_closed}
+      - {phase: 5, claim_id: P5-TRAIN-PERFORMANCE, test_id: tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate}
+      - {phase: 5, claim_id: P5-DEVICE-STABILITY, test_id: tests/training/test_device_runtime_stability.py::test_long_rollout_memory_and_addresses_are_stable}
+      - {phase: 6, claim_id: P6-CAPABILITY-BIJECTION, test_id: tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases}
+      - {phase: 6, claim_id: P6-DR-SEMANTICS, test_id: tests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence}
+      - {phase: 6, claim_id: P6-PHYSICS-EFFECT, test_id: tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect}
+      - {phase: 6, claim_id: P6-RNG-REPRODUCIBILITY, test_id: tests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms}
+      - {phase: 6, claim_id: P6-GRAPH-RECAPTURE, test_id: tests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers}
+      - {phase: 6, claim_id: P6-DR-PERFORMANCE, test_id: tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates}
+      - {phase: 6, claim_id: P6-RECOMPUTE-AGGREGATION, test_id: tests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier}
