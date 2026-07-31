@@ -106,9 +106,7 @@ def test_all_phase_manifests_exist_and_pass_schema() -> None:
     # Keep promotion state explicit so a claim cannot become verified merely
     # because its test node exists in the inventory.
     assert all(
-        claim.status == ClaimStatus.VERIFIED
-        for manifest in manifests
-        for claim in manifest.claims
+        claim.status == ClaimStatus.VERIFIED for manifest in manifests for claim in manifest.claims
     )
     phase7 = next(manifest for manifest in manifests if manifest.phase == 7)
     assert {claim.claim_id: claim.status for claim in phase7.claims} == {
