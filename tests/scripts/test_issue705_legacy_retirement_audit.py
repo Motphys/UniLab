@@ -60,7 +60,9 @@ def _assert_error(report: LegacyRetirementAuditReport, fragment: str) -> None:
     assert any(fragment in error for error in report.errors), report.errors
 
 
-@pytest.mark.parametrize(("mutation", "fragment"), [("missing", "missing key"), ("unknown", "unknown key")])
+@pytest.mark.parametrize(
+    ("mutation", "fragment"), [("missing", "missing key"), ("unknown", "unknown key")]
+)
 def test_plan_parser_rejects_missing_and_unknown_keys(
     tmp_path: Path, mutation: str, fragment: str
 ) -> None:
