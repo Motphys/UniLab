@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import matplotlib
 import numpy as np
@@ -31,12 +36,8 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-try:
-    from benchmark.core import device_info as _benchmark_device_info
-    from benchmark.core import task_names as _benchmark_task_names
-except ModuleNotFoundError:
-    from core import device_info as _benchmark_device_info
-    from core import task_names as _benchmark_task_names
+from benchmark.core import device_info as _benchmark_device_info
+from benchmark.core import task_names as _benchmark_task_names
 
 get_device_info_dict = _benchmark_device_info.get_device_info_dict
 get_device_info_line = _benchmark_device_info.get_device_info_line

@@ -1,4 +1,4 @@
-"""mjwarp ``SimBackend`` adapter used only by ``benchmark/benchmark_env_step.py``.
+"""mjwarp ``SimBackend`` adapter used only by ``benchmark/env/benchmark_env_step.py``.
 
 The goal is parity with ``MuJoCoBackend`` / ``MotrixBackend`` at the
 ``NpEnv.step`` boundary so the three backends share the same Python pipeline
