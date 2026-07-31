@@ -453,7 +453,9 @@ def _validate_phase_payload(
     raise ValueError(f"no Issue #705 phase evidence validator is registered for phase {phase}")
 
 
-def _test_node_exists(root: Path, test_id: str) -> bool:
+def test_node_exists(root: Path, test_id: str) -> bool:
+    """Return whether an exact pytest node is present in repository source."""
+
     match = _TEST_ID_RE.fullmatch(test_id)
     if match is None:
         return False
@@ -726,7 +728,7 @@ def _validate_claim_inventory_and_tests(
         errors.append("claim inventory: P7 support acceptance node is not exact")
     elif acceptance[0].state != InventoryTestState.EXISTING or acceptance[0].gap is not None:
         errors.append("claim inventory: P7 support acceptance node is not existing")
-    if not _test_node_exists(root, SUPPORT_AUDIT_TEST_ID):
+    if not test_node_exists(root, SUPPORT_AUDIT_TEST_ID):
         errors.append("claim inventory: P7 support acceptance test node is missing")
 
     existing_ids = {
@@ -756,7 +758,7 @@ def _validate_claim_inventory_and_tests(
             if isinstance(test_id, str)
         }
         for test_id in combination.mandatory_test_ids:
-            if not _test_node_exists(root, test_id):
+            if not test_node_exists(root, test_id):
                 errors.append(f"{label}: mandatory test node is missing: {test_id}")
             if test_id not in existing_ids:
                 errors.append(f"{label}: mandatory test is not existing in claim inventory")
@@ -1026,4 +1028,5 @@ __all__ = [
     "load_support_evidence",
     "parse_support_evidence",
     "snapshot_registry_backends",
+    "test_node_exists",
 ]
