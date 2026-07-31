@@ -61,6 +61,7 @@ from unilab.tools.mjwarp_dr_performance import (
     DrPerformanceCaseSpec,
     DrPerformanceProfile,
     MjwarpDrPerformancePlan,
+    compact_mjwarp_dr_performance_artifact,
     dependency_version_satisfies,
     expected_mjwarp_dr_performance_cases,
     load_mjwarp_dr_performance_freeze_receipt,
@@ -962,7 +963,7 @@ def execute_matrix(*, output: Path, allow_gate_failure: bool = False) -> dict[st
     for spec in specs:
         print(f"[{spec.ordinal + 1:03d}/{len(specs):03d}] {spec.case_id}", flush=True)
         case = _run_train_case(plan, spec) if spec.lane == "train" else _run_direct_case(plan, spec)
-        cases.append(case)
+        cases.append(compact_mjwarp_dr_performance_artifact(case))
     preflight_after = _preflight()
     aggregates, threshold_gate = recompute_mjwarp_dr_performance_evidence(cases, plan=plan)
     artifact = {
@@ -1004,7 +1005,14 @@ def execute_matrix(*, output: Path, allow_gate_failure: bool = False) -> dict[st
     output = output if output.is_absolute() else ROOT_DIR / output
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        json.dumps(json_safe(artifact), indent=2, sort_keys=False) + "\n", encoding="utf-8"
+        json.dumps(
+            json_safe(artifact),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=False,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     errors = validate_mjwarp_dr_performance_artifact(
         cast(Mapping[str, Any], artifact),

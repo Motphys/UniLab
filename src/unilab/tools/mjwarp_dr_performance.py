@@ -10,6 +10,7 @@ import math
 import re
 import statistics
 import subprocess
+import zlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,8 +83,8 @@ _PROFILE_EVENT_TERMS = {
 }
 _MODEL_FIELD_ITEMSIZE_BYTES = {
     "actuator_acc0": 4,
-    "actuator_biasprm": 4,
-    "actuator_gainprm": 4,
+    "actuator_biasprm": 40,
+    "actuator_gainprm": 40,
     "body_gravcomp": 4,
     "body_invweight0": 8,
     "body_subtreemass": 4,
@@ -96,6 +97,9 @@ _MODEL_FIELD_ITEMSIZE_BYTES = {
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _GIT_OBJECT_RE = re.compile(r"^[0-9a-f]{40,64}$")
 _GPU_PSTATE_RE = re.compile(r"^P[0-9]+$")
+_GRAPH_STORAGE_ENCODING = "zlib-base64-canonical-json-v1"
+_GRAPH_STORAGE_MAX_UNCOMPRESSED_BYTES = 16 * 1024**2
+_GRAPH_STORAGE_BUFFER_KEYS = {"name", "address", "shape", "dtype", "device"}
 
 
 class MjwarpDrPerformanceContractError(ValueError):
@@ -637,6 +641,128 @@ def _artifact_sha(value: object, path: str) -> str:
     return result
 
 
+def _canonical_graph_storage_bytes(value: object) -> bytes:
+    try:
+        payload = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("graph storage inventory is not canonical JSON") from exc
+    return payload.encode("utf-8")
+
+
+def encode_mjwarp_dr_graph_storage_buffers(value: object) -> dict[str, Any]:
+    """Losslessly encode one graph storage inventory for the evidence artifact."""
+
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("graph storage inventory must be a list or tuple")
+    payload = _canonical_graph_storage_bytes(value)
+    if not payload or len(payload) > _GRAPH_STORAGE_MAX_UNCOMPRESSED_BYTES:
+        raise ValueError("graph storage inventory exceeds the artifact codec limit")
+    return {
+        "encoding": _GRAPH_STORAGE_ENCODING,
+        "count": len(value),
+        "uncompressed_bytes": len(payload),
+        "sha256": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+        "data": base64.b64encode(zlib.compress(payload, level=9)).decode("ascii"),
+    }
+
+
+def _decode_mjwarp_dr_graph_storage_buffers(value: object, path: str) -> list[Mapping[str, Any]]:
+    encoded = _artifact_mapping(value, path)
+    expected_keys = {"encoding", "count", "uncompressed_bytes", "sha256", "data"}
+    if set(encoded) != expected_keys:
+        raise ValueError(f"{path}: encoded graph storage keys differ from v1")
+    if encoded.get("encoding") != _GRAPH_STORAGE_ENCODING:
+        raise ValueError(f"{path}.encoding: unsupported graph storage encoding")
+    count = _artifact_integer(encoded.get("count"), f"{path}.count", minimum=1)
+    uncompressed_bytes = _artifact_integer(
+        encoded.get("uncompressed_bytes"), f"{path}.uncompressed_bytes", minimum=1
+    )
+    if uncompressed_bytes > _GRAPH_STORAGE_MAX_UNCOMPRESSED_BYTES:
+        raise ValueError(f"{path}.uncompressed_bytes: exceeds the artifact codec limit")
+    expected_sha = _artifact_sha(encoded.get("sha256"), f"{path}.sha256")
+    data = _artifact_string(encoded.get("data"), f"{path}.data")
+    try:
+        compressed = base64.b64decode(data, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError(f"{path}.data: invalid base64 payload") from exc
+    if not compressed or len(compressed) > _GRAPH_STORAGE_MAX_UNCOMPRESSED_BYTES:
+        raise ValueError(f"{path}.data: compressed payload exceeds the artifact codec limit")
+    try:
+        decompressor = zlib.decompressobj()
+        payload = decompressor.decompress(compressed, uncompressed_bytes + 1)
+        if (
+            len(payload) != uncompressed_bytes
+            or not decompressor.eof
+            or decompressor.unconsumed_tail
+            or decompressor.unused_data
+            or decompressor.flush()
+        ):
+            raise ValueError("compressed length or stream boundary differs")
+    except zlib.error as exc:
+        raise ValueError(f"{path}.data: invalid zlib payload") from exc
+    if f"sha256:{hashlib.sha256(payload).hexdigest()}" != expected_sha:
+        raise ValueError(f"{path}.sha256: differs from decoded graph storage")
+    try:
+        decoded = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{path}.data: decoded payload is not JSON") from exc
+    if not isinstance(decoded, list) or len(decoded) != count:
+        raise ValueError(f"{path}.count: differs from decoded graph storage")
+    if _canonical_graph_storage_bytes(decoded) != payload:
+        raise ValueError(f"{path}.data: graph storage JSON is not canonical")
+
+    buffers: list[Mapping[str, Any]] = []
+    names: list[str] = []
+    for index, item in enumerate(decoded):
+        buffer_path = f"{path}[{index}]"
+        buffer = _artifact_mapping(item, buffer_path)
+        if set(buffer) != _GRAPH_STORAGE_BUFFER_KEYS:
+            raise ValueError(f"{buffer_path}: graph buffer keys differ from v1")
+        name = _artifact_string(buffer.get("name"), f"{buffer_path}.name")
+        _artifact_integer(buffer.get("address"), f"{buffer_path}.address")
+        shape = _artifact_list(buffer.get("shape"), f"{buffer_path}.shape")
+        if any(isinstance(dim, bool) or not isinstance(dim, int) or dim < 0 for dim in shape):
+            raise ValueError(f"{buffer_path}.shape: expected non-negative integer dimensions")
+        _artifact_string(buffer.get("dtype"), f"{buffer_path}.dtype")
+        _artifact_string(buffer.get("device"), f"{buffer_path}.device")
+        names.append(name)
+        buffers.append(buffer)
+    if names != sorted(names) or len(names) != len(set(names)):
+        raise ValueError(f"{path}: graph buffer names must be canonical and unique")
+    return buffers
+
+
+def compact_mjwarp_dr_performance_artifact(value: dict[str, Any]) -> dict[str, Any]:
+    """Encode repeated graph inventories in place without dropping evidence."""
+
+    def visit(item: object) -> None:
+        if isinstance(item, dict):
+            if (
+                item.get("backend_type") == "mjwarp"
+                and item.get("execution_mode") == "cuda_graph"
+                and "storage_buffers" in item
+            ):
+                storage = item["storage_buffers"]
+                if isinstance(storage, list):
+                    item["storage_buffers"] = encode_mjwarp_dr_graph_storage_buffers(storage)
+                elif not isinstance(storage, Mapping):
+                    raise ValueError("graph storage inventory has an unsupported representation")
+            for child in item.values():
+                visit(child)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child)
+
+    visit(value)
+    return value
+
+
 def dependency_version_satisfies(version: str, constraint: str) -> bool:
     """Return whether an installed version satisfies one frozen dependency constraint."""
 
@@ -1086,10 +1212,116 @@ def _validate_resolved_config(
 
 def _performance_graph(value: Mapping[str, Any], path: str) -> Mapping[str, Any]:
     graph = _artifact_mapping(value.get("graph"), f"{path}.graph")
+    expected_keys = {
+        "backend_type",
+        "execution_mode",
+        "active_keys",
+        "storage_buffers",
+        "storage_generation",
+        "storage_fingerprint",
+        "capture_count",
+        "launch_count",
+        "recapture_count",
+        "stale_rejection_count",
+        "eager_fallback_count",
+        "storage_verification_count",
+        "instrumentation_complete",
+        "contract_version",
+    }
+    if set(graph) != expected_keys:
+        raise ValueError(f"{path}.graph: diagnostics keys differ from v1")
     if graph.get("backend_type") != "mjwarp" or graph.get("execution_mode") != "cuda_graph":
         raise ValueError(f"{path}.graph: expected complete mjwarp CUDA graph diagnostics")
     if graph.get("instrumentation_complete") is not True:
         raise ValueError(f"{path}.graph: instrumentation is incomplete")
+    if graph.get("contract_version") != 1:
+        raise ValueError(f"{path}.graph.contract_version: expected 1")
+    generation = _artifact_integer(
+        graph.get("storage_generation"), f"{path}.graph.storage_generation"
+    )
+    fingerprint = _artifact_string(
+        graph.get("storage_fingerprint"), f"{path}.graph.storage_fingerprint"
+    )
+    encoded_storage = _artifact_mapping(
+        graph.get("storage_buffers"), f"{path}.graph.storage_buffers"
+    )
+    _decode_mjwarp_dr_graph_storage_buffers(encoded_storage, f"{path}.graph.storage_buffers")
+    encoded_sha = _artifact_sha(
+        encoded_storage.get("sha256"), f"{path}.graph.storage_buffers.sha256"
+    )
+    if fingerprint != encoded_sha.removeprefix("sha256:"):
+        raise ValueError(f"{path}.graph.storage_fingerprint: differs from storage inventory")
+
+    active_keys = _artifact_list(graph.get("active_keys"), f"{path}.graph.active_keys")
+    if not active_keys:
+        raise ValueError(f"{path}.graph.active_keys: expected at least one captured graph")
+    canonical_keys: list[tuple[str, int, str, str, int, int, str]] = []
+    active_key_fields = {
+        "backend_type",
+        "plan_fingerprint",
+        "num_envs",
+        "state_dtype",
+        "control_dtype",
+        "physics_substeps",
+        "storage_generation",
+        "storage_fingerprint",
+        "contract_version",
+    }
+    for index, item in enumerate(active_keys):
+        key_path = f"{path}.graph.active_keys[{index}]"
+        active_key = _artifact_mapping(item, key_path)
+        if set(active_key) != active_key_fields:
+            raise ValueError(f"{key_path}: capture key fields differ from v1")
+        if active_key.get("backend_type") != "mjwarp" or active_key.get("contract_version") != 1:
+            raise ValueError(f"{key_path}: backend or contract version differs")
+        plan_fingerprint = _artifact_string(
+            active_key.get("plan_fingerprint"), f"{key_path}.plan_fingerprint"
+        )
+        num_envs = _artifact_integer(active_key.get("num_envs"), f"{key_path}.num_envs", minimum=1)
+        state_dtype = _artifact_string(active_key.get("state_dtype"), f"{key_path}.state_dtype")
+        control_dtype = _artifact_string(
+            active_key.get("control_dtype"), f"{key_path}.control_dtype"
+        )
+        physics_substeps = _artifact_integer(
+            active_key.get("physics_substeps"), f"{key_path}.physics_substeps", minimum=1
+        )
+        key_generation = _artifact_integer(
+            active_key.get("storage_generation"), f"{key_path}.storage_generation"
+        )
+        key_fingerprint = _artifact_string(
+            active_key.get("storage_fingerprint"), f"{key_path}.storage_fingerprint"
+        )
+        if key_generation != generation or key_fingerprint != fingerprint:
+            raise ValueError(f"{key_path}: storage identity differs from graph diagnostics")
+        canonical_keys.append(
+            (
+                plan_fingerprint,
+                num_envs,
+                state_dtype,
+                control_dtype,
+                physics_substeps,
+                key_generation,
+                key_fingerprint,
+            )
+        )
+    if canonical_keys != sorted(canonical_keys) or len(canonical_keys) != len(set(canonical_keys)):
+        raise ValueError(f"{path}.graph.active_keys: keys must be canonical and unique")
+
+    counters = {
+        key: _artifact_integer(graph.get(key), f"{path}.graph.{key}")
+        for key in (
+            "capture_count",
+            "launch_count",
+            "recapture_count",
+            "stale_rejection_count",
+            "eager_fallback_count",
+            "storage_verification_count",
+        )
+    }
+    if counters["capture_count"] < 1:
+        raise ValueError(f"{path}.graph.capture_count: expected at least one graph capture")
+    if counters["recapture_count"] > counters["capture_count"]:
+        raise ValueError(f"{path}.graph.recapture_count: exceeds capture_count")
     return graph
 
 
@@ -2770,7 +3002,9 @@ __all__ = [
     "SOURCE_INPUTS",
     "TRAIN_SCALAR_TAGS",
     "build_mjwarp_dr_performance_aggregates",
+    "compact_mjwarp_dr_performance_artifact",
     "dependency_version_satisfies",
+    "encode_mjwarp_dr_graph_storage_buffers",
     "expected_mjwarp_dr_performance_cases",
     "load_mjwarp_dr_performance_freeze_receipt",
     "load_mjwarp_dr_performance_plan",
