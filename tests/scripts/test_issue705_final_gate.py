@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 from omegaconf import OmegaConf
@@ -12,6 +15,8 @@ from unilab.tools.issue705_final_gate import (
     PLAN_PATH,
     FinalGatePlanError,
     FinalGateReport,
+    _phase7_immutable_semantics,
+    _source_snapshot,
     command_evidence_errors,
     load_final_gate_evidence,
     load_final_gate_plan,
@@ -167,6 +172,18 @@ def test_final_artifact_rejects_source_and_input_hash_faults() -> None:
         )
     )
 
+    stale_modes = deepcopy(artifact)
+    stale_modes["source"]["tracked_modes_sha256"] = "sha256:" + "0" * 64
+    assert any(
+        "source.tracked_modes_sha256" in error
+        for error in validate_final_gate_evidence(
+            stale_modes,
+            root=REPO_ROOT,
+            plan=plan,
+            require_promotion=True,
+        )
+    )
+
     stale_input = deepcopy(artifact)
     key = PLAN_PATH.as_posix()
     stale_input["inputs"]["files"][key] = "sha256:" + "0" * 64
@@ -179,3 +196,78 @@ def test_final_artifact_rejects_source_and_input_hash_faults() -> None:
             require_promotion=True,
         )
     )
+
+
+def test_source_snapshot_rejects_executable_bit_changes(tmp_path: Path) -> None:
+    subprocess.run(("git", "init", "-q"), cwd=tmp_path, check=True)
+    subprocess.run(("git", "config", "user.name", "Issue 705 Test"), cwd=tmp_path, check=True)
+    subprocess.run(
+        ("git", "config", "user.email", "issue705@example.invalid"),
+        cwd=tmp_path,
+        check=True,
+    )
+    tracked = tmp_path / "tracked.sh"
+    tracked.write_text("echo final-gate\n", encoding="utf-8")
+    tracked.chmod(0o644)
+    subprocess.run(("git", "add", "tracked.sh"), cwd=tmp_path, check=True)
+    subprocess.run(("git", "commit", "-q", "-m", "fixture"), cwd=tmp_path, check=True)
+    commit = subprocess.run(
+        ("git", "rev-parse", "HEAD"),
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    plan = replace(_plan(), source_exclusions=())
+
+    committed = _source_snapshot(tmp_path, plan, commit=commit)
+    before = _source_snapshot(tmp_path, plan)
+    assert before == committed
+
+    os.chmod(tracked, 0o755)
+    after = _source_snapshot(tmp_path, plan)
+    assert tracked.read_text(encoding="utf-8") == "echo final-gate\n"
+    assert after["tracked_paths_sha256"] == before["tracked_paths_sha256"]
+    assert after["tracked_modes_sha256"] != before["tracked_modes_sha256"]
+    assert after["tree_sha256"] != before["tree_sha256"]
+
+
+def test_phase7_semantic_snapshot_allows_only_promotion_fields() -> None:
+    raw = OmegaConf.to_container(
+        OmegaConf.load(REPO_ROOT / "tests/acceptance/issue_705/manifests/phase_7.yaml"),
+        resolve=False,
+    )
+    assert isinstance(raw, dict)
+    baseline = _phase7_immutable_semantics(raw)
+
+    promotion = deepcopy(raw)
+    promotion["claims"][0]["status"] = "planned"
+    promotion["claims"][0]["evidence"] = {
+        "result": "PENDING",
+        "artifact_refs": [],
+    }
+    assert _phase7_immutable_semantics(promotion) == baseline
+
+    for field, value in (
+        ("owner", "wrong-owner"),
+        ("environment", {"hardware": "unreviewed"}),
+        ("acceptance", {"thresholds": {"stale_claims": 99}}),
+        ("invalidation", {"paths": []}),
+    ):
+        changed = deepcopy(raw)
+        changed["claims"][0][field] = value
+        assert _phase7_immutable_semantics(changed) != baseline
+
+
+def test_final_artifact_rejects_phase7_semantic_snapshot_tamper() -> None:
+    artifact = load_final_gate_evidence(REPO_ROOT / ARTIFACT_PATH)
+    artifact["phase7_manifest"]["snapshot"]["claims"][0]["owner"] = "wrong-owner"
+
+    errors = validate_final_gate_evidence(
+        artifact,
+        root=REPO_ROOT,
+        plan=_plan(),
+        require_promotion=True,
+    )
+
+    assert any("phase7_manifest" in error for error in errors)

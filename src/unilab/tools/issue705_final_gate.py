@@ -14,10 +14,12 @@ import json
 import os
 import platform
 import re
+import stat
 import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from functools import partial
@@ -137,6 +139,7 @@ _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PYTEST_COUNT_RE = re.compile(r"(?<![A-Za-z0-9_])(\d+) (passed|skipped|xfailed|xpassed|deselected)")
 _MANDATORY_ZERO_COUNTS = ("skipped", "xfailed", "xpassed", "deselected")
+_PHASE7_MUTABLE_CLAIM_FIELDS = ("evidence", "status")
 _EXPECTED_PHASE_VALIDATORS = {
     1: "issue705_phase1_evidence",
     2: "issue705_phase2_evidence",
@@ -622,10 +625,62 @@ def _working_tree_blob(root: Path, path: Path) -> bytes:
     return source.read_bytes()
 
 
+def _working_tree_git_mode(root: Path, path: Path) -> str:
+    source = root / path
+    try:
+        mode = source.lstat().st_mode
+    except OSError as exc:
+        raise FinalGateError(f"cannot stat tracked source path {path.as_posix()}: {exc}") from exc
+    if stat.S_ISLNK(mode):
+        return "120000"
+    if stat.S_ISREG(mode):
+        return "100755" if mode & 0o111 else "100644"
+    raise FinalGateError(
+        f"tracked source path {path.as_posix()} has unsupported file type {stat.S_IFMT(mode):o}"
+    )
+
+
+def _commit_tree_modes(root: Path, plan: FinalGatePlan, commit: str) -> dict[Path, str]:
+    raw = subprocess.run(
+        (
+            "git",
+            "ls-tree",
+            "-r",
+            "-z",
+            commit,
+            "--",
+            *(path.as_posix() for path in plan.source_roots),
+        ),
+        cwd=root,
+        capture_output=True,
+        check=True,
+    ).stdout
+    modes: dict[Path, str] = {}
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        metadata, separator, raw_path = record.partition(b"\t")
+        fields = metadata.split(b" ", 2)
+        if not separator or len(fields) != 3:
+            raise FinalGateError("git ls-tree returned a malformed source entry")
+        path = Path(raw_path.decode("utf-8"))
+        if _path_is_excluded(path, plan.source_exclusions):
+            continue
+        modes[path] = fields[0].decode("ascii")
+    return modes
+
+
 def _source_snapshot(
     root: Path, plan: FinalGatePlan, *, commit: str | None = None
 ) -> dict[str, object]:
     paths = _tracked_paths(root, plan, commit=commit)
+    modes = (
+        {path: _working_tree_git_mode(root, path) for path in paths}
+        if commit is None
+        else _commit_tree_modes(root, plan, commit)
+    )
+    if set(modes) != set(paths):
+        raise FinalGateError("tracked source paths and Git mode entries differ")
     digest = hashlib.sha256()
     for path in paths:
         relative = path.as_posix()
@@ -640,12 +695,76 @@ def _source_snapshot(
             ).stdout
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
+        digest.update(modes[path].encode("ascii"))
+        digest.update(b"\0")
         digest.update(value)
         digest.update(b"\0")
+    mode_rows = [{"path": path.as_posix(), "mode": modes[path]} for path in paths]
     return {
         "tracked_file_count": len(paths),
         "tracked_paths_sha256": _canonical_sha256([path.as_posix() for path in paths]),
+        "tracked_modes_sha256": _canonical_sha256(mode_rows),
         "tree_sha256": f"sha256:{digest.hexdigest()}",
+    }
+
+
+def _load_phase7_manifest_mapping(root: Path, *, commit: str | None = None) -> dict[str, Any]:
+    if commit is None:
+        try:
+            text = (root / PHASE7_MANIFEST_PATH).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise FinalGateError(f"cannot read Phase 7 manifest: {exc}") from exc
+    else:
+        result = subprocess.run(
+            ("git", "show", f"{commit}:{PHASE7_MANIFEST_PATH.as_posix()}"),
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
+        try:
+            text = result.stdout.decode("utf-8")
+        except UnicodeError as exc:
+            raise FinalGateError("Phase 7 manifest at source commit is not UTF-8") from exc
+    try:
+        raw = OmegaConf.to_container(OmegaConf.create(text), resolve=False)
+    except Exception as exc:  # noqa: BLE001 - normalize semantic snapshot failures
+        raise FinalGateError(
+            f"cannot parse Phase 7 manifest semantics: {type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(raw, dict):
+        raise FinalGateError("Phase 7 manifest semantic snapshot must be a mapping")
+    return cast(dict[str, Any], raw)
+
+
+def _phase7_immutable_semantics(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return every Phase 7 manifest field except promotion-owned claim state."""
+
+    claims = value.get("claims")
+    if not isinstance(claims, list):
+        raise FinalGateError("Phase 7 manifest claims must be a list")
+    immutable_claims: list[dict[str, Any]] = []
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, Mapping):
+            raise FinalGateError(f"Phase 7 manifest claim {index} must be a mapping")
+        immutable_claims.append(
+            {
+                str(key): deepcopy(item)
+                for key, item in claim.items()
+                if key not in _PHASE7_MUTABLE_CLAIM_FIELDS
+            }
+        )
+    snapshot = {str(key): deepcopy(item) for key, item in value.items() if key != "claims"}
+    snapshot["claims"] = immutable_claims
+    return snapshot
+
+
+def _phase7_manifest_snapshot(root: Path, *, commit: str | None = None) -> dict[str, Any]:
+    semantics = _phase7_immutable_semantics(_load_phase7_manifest_mapping(root, commit=commit))
+    return {
+        "path": PHASE7_MANIFEST_PATH.as_posix(),
+        "mutable_claim_fields": list(_PHASE7_MUTABLE_CLAIM_FIELDS),
+        "sha256": _canonical_sha256(semantics),
+        "snapshot": semantics,
     }
 
 
@@ -1040,6 +1159,7 @@ def capture_final_gate_evidence(root: Path, plan: FinalGatePlan) -> dict[str, An
         raise FinalGateError("git did not return a full source commit SHA")
     input_hashes = _direct_input_hashes(root, plan)
     source_scope = _source_snapshot(root, plan)
+    phase7_manifest = _phase7_manifest_snapshot(root)
     head_report = validate_final_head(root, plan, require_promotion=False)
     if not head_report.ok:
         raise FinalGateError(
@@ -1074,6 +1194,7 @@ def capture_final_gate_evidence(root: Path, plan: FinalGatePlan) -> dict[str, An
             "tree_clean": True,
             **source_scope,
         },
+        "phase7_manifest": phase7_manifest,
         "inputs": {"files": input_hashes},
         "environment": {
             "platform": platform.platform(),
@@ -1139,6 +1260,7 @@ def _validate_artifact_source(
             "tree_clean",
             "tracked_file_count",
             "tracked_paths_sha256",
+            "tracked_modes_sha256",
             "tree_sha256",
         },
         "source",
@@ -1166,6 +1288,45 @@ def _validate_artifact_source(
     for key, expected in current.items():
         if source.get(key) != expected:
             errors.append(f"source.{key}: stale against current final head")
+
+
+def _validate_phase7_manifest_snapshot(
+    artifact: Mapping[str, Any], *, root: Path, errors: list[str]
+) -> None:
+    recorded = _mapping(artifact.get("phase7_manifest"), "phase7_manifest", errors)
+    _exact_keys(
+        recorded,
+        {"path", "mutable_claim_fields", "sha256", "snapshot"},
+        "phase7_manifest",
+        errors,
+    )
+    if recorded.get("path") != PHASE7_MANIFEST_PATH.as_posix():
+        errors.append("phase7_manifest.path: differs from the promotion manifest path")
+    if recorded.get("mutable_claim_fields") != list(_PHASE7_MUTABLE_CLAIM_FIELDS):
+        errors.append("phase7_manifest.mutable_claim_fields: only evidence/status may change")
+    snapshot = _mapping(recorded.get("snapshot"), "phase7_manifest.snapshot", errors)
+    observed_hash = recorded.get("sha256")
+    if not isinstance(observed_hash, str) or not _SHA256_RE.fullmatch(observed_hash):
+        errors.append("phase7_manifest.sha256: expected sha256 hash")
+    elif observed_hash != _canonical_sha256(snapshot):
+        errors.append("phase7_manifest.sha256: differs from recorded immutable semantics")
+
+    source = _mapping(artifact.get("source"), "source", errors)
+    commit = source.get("commit_sha")
+    if not isinstance(commit, str) or not _COMMIT_RE.fullmatch(commit):
+        return
+    try:
+        committed = _phase7_manifest_snapshot(root, commit=commit)
+        current = _phase7_manifest_snapshot(root)
+    except (OSError, subprocess.CalledProcessError, FinalGateError) as exc:
+        errors.append(
+            f"phase7_manifest: cannot recompute immutable semantics: {type(exc).__name__}: {exc}"
+        )
+        return
+    if dict(recorded) != committed:
+        errors.append("phase7_manifest: differs from source commit immutable semantics")
+    if dict(recorded) != current:
+        errors.append("phase7_manifest: stale against current immutable semantics")
 
 
 def _validate_artifact_inputs(
@@ -1319,6 +1480,7 @@ def validate_final_gate_evidence(
             "generated_at_utc",
             "plan",
             "source",
+            "phase7_manifest",
             "inputs",
             "environment",
             "head_validation",
@@ -1350,6 +1512,7 @@ def validate_final_gate_evidence(
     }:
         errors.append("plan: path/hash/fingerprint differs from current frozen plan")
     _validate_artifact_source(value, root=root, plan=plan, errors=errors)
+    _validate_phase7_manifest_snapshot(value, root=root, errors=errors)
     _validate_artifact_inputs(value, root=root, plan=plan, errors=errors)
     errors.extend(command_evidence_errors(value.get("commands"), plan=plan))
 
