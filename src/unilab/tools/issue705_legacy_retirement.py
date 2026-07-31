@@ -25,9 +25,7 @@ CLAIM_ID = "P7-LEGACY-RETIREMENT"
 PLAN_FINGERPRINT = "issue705-legacy-retirement-v1"
 PLAN_PATH = Path("tests/acceptance/issue_705/legacy_retirement_plan.yaml")
 ROLLBACK_PATH = Path("tests/acceptance/issue_705/legacy_retirement_rollback.yaml")
-EVIDENCE_PATH = Path(
-    "tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json"
-)
+EVIDENCE_PATH = Path("tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json")
 CLAIM_INVENTORY_PATH = Path("tests/acceptance/issue_705/claim_test_inventory.yaml")
 OWNER_PATH = Path("conf/ppo/task/g1_walk_flat/mjwarp.yaml")
 OWNER_MODULE_PATH = Path("src/unilab/envs/locomotion/g1/joystick.py")
@@ -452,15 +450,9 @@ def load_legacy_retirement_plan(path: Path) -> LegacyRetirementPlan:
                 "diagnostic_contract.required_fragments",
             ),
         ),
-        rollback_receipt=Path(
-            parser.string(root.get("rollback_receipt"), "rollback_receipt")
-        ),
-        evidence_artifact=Path(
-            parser.string(root.get("evidence_artifact"), "evidence_artifact")
-        ),
-        implementation_paths=parser.paths(
-            root.get("implementation_paths"), "implementation_paths"
-        ),
+        rollback_receipt=Path(parser.string(root.get("rollback_receipt"), "rollback_receipt")),
+        evidence_artifact=Path(parser.string(root.get("evidence_artifact"), "evidence_artifact")),
+        implementation_paths=parser.paths(root.get("implementation_paths"), "implementation_paths"),
         source=path,
     )
     parser.finish()
@@ -511,12 +503,8 @@ def load_rollback_receipt(path: Path) -> RollbackReceipt:
         baseline_files=baseline_files,
         restore_env_name=parser.string(restore.get("env_name"), "restore.env_name"),
         restore_backend=parser.string(restore.get("backend"), "restore.backend"),
-        restore_owner_class=parser.string(
-            restore.get("owner_class"), "restore.owner_class"
-        ),
-        restore_registration=parser.string(
-            restore.get("registration"), "restore.registration"
-        ),
+        restore_owner_class=parser.string(restore.get("owner_class"), "restore.owner_class"),
+        restore_registration=parser.string(restore.get("registration"), "restore.registration"),
         restore_procedure=parser.string(restore.get("procedure"), "restore.procedure"),
         retained_paths=parser.strings(
             root.get("retained_during_retirement"), "retained_during_retirement"
@@ -536,9 +524,7 @@ def sha256_file(path: Path) -> str:
 
 
 def _git(root: Path, args: Sequence[str], *, check: bool = True) -> str:
-    result = subprocess.run(
-        ("git", *args), cwd=root, capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(("git", *args), cwd=root, capture_output=True, text=True, check=False)
     if check and result.returncode != 0:
         raise LegacyRetirementError(
             f"git {' '.join(args)} failed with exit {result.returncode}: {result.stderr.strip()}"
@@ -611,9 +597,7 @@ def _registry_bindings(source: str) -> dict[tuple[str, str], str]:
 def _class_contract_errors(source: str, plan: LegacyRetirementPlan) -> list[str]:
     errors: list[str] = []
     tree = ast.parse(source)
-    classes = {
-        node.name: node for node in tree.body if isinstance(node, ast.ClassDef)
-    }
+    classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
     if plan.retired_route.previous_owner_class not in classes:
         errors.append("hand-written G1 owner required by retained backends is missing")
     exception = classes.get(plan.diagnostic_contract.exception_class)
@@ -621,8 +605,7 @@ def _class_contract_errors(source: str, plan: LegacyRetirementPlan) -> list[str]
         errors.append("managed-only diagnostic exception class is missing")
     else:
         exception_bases = tuple(
-            base.id if isinstance(base, ast.Name) else ast.unparse(base)
-            for base in exception.bases
+            base.id if isinstance(base, ast.Name) else ast.unparse(base) for base in exception.bases
         )
         if exception_bases != ("RuntimeError",):
             errors.append("managed-only diagnostic exception must derive from RuntimeError")
@@ -630,17 +613,14 @@ def _class_contract_errors(source: str, plan: LegacyRetirementPlan) -> list[str]
     if replacement is None:
         return ["replacement managed-only env class is missing"]
     bases = tuple(
-        base.id if isinstance(base, ast.Name) else ast.unparse(base)
-        for base in replacement.bases
+        base.id if isinstance(base, ast.Name) else ast.unparse(base) for base in replacement.bases
     )
     if bases != (plan.retired_route.replacement_base_class,):
         errors.append(
             "replacement class base must be exactly "
             f"{plan.retired_route.replacement_base_class!r}, got {bases!r}"
         )
-    methods = {
-        node.name: node for node in replacement.body if isinstance(node, ast.FunctionDef)
-    }
+    methods = {node.name: node for node in replacement.body if isinstance(node, ast.FunctionDef)}
     rejected_methods = {
         "init_state": "init_state",
         "reset": "reset",
@@ -662,7 +642,8 @@ def _class_contract_errors(source: str, plan: LegacyRetirementPlan) -> list[str]
         and isinstance(node.exc, ast.Call)
         and isinstance(node.exc.func, ast.Name)
         and node.exc.func.id == plan.diagnostic_contract.exception_class
-        for node in ast.walk(reject_helper) if reject_helper is not None
+        for node in ast.walk(reject_helper)
+        if reject_helper is not None
     ):
         errors.append("managed-only rejection helper does not raise the typed diagnostic")
     for method_name, operation in rejected_methods.items():
@@ -880,14 +861,16 @@ def _source_errors(
         errors.append("integration base is not an ancestor of the evidence source commit")
     if not _is_ancestor(root, source_commit, head):
         errors.append("evidence source commit is not an ancestor of HEAD")
-    changed = tuple(sorted(
-        line
-        for line in _git(
-            root,
-            ("diff", "--name-only", f"{receipt.baseline_commit}..{source_commit}"),
-        ).splitlines()
-        if line
-    ))
+    changed = tuple(
+        sorted(
+            line
+            for line in _git(
+                root,
+                ("diff", "--name-only", f"{receipt.baseline_commit}..{source_commit}"),
+            ).splitlines()
+            if line
+        )
+    )
     expected_changed = tuple(path.as_posix() for path in plan.implementation_paths)
     if changed != expected_changed:
         errors.append(
@@ -1099,7 +1082,9 @@ def load_legacy_retirement_evidence(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise LegacyRetirementError(f"cannot load legacy retirement evidence {path}: {exc}") from exc
+        raise LegacyRetirementError(
+            f"cannot load legacy retirement evidence {path}: {exc}"
+        ) from exc
     if not isinstance(payload, dict):
         raise LegacyRetirementError(f"{path}: evidence root must be an object")
     return payload
@@ -1117,9 +1102,7 @@ def audit_legacy_retirement(
     errors.extend(_rollback_errors(plan, rollback, root=root))
     evidence_errors, repetitions = _evidence_errors(plan, evidence, root=root)
     errors.extend(evidence_errors)
-    source_errors, changed_paths = _source_errors(
-        plan, rollback, evidence, root=root
-    )
+    source_errors, changed_paths = _source_errors(plan, rollback, evidence, root=root)
     errors.extend(source_errors)
     errors.extend(_repository_contract_errors(plan, root=root))
     return LegacyRetirementAuditReport(
