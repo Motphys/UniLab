@@ -142,9 +142,6 @@ def test_support_audit_rejects_phase_test_artifact_level_and_signature_faults() 
     )
     _assert_error(_fast_audit(copied_benchmark), "benchmark artifact path is not canonical")
 
-    recommended = _replace_combination(manifest, evidence_level=DeclaredEvidenceLevel.RECOMMENDED)
-    _assert_error(_fast_audit(recommended), "requires verified Phase 7 rollout")
-
     signature: CompiledSignature = combination.compiled_signature
     stale_signature = _replace_combination(
         manifest,
@@ -154,6 +151,17 @@ def test_support_audit_rejects_phase_test_artifact_level_and_signature_faults() 
         ),
     )
     _assert_error(_fast_audit(stale_signature), "compiled policy signature differs")
+
+
+def test_support_audit_accepts_recommended_after_verified_phase7_rollout() -> None:
+    recommended = _replace_combination(
+        _manifest(), evidence_level=DeclaredEvidenceLevel.RECOMMENDED
+    )
+
+    report = _fast_audit(recommended)
+
+    assert report.ok, report.errors
+    assert report.recommended == 1
 
 
 def test_support_audit_rejects_manifest_receipt_that_differs_from_gate(
