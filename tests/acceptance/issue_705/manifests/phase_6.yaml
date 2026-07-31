@@ -9,7 +9,7 @@ claims:
     risk: Registry support claims outpace implemented and effect-tested combinations.
     owner: backend-DR
     oracle: The capability manifest itself parameterizes tests, and a reverse audit rejects untested or unadvertised passing cases.
-    commands: [uv run pytest tests/dr/test_mjwarp_capability_matrix.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/dr/test_mjwarp_capability_matrix.py -v]
     lane: B
     required: true
     required_test_ids: [tests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases]
@@ -84,7 +84,7 @@ claims:
     risk: Per-substep host synchronization reappears through controller compatibility behavior.
     owner: backend-control
     oracle: Recording cadence fixtures and a device/reference control pair compare outputs while a host callback is fault-injected.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/base/test_device_controller_contract.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/base/test_device_controller_contract.py -v]
     lane: C
     required: true
     required_test_ids: [tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection]
