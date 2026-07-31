@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from unilab.tools.g1_baseline_provenance import (
     canonical_sha256,
@@ -458,8 +458,8 @@ def _plan_schema_errors(raw: Mapping[str, Any]) -> list[str]:
         "process_retries": 0,
         "case_filtering_forbidden": True,
     }
-    for key, expected in expected_measurement.items():
-        _expect(measurement.get(key), expected, f"measurement.{key}", errors)
+    for field, expected_value in expected_measurement.items():
+        _expect(measurement.get(field), expected_value, f"measurement.{field}", errors)
     required_tags = _string_list(
         measurement.get("required_scalar_tags"), "measurement.required_scalar_tags", errors
     )
@@ -1154,10 +1154,10 @@ def _validate_run_diagnostics(
     if not isinstance(keys, list) or len(keys) != 1 or not isinstance(keys[0], Mapping):
         errors.append(f"{label}.graph.active_keys: expected one graph identity")
     else:
-        key = cast(Mapping[str, Any], keys[0])
-        if key.get("plan_fingerprint") != plan.signature["backend_plan_fingerprint"]:
+        graph_key = cast(Mapping[str, Any], keys[0])
+        if graph_key.get("plan_fingerprint") != plan.signature["backend_plan_fingerprint"]:
             errors.append(f"{label}.graph.plan_fingerprint: compiled signature mismatch")
-        if key.get("num_envs") != plan.measurement["num_envs"]:
+        if graph_key.get("num_envs") != plan.measurement["num_envs"]:
             errors.append(f"{label}.graph.num_envs: behavior budget mismatch")
     traffic = _mapping(run_summary.get("runtime_traffic_diagnostics"), f"{label}.traffic", errors)
     expected_steps = cast(int, plan.measurement["num_steps_per_env"]) * cast(
@@ -1165,17 +1165,17 @@ def _validate_run_diagnostics(
     )
     if traffic.get("policy_steps") != expected_steps:
         errors.append(f"{label}.traffic.policy_steps: behavior budget mismatch")
-    for key in _ZERO_TRAFFIC_COUNTERS:
-        if traffic.get(key) != 0:
-            errors.append(f"{label}.traffic.{key}: expected zero")
+    for counter_name in _ZERO_TRAFFIC_COUNTERS:
+        if traffic.get(counter_name) != 0:
+            errors.append(f"{label}.traffic.{counter_name}: expected zero")
     if traffic.get("instrumentation_complete") is not True:
         errors.append(f"{label}.traffic: incomplete")
     stability = _mapping(
         run_summary.get("runtime_stability_diagnostics"), f"{label}.stability", errors
     )
-    for key in ("warm_numeric_allocations", "address_churn"):
-        if stability.get(key) != 0:
-            errors.append(f"{label}.stability.{key}: expected zero")
+    for counter_name in ("warm_numeric_allocations", "address_churn"):
+        if stability.get(counter_name) != 0:
+            errors.append(f"{label}.stability.{counter_name}: expected zero")
 
 
 def _validate_candidate_case(
