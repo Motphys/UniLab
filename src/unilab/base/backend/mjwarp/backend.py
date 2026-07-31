@@ -16,7 +16,7 @@ import time
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
 
 import numpy as np
@@ -95,7 +95,6 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 
-from .armature_recompute import MjwarpArmatureRecomputeWorkspace
 from .batch import (
     MjwarpHostBatchPlan,
     bind_mjwarp_host_batch,
@@ -126,6 +125,9 @@ from .recompute import (
     compile_model_recompute_contract,
 )
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
+
+if TYPE_CHECKING:
+    from .armature_recompute import MjwarpArmatureRecomputeWorkspace
 
 _GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
 
@@ -1676,6 +1678,8 @@ class MjwarpBackend(SimBackend):
             model_plan = None
             recompute_runtime = None
             if has_model_specs:
+                from .armature_recompute import MjwarpArmatureRecomputeWorkspace
+
                 recompute_contract = compile_model_recompute_contract(
                     device_bound,
                     capability_manifest,
