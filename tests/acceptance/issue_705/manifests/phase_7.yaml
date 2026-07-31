@@ -88,8 +88,8 @@ claims:
     lane: B
     required: true
     required_test_ids: [tests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence]
-    environment: {dependencies: [uv.lock, torch, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Linux CPU and CUDA-capable GPU, owner_yaml: null, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: issue705-legacy-retirement-v1}
+    environment: {dependencies: [uv.lock, torch, mujoco, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Linux CPU and CUDA-capable GPU, owner_yaml: null, seeds: [0], batch_sizes: [128], dtype: float32, plan_fingerprint: issue705-legacy-retirement-v2}
     acceptance: {tolerance: {}, thresholds: {missing_entrypoints: 0, opaque_legacy_errors: 0, missing_rollback_artifacts: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any deletion before full matrix evidence, missing rollback, or unactionable legacy diagnostic is FAIL."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
-    invalidation: {paths: [src/unilab/envs/**, scripts/**, src/unilab/training/**, src/unilab/visualization/**, conf/**, tests/integration/test_issue705_legacy_retirement.py], capabilities: [issue705-legacy-retirement], fingerprints: [issue705-legacy-retirement-v1]}
+    invalidation: {paths: [src/unilab/envs/**, scripts/**, src/unilab/training/**, src/unilab/visualization/**, conf/**, tests/integration/test_issue705_legacy_retirement.py], capabilities: [issue705-legacy-retirement], fingerprints: [issue705-legacy-retirement-v2]}
     status: planned

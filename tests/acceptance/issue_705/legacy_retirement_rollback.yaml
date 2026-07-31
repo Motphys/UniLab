@@ -2,7 +2,7 @@ schema_version: 1
 artifact_kind: issue705-legacy-retirement-rollback-v1
 issue: 705
 child_issue: 841
-plan_fingerprint: issue705-legacy-retirement-v1
+plan_fingerprint: issue705-legacy-retirement-v2
 
 baseline:
   commit: f9920a7f0d86317e36383e1266918755cb8841c2
@@ -17,7 +17,7 @@ restore:
   backend: mjwarp
   owner_class: G1WalkEnv
   registration: registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mjwarp")
-  procedure: Revert the Phase 7E implementation commit and its evidence commit, then rerun the complete entrypoint matrix before publishing the restored owner.
+  procedure: Revert the Phase 7E implementation scope commit and its evidence descendants, then rerun the complete entrypoint matrix before publishing the restored owner.
 
 retained_during_retirement:
   - src/unilab/envs/locomotion/g1/joystick.py::G1WalkEnv

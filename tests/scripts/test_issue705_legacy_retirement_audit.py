@@ -127,6 +127,19 @@ def test_audit_rejects_implementation_scope_tamper() -> None:
     _assert_error(report, "implementation diff paths differ")
 
 
+def test_audit_rejects_implementation_scope_commit_tamper() -> None:
+    plan = _plan()
+    tampered = replace(
+        plan,
+        implementation_scope_commit=plan.integration_base.commit,
+    )
+
+    report = _audit(plan=tampered)
+
+    _assert_error(report, "implementation_scope_commit differs from the frozen implementation")
+    _assert_error(report, "implementation diff paths differ")
+
+
 @pytest.mark.parametrize(
     ("old", "new", "fragment"),
     [
@@ -154,12 +167,12 @@ def test_audit_rejects_registry_inheritance_and_fallback_tamper(
     fragment: str,
 ) -> None:
     evidence = _evidence()
-    source_commit = evidence["source"]["commit_sha"]
+    implementation_commit = _plan().implementation_scope_commit
     original_git_blob = issue705_legacy_retirement._git_blob
 
     def tampered_git_blob(root: Path, commit: str, path: Path) -> bytes:
         blob = original_git_blob(root, commit, path)
-        if commit == source_commit and path == issue705_legacy_retirement.OWNER_MODULE_PATH:
+        if commit == implementation_commit and path == issue705_legacy_retirement.OWNER_MODULE_PATH:
             source = blob.decode()
             assert old in source
             return source.replace(old, new, 1).encode()

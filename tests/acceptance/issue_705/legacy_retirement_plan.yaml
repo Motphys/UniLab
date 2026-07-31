@@ -2,12 +2,15 @@ schema_version: 1
 issue: 705
 child_issue: 841
 claim_id: P7-LEGACY-RETIREMENT
-plan_fingerprint: issue705-legacy-retirement-v1
+plan_fingerprint: issue705-legacy-retirement-v2
 
 integration_base:
   commit: f9920a7f0d86317e36383e1266918755cb8841c2
   entrypoint_pr: 840
   entrypoint_merge_commit: f9920a7f0d86317e36383e1266918755cb8841c2
+
+# Freeze the narrow retirement diff independently from later evidence refresh commits.
+implementation_scope_commit: be9ce520c461cd959d9c842a19b5309bec3e17a0
 
 retired_route:
   env_name: G1WalkFlat
