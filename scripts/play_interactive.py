@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -50,14 +50,25 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.training import (
+    EntrypointContractError,
+    EntrypointDisposition,
+    EntrypointRoute,
     ensure_registries,
     get_entrypoint_log_root,
+    guarded_policy_load,
+    policy_load_target,
+    preflight_policy_source,
+    require_entrypoint_route,
+    resolve_entrypoint_contract,
     resolve_task_checkpoint_path,
 )
 from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
+)
+from unilab.training.rsl_rl import (
+    infer_rsl_rl_checkpoint_actor_input_dim as _infer_checkpoint_actor_input_dim,
 )
 from unilab.visualization.interactive_playback import (
     _HORA_DISTILL_CHECKPOINT_UNAVAILABLE,
@@ -143,24 +154,6 @@ class PlayInteractiveArgs:
     algo: str = "ppo"
 
 
-def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
-    loaded = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    state_dict = loaded.get("actor_state_dict")
-    if not isinstance(state_dict, dict):
-        return None
-
-    # Common rsl-rl naming: "mlp.0.weight" or nested prefixes ending with ".0.weight".
-    for key in ("mlp.0.weight", "actor.mlp.0.weight"):
-        w = state_dict.get(key)
-        if isinstance(w, torch.Tensor) and w.ndim == 2:
-            return int(w.shape[1])
-
-    for key, w in state_dict.items():
-        if key.endswith(".0.weight") and isinstance(w, torch.Tensor) and w.ndim == 2:
-            return int(w.shape[1])
-    return None
-
-
 def _backend_adapter(cfg: DictConfig, *, algo_name: str = "ppo"):
     from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
     from unilab.training import BackendAdapter
@@ -171,6 +164,64 @@ def _backend_adapter(cfg: DictConfig, *, algo_name: str = "ppo"):
         algo_name=algo_name,
         scene_materializer=materialize_scene_visual_override,
     )
+
+
+def _build_ppo_policy_load_hooks(
+    cfg: DictConfig | None,
+    *,
+    action_mode: str,
+) -> tuple[Callable[[str], None] | None, Callable[[str, Any], Any] | None]:
+    """Build checkpoint guards only for an explicitly requested policy action mode."""
+
+    if cfg is None or str(action_mode) != "policy":
+        return None, None
+
+    checkpoint_contract = require_entrypoint_route(
+        resolve_entrypoint_contract(cfg, EntrypointRoute.CHECKPOINT_LOAD)
+    )
+
+    def checkpoint_preflight(checkpoint_path: str) -> None:
+        preflight_policy_source(
+            source_run_dir=Path(checkpoint_path).parent,
+            target_cfg=cfg,
+            algo_name="ppo",
+            strict=bool(OmegaConf.select(cfg, "training.sim2sim_strict", default=True)),
+        )
+
+    def checkpoint_load_guard(checkpoint_path: str, wrapped_env: Any):
+        return guarded_policy_load(
+            contract=checkpoint_contract,
+            source_run_dir=Path(checkpoint_path).parent,
+            target_cfg=cfg,
+            target=policy_load_target(
+                managed_policy_abi=getattr(wrapped_env, "managed_policy_abi_snapshot", None),
+                observation_dim=int(wrapped_env.num_obs),
+                action_dim=int(wrapped_env.num_actions),
+            ),
+            algo_name="ppo",
+            strict=bool(OmegaConf.select(cfg, "training.sim2sim_strict", default=True)),
+        )
+
+    return checkpoint_preflight, checkpoint_load_guard
+
+
+def _require_native_mujoco_visualization(cfg: DictConfig) -> None:
+    """Reject adapter declarations until this viewer has a real adapter executor."""
+
+    contract = require_entrypoint_route(
+        resolve_entrypoint_contract(cfg, EntrypointRoute.VISUALIZE),
+        renderer_backend="mujoco",
+    )
+    if (
+        contract.disposition is not EntrypointDisposition.NATIVE
+        or contract.identity.backend != "mujoco"
+    ):
+        raise EntrypointContractError(
+            "play_interactive.py has no explicit visualization adapter executor for "
+            f"physics backend={contract.identity.backend!r} and renderer_backend="
+            f"{contract.renderer_backend!r}. Use a dedicated adapter entrypoint; this viewer "
+            "must not rewrite the physics backend to MuJoCo."
+        )
 
 
 def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
@@ -1001,9 +1052,11 @@ def _print_keyboard_legend(args) -> None:
 
 
 def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = None):
+    algo = str(algo or getattr(args, "algo", "ppo"))
+    if cfg is not None and algo == "ppo":
+        _require_native_mujoco_visualization(cfg)
     device = _select_playback_device(cfg)
     print(f"[play_interactive] Device: {device}")
-    algo = str(algo or getattr(args, "algo", "ppo"))
 
     # Always use a single env for interactive view
     available_backends = _available_backends_for_task(args.task)
@@ -1055,6 +1108,11 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                     _algo_config_dict(cfg),
                     default_wrapper_cls=RslRlVecEnvWrapper,
                 ).wrapper_cls
+            checkpoint_preflight, checkpoint_load_guard = _build_ppo_policy_load_hooks(
+                cfg,
+                action_mode=str(args.action_mode),
+            )
+
             session = create_rsl_rl_playback_session(
                 playback_cfg=playback_cfg,
                 env_factory=_create_env,
@@ -1068,6 +1126,8 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 runner_cls=OnPolicyRunner,
                 policy_obs_dims_getter=get_policy_obs_dims,
                 train_cfg_normalizer=normalize_ppo_train_cfg,
+                checkpoint_preflight=checkpoint_preflight,
+                checkpoint_load_guard=checkpoint_load_guard,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
         elif algo == "appo":
