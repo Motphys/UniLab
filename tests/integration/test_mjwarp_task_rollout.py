@@ -90,4 +90,3 @@ def test_promoted_tasks_pass_capability_derived_matrix(tmp_path: Path) -> None:
             stdout=result.stdout,
         )
         assert report.ok, report.errors
-

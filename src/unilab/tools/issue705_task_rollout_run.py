@@ -109,17 +109,20 @@ def _graph_identity(graph: Mapping[str, Any], label: str, errors: list[str]) -> 
         "contract_version",
     ):
         _required(key, field, f"{label}.active_keys[0]", errors)
-    return tuple(key.get(field) for field in (
-        "backend_type",
-        "plan_fingerprint",
-        "num_envs",
-        "state_dtype",
-        "control_dtype",
-        "physics_substeps",
-        "storage_generation",
-        "storage_fingerprint",
-        "contract_version",
-    ))
+    return tuple(
+        key.get(field)
+        for field in (
+            "backend_type",
+            "plan_fingerprint",
+            "num_envs",
+            "state_dtype",
+            "control_dtype",
+            "physics_substeps",
+            "storage_generation",
+            "storage_fingerprint",
+            "contract_version",
+        )
+    )
 
 
 def _validate_graph(
@@ -287,7 +290,11 @@ def validate_task_rollout_run(
     )
     for key in ("training_wall_time_sec", "wall_time_sec"):
         _finite_number(run_summary, key, label, errors, positive=True)
-    for key in ("peak_process_rss_bytes", "peak_gpu_memory_allocated_bytes", "peak_gpu_memory_reserved_bytes"):
+    for key in (
+        "peak_process_rss_bytes",
+        "peak_gpu_memory_allocated_bytes",
+        "peak_gpu_memory_reserved_bytes",
+    ):
         if run_summary.get(key) is not None:
             _finite_number(run_summary, key, label, errors, positive=True)
 
@@ -295,7 +302,10 @@ def validate_task_rollout_run(
     if not checkpoint.is_file() or checkpoint.stat().st_size <= 0:
         errors.append(f"{label}: model_0.pt checkpoint is missing or empty")
     recorded_checkpoint = run_summary.get("last_checkpoint")
-    if not isinstance(recorded_checkpoint, str) or Path(recorded_checkpoint).resolve() != checkpoint.resolve():
+    if (
+        not isinstance(recorded_checkpoint, str)
+        or Path(recorded_checkpoint).resolve() != checkpoint.resolve()
+    ):
         errors.append(f"{label}.last_checkpoint: does not identify model_0.pt")
 
     performance = _mapping(
@@ -310,14 +320,22 @@ def validate_task_rollout_run(
     )
     for diagnostics, diagnostics_label in ((performance, "performance"), (before, "before")):
         _equal(diagnostics, "backend_type", entry.backend, f"{label}.{diagnostics_label}", errors)
-        _equal(diagnostics, "model_targets", list(entry.expected_model_targets), f"{label}.{diagnostics_label}", errors)
+        _equal(
+            diagnostics,
+            "model_targets",
+            list(entry.expected_model_targets),
+            f"{label}.{diagnostics_label}",
+            errors,
+        )
         _equal(diagnostics, "recompute_kind", "none", f"{label}.{diagnostics_label}", errors)
         _equal(diagnostics, "direct_fields", [], f"{label}.{diagnostics_label}", errors)
         _equal(diagnostics, "derived_fields", [], f"{label}.{diagnostics_label}", errors)
         _equal(diagnostics, "recompute_capture_count", 0, f"{label}.{diagnostics_label}", errors)
         _equal(diagnostics, "recompute_launch_count", 0, f"{label}.{diagnostics_label}", errors)
         _equal(diagnostics, "materialization", None, f"{label}.{diagnostics_label}", errors)
-        _equal(diagnostics, "instrumentation_complete", True, f"{label}.{diagnostics_label}", errors)
+        _equal(
+            diagnostics, "instrumentation_complete", True, f"{label}.{diagnostics_label}", errors
+        )
 
     lifecycle = _mapping(performance.get("lifecycle"), f"{label}.performance.lifecycle", errors)
     step_launches, reset_launches, forward_launches = _validate_lifecycle(
@@ -325,7 +343,9 @@ def validate_task_rollout_run(
     )
     expected_step_launches = entry.num_steps_per_env * entry.max_iterations
     if step_launches is not None and step_launches != expected_step_launches:
-        errors.append(f"{label}.performance.lifecycle.step_graph_launches: rollout step count mismatch")
+        errors.append(
+            f"{label}.performance.lifecycle.step_graph_launches: rollout step count mismatch"
+        )
     if reset_launches is not None and reset_launches <= 0:
         errors.append(f"{label}.performance.lifecycle.reset_graph_launches: no reset activity")
     if forward_launches is not None and forward_launches <= 0:
@@ -363,7 +383,10 @@ def validate_task_rollout_run(
     )
     expected_steps = entry.num_steps_per_env * entry.max_iterations
     _validate_zero_runtime_counters(
-        traffic, label=f"{label}.runtime_traffic_diagnostics", expected_steps=expected_steps, errors=errors
+        traffic,
+        label=f"{label}.runtime_traffic_diagnostics",
+        expected_steps=expected_steps,
+        errors=errors,
     )
     stability = _mapping(
         run_summary.get("runtime_stability_diagnostics"),
@@ -375,7 +398,9 @@ def validate_task_rollout_run(
     if not isinstance(buffers, list) or not buffers:
         errors.append(f"{label}.runtime_stability_diagnostics.buffers: expected non-empty list")
     if not isinstance(state_buffers, list) or not state_buffers:
-        errors.append(f"{label}.runtime_stability_diagnostics.state_buffers: expected non-empty list")
+        errors.append(
+            f"{label}.runtime_stability_diagnostics.state_buffers: expected non-empty list"
+        )
     _equal(stability, "warm_numeric_allocations", 0, label, errors)
     _equal(stability, "address_churn", 0, label, errors)
     observations = _non_negative_integer(stability, "observations", label, errors)
@@ -410,7 +435,12 @@ def validate_task_rollout_run(
     if not isinstance(memory, list) or len(memory) != entry.max_iterations:
         errors.append(f"{label}.iteration_memory_diagnostics: expected one sample per iteration")
 
-    for marker in ("Using device: cuda", "Learning iteration 0/1", "Collection time:", "Learning time:"):
+    for marker in (
+        "Using device: cuda",
+        "Learning iteration 0/1",
+        "Collection time:",
+        "Learning time:",
+    ):
         if marker not in stdout:
             errors.append(f"{label}.stdout: missing {marker!r}")
 
