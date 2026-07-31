@@ -73,7 +73,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.853433585958555,
+      "duration_sec": 4.939464099006727,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_capability_bijection#1",
@@ -89,7 +89,7 @@
       ],
       "series": "lane_b_capability_bijection",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases PASSED [100%]\n\n============================== 1 passed in 1.90s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases PASSED [100%]\n\n============================== 1 passed in 1.92s ===============================\n"
     },
     {
       "argv": [
@@ -106,7 +106,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.339329403999727,
+      "duration_sec": 4.996926631021779,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_semantics#1",
@@ -122,7 +122,7 @@
       ],
       "series": "lane_c_dr_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.29s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.00s ===============================\n"
     },
     {
       "argv": [
@@ -139,7 +139,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.055428992025554,
+      "duration_sec": 5.044138468976598,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_semantics#2",
@@ -172,7 +172,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.007721511006821,
+      "duration_sec": 5.207244008022826,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_semantics#3",
@@ -188,7 +188,7 @@
       ],
       "series": "lane_c_dr_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 1.96s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.02s ===============================\n"
     },
     {
       "argv": [
@@ -205,7 +205,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.049620535981376,
+      "duration_sec": 5.051929350011051,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#1",
@@ -221,7 +221,7 @@
       ],
       "series": "lane_c_physics_effect",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 1.99s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.01s ===============================\n"
     },
     {
       "argv": [
@@ -238,7 +238,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.969509924994782,
+      "duration_sec": 5.034560954954941,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#2",
@@ -249,72 +249,6 @@
         "xpassed": 0
       },
       "repetition": 2,
-      "required_test_ids": [
-        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
-      ],
-      "series": "lane_c_physics_effect",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 1.98s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 5.350061835022643,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_physics_effect#3",
-      "pytest": {
-        "passed": 2,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 3,
-      "required_test_ids": [
-        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
-      ],
-      "series": "lane_c_physics_effect",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.26s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 4.982402428984642,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_physics_effect#4",
-      "pytest": {
-        "passed": 2,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 4,
       "required_test_ids": [
         "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
       ],
@@ -337,7 +271,73 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.006033581972588,
+      "duration_sec": 5.04550265398575,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#3",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.01s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.093099349003751,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_physics_effect#4",
+      "pytest": {
+        "passed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 4,
+      "required_test_ids": [
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect"
+      ],
+      "series": "lane_c_physics_effect",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.02s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.013401995995082,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#5",
@@ -370,7 +370,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.110829855024349,
+      "duration_sec": 2.1192635070183314,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_rng_reproducibility#1",
@@ -386,7 +386,7 @@
       ],
       "series": "lane_c_rng_reproducibility",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.32s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.31s ===============================\n"
     },
     {
       "argv": [
@@ -403,7 +403,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.111555050010793,
+      "duration_sec": 2.1346490280120634,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_rng_reproducibility#2",
@@ -436,7 +436,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.1050146899651736,
+      "duration_sec": 2.10715482395608,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_rng_reproducibility#3",
@@ -452,7 +452,7 @@
       ],
       "series": "lane_c_rng_reproducibility",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.32s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.31s ===============================\n"
     },
     {
       "argv": [
@@ -469,7 +469,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.575647990975995,
+      "duration_sec": 5.469542592996731,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_recapture#1",
@@ -485,7 +485,7 @@
       ],
       "series": "lane_c_graph_recapture",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.51s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.38s ===============================\n"
     },
     {
       "argv": [
@@ -502,7 +502,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.397169244999532,
+      "duration_sec": 5.495120286999736,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_recapture#2",
@@ -518,7 +518,7 @@
       ],
       "series": "lane_c_graph_recapture",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.36s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.38s ===============================\n"
     },
     {
       "argv": [
@@ -535,7 +535,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.426696139969863,
+      "duration_sec": 5.42352618498262,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_recapture#3",
@@ -551,7 +551,7 @@
       ],
       "series": "lane_c_graph_recapture",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.40s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.38s ===============================\n"
     },
     {
       "argv": [
@@ -568,7 +568,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.997515538008884,
+      "duration_sec": 5.93467852199683,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_controller_contract#1",
@@ -579,72 +579,6 @@
         "xpassed": 0
       },
       "repetition": 1,
-      "required_test_ids": [
-        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
-      ],
-      "series": "lane_c_controller_contract",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 2.98s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 6.204452352016233,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_controller_contract#2",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 2,
-      "required_test_ids": [
-        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
-      ],
-      "series": "lane_c_controller_contract",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 3.10s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "-m",
-        "slow",
-        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 6.087964984006248,
-      "exit_code": 0,
-      "lane": "C",
-      "name": "lane_c_controller_contract#3",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 3,
       "required_test_ids": [
         "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
       ],
@@ -661,11 +595,77 @@
         "--with",
         "warp-lang",
         "pytest",
+        "-m",
+        "slow",
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.104404596029781,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_controller_contract#2",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
+      ],
+      "series": "lane_c_controller_contract",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 2.97s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "-m",
+        "slow",
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 5.942940911045298,
+      "exit_code": 0,
+      "lane": "C",
+      "name": "lane_c_controller_contract#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection"
+      ],
+      "series": "lane_c_controller_contract",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 2.93s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
         "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.245995256002061,
+      "duration_sec": 6.224009996978566,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_dr_performance#1",
@@ -676,68 +676,6 @@
         "xpassed": 0
       },
       "repetition": 1,
-      "required_test_ids": [
-        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
-      ],
-      "series": "lane_d_dr_performance",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.44s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 6.271161245007534,
-      "exit_code": 0,
-      "lane": "D",
-      "name": "lane_d_dr_performance#2",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 2,
-      "required_test_ids": [
-        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
-      ],
-      "series": "lane_d_dr_performance",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.46s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 6.212435096036643,
-      "exit_code": 0,
-      "lane": "D",
-      "name": "lane_d_dr_performance#3",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 3,
       "required_test_ids": [
         "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
       ],
@@ -758,7 +696,69 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.230892157997005,
+      "duration_sec": 6.304106590978336,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#2",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 2,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.50s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.251003334007692,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#3",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 3,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.46s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.208906734012999,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_dr_performance#4",
@@ -774,7 +774,7 @@
       ],
       "series": "lane_d_dr_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.48s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.46s ===============================\n"
     },
     {
       "argv": [
@@ -789,7 +789,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.132053095963784,
+      "duration_sec": 6.285020711016841,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_dr_performance#5",
@@ -805,7 +805,7 @@
       ],
       "series": "lane_d_dr_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.38s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.50s ===============================\n"
     },
     {
       "argv": [
@@ -822,7 +822,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.377166170976125,
+      "duration_sec": 5.041964236006606,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_recompute_aggregation#1",
@@ -838,7 +838,7 @@
       ],
       "series": "lane_c_recompute_aggregation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 2.29s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.98s ===============================\n"
     },
     {
       "argv": [
@@ -855,7 +855,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.980540181975812,
+      "duration_sec": 4.917646209010854,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_recompute_aggregation#2",
@@ -871,7 +871,7 @@
       ],
       "series": "lane_c_recompute_aggregation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.97s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.93s ===============================\n"
     },
     {
       "argv": [
@@ -888,7 +888,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 4.955826449033339,
+      "duration_sec": 4.9645836260169744,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_recompute_aggregation#3",
@@ -904,7 +904,7 @@
       ],
       "series": "lane_c_recompute_aggregation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.91s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.92s ===============================\n"
     }
   ],
   "environment": {
@@ -916,25 +916,25 @@
     "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
     "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]"
   },
-  "generated_at_utc": "2026-07-31T08:04:44.500169+00:00",
+  "generated_at_utc": "2026-07-31T11:28:07.013265+00:00",
   "inputs": {
     "claim_config_hashes": {
-      "P6-CAPABILITY-BIJECTION": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-CONTROLLER-CONTRACT": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-DR-PERFORMANCE": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-DR-SEMANTICS": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-GRAPH-RECAPTURE": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-PHYSICS-EFFECT": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-RECOMPUTE-AGGREGATION": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
-      "P6-RNG-REPRODUCIBILITY": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61"
+      "P6-CAPABILITY-BIJECTION": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-CONTROLLER-CONTRACT": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-DR-PERFORMANCE": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-DR-SEMANTICS": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-GRAPH-RECAPTURE": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-PHYSICS-EFFECT": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-RECOMPUTE-AGGREGATION": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P6-RNG-REPRODUCIBILITY": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c"
     },
     "files": {
       "benchmark/issue705/process_evidence.py": "sha256:a402a9145cf776bbd70ab3eb2052ddca9026c322cbfa72ad0eb2312325477730",
       "benchmark/mjwarp/benchmark_dr_profiles.py": "sha256:e39bbb6a50b83d5f586ab217ccf16138b54d60ae6d875b05ebfe588a18373fbc",
-      "conf/ppo/task/g1_walk_flat/mjwarp.yaml": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
+      "conf/ppo/task/g1_walk_flat/mjwarp.yaml": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
       "pyproject.toml": "sha256:a3568e67e2ce03ee83aa59f6eee3f0eac510e7ad2cb8681b824f0ccb36e8ac14",
       "scripts/capture_issue705_phase6_evidence.py": "sha256:686e4a0f9b1b833d3773859e814c1083626d6acd30cfff8e18b3b4311202397d",
-      "scripts/train_rsl_rl.py": "sha256:d69b924dcd56dae67769709376a34e22ad61cf76a68daf5083617933180d08e7",
+      "scripts/train_rsl_rl.py": "sha256:ca855d2fabcad99b17b908604ea49caaecd24d7d9f9b3b983a9bd513ba0fe237",
       "src/unilab/assets/robots/g1/assets/box_tracking/largebox.obj": "sha256:dbcc11281f62e9226f49165252375080d2e490e5a3f0ab6ba917acbd8f7abc1c",
       "src/unilab/assets/robots/g1/assets/climb_20_z_scale_1/box1.obj": "sha256:7cce9d9c4d4c90c0c486f0b198f881fd45893e812a6e5bdfcf7d9704d45f193b",
       "src/unilab/assets/robots/g1/assets/climb_20_z_scale_1/box2.obj": "sha256:e8fc2031698548e30327fa5219cf221ea12c12bf4bba316376b365cc8e6969e1",
@@ -1096,7 +1096,7 @@
       "src/unilab/tools/mjwarp_dr_performance.py": "sha256:31f096148d85379b3b8c87736f04299f036c827dab4247a49c582a2bdd7046ba",
       "src/unilab/training/rsl_rl_device.py": "sha256:5bca6101c39c0d39b2917ef49b43fad8cd2529c2b19757452863de0c66d1f456",
       "tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json": "sha256:58dea886865aee7fb011e07bdaf7fc33aef7a33d5adb1b0391892da336bb8481",
-      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:49f26746750fda18a92350e776d8db1fd5656b83daca38887db8de7f2fa50238",
+      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:97501f4a4aefcb2ac6c8d966937e60aaa67265493c3dbef03efb2be632ae0d53",
       "tests/acceptance/issue_705/mjwarp_dr_performance_freeze_receipt.yaml": "sha256:ab61f25274bc60ebc7cb5d44cae01531ae38a6cab59f6e95bea530a2d302880b",
       "tests/acceptance/issue_705/mjwarp_dr_performance_plan.yaml": "sha256:094a49b35be6a7860d1c67716721700886912b765964b153dc06fbd1f1866950",
       "tests/acceptance/issue_705/test_phase6_evidence.py": "sha256:c60d0f89e59d7133ce0ac8f66e43520271d4bb6d663949c47f3186adae3473bd",
@@ -1125,8 +1125,8 @@
   "phase": 6,
   "schema_version": 1,
   "source": {
-    "branch": "benchmark/issue-837-phase7-training-behavior",
-    "commit_sha": "06a96f1b49d322d1737cc44c34a467da9e9bf08c",
+    "branch": "benchmark/issue-839-phase7-entrypoint-matrix",
+    "commit_sha": "c8bb648458043ecb4b81a7b3d66926b8e67e13a2",
     "tree_clean": true
   }
 }
