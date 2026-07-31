@@ -39,7 +39,7 @@ def test_support_evidence_parser_loads_exact_phase7a_declaration() -> None:
     assert combination.key == ("ppo_torch", "g1_walk_flat", "mjwarp")
     assert combination.env_name == "G1WalkFlat"
     assert combination.execution_profile == "device_resident"
-    assert combination.evidence_level == DeclaredEvidenceLevel.BENCHMARKED
+    assert combination.evidence_level == DeclaredEvidenceLevel.RECOMMENDED
     assert combination.required_phase == 5
     assert combination.mandatory_test_ids == (BENCHMARK_TEST_ID,)
     assert combination.benchmark is not None

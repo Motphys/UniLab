@@ -25,7 +25,7 @@ combinations:
     env_name: G1WalkFlat
     backend: mjwarp
     execution_profile: device_resident
-    evidence_level: benchmarked
+    evidence_level: recommended
     owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
     owner_yaml_sha256: sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c
     required_phase: 5
