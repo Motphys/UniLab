@@ -40,7 +40,13 @@ def test_device_adapter_preserves_terminal_timeout_and_storage_contract() -> Non
     """Timeout bootstrap observes terminal CUDA buffers, never reset observations."""
 
     with _device_env(num_envs=32) as env:
-        wrapper = DeviceRslRlVecEnvWrapper(env, device="cuda:0", reset_seed=7)
+        wrapper = DeviceRslRlVecEnvWrapper(
+            env,
+            device="cuda:0",
+            reset_seed=7,
+            enable_stability_diagnostics=True,
+        )
+        assert wrapper.runtime.stability_diagnostics is not None
         episode_lengths = torch.zeros_like(wrapper.episode_length_buf)
         episode_lengths[::2].fill_(wrapper.max_episode_length - 1)
         wrapper.episode_length_buf = episode_lengths
@@ -228,7 +234,7 @@ def test_device_adapter_episode_schedule_handoffs_producer_stream() -> None:
         ),
         (
             "mjwarp",
-            lambda cfg: setattr(cfg.domain_rand, "randomize_kp", True),
+            lambda cfg: setattr(cfg.domain_rand, "randomize_base_mass", True),
             "typed DR/Event",
         ),
     ),

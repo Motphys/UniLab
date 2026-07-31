@@ -36,6 +36,8 @@ env:
     # gain DR until a typed model-mutation path has an effect test.
     randomize_kp: false
     randomize_kd: false
+    randomize_dof_armature: false
+    randomize_body_gravity_compensation: false
   control_config:
     action_scale: 0.25
   curriculum:

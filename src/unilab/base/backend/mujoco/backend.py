@@ -81,6 +81,7 @@ from ..mutation import (
     bind_mutation_plan as bind_typed_mutation_plan,
 )
 from ..mutation_batch import TypedBackendMutationBatch
+from ..phase_timing import DeviceResetPhaseTimingSampleToken
 from .batch import _bind_mujoco_host_batch, _MuJoCoHostBatchPlan, _MuJoCoHostMutationPlan
 from .playback import run_mujoco_playback
 
@@ -1147,7 +1148,10 @@ class MuJoCoBackend(SimBackend):
         rows: RowSelection,
         *,
         mutation_batch: BackendMutationBatch | None = None,
+        phase_timing: DeviceResetPhaseTimingSampleToken | None = None,
     ) -> BackendResetResult:
+        if phase_timing is not None:
+            raise BackendBatchContractError("MuJoCo host reset does not support CUDA phase timing")
         bound = self._require_host_batch_plan(plan)
         if rows.universe_size != self._num_envs:
             raise BackendBatchContractError("MuJoCo row universe does not match backend num_envs")

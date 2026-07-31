@@ -111,6 +111,19 @@ def test_g1_one_iteration_uses_production_mjwarp(tmp_path: Path) -> None:
     assert float(run_summary["training_wall_time_sec"]) > 0.0
     assert int(run_summary["peak_gpu_memory_allocated_bytes"]) > 0
     assert int(run_summary["peak_gpu_memory_reserved_bytes"]) > 0
+    performance = run_summary["runtime_performance_diagnostics"]
+    assert performance["backend_type"] == "mjwarp"
+    assert performance["model_targets"] == []
+    assert performance["materialization"] is None
+    assert performance["lifecycle"]["runtime_barriers"] > 0
+    assert performance["graph"]["launch_count"] > 0
+    assert performance["instrumentation_complete"] is True
+    stability = run_summary["runtime_stability_diagnostics"]
+    assert stability["buffers"]
+    assert stability["state_buffers"]
+    assert stability["warm_numeric_allocations"] == 0
+    assert stability["address_churn"] == 0
+    assert stability["instrumentation_complete"] is True
 
     checkpoint = run_dir / "model_0.pt"
     assert Path(run_summary["last_checkpoint"]) == checkpoint

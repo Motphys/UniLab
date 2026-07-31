@@ -287,5 +287,6 @@ class PPOConfig(BaseConfig):
     load_run: str = "-1"
     checkpoint: int = -1
     resume_path: Optional[str] = None
+    capture_performance_diagnostics: bool = False
     policy: PPOPolicyConfig = field(default_factory=PPOPolicyConfig)
     algorithm: PPOAlgorithmConfig = field(default_factory=PPOAlgorithmConfig)

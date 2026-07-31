@@ -96,7 +96,7 @@ def test_field_expansion_invalidates_and_recaptures_all_graph_consumers(
         original_capture = backend._capture_device_graph_bundle
         capture_observations: list[tuple[tuple[int, ...], tuple[bool, ...], int]] = []
 
-        def fail_second_capture(capture_key: Any, *, recapture: bool) -> Any:
+        def fail_second_capture(capture_key: Any, *, bound: Any, recapture: bool) -> Any:
             assert recapture
             current_arrays = tuple(getattr(backend._device_model, name) for name in old_arrays)
             addresses = tuple(int(value.ptr or 0) for value in current_arrays)
@@ -109,7 +109,7 @@ def test_field_expansion_invalidates_and_recaptures_all_graph_consumers(
             assert backend._model_materialization_receipt is None
             if len(capture_observations) == 2:
                 raise RuntimeError("injected second graph capture failure")
-            return original_capture(capture_key, recapture=recapture)
+            return original_capture(capture_key, bound=bound, recapture=recapture)
 
         with patch.object(
             backend,

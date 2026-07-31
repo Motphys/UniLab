@@ -40,6 +40,10 @@ from unilab.training.experiment import (
     patch_rsl_rl_wandb_writer,
 )
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.training.rsl_rl_device import (
+    DeviceRslRlVecEnvWrapper,
+    build_device_rsl_rl_run_summary_diagnostics,
+)
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.device import get_default_device
 
@@ -500,6 +504,10 @@ def main(cfg: DictConfig) -> None:
                 "peak_gpu_memory_allocated_bytes": peak_gpu_allocated,
                 "peak_gpu_memory_reserved_bytes": peak_gpu_reserved,
             }
+            if isinstance(wrapped_env, DeviceRslRlVecEnvWrapper):
+                train_summary.update(
+                    build_device_rsl_rl_run_summary_diagnostics(wrapped_env, runner)
+                )
             if tracker is not None:
                 tracker.update_summary(train_summary)
             env.close()
