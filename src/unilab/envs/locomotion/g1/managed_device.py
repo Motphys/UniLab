@@ -85,6 +85,8 @@ from .managed_reference import (
 G1_MANAGED_DEVICE_EXECUTOR_KEY = "device.torch.g1-walk-flat.v1"
 _KP_EVENT_TERM = "g1_randomize_kp"
 _KD_EVENT_TERM = "g1_randomize_kd"
+_ARMATURE_EVENT_TERM = "g1_randomize_dof_armature"
+_GRAVCOMP_EVENT_TERM = "g1_randomize_body_gravity_compensation"
 
 
 class G1ManagedDeviceError(ManagerContractError):
@@ -212,9 +214,84 @@ def _device_pd_event_template(
     )
 
 
+def _device_armature_event_template(
+    *,
+    placement: BufferPlacement,
+    dofs: EntitySelector,
+    multiplier_range: list[float],
+) -> MutationTemplate:
+    if len(multiplier_range) != 2:
+        raise G1ManagedDeviceError("G1 armature multiplier range must contain two values")
+    parameters = (float(multiplier_range[0]), float(multiplier_range[1]))
+    return MutationTemplate(
+        key_suffix="",
+        target_key="joint.armature",
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        selector=dofs,
+        field_kind=MutationFieldKind.ARMATURE,
+        trigger=MutationTrigger.RESET,
+        commit_phase=MutationCommitPhase.RESET,
+        operation=MutationOperation.SCALE,
+        baseline=MutationBaseline.DEFAULT,
+        persistence=MutationPersistence.EPISODE,
+        recompute=MutationRecomputeLevel.DYNAMICS,
+        value_template=_device_manager_buffer(
+            placement=placement,
+            row_shape=(1,),
+            lifetime=BufferLifetime.UNTIL_COMMIT,
+        ),
+        randomization=MutationRandomization(
+            distribution=RandomDistribution.UNIFORM,
+            parameters=parameters,
+            correlation=RandomCorrelation.PER_ENV,
+        ),
+    )
+
+
+def _device_gravity_compensation_event_template(
+    *,
+    placement: BufferPlacement,
+    bodies: EntitySelector,
+    value_range: list[float],
+) -> MutationTemplate:
+    if len(value_range) != 2:
+        raise G1ManagedDeviceError("G1 body gravity-compensation range must contain two values")
+    parameters = (float(value_range[0]), float(value_range[1]))
+    if not all(math.isfinite(value) for value in parameters) or parameters[0] > parameters[1]:
+        raise G1ManagedDeviceError("G1 body gravity-compensation range must be finite and ordered")
+    return MutationTemplate(
+        key_suffix="",
+        target_key="body.gravity_compensation",
+        target_kind=MutationTargetKind.MODEL_PARAMETER,
+        selector=bodies,
+        field_kind=MutationFieldKind.GRAVITY_COMPENSATION,
+        trigger=MutationTrigger.RESET,
+        commit_phase=MutationCommitPhase.RESET,
+        operation=MutationOperation.SET,
+        baseline=MutationBaseline.DEFAULT,
+        persistence=MutationPersistence.EPISODE,
+        recompute=MutationRecomputeLevel.KINEMATICS,
+        value_template=_device_manager_buffer(
+            placement=placement,
+            row_shape=(1,),
+            lifetime=BufferLifetime.UNTIL_COMMIT,
+        ),
+        randomization=MutationRandomization(
+            distribution=RandomDistribution.UNIFORM,
+            parameters=parameters,
+            correlation=RandomCorrelation.PER_ENV,
+        ),
+    )
+
+
 def _validate_device_profile(cfg: G1WalkEnvCfg) -> G1WalkRewardConfig:
     try:
-        reward = _validate_reference_profile(cfg, allow_pd_randomization=True)
+        reward = _validate_reference_profile(
+            cfg,
+            allow_pd_randomization=True,
+            allow_dof_armature_randomization=True,
+            allow_body_gravity_compensation_randomization=True,
+        )
     except G1ManagedReferenceError as exc:
         raise G1ManagedDeviceError(
             str(exc).replace("managed reference", "device executor")
@@ -261,6 +338,23 @@ def compile_g1_managed_device_task(
         kind=EntityKind.ACTUATOR,
         expressions=actuator_names,
     )
+    gravity_compensation_bodies: EntitySelector | None = None
+    if cfg.domain_rand.randomize_body_gravity_compensation:
+        body_names = tuple(cfg.domain_rand.body_gravity_compensation_bodies)
+        if (
+            not body_names
+            or any(not isinstance(name, str) or not name.strip() for name in body_names)
+            or len(set(body_names)) != len(body_names)
+        ):
+            raise G1ManagedDeviceError(
+                "G1 body gravity-compensation selector requires unique non-empty body names"
+            )
+        gravity_compensation_bodies = EntitySelector(
+            key="g1.gravity_compensation_bodies",
+            entity="g1",
+            kind=EntityKind.BODY,
+            expressions=body_names,
+        )
     state_requirements = _g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
     reset_templates = _device_reset_templates(
         placement=placement,
@@ -310,6 +404,39 @@ def compile_g1_managed_device_task(
                         target_key="actuator.pd_damping",
                         field_kind=MutationFieldKind.DAMPING,
                         multiplier_range=cfg.domain_rand.kd_multiplier_range,
+                    ),
+                ),
+            )
+        )
+    if cfg.domain_rand.randomize_dof_armature:
+        registry.register(
+            TermDefinition(
+                key="g1.device.randomize_dof_armature",
+                version="1",
+                phase=TermPhase.RESET,
+                role=TermRole.EVENT,
+                mutation_templates=(
+                    _device_armature_event_template(
+                        placement=placement,
+                        dofs=dofs,
+                        multiplier_range=cfg.domain_rand.dof_armature_multiplier_range,
+                    ),
+                ),
+            )
+        )
+    if cfg.domain_rand.randomize_body_gravity_compensation:
+        assert gravity_compensation_bodies is not None
+        registry.register(
+            TermDefinition(
+                key="g1.device.randomize_body_gravity_compensation",
+                version="1",
+                phase=TermPhase.RESET,
+                role=TermRole.EVENT,
+                mutation_templates=(
+                    _device_gravity_compensation_event_template(
+                        placement=placement,
+                        bodies=gravity_compensation_bodies,
+                        value_range=cfg.domain_rand.body_gravity_compensation_range,
                     ),
                 ),
             )
@@ -373,6 +500,22 @@ def compile_g1_managed_device_task(
                 dependencies=(_RESET_TERM,),
             )
         )
+    if cfg.domain_rand.randomize_dof_armature:
+        reset_terms.append(
+            TermInvocation.create(
+                key=_ARMATURE_EVENT_TERM,
+                definition_key="g1.device.randomize_dof_armature",
+                dependencies=(_RESET_TERM,),
+            )
+        )
+    if cfg.domain_rand.randomize_body_gravity_compensation:
+        reset_terms.append(
+            TermInvocation.create(
+                key=_GRAVCOMP_EVENT_TERM,
+                definition_key="g1.device.randomize_body_gravity_compensation",
+                dependencies=(_RESET_TERM,),
+            )
+        )
     reset_dependencies = tuple(term.key for term in reset_terms)
     task = TaskSpec.create(
         key="g1_walk_flat.managed_device",
@@ -429,6 +572,12 @@ def compile_g1_managed_device_task(
             "state.sensor.value",
             *(("actuator.pd_stiffness",) if cfg.domain_rand.randomize_kp else ()),
             *(("actuator.pd_damping",) if cfg.domain_rand.randomize_kd else ()),
+            *(("joint.armature",) if cfg.domain_rand.randomize_dof_armature else ()),
+            *(
+                ("body.gravity_compensation",)
+                if cfg.domain_rand.randomize_body_gravity_compensation
+                else ()
+            ),
         }
     )
     plan = TaskCompiler(registry).compile(
@@ -583,7 +732,16 @@ class G1ManagedDeviceKernel:
             )
         event_indices = binding.event_mutation_indices
         event_keys = tuple(mutation_plan.specs[index].term_key for index in event_indices)
-        if any(key not in {_KP_EVENT_TERM, _KD_EVENT_TERM} for key in event_keys):
+        if any(
+            key
+            not in {
+                _KP_EVENT_TERM,
+                _KD_EVENT_TERM,
+                _ARMATURE_EVENT_TERM,
+                _GRAVCOMP_EVENT_TERM,
+            }
+            for key in event_keys
+        ):
             raise G1ManagedDeviceError("G1 device plan contains an unsupported random Event")
         deterministic_indices = tuple(
             index
@@ -1196,6 +1354,8 @@ def create_g1_managed_device_runtime(
             reset_seed=reset_seed,
             observation_noise_seed=None,
             allow_pd_randomization=True,
+            allow_dof_armature_randomization=True,
+            allow_body_gravity_compensation_randomization=True,
         )
     except G1ManagedReferenceError as exc:
         raise G1ManagedDeviceError(

@@ -484,6 +484,8 @@ class MjwarpDeviceMutationPlan:
         addresses = tuple(int(value.data_ptr()) for value in buffers)
         if self.model_plan is not None:
             addresses = (*addresses, *self.model_plan.numeric_buffer_addresses)
+        if self.recompute_runtime is not None:
+            addresses = (*addresses, *self.recompute_runtime.numeric_buffer_addresses)
         return addresses
 
     def validate_batch(self, batch: DeviceResetMutationBatch) -> None:
@@ -527,12 +529,17 @@ class MjwarpDeviceMutationPlan:
             materialization_receipt=materialization_receipt,
         )
 
-    def launch_model_recompute(self, warp: object) -> bool:
+    def launch_model_recompute(
+        self,
+        warp: object,
+        *,
+        active_mask: torch.Tensor,
+    ) -> bool:
         """Launch at most one cold-selected recompute graph for this barrier."""
 
         if self.recompute_runtime is None:
             return False
-        return self.recompute_runtime.launch(warp)
+        return self.recompute_runtime.launch(warp, active_mask=active_mask)
 
     @property
     def recompute_diagnostics(self) -> MjwarpModelRecomputeDiagnostics | None:

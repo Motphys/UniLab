@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Any, Iterator
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import torch
 from tests.dr.mjwarp_model_mutation_support import (
@@ -36,6 +39,9 @@ from unilab.base.backend import (
     MutationTargetKind,
     RowSelection,
 )
+from unilab.base.backend.mjwarp.armature_recompute import (
+    MjwarpArmatureRecomputeWorkspace,
+)
 from unilab.base.backend.mjwarp.materialization import (
     MjwarpModelFieldRole,
     MjwarpModelMaterializationContractError,
@@ -43,6 +49,7 @@ from unilab.base.backend.mjwarp.materialization import (
 from unilab.base.backend.mjwarp.recompute import (
     MjwarpModelRecomputeKind,
     MjwarpModelRecomputeRuntime,
+    MjwarpModelRecomputeWorkspace,
     join_model_recompute,
     model_recompute_kind,
     recompute_derived_fields,
@@ -132,6 +139,43 @@ def test_recompute_derived_fields_match_backend_operations() -> None:
         "dof_invweight0",
         "tendon_invweight0",
         "tendon_length0",
+    )
+
+
+def test_armature_specialization_support_matrix_is_fail_closed() -> None:
+    mujoco = SimpleNamespace(
+        mjMINVAL=1.0e-15,
+        mjtBias=SimpleNamespace(mjBIAS_AFFINE=1),
+    )
+    gain = np.zeros((1, 10), dtype=np.float64)
+    bias = np.zeros((1, 10), dtype=np.float64)
+    model = SimpleNamespace(
+        nv=35,
+        actuator_gainprm=gain,
+        actuator_biasprm=bias,
+        actuator_biastype=np.asarray([1], dtype=np.int32),
+    )
+
+    assert MjwarpArmatureRecomputeWorkspace.supports(
+        ("dof_armature",), "set_const_0", model, mujoco
+    )
+    assert MjwarpArmatureRecomputeWorkspace.supports(
+        ("body_gravcomp", "dof_armature"), "set_const", model, mujoco
+    )
+    assert not MjwarpArmatureRecomputeWorkspace.supports(
+        ("body_gravcomp",), "set_const_fixed", model, mujoco
+    )
+
+    model.nv = 65
+    assert not MjwarpArmatureRecomputeWorkspace.supports(
+        ("dof_armature",), "set_const_0", model, mujoco
+    )
+    model.nv = 35
+    gain[0, 0] = 10.0
+    bias[0, 1] = -10.0
+    bias[0, 2] = 0.9
+    assert not MjwarpArmatureRecomputeWorkspace.supports(
+        ("dof_armature",), "set_const_0", model, mujoco
     )
 
 
@@ -326,6 +370,56 @@ def test_mjwarp_advertised_recompute_capability_case(
             direct[list(_SELECTED), raw_id],
             expected.expand(len(_SELECTED)),
         )
+
+
+@pytest.mark.slow
+def test_specialized_armature_recompute_matches_cpu_mujoco_per_world() -> None:
+    selected = (0, 2, 5)
+    key = PlanKey("joint.armature", MutationOperation.SET)
+    with model_mutation_runtime(num_envs=6, plan_keys=(key,)) as runtime:
+        runtime.restore_compiled_model_defaults()
+        plan = runtime.mutation_plans[key]
+        owner = runtime.backend._device_mutation_plans[plan.fingerprint]
+        assert owner.recompute_runtime is not None
+        assert isinstance(
+            owner.recompute_runtime.workspace,
+            MjwarpArmatureRecomputeWorkspace,
+        )
+
+        derived_names = ("dof_invweight0", "body_invweight0", "actuator_acc0")
+        derived_before = {name: runtime.model_field(name).clone() for name in derived_names}
+        buffers = ResetBatchBuffers(runtime, plan)
+        buffers.active_mask[list(selected)] = True
+        buffers.values["model.value"][list(selected), 0, 0] = torch.tensor(
+            (0.02, 0.08, 0.3),
+            dtype=torch.float32,
+            device=runtime.device,
+        )
+        _reset_with_buffers(runtime, buffers)
+
+        complement = sorted(set(range(runtime.num_envs)).difference(selected))
+        for name, before in derived_before.items():
+            assert torch.equal(runtime.model_field(name)[complement], before[complement])
+
+        armature = runtime.model_field("dof_armature").detach().cpu().numpy()
+        actual = {name: runtime.model_field(name).detach().cpu() for name in derived_names}
+        for world_id in selected:
+            reference_model = copy.deepcopy(runtime.backend._cpu_model)
+            reference_model.dof_armature[:] = armature[world_id]
+            reference_data = runtime.backend._mujoco.MjData(reference_model)
+            runtime.backend._mujoco.mj_setConst(reference_model, reference_data)
+            expected = {
+                "dof_invweight0": reference_model.dof_invweight0,
+                "body_invweight0": reference_model.body_invweight0,
+                "actuator_acc0": reference_model.actuator_acc0,
+            }
+            for name in derived_names:
+                torch.testing.assert_close(
+                    actual[name][world_id],
+                    torch.as_tensor(expected[name], dtype=torch.float32),
+                    rtol=5.0e-4,
+                    atol=5.0e-4,
+                )
 
 
 @pytest.mark.slow
@@ -690,8 +784,9 @@ def test_recompute_capture_failure_does_not_publish_and_retry_is_deterministic()
     with model_mutation_runtime(num_envs=4, plan_keys=()) as runtime:
         key = PlanKey("joint.armature", MutationOperation.SET)
         with patch.object(
-            runtime.backend._mujoco_warp,
-            "set_const_0",
+            MjwarpArmatureRecomputeWorkspace,
+            "_recompute",
+            autospec=True,
             side_effect=RuntimeError("injected recompute capture failure"),
         ):
             with pytest.raises(BackendBatchContractError, match="failed to capture"):
@@ -708,6 +803,36 @@ def test_recompute_capture_failure_does_not_publish_and_retry_is_deterministic()
         assert diagnostics.capture_count == 1
         assert diagnostics.launch_count == 0
         assert runtime.backend._model_materialization_receipt is retained_receipt
+
+
+@pytest.mark.slow
+def test_dampratio_model_uses_generic_recompute_workspace() -> None:
+    with model_mutation_runtime(
+        num_envs=4,
+        plan_keys=(),
+        model_file=_SHARPA_MODEL,
+        base_name="right_hand_C_MC",
+        body_name="right_index_PP",
+        joint_name="right_index_MCP_AA",
+        actuator_name="right_index_MCP_AA_ctrl",
+        keyframe_name="home",
+    ) as runtime:
+        model = runtime.backend._cpu_model
+        bias = model.actuator_biasprm[runtime.actuator_id]
+        gain = model.actuator_gainprm[runtime.actuator_id]
+        assert np.isclose(gain[0], -bias[1], rtol=0.0, atol=model.opt.tolerance)
+        bias[2] = 0.9
+        assert not MjwarpArmatureRecomputeWorkspace.supports(
+            ("dof_armature",),
+            "set_const_0",
+            model,
+            runtime.backend._mujoco,
+        )
+        key = PlanKey("joint.armature", MutationOperation.SET)
+        plan = bind_model_plan(runtime, key)
+        owner = runtime.backend._device_mutation_plans[plan.fingerprint]
+        assert owner.recompute_runtime is not None
+        assert isinstance(owner.recompute_runtime.workspace, MjwarpModelRecomputeWorkspace)
 
 
 @pytest.mark.slow
@@ -764,6 +889,10 @@ def test_recompute_receipt_roles_and_storage_identity_fail_closed() -> None:
                 public_plan=plan,
                 contract=recompute.contract,
                 graph=recompute.graph,
+                condition_reduction=recompute.condition_reduction,
+                graph_condition=recompute.graph_condition,
+                warp_graph_condition=recompute.warp_graph_condition,
+                workspace=recompute.workspace,
                 storage_generation=recompute.storage_generation,
                 storage_fingerprint=recompute.storage_fingerprint,
                 materialization_receipt=wrong_role_receipt,
@@ -776,6 +905,10 @@ def test_recompute_receipt_roles_and_storage_identity_fail_closed() -> None:
                 public_plan=plan,
                 contract=recompute.contract,
                 graph=recompute.graph,
+                condition_reduction=recompute.condition_reduction,
+                graph_condition=recompute.graph_condition,
+                warp_graph_condition=recompute.warp_graph_condition,
+                workspace=recompute.workspace,
                 storage_generation=recompute.storage_generation,
                 storage_fingerprint=recompute.storage_fingerprint,
                 materialization_receipt=corrupt_receipt,
@@ -898,6 +1031,8 @@ def test_all_false_mask_is_device_noop_without_host_predicate() -> None:
         buffers.values["state.position"].fill_(0.4)
         _reset_with_buffers(runtime, buffers)
         direct_before = runtime.model_field("dof_armature").clone()
+        runtime.model_field("dof_invweight0").fill_(0.125)
+        torch.cuda.synchronize(runtime.device)
         derived_before = runtime.model_field("dof_invweight0").clone()
         bridge = runtime.backend._ensure_device_bridge()
         qpos_before = bridge.qpos.clone()
@@ -915,6 +1050,10 @@ def test_all_false_mask_is_device_noop_without_host_predicate() -> None:
         diagnostics_after = runtime.backend.get_model_recompute_diagnostics(plan)
         assert diagnostics_after is not None
         assert diagnostics_after.launch_count == diagnostics_before.launch_count + 1
+        owner = runtime.backend._device_mutation_plans[plan.fingerprint]
+        assert owner.recompute_runtime is not None
+        assert owner.recompute_runtime.graph_condition is not None
+        assert owner.recompute_runtime.graph_condition.item() == 0
 
 
 @pytest.mark.slow

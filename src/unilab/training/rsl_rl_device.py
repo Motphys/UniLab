@@ -7,7 +7,7 @@ import gc
 import os
 import sys
 import time
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from typing import Any, cast
 
 import torch
@@ -16,6 +16,7 @@ from rsl_rl.utils.logger import Logger
 from tensordict import TensorDict
 
 from unilab.base.backend import (
+    BackendMutationPerformanceDiagnostics,
     BufferContract,
     BufferOwner,
     DeviceBufferLease,
@@ -60,6 +61,34 @@ class DeviceRslRlHostMemoryDiagnostics:
     allocator_trimmed: bool
 
 
+@dataclass(frozen=True)
+class DeviceRslRlIterationMemoryDiagnostics:
+    """Opt-in process and allocator state sampled at one iteration boundary."""
+
+    iteration: int
+    rss_bytes: int
+    cuda_allocated_bytes: int
+    cuda_reserved_bytes: int
+
+
+def _current_process_rss_bytes() -> int:
+    if not sys.platform.startswith("linux"):
+        raise DeviceRslRlContractError(
+            "iteration RSS diagnostics require the Linux procfs contract"
+        )
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        with open("/proc/self/statm", encoding="utf-8") as stream:
+            fields = stream.read().split()
+        if len(fields) < 2:
+            raise ValueError("resident page count is missing")
+        return int(fields[1]) * page_size
+    except (OSError, TypeError, ValueError) as exc:
+        raise DeviceRslRlContractError(
+            "could not sample current process RSS from /proc/self/statm"
+        ) from exc
+
+
 def _release_cold_path_host_memory() -> DeviceRslRlHostMemoryDiagnostics:
     collected = gc.collect()
     if not sys.platform.startswith("linux"):
@@ -97,6 +126,7 @@ class DeviceRslRlVecEnvWrapper:
         policy_obs_mode: str = "flat",
         *,
         reset_seed: int = 0,
+        enable_stability_diagnostics: bool = False,
     ) -> None:
         if policy_obs_mode == "auto":
             policy_obs_mode = "flat"
@@ -106,6 +136,8 @@ class DeviceRslRlVecEnvWrapper:
             )
         if isinstance(reset_seed, bool) or not isinstance(reset_seed, int) or reset_seed < 0:
             raise DeviceRslRlContractError("device reset_seed must be a non-negative integer")
+        if not isinstance(enable_stability_diagnostics, bool):
+            raise DeviceRslRlContractError("enable_stability_diagnostics must be a bool")
         requested_device = torch.device(device)
         if requested_device.type != "cuda" or not torch.cuda.is_available():
             raise DeviceRslRlContractError(
@@ -125,7 +157,10 @@ class DeviceRslRlVecEnvWrapper:
         requested_device = torch.device(f"cuda:{requested_index}")
 
         try:
-            runtime = env.create_device_managed_runtime(reset_seed=reset_seed)
+            runtime = env.create_device_managed_runtime(
+                reset_seed=reset_seed,
+                enable_stability_diagnostics=enable_stability_diagnostics,
+            )
         except AttributeError as exc:
             raise DeviceRslRlContractError(
                 "environment does not declare the device-managed runtime factory contract"
@@ -635,10 +670,47 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
             rollout_steps=int(self.cfg["num_steps_per_env"]),
         )
         self._host_memory_diagnostics: DeviceRslRlHostMemoryDiagnostics | None = None
+        capture_performance_diagnostics = self.cfg.get("capture_performance_diagnostics", False)
+        if not isinstance(capture_performance_diagnostics, bool):
+            raise DeviceRslRlContractError("algo.capture_performance_diagnostics must be a bool")
+        self._capture_performance_diagnostics = capture_performance_diagnostics
+        self._iteration_memory_diagnostics: list[DeviceRslRlIterationMemoryDiagnostics] = []
+        self._runtime_performance_diagnostics_before_training: (
+            BackendMutationPerformanceDiagnostics | None
+        ) = None
 
     @property
     def host_memory_diagnostics(self) -> DeviceRslRlHostMemoryDiagnostics | None:
         return self._host_memory_diagnostics
+
+    @property
+    def iteration_memory_diagnostics(
+        self,
+    ) -> tuple[DeviceRslRlIterationMemoryDiagnostics, ...]:
+        return tuple(self._iteration_memory_diagnostics)
+
+    @property
+    def performance_diagnostics_enabled(self) -> bool:
+        return self._capture_performance_diagnostics
+
+    @property
+    def runtime_performance_diagnostics_before_training(
+        self,
+    ) -> BackendMutationPerformanceDiagnostics | None:
+        return self._runtime_performance_diagnostics_before_training
+
+    def _capture_iteration_memory(self, iteration: int) -> None:
+        if not self._capture_performance_diagnostics:
+            return
+        device = torch.device(self.device)
+        self._iteration_memory_diagnostics.append(
+            DeviceRslRlIterationMemoryDiagnostics(
+                iteration=iteration,
+                rss_bytes=_current_process_rss_bytes(),
+                cuda_allocated_bytes=int(torch.cuda.memory_allocated(device)),
+                cuda_reserved_bytes=int(torch.cuda.memory_reserved(device)),
+            )
+        )
 
     def _release_cold_path_host_memory_once(self) -> None:
         if self._host_memory_diagnostics is None:
@@ -649,6 +721,14 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
             self.env.episode_length_buf = torch.randint_like(
                 self.env.episode_length_buf,
                 high=int(self.env.max_episode_length),
+            )
+
+        if (
+            self._capture_performance_diagnostics
+            and self._runtime_performance_diagnostics_before_training is None
+        ):
+            self._runtime_performance_diagnostics_before_training = (
+                self.env.runtime.capture_performance_diagnostics()
             )
 
         obs = self.env.get_observations().to(self.device)
@@ -708,6 +788,7 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
                     else None
                 ),
             )
+            self._capture_iteration_memory(it)
             if self.logger.writer is not None and it % self.cfg["save_interval"] == 0:
                 if self.logger.log_dir is None:
                     raise DeviceRslRlContractError("active device logger has no log_dir")
@@ -723,6 +804,55 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
                 )
             )
             self.logger.stop_logging_writer()
+
+
+def build_device_rsl_rl_run_summary_diagnostics(
+    wrapper: DeviceRslRlVecEnvWrapper,
+    runner: DeviceOnPolicyRunner,
+) -> dict[str, Any]:
+    """Materialize device-runtime diagnostics at the completed-run boundary."""
+
+    if not isinstance(wrapper, DeviceRslRlVecEnvWrapper):
+        raise DeviceRslRlContractError("device RSL-RL diagnostics require DeviceRslRlVecEnvWrapper")
+    if not isinstance(runner, DeviceOnPolicyRunner):
+        raise DeviceRslRlContractError("device RSL-RL diagnostics require DeviceOnPolicyRunner")
+
+    summary: dict[str, Any] = {
+        "runtime_performance_diagnostics": asdict(wrapper.runtime.capture_performance_diagnostics())
+    }
+    stability = wrapper.runtime.stability_diagnostics
+    if stability is not None:
+        summary["runtime_stability_diagnostics"] = asdict(stability)
+    if not runner.performance_diagnostics_enabled:
+        return summary
+
+    host_memory = runner.host_memory_diagnostics
+    if host_memory is None:
+        raise DeviceRslRlContractError(
+            "performance diagnostics require the completed runner host-memory boundary"
+        )
+    performance_before_training = runner.runtime_performance_diagnostics_before_training
+    if performance_before_training is None:
+        raise DeviceRslRlContractError(
+            "performance diagnostics require the pre-training runtime boundary"
+        )
+    summary.update(
+        {
+            "runtime_performance_diagnostics_before_training": asdict(performance_before_training),
+            "runtime_traffic_diagnostics": asdict(wrapper.runtime.traffic_diagnostics),
+            "runtime_event_traffic_diagnostics": {
+                term_key: asdict(diagnostics)
+                for term_key, diagnostics in wrapper.runtime.event_traffic_diagnostics
+            },
+            "wrapper_traffic_diagnostics": asdict(wrapper.traffic_diagnostics),
+            "logging_traffic_diagnostics": asdict(runner.logger.device_diagnostics),
+            "runner_host_memory_diagnostics": asdict(host_memory),
+            "iteration_memory_diagnostics": [
+                asdict(sample) for sample in runner.iteration_memory_diagnostics
+            ],
+        }
+    )
+    return summary
 
 
 @dataclass(frozen=True)
@@ -751,7 +881,10 @@ def resolve_mjwarp_device_ppo_runtime(
     return DeviceRslRlPPORuntime(
         wrapper_cls=DeviceRslRlVecEnvWrapper,
         runner_cls=DeviceOnPolicyRunner,
-        wrapper_kwargs={"reset_seed": seed},
+        wrapper_kwargs={
+            "reset_seed": seed,
+            "enable_stability_diagnostics": True,
+        },
     )
 
 
@@ -760,9 +893,11 @@ __all__ = [
     "DeviceRolloutLogger",
     "DeviceRslRlContractError",
     "DeviceRslRlHostMemoryDiagnostics",
+    "DeviceRslRlIterationMemoryDiagnostics",
     "DeviceRslRlLoggingDiagnostics",
     "DeviceRslRlPPORuntime",
     "DeviceRslRlTrafficDiagnostics",
     "DeviceRslRlVecEnvWrapper",
+    "build_device_rsl_rl_run_summary_diagnostics",
     "resolve_mjwarp_device_ppo_runtime",
 ]

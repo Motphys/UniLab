@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import tempfile
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
 
@@ -25,7 +26,9 @@ from unilab.training.rsl_rl_device import (
     DeviceOnPolicyRunner,
     DeviceRslRlContractError,
     DeviceRslRlHostMemoryDiagnostics,
+    DeviceRslRlIterationMemoryDiagnostics,
     DeviceRslRlVecEnvWrapper,
+    build_device_rsl_rl_run_summary_diagnostics,
     resolve_mjwarp_device_ppo_runtime,
 )
 
@@ -72,7 +75,10 @@ def test_device_runtime_resolver_and_finite_guard_are_strict() -> None:
     runtime = resolve_mjwarp_device_ppo_runtime({"runtime_impl": "mjwarp_device_v1", "seed": 3})
     assert runtime.wrapper_cls is DeviceRslRlVecEnvWrapper
     assert runtime.runner_cls is DeviceOnPolicyRunner
-    assert runtime.wrapper_kwargs == {"reset_seed": 3}
+    assert runtime.wrapper_kwargs == {
+        "reset_seed": 3,
+        "enable_stability_diagnostics": True,
+    }
     assert runtime.required_backend == "mjwarp"
     assert runtime.required_execution_profile == "device_resident"
 
@@ -185,6 +191,9 @@ def test_device_runner_keeps_upstream_lifecycle_order(monkeypatch: pytest.Monkey
             "log",
         ]
         assert runner.host_memory_diagnostics is memory_diagnostics
+        assert runner.performance_diagnostics_enabled is False
+        assert runner.runtime_performance_diagnostics_before_training is None
+        assert runner.iteration_memory_diagnostics == ()
         runner._release_cold_path_host_memory_once()
         assert trace.count("release_host_memory") == 1
 
@@ -223,6 +232,81 @@ def test_device_runner_storage_preserves_the_action_observation_pair(
             monkeypatch.setattr(runner.alg, "update", verify_storage)
             try:
                 runner.learn(num_learning_iterations=1, init_at_random_ep_len=False)
+            finally:
+                writer = getattr(runner.logger, "writer", None)
+                if writer is not None and hasattr(writer, "close"):
+                    writer.close()
+
+
+def test_device_runner_opt_in_iteration_memory_is_ordered_and_exported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The benchmark-only memory boundary samples once after every iteration."""
+
+    with _device_env(num_envs=32) as env:
+        wrapper = DeviceRslRlVecEnvWrapper(env, device="cuda:0", reset_seed=21)
+        train_cfg = _train_cfg()
+        train_cfg["capture_performance_diagnostics"] = True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = DeviceOnPolicyRunner(
+                wrapper,
+                train_cfg,
+                log_dir=tmpdir,
+                device="cuda:0",
+            )
+            rss_values = iter((101, 102))
+            allocated_values = iter((201, 202))
+            reserved_values = iter((301, 302))
+            monkeypatch.setattr(
+                rsl_rl_device,
+                "_current_process_rss_bytes",
+                lambda: next(rss_values),
+            )
+            monkeypatch.setattr(
+                rsl_rl_device.torch.cuda,
+                "memory_allocated",
+                lambda _device: next(allocated_values),
+            )
+            monkeypatch.setattr(
+                rsl_rl_device.torch.cuda,
+                "memory_reserved",
+                lambda _device: next(reserved_values),
+            )
+            try:
+                runner.learn(num_learning_iterations=2, init_at_random_ep_len=False)
+                assert runner.performance_diagnostics_enabled is True
+                performance_before = runner.runtime_performance_diagnostics_before_training
+                assert performance_before is not None
+                assert runner.iteration_memory_diagnostics == (
+                    DeviceRslRlIterationMemoryDiagnostics(0, 101, 201, 301),
+                    DeviceRslRlIterationMemoryDiagnostics(1, 102, 202, 302),
+                )
+
+                summary = build_device_rsl_rl_run_summary_diagnostics(wrapper, runner)
+                before = summary["runtime_performance_diagnostics_before_training"]
+                after = summary["runtime_performance_diagnostics"]
+                assert before == asdict(performance_before)
+                assert after["graph"]["launch_count"] - before["graph"]["launch_count"] == 12
+                assert after["graph"]["recapture_count"] == before["graph"]["recapture_count"]
+                assert after["recompute_capture_count"] - before["recompute_capture_count"] == 0
+                assert summary["iteration_memory_diagnostics"] == [
+                    {
+                        "iteration": 0,
+                        "rss_bytes": 101,
+                        "cuda_allocated_bytes": 201,
+                        "cuda_reserved_bytes": 301,
+                    },
+                    {
+                        "iteration": 1,
+                        "rss_bytes": 102,
+                        "cuda_allocated_bytes": 202,
+                        "cuda_reserved_bytes": 302,
+                    },
+                ]
+                assert summary["runtime_traffic_diagnostics"]["host_to_device_transfers"] == 0
+                assert summary["wrapper_traffic_diagnostics"]["action_publications"] == 4
+                assert summary["logging_traffic_diagnostics"]["metric_materializations"] == 2
+                assert "runner_host_memory_diagnostics" in summary
             finally:
                 writer = getattr(runner.logger, "writer", None)
                 if writer is not None and hasattr(writer, "close"):

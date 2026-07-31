@@ -16,7 +16,7 @@ import time
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
 
 import numpy as np
@@ -71,6 +71,17 @@ from unilab.base.backend.mutation_batch import (
     DeviceResetMutationBatch,
     TypedBackendMutationBatch,
 )
+from unilab.base.backend.performance import (
+    BackendDeviceLifecycleDiagnostics,
+    BackendModelFieldDiagnostics,
+    BackendModelMaterializationDiagnostics,
+    BackendMutationPerformanceDiagnostics,
+)
+from unilab.base.backend.phase_timing import (
+    DevicePhaseTimingError,
+    DeviceResetPhaseTimingSampleToken,
+    DeviceResetPhaseTimingSession,
+)
 from unilab.base.backend.telemetry import (
     BackendTransferBuffer,
     BackendTransferCounters,
@@ -110,9 +121,13 @@ from .recompute import (
     MjwarpModelRecomputeDiagnostics,
     MjwarpModelRecomputeKind,
     MjwarpModelRecomputeRuntime,
+    MjwarpModelRecomputeWorkspace,
     compile_model_recompute_contract,
 )
 from .telemetry import MJWARP_HOST_TRANSFER_PROFILE, MjwarpTransferTelemetry
+
+if TYPE_CHECKING:
+    from .armature_recompute import MjwarpArmatureRecomputeWorkspace
 
 _GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
 
@@ -271,6 +286,7 @@ class MjwarpBackend(SimBackend):
         self._mujoco_warp = deps.mujoco_warp
         self._warp = deps.warp
         self._transfer_telemetry = MjwarpTransferTelemetry()
+        self._reset_phase_timing_session: DeviceResetPhaseTimingSession | None = None
         self._cpu_model = deps.mujoco.MjModel.from_xml_path(scene_context.source_model_file)
         self._cpu_model.opt.timestep = self._sim_dt
         self._device_model = deps.mujoco_warp.put_model(self._cpu_model)
@@ -370,6 +386,10 @@ class MjwarpBackend(SimBackend):
         self._device_graph_bundles: dict[str, _MjwarpDeviceGraphBundle] = {}
         self._device_graph_captures = 0
         self._device_graph_launches = 0
+        self._device_step_graph_launches = 0
+        self._device_reset_graph_launches = 0
+        self._device_forward_graph_launches = 0
+        self._device_state_refreshes = 0
         self._device_graph_recaptures = 0
         self._device_graph_stale_rejections = 0
         self._device_graph_eager_fallbacks = 0
@@ -1206,6 +1226,27 @@ class MjwarpBackend(SimBackend):
         """Clear transfer diagnostics; simulator state and stable cache remain untouched."""
         self._transfer_telemetry.reset()
 
+    def create_reset_phase_timing_session(self, *, capacity: int) -> DeviceResetPhaseTimingSession:
+        """Preallocate one explicit CUDA reset timing window."""
+
+        if not self._device_batch_plans:
+            raise BackendBatchContractError(
+                "mjwarp reset phase timing requires a bound device_resident plan"
+            )
+        existing = self._reset_phase_timing_session
+        if existing is not None and not existing.is_materialized:
+            raise BackendBatchContractError(
+                "mjwarp already owns an unmaterialized reset phase timing session"
+            )
+        session = DeviceResetPhaseTimingSession(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+            placement=self._device_plan_placement(),
+            capacity=capacity,
+        )
+        self._reset_phase_timing_session = session
+        return session
+
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         try:
             return self._keyframe_qpos[name].copy()
@@ -1637,6 +1678,8 @@ class MjwarpBackend(SimBackend):
             model_plan = None
             recompute_runtime = None
             if has_model_specs:
+                from .armature_recompute import MjwarpArmatureRecomputeWorkspace
+
                 recompute_contract = compile_model_recompute_contract(
                     device_bound,
                     capability_manifest,
@@ -1657,10 +1700,61 @@ class MjwarpBackend(SimBackend):
                     default_fields=default_fields,
                     root_qvel_dim=self._root_qvel_dim,
                 )
+                condition_reduction = None
+                graph_condition = None
+                warp_graph_condition = None
+                recompute_workspace: (
+                    MjwarpModelRecomputeWorkspace | MjwarpArmatureRecomputeWorkspace | None
+                ) = None
+                if (
+                    recompute_contract.kind is not MjwarpModelRecomputeKind.NONE
+                    and self._warp.is_conditional_graph_supported()
+                ):
+                    device = self._ensure_device_bridge().qpos.device
+                    condition_reduction = torch.empty((), dtype=torch.bool, device=device)
+                    graph_condition = torch.zeros((1,), dtype=torch.int32, device=device)
+                    warp_graph_condition = self._warp.from_torch(graph_condition)
+                    if MjwarpArmatureRecomputeWorkspace.supports(
+                        recompute_contract.direct_fields,
+                        recompute_contract.kind.value,
+                        self._cpu_model,
+                        self._mujoco,
+                    ):
+                        recompute_workspace = MjwarpArmatureRecomputeWorkspace.create(
+                            mujoco=self._mujoco,
+                            mujoco_warp=self._mujoco_warp,
+                            model=self._cpu_model,
+                            device_model=self._device_model,
+                            device_data=self._device_data,
+                            active_mask=model_plan.effective_mask,
+                            num_worlds=self._num_envs,
+                        )
+                    elif recompute_contract.kind in {
+                        MjwarpModelRecomputeKind.SET_CONST_0,
+                        MjwarpModelRecomputeKind.SET_CONST,
+                    }:
+                        try:
+                            recompute_workspace = MjwarpModelRecomputeWorkspace(
+                                self._warp,
+                                self._mujoco_warp,
+                            )
+                        except Exception as exc:
+                            raise BackendBatchContractError(
+                                "mjwarp failed to capture Model recompute graph "
+                                f"{recompute_contract.kind.value!r}"
+                            ) from exc
                 recompute_runtime = MjwarpModelRecomputeRuntime(
                     public_plan=device_bound,
                     contract=recompute_contract,
-                    graph=self._capture_model_recompute_graph(recompute_contract),
+                    graph=self._capture_model_recompute_graph(
+                        recompute_contract,
+                        condition=warp_graph_condition,
+                        workspace=recompute_workspace,
+                    ),
+                    condition_reduction=condition_reduction,
+                    graph_condition=graph_condition,
+                    warp_graph_condition=warp_graph_condition,
+                    workspace=recompute_workspace,
                     storage_generation=self._device_graph_storage_generation,
                     storage_fingerprint=self._device_graph_storage_fingerprint,
                     materialization_receipt=receipt,
@@ -1913,6 +2007,9 @@ class MjwarpBackend(SimBackend):
     def _capture_model_recompute_graph(
         self,
         contract: MjwarpModelRecomputeContract,
+        *,
+        condition: Any | None,
+        workspace: MjwarpModelRecomputeWorkspace | MjwarpArmatureRecomputeWorkspace | None,
     ) -> Any | None:
         """Capture one plan-scoped derived-constant operation without fallback."""
 
@@ -1923,6 +2020,16 @@ class MjwarpBackend(SimBackend):
             MjwarpModelRecomputeKind.SET_CONST_0: self._mujoco_warp.set_const_0,
             MjwarpModelRecomputeKind.SET_CONST: self._mujoco_warp.set_const,
         }[contract.kind]
+
+        def recompute() -> None:
+            if workspace is not None:
+                with workspace.capture_body(contract.kind) as workspace_recompute:
+                    workspace_recompute(self._device_model, self._device_data)
+            elif contract.kind is MjwarpModelRecomputeKind.SET_CONST_FIXED:
+                operation(self._device_model, self._device_data)
+            else:
+                operation(self._device_model, self._device_data, restore=False)
+
         bridge = self._ensure_device_bridge()
         try:
             with (
@@ -1930,8 +2037,17 @@ class MjwarpBackend(SimBackend):
                 torch.cuda.stream(bridge.physics_stream),
                 self._warp.ScopedStream(bridge.warp_physics_stream),
             ):
+                if workspace is not None:
+                    workspace.prepare(
+                        contract.kind,
+                        self._device_model,
+                        self._device_data,
+                    )
                 with self._warp.ScopedCapture() as capture:
-                    operation(self._device_model, self._device_data)
+                    if condition is None:
+                        recompute()
+                    else:
+                        self._warp.capture_if(condition, on_true=recompute)
         except Exception as exc:
             raise BackendBatchContractError(
                 f"mjwarp failed to capture Model recompute graph {contract.kind.value!r}"
@@ -2189,6 +2305,116 @@ class MjwarpBackend(SimBackend):
         runtime_plan.public_plan.require_compatible(plan)
         return runtime_plan.recompute_diagnostics
 
+    def get_mutation_performance_diagnostics(
+        self,
+        plan: BoundMutationPlan,
+    ) -> BackendMutationPerformanceDiagnostics:
+        """Project backend-owned Model and lifecycle evidence at a cold boundary."""
+
+        if not isinstance(plan, BoundMutationPlan):
+            raise BackendBatchContractError(
+                "mjwarp mutation performance diagnostics require a bound mutation plan"
+            )
+        plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            runtime_plan = self._device_mutation_plans[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "mjwarp mutation performance diagnostics plan was not published"
+            ) from exc
+        runtime_plan.public_plan.require_compatible(plan)
+
+        model_targets = tuple(
+            sorted(
+                {
+                    spec.target.target_key
+                    for spec in plan.specs
+                    if spec.target.target_kind is MutationTargetKind.MODEL_PARAMETER
+                }
+            )
+        )
+        recompute = runtime_plan.recompute_diagnostics
+        materialization = None
+        recompute_kind = "none"
+        direct_fields: tuple[str, ...] = ()
+        derived_fields: tuple[str, ...] = ()
+        recompute_capture_count = 0
+        recompute_launch_count = 0
+        if model_targets:
+            if recompute is None or runtime_plan.recompute_runtime is None:
+                raise BackendBatchContractError(
+                    "mjwarp Model performance diagnostics lack a recompute owner"
+                )
+            receipt = runtime_plan.recompute_runtime.materialization_receipt
+            if receipt is not self._model_materialization_receipt:
+                raise BackendBatchContractError(
+                    "mjwarp Model performance diagnostics have a stale materialization receipt"
+                )
+            self._verify_model_materialization_receipt(receipt)
+            if (
+                recompute.mutation_plan_fingerprint != plan.fingerprint
+                or recompute.materialization_receipt_fingerprint != receipt.fingerprint
+                or recompute.storage_generation != receipt.storage_generation_after
+                or recompute.storage_fingerprint != receipt.storage_fingerprint_after
+            ):
+                raise BackendBatchContractError(
+                    "mjwarp recompute and materialization diagnostics have different identities"
+                )
+            materialization = BackendModelMaterializationDiagnostics(
+                receipt_fingerprint=receipt.fingerprint,
+                num_worlds=receipt.num_worlds,
+                fields=tuple(
+                    BackendModelFieldDiagnostics(
+                        field_name=field.field_name,
+                        role=field.role.value,
+                        materialized_shape=field.materialized_shape,
+                        materialized_address=field.materialized_address,
+                        model_bytes=field.model_bytes,
+                        replaced=field.replaced,
+                        compiled_default_shape=field.compiled_default_shape,
+                        per_world_default_shape=field.per_world_default_shape,
+                    )
+                    for field in receipt.fields
+                ),
+                expanded_model_bytes=receipt.expanded_model_bytes,
+                baseline_bytes=receipt.baseline_bytes,
+                storage_generation=receipt.storage_generation_after,
+                storage_fingerprint=receipt.storage_fingerprint_after,
+            )
+            recompute_kind = recompute.kind.value
+            direct_fields = recompute.direct_fields
+            derived_fields = recompute.derived_fields
+            recompute_capture_count = recompute.capture_count
+            recompute_launch_count = recompute.launch_count
+        elif recompute is not None:
+            raise BackendBatchContractError(
+                "mjwarp state-only performance diagnostics unexpectedly own Model recompute"
+            )
+
+        return BackendMutationPerformanceDiagnostics(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+            mutation_plan_fingerprint=plan.fingerprint,
+            model_targets=model_targets,
+            recompute_kind=recompute_kind,
+            direct_fields=direct_fields,
+            derived_fields=derived_fields,
+            recompute_capture_count=recompute_capture_count,
+            recompute_launch_count=recompute_launch_count,
+            materialization=materialization,
+            lifecycle=BackendDeviceLifecycleDiagnostics(
+                runtime_barriers=self._runtime_barrier_count,
+                step_graph_launches=self._device_step_graph_launches,
+                reset_graph_launches=self._device_reset_graph_launches,
+                forward_graph_launches=self._device_forward_graph_launches,
+                state_refreshes=self._device_state_refreshes,
+            ),
+            graph=self.get_device_graph_diagnostics(verify_storage=True),
+        )
+
     def _require_device_mutation_plan(
         self,
         mutation_batch: DeviceResetMutationBatch,
@@ -2277,6 +2503,7 @@ class MjwarpBackend(SimBackend):
         with torch.cuda.stream(bridge.physics_stream):
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 bound.refresh()
+                self._device_state_refreshes += 1
             event.record(bridge.physics_stream)
 
     def read_state_batch(
@@ -2427,7 +2654,9 @@ class MjwarpBackend(SimBackend):
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 self._warp.capture_launch(graph_bundle.step_graph)
                 self._device_graph_launches += 1
+                self._device_step_graph_launches += 1
                 bound.refresh()
+                self._device_state_refreshes += 1
             bridge.step_event.record(bridge.physics_stream)
         result = bound.materialize(
             rows=RowSelection.all(self._num_envs),
@@ -2454,8 +2683,24 @@ class MjwarpBackend(SimBackend):
         bound: MjwarpDeviceBatchPlan,
         mutation_plan: MjwarpDeviceMutationPlan,
         mutation_batch: DeviceResetMutationBatch,
+        phase_timing_session: DeviceResetPhaseTimingSession | None,
+        phase_timing_token: DeviceResetPhaseTimingSampleToken | None,
     ) -> BackendReadResult:
         """Queue one masked CUDA reset/forward/state-pack lifecycle barrier."""
+
+        timing: tuple[DeviceResetPhaseTimingSession, DeviceResetPhaseTimingSampleToken] | None
+        if phase_timing_session is None:
+            if phase_timing_token is not None:
+                raise BackendBatchContractError(
+                    "mjwarp reset phase timing token requires its owning session"
+                )
+            timing = None
+        else:
+            if phase_timing_token is None:
+                raise BackendBatchContractError(
+                    "mjwarp reset phase timing session requires an active token"
+                )
+            timing = (phase_timing_session, phase_timing_token)
 
         bridge = self._ensure_device_bridge()
         completion = mutation_batch.completion
@@ -2481,20 +2726,66 @@ class MjwarpBackend(SimBackend):
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 self._warp.capture_launch(graph_bundle.reset_graph)
                 self._device_graph_launches += 1
+                self._device_reset_graph_launches += 1
+                if timing is not None:
+                    timing[0].begin_backend_phase(
+                        timing[1],
+                        "mutation_commit",
+                        bridge.physics_stream,
+                    )
                 mutation_plan.commit_model(
                     mutation_batch,
                     active_mask=effective_mask,
                 )
-                mutation_plan.launch_model_recompute(self._warp)
+                if timing is not None:
+                    timing[0].end_backend_phase(
+                        timing[1],
+                        "mutation_commit",
+                        bridge.physics_stream,
+                    )
+                    timing[0].begin_backend_phase(
+                        timing[1],
+                        "recompute_constants",
+                        bridge.physics_stream,
+                    )
+                mutation_plan.launch_model_recompute(
+                    self._warp,
+                    active_mask=effective_mask,
+                )
+                if timing is not None:
+                    timing[0].end_backend_phase(
+                        timing[1],
+                        "recompute_constants",
+                        bridge.physics_stream,
+                    )
                 mutation_plan.stage_reset_state(
                     mutation_batch,
                     qpos=bridge.qpos,
                     qvel=bridge.qvel,
                     active_mask=effective_mask,
                 )
+                if timing is not None:
+                    timing[0].begin_backend_phase(
+                        timing[1],
+                        "reset_forward",
+                        bridge.physics_stream,
+                    )
                 self._warp.capture_launch(graph_bundle.forward_graph)
                 self._device_graph_launches += 1
+                self._device_forward_graph_launches += 1
+                if timing is not None:
+                    timing[0].end_backend_phase(
+                        timing[1],
+                        "reset_forward",
+                        bridge.physics_stream,
+                    )
                 bound.refresh_masked(bridge.reset_mask)
+                self._device_state_refreshes += 1
+                if timing is not None:
+                    timing[0].end_sample(
+                        timing[1],
+                        bridge.physics_stream,
+                    )
             bridge.reset_event.record(bridge.physics_stream)
         result = bound.materialize(
             rows=RowSelection.all(self._num_envs),
@@ -2676,12 +2967,18 @@ class MjwarpBackend(SimBackend):
         rows: RowSelection,
         *,
         mutation_batch: BackendMutationBatch | None = None,
+        phase_timing: DeviceResetPhaseTimingSampleToken | None = None,
     ) -> BackendResetResult:
         if plan.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
             return self._reset_device_batch(
                 plan,
                 rows,
                 mutation_batch=mutation_batch,
+                phase_timing=phase_timing,
+            )
+        if phase_timing is not None:
+            raise BackendBatchContractError(
+                "mjwarp host_numpy reset does not support CUDA phase timing"
             )
         bound = self._require_host_batch_plan(plan)
         if not isinstance(rows, RowSelection):
@@ -2725,6 +3022,7 @@ class MjwarpBackend(SimBackend):
         rows: RowSelection,
         *,
         mutation_batch: BackendMutationBatch | None,
+        phase_timing: DeviceResetPhaseTimingSampleToken | None,
     ) -> BackendResetResult:
         """Commit an all-world device reset whose active rows stay on CUDA."""
 
@@ -2740,7 +3038,31 @@ class MjwarpBackend(SimBackend):
         mutation_plan = self._require_device_mutation_plan(mutation_batch, plan)
         self._require_unconsumed_device_reset(mutation_batch)
         mutation_plan.validate_batch(mutation_batch)
-        result = self._execute_device_reset(bound, mutation_plan, mutation_batch)
+        phase_timing_session: DeviceResetPhaseTimingSession | None = None
+        if phase_timing is not None:
+            phase_timing_session = self._reset_phase_timing_session
+            if phase_timing_session is None:
+                raise BackendBatchContractError(
+                    "mjwarp reset phase timing token was not created by this backend"
+                )
+            try:
+                phase_timing_session.require_backend_sample(
+                    phase_timing,
+                    backend_type=self.backend_type,
+                    backend_instance_id=self._batch_instance_id,
+                    placement=self._device_plan_placement(),
+                )
+            except DevicePhaseTimingError as exc:
+                raise BackendBatchContractError(
+                    f"mjwarp reset phase timing token is invalid: {exc}"
+                ) from exc
+        result = self._execute_device_reset(
+            bound,
+            mutation_plan,
+            mutation_batch,
+            phase_timing_session,
+            phase_timing,
+        )
         self._mark_device_reset_consumed(mutation_batch)
         return BackendResetResult(reset_state=result.state, diagnostics=result.diagnostics)
 

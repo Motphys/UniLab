@@ -21,6 +21,7 @@ algo:
   load_run: "-1"
   checkpoint: -1
   resume_path: null
+  capture_performance_diagnostics: false
   policy:
     init_noise_std: 1.0
     actor_hidden_dims: [512, 256, 128]
