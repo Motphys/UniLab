@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import zlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -21,8 +22,8 @@ HIGH_STABLE_RSS_BYTES = 96 * 1024**3
 
 _FIELD_LAYOUT = {
     "actuator_acc0": ((29,), (29,), 4),
-    "actuator_biasprm": ((29, 10), (29, 10), 4),
-    "actuator_gainprm": ((29, 10), (29, 10), 4),
+    "actuator_biasprm": ((29,), (29, 10), 40),
+    "actuator_gainprm": ((29,), (29, 10), 40),
     "body_gravcomp": ((31,), (31,), 4),
     "body_invweight0": ((31,), (31, 2), 8),
     "body_subtreemass": ((31,), (31,), 4),
@@ -91,6 +92,22 @@ def _config(spec: contract.DrPerformanceCaseSpec) -> dict[str, Any]:
     }
 
 
+def _graph_storage(batch_size: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "state",
+            "address": batch_size,
+            "shape": [batch_size],
+            "dtype": "float32",
+            "device": "cuda:0",
+        }
+    ]
+
+
+def _graph_storage_fingerprint(batch_size: int) -> str:
+    return canonical_sha256(_graph_storage(batch_size)).removeprefix("sha256:")
+
+
 def _materialization(
     profile: contract.DrPerformanceProfile, batch_size: int
 ) -> dict[str, Any] | None:
@@ -120,26 +137,43 @@ def _materialization(
             math.prod(_FIELD_LAYOUT[name][1]) * 4 for name in profile.direct_fields
         ),
         "storage_generation": 1,
-        "storage_fingerprint": f"synthetic-storage-{profile.profile_id}-{batch_size}",
+        "storage_fingerprint": _graph_storage_fingerprint(batch_size),
     }
 
 
 def _graph(
     profile: contract.DrPerformanceProfile, batch_size: int, *, launches: int
 ) -> dict[str, Any]:
+    storage_fingerprint = _graph_storage_fingerprint(batch_size)
     return {
         "backend_type": "mjwarp",
         "execution_mode": "cuda_graph",
-        "active_keys": [{"profile_id": profile.profile_id, "batch_size": batch_size}],
-        "storage_buffers": [{"name": "state", "address": batch_size, "shape": [batch_size]}],
+        "active_keys": [
+            {
+                "backend_type": "mjwarp",
+                "plan_fingerprint": f"synthetic-plan-{profile.profile_id}",
+                "num_envs": batch_size,
+                "state_dtype": "float32",
+                "control_dtype": "float32",
+                "physics_substeps": 3,
+                "storage_generation": 1,
+                "storage_fingerprint": storage_fingerprint,
+                "contract_version": 1,
+            }
+        ],
+        "storage_buffers": contract.encode_mjwarp_dr_graph_storage_buffers(
+            _graph_storage(batch_size)
+        ),
         "storage_generation": 1,
-        "storage_fingerprint": f"synthetic-storage-{profile.profile_id}-{batch_size}",
+        "storage_fingerprint": storage_fingerprint,
         "capture_count": 1,
         "launch_count": launches,
         "recapture_count": 0,
         "stale_rejection_count": 0,
         "eager_fallback_count": 0,
+        "storage_verification_count": 1,
         "instrumentation_complete": True,
+        "contract_version": 1,
     }
 
 
@@ -708,6 +742,53 @@ def test_materialization_accepts_backend_canonical_model_target_order(
         batch_size=128,
         path="test.performance",
     )
+
+
+def test_graph_storage_codec_is_lossless_and_idempotent() -> None:
+    storage = _graph_storage(1024)
+    encoded = contract.encode_mjwarp_dr_graph_storage_buffers(storage)
+
+    assert contract._decode_mjwarp_dr_graph_storage_buffers(encoded, "test.storage") == storage
+    graph = {
+        "backend_type": "mjwarp",
+        "execution_mode": "cuda_graph",
+        "storage_buffers": storage,
+    }
+    contract.compact_mjwarp_dr_performance_artifact(graph)
+    first = deepcopy(graph)
+    contract.compact_mjwarp_dr_performance_artifact(graph)
+
+    assert graph == first
+    assert graph["storage_buffers"] == encoded
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("digest", "differs from decoded graph storage"),
+        ("stream", "invalid zlib payload"),
+        ("buffer", "graph buffer keys differ from v1"),
+    ),
+)
+def test_graph_storage_codec_tampering_fails_closed(mutation: str, message: str) -> None:
+    encoded = contract.encode_mjwarp_dr_graph_storage_buffers(_graph_storage(128))
+    if mutation == "digest":
+        encoded["sha256"] = "sha256:" + "0" * 64
+    elif mutation == "stream":
+        encoded["data"] = base64.b64encode(b"not-zlib").decode("ascii")
+    else:
+        malformed = [{"name": "state"}]
+        payload = json.dumps(malformed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        encoded = {
+            "encoding": encoded["encoding"],
+            "count": 1,
+            "uncompressed_bytes": len(payload),
+            "sha256": canonical_sha256(malformed),
+            "data": base64.b64encode(zlib.compress(payload, level=9)).decode("ascii"),
+        }
+
+    with pytest.raises(ValueError, match=message):
+        contract._decode_mjwarp_dr_graph_storage_buffers(encoded, "test.storage")
 
 
 @pytest.mark.parametrize(
