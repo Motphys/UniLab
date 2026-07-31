@@ -70,3 +70,31 @@ reward:
 play_profile:
   # Rendering/playback is intentionally unsupported by this first profile.
   enabled: false
+entrypoints:
+  identity:
+    task_name: G1WalkFlat
+    backend: mjwarp
+    execution_profile: device_resident
+    runtime_impl: mjwarp_device_v1
+    runtime_resolver: unilab.training.rsl_rl_device:resolve_mjwarp_device_ppo_runtime
+  renderer_backend: null
+  routes:
+    train: native
+    play: unsupported
+    visualize: unsupported
+    export: native
+    checkpoint_save: native
+    checkpoint_load: native
+    resume: native
+  diagnostics:
+    play: >-
+      Entrypoint route 'play' is unsupported for backend='mjwarp' and
+      execution_profile='device_resident': this owner has no native playback model or
+      renderer. Use training.operation=export for policy export, or select the explicit
+      task=g1_walk_flat/mujoco owner for MuJoCo physics and visualization; do not relabel a
+      MuJoCo environment as mjwarp.
+    visualize: >-
+      Entrypoint route 'visualize' is unsupported for backend='mjwarp' and
+      execution_profile='device_resident': no mjwarp renderer or explicit playback adapter
+      is declared. Select task=g1_walk_flat/mujoco only when MuJoCo physics is intended;
+      viewer entrypoints must not rewrite the backend identity.

@@ -77,18 +77,15 @@ except ImportError:
     print("Could not import rsl_rl. Please ensure it is installed.")
     sys.exit(1)
 
-if not VISER_AVAILABLE:
-    print("[play_viser] viser is not installed. Install with: uv sync --extra viser")
-    sys.exit(1)
-
 import mujoco
-import viser  # noqa: E402
 from play_interactive import (  # noqa: E402
     PlayInteractiveArgs,
     _available_backends_for_task,
     _backend_adapter,
     _build_playback_config,
+    _build_ppo_policy_load_hooks,
     _infer_checkpoint_actor_input_dim,
+    _require_native_mujoco_visualization,
     resolve_checkpoint,
 )
 
@@ -214,6 +211,12 @@ def _close_scene_entries(entries: list[dict[str, Any]]) -> None:
 
 
 def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
+    _require_native_mujoco_visualization(cfg)
+    if not VISER_AVAILABLE:
+        print("[play_viser] viser is not installed. Install with: uv sync --extra viser")
+        raise SystemExit(1)
+    import viser
+
     device = select_torch_device()
     print(f"[play_viser] Device: {device}")
 
@@ -243,6 +246,11 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
             task_name=args.task,
         )
 
+    checkpoint_preflight, checkpoint_load_guard = _build_ppo_policy_load_hooks(
+        cfg,
+        action_mode=str(args.action_mode),
+    )
+
     playback_session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
         playback_cfg=_build_playback_config(args, num_envs=num_envs),
         env_factory=_create_env,
@@ -256,6 +264,8 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
         runner_cls=OnPolicyRunner,
         policy_obs_dims_getter=get_policy_obs_dims,
         train_cfg_normalizer=normalize_ppo_train_cfg,
+        checkpoint_preflight=checkpoint_preflight,
+        checkpoint_load_guard=checkpoint_load_guard,
         log=lambda message: print(f"[play_viser] {message}"),
     )
     env = playback_session.env
@@ -483,8 +493,6 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
-    if str(cfg.training.sim_backend) != "mujoco":
-        raise ValueError("play_viser.py only supports MuJoCo backend; use task=<task>/mujoco.")
     play_viser(_build_play_args(cfg), cfg)
 
 
