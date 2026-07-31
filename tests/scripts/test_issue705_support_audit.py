@@ -156,6 +156,27 @@ def test_support_audit_rejects_phase_test_artifact_level_and_signature_faults() 
     _assert_error(_fast_audit(stale_signature), "compiled policy signature differs")
 
 
+def test_support_audit_rejects_manifest_receipt_that_differs_from_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _manifest()
+    load_manifest = issue705_support.load_phase_acceptance
+
+    def load_with_stale_receipt(path: Path):
+        phase_manifest = load_manifest(path)
+        if phase_manifest.phase != 5:
+            return phase_manifest
+        claims = list(phase_manifest.claims)
+        claims[0] = replace(
+            claims[0],
+            evidence=replace(claims[0].evidence, commit_sha="0" * 40),
+        )
+        return replace(phase_manifest, claims=tuple(claims))
+
+    monkeypatch.setattr(issue705_support, "load_phase_acceptance", load_with_stale_receipt)
+    _assert_error(_fast_audit(manifest), "manifest commit does not match gate source")
+
+
 def test_support_audit_cli_reports_pass_and_fail(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

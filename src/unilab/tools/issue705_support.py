@@ -547,6 +547,35 @@ def _validate_phase_gates(
             errors.append(f"phase {phase}: manifest issue/phase identity does not match")
         if manifest.integration_branch != INTEGRATION_BRANCH:
             errors.append(f"phase {phase}: manifest integration branch does not match")
+
+        source = report.get("source")
+        source_commit = source.get("commit_sha") if isinstance(source, dict) else None
+        if (
+            not isinstance(source_commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+        ):
+            errors.append(f"phase {phase}: gate source commit is missing or malformed")
+            source_commit = None
+
+        raw_artifact_claims = report.get("claims")
+        artifact_claims: dict[str, Mapping[str, Any]] = {}
+        if not isinstance(raw_artifact_claims, list):
+            errors.append(f"phase {phase}: gate claims are missing")
+        else:
+            for index, raw_claim in enumerate(raw_artifact_claims):
+                claim_id = raw_claim.get("claim_id") if isinstance(raw_claim, Mapping) else None
+                if not isinstance(claim_id, str):
+                    errors.append(f"phase {phase}: gate claim[{index}] is malformed")
+                elif claim_id in artifact_claims:
+                    errors.append(f"phase {phase}: duplicate gate claim {claim_id}")
+                else:
+                    artifact_claims[claim_id] = raw_claim
+
+        manifest_claim_ids = {claim.claim_id for claim in manifest.claims}
+        if set(artifact_claims) != manifest_claim_ids:
+            errors.append(f"phase {phase}: manifest and gate claim sets differ")
+        inputs = report.get("inputs")
+        config_hashes = inputs.get("claim_config_hashes") if isinstance(inputs, dict) else None
         for claim in manifest.claims:
             if claim.status != ClaimStatus.VERIFIED or claim.evidence.result != EvidenceResult.PASS:
                 errors.append(
@@ -558,6 +587,31 @@ def _validate_phase_gates(
                 errors.append(
                     f"phase {phase}/{claim.claim_id}: skipped or xfailed evidence is forbidden"
                 )
+            if source_commit is not None and claim.evidence.commit_sha != source_commit:
+                errors.append(
+                    f"phase {phase}/{claim.claim_id}: manifest commit does not match gate source"
+                )
+            if claim.evidence.executed_test_ids != claim.required_test_ids:
+                errors.append(
+                    f"phase {phase}/{claim.claim_id}: executed tests do not match required tests"
+                )
+            artifact_claim = artifact_claims.get(claim.claim_id)
+            if (
+                artifact_claim is not None
+                and (artifact_claim.get("required_test_id"),) != claim.required_test_ids
+            ):
+                errors.append(
+                    f"phase {phase}/{claim.claim_id}: manifest test does not match gate claim"
+                )
+            if isinstance(config_hashes, dict):
+                artifact_config_hash = config_hashes.get(claim.claim_id)
+                if (
+                    not isinstance(artifact_config_hash, str)
+                    or claim.evidence.config_hash != artifact_config_hash
+                ):
+                    errors.append(
+                        f"phase {phase}/{claim.claim_id}: manifest config hash does not match gate"
+                    )
         commands = report.get("commands")
         if not isinstance(commands, list) or not commands:
             errors.append(f"phase {phase}: gate has no command receipts")
