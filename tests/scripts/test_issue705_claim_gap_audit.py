@@ -108,17 +108,16 @@ def test_all_phase_manifests_exist_and_pass_schema() -> None:
     assert all(
         claim.status == ClaimStatus.VERIFIED
         for manifest in manifests
-        if manifest.phase in {0, 1, 2, 3, 4, 5, 6}
         for claim in manifest.claims
     )
     phase7 = next(manifest for manifest in manifests if manifest.phase == 7)
     assert {claim.claim_id: claim.status for claim in phase7.claims} == {
-        "P7-SUPPORT-MATRIX": ClaimStatus.PLANNED,
-        "P7-TASK-ROLLOUT": ClaimStatus.PLANNED,
+        "P7-SUPPORT-MATRIX": ClaimStatus.VERIFIED,
+        "P7-TASK-ROLLOUT": ClaimStatus.VERIFIED,
         "P7-TRAINING-BEHAVIOR": ClaimStatus.VERIFIED,
-        "P7-ENTRYPOINT-MATRIX": ClaimStatus.PLANNED,
-        "P7-FINAL-REGRESSION": ClaimStatus.PLANNED,
-        "P7-LEGACY-RETIREMENT": ClaimStatus.PLANNED,
+        "P7-ENTRYPOINT-MATRIX": ClaimStatus.VERIFIED,
+        "P7-FINAL-REGRESSION": ClaimStatus.VERIFIED,
+        "P7-LEGACY-RETIREMENT": ClaimStatus.VERIFIED,
     }
 
 
@@ -170,7 +169,7 @@ def test_only_evidenced_phase_gates_are_open() -> None:
 
     assert errors == ()
     open_phases = {manifest.phase for manifest in manifests if not phase_gate_errors(manifest)}
-    assert open_phases == {0, 1, 2, 3, 4, 5, 6}
+    assert open_phases == set(PHASES)
 
 
 def test_phase_schema_cli_accepts_each_frozen_manifest(capsys) -> None:
