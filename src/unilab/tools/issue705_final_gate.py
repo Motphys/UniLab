@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -937,7 +938,7 @@ def validate_final_head(
     components.extend(
         _component(
             f"phase{phase}_evidence",
-            lambda phase=phase: _validate_phase(root, phase_entries[phase]),
+            partial(_validate_phase, root, phase_entries[phase]),
         )
         for phase in range(1, 7)
     )
