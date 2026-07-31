@@ -48,6 +48,9 @@ from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.replay_pipelines.multi_gpu_cpu_pinned import MultiGPUCPUPinnedReplayPipeline
+from unilab.ipc.replay_pipelines.multi_gpu_gpu_resident import (
+    MultiGPUGPUResidentReplayPipeline,
+)
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed, derive_worker_seed
 
@@ -189,7 +192,9 @@ def _learner_worker(
 
     logger: Optional[OffPolicyLogger] = None
     weight_sync: SharedWeightSync | None = None
-    replay_pipeline: MultiGPUCPUPinnedReplayPipeline | None = None
+    replay_pipeline: MultiGPUCPUPinnedReplayPipeline | MultiGPUGPUResidentReplayPipeline | None = (
+        None
+    )
     try:
         apply_training_seed(
             derive_worker_seed(runner_kwargs.get("seed"), worker_index=rank + 1000),
@@ -246,17 +251,36 @@ def _learner_worker(
         train_start_threshold = compute_train_start_threshold(batch_size, learning_starts, num_envs)
         sample_count = batch_size * updates_per_step
 
-        replay_pipeline = MultiGPUCPUPinnedReplayPipeline(
-            replay_buffer,
-            rank=rank,
-            world_size=world_size,
-            device=device,
-            sample_count=sample_count,
-            base_seed=int(runner_kwargs.get("seed") or 0),
-            collector_pack_request_queue=collector_pack_request_queue[rank],
-            collector_pack_ready_queue=collector_pack_ready_queue[rank],
-            collector_pack_shared_slots=collector_pack_shared_slots[rank],
+        replay_pipeline_impl = str(
+            runner_kwargs.get("replay_pipeline_impl", "multi_gpu_cpu_pinned")
         )
+        if replay_pipeline_impl == "gpu_resident":
+            replay_pipeline = MultiGPUGPUResidentReplayPipeline(
+                replay_buffer,
+                rank=rank,
+                world_size=world_size,
+                device=device,
+                sample_count=sample_count,
+                base_seed=int(runner_kwargs.get("seed") or 0),
+                trace_recorder=None,
+                trace_cuda_events=bool(runner_kwargs.get("trace_cuda_events", True)),
+                pack_layout=str(runner_kwargs.get("replay_pack_layout", "packed")),
+                use_critic_graph_packed_source=bool(
+                    runner_kwargs.get("use_critic_graph_packed_source", False)
+                ),
+            )
+        else:
+            replay_pipeline = MultiGPUCPUPinnedReplayPipeline(
+                replay_buffer,
+                rank=rank,
+                world_size=world_size,
+                device=device,
+                sample_count=sample_count,
+                base_seed=int(runner_kwargs.get("seed") or 0),
+                collector_pack_request_queue=collector_pack_request_queue[rank],
+                collector_pack_ready_queue=collector_pack_ready_queue[rank],
+                collector_pack_shared_slots=collector_pack_shared_slots[rank],
+            )
 
         # 6. Logger (rank 0 only)
         if rank == 0:
@@ -275,7 +299,7 @@ def _learner_worker(
                 log_backend=logger_type,
             )
             logger.set_collection_sync(sync_collection, env_steps_per_sync)
-            logger.log_status("Replay pipeline: multi_gpu_cpu_pinned")
+            logger.log_status(f"Replay pipeline: {replay_pipeline_impl}")
             logger.log_status(
                 "Batch semantics: "
                 f"algo.batch_size={batch_size} per learner rank; "
@@ -628,6 +652,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         distributed_backend: str = "nccl",
         multi_gpu_sync_mode: str = "local_sgd",
         multi_gpu_sync_interval: int = 1,
+        replay_pipeline: str = "multi_gpu_cpu_pinned",
         **kwargs: Any,
     ) -> None:
         normalized_sync_mode = normalize_multi_gpu_sync_mode(multi_gpu_sync_mode)
@@ -648,6 +673,7 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         self.multi_gpu_sync_interval = normalize_multi_gpu_sync_interval(
             int(multi_gpu_sync_interval)
         )
+        self.replay_pipeline_impl = str(replay_pipeline)
 
     def _join_learner_context_with_collector_monitor(self, process_context: Any) -> None:
         """Join spawned learners while preserving collector liveness diagnostics."""
@@ -740,17 +766,27 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
         shared_obs_normalizer_stats = None
         if self.obs_normalization:
             shared_obs_normalizer_stats = SharedObsNormStats(_SPAWN_CTX)
-        collector_pack_request_queues = [_SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)]
-        collector_pack_ready_queues = [_SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)]
+
+        use_cpu_pinned_pipeline = self.replay_pipeline_impl != "gpu_resident"
         sample_count = self.batch_size * self.updates_per_step
-        packed_width = int(replay_buffer._storage.shape[1])
-        collector_pack_shared_slots = [
-            [
-                torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
-                for _ in range(2)
+        collector_pack_request_queues: list[Any] | None = None
+        collector_pack_ready_queues: list[Any] | None = None
+        collector_pack_shared_slots: list[Any] | None = None
+        if use_cpu_pinned_pipeline:
+            collector_pack_request_queues = [
+                _SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)
             ]
-            for _ in range(self.num_gpus)
-        ]
+            collector_pack_ready_queues = [
+                _SPAWN_CTX.Queue(maxsize=2) for _ in range(self.num_gpus)
+            ]
+            packed_width = int(replay_buffer._storage.shape[1])
+            collector_pack_shared_slots = [
+                [
+                    torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
+                    for _ in range(2)
+                ]
+                for _ in range(self.num_gpus)
+            ]
 
         # --- Start Collector (single process, device-configurable inference) ---
         weight_param_shapes = {k: v.shape for k, v in self.learner.actor.state_dict().items()}
@@ -824,6 +860,9 @@ class MultiGPUOffPolicyRunner(OffPolicyRunner):
             "collector_infer_device": self.collector_infer_device,
             "collector_infer_device_raw": self.collector_infer_device_raw,
             "torch_thread_runtime": self.torch_thread_runtime,
+            "replay_pipeline_impl": self.replay_pipeline_impl,
+            "replay_pack_layout": "packed",
+            "use_critic_graph_packed_source": False,
         }
 
         try:

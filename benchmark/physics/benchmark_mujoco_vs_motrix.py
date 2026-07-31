@@ -115,7 +115,10 @@ def main():
     parser.add_argument(
         "--xml",
         type=str,
-        default=os.path.join(os.path.dirname(__file__), "xmls/humanoid/humanoid.xml"),
+        default=os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "xmls/humanoid/humanoid.xml",
+        ),
         help="Path to XML model.",
     )
     parser.add_argument(

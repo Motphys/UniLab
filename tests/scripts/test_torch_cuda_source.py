@@ -13,6 +13,15 @@ def test_torch_cuda_source_covers_windows_and_linux() -> None:
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
 
     torch_sources = data["tool"]["uv"]["sources"]["torch"]
+    if any(source.get("index") == "pytorch-rocm72" for source in torch_sources):
+        rocm_sources = [
+            source for source in torch_sources if source.get("index") == "pytorch-rocm72"
+        ]
+        assert {source["marker"] for source in rocm_sources} == {
+            "sys_platform == 'linux' and platform_machine == 'x86_64'"
+        }
+        return
+
     cu128_sources = [source for source in torch_sources if source.get("index") == "pytorch-cu128"]
     cu130_sources = [source for source in torch_sources if source.get("index") == "r2-cu130"]
 
@@ -31,6 +40,19 @@ def test_windows_lock_uses_cuda_torch() -> None:
 
     root = next(package for package in lock["package"] if package["name"] == "unilab")
     torch_dependencies = [dep for dep in root["dependencies"] if dep["name"] == "torch"]
+
+    rocm_dependency = next(
+        (dep for dep in torch_dependencies if "rocm" in dep.get("source", {}).get("registry", "")),
+        None,
+    )
+    if rocm_dependency is not None:
+        assert {
+            "name": "torch",
+            "version": "2.11.0+rocm7.2",
+            "source": {"registry": "https://download.pytorch.org/whl/rocm7.2"},
+            "marker": "platform_machine == 'x86_64' and sys_platform == 'linux'",
+        } in torch_dependencies
+        return
 
     assert {
         "name": "torch",
