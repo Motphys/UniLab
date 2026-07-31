@@ -43,7 +43,7 @@ claims:
     lane: D
     required: true
     required_test_ids: [tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates]
-    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Phase 0 frozen training host, owner_yaml: null, seeds: [0, 1, 2, 3, 4], batch_sizes: [4096], dtype: float32, plan_fingerprint: issue705-training-behavior-v1}
+    environment: {dependencies: [uv.lock, torch, mujoco-warp>=3.10.0.3, warp-lang>=1.14.0], hardware: Phase 0 frozen training host, owner_yaml: null, seeds: [0, 1, 2, 3, 4], batch_sizes: [1024], dtype: float32, plan_fingerprint: issue705-training-behavior-v1}
     acceptance: {tolerance: {}, thresholds: {required_training_seeds: 5, omitted_runs: 0, nan_runs: 0}, repetitions: 5, max_dispersion: 0.1, failure_semantics: "Any omitted seed, stability failure, or frozen AUC/final-window/episode/success regression is FAIL regardless of throughput."}
     evidence: {result: NOT_RUN, artifact_refs: [], commit_sha: null, config_hash: null, executed_test_ids: [], skipped_test_ids: [], xfailed_test_ids: [], summary: ""}
     invalidation: {paths: [src/unilab/training/**, src/unilab/envs/**, src/unilab/manager/**, benchmark/**, tests/benchmark/test_issue705_training_behavior.py, conf/**, uv.lock], capabilities: [issue705-training-behavior], fingerprints: [issue705-training-behavior-v1]}
