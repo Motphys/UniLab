@@ -9,6 +9,9 @@ import numpy as np
 import pytest
 import torch
 
+from unilab.training.entrypoints import EntrypointContractError
+from unilab.training.rsl_rl import infer_rsl_rl_checkpoint_actor_input_dim
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -110,9 +113,39 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
         get_physics_state_snapshot=lambda: np.zeros((1, 4), dtype=np.float32),
     )
     captured: dict[str, Any] = {}
+    trace: list[str] = []
+
+    def resolve_checkpoint(*args):
+        del args
+        trace.append("resolve")
+        return "/tmp/model_10.pt"
+
+    def preflight(checkpoint: str) -> None:
+        assert checkpoint == "/tmp/model_10.pt"
+        trace.append("preflight")
+
+    def checkpoint_dim(checkpoint: str) -> int:
+        assert checkpoint == "/tmp/model_10.pt"
+        trace.append("checkpoint_dim")
+        return 5
+
+    def create_env(num_envs: int):
+        assert num_envs == 1
+        trace.append("env")
+        return env
+
+    class LoadGuard:
+        def __enter__(self):
+            trace.append("guard_enter")
+
+        def __exit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+            trace.append("guard_exit")
+            return False
 
     class Wrapper:
         def __init__(self, wrapped_env, *, device, policy_obs_mode):
+            trace.append("wrapper")
             captured["wrapper_env"] = wrapped_env
             captured["device"] = device
             captured["policy_obs_mode"] = policy_obs_mode
@@ -130,6 +163,7 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
             captured["runner_device"] = device
 
         def load(self, checkpoint, load_cfg):
+            trace.append("load")
             captured["checkpoint"] = checkpoint
             captured["load_cfg"] = load_cfg
 
@@ -148,12 +182,12 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
             log_root=None,
             num_envs=1,
         ),
-        env_factory=lambda num_envs: env,
+        env_factory=create_env,
         algo_config={"runner": {"logger": "tensorboard"}},
         root_dir=Path("/repo"),
         device="cpu",
-        checkpoint_resolver=lambda *args: "/tmp/model_10.pt",
-        checkpoint_input_dim_reader=lambda path: 5,
+        checkpoint_resolver=resolve_checkpoint,
+        checkpoint_input_dim_reader=checkpoint_dim,
         entrypoint_log_root=lambda root_dir, *, algo_log_name, log_root=None: (
             Path("/tmp") / algo_log_name
         ),
@@ -161,6 +195,8 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
         runner_cls=Runner,
         policy_obs_dims_getter=lambda spec: (5, 7),
         train_cfg_normalizer=lambda cfg: cfg,
+        checkpoint_preflight=preflight,
+        checkpoint_load_guard=lambda checkpoint, wrapped_env: LoadGuard(),
         log=lambda message: None,
     )
 
@@ -170,6 +206,127 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
     assert captured["runner_log_dir"].replace("\\", "/") == "/tmp/custom_ppo/MyTask/play_temp"
     assert captured["checkpoint"] == "/tmp/model_10.pt"
     assert captured["train_cfg"]["runner"]["logger"] == "none"
+    assert trace == [
+        "resolve",
+        "preflight",
+        "checkpoint_dim",
+        "env",
+        "wrapper",
+        "guard_enter",
+        "load",
+        "guard_exit",
+    ]
+
+
+def test_create_rsl_rl_policy_without_checkpoint_fails_before_env() -> None:
+    env_created = False
+
+    def create_env(num_envs: int):
+        nonlocal env_created
+        del num_envs
+        env_created = True
+        return _fake_env()
+
+    with pytest.raises(EntrypointContractError, match="requires a checkpoint"):
+        create_rsl_rl_playback_session(
+            playback_cfg=RslRlPlaybackConfig(
+                task="MyTask",
+                load_run="missing",
+                checkpoint=None,
+                action_mode="policy",
+                policy_obs_mode="auto",
+                algo_log_name="custom_ppo",
+                log_root=None,
+            ),
+            env_factory=create_env,
+            algo_config={},
+            root_dir=Path("/repo"),
+            device="cpu",
+            checkpoint_resolver=lambda *args: None,
+            checkpoint_input_dim_reader=lambda path: None,
+            entrypoint_log_root=lambda *args, **kwargs: Path("/tmp"),
+            wrapper_cls=object,
+            runner_cls=object,
+            policy_obs_dims_getter=lambda spec: (0, 0),
+            train_cfg_normalizer=lambda cfg: cfg,
+        )
+
+    assert env_created is False
+
+
+def test_create_rsl_rl_malformed_checkpoint_fails_before_env(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "model_10.pt"
+    checkpoint.write_bytes(b"not a torch checkpoint")
+    env_created = False
+
+    def create_env(num_envs: int):
+        nonlocal env_created
+        del num_envs
+        env_created = True
+        return _fake_env()
+
+    with pytest.raises(EntrypointContractError, match="could not be parsed"):
+        create_rsl_rl_playback_session(
+            playback_cfg=RslRlPlaybackConfig(
+                task="MyTask",
+                load_run=str(tmp_path),
+                checkpoint=checkpoint.name,
+                action_mode="policy",
+                policy_obs_mode="auto",
+                algo_log_name="custom_ppo",
+                log_root=None,
+            ),
+            env_factory=create_env,
+            algo_config={},
+            root_dir=Path("/repo"),
+            device="cpu",
+            checkpoint_resolver=lambda *args: str(checkpoint),
+            checkpoint_input_dim_reader=infer_rsl_rl_checkpoint_actor_input_dim,
+            entrypoint_log_root=lambda *args, **kwargs: Path("/tmp"),
+            wrapper_cls=object,
+            runner_cls=object,
+            policy_obs_dims_getter=lambda spec: (0, 0),
+            train_cfg_normalizer=lambda cfg: cfg,
+        )
+
+    assert env_created is False
+
+
+def test_create_rsl_rl_dimension_failure_closes_materialized_env() -> None:
+    closed = False
+
+    class Env:
+        obs_groups_spec = {"obs": 5}
+
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    with pytest.raises(RuntimeError, match="actor input dim mismatch"):
+        create_rsl_rl_playback_session(
+            playback_cfg=RslRlPlaybackConfig(
+                task="MyTask",
+                load_run="run",
+                checkpoint="model_10.pt",
+                action_mode="policy",
+                policy_obs_mode="auto",
+                algo_log_name="custom_ppo",
+                log_root=None,
+            ),
+            env_factory=lambda num_envs: Env(),
+            algo_config={},
+            root_dir=Path("/repo"),
+            device="cpu",
+            checkpoint_resolver=lambda *args: "/tmp/model_10.pt",
+            checkpoint_input_dim_reader=lambda path: 9,
+            entrypoint_log_root=lambda *args, **kwargs: Path("/tmp"),
+            wrapper_cls=object,
+            runner_cls=object,
+            policy_obs_dims_getter=lambda spec: (5, 7),
+            train_cfg_normalizer=lambda cfg: cfg,
+        )
+
+    assert closed is True
 
 
 def test_create_rsl_rl_playback_session_rejects_missing_env() -> None:
@@ -323,7 +480,7 @@ def test_create_hora_distill_playback_session_loads_student_policy(tmp_path: Pat
     assert str(captured["student_policy"][3]) == "cpu"
 
 
-def test_create_hora_distill_playback_session_missing_checkpoint_uses_zero_actions(
+def test_create_hora_distill_playback_session_missing_checkpoint_allows_explicit_zero_actions(
     tmp_path: Path,
 ) -> None:
     runtime_cfg = SimpleNamespace(training=SimpleNamespace(task_name="RuntimeTask"))
@@ -372,7 +529,7 @@ def test_create_hora_distill_playback_session_missing_checkpoint_uses_zero_actio
             task="SharpaInhandRotation",
             load_run="missing",
             checkpoint=None,
-            action_mode="policy",
+            action_mode="zero",
             policy_obs_mode="actor",
             algo_log_name="hora_distill",
             log_root=None,
@@ -389,16 +546,54 @@ def test_create_hora_distill_playback_session_missing_checkpoint_uses_zero_actio
     assert checkpoint is None
     assert captured["policy_obs_mode"] == "actor"
     assert messages == [
-        "missing checkpoint",
-        "WARNING: falling back to zero actions.",
         "Policy obs mode: actor",
-        "Action mode: policy",
+        "Action mode: zero",
     ]
 
     session.reset()
     session.step_once()
 
     assert torch.equal(captured["actions"], torch.zeros((1, 2)))
+
+
+def test_create_hora_distill_policy_without_checkpoint_fails_before_env(tmp_path: Path) -> None:
+    env_created = False
+
+    def create_env(*args, **kwargs):
+        nonlocal env_created
+        del args, kwargs
+        env_created = True
+        return _fake_env()
+
+    cfg = SimpleNamespace(
+        training=SimpleNamespace(task_name="SharpaInhandRotation"),
+        algo=SimpleNamespace(load_run="missing"),
+    )
+    deps = {
+        "resolve_stage2_checkpoint_path": lambda cfg_obj: (None, None),
+        "get_log_root": lambda root_dir, cfg_obj: tmp_path / "logs",
+        "format_stage2_play_checkpoint_error": lambda *args, **kwargs: "missing checkpoint",
+        "create_env": create_env,
+    }
+
+    with pytest.raises(EntrypointContractError, match="cannot fall back to zero actions"):
+        create_hora_distill_playback_session(
+            playback_cfg=RslRlPlaybackConfig(
+                task="SharpaInhandRotation",
+                load_run="missing",
+                checkpoint=None,
+                action_mode="policy",
+                policy_obs_mode="actor",
+                algo_log_name="hora_distill",
+                log_root=None,
+            ),
+            cfg=cfg,
+            root_dir=tmp_path,
+            device="cpu",
+            deps=deps,
+        )
+
+    assert env_created is False
 
 
 def test_keyboard_commander_nudges_stack_and_clamp_to_vel_limit() -> None:

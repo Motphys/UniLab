@@ -193,6 +193,7 @@ def resolve_sim2sim_config(
     algo_name: str | None = None,
     strict: bool = True,
     managed_policy_abi: Mapping[str, Any] | None = None,
+    defer_managed_policy_abi: bool = False,
 ) -> DictConfig | None:
     """Validate a target play config against the source training contract.
 
@@ -204,11 +205,20 @@ def resolve_sim2sim_config(
     DENYLIST fields.  This avoids a dimensionally compatible but semantically
     different managed policy being loaded across backends.
 
+    ``defer_managed_policy_abi`` performs only the pre-materialization config
+    pass.  It still validates a source ABI if present, but deliberately defers
+    presence/equality checks until the caller has cold-materialized the target
+    plan and invokes this function again with its canonical ABI.
+
     Raises :class:`CrossBackendIncompatibleError` under ``strict`` when any
     DENYLIST field differs, including asymmetric presence for
     :data:`ENV_STRUCTURAL_DENYLIST` paths.  A malformed managed ABI always
     raises, including in non-strict mode, because it cannot be compared safely.
     """
+    if not isinstance(defer_managed_policy_abi, bool):
+        raise TypeError("defer_managed_policy_abi must be a bool")
+    if defer_managed_policy_abi and managed_policy_abi is not None:
+        raise ValueError("managed_policy_abi must be omitted during the pre-materialization pass")
     if source_run_dir is None:
         print("[sim2sim] no source run dir; skipping cross-backend contract check")
         return None
@@ -259,19 +269,20 @@ def resolve_sim2sim_config(
         )
     else:
         target_managed_abi = None
-    if source_has_managed_abi and not target_has_managed_abi:
-        denials.append(_managed_policy_abi_asymmetric_line(source_present=True))
-    elif target_has_managed_abi and not source_has_managed_abi:
-        denials.append(_managed_policy_abi_asymmetric_line(source_present=False))
-    elif source_managed_abi is not None and target_managed_abi is not None:
-        if not _values_equal(source_managed_abi, target_managed_abi):
-            denials.append(
-                _diff_line(
-                    MANAGED_POLICY_ABI_SNAPSHOT_KEY,
-                    source_managed_abi,
-                    target_managed_abi,
+    if not defer_managed_policy_abi:
+        if source_has_managed_abi and not target_has_managed_abi:
+            denials.append(_managed_policy_abi_asymmetric_line(source_present=True))
+        elif target_has_managed_abi and not source_has_managed_abi:
+            denials.append(_managed_policy_abi_asymmetric_line(source_present=False))
+        elif source_managed_abi is not None and target_managed_abi is not None:
+            if not _values_equal(source_managed_abi, target_managed_abi):
+                denials.append(
+                    _diff_line(
+                        MANAGED_POLICY_ABI_SNAPSHOT_KEY,
+                        source_managed_abi,
+                        target_managed_abi,
+                    )
                 )
-            )
 
     if denials:
         message = (
@@ -375,6 +386,7 @@ class Sim2SimConfigResolver:
         algo_name: str | None = None,
         strict: bool = True,
         managed_policy_abi: Mapping[str, Any] | None = None,
+        defer_managed_policy_abi: bool = False,
     ) -> DictConfig | None:
         """See :func:`resolve_sim2sim_config`."""
         return resolve_sim2sim_config(
@@ -383,6 +395,7 @@ class Sim2SimConfigResolver:
             algo_name=algo_name,
             strict=strict,
             managed_policy_abi=managed_policy_abi,
+            defer_managed_policy_abi=defer_managed_policy_abi,
         )
 
     @staticmethod
