@@ -73,7 +73,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.041577565018088,
+      "duration_sec": 4.9268185689579695,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_capability_bijection#1",
@@ -89,7 +89,7 @@
       ],
       "series": "lane_b_capability_bijection",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 2.00s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_capability_matrix.py::test_advertised_capabilities_equal_mandatory_parameter_cases PASSED [100%]\n\n============================== 1 passed in 1.95s ===============================\n"
     },
     {
       "argv": [
@@ -106,7 +106,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.033442416985054,
+      "duration_sec": 5.038066901965067,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_semantics#1",
@@ -122,7 +122,7 @@
       ],
       "series": "lane_c_dr_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.04s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.00s ===============================\n"
     },
     {
       "argv": [
@@ -139,7 +139,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.057685638021212,
+      "duration_sec": 5.007829971029423,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_semantics#2",
@@ -155,7 +155,7 @@
       ],
       "series": "lane_c_dr_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.06s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.00s ===============================\n"
     },
     {
       "argv": [
@@ -172,7 +172,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.064063118014019,
+      "duration_sec": 5.041650563012809,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_semantics#3",
@@ -188,7 +188,7 @@
       ],
       "series": "lane_c_dr_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.05s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_mutation_semantics.py::test_operations_baselines_rows_and_persistence[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.00s ===============================\n"
     },
     {
       "argv": [
@@ -205,7 +205,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.0861258350196294,
+      "duration_sec": 5.0248504059854895,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#1",
@@ -221,7 +221,7 @@
       ],
       "series": "lane_c_physics_effect",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.07s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 1.96s ===============================\n"
     },
     {
       "argv": [
@@ -238,7 +238,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.067696777987294,
+      "duration_sec": 4.949595317011699,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#2",
@@ -254,7 +254,7 @@
       ],
       "series": "lane_c_physics_effect",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.06s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 1.96s ===============================\n"
     },
     {
       "argv": [
@@ -271,7 +271,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.1215270010288805,
+      "duration_sec": 4.981810625002254,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#3",
@@ -287,7 +287,7 @@
       ],
       "series": "lane_c_physics_effect",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.05s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.00s ===============================\n"
     },
     {
       "argv": [
@@ -304,7 +304,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.225653191970196,
+      "duration_sec": 4.994062914978713,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#4",
@@ -320,7 +320,7 @@
       ],
       "series": "lane_c_physics_effect",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.06s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 1.99s ===============================\n"
     },
     {
       "argv": [
@@ -337,7 +337,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.13892975501949,
+      "duration_sec": 5.03391554200789,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_physics_effect#5",
@@ -353,7 +353,7 @@
       ],
       "series": "lane_c_physics_effect",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.08s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_stiffness] PASSED [ 50%]\ntests/dr/test_mjwarp_physics_effect.py::test_each_supported_mutation_has_next_step_effect[actuator.pd_damping] PASSED [100%]\n\n============================== 2 passed in 2.01s ===============================\n"
     },
     {
       "argv": [
@@ -370,7 +370,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.0837949109845795,
+      "duration_sec": 2.100877175980713,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_rng_reproducibility#1",
@@ -386,7 +386,7 @@
       ],
       "series": "lane_c_rng_reproducibility",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 0.30s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.29s ===============================\n"
     },
     {
       "argv": [
@@ -403,7 +403,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.078697994002141,
+      "duration_sec": 2.0576796189998277,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_rng_reproducibility#2",
@@ -419,7 +419,7 @@
       ],
       "series": "lane_c_rng_reproducibility",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 0.30s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.29s ===============================\n"
     },
     {
       "argv": [
@@ -436,7 +436,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.0982145989546552,
+      "duration_sec": 2.0585557959857397,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_rng_reproducibility#3",
@@ -452,7 +452,7 @@
       ],
       "series": "lane_c_rng_reproducibility",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 0.30s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_keyed_rng.py::test_rng_is_invariant_to_row_order_and_unrelated_terms PASSED [100%]\n\n============================== 1 passed in 0.29s ===============================\n"
     },
     {
       "argv": [
@@ -469,7 +469,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.5315071329823695,
+      "duration_sec": 5.569188555993605,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_recapture#1",
@@ -485,7 +485,7 @@
       ],
       "series": "lane_c_graph_recapture",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.46s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.58s ===============================\n"
     },
     {
       "argv": [
@@ -502,7 +502,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.601888585952111,
+      "duration_sec": 5.439102974021807,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_recapture#2",
@@ -518,7 +518,7 @@
       ],
       "series": "lane_c_graph_recapture",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.50s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.40s ===============================\n"
     },
     {
       "argv": [
@@ -535,7 +535,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.598350127984304,
+      "duration_sec": 5.404743712977506,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_graph_recapture#3",
@@ -551,7 +551,7 @@
       ],
       "series": "lane_c_graph_recapture",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32]\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 2.51s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[32] PASSED [ 50%]\ntests/dr/test_mjwarp_graph_mutation.py::test_field_expansion_invalidates_and_recaptures_all_graph_consumers[128] PASSED [100%]\n\n============================== 2 passed in 2.40s ===============================\n"
     },
     {
       "argv": [
@@ -568,7 +568,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.956068055995274,
+      "duration_sec": 5.9045939479838125,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_controller_contract#1",
@@ -584,7 +584,7 @@
       ],
       "series": "lane_c_controller_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 3.00s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 2.88s ===============================\n"
     },
     {
       "argv": [
@@ -601,7 +601,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.993194474955089,
+      "duration_sec": 5.931636756984517,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_controller_contract#2",
@@ -617,7 +617,7 @@
       ],
       "series": "lane_c_controller_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 3.03s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 2.90s ===============================\n"
     },
     {
       "argv": [
@@ -634,7 +634,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.547093114000745,
+      "duration_sec": 5.992145945027005,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_controller_contract#3",
@@ -650,7 +650,7 @@
       ],
       "series": "lane_c_controller_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 3.42s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_device_controller_contract.py::test_device_controller_cadence_reads_and_host_rejection PASSED [100%]\n\n============================== 1 passed in 2.93s ===============================\n"
     },
     {
       "argv": [
@@ -665,7 +665,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.538836429943331,
+      "duration_sec": 6.1292565210023895,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_dr_performance#1",
@@ -681,7 +681,7 @@
       ],
       "series": "lane_d_dr_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.42s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.38s ===============================\n"
     },
     {
       "argv": [
@@ -696,7 +696,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.281231663015205,
+      "duration_sec": 6.09838686400326,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_dr_performance#2",
@@ -707,37 +707,6 @@
         "xpassed": 0
       },
       "repetition": 2,
-      "required_test_ids": [
-        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
-      ],
-      "series": "lane_d_dr_performance",
-      "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.47s ===============================\n"
-    },
-    {
-      "argv": [
-        "uv",
-        "run",
-        "--with",
-        "mujoco-warp",
-        "--with",
-        "warp-lang",
-        "pytest",
-        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
-        "-v",
-        "-rsxX"
-      ],
-      "duration_sec": 6.091131137975026,
-      "exit_code": 0,
-      "lane": "D",
-      "name": "lane_d_dr_performance#3",
-      "pytest": {
-        "passed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0
-      },
-      "repetition": 3,
       "required_test_ids": [
         "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
       ],
@@ -758,17 +727,17 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.194969010015484,
+      "duration_sec": 6.157153117994312,
       "exit_code": 0,
       "lane": "D",
-      "name": "lane_d_dr_performance#4",
+      "name": "lane_d_dr_performance#3",
       "pytest": {
         "passed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0
       },
-      "repetition": 4,
+      "repetition": 3,
       "required_test_ids": [
         "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
       ],
@@ -789,7 +758,38 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.230151971976738,
+      "duration_sec": 6.189381372008938,
+      "exit_code": 0,
+      "lane": "D",
+      "name": "lane_d_dr_performance#4",
+      "pytest": {
+        "passed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "repetition": 4,
+      "required_test_ids": [
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates"
+      ],
+      "series": "lane_d_dr_performance",
+      "stderr": "",
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.41s ===============================\n"
+    },
+    {
+      "argv": [
+        "uv",
+        "run",
+        "--with",
+        "mujoco-warp",
+        "--with",
+        "warp-lang",
+        "pytest",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates",
+        "-v",
+        "-rsxX"
+      ],
+      "duration_sec": 6.168686960008927,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_dr_performance#5",
@@ -805,7 +805,7 @@
       ],
       "series": "lane_d_dr_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.45s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_mjwarp_dr_benchmark.py::test_dr_profiles_meet_preregistered_density_gates PASSED [100%]\n\n============================== 1 passed in 4.40s ===============================\n"
     },
     {
       "argv": [
@@ -822,7 +822,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.097875093983021,
+      "duration_sec": 5.071539213007782,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_recompute_aggregation#1",
@@ -838,7 +838,7 @@
       ],
       "series": "lane_c_recompute_aggregation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 2.01s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.91s ===============================\n"
     },
     {
       "argv": [
@@ -855,7 +855,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.051603535015602,
+      "duration_sec": 4.925380355969537,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_recompute_aggregation#2",
@@ -871,7 +871,7 @@
       ],
       "series": "lane_c_recompute_aggregation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 2.02s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.91s ===============================\n"
     },
     {
       "argv": [
@@ -888,7 +888,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.030172284983564,
+      "duration_sec": 4.942944769980386,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_recompute_aggregation#3",
@@ -904,7 +904,7 @@
       ],
       "series": "lane_c_recompute_aggregation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.13/site-packages/torch/cuda/__init__.py:789: UserWarning: Can't initialize NVML\n    warnings.warn(\"Can't initialize NVML\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 1 passed, 1 warning in 1.99s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_recompute.py::test_strongest_recompute_runs_once_per_barrier PASSED [100%]\n\n============================== 1 passed in 1.93s ===============================\n"
     }
   ],
   "environment": {
@@ -916,7 +916,7 @@
     "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
     "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]"
   },
-  "generated_at_utc": "2026-07-31T02:53:28.071127+00:00",
+  "generated_at_utc": "2026-07-31T04:36:06.788690+00:00",
   "inputs": {
     "claim_config_hashes": {
       "P6-CAPABILITY-BIJECTION": "sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61",
@@ -1096,7 +1096,7 @@
       "src/unilab/tools/mjwarp_dr_performance.py": "sha256:31f096148d85379b3b8c87736f04299f036c827dab4247a49c582a2bdd7046ba",
       "src/unilab/training/rsl_rl_device.py": "sha256:5bca6101c39c0d39b2917ef49b43fad8cd2529c2b19757452863de0c66d1f456",
       "tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json": "sha256:58dea886865aee7fb011e07bdaf7fc33aef7a33d5adb1b0391892da336bb8481",
-      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:dd3a137df31bcc8922796dc81d894f5c212e9cc64644239f1a771a9a92f88dbd",
+      "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:f74b0422ce97b49acf5df0212b057fec5ee7ac91ed17a01ef39a4307bb7e106b",
       "tests/acceptance/issue_705/mjwarp_dr_performance_freeze_receipt.yaml": "sha256:ab61f25274bc60ebc7cb5d44cae01531ae38a6cab59f6e95bea530a2d302880b",
       "tests/acceptance/issue_705/mjwarp_dr_performance_plan.yaml": "sha256:094a49b35be6a7860d1c67716721700886912b765964b153dc06fbd1f1866950",
       "tests/acceptance/issue_705/test_phase6_evidence.py": "sha256:c60d0f89e59d7133ce0ac8f66e43520271d4bb6d663949c47f3186adae3473bd",
@@ -1125,8 +1125,8 @@
   "phase": 6,
   "schema_version": 1,
   "source": {
-    "branch": "test/issue-831-phase6-evidence-promotion",
-    "commit_sha": "66b5d01231b98f7fbe82f56f45f44f0d7088c47a",
+    "branch": "test/issue-833-phase7-support-audit",
+    "commit_sha": "0ce75a575b8d3a912dac5ad990895700ebfcb297",
     "tree_clean": true
   }
 }
