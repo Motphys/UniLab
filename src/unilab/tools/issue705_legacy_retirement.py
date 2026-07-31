@@ -22,7 +22,7 @@ SCHEMA_VERSION = 1
 ISSUE = 705
 CHILD_ISSUE = 841
 CLAIM_ID = "P7-LEGACY-RETIREMENT"
-PLAN_FINGERPRINT = "issue705-legacy-retirement-v1"
+PLAN_FINGERPRINT = "issue705-legacy-retirement-v2"
 PLAN_PATH = Path("tests/acceptance/issue_705/legacy_retirement_plan.yaml")
 ROLLBACK_PATH = Path("tests/acceptance/issue_705/legacy_retirement_rollback.yaml")
 EVIDENCE_PATH = Path("tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json")
@@ -44,6 +44,7 @@ _PYTEST_COUNT_RE = re.compile(r"(\d+) (passed|skipped|xfailed|xpassed|deselected
 _EVIDENCE_KIND = "issue705-legacy-retirement-evidence-v1"
 _ROLLBACK_KIND = "issue705-legacy-retirement-rollback-v1"
 _INTEGRATION_BASE_COMMIT = "f9920a7f0d86317e36383e1266918755cb8841c2"
+_IMPLEMENTATION_SCOPE_COMMIT = "be9ce520c461cd959d9c842a19b5309bec3e17a0"
 _ENTRYPOINT_PR = 840
 _ENTRYPOINT_ARGV = (
     "uv",
@@ -198,6 +199,7 @@ class LegacyRetirementPlan:
     claim_id: str
     plan_fingerprint: str
     integration_base: IntegrationBase
+    implementation_scope_commit: str
     retired_route: RetiredRoute
     retained_routes: tuple[RetainedRoute, ...]
     entrypoint_prerequisite: EntrypointPrerequisite
@@ -314,6 +316,7 @@ def load_legacy_retirement_plan(path: Path) -> LegacyRetirementPlan:
             "claim_id",
             "plan_fingerprint",
             "integration_base",
+            "implementation_scope_commit",
             "retired_route",
             "retained_routes",
             "entrypoint_prerequisite",
@@ -395,6 +398,9 @@ def load_legacy_retirement_plan(path: Path) -> LegacyRetirementPlan:
                 base.get("entrypoint_merge_commit"),
                 "integration_base.entrypoint_merge_commit",
             ),
+        ),
+        implementation_scope_commit=parser.string(
+            root.get("implementation_scope_commit"), "implementation_scope_commit"
         ),
         retired_route=RetiredRoute(
             env_name=parser.string(retired.get("env_name"), "retired_route.env_name"),
@@ -718,6 +724,8 @@ def _plan_errors(plan: LegacyRetirementPlan) -> list[str]:
     )
     if actual_base != expected_base:
         errors.append("plan.integration_base differs from the frozen entrypoint merge")
+    if plan.implementation_scope_commit != _IMPLEMENTATION_SCOPE_COMMIT:
+        errors.append("plan.implementation_scope_commit differs from the frozen implementation")
     route = plan.retired_route
     expected_route = (
         "G1WalkFlat",
@@ -856,9 +864,24 @@ def _source_errors(
         != 0
     ):
         return ["evidence.source.commit_sha does not identify a Git commit"], 0
+    implementation_commit = plan.implementation_scope_commit
+    if not _COMMIT_RE.fullmatch(implementation_commit):
+        return ["plan.implementation_scope_commit: expected full Git SHA"], 0
+    if (
+        subprocess.run(
+            ("git", "cat-file", "-e", f"{implementation_commit}^{{commit}}"),
+            cwd=root,
+            capture_output=True,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        return ["plan.implementation_scope_commit does not identify a Git commit"], 0
     head = _git(root, ("rev-parse", "HEAD"))
-    if not _is_ancestor(root, receipt.baseline_commit, source_commit):
-        errors.append("integration base is not an ancestor of the evidence source commit")
+    if not _is_ancestor(root, receipt.baseline_commit, implementation_commit):
+        errors.append("integration base is not an ancestor of the implementation scope commit")
+    if not _is_ancestor(root, implementation_commit, source_commit):
+        errors.append("implementation scope commit is not an ancestor of the evidence source")
     if not _is_ancestor(root, source_commit, head):
         errors.append("evidence source commit is not an ancestor of HEAD")
     changed = tuple(
@@ -866,7 +889,11 @@ def _source_errors(
             line
             for line in _git(
                 root,
-                ("diff", "--name-only", f"{receipt.baseline_commit}..{source_commit}"),
+                (
+                    "diff",
+                    "--name-only",
+                    f"{receipt.baseline_commit}..{implementation_commit}",
+                ),
             ).splitlines()
             if line
         )
@@ -879,7 +906,7 @@ def _source_errors(
         )
     try:
         baseline_source = _git_blob(root, receipt.baseline_commit, plan.retired_route.owner_module)
-        source_blob = _git_blob(root, source_commit, plan.retired_route.owner_module)
+        source_blob = _git_blob(root, implementation_commit, plan.retired_route.owner_module)
         baseline_bindings = _registry_bindings(baseline_source.decode())
         current_bindings = _registry_bindings(source_blob.decode())
     except (LegacyRetirementError, SyntaxError, UnicodeDecodeError) as exc:
