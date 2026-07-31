@@ -24,7 +24,7 @@ claims:
     risk: Task promotion outruns its required terrain, entity, controller, or mutation capabilities.
     owner: task-migration
     oracle: Capability-derived parameterized cases execute each owner config through production entrypoints on real CUDA.
-    commands: [uv run --with mujoco-warp --with warp-lang pytest tests/integration/test_mjwarp_task_rollout.py -v]
+    commands: [uv run --with mujoco-warp --with warp-lang pytest -m slow tests/integration/test_mjwarp_task_rollout.py -v]
     lane: C
     required: true
     required_test_ids: [tests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix]
