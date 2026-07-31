@@ -70,8 +70,12 @@ test-cov:
 test-slow:
 	uv run pytest -m "slow" -v
 
+.PHONY: test-benchmark-smoke
+test-benchmark-smoke:
+	uv run python benchmark/smoke_test.py
+
 .PHONY: test-all
-test-all: check test-cov
+test-all: check test-cov test-benchmark-smoke
 
 .PHONY: clean
 clean:

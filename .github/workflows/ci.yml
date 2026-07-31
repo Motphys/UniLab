@@ -125,5 +125,7 @@ jobs:
             --no-install-package nvidia-nvtx-cu12 \
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Benchmark entrypoint smoke test
+        run: uv run --no-sync python benchmark/smoke_test.py
       - name: Test with coverage
         run: uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25

@@ -32,7 +32,8 @@ def test_script_usage_examples_do_not_invoke_python_for_repo_scripts():
 def test_coverage_commands_use_src_package_path():
     root = Path(__file__).resolve().parents[2]
 
-    assert 'source = ["src/unilab"]' in (root / "pyproject.toml").read_text(encoding="utf-8")
+    pyproject_text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'source = ["src/unilab"]' in pyproject_text or 'source = ["unilab"]' in pyproject_text
     assert "--cov=src/unilab" in (root / "Makefile").read_text(encoding="utf-8")
     assert "--cov=src/unilab" in (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 

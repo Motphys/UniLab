@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any, Dict, List, cast
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import matplotlib
 import mujoco
@@ -29,18 +34,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Patch
 
-try:
-    from benchmark.core import device_info as _benchmark_device_info
-    from benchmark.core import task_names as _benchmark_task_names
-
-    _device_info = _benchmark_device_info
-    _task_names = _benchmark_task_names
-except ModuleNotFoundError:
-    from core import device_info as _core_device_info
-    from core import task_names as _core_task_names
-
-    _device_info = _core_device_info
-    _task_names = _core_task_names
+from benchmark.core import device_info as _device_info
+from benchmark.core import task_names as _task_names
 
 get_device_info_dict = _device_info.get_device_info_dict
 get_device_info_line = _device_info.get_device_info_line

@@ -28,9 +28,11 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.replay_buffer import ReplayBuffer
+from unilab.ipc.replay_pipelines.base import ReplayPipeline
 from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
     CPUPinnedDoubleBufferReplayPipeline,
 )
+from unilab.ipc.replay_pipelines.gpu_resident import GPUResidentReplayPipeline
 from unilab.logging import OffPolicyLogger, TraceRecorder
 from unilab.training.seed import derive_worker_seed
 
@@ -59,8 +61,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         *,
         replay_prefetch_mode: str = "one_tick",
         verbose_metrics: bool = False,
+        replay_pipeline: str = "cpu_pinned_double_buffer",
         **kwargs,
     ):
+        if replay_pipeline not in {"cpu_pinned_double_buffer", "gpu_resident"}:
+            raise ValueError(
+                f"Unsupported replay_pipeline={replay_pipeline!r}; "
+                "expected 'cpu_pinned_double_buffer' or 'gpu_resident'"
+            )
         super().__init__(**kwargs)
         if replay_prefetch_mode != "one_tick":
             raise ValueError(
@@ -68,6 +76,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             )
         self.replay_prefetch_mode = replay_prefetch_mode
         self.verbose_metrics = bool(verbose_metrics)
+        self.replay_pipeline_impl = replay_pipeline
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
         self.replay_h2d_submitter = "auto"
@@ -241,45 +250,62 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
         # --- replay pipeline (double buffer) ---
         sample_count = self.batch_size * self.updates_per_step
-        collector_pack_request_queue = _SPAWN_CTX.Queue(maxsize=1)
-        collector_pack_ready_queue = _SPAWN_CTX.Queue(maxsize=1)
-        packed_width = int(replay_buffer._storage.shape[1])
-        if use_sac_graph_pack_layout:
-            packed_width = int(replay_buffer.sac_graph_packed_width())
-        collector_pack_shared_slots = [
-            torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
-            for _ in range(2)
-        ]
+        use_gpu_resident_pipeline = self.replay_pipeline_impl == "gpu_resident"
+        collector_pack_request_queue = None
+        collector_pack_ready_queue = None
+        collector_pack_shared_slots = None
         collector_pack_critic_graph_shared_slots = None
-        if use_critic_graph_packed_source:
-            critic_graph_width = int(replay_buffer.critic_graph_packed_width())
-            collector_pack_critic_graph_shared_slots = [
-                torch.empty(
-                    (sample_count, critic_graph_width),
-                    dtype=torch.float32,
-                ).share_memory_()
+        replay_pipeline: ReplayPipeline
+        if use_gpu_resident_pipeline:
+            replay_pipeline = GPUResidentReplayPipeline(
+                replay_buffer,
+                device=self.device,
+                sample_count=sample_count,
+                base_seed=int(self.seed or 0),
+                trace_recorder=trace_recorder,
+                trace_cuda_events=self.trace_cuda_events,
+                pack_layout="sac_graph" if use_sac_graph_pack_layout else "packed",
+                use_critic_graph_packed_source=use_critic_graph_packed_source,
+            )
+        else:
+            collector_pack_request_queue = _SPAWN_CTX.Queue(maxsize=1)
+            collector_pack_ready_queue = _SPAWN_CTX.Queue(maxsize=1)
+            packed_width = int(replay_buffer._storage.shape[1])
+            if use_sac_graph_pack_layout:
+                packed_width = int(replay_buffer.sac_graph_packed_width())
+            collector_pack_shared_slots = [
+                torch.empty((sample_count, packed_width), dtype=torch.float32).share_memory_()
                 for _ in range(2)
             ]
-        _verbose_output_dir: str | None = None
-        if self.verbose_metrics:
-            _vroot = Path(self.trace_output_dir) if self.trace_output_dir else Path(log_dir)
-            _verbose_output_dir = str(_vroot)
-        replay_pipeline = CPUPinnedDoubleBufferReplayPipeline(
-            replay_buffer,
-            device=self.device,
-            sample_count=sample_count,
-            base_seed=int(self.seed or 0),
-            trace_recorder=trace_recorder,
-            trace_cuda_events=self.trace_cuda_events,
-            verbose=self.verbose_metrics,
-            verbose_output_dir=_verbose_output_dir,
-            collector_pack_request_queue=collector_pack_request_queue,
-            collector_pack_ready_queue=collector_pack_ready_queue,
-            collector_pack_shared_slots=collector_pack_shared_slots,
-            pack_layout="sac_graph" if use_sac_graph_pack_layout else "packed",
-            use_critic_graph_packed_source=use_critic_graph_packed_source,
-            collector_pack_critic_graph_shared_slots=collector_pack_critic_graph_shared_slots,
-        )
+            if use_critic_graph_packed_source:
+                critic_graph_width = int(replay_buffer.critic_graph_packed_width())
+                collector_pack_critic_graph_shared_slots = [
+                    torch.empty(
+                        (sample_count, critic_graph_width),
+                        dtype=torch.float32,
+                    ).share_memory_()
+                    for _ in range(2)
+                ]
+            _verbose_output_dir: str | None = None
+            if self.verbose_metrics:
+                _vroot = Path(self.trace_output_dir) if self.trace_output_dir else Path(log_dir)
+                _verbose_output_dir = str(_vroot)
+            replay_pipeline = CPUPinnedDoubleBufferReplayPipeline(
+                replay_buffer,
+                device=self.device,
+                sample_count=sample_count,
+                base_seed=int(self.seed or 0),
+                trace_recorder=trace_recorder,
+                trace_cuda_events=self.trace_cuda_events,
+                verbose=self.verbose_metrics,
+                verbose_output_dir=_verbose_output_dir,
+                collector_pack_request_queue=collector_pack_request_queue,
+                collector_pack_ready_queue=collector_pack_ready_queue,
+                collector_pack_shared_slots=collector_pack_shared_slots,
+                pack_layout="sac_graph" if use_sac_graph_pack_layout else "packed",
+                use_critic_graph_packed_source=use_critic_graph_packed_source,
+                collector_pack_critic_graph_shared_slots=collector_pack_critic_graph_shared_slots,
+            )
         self.replay_h2d_submitter = getattr(
             replay_pipeline,
             "h2d_submitter",
@@ -312,7 +338,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
         logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))
-        logger.log_status("Replay pipeline: cpu_pinned_double_buffer")
+        logger.log_status(f"Replay pipeline: {self.replay_pipeline_impl}")
         logger.log_status(f"Replay prefetch mode: {self.replay_prefetch_mode}")
         logger.log_status(f"Replay pack layout: {self.replay_pack_layout}")
         logger.log_status(f"Replay pack executor: {self.replay_pack_executor}")
@@ -610,7 +636,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             end_ns=time.perf_counter_ns(),
                             args={
                                 "total_batch": sample_count,
-                                "pipeline": "cpu_pinned_double_buffer",
+                                "pipeline": self.replay_pipeline_impl,
                                 "batch_ready": batch_ready,
                                 "prefetch_mode": self.replay_prefetch_mode,
                                 "replay_pack_layout": self.replay_pack_layout,
@@ -776,7 +802,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     end_ns=time.perf_counter_ns(),
                     args={
                         "iterations": iteration,
-                        "pipeline": "cpu_pinned_double_buffer",
+                        "pipeline": self.replay_pipeline_impl,
                         "replay_h2d_submitter": self.replay_h2d_submitter,
                         "replay_transfer_backend": self.replay_transfer_backend,
                         "learner_log_interval": 1,
