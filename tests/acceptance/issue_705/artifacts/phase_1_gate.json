@@ -53,7 +53,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.1661564339883626,
+      "duration_sec": 1.9031949200143572,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_batch_contract#1",
@@ -69,7 +69,7 @@
       ],
       "series": "lane_a_batch_contract",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 24 items\n\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_all_rows] PASSED [  4%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_selected_row_order] PASSED [  8%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_frozen_batch_sizes] PASSED [ 12%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_same_entity_in_distinct_frames] PASSED [ 16%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_shape] PASSED [ 20%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_frame] PASSED [ 25%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_unit] PASSED [ 29%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_dtype] PASSED [ 33%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_layout] PASSED [ 37%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_duplicate_rows] PASSED [ 41%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_row_bounds] PASSED [ 45%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_row_universe] PASSED [ 50%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_placement] PASSED [ 54%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_owner] PASSED [ 58%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_mutability] PASSED [ 62%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_lifetime] PASSED [ 66%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_dlpack_metadata] PASSED [ 70%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_unbound_identity] PASSED [ 75%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_empty_identity] PASSED [ 79%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_duplicate_field] PASSED [ 83%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_duplicate_bound_identity] PASSED [ 87%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_plan_owner] PASSED [ 91%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_plan_fingerprint] PASSED [ 95%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_plan_metadata_with_reused_fingerprint] PASSED [100%]\n\n============================== 24 passed in 0.04s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 24 items\n\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_all_rows] PASSED [  4%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_selected_row_order] PASSED [  8%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_frozen_batch_sizes] PASSED [ 12%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_valid_same_entity_in_distinct_frames] PASSED [ 16%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_shape] PASSED [ 20%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_frame] PASSED [ 25%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_unit] PASSED [ 29%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_dtype] PASSED [ 33%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_layout] PASSED [ 37%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_duplicate_rows] PASSED [ 41%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_row_bounds] PASSED [ 45%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_row_universe] PASSED [ 50%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_placement] PASSED [ 54%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_owner] PASSED [ 58%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_mutability] PASSED [ 62%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_lifetime] PASSED [ 66%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_dlpack_metadata] PASSED [ 70%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_unbound_identity] PASSED [ 75%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_empty_identity] PASSED [ 79%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_duplicate_field] PASSED [ 83%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_duplicate_bound_identity] PASSED [ 87%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_plan_owner] PASSED [ 91%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_plan_fingerprint] PASSED [ 95%]\ntests/base/test_backend_batch_contract.py::test_bound_state_batch_contract[_invalid_plan_metadata_with_reused_fingerprint] PASSED [100%]\n\n============================== 24 passed in 0.03s ==============================\n"
     },
     {
       "argv": [
@@ -80,7 +80,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.4585819249914493,
+      "duration_sec": 2.0111064550001174,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_backend_isolation#1",
@@ -96,7 +96,7 @@
       ],
       "series": "lane_a_backend_isolation",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_backend_batch_contract.py::test_runtime_backends_share_only_cold_materialization_contract PASSED [100%]\n\n============================== 1 passed in 0.33s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/base/test_backend_batch_contract.py::test_runtime_backends_share_only_cold_materialization_contract PASSED [100%]\n\n============================== 1 passed in 0.30s ===============================\n"
     },
     {
       "argv": [
@@ -107,7 +107,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.8812074860034045,
+      "duration_sec": 2.4485285480041057,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_mujoco_reference#1",
@@ -123,7 +123,7 @@
       ],
       "series": "lane_b_mujoco_reference",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 6 items\n\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-1] PASSED [ 16%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-32] PASSED [ 33%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-1] PASSED [ 50%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-32] PASSED [ 66%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-1] PASSED [ 83%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-32] PASSED [100%]\n\n============================== 6 passed in 0.64s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 6 items\n\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-1] PASSED [ 16%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-32] PASSED [ 33%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-1] PASSED [ 50%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-32] PASSED [ 66%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-1] PASSED [ 83%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-32] PASSED [100%]\n\n============================== 6 passed in 0.66s ===============================\n"
     },
     {
       "argv": [
@@ -134,7 +134,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.877737168018939,
+      "duration_sec": 2.444841947988607,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_mujoco_reference#2",
@@ -161,7 +161,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.8878569410007913,
+      "duration_sec": 2.425711654999759,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_mujoco_reference#3",
@@ -177,7 +177,7 @@
       ],
       "series": "lane_b_mujoco_reference",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 6 items\n\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-1] PASSED [ 16%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-32] PASSED [ 33%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-1] PASSED [ 50%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-32] PASSED [ 66%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-1] PASSED [ 83%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-32] PASSED [100%]\n\n============================== 6 passed in 0.64s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 6 items\n\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-1] PASSED [ 16%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[0-32] PASSED [ 33%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-1] PASSED [ 50%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[1-32] PASSED [ 66%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-1] PASSED [ 83%]\ntests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference[2-32] PASSED [100%]\n\n============================== 6 passed in 0.63s ===============================\n"
     },
     {
       "argv": [
@@ -188,7 +188,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.2126010219799355,
+      "duration_sec": 1.7644108689855784,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_mutation_contract#1",
@@ -215,7 +215,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.1851292699866462,
+      "duration_sec": 1.7615199130086694,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_mutation_contract#2",
@@ -242,7 +242,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.2095458249968942,
+      "duration_sec": 1.7545117489935365,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_hot_path#1",
@@ -269,7 +269,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.1501510000089183,
+      "duration_sec": 1.7978663640096784,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_hot_path#2",
@@ -296,7 +296,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.2335437390138395,
+      "duration_sec": 1.7300235989969224,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_dr_compatibility#1",
@@ -322,7 +322,7 @@
     "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
     "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]"
   },
-  "generated_at_utc": "2026-07-30T17:47:10.403001+00:00",
+  "generated_at_utc": "2026-07-31T01:39:56.765113+00:00",
   "inputs": {
     "claim_config_hashes": {
       "P1-BACKEND-ISOLATION": "sha256:d950a21ed76b5eef410deb46407839d4f056c5a917c6ceb12883d620c210e972",
@@ -349,8 +349,8 @@
   "phase": 1,
   "schema_version": 1,
   "source": {
-    "branch": "feat/issue-827-mjwarp-device-controller",
-    "commit_sha": "eb969b49082cbde6829e1b80ca32322adbdadccb",
+    "branch": "perf/issue-829-mjwarp-dr-performance",
+    "commit_sha": "6a6c54f297360a5f61a0499df29f42860549666d",
     "tree_clean": true
   }
 }
