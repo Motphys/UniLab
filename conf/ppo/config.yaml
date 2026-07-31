@@ -74,6 +74,7 @@ training:
     max_envs_to_dump: 5
     output_dir: null
   play_only: false
+  operation: auto
   no_play: false
   sim2sim_strict: true
   play_render_mode: auto
@@ -90,6 +91,23 @@ training:
   log_root: null
   num_timesteps: null
   log_dir: null
+
+entrypoints:
+  fingerprint: issue705-entrypoints-v1
+  identity:
+    task_name: ${training.task_name}
+    backend: ${training.sim_backend}
+  renderer_backend: ${training.sim_backend}
+  export_formats: [onnx, jit]
+  routes:
+    train: native
+    play: native
+    visualize: native
+    export: native
+    checkpoint_save: native
+    checkpoint_load: native
+    resume: native
+  diagnostics: {}
 
 interactive:
   action_mode: zero

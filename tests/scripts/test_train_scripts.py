@@ -143,6 +143,20 @@ def _ppo_cfg(overrides=None):
         return compose("config", overrides=_normalize_overrides(overrides))
 
 
+def _write_entrypoint_run_config(run_dir: Path, cfg: Any) -> None:
+    from unilab.training.sim2sim import extract_contract_snapshot
+
+    (run_dir / "run_config.json").write_text(
+        json.dumps(
+            {
+                "config": OmegaConf.to_container(cfg, resolve=True),
+                "contract_snapshot": extract_contract_snapshot(cfg),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _appo_cfg(overrides=None):
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_CONF_DIR / "appo"), version_base="1.3"):
@@ -781,8 +795,25 @@ def test_train_rsl_rl_rejects_mjwarp_profile_override_before_env_creation(
         ),
     )
 
-    with pytest.raises(ValueError, match="execution_profile"):
+    with pytest.raises(mod.EntrypointContractError, match="execution_profile"):
         mod.main.__wrapped__(cfg)
+
+
+def test_train_rsl_rl_checkpoint_receipt_requires_real_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _train_rsl_rl(monkeypatch)
+    missing = tmp_path / "model_0.pt"
+
+    with pytest.raises(mod.EntrypointContractError, match="non-empty artifact"):
+        mod._require_checkpoint_artifact(missing)
+
+    missing.write_bytes(b"")
+    with pytest.raises(mod.EntrypointContractError, match="non-empty artifact"):
+        mod._require_checkpoint_artifact(missing)
+
+    missing.write_bytes(b"checkpoint")
+    assert mod._require_checkpoint_artifact(missing) == missing
 
 
 def test_train_rsl_rl_play_resolves_runtime_from_post_sim2sim_owner(
@@ -823,7 +854,7 @@ def test_train_rsl_rl_play_resolves_runtime_from_post_sim2sim_owner(
     )
     monkeypatch.setattr(
         mod,
-        "resolve_sim2sim_config",
+        "preflight_policy_source",
         lambda *args, **kwargs: resolved_cfg,
     )
     monkeypatch.setattr(mod, "_resolve_ppo_runtime", resolve_runtime)
@@ -2630,8 +2661,8 @@ def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.Monkey
     assert "logs/test_rsl_rl_ppo" in log_root.replace("\\", "/")
 
 
-def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_context(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+def test_train_rsl_rl_play_missing_checkpoint_fails_before_env_creation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
@@ -2649,22 +2680,22 @@ def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_cont
             ),
         )
 
-        result = mod.play_rsl_rl(cfg, device="cpu")
+        with pytest.raises(mod.EntrypointContractError) as exc_info:
+            mod.play_rsl_rl(cfg, device="cpu")
     finally:
         mod.ROOT_DIR = original_root
 
-    captured = capsys.readouterr().out
+    diagnostic = str(exc_info.value)
     expected_task_log_root = tmp_path / "logs" / "custom_ppo" / cfg.training.task_name
 
-    assert result is None
-    assert "Could not resolve a checkpoint for play mode." in captured
-    assert "Task log root does not exist." in captured
-    assert f"task_log_root={expected_task_log_root}" in captured
-    assert "algo.load_run='-1'" in captured
+    assert "Could not resolve a checkpoint for play mode." in diagnostic
+    assert "Task log root does not exist." in diagnostic
+    assert f"task_log_root={expected_task_log_root}" in diagnostic
+    assert "algo.load_run='-1'" in diagnostic
 
 
 def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
@@ -2689,16 +2720,16 @@ def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
             ),
         )
 
-        result = mod.play_rsl_rl(cfg, device="cpu")
+        with pytest.raises(mod.EntrypointContractError) as exc_info:
+            mod.play_rsl_rl(cfg, device="cpu")
     finally:
         mod.ROOT_DIR = original_root
 
-    captured = capsys.readouterr().out
+    diagnostic = str(exc_info.value)
 
-    assert result is None
-    assert "Could not resolve a checkpoint for play mode." in captured
-    assert f"resolved_run={run_dir}" in captured
-    assert "algo.checkpoint=12" in captured
+    assert "Could not resolve a checkpoint for play mode." in diagnostic
+    assert f"resolved_run={run_dir}" in diagnostic
+    assert "algo.checkpoint=12" in diagnostic
 
 
 def test_train_rsl_rl_motrix_auto_play_is_interactive(
@@ -2717,10 +2748,14 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
     run_dir.mkdir()
     checkpoint = run_dir / "model_37.pt"
     mod.torch.save({"actor_state_dict": {}}, checkpoint)
+    _write_entrypoint_run_config(run_dir, cfg)
 
     class FakeEnv:
         def __init__(self):
             self.cfg = type("Cfg", (), {"render_spacing": 2.5, "render_offset_mode": "zero"})()
+
+        def close(self):
+            captured["closed"] = True
 
         def run_playback_mode(self, **kwargs):
             assert kwargs["play_render_mode"] == "auto"
@@ -2796,6 +2831,7 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
     assert captured["output_video"] is None
     assert captured["render_spacing"] == pytest.approx(2.5)
     assert captured["render_offset_mode"] == "zero"
+    assert captured["closed"] is True
 
 
 def test_train_rsl_rl_record_play_uses_backend_plan(
@@ -2814,10 +2850,14 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     run_dir.mkdir()
     checkpoint = run_dir / "model_37.pt"
     mod.torch.save({"actor_state_dict": {}}, checkpoint)
+    _write_entrypoint_run_config(run_dir, cfg)
 
     class FakeEnv:
         def __init__(self):
             self.cfg = type("Cfg", (), {"render_spacing": 1.0, "render_offset_mode": "grid"})()
+
+        def close(self):
+            captured["closed"] = True
 
         def run_playback_mode(self, **kwargs):
             assert kwargs["play_render_mode"] == "record"
@@ -2891,6 +2931,7 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     assert captured["record_video"] is True
     assert captured["num_steps"] == 37
     assert captured["output_video"] == run_dir / "play_video.mp4"
+    assert captured["closed"] is True
 
 
 def test_train_appo_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
@@ -2940,6 +2981,32 @@ def test_play_interactive_respects_training_device_override():
     cfg = OmegaConf.create({"training": {"device": "cpu"}})
 
     assert mod._select_playback_device(cfg) == "cpu"
+
+
+def test_interactive_zero_action_does_not_require_checkpoint_load_capability():
+    mod = _play_interactive()
+    cfg = _ppo_cfg()
+    cfg.entrypoints.routes.checkpoint_load = "unsupported"
+
+    for action_mode in ("zero", "random"):
+        assert mod._build_ppo_policy_load_hooks(cfg, action_mode=action_mode) == (None, None)
+
+    with pytest.raises(RuntimeError, match="checkpoint_load.*unsupported"):
+        mod._build_ppo_policy_load_hooks(cfg, action_mode="policy")
+
+
+def test_interactive_viewer_rejects_unimplemented_explicit_adapter():
+    mod = _play_interactive()
+    cfg = _ppo_cfg()
+    OmegaConf.update(
+        cfg,
+        "entrypoints.routes.visualize",
+        {"disposition": "explicit_adapter", "adapter_backend": "mujoco"},
+        merge=False,
+    )
+
+    with pytest.raises(RuntimeError, match="no explicit visualization adapter executor"):
+        mod._require_native_mujoco_visualization(cfg)
 
 
 def test_play_interactive_parses_explicit_cli():
@@ -3091,6 +3158,7 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
 
     monkeypatch.setattr(mod.registry, "make", lambda *args, **kwargs: fake_env)
     monkeypatch.setattr(mod, "resolve_checkpoint", lambda *args, **kwargs: "/tmp/model_10.pt")
+    monkeypatch.setattr(mod, "_infer_checkpoint_actor_input_dim", lambda path: 5)
     monkeypatch.setattr(
         mod,
         "get_entrypoint_log_root",
@@ -3147,7 +3215,15 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
         raise RuntimeError("bootstrap failed")
 
     training_mod.ensure_registries = _fail_bootstrap
+    training_mod.EntrypointContractError = RuntimeError
+    training_mod.EntrypointDisposition = types.SimpleNamespace(NATIVE="native")
+    training_mod.EntrypointRoute = object()
     training_mod.get_entrypoint_log_root = lambda *args, **kwargs: Path("/tmp")
+    training_mod.guarded_policy_load = lambda *args, **kwargs: None
+    training_mod.policy_load_target = lambda *args, **kwargs: None
+    training_mod.preflight_policy_source = lambda *args, **kwargs: None
+    training_mod.require_entrypoint_route = lambda *args, **kwargs: None
+    training_mod.resolve_entrypoint_contract = lambda *args, **kwargs: None
     training_mod.resolve_task_checkpoint_path = lambda *args, **kwargs: (None, None)
     monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,7 +13,56 @@ from tensordict import TensorDict
 
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.np_env import NpEnvState
+from unilab.training.entrypoints import EntrypointContractError
 from unilab.utils.tensor import to_numpy, to_torch
+
+
+def validate_rsl_rl_checkpoint(checkpoint_path: str | Path) -> Mapping[str, Any]:
+    """Parse the cold-path checkpoint envelope before constructing an environment."""
+
+    path = Path(checkpoint_path)
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise EntrypointContractError(
+            f"Checkpoint at {path} could not be parsed as an rsl-rl checkpoint: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise EntrypointContractError(
+            f"Checkpoint at {path} must contain an rsl-rl mapping, got {type(payload).__name__}."
+        )
+    actor_state_dict = payload.get("actor_state_dict")
+    if not isinstance(actor_state_dict, Mapping):
+        keys = sorted(str(key) for key in payload)
+        raise EntrypointContractError(
+            f"Checkpoint at {path} is not an rsl-rl checkpoint "
+            f"(found keys: {keys}; actor_state_dict must be a mapping)."
+        )
+    return payload
+
+
+def infer_rsl_rl_checkpoint_actor_input_dim(checkpoint_path: str | Path) -> int | None:
+    """Read the actor input width from a validated RSL-RL checkpoint."""
+
+    state_dict = validate_rsl_rl_checkpoint(checkpoint_path)["actor_state_dict"]
+    assert isinstance(state_dict, Mapping)
+
+    # Current rsl-rl checkpoints use one of these names or an equivalent nested prefix.
+    for key in ("mlp.0.weight", "actor.mlp.0.weight"):
+        weight = state_dict.get(key)
+        if isinstance(weight, torch.Tensor) and weight.ndim == 2:
+            return int(weight.shape[1])
+
+    for key, weight in state_dict.items():
+        if (
+            isinstance(key, str)
+            and key.endswith(".0.weight")
+            and isinstance(weight, torch.Tensor)
+            and weight.ndim == 2
+        ):
+            return int(weight.shape[1])
+    return None
 
 
 def get_policy_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:

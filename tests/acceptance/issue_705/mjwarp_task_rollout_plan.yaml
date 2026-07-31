@@ -9,7 +9,7 @@ entries:
     backend: mjwarp
     execution_profile: device_resident
     owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
-    owner_yaml_sha256: sha256:25ef02afff40d88aa883c66a521fef803b0893881aec04f510b2ccd6889b5c61
+    owner_yaml_sha256: sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c
     seeds: [0, 1]
     num_envs: 128
     num_steps_per_env: 2
