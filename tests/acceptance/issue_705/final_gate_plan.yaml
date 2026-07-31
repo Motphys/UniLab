@@ -1,0 +1,144 @@
+schema_version: 1
+issue: 705
+phase: 7
+child_issue: 843
+plan_fingerprint: issue705-final-gate-v1
+integration_branch: feat/issue-705-manager-mjwarp
+
+source_scope:
+  roots: [.]
+  excluded_paths:
+    - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+    - tests/acceptance/issue_705/manifests/phase_7.yaml
+
+phase_evidence:
+  - {phase: 1, artifact: tests/acceptance/issue_705/artifacts/phase_1_gate.json, validator: issue705_phase1_evidence}
+  - {phase: 2, artifact: tests/acceptance/issue_705/artifacts/phase_2_gate.json, validator: issue705_phase2_evidence}
+  - {phase: 3, artifact: tests/acceptance/issue_705/artifacts/phase_3_gate.json, validator: issue705_phase3_evidence}
+  - {phase: 4, artifact: tests/acceptance/issue_705/artifacts/phase_4_gate.json, validator: issue705_phase4_evidence}
+  - {phase: 5, artifact: tests/acceptance/issue_705/artifacts/phase_5_gate.json, validator: issue705_phase5_evidence}
+  - {phase: 6, artifact: tests/acceptance/issue_705/artifacts/phase_6_gate.json, validator: issue705_phase6_evidence}
+
+direct_inputs:
+  - uv.lock
+  - conf/ppo/task/g1_walk_flat/mjwarp.yaml
+  - src/unilab/tools/issue705_final_gate.py
+  - scripts/validate_issue705_final.py
+  - scripts/capture_issue705_final.py
+  - tests/scripts/test_issue705_final_gate.py
+  - tests/acceptance/issue_705/final_gate_plan.yaml
+  - tests/acceptance/issue_705/claim_test_inventory.yaml
+  - tests/acceptance/issue_705/mjwarp_dr_inventory.yaml
+  - tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml
+  - tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json
+  - tests/acceptance/issue_705/g1_threshold_manifest.yaml
+  - tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml
+  - tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml
+  - tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml
+  - tests/acceptance/issue_705/manifests/phase_0.yaml
+  - tests/acceptance/issue_705/manifests/phase_1.yaml
+  - tests/acceptance/issue_705/manifests/phase_2.yaml
+  - tests/acceptance/issue_705/manifests/phase_3.yaml
+  - tests/acceptance/issue_705/manifests/phase_4.yaml
+  - tests/acceptance/issue_705/manifests/phase_5.yaml
+  - tests/acceptance/issue_705/manifests/phase_6.yaml
+  - tests/acceptance/issue_705/artifacts/phase_1_gate.json
+  - tests/acceptance/issue_705/artifacts/phase_2_gate.json
+  - tests/acceptance/issue_705/artifacts/phase_3_gate.json
+  - tests/acceptance/issue_705/artifacts/phase_4_gate.json
+  - tests/acceptance/issue_705/artifacts/phase_4_host_benchmark.json
+  - tests/acceptance/issue_705/artifacts/phase_5_gate.json
+  - tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json
+  - tests/acceptance/issue_705/artifacts/issue705_phase5_ppo_5593eea8_trace.json
+  - tests/acceptance/issue_705/artifacts/phase_6_gate.json
+  - tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json
+  - tests/acceptance/issue_705/support_evidence.yaml
+  - tests/acceptance/issue_705/mjwarp_task_rollout_plan.yaml
+  - tests/acceptance/issue_705/training_behavior_plan.yaml
+  - tests/acceptance/issue_705/training_behavior_freeze_receipt.yaml
+  - tests/acceptance/issue_705/artifacts/phase_7_training_behavior.json
+  - tests/acceptance/issue_705/legacy_retirement_plan.yaml
+  - tests/acceptance/issue_705/legacy_retirement_rollback.yaml
+  - tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json
+  - tests/integration/test_issue705_entrypoints.py
+
+commands:
+  - claim_id: P7-SUPPORT-MATRIX
+    name: lane_a_support_matrix
+    lane: A
+    argv: [uv, run, pytest, "tests/scripts/test_issue705_support_audit.py::test_supported_combinations_have_fresh_bidirectional_evidence", -v, -rsxX]
+    required_test_id: tests/scripts/test_issue705_support_audit.py::test_supported_combinations_have_fresh_bidirectional_evidence
+    repetitions: 1
+    manifest_command: uv run scripts/audit_issue705_support.py
+    config_input: tests/acceptance/issue_705/support_evidence.yaml
+    artifact_refs:
+      - tests/acceptance/issue_705/support_evidence.yaml
+      - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+
+  - claim_id: P7-TASK-ROLLOUT
+    name: lane_c_task_rollout
+    lane: C
+    argv: [uv, run, --extra, mjwarp, pytest, -m, slow, "tests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix", -v, -rsxX]
+    required_test_id: tests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix
+    repetitions: 2
+    manifest_command: uv run --with mujoco-warp --with warp-lang pytest -m slow tests/integration/test_mjwarp_task_rollout.py -v
+    config_input: tests/acceptance/issue_705/mjwarp_task_rollout_plan.yaml
+    artifact_refs:
+      - tests/acceptance/issue_705/mjwarp_task_rollout_plan.yaml
+      - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+
+  - claim_id: P7-TRAINING-BEHAVIOR
+    name: lane_d_training_behavior
+    lane: D
+    argv: [uv, run, pytest, "tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates", -v, -rsxX]
+    required_test_id: tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates
+    repetitions: 5
+    manifest_command: uv run benchmark/rl/evaluate_issue705_training_behavior.py
+    config_input: tests/acceptance/issue_705/training_behavior_plan.yaml
+    artifact_refs:
+      - tests/acceptance/issue_705/artifacts/phase_7_training_behavior.json
+      - tests/acceptance/issue_705/training_behavior_plan.yaml
+      - tests/acceptance/issue_705/training_behavior_freeze_receipt.yaml
+      - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+
+  - claim_id: P7-ENTRYPOINT-MATRIX
+    name: lane_b_entrypoint_matrix
+    lane: B
+    argv: [uv, run, --extra, mjwarp, pytest, -m, slow, "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix", -v, -rsxX]
+    required_test_id: tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix
+    repetitions: 2
+    manifest_command: uv run pytest tests/integration/test_issue705_entrypoints.py -v
+    config_input: tests/integration/test_issue705_entrypoints.py
+    artifact_refs:
+      - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+      - tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json
+
+  - claim_id: P7-FINAL-REGRESSION
+    name: lane_a_final_regression
+    lane: A
+    argv: [uv, run, pytest, "tests/scripts/test_issue705_final_gate.py::test_final_head_has_fresh_all_phase_evidence", -v, -rsxX]
+    required_test_id: tests/scripts/test_issue705_final_gate.py::test_final_head_has_fresh_all_phase_evidence
+    repetitions: 1
+    manifest_command: uv run scripts/validate_issue705_final.py
+    config_input: tests/acceptance/issue_705/final_gate_plan.yaml
+    artifact_refs:
+      - tests/acceptance/issue_705/final_gate_plan.yaml
+      - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+
+  - claim_id: P7-LEGACY-RETIREMENT
+    name: lane_b_legacy_retirement
+    lane: B
+    argv: [uv, run, pytest, "tests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence", -v, -rsxX]
+    required_test_id: tests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence
+    repetitions: 1
+    manifest_command: uv run pytest tests/integration/test_issue705_legacy_retirement.py -v
+    config_input: tests/acceptance/issue_705/legacy_retirement_plan.yaml
+    artifact_refs:
+      - tests/acceptance/issue_705/legacy_retirement_plan.yaml
+      - tests/acceptance/issue_705/legacy_retirement_rollback.yaml
+      - tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json
+      - tests/acceptance/issue_705/artifacts/phase_7_gate.json
+
+rss_policy:
+  mode: diagnostic_only
+  reason: RSS remains recorded in owner benchmark artifacts but has no absolute Phase 7 pass/fail threshold.
