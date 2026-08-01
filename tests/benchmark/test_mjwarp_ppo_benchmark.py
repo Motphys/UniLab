@@ -304,6 +304,7 @@ def test_complete_artifact_passes_independent_gate_recomputation() -> None:
     assert ppo_benchmark.validate_artifact(artifact, binding=binding) == ()
 
 
+@pytest.mark.local_evidence
 def test_device_profile_meets_end_to_end_gate() -> None:
     """The committed 40-worker artifact must independently re-pass every gate."""
 

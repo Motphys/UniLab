@@ -143,6 +143,7 @@ exclude = [
 testpaths = ["tests"]
 markers = [
     "slow: long-running training or script smoke tests, or cumulatively expensive backend matrices",
+    "local_evidence: release evidence that requires frozen hardware or full Git ancestry",
 ]
 addopts = "--tb=short -m 'not slow'"
 
