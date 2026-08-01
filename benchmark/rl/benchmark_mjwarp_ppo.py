@@ -1353,6 +1353,7 @@ def _integrity_validation_errors(
     binding: BenchmarkBinding | None = None,
     repo_root: Path | None = None,
     artifact_path: Path | None = None,
+    validate_live_hardware: bool = True,
 ) -> tuple[str, ...]:
     """Recompute raw/provenance facts without inspecting threshold gate outcome.
 
@@ -1516,12 +1517,13 @@ def _integrity_validation_errors(
         if repo_root is not None:
             repository = repo_root.resolve()
             _validate_source_at_commit(source, active_binding, repository, errors)
-            try:
-                plan = _load_plan(repository / DEFAULT_BASELINE_PLAN)
-                if root.get("hardware") != _hardware_payload(plan):
-                    errors.append("hardware differs from live frozen benchmark host")
-            except Exception as exc:  # noqa: BLE001 - evidence must fail on an unavailable host probe.
-                errors.append(f"hardware validation failed: {type(exc).__name__}: {exc}")
+            if validate_live_hardware:
+                try:
+                    plan = _load_plan(repository / DEFAULT_BASELINE_PLAN)
+                    if root.get("hardware") != _hardware_payload(plan):
+                        errors.append("hardware differs from live frozen benchmark host")
+                except Exception as exc:  # noqa: BLE001 - live evidence must fail closed.
+                    errors.append(f"hardware validation failed: {type(exc).__name__}: {exc}")
         if artifact_path is not None:
             _validate_trace_sibling(root, artifact_path, errors)
     except MjwarpPpoBenchmarkError as exc:
@@ -1535,6 +1537,7 @@ def _validation_error_parts(
     binding: BenchmarkBinding | None = None,
     repo_root: Path | None = None,
     artifact_path: Path | None = None,
+    validate_live_hardware: bool = True,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return non-negotiable evidence errors separately from threshold misses."""
 
@@ -1544,6 +1547,7 @@ def _validation_error_parts(
             binding=binding,
             repo_root=repo_root,
             artifact_path=artifact_path,
+            validate_live_hardware=validate_live_hardware,
         )
     )
     gate_errors: tuple[str, ...] = ()
@@ -1562,6 +1566,7 @@ def _core_validation_errors(
     binding: BenchmarkBinding | None = None,
     repo_root: Path | None = None,
     artifact_path: Path | None = None,
+    validate_live_hardware: bool = True,
 ) -> tuple[str, ...]:
     """Recompute all raw/provenance/gate facts without inspecting ``artifact.gate``."""
 
@@ -1570,6 +1575,7 @@ def _core_validation_errors(
         binding=binding,
         repo_root=repo_root,
         artifact_path=artifact_path,
+        validate_live_hardware=validate_live_hardware,
     )
     return (*integrity_errors, *gate_errors)
 
@@ -1581,6 +1587,7 @@ def validate_artifact(
     repo_root: Path | None = None,
     artifact_path: Path | None = None,
     require_passing_gate: bool = True,
+    validate_live_hardware: bool = True,
 ) -> tuple[str, ...]:
     """Validate raw evidence and the recorded gate.
 
@@ -1589,6 +1596,10 @@ def validate_artifact(
     thresholds.  It is useful for retaining diagnostic measurements, but the
     default remains evidence-grade validation and therefore rejects every
     failed gate.
+
+    ``validate_live_hardware=False`` still validates the recorded hardware
+    against the frozen binding. It only defers probing the current host, which
+    is reserved for capture and the dedicated local evidence gate.
     """
 
     integrity_errors, threshold_errors = _validation_error_parts(
@@ -1596,6 +1607,7 @@ def validate_artifact(
         binding=binding,
         repo_root=repo_root,
         artifact_path=artifact_path,
+        validate_live_hardware=validate_live_hardware,
     )
     core_errors = (*integrity_errors, *threshold_errors)
     gate_errors: list[str] = []
