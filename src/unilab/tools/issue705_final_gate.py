@@ -1569,6 +1569,14 @@ def validate_final_gate_evidence(
     if dict(summary) != expected_summary:
         errors.append("summary: differs from independently recomputed command summary")
 
+    # An invalid envelope cannot be promoted regardless of current-head health. Avoid
+    # rerunning every transitive owner gate for each independent tamper error.
+    if errors:
+        expected_gate = {"passed": False, "errors": list(errors)}
+        if value.get("gate") != expected_gate:
+            errors.append("gate: differs from independent final validation")
+        return tuple(errors)
+
     current = validate_final_head(
         root,
         plan,

@@ -196,6 +196,7 @@ def audit_ci_test_shards(
 
     workflow_map = _mapping(workflow, str(WORKFLOW_PATH), errors)
     jobs = _mapping(workflow_map.get("jobs"), "jobs", errors)
+    smoke_job = _mapping(jobs.get("benchmark-smoke"), "jobs.benchmark-smoke", errors)
     shard_job = _mapping(jobs.get("test-shard"), "jobs.test-shard", errors)
     aggregate_job = _mapping(jobs.get("test"), "jobs.test", errors)
 
@@ -269,6 +270,8 @@ def audit_ci_test_shards(
     if strategy.get("fail-fast") != "false":
         errors.append("jobs.test-shard.strategy.fail-fast must be false")
     shard_steps = _steps(shard_job, "jobs.test-shard", errors)
+    if _named_step(shard_steps, "Benchmark entrypoint smoke test") is not None:
+        errors.append("test-shard must not repeat the benchmark entrypoint smoke test")
     checkout_step = next(
         (step for step in shard_steps if str(step.get("uses", "")).startswith("actions/checkout@")),
         None,
@@ -323,19 +326,32 @@ def audit_ci_test_shards(
 
     if aggregate_job.get("name") != "test (ubuntu-slim)":
         errors.append("aggregate test job must preserve the `test (ubuntu-slim)` check name")
-    if aggregate_job.get("needs") != "test-shard":
-        errors.append("aggregate test job must need test-shard")
+    smoke_steps = _steps(smoke_job, "jobs.benchmark-smoke", errors)
+    smoke_step = _named_step(smoke_steps, "Benchmark entrypoint smoke test")
+    if smoke_job.get("runs-on") != "ubuntu-slim":
+        errors.append("jobs.benchmark-smoke.runs-on must be ubuntu-slim")
+    if smoke_step is None or "benchmark/smoke_test.py" not in str(smoke_step.get("run", "")):
+        errors.append("benchmark-smoke must execute benchmark/smoke_test.py")
+    needs = aggregate_job.get("needs")
+    if not isinstance(needs, list) or set(needs) != {"benchmark-smoke", "test-shard"}:
+        errors.append("aggregate test job must need benchmark-smoke and test-shard")
     if "always()" not in str(aggregate_job.get("if", "")):
         errors.append("aggregate test job must run with always() and fail closed on shard failure")
     aggregate_steps = _steps(aggregate_job, "jobs.test", errors)
-    require_step = _named_step(aggregate_steps, "Require all test shards")
-    if require_step is None or "TEST_SHARD_RESULT" not in str(require_step.get("run", "")):
-        errors.append("aggregate test job must explicitly reject a failed shard result")
-    elif (
-        not isinstance(require_step.get("env"), dict)
-        or require_step["env"].get("TEST_SHARD_RESULT") != "${{ needs.test-shard.result }}"
-    ):
-        errors.append("aggregate test job must read the test-shard result from needs")
+    require_step = _named_step(aggregate_steps, "Require smoke and all test shards")
+    require_command = "" if require_step is None else str(require_step.get("run", ""))
+    require_environment = None if require_step is None else require_step.get("env")
+    required_result_checks = (
+        'test "$BENCHMARK_SMOKE_RESULT" = success',
+        'test "$TEST_SHARD_RESULT" = success',
+    )
+    if any(check not in require_command for check in required_result_checks):
+        errors.append("aggregate test job must explicitly reject failed smoke and shard results")
+    elif not isinstance(require_environment, dict) or require_environment != {
+        "BENCHMARK_SMOKE_RESULT": "${{ needs.benchmark-smoke.result }}",
+        "TEST_SHARD_RESULT": "${{ needs.test-shard.result }}",
+    }:
+        errors.append("aggregate test job must read smoke and test-shard results from needs")
     download_step = _named_step(aggregate_steps, "Download coverage data")
     if download_step is None or not str(download_step.get("uses", "")).startswith(
         "actions/download-artifact@"

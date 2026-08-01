@@ -15,6 +15,11 @@ def _write_fixture(root: Path, *, paths_a: str, paths_b: str, selection: str) ->
     workflow.write_text(
         f"""
 jobs:
+  benchmark-smoke:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Benchmark entrypoint smoke test
+        run: uv run python benchmark/smoke_test.py
   test-shard:
     runs-on: ubuntu-slim
     strategy:
@@ -44,12 +49,15 @@ jobs:
   test:
     name: test (ubuntu-slim)
     if: always()
-    needs: test-shard
+    needs: [benchmark-smoke, test-shard]
     steps:
-      - name: Require all test shards
+      - name: Require smoke and all test shards
         env:
+          BENCHMARK_SMOKE_RESULT: ${{{{ needs.benchmark-smoke.result }}}}
           TEST_SHARD_RESULT: ${{{{ needs.test-shard.result }}}}
-        run: test "$TEST_SHARD_RESULT" = success
+        run: |
+          test "$BENCHMARK_SMOKE_RESULT" = success
+          test "$TEST_SHARD_RESULT" = success
       - name: Download coverage data
         uses: actions/download-artifact@v4
         with:
@@ -75,7 +83,7 @@ def test_current_ci_shards_cover_every_test_file_once() -> None:
     result = audit_ci_test_shards(root)
 
     assert result.ok, "\n".join(result.errors)
-    assert result.shards == ("a", "b", "c", "d")
+    assert result.shards == ("a", "b", "c", "d", "e", "f", "g", "h")
     assert result.test_files > 0
 
 
@@ -135,8 +143,31 @@ def test_audit_requires_fail_closed_coverage_aggregation(tmp_path: Path) -> None
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
     content = workflow.read_text(encoding="utf-8")
     workflow.write_text(
-        content.replace("needs: test-shard", "needs: lint").replace(
-            "coverage report --fail-under=25", "coverage report"
+        content.replace(
+            "needs: [benchmark-smoke, test-shard]", "needs: [benchmark-smoke, lint]"
+        ).replace("coverage report --fail-under=25", "coverage report"),
+        encoding="utf-8",
+    )
+
+    result = _audit_fixture(tmp_path)
+
+    assert not result.ok
+    assert any("must need benchmark-smoke and test-shard" in error for error in result.errors)
+    assert any("enforce --fail-under=25" in error for error in result.errors)
+
+
+def test_audit_requires_one_independent_smoke_gate(tmp_path: Path) -> None:
+    _write_fixture(
+        tmp_path,
+        paths_a="tests/a",
+        paths_b="tests/b",
+        selection="not slow and not local_evidence",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    content = workflow.read_text(encoding="utf-8")
+    workflow.write_text(
+        content.replace("uv run python benchmark/smoke_test.py", "echo skipped-smoke").replace(
+            'test "$BENCHMARK_SMOKE_RESULT" = success\n', ""
         ),
         encoding="utf-8",
     )
@@ -144,8 +175,8 @@ def test_audit_requires_fail_closed_coverage_aggregation(tmp_path: Path) -> None
     result = _audit_fixture(tmp_path)
 
     assert not result.ok
-    assert any("must need test-shard" in error for error in result.errors)
-    assert any("enforce --fail-under=25" in error for error in result.errors)
+    assert any("must execute benchmark/smoke_test.py" in error for error in result.errors)
+    assert any("explicitly reject failed smoke" in error for error in result.errors)
 
 
 def test_audit_rejects_mismatched_coverage_artifact_routes(tmp_path: Path) -> None:
