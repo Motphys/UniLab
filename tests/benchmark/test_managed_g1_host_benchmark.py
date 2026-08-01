@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -260,6 +261,43 @@ def test_artifact_validator_accepts_complete_paired_frozen_matrix() -> None:
         )
         == ()
     )
+
+
+def test_summary_recompute_tolerance_is_limited_to_throughput_roundoff() -> None:
+    expected = {
+        "timing_stats_ms": {
+            "env_step_total_ms": {
+                "count": 2,
+                "mean": 1.0,
+                "p50": 1.0,
+                "p95": 1.0,
+                "min": 1.0,
+                "max": 1.0,
+            }
+        },
+        "throughput_env_steps_per_sec": 30_000.0,
+        "memory": {
+            "preferred_metric": "uss",
+            "total_preferred_delta_bytes": 1024,
+            "after_benchmark_preferred_bytes": 4096,
+        },
+    }
+
+    portable = deepcopy(expected)
+    portable["throughput_env_steps_per_sec"] = math.nextafter(30_000.0, math.inf)
+    assert managed_benchmark._summary_matches_recomputed(portable, expected)
+
+    throughput_tamper = deepcopy(expected)
+    throughput_tamper["throughput_env_steps_per_sec"] *= 1.0 + 1e-12
+    assert not managed_benchmark._summary_matches_recomputed(throughput_tamper, expected)
+
+    timing_tamper = deepcopy(expected)
+    timing_tamper["timing_stats_ms"]["env_step_total_ms"]["mean"] = math.nextafter(1.0, math.inf)
+    assert not managed_benchmark._summary_matches_recomputed(timing_tamper, expected)
+
+    memory_tamper = deepcopy(expected)
+    memory_tamper["memory"]["total_preferred_delta_bytes"] += 1
+    assert not managed_benchmark._summary_matches_recomputed(memory_tamper, expected)
 
 
 @pytest.mark.local_evidence
