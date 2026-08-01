@@ -243,8 +243,9 @@ def validate_ppo_benchmark_payload(
     *,
     root: Path,
     artifact_path: Path | None = None,
+    validate_live_hardware: bool = False,
 ) -> tuple[str, ...]:
-    """Independently recompute the complete strict PPO benchmark contract."""
+    """Recompute the PPO contract, optionally including the frozen live host."""
 
     root = root.resolve()
     try:
@@ -260,26 +261,33 @@ def validate_ppo_benchmark_payload(
                 binding=binding,
                 repo_root=root,
                 artifact_path=path,
+                validate_live_hardware=validate_live_hardware,
             ),
         )
     except (OSError, ValueError, RuntimeError) as exc:
         return (f"PPO benchmark contract could not be validated: {type(exc).__name__}: {exc}",)
 
 
-def validate_ppo_benchmark_artifact(*, root: Path) -> tuple[str, ...]:
+def validate_ppo_benchmark_artifact(
+    *, root: Path, validate_live_hardware: bool = False
+) -> tuple[str, ...]:
     """Load and validate the committed raw PPO artifact and profiler sibling."""
 
     try:
         artifact = load_ppo_benchmark_artifact(root)
     except PhaseEvidenceError as exc:
         return (str(exc),)
-    return validate_ppo_benchmark_payload(artifact, root=root)
+    return validate_ppo_benchmark_payload(
+        artifact,
+        root=root,
+        validate_live_hardware=validate_live_hardware,
+    )
 
 
 def capture_phase5_evidence(root: Path) -> dict[str, Any]:
     """Run the registered C/D matrix after validating the complete PPO artifact."""
 
-    ppo_errors = validate_ppo_benchmark_artifact(root=root)
+    ppo_errors = validate_ppo_benchmark_artifact(root=root, validate_live_hardware=True)
     if ppo_errors:
         raise PhaseEvidenceError(
             "Phase 5 PPO artifact is not valid:\n" + "\n".join(f"- {error}" for error in ppo_errors)

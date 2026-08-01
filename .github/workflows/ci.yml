@@ -86,13 +86,22 @@ jobs:
       - name: Check
         run: uv run pyright
 
-  test:
+  test-shard:
+    name: test shard (${{ matrix.shard }})
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-slim]
-    #     python-version: ['3.10', '3.11', '3.12', '3.13']
-    runs-on: ${{ matrix.os }}
+        include:
+          - shard: a
+            paths: tests/algos tests/assets tests/base tests/benchmark tests/config
+          - shard: b
+            paths: tests/dr tests/envs tests/integration tests/ipc tests/manager
+          - shard: c
+            paths: tests/acceptance tests/scripts
+          - shard: d
+            paths: tests/terrains tests/tools tests/training tests/utils tests/visualization tests/test_*.py
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
         with:
@@ -128,4 +137,47 @@ jobs:
       - name: Benchmark entrypoint smoke test
         run: uv run --no-sync python benchmark/smoke_test.py
       - name: Test with coverage
-        run: uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25
+        env:
+          COVERAGE_FILE: coverage.${{ matrix.shard }}
+        run: >-
+          uv run --no-sync pytest ${{ matrix.paths }}
+          -m "not slow and not local_evidence"
+          --cov=src/unilab --cov-report= --cov-fail-under=0
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: coverage.${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 1
+
+  test:
+    name: test (ubuntu-slim)
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
+    needs: test-shard
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
+          persist-credentials: false
+      - name: Require all test shards
+        env:
+          TEST_SHARD_RESULT: ${{ needs.test-shard.result }}
+        run: test "$TEST_SHARD_RESULT" = success
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+      - name: Install validation dependencies
+        run: uv sync --only-group dev
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+      - name: Audit test shard coverage
+        run: uv run --no-sync scripts/audit_ci_test_shards.py
+      - name: Combine coverage
+        run: |
+          uv run --no-sync coverage combine coverage-data/coverage.*
+          uv run --no-sync coverage report --format=markdown --fail-under=25 | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"

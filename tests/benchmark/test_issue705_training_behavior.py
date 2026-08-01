@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from unilab.tools.issue705_training_behavior import (
     ARTIFACT_PATH,
     load_training_behavior_artifact,
@@ -12,6 +14,7 @@ from unilab.tools.issue705_training_behavior import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.local_evidence
 def test_all_paired_seeds_meet_frozen_behavior_gates() -> None:
     artifact, report = load_training_behavior_artifact(
         REPO_ROOT / ARTIFACT_PATH,
