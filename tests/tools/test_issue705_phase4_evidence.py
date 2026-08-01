@@ -142,6 +142,13 @@ def test_phase4_host_artifact_rejects_gate_matrix_and_candidate_tampering() -> N
         for error in validate_host_benchmark_payload(missing_case, root=REPO_ROOT)
     )
 
+    summary_tamper = deepcopy(artifact)
+    summary_tamper["cases"][0]["summary"]["throughput_env_steps_per_sec"] *= 1.0 + 1e-12
+    assert any(
+        "summary: does not recompute" in error
+        for error in validate_host_benchmark_payload(summary_tamper, root=REPO_ROOT)
+    )
+
     candidate_tamper = deepcopy(artifact)
     candidate_tamper["candidate"]["candidate_commit"] = "0" * 40
     assert any(

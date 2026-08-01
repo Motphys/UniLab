@@ -27,6 +27,7 @@ import dataclasses
 import functools
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -533,6 +534,25 @@ def summarize_worker_raw(raw: Mapping[str, Any], *, batch_size: int) -> dict[str
             "after_benchmark_preferred_bytes": int(after_preferred),
         },
     }
+
+
+def _summary_matches_recomputed(recorded: object, expected: Mapping[str, Any]) -> bool:
+    if not isinstance(recorded, dict) or set(recorded) != set(expected):
+        return False
+    throughput = recorded.get("throughput_env_steps_per_sec")
+    if isinstance(throughput, bool) or not isinstance(throughput, (int, float)):
+        return False
+    return (
+        recorded.get("timing_stats_ms") == expected.get("timing_stats_ms")
+        and recorded.get("memory") == expected.get("memory")
+        # Python 3.11 and 3.13 can differ by a few ULPs when summing the same samples.
+        and math.isclose(
+            float(throughput),
+            float(expected["throughput_env_steps_per_sec"]),
+            rel_tol=1e-15,
+            abs_tol=0.0,
+        )
+    )
 
 
 def _case_id(*, batch_size: int, repeat_index: int, mode: str) -> str:
@@ -1091,7 +1111,7 @@ def _validate_case(
                 except HostBenchmarkError as exc:
                     errors.append(f"cases[{index}].summary: {exc}")
                 else:
-                    if parsed.get("summary") != expected_summary:
+                    if not _summary_matches_recomputed(parsed.get("summary"), expected_summary):
                         errors.append(
                             f"cases[{index}].summary: does not recompute from raw samples"
                         )
