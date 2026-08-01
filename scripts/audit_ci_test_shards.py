@@ -269,6 +269,20 @@ def audit_ci_test_shards(
     if strategy.get("fail-fast") != "false":
         errors.append("jobs.test-shard.strategy.fail-fast must be false")
     shard_steps = _steps(shard_job, "jobs.test-shard", errors)
+    checkout_step = next(
+        (step for step in shard_steps if str(step.get("uses", "")).startswith("actions/checkout@")),
+        None,
+    )
+    if checkout_step is None:
+        errors.append("test-shard must check out the repository with actions/checkout")
+    else:
+        checkout_with = _mapping(
+            checkout_step.get("with"),
+            "jobs.test-shard.steps.actions/checkout.with",
+            errors,
+        )
+        if checkout_with.get("fetch-depth") != "0":
+            errors.append("test-shard checkout must set fetch-depth: 0 for evidence ancestry")
     test_step = _named_step(shard_steps, "Test with coverage")
     if test_step is None:
         errors.append("test-shard must contain `Test with coverage`")
