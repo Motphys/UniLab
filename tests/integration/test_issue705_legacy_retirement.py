@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from unilab.tools.issue705_legacy_retirement import (
     EVIDENCE_PATH,
     PLAN_PATH,
@@ -17,6 +19,7 @@ from unilab.tools.issue705_legacy_retirement import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.local_evidence
 def test_legacy_removal_requires_full_entrypoint_and_rollback_evidence() -> None:
     plan = load_legacy_retirement_plan(REPO_ROOT / PLAN_PATH)
     rollback = load_rollback_receipt(REPO_ROOT / ROLLBACK_PATH)
