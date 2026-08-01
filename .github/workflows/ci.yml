@@ -98,7 +98,9 @@ jobs:
           - shard: b
             paths: tests/dr tests/envs tests/integration tests/ipc tests/manager
           - shard: c
-            paths: tests/acceptance tests/scripts tests/terrains tests/tools tests/training tests/utils tests/visualization tests/test_*.py
+            paths: tests/acceptance tests/scripts
+          - shard: d
+            paths: tests/terrains tests/tools tests/training tests/utils tests/visualization tests/test_*.py
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2

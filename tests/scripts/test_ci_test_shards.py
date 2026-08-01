@@ -72,7 +72,7 @@ def test_current_ci_shards_cover_every_test_file_once() -> None:
     result = audit_ci_test_shards(root)
 
     assert result.ok, "\n".join(result.errors)
-    assert result.shards == ("a", "b", "c")
+    assert result.shards == ("a", "b", "c", "d")
     assert result.test_files > 0
 
 
