@@ -9,9 +9,9 @@ from typing import Any, Iterator
 
 import numpy as np
 import torch
-import warp as wp
 
 from ..batch import BackendBatchContractError
+from .dependencies import load_mjwarp_dependencies
 
 _MAX_TILE_DOF = 64
 _TILE_BLOCK_DIM = 128
@@ -21,9 +21,19 @@ _SUPPORTED_DIRECT_FIELDS = {
 }
 _SUPPORTED_KINDS = {"set_const_0", "set_const"}
 
+wp: Any
+
+
+@cache
+def _warp_module() -> Any:
+    global wp
+    wp = load_mjwarp_dependencies().warp
+    return wp
+
 
 @cache
 def _inverse_kernel(nv: int) -> Any:
+    _warp_module()
     matrix_area = nv * nv
 
     @wp.kernel(module="unique", enable_backward=False)
@@ -56,6 +66,8 @@ def _inverse_kernel(nv: int) -> Any:
 
 @cache
 def _dof_invweight_kernel(nv: int) -> Any:
+    _warp_module()
+
     @wp.kernel(module="unique", enable_backward=False)
     def kernel(
         active_mask: wp.array[bool],
@@ -94,6 +106,8 @@ def _dof_invweight_kernel(nv: int) -> Any:
 
 @cache
 def _body_invweight_kernel(nv: int) -> Any:
+    _warp_module()
+
     @wp.kernel(module="unique", enable_backward=False)
     def kernel(
         active_mask: wp.array[bool],
@@ -146,6 +160,8 @@ def _body_invweight_kernel(nv: int) -> Any:
 
 @cache
 def _actuator_acceleration_kernel(nv: int) -> Any:
+    _warp_module()
+
     @wp.kernel(module="unique", enable_backward=False)
     def kernel(
         active_mask: wp.array[bool],
@@ -173,6 +189,8 @@ def _actuator_acceleration_kernel(nv: int) -> Any:
 
 @cache
 def _tendon_invweight_kernel(nv: int) -> Any:
+    _warp_module()
+
     @wp.kernel(module="unique", enable_backward=False)
     def kernel(
         active_mask: wp.array[bool],
@@ -203,6 +221,8 @@ def _tendon_invweight_kernel(nv: int) -> Any:
 
 @cache
 def _mean_inertia_kernel(nv: int) -> Any:
+    _warp_module()
+
     @wp.kernel(module="unique", enable_backward=False)
     def kernel(
         active_mask: wp.array[bool],
@@ -310,6 +330,7 @@ class MjwarpArmatureRecomputeWorkspace:
     ) -> MjwarpArmatureRecomputeWorkspace:
         """Compile qpos0 dynamics and upload immutable sparse reference rows."""
 
+        warp = _warp_module()
         nv = int(model.nv)
         nbody = int(model.nbody)
         nu = int(model.nu)
@@ -364,7 +385,7 @@ class MjwarpArmatureRecomputeWorkspace:
             raise BackendBatchContractError(
                 "mjwarp armature recompute active mask has an invalid CUDA ABI"
             )
-        warp_active_mask = wp.from_torch(active_mask)
+        warp_active_mask = warp.from_torch(active_mask)
         if warp_active_mask.device != device or int(warp_active_mask.ptr) != int(
             active_mask.data_ptr()
         ):
@@ -373,7 +394,7 @@ class MjwarpArmatureRecomputeWorkspace:
             )
 
         def upload(value: np.ndarray, dtype: Any) -> Any:
-            return wp.array(np.ascontiguousarray(value), dtype=dtype, device=device)
+            return warp.array(np.ascontiguousarray(value), dtype=dtype, device=device)
 
         return cls(
             mujoco_warp=mujoco_warp,
@@ -388,7 +409,7 @@ class MjwarpArmatureRecomputeWorkspace:
             reference_mass=upload(reference_mass.astype(np.float32), float),
             default_armature=upload(np.asarray(model.dof_armature, dtype=np.float32), float),
             identity=upload(np.eye(nv, dtype=np.float32), float),
-            inverse_mass=wp.empty(
+            inverse_mass=warp.empty(
                 (num_worlds, nv * nv),
                 dtype=float,
                 device=device,
@@ -439,7 +460,8 @@ class MjwarpArmatureRecomputeWorkspace:
         if self._kind_value(kind) == "set_const":
             self.mujoco_warp.set_const_fixed(model, data)
 
-        wp.launch_tiled(
+        warp = _warp_module()
+        warp.launch_tiled(
             _inverse_kernel(self.nv),
             dim=self.num_worlds,
             inputs=[
@@ -452,7 +474,7 @@ class MjwarpArmatureRecomputeWorkspace:
             outputs=[self.inverse_mass],
             block_dim=_TILE_BLOCK_DIM,
         )
-        wp.launch(
+        warp.launch(
             _dof_invweight_kernel(self.nv),
             dim=(self.num_worlds, self.nv),
             inputs=[
@@ -464,7 +486,7 @@ class MjwarpArmatureRecomputeWorkspace:
             ],
             outputs=[model.dof_invweight0],
         )
-        wp.launch(
+        warp.launch(
             _body_invweight_kernel(self.nv),
             dim=(self.num_worlds, self.nbody),
             inputs=[
@@ -478,7 +500,7 @@ class MjwarpArmatureRecomputeWorkspace:
             outputs=[model.body_invweight0],
         )
         if self.nu:
-            wp.launch(
+            warp.launch(
                 _actuator_acceleration_kernel(self.nv),
                 dim=(self.num_worlds, self.nu),
                 inputs=[
@@ -491,7 +513,7 @@ class MjwarpArmatureRecomputeWorkspace:
                 outputs=[model.actuator_acc0],
             )
         if self.ntendon:
-            wp.launch(
+            warp.launch(
                 _tendon_invweight_kernel(self.nv),
                 dim=(self.num_worlds, self.ntendon),
                 inputs=[
@@ -503,7 +525,7 @@ class MjwarpArmatureRecomputeWorkspace:
                 ],
                 outputs=[model.tendon_invweight0],
             )
-        wp.launch(
+        warp.launch(
             _mean_inertia_kernel(self.nv),
             dim=model.stat.meaninertia.shape[0],
             inputs=[
