@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import unilab.tools.issue705_phase6_evidence as phase6_evidence
 from unilab.tools.issue705_phase6_evidence import (
     ARTIFACT_KIND,
     DR_PERFORMANCE_ARTIFACT,
@@ -96,6 +97,37 @@ def _valid_report() -> dict[str, Any]:
 
 def test_phase6_evidence_validator_accepts_complete_registered_report() -> None:
     assert validate_phase6_evidence(_valid_report(), root=REPO_ROOT) == ()
+
+
+def test_phase6_expanded_inputs_include_only_git_tracked_tree_files(tmp_path: Path) -> None:
+    subprocess.run(("git", "init", "--quiet"), cwd=tmp_path, check=True)
+    python_dir = tmp_path / "src/unilab/base/backend"
+    asset_dir = tmp_path / "src/unilab/assets/robots/g1"
+    python_dir.mkdir(parents=True)
+    asset_dir.mkdir(parents=True)
+    (tmp_path / ".gitignore").write_text("**/tmp*.xml\n", encoding="utf-8")
+    (python_dir / "tracked.py").write_text("TRACKED = True\n", encoding="utf-8")
+    (python_dir / "untracked.py").write_text("UNTRACKED = True\n", encoding="utf-8")
+    (asset_dir / "scene.xml").write_text("<mujoco/>\n", encoding="utf-8")
+    (asset_dir / "tmp-generated.xml").write_text("<mujoco/>\n", encoding="utf-8")
+    subprocess.run(
+        (
+            "git",
+            "add",
+            ".gitignore",
+            "src/unilab/base/backend/tracked.py",
+            "src/unilab/assets/robots/g1/scene.xml",
+        ),
+        cwd=tmp_path,
+        check=True,
+    )
+
+    expanded = set(phase6_evidence._expanded_inputs(tmp_path))
+
+    assert Path("src/unilab/base/backend/tracked.py") in expanded
+    assert Path("src/unilab/assets/robots/g1/scene.xml") in expanded
+    assert Path("src/unilab/base/backend/untracked.py") not in expanded
+    assert Path("src/unilab/assets/robots/g1/tmp-generated.xml") not in expanded
 
 
 def test_phase6_evidence_validator_fails_closed_for_capture_faults() -> None:
