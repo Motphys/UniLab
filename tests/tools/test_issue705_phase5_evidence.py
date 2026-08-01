@@ -7,6 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
 
+from benchmark.rl import benchmark_mjwarp_ppo as ppo_benchmark
+
 from unilab.tools.issue705_phase5_evidence import (
     ARTIFACT_KIND,
     ISSUE,
@@ -162,6 +164,23 @@ def test_phase5_ppo_source_matrix_aggregate_profile_trace_and_threshold_faults_f
         mutate(tampered)
         errors = validate_ppo_benchmark_payload(tampered, root=REPO_ROOT)
         assert any(expected in error for error in errors), (expected, errors)
+
+
+def test_phase5_standard_validation_defers_only_the_live_host_probe(monkeypatch) -> None:
+    artifact = load_ppo_benchmark_artifact(REPO_ROOT)
+
+    def fail_live_probe(_plan: object) -> dict[str, Any]:
+        raise RuntimeError("live probe invoked")
+
+    monkeypatch.setattr(ppo_benchmark, "_hardware_payload", fail_live_probe)
+    assert validate_ppo_benchmark_payload(artifact, root=REPO_ROOT) == ()
+
+    errors = validate_ppo_benchmark_payload(
+        artifact,
+        root=REPO_ROOT,
+        validate_live_hardware=True,
+    )
+    assert any("hardware validation failed" in error for error in errors)
 
 
 def test_phase5_claim_mapping_and_freshness_inputs_are_exact() -> None:
