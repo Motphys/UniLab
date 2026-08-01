@@ -86,6 +86,43 @@ jobs:
       - name: Check
         run: uv run pyright
 
+  benchmark-smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          python-version: '3.11'
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwayland-client0
+      - name: Install dependencies
+        run: |
+          uv sync --extra mujoco --extra motrix \
+            --no-install-package torch \
+            --no-install-package nvidia-cublas-cu12 \
+            --no-install-package nvidia-cuda-cupti-cu12 \
+            --no-install-package nvidia-cuda-nvrtc-cu12 \
+            --no-install-package nvidia-cuda-runtime-cu12 \
+            --no-install-package nvidia-cudnn-cu12 \
+            --no-install-package nvidia-cufft-cu12 \
+            --no-install-package nvidia-cufile-cu12 \
+            --no-install-package nvidia-curand-cu12 \
+            --no-install-package nvidia-cusolver-cu12 \
+            --no-install-package nvidia-cusparse-cu12 \
+            --no-install-package nvidia-cusparselt-cu12 \
+            --no-install-package nvidia-nccl-cu12 \
+            --no-install-package nvidia-nvjitlink-cu12 \
+            --no-install-package nvidia-nvtx-cu12 \
+            --no-install-package triton
+          uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Benchmark entrypoint smoke test
+        run: uv run --no-sync python benchmark/smoke_test.py
+
   test-shard:
     name: test shard (${{ matrix.shard }})
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
@@ -94,13 +131,41 @@ jobs:
       matrix:
         include:
           - shard: a
-            paths: tests/algos tests/assets tests/base tests/benchmark tests/config
+            paths: tests/algos tests/assets tests/base
           - shard: b
             paths: tests/dr tests/envs tests/integration tests/ipc tests/manager
           - shard: c
-            paths: tests/acceptance tests/scripts
+            paths: tests/acceptance
           - shard: d
             paths: tests/terrains tests/tools tests/training tests/utils tests/visualization tests/test_*.py
+          - shard: e
+            paths: tests/benchmark
+          - shard: f
+            paths: tests/config
+          - shard: g
+            paths: tests/scripts/test_issue705_final_gate.py
+          - shard: h
+            paths: >-
+              tests/scripts/test_check_docs.py
+              tests/scripts/test_ci_test_shards.py
+              tests/scripts/test_drake_training_smoke.py
+              tests/scripts/test_issue705_claim_gap_audit.py
+              tests/scripts/test_issue705_dr_inventory.py
+              tests/scripts/test_issue705_g1_baseline.py
+              tests/scripts/test_issue705_legacy_retirement_audit.py
+              tests/scripts/test_issue705_phase_acceptance.py
+              tests/scripts/test_issue705_support_audit.py
+              tests/scripts/test_issue705_task_rollout_audit.py
+              tests/scripts/test_issue705_thresholds.py
+              tests/scripts/test_issue705_workflow_audit.py
+              tests/scripts/test_mujoco_only_tooling_markers.py
+              tests/scripts/test_obs_alignment_g1_wbt.py
+              tests/scripts/test_repo_hygiene.py
+              tests/scripts/test_support_matrix.py
+              tests/scripts/test_torch_cuda_source.py
+              tests/scripts/test_train_script_configs.py
+              tests/scripts/test_train_scripts.py
+              tests/scripts/test_visualization_entrypoints.py
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
@@ -135,14 +200,13 @@ jobs:
             --no-install-package nvidia-nvtx-cu12 \
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
-      - name: Benchmark entrypoint smoke test
-        run: uv run --no-sync python benchmark/smoke_test.py
       - name: Test with coverage
         env:
           COVERAGE_FILE: coverage.${{ matrix.shard }}
         run: >-
           uv run --no-sync pytest ${{ matrix.paths }}
           -m "not slow and not local_evidence"
+          -x
           --cov=src/unilab --cov-report= --cov-fail-under=0
       - name: Upload coverage data
         uses: actions/upload-artifact@v4
@@ -155,17 +219,20 @@ jobs:
   test:
     name: test (ubuntu-slim)
     if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
-    needs: test-shard
+    needs: [benchmark-smoke, test-shard]
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
           persist-credentials: false
-      - name: Require all test shards
+      - name: Require smoke and all test shards
         env:
+          BENCHMARK_SMOKE_RESULT: ${{ needs.benchmark-smoke.result }}
           TEST_SHARD_RESULT: ${{ needs.test-shard.result }}
-        run: test "$TEST_SHARD_RESULT" = success
+        run: |
+          test "$BENCHMARK_SMOKE_RESULT" = success
+          test "$TEST_SHARD_RESULT" = success
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
       - name: Install validation dependencies

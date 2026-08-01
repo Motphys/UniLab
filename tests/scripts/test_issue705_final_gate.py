@@ -14,7 +14,6 @@ from unilab.tools.issue705_final_gate import (
     ARTIFACT_PATH,
     PLAN_PATH,
     FinalGatePlanError,
-    FinalGateReport,
     _phase7_immutable_semantics,
     _source_snapshot,
     command_evidence_errors,
@@ -119,9 +118,12 @@ def test_final_command_matrix_rejects_skip_deselect_tamper_and_missing_repetitio
 
 
 def test_malformed_final_artifact_fails_closed(monkeypatch) -> None:
+    def _unexpected_head_validation(*args, **kwargs):
+        raise AssertionError("malformed artifacts must fail before current-head validation")
+
     monkeypatch.setattr(
         "unilab.tools.issue705_final_gate.validate_final_head",
-        lambda *args, **kwargs: FinalGateReport(components=(), errors=()),
+        _unexpected_head_validation,
     )
     malformed = {
         "plan": [],
