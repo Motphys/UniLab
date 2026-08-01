@@ -963,6 +963,7 @@ def test_train_launcher_uses_production_cli_without_broken_hydra_logging_overrid
     assert not any(argument.startswith("hydra/hydra_logging=") for argument in command)
 
 
+@pytest.mark.local_evidence
 def test_dr_profiles_meet_preregistered_density_gates(
     plan: contract.MjwarpDrPerformancePlan,
     receipt: contract.MjwarpDrPerformanceFreezeReceipt,

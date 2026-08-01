@@ -262,6 +262,7 @@ def test_artifact_validator_accepts_complete_paired_frozen_matrix() -> None:
     )
 
 
+@pytest.mark.local_evidence
 def test_fused_host_meets_preregistered_gate() -> None:
     """The committed raw matrix must independently re-pass every frozen gate."""
 

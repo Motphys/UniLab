@@ -59,6 +59,7 @@ def test_env_config_uses_owner_then_applies_frozen_benchmark_profile() -> None:
     assert enabled.chunk_size is None
 
 
+@pytest.mark.local_evidence
 def test_subprocess_is_uv_run_and_enforces_cpu_affinity() -> None:
     plan = _load_plan(DEFAULT_PLAN)
     command = [

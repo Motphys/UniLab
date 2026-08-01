@@ -1,0 +1,384 @@
+"""Audit the standard CI test sharding and coverage aggregation contract.
+
+uv run scripts/audit_ci_test_shards.py
+uv run scripts/audit_ci_test_shards.py --json
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW_PATH = Path(".github/workflows/ci.yml")
+TEST_ROOT = Path("tests")
+LOCAL_EVIDENCE_EXPRESSION = "not slow and not local_evidence"
+EXPECTED_LOCAL_EVIDENCE_TEST_IDS = frozenset(
+    {
+        "tests/benchmark/test_issue705_g1_baseline_runner.py::"
+        "test_subprocess_is_uv_run_and_enforces_cpu_affinity",
+        "tests/benchmark/test_issue705_training_behavior.py::"
+        "test_all_paired_seeds_meet_frozen_behavior_gates",
+        "tests/benchmark/test_managed_g1_host_benchmark.py::"
+        "test_fused_host_meets_preregistered_gate",
+        "tests/benchmark/test_mjwarp_dr_benchmark.py::"
+        "test_dr_profiles_meet_preregistered_density_gates",
+        "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate",
+        "tests/integration/test_issue705_legacy_retirement.py::"
+        "test_legacy_removal_requires_full_entrypoint_and_rollback_evidence",
+    }
+)
+
+
+@dataclass(frozen=True)
+class CiTestShardAuditResult:
+    shards: tuple[str, ...]
+    test_files: int
+    local_evidence_tests: tuple[str, ...]
+    errors: tuple[str, ...]
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
+def _mapping(value: Any, label: str, errors: list[str]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be a mapping")
+        return {}
+    return value
+
+
+def _steps(job: dict[str, Any], label: str, errors: list[str]) -> list[dict[str, Any]]:
+    raw_steps = job.get("steps")
+    if not isinstance(raw_steps, list) or not raw_steps:
+        errors.append(f"{label}.steps must be a non-empty list")
+        return []
+    if not all(isinstance(step, dict) for step in raw_steps):
+        errors.append(f"{label}.steps must contain only mappings")
+        return []
+    return raw_steps
+
+
+def _named_step(steps: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    return next((step for step in steps if step.get("name") == name), None)
+
+
+def _matches_test_path(relative_file: Path, route: str, root: Path) -> bool:
+    if any(character in route for character in "*?["):
+        return relative_file.match(route)
+    route_path = Path(route)
+    absolute_route = root / route_path
+    if absolute_route.is_dir():
+        return relative_file == route_path or route_path in relative_file.parents
+    return relative_file == route_path
+
+
+def _test_files(root: Path) -> tuple[Path, ...]:
+    tests_root = root / TEST_ROOT
+    if not tests_root.is_dir():
+        return ()
+    return tuple(
+        sorted(path.relative_to(root) for path in tests_root.rglob("test*.py") if path.is_file())
+    )
+
+
+def _is_local_evidence_marker(node: ast.expr) -> bool:
+    if isinstance(node, ast.Call):
+        node = node.func
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "local_evidence"
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+    )
+
+
+def _contains_local_evidence_marker(node: ast.AST) -> bool:
+    return any(
+        isinstance(candidate, ast.expr) and _is_local_evidence_marker(candidate)
+        for candidate in ast.walk(node)
+    )
+
+
+class _LocalEvidenceVisitor(ast.NodeVisitor):
+    def __init__(self, relative_file: Path) -> None:
+        self.relative_file = relative_file
+        self.class_names: list[str] = []
+        self.test_ids: list[str] = []
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.class_names.append(node.name)
+        if any(_is_local_evidence_marker(decorator) for decorator in node.decorator_list):
+            parts = [self.relative_file.as_posix(), *self.class_names, "<class>"]
+            self.test_ids.append("::".join(parts))
+        for statement in node.body:
+            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+            if any(
+                isinstance(target, ast.Name) and target.id == "pytestmark" for target in targets
+            ):
+                if statement.value is not None and _contains_local_evidence_marker(statement.value):
+                    parts = [self.relative_file.as_posix(), *self.class_names, "<pytestmark>"]
+                    self.test_ids.append("::".join(parts))
+        self.generic_visit(node)
+        self.class_names.pop()
+
+    def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        if any(_is_local_evidence_marker(decorator) for decorator in node.decorator_list):
+            parts = [self.relative_file.as_posix(), *self.class_names, node.name]
+            self.test_ids.append("::".join(parts))
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self._visit_function(node)
+
+
+def _local_evidence_test_ids(
+    root: Path,
+    test_files: tuple[Path, ...],
+    errors: list[str],
+) -> tuple[str, ...]:
+    test_ids: list[str] = []
+    for relative_file in test_files:
+        path = root / relative_file
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(relative_file))
+        except (OSError, UnicodeError, SyntaxError) as exc:
+            errors.append(
+                f"{relative_file}: cannot parse test marker scope: {type(exc).__name__}: {exc}"
+            )
+            continue
+        for statement in tree.body:
+            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+            value = statement.value
+            if any(
+                isinstance(target, ast.Name) and target.id == "pytestmark" for target in targets
+            ):
+                if value is not None and _contains_local_evidence_marker(value):
+                    test_ids.append(f"{relative_file.as_posix()}::<module>")
+        visitor = _LocalEvidenceVisitor(relative_file)
+        visitor.visit(tree)
+        test_ids.extend(visitor.test_ids)
+    return tuple(sorted(test_ids))
+
+
+def audit_ci_test_shards(
+    root: Path = REPO_ROOT,
+    *,
+    expected_local_evidence_test_ids: frozenset[str] = EXPECTED_LOCAL_EVIDENCE_TEST_IDS,
+) -> CiTestShardAuditResult:
+    errors: list[str] = []
+    workflow_path = root / WORKFLOW_PATH
+    try:
+        workflow = yaml.load(workflow_path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        return CiTestShardAuditResult(
+            shards=(),
+            test_files=0,
+            local_evidence_tests=(),
+            errors=(f"{WORKFLOW_PATH}: cannot parse workflow: {type(exc).__name__}: {exc}",),
+        )
+
+    workflow_map = _mapping(workflow, str(WORKFLOW_PATH), errors)
+    jobs = _mapping(workflow_map.get("jobs"), "jobs", errors)
+    shard_job = _mapping(jobs.get("test-shard"), "jobs.test-shard", errors)
+    aggregate_job = _mapping(jobs.get("test"), "jobs.test", errors)
+
+    strategy = _mapping(shard_job.get("strategy"), "jobs.test-shard.strategy", errors)
+    matrix = _mapping(strategy.get("matrix"), "jobs.test-shard.strategy.matrix", errors)
+    raw_includes = matrix.get("include")
+    includes: list[dict[str, Any]] = []
+    if not isinstance(raw_includes, list) or not raw_includes:
+        errors.append("jobs.test-shard.strategy.matrix.include must be a non-empty list")
+    elif not all(isinstance(entry, dict) for entry in raw_includes):
+        errors.append("jobs.test-shard.strategy.matrix.include must contain only mappings")
+    else:
+        includes = raw_includes
+
+    shard_routes: dict[str, tuple[str, ...]] = {}
+    all_routes: list[str] = []
+    for index, entry in enumerate(includes):
+        shard = entry.get("shard")
+        paths = entry.get("paths")
+        if not isinstance(shard, str) or not shard:
+            errors.append(f"matrix.include[{index}].shard must be a non-empty string")
+            continue
+        if shard in shard_routes:
+            errors.append(f"duplicate shard name: {shard}")
+            continue
+        if not isinstance(paths, str) or not paths.split():
+            errors.append(f"matrix.include[{index}].paths must be a non-empty string")
+            continue
+        routes = tuple(paths.split())
+        invalid = [route for route in routes if not route.startswith("tests/")]
+        if invalid:
+            errors.append(f"shard {shard} has routes outside tests/: {invalid}")
+        shard_routes[shard] = routes
+        all_routes.extend(routes)
+
+    duplicate_routes = sorted({route for route in all_routes if all_routes.count(route) > 1})
+    if duplicate_routes:
+        errors.append(f"test routes appear more than once: {duplicate_routes}")
+
+    test_files = _test_files(root)
+    if not test_files:
+        errors.append(f"{TEST_ROOT}: no test*.py files found")
+    local_evidence_test_ids = _local_evidence_test_ids(root, test_files, errors)
+    actual_local_evidence = set(local_evidence_test_ids)
+    missing_local_evidence = sorted(expected_local_evidence_test_ids - actual_local_evidence)
+    unexpected_local_evidence = sorted(actual_local_evidence - expected_local_evidence_test_ids)
+    if missing_local_evidence:
+        errors.append(f"local_evidence nodes are missing markers: {missing_local_evidence}")
+    if unexpected_local_evidence:
+        errors.append(f"unregistered local_evidence nodes: {unexpected_local_evidence}")
+    route_hits = dict.fromkeys(all_routes, 0)
+    for test_file in test_files:
+        matched_routes = [
+            (shard, route)
+            for shard, routes in shard_routes.items()
+            for route in routes
+            if _matches_test_path(test_file, route, root)
+        ]
+        for _, route in matched_routes:
+            route_hits[route] += 1
+        if len(matched_routes) != 1:
+            errors.append(
+                f"{test_file} must match exactly one shard route; got {matched_routes or 'none'}"
+            )
+    empty_routes = sorted(route for route, hits in route_hits.items() if hits == 0)
+    if empty_routes:
+        errors.append(f"test routes match no test files: {empty_routes}")
+
+    if shard_job.get("runs-on") != "ubuntu-slim":
+        errors.append("jobs.test-shard.runs-on must be ubuntu-slim")
+    if strategy.get("fail-fast") != "false":
+        errors.append("jobs.test-shard.strategy.fail-fast must be false")
+    shard_steps = _steps(shard_job, "jobs.test-shard", errors)
+    test_step = _named_step(shard_steps, "Test with coverage")
+    if test_step is None:
+        errors.append("test-shard must contain `Test with coverage`")
+    else:
+        command = test_step.get("run")
+        environment = test_step.get("env")
+        if not isinstance(command, str) or "${{ matrix.paths }}" not in command:
+            errors.append("test command must execute `${{ matrix.paths }}`")
+        if not isinstance(command, str) or LOCAL_EVIDENCE_EXPRESSION not in command:
+            errors.append(f"test command must select `{LOCAL_EVIDENCE_EXPRESSION}`")
+        if not isinstance(command, str) or "--cov=src/unilab" not in command:
+            errors.append("test shards must measure coverage for src/unilab")
+        if not isinstance(command, str) or "--cov-report=" not in command:
+            errors.append("test shards must defer coverage reporting to aggregation")
+        if not isinstance(command, str) or "--cov-fail-under=0" not in command:
+            errors.append("test shards must defer the coverage threshold to aggregation")
+        if not isinstance(environment, dict) or environment.get("COVERAGE_FILE") != (
+            "coverage.${{ matrix.shard }}"
+        ):
+            errors.append("test shards must write a unique coverage.${{ matrix.shard }} file")
+    upload_step = _named_step(shard_steps, "Upload coverage data")
+    if upload_step is None or not str(upload_step.get("uses", "")).startswith(
+        "actions/upload-artifact@"
+    ):
+        errors.append("test-shard must upload coverage with actions/upload-artifact")
+    else:
+        upload_with = _mapping(
+            upload_step.get("with"),
+            "jobs.test-shard.steps.Upload coverage data.with",
+            errors,
+        )
+        if upload_with.get("name") != "coverage-${{ matrix.shard }}":
+            errors.append("coverage artifact name must include matrix.shard")
+        if upload_with.get("path") != "coverage.${{ matrix.shard }}":
+            errors.append("coverage artifact path must match COVERAGE_FILE")
+        if upload_with.get("if-no-files-found") != "error":
+            errors.append("coverage upload must fail when its data file is missing")
+
+    if aggregate_job.get("name") != "test (ubuntu-slim)":
+        errors.append("aggregate test job must preserve the `test (ubuntu-slim)` check name")
+    if aggregate_job.get("needs") != "test-shard":
+        errors.append("aggregate test job must need test-shard")
+    if "always()" not in str(aggregate_job.get("if", "")):
+        errors.append("aggregate test job must run with always() and fail closed on shard failure")
+    aggregate_steps = _steps(aggregate_job, "jobs.test", errors)
+    require_step = _named_step(aggregate_steps, "Require all test shards")
+    if require_step is None or "TEST_SHARD_RESULT" not in str(require_step.get("run", "")):
+        errors.append("aggregate test job must explicitly reject a failed shard result")
+    elif (
+        not isinstance(require_step.get("env"), dict)
+        or require_step["env"].get("TEST_SHARD_RESULT") != "${{ needs.test-shard.result }}"
+    ):
+        errors.append("aggregate test job must read the test-shard result from needs")
+    download_step = _named_step(aggregate_steps, "Download coverage data")
+    if download_step is None or not str(download_step.get("uses", "")).startswith(
+        "actions/download-artifact@"
+    ):
+        errors.append("aggregate test job must download every coverage artifact")
+    else:
+        download_with = _mapping(
+            download_step.get("with"),
+            "jobs.test.steps.Download coverage data.with",
+            errors,
+        )
+        if download_with.get("pattern") != "coverage-*":
+            errors.append("coverage download must select every shard artifact")
+        if download_with.get("path") != "coverage-data":
+            errors.append("coverage download path must be coverage-data")
+        if download_with.get("merge-multiple") != "true":
+            errors.append("coverage download must merge all shard artifacts")
+    audit_step = _named_step(aggregate_steps, "Audit test shard coverage")
+    if audit_step is None or "scripts/audit_ci_test_shards.py" not in str(
+        audit_step.get("run", "")
+    ):
+        errors.append("aggregate test job must execute the shard audit")
+    combine_step = _named_step(aggregate_steps, "Combine coverage")
+    combine_command = "" if combine_step is None else str(combine_step.get("run", ""))
+    if (
+        "coverage combine coverage-data/coverage.*" not in combine_command
+        or "--fail-under=25" not in combine_command
+    ):
+        errors.append("aggregate test job must combine coverage and enforce --fail-under=25")
+
+    return CiTestShardAuditResult(
+        shards=tuple(shard_routes),
+        test_files=len(test_files),
+        local_evidence_tests=local_evidence_test_ids,
+        errors=tuple(errors),
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    result = audit_ci_test_shards()
+    if args.json:
+        print(json.dumps(asdict(result), indent=2))
+    elif result.ok:
+        print(
+            "PASS CI test shards: "
+            f"shards={len(result.shards)} test_files={result.test_files} "
+            f"local_evidence_tests={len(result.local_evidence_tests)}"
+        )
+    else:
+        print("FAIL CI test shard audit")
+        for error in result.errors:
+            print(f"- {error}")
+    return 0 if result.ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
