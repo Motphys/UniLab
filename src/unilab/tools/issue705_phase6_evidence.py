@@ -215,9 +215,7 @@ def _tracked_files(root: Path, paths: tuple[Path, ...]) -> tuple[Path, ...]:
             capture_output=True,
             check=True,
         ).stdout
-        tracked = {
-            Path(item.decode("utf-8")) for item in raw.split(b"\0") if item
-        }
+        tracked = {Path(item.decode("utf-8")) for item in raw.split(b"\0") if item}
     except (OSError, subprocess.CalledProcessError, UnicodeDecodeError) as exc:
         raise PhaseEvidenceError(f"cannot enumerate tracked Phase 6 inputs: {exc}") from exc
     return tuple(sorted(tracked, key=Path.as_posix))
@@ -226,9 +224,7 @@ def _tracked_files(root: Path, paths: tuple[Path, ...]) -> tuple[Path, ...]:
 def _expanded_inputs(root: Path) -> tuple[Path, ...]:
     inputs = set(_STATIC_INPUTS)
     inputs.update(
-        path
-        for path in _tracked_files(root, _PYTHON_INPUT_TREES)
-        if path.suffix == ".py"
+        path for path in _tracked_files(root, _PYTHON_INPUT_TREES) if path.suffix == ".py"
     )
     inputs.update(_tracked_files(root, _ASSET_INPUT_TREES))
     return tuple(sorted(inputs, key=Path.as_posix))
