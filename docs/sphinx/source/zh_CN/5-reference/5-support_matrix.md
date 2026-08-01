@@ -45,6 +45,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `mjwarp` 不继承 entrypoint 级的通用 `Tested` 标记；其 `Tested` 及以上等级必须来自 `tests/acceptance/issue_705/support_evidence.yaml` 中的逐组合声明，并通过双向审计。
 Phase 7 task rollout 完成前，任何 `mjwarp` 组合都不得提升为 `Recommended`。
+`Recommended` 只适用于矩阵中声明的 entrypoint、task owner、backend 和 execution profile；不隐含未声明的原生 play/visualization 能力。当前 `mjwarp` 原生 play/visualization 仍显式 fail closed。
 
 ### Entrypoint x Task Owner
 
@@ -53,7 +54,7 @@ Phase 7 task rollout 完成前，任何 `mjwarp` 组合都不得提升为 `Recom
 | PPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
 | PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
 | PPO (torch) | `go2_joystick_rough` (Go2 joystick rough) | Tested | - | Tested |
-| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Benchmarked | Tested |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Recommended | Tested |
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested |
 | PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested |
