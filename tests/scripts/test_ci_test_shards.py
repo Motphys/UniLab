@@ -26,6 +26,9 @@ jobs:
           - shard: b
             paths: {paths_b}
     steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
       - name: Test with coverage
         env:
           COVERAGE_FILE: coverage.${{{{ matrix.shard }}}}
@@ -103,6 +106,23 @@ def test_audit_requires_local_evidence_filter(tmp_path: Path) -> None:
 
     assert not result.ok
     assert any("not slow and not local_evidence" in error for error in result.errors)
+
+
+def test_audit_requires_full_git_history_for_evidence_ancestry(tmp_path: Path) -> None:
+    _write_fixture(
+        tmp_path,
+        paths_a="tests/a",
+        paths_b="tests/b",
+        selection="not slow and not local_evidence",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    content = workflow.read_text(encoding="utf-8")
+    workflow.write_text(content.replace("fetch-depth: 0", "fetch-depth: 1"), encoding="utf-8")
+
+    result = _audit_fixture(tmp_path)
+
+    assert not result.ok
+    assert any("fetch-depth: 0" in error for error in result.errors)
 
 
 def test_audit_requires_fail_closed_coverage_aggregation(tmp_path: Path) -> None:
