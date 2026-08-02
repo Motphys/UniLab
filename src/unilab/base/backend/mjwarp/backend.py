@@ -2411,6 +2411,7 @@ class MjwarpBackend(SimBackend):
                 reset_graph_launches=self._device_reset_graph_launches,
                 forward_graph_launches=self._device_forward_graph_launches,
                 state_refreshes=self._device_state_refreshes,
+                invalid_model_sample_rows=(runtime_plan.materialize_invalid_model_sample_rows()),
             ),
             graph=self.get_device_graph_diagnostics(verify_storage=True),
         )
@@ -2722,7 +2723,7 @@ class MjwarpBackend(SimBackend):
                 mutation_batch,
                 active_mask=active_mask,
             )
-            bridge.reset_mask.copy_(effective_mask, non_blocking=True)
+            bridge.reset_mask.copy_(active_mask, non_blocking=True)
             with self._warp.ScopedStream(bridge.warp_physics_stream):
                 self._warp.capture_launch(graph_bundle.reset_graph)
                 self._device_graph_launches += 1
@@ -2762,7 +2763,7 @@ class MjwarpBackend(SimBackend):
                     mutation_batch,
                     qpos=bridge.qpos,
                     qvel=bridge.qvel,
-                    active_mask=effective_mask,
+                    active_mask=active_mask,
                 )
                 if timing is not None:
                     timing[0].begin_backend_phase(
@@ -3074,7 +3075,15 @@ class MjwarpBackend(SimBackend):
             )
         self._pre_step_control_fn = None
 
+    def _require_legacy_host_runtime(self, operation: str) -> None:
+        if self._device_batch_plans or self._device_mutation_plans:
+            raise BackendBatchContractError(
+                f"mjwarp legacy {operation} is unavailable after a device_resident plan is "
+                "bound; use the typed device batch API"
+            )
+
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict[str, dict[str, float]]:
+        self._require_legacy_host_runtime("step()")
         if isinstance(nsteps, bool) or int(nsteps) <= 0:
             raise ValueError(f"nsteps must be a positive integer, got {nsteps!r}")
         ctrl_array = np.asarray(ctrl, dtype=np.float32)
@@ -3092,6 +3101,7 @@ class MjwarpBackend(SimBackend):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> dict[str, dict[str, float]]:
+        self._require_legacy_host_runtime("set_state()")
         if randomization is not None and not randomization.is_empty():
             requested = ", ".join(sorted(randomization.requested_terms()))
             raise NotImplementedError(
@@ -3154,25 +3164,31 @@ class MjwarpBackend(SimBackend):
             )
 
     def get_base_pos(self) -> np.ndarray:
+        self._require_legacy_host_runtime("get_base_pos()")
         self._require_free_root("get_base_pos")
         return self._qpos_cache[:, 0:3]
 
     def get_base_quat(self) -> np.ndarray:
+        self._require_legacy_host_runtime("get_base_quat()")
         self._require_free_root("get_base_quat")
         return self._qpos_cache[:, 3:7]
 
     def get_base_lin_vel(self) -> np.ndarray:
+        self._require_legacy_host_runtime("get_base_lin_vel()")
         self._require_free_root("get_base_lin_vel")
         return self._qvel_cache[:, 0:3]
 
     def get_base_ang_vel(self) -> np.ndarray:
+        self._require_legacy_host_runtime("get_base_ang_vel()")
         self._require_free_root("get_base_ang_vel")
         return self._qvel_cache[:, 3:6]
 
     def get_dof_pos(self) -> np.ndarray:
+        self._require_legacy_host_runtime("get_dof_pos()")
         return self._qpos_cache[:, self._root_qpos_dim :]
 
     def get_dof_vel(self) -> np.ndarray:
+        self._require_legacy_host_runtime("get_dof_vel()")
         return self._qvel_cache[:, self._root_qvel_dim :]
 
     def _unsupported_body_kinematics(self, operation: str) -> None:
@@ -3214,6 +3230,7 @@ class MjwarpBackend(SimBackend):
         self._unsupported_body_kinematics("base-frame body angular velocities")
 
     def get_sensor_data(self, name: str) -> np.ndarray:
+        self._require_legacy_host_runtime("get_sensor_data()")
         try:
             address, dimension = self._sensor_slots[name]
         except KeyError as exc:

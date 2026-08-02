@@ -945,7 +945,7 @@ def test_recompute_receipt_roles_and_storage_identity_fail_closed() -> None:
 
 
 @pytest.mark.slow
-def test_invalid_model_rows_are_gated_before_recompute_and_state_reset() -> None:
+def test_invalid_model_rows_skip_recompute_but_still_reset_state() -> None:
     key = PlanKey("joint.armature", MutationOperation.SCALE, mixed_state=True)
     with model_mutation_runtime(num_envs=6, plan_keys=(key,)) as runtime:
         runtime.restore_compiled_model_defaults()
@@ -967,7 +967,7 @@ def test_invalid_model_rows_are_gated_before_recompute_and_state_reset() -> None
             values[4] = torch.finfo(torch.float32).max
             buffers.values["state.position"][:, 0, 0] = 0.37
             buffers.values["state.velocity"][:, 0, 0] = 0.0
-            state_before = runtime.backend._ensure_device_bridge().qpos.clone()
+            diagnostics_before = runtime.backend.get_mutation_performance_diagnostics(plan)
 
             with forbid_host_roundtrip(runtime.backend):
                 result = _reset_with_buffers(runtime, buffers)
@@ -989,12 +989,13 @@ def test_invalid_model_rows_are_gated_before_recompute_and_state_reset() -> None
         )
         reset_position = state_tensor(result.reset_state, "dof.position")
         torch.testing.assert_close(
-            reset_position[0, runtime.dof_position_index],
-            torch.tensor(0.37, device=runtime.device),
+            reset_position[[0, 1, 2, 3, 4], runtime.dof_position_index],
+            torch.full((5,), 0.37, dtype=torch.float32, device=runtime.device),
         )
-        torch.testing.assert_close(
-            runtime.backend._ensure_device_bridge().qpos[[1, 2, 3, 4]],
-            state_before[[1, 2, 3, 4]],
+        diagnostics_after = runtime.backend.get_mutation_performance_diagnostics(plan)
+        assert (
+            diagnostics_after.lifecycle.invalid_model_sample_rows
+            == diagnostics_before.lifecycle.invalid_model_sample_rows + 4
         )
 
 
