@@ -11,7 +11,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-SUPPORT-MATRIX",
-      "duration_sec": 11.59489205700811,
+      "duration_sec": 11.531216914998367,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_support_matrix#1",
@@ -26,7 +26,7 @@
       "required_test_id": "tests/scripts/test_issue705_support_audit.py::test_supported_combinations_have_fresh_bidirectional_evidence",
       "series": "lane_a_support_matrix",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/scripts/test_issue705_support_audit.py::test_supported_combinations_have_fresh_bidirectional_evidence PASSED [100%]\n\n============================== 1 passed in 9.48s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/scripts/test_issue705_support_audit.py::test_supported_combinations_have_fresh_bidirectional_evidence PASSED [100%]\n\n============================== 1 passed in 9.56s ===============================\n"
     },
     {
       "argv": [
@@ -42,7 +42,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TASK-ROLLOUT",
-      "duration_sec": 18.318327991990373,
+      "duration_sec": 16.357562452962156,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_task_rollout#1",
@@ -57,7 +57,7 @@
       "required_test_id": "tests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix",
       "series": "lane_c_task_rollout",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix PASSED [100%]\n\n============================== 1 passed in 15.19s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix PASSED [100%]\n\n============================== 1 passed in 13.78s ==============================\n"
     },
     {
       "argv": [
@@ -73,7 +73,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TASK-ROLLOUT",
-      "duration_sec": 18.23765251401346,
+      "duration_sec": 16.625852851953823,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_task_rollout#2",
@@ -88,7 +88,7 @@
       "required_test_id": "tests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix",
       "series": "lane_c_task_rollout",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix PASSED [100%]\n\n============================== 1 passed in 15.10s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_mjwarp_task_rollout.py::test_promoted_tasks_pass_capability_derived_matrix PASSED [100%]\n\n============================== 1 passed in 14.11s ==============================\n"
     },
     {
       "argv": [
@@ -100,7 +100,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TRAINING-BEHAVIOR",
-      "duration_sec": 3.2255026600323617,
+      "duration_sec": 2.953665932000149,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_training_behavior#1",
@@ -115,7 +115,7 @@
       "required_test_id": "tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates",
       "series": "lane_d_training_behavior",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.17s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.26s ===============================\n"
     },
     {
       "argv": [
@@ -127,7 +127,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TRAINING-BEHAVIOR",
-      "duration_sec": 3.2756466999999247,
+      "duration_sec": 2.950492689036764,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_training_behavior#2",
@@ -142,7 +142,7 @@
       "required_test_id": "tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates",
       "series": "lane_d_training_behavior",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.27s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.26s ===============================\n"
     },
     {
       "argv": [
@@ -154,7 +154,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TRAINING-BEHAVIOR",
-      "duration_sec": 3.29808725300245,
+      "duration_sec": 2.9594122319831513,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_training_behavior#3",
@@ -169,7 +169,7 @@
       "required_test_id": "tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates",
       "series": "lane_d_training_behavior",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.23s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.25s ===============================\n"
     },
     {
       "argv": [
@@ -181,7 +181,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TRAINING-BEHAVIOR",
-      "duration_sec": 3.2384744440205395,
+      "duration_sec": 3.454583131009713,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_training_behavior#4",
@@ -196,7 +196,7 @@
       "required_test_id": "tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates",
       "series": "lane_d_training_behavior",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.19s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.33s ===============================\n"
     },
     {
       "argv": [
@@ -208,7 +208,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-TRAINING-BEHAVIOR",
-      "duration_sec": 3.374726373993326,
+      "duration_sec": 3.0506651240284555,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_training_behavior#5",
@@ -223,7 +223,7 @@
       "required_test_id": "tests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates",
       "series": "lane_d_training_behavior",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.30s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_issue705_training_behavior.py::test_all_paired_seeds_meet_frozen_behavior_gates PASSED [100%]\n\n============================== 1 passed in 1.28s ===============================\n"
     },
     {
       "argv": [
@@ -239,7 +239,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-ENTRYPOINT-MATRIX",
-      "duration_sec": 134.77948902599746,
+      "duration_sec": 121.71812668599887,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_entrypoint_matrix#1",
@@ -254,7 +254,7 @@
       "required_test_id": "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix",
       "series": "lane_b_entrypoint_matrix",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 131.64s (0:02:11) =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 119.12s (0:01:59) =========================\n"
     },
     {
       "argv": [
@@ -270,7 +270,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-ENTRYPOINT-MATRIX",
-      "duration_sec": 134.78967946500052,
+      "duration_sec": 120.77245844202116,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_entrypoint_matrix#2",
@@ -285,7 +285,7 @@
       "required_test_id": "tests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix",
       "series": "lane_b_entrypoint_matrix",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 131.66s (0:02:11) =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_entrypoints.py::test_supported_train_play_visualize_export_matrix PASSED [100%]\n\n======================== 1 passed in 118.19s (0:01:58) =========================\n"
     },
     {
       "argv": [
@@ -297,7 +297,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-FINAL-REGRESSION",
-      "duration_sec": 35.89453423302621,
+      "duration_sec": 34.94003244896885,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_final_regression#1",
@@ -312,7 +312,7 @@
       "required_test_id": "tests/scripts/test_issue705_final_gate.py::test_final_head_has_fresh_all_phase_evidence",
       "series": "lane_a_final_regression",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/scripts/test_issue705_final_gate.py::test_final_head_has_fresh_all_phase_evidence PASSED [100%]\n\n============================== 1 passed in 32.43s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/scripts/test_issue705_final_gate.py::test_final_head_has_fresh_all_phase_evidence PASSED [100%]\n\n============================== 1 passed in 32.03s ==============================\n"
     },
     {
       "argv": [
@@ -324,7 +324,7 @@
         "-rsxX"
       ],
       "claim_id": "P7-LEGACY-RETIREMENT",
-      "duration_sec": 2.2751826560124755,
+      "duration_sec": 2.5974763139965944,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_legacy_retirement#1",
@@ -339,7 +339,7 @@
       "required_test_id": "tests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence",
       "series": "lane_b_legacy_retirement",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence PASSED [100%]\n\n============================== 1 passed in 0.26s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/integration/test_issue705_legacy_retirement.py::test_legacy_removal_requires_full_entrypoint_and_rollback_evidence PASSED [100%]\n\n============================== 1 passed in 0.30s ===============================\n"
     }
   ],
   "diagnostics": {
@@ -358,7 +358,7 @@
     "errors": [],
     "passed": true
   },
-  "generated_at_utc": "2026-08-02T08:20:55.682817+00:00",
+  "generated_at_utc": "2026-08-02T09:32:48.266594+00:00",
   "head_validation": {
     "components": [
       {
@@ -432,7 +432,7 @@
           "claims": 6,
           "commands": 10,
           "phase": 1,
-          "source_commit": "6a6c54f297360a5f61a0499df29f42860549666d",
+          "source_commit": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
           "validator": "issue705_phase1_evidence"
         },
         "errors": [],
@@ -444,7 +444,7 @@
           "claims": 8,
           "commands": 7,
           "phase": 2,
-          "source_commit": "c8bb648458043ecb4b81a7b3d66926b8e67e13a2",
+          "source_commit": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
           "validator": "issue705_phase2_evidence"
         },
         "errors": [],
@@ -456,7 +456,7 @@
           "claims": 6,
           "commands": 11,
           "phase": 3,
-          "source_commit": "c8bb648458043ecb4b81a7b3d66926b8e67e13a2",
+          "source_commit": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
           "validator": "issue705_phase3_evidence"
         },
         "errors": [],
@@ -468,7 +468,7 @@
           "claims": 4,
           "commands": 12,
           "phase": 4,
-          "source_commit": "cd8c1733352487e156cd2941fe7e31733b42a64a",
+          "source_commit": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
           "validator": "issue705_phase4_evidence"
         },
         "errors": [],
@@ -480,7 +480,7 @@
           "claims": 7,
           "commands": 30,
           "phase": 5,
-          "source_commit": "8fd55434482cc597aa250c54c94a6cde68f3d43e",
+          "source_commit": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
           "validator": "issue705_phase5_evidence"
         },
         "errors": [],
@@ -492,7 +492,7 @@
           "claims": 8,
           "commands": 26,
           "phase": 6,
-          "source_commit": "3e9c2cbe1fbef8a8d1ac171e1e96d2b1b62f61e6",
+          "source_commit": "70065e8b4bd6d6096011c26e5f8fc94a153d490e",
           "validator": "issue705_phase6_evidence"
         },
         "errors": [],
@@ -534,7 +534,7 @@
           "changed_paths": 11,
           "entrypoint_repetitions": 2,
           "retained_routes": 3,
-          "source_commit": "5cd893f1a38a8bd6ef75c65772fc28210fa8e753"
+          "source_commit": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6"
         },
         "errors": [],
         "name": "entrypoint_legacy_retirement",
@@ -567,16 +567,16 @@
       "src/unilab/tools/issue705_final_gate.py": "sha256:fbea31f41df25ab128f305b8940ad9209c13216edfead634beff0a0648577427",
       "tests/acceptance/issue_705/artifacts/g1_mujoco_phase0_baseline.json": "sha256:216e4aab93d00ed0d8d44b1632def469d498c1fe659302bc8d3a6ea5cd0cb694",
       "tests/acceptance/issue_705/artifacts/issue705_phase5_ppo_5593eea8_trace.json": "sha256:6f4119a7b8e18cfb5d947bbd1dfef42b8b04ae00b9054400c94293b054b28c7f",
-      "tests/acceptance/issue_705/artifacts/phase_1_gate.json": "sha256:52d50c00fa767a9694acd059d865efccece2a08419e082795b7311b8d5f351f9",
-      "tests/acceptance/issue_705/artifacts/phase_2_gate.json": "sha256:7d6a935e097b8eb83cf5d1243000f3addee7d2834e224e57e977b10c53de09d7",
-      "tests/acceptance/issue_705/artifacts/phase_3_gate.json": "sha256:8e438f66d7c2c6c9d0e2cb6e035d68e838202595ea442c016f733c6445491952",
-      "tests/acceptance/issue_705/artifacts/phase_4_gate.json": "sha256:7e412aebc093fc58875061fe3aa8c1c23d9e1493a800469dafce1c745acd0bc7",
+      "tests/acceptance/issue_705/artifacts/phase_1_gate.json": "sha256:4e2c0b710bf03fd45b2297592f600d5a6eba718961c2d1279a28c00846acc34a",
+      "tests/acceptance/issue_705/artifacts/phase_2_gate.json": "sha256:34a0779ed332ef27798f801c0b70d5e519bfcadf1598a4cdc0ea08f6d7da70e8",
+      "tests/acceptance/issue_705/artifacts/phase_3_gate.json": "sha256:99d5df9582631046a255f5702b68262cf27c0cde22ba8d5a65252366459541a5",
+      "tests/acceptance/issue_705/artifacts/phase_4_gate.json": "sha256:ced078bd94932329a8d9036feacef959d034dd617052c628f15a4c7742fea5e2",
       "tests/acceptance/issue_705/artifacts/phase_4_host_benchmark.json": "sha256:d9abe0db36975c2c7aa4e175400e9ddc5701f025bd868d1f49396a28668b5b36",
-      "tests/acceptance/issue_705/artifacts/phase_5_gate.json": "sha256:eeaf3efcbff0f8fad3211f5b3690d745378f5168c1e82fdd9c816b805d8598d2",
+      "tests/acceptance/issue_705/artifacts/phase_5_gate.json": "sha256:85b121944e4fda46bdbe19ee53942fc03fd7be15f0cd4dd61a430f5ccf9f16a6",
       "tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json": "sha256:41a0b3970789656a6afbf39d2b5dd1491cc6d8fed0035b6f5989f47ef514dfe8",
-      "tests/acceptance/issue_705/artifacts/phase_6_gate.json": "sha256:355e43138ffb4944edea9ef7d7544f2f84e44f9be9cb343c619ee595762f6314",
+      "tests/acceptance/issue_705/artifacts/phase_6_gate.json": "sha256:8136e6892ab5a0d701c74297265069b658545abc0aa4ea68b144478331bf0b70",
       "tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json": "sha256:58dea886865aee7fb011e07bdaf7fc33aef7a33d5adb1b0391892da336bb8481",
-      "tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json": "sha256:beb06b4e663d88f60bc8fa343b0dec13505a3f6036c7494717d13ec54f2a83e5",
+      "tests/acceptance/issue_705/artifacts/phase_7_legacy_retirement.json": "sha256:217ae62cc8386dc3e836f6ea00b9c8b2b4047c30da78b6cb5c82b43e5c7fb3b3",
       "tests/acceptance/issue_705/artifacts/phase_7_training_behavior.json": "sha256:13c3a37c5fe587ad1f0e6890f19791d12f4ac428ba0aaf16df59c8d59b3f51a7",
       "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:05e0e76c37406d8d07ae5d80f6f52abe55b26a7152e2de0a8bbc09608b71bee5",
       "tests/acceptance/issue_705/final_gate_plan.yaml": "sha256:75ef21f54b96ea30180a324de846022ee58d398530968f899b1735883a76a0b2",
@@ -588,20 +588,20 @@
       "tests/acceptance/issue_705/legacy_retirement_plan.yaml": "sha256:c74377f2364c20d87471371bc2ab54bc8424ad2bf60b3441a84a5c2b6331bc69",
       "tests/acceptance/issue_705/legacy_retirement_rollback.yaml": "sha256:461b09732271aa33a3584d6582fcc59e9b020c29001059fcd4d6675d92feda96",
       "tests/acceptance/issue_705/manifests/phase_0.yaml": "sha256:12d983918a04d16ce64a91c5a1d51883d75ef6645a292f117d6e6528aa71df7f",
-      "tests/acceptance/issue_705/manifests/phase_1.yaml": "sha256:9c3570943ec962e4f6319070ad3fe04de83b2dc3ea92e32a99d52ad0f4fe33c0",
-      "tests/acceptance/issue_705/manifests/phase_2.yaml": "sha256:593b26a8aa9db36244838f75b1f8eb4585da5176ac6d2515876c3107bbf51eaf",
-      "tests/acceptance/issue_705/manifests/phase_3.yaml": "sha256:c1171b77d43fb469c54cceca01085683d76d22221485c6ac9f0e67fd77644cf0",
-      "tests/acceptance/issue_705/manifests/phase_4.yaml": "sha256:351ba5e2906c0a9bd56d71ba7c4589b05a4f2d1788f68bb9bb7d306339d984a3",
-      "tests/acceptance/issue_705/manifests/phase_5.yaml": "sha256:277280015552f121917110abf3efa3992a5f172237bcc9b310216571c82fc838",
-      "tests/acceptance/issue_705/manifests/phase_6.yaml": "sha256:14cc0c1cb116190263b4f9dea4501ea9713d8487e1357df702cf937a893f9f9f",
+      "tests/acceptance/issue_705/manifests/phase_1.yaml": "sha256:dc5c6ac6767cea4f17498e720abe8c14b948a9ef2b7f35cce5c2cde14d3d70d9",
+      "tests/acceptance/issue_705/manifests/phase_2.yaml": "sha256:1a514e56947dd8f9f0290078da0691f02c2f8ff893c8edda9a224f03e3522a45",
+      "tests/acceptance/issue_705/manifests/phase_3.yaml": "sha256:1585d07640a3a852fe297bb2dd548844b012b7cd92940159c5c39909c85cd6bc",
+      "tests/acceptance/issue_705/manifests/phase_4.yaml": "sha256:30dfb642e75a93a17f0dd346c0fbfcc7b671750e9384c58d4ee6252df8e7fa04",
+      "tests/acceptance/issue_705/manifests/phase_5.yaml": "sha256:e3f6f77bc2fd5b12b6f45f3b4aed4a1daebdccc9ed6e84d955f73f6ce36205a6",
+      "tests/acceptance/issue_705/manifests/phase_6.yaml": "sha256:87089252f372649b089678f864aa94bc1b6fd86af72041da922ee3095f7c17c8",
       "tests/acceptance/issue_705/mjwarp_dr_inventory.yaml": "sha256:f47504583f70ce1d14e0009ebd04ab2855c5f1310c6e7033f9b4b1d270e123d0",
       "tests/acceptance/issue_705/mjwarp_task_rollout_plan.yaml": "sha256:5873644e6d6b85805929bba484018a6bfc15a43a062caedf37b66766d22d8874",
-      "tests/acceptance/issue_705/support_evidence.yaml": "sha256:20ffe007f1ee359644a51bcc17638dfc65e03b4e64fb3a59f6402c26c8f204cc",
+      "tests/acceptance/issue_705/support_evidence.yaml": "sha256:deaca31cfa5399642c1d2f21f47f52abb9b789282ba20f81c63053f6191aa362",
       "tests/acceptance/issue_705/training_behavior_freeze_receipt.yaml": "sha256:8753697b4cb533e4d6527b8c0c148ada544fa880c5fdaef0cb12b63ef99887ba",
       "tests/acceptance/issue_705/training_behavior_plan.yaml": "sha256:e1e2121ec8873e8bb6c6493abb34b70b1860efd414487f16da0d311de30699dc",
       "tests/integration/test_issue705_entrypoints.py": "sha256:7d5fa82c018d13e0b6869c2761095798fbdc3dda5c68bc6ea4e58df3bd1ac19b",
       "tests/scripts/test_issue705_final_gate.py": "sha256:a3a92430c980387b196920f9a71a050876237b7f03e5e58479dab1b5fe92df73",
-      "uv.lock": "sha256:fe3b4c9dc315a7556464d636b9da02bece2e1ef0b0b8fec1c28d14edbba7540c"
+      "uv.lock": "sha256:ed8f2070a0c73daddcf4dd3aa8917ad846dba5cbe7cd34fc75fdc6961eeb2f8a"
     }
   },
   "issue": 705,
@@ -997,13 +997,13 @@
   },
   "schema_version": 1,
   "source": {
-    "branch": "fix/issue-855-benchmark-timing-contract",
-    "commit_sha": "51fc5014222306dee30a48ddbe2c19b7a1fafe8f",
+    "branch": "fix/issue-855-ci-aggregate-dependencies",
+    "commit_sha": "dc69b4fa7c2f364af0b4792d7d1e2f9e9513279e",
     "tracked_file_count": 1383,
     "tracked_modes_sha256": "sha256:70f140f9a6ce7a627e89086995b56b28f2b778863cd2fc6d147a2fb153a84406",
     "tracked_paths_sha256": "sha256:213147f48b3954ec78fa4b47e65e0ec0328dd68b322e94e08794ecc38b7bba2e",
     "tree_clean": true,
-    "tree_sha256": "sha256:859b80c4928e28392f188123cc4748ad8e7ff9453e93ef5e9e5db34315c93afd"
+    "tree_sha256": "sha256:47cf05f70d952979e5dac05fe9b33eb58551a1d2f11e82c11ed6bf36ff775465"
   },
   "summary": {
     "command_runs": 12,
