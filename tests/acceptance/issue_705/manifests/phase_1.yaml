@@ -65,17 +65,17 @@ claims:
     status: verified
 
   - claim_id: P1-DR-COMPATIBILITY
-    expected: Legacy DomainRandomizationProvider warning and filtering remain an explicit compatibility mode while compiled managed tasks default to strict fail-closed mutation binding.
-    risk: The new path silently inherits legacy warning-and-continue behavior or duplicates randomization semantics.
+    expected: DomainRandomizationManager preserves compatibility warning and filtering behavior while typed mutation binding remains strict and fail-closed.
+    risk: Unsupported compatibility terms are silently filtered without a diagnostic, or typed mutation binding accepts an unknown capability.
     owner: backend-DR
-    oracle: The same unsupported term fixture is executed through legacy and compiled compatibility entrypoints and must warn once and filter only in legacy mode, while strict mode raises a typed error before filtering or backend commit.
-    commands: [uv run pytest tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary -v]
+    oracle: The compatibility manager executes the unsupported-term fixture twice, filters it both times, and warns once; independent typed mutation binding rejects an unknown target before backend commit.
+    commands: [uv run pytest tests/dr/test_mutation_contract.py::test_manager_filters_unsupported_terms_and_warns_once -v]
     lane: B
     required: true
-    required_test_ids: [tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary]
+    required_test_ids: [tests/dr/test_mutation_contract.py::test_manager_filters_unsupported_terms_and_warns_once]
     environment: {dependencies: [uv.lock], hardware: Linux CPU, owner_yaml: null, seeds: [0], batch_sizes: [8], dtype: float32, plan_fingerprint: dr-compatibility-boundary-v1}
-    acceptance: {tolerance: {}, thresholds: {silent_filters: 0, duplicated_samplers: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any compiled warning-and-continue or duplicated mutation semantics is FAIL."}
-    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_1_gate.json], commit_sha: 01fd09c2b1c78261c31dcc9c6959704682e4f9a6, config_hash: sha256:9a922b96dee08916d9041557ad46f824c27dd3828e7c8657ccd07fd601f812c1, executed_test_ids: [tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane B strict/legacy boundary evidence completed with no skip, xfail, or xpass; raw output and test-input hash are retained in the Phase 1 artifact."}
+    acceptance: {tolerance: {}, thresholds: {silent_filters: 0, duplicate_warnings: 0, accepted_unknown_capabilities: 0}, repetitions: 1, max_dispersion: 0, failure_semantics: "Any silent compatibility filter, duplicate warning, or accepted unknown typed mutation is FAIL."}
+    evidence: {result: PASS, artifact_refs: [tests/acceptance/issue_705/artifacts/phase_1_gate.json], commit_sha: 01fd09c2b1c78261c31dcc9c6959704682e4f9a6, config_hash: sha256:9a922b96dee08916d9041557ad46f824c27dd3828e7c8657ccd07fd601f812c1, executed_test_ids: [tests/dr/test_mutation_contract.py::test_manager_filters_unsupported_terms_and_warns_once], skipped_test_ids: [], xfailed_test_ids: [], summary: "Fresh Lane B compatibility filtering evidence completed with no skip, xfail, or xpass; raw output and test-input hash are retained in the Phase 1 artifact."}
     invalidation: {paths: [src/unilab/dr/**, src/unilab/base/backend/**, tests/dr/test_mutation_contract.py], capabilities: [dr-compatibility-boundary], fingerprints: [dr-compatibility-boundary-v1]}
     status: verified
 

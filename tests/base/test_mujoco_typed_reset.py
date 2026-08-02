@@ -585,6 +585,7 @@ def _close(backend: MuJoCoBackend) -> None:
 @pytest.mark.parametrize(
     ("np_dtype", "atol"),
     ((np.float32, 3e-6), (np.float64, 1e-12)),
+    ids=("float32", "float64"),
 )
 def test_mujoco_typed_reset_commits_selected_hinge_state_and_exposes_reset_oracle(
     tmp_path: Path,
@@ -640,6 +641,7 @@ def test_mujoco_typed_reset_commits_selected_hinge_state_and_exposes_reset_oracl
         ):
             result = backend.reset_batch(plan, rows, mutation_batch=mutation)
 
+        assert result.diagnostics.counters.allocations == 2
         assert result.reset_state.phase is StateBatchPhase.RESET
         assert result.reset_state.rows == rows
         with pytest.raises(StaleStateBatchError, match="mutation barrier"):
@@ -687,6 +689,7 @@ def test_mujoco_typed_reset_commits_selected_hinge_state_and_exposes_reset_oracl
 @pytest.mark.parametrize(
     ("np_dtype", "atol"),
     ((np.float32, 3e-6), (np.float64, 1e-12)),
+    ids=("float32", "float64"),
 )
 def test_mujoco_typed_reset_commits_full_floating_root_and_hinge_slice(
     tmp_path: Path,
@@ -854,6 +857,7 @@ def test_mujoco_typed_reset_commits_full_floating_root_and_hinge_slice(
 @pytest.mark.parametrize(
     ("np_dtype", "atol"),
     ((np.float32, 3e-6), (np.float64, 1e-12)),
+    ids=("float32", "float64"),
 )
 def test_mujoco_cold_bound_reset_buffers_commit_complete_state_without_value_wrappers(
     tmp_path: Path,

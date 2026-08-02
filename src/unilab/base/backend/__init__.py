@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
@@ -274,10 +275,24 @@ def create_backend(
                 "mjwarp does not accept position_actuator_gains in the host compatibility "
                 "profile; configure the model on the cold path instead."
             )
-        # These are generic EnvCfg fields routed to the MuJoCo pool only.
-        # They have defaults on every owner YAML, so reject neither their
-        # presence nor their default values here; MjwarpBackend intentionally
-        # does not receive or interpret them.
+        ignored_non_defaults = {
+            key: value
+            for key, value, default in (
+                ("post_step_forward_sensor", post_step_forward_sensor, None),
+                ("chunk_size", chunk_size, None),
+                ("adaptive_chunk_size", adaptive_chunk_size, False),
+                ("bench_nsteps", bench_nsteps, 1),
+            )
+            if value != default
+        }
+        if ignored_non_defaults:
+            rendered = ", ".join(f"{key}={value!r}" for key, value in ignored_non_defaults.items())
+            warnings.warn(
+                "mjwarp ignores non-default MuJoCo-only backend options: " + rendered,
+                UserWarning,
+                stacklevel=2,
+            )
+        # These generic EnvCfg fields are routed only to the MuJoCo pool.
         del post_step_forward_sensor, chunk_size, adaptive_chunk_size, bench_nsteps
         kwargs["nconmax"] = mjwarp_nconmax
         kwargs["njmax"] = mjwarp_njmax

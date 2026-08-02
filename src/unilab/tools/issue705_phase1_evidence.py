@@ -13,6 +13,7 @@ from unilab.tools.issue705_phase_evidence import (
     capture_phase_evidence,
     load_phase_evidence,
     sha256_file,
+    tracked_input_files,
     validate_phase_evidence,
     write_phase_evidence,
 )
@@ -22,13 +23,14 @@ PHASE = 1
 ARTIFACT_KIND = "issue705-phase1-gate-v1"
 MANIFEST_PATH = Path("tests/acceptance/issue_705/manifests/phase_1.yaml")
 MUJOCO_OWNER = Path("conf/ppo/task/g1_walk_flat/mujoco.yaml")
+ROOT_DIR = Path(__file__).resolve().parents[3]
 
 PHASE1_REQUIRED_TEST_IDS: dict[str, str] = {
     "P1-BATCH-CONTRACT": "tests/base/test_backend_batch_contract.py::test_bound_state_batch_contract",
     "P1-MUJOCO-REFERENCE": "tests/base/test_backend_batch_contract.py::test_mujoco_batch_matches_getter_reference",
     "P1-MUTATION-CONTRACT": "tests/dr/test_mutation_contract.py::test_typed_mutation_conflicts_fail_closed",
     "P1-HOT-PATH-INSTRUMENTATION": "tests/base/test_backend_batch_contract.py::test_managed_hot_path_has_no_dynamic_getters",
-    "P1-DR-COMPATIBILITY": "tests/dr/test_mutation_contract.py::test_legacy_warning_and_compiled_strict_boundary",
+    "P1-DR-COMPATIBILITY": "tests/dr/test_mutation_contract.py::test_manager_filters_unsupported_terms_and_warns_once",
     "P1-BACKEND-ISOLATION": "tests/base/test_backend_batch_contract.py::test_runtime_backends_share_only_cold_materialization_contract",
 }
 
@@ -51,7 +53,7 @@ PHASE1_MANIFEST_COMMANDS: dict[str, str] = {
     ),
     "P1-DR-COMPATIBILITY": (
         "uv run pytest tests/dr/test_mutation_contract.py::"
-        "test_legacy_warning_and_compiled_strict_boundary -v"
+        "test_manager_filters_unsupported_terms_and_warns_once -v"
     ),
     "P1-BACKEND-ISOLATION": (
         "uv run pytest tests/base/test_backend_batch_contract.py::"
@@ -164,16 +166,37 @@ _COMMAND_BY_CLAIM = {
     "P1-BACKEND-ISOLATION": "lane_a_backend_isolation",
 }
 
-_INPUT_FILES = (
+_SOURCE_INPUT_TREES = (
+    Path("src/unilab/base"),
+    Path("src/unilab/dr"),
+    Path("src/unilab/envs"),
+)
+_STATIC_INPUTS = (
     Path("uv.lock"),
     MUJOCO_OWNER,
+    Path("src/unilab/tools/backend_isolation.py"),
     Path("src/unilab/tools/issue705_phase_evidence.py"),
     Path("src/unilab/tools/issue705_phase1_evidence.py"),
+    Path("scripts/audit_issue705_backend_isolation.py"),
     Path("scripts/capture_issue705_phase1_evidence.py"),
     Path("tests/tools/test_issue705_phase1_evidence.py"),
+    Path("tests/tools/test_backend_isolation.py"),
     Path("tests/acceptance/issue_705/test_phase1_evidence.py"),
     Path("tests/base/test_backend_batch_contract.py"),
     Path("tests/dr/test_mutation_contract.py"),
+)
+_INPUT_FILES = tuple(
+    sorted(
+        {
+            *_STATIC_INPUTS,
+            *(
+                path
+                for path in tracked_input_files(ROOT_DIR, _SOURCE_INPUT_TREES)
+                if path.suffix == ".py"
+            ),
+        },
+        key=Path.as_posix,
+    )
 )
 
 PHASE1_SPEC = PhaseEvidenceSpec(

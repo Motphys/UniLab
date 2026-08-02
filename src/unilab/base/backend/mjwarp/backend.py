@@ -110,6 +110,7 @@ from .materialization import (
     MjwarpModelInvalidationOutcome,
     MjwarpModelInvalidationReceipt,
     MjwarpModelMaterializationContractError,
+    MjwarpModelMaterializationCoordinator,
     MjwarpModelMaterializationReceipt,
     MjwarpModelMaterializationRequest,
     materialize_mjwarp_scene,
@@ -278,7 +279,6 @@ class MjwarpBackend(SimBackend):
         self._num_envs = int(num_envs)
         self._sim_dt = float(sim_dt)
         self._base_name = base_name
-        self._cuda_device_name = str(device)
         self._nconmax = nconmax
         self._njmax = njmax
 
@@ -517,6 +517,26 @@ class MjwarpBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     @staticmethod
+    def _model_field_parent(model: Any, field_name: str) -> tuple[Any, str]:
+        parts = field_name.split(".")
+        if any(not part for part in parts):
+            raise AttributeError(field_name)
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        return parent, parts[-1]
+
+    @classmethod
+    def _get_model_field_storage(cls, model: Any, field_name: str) -> Any:
+        parent, leaf = cls._model_field_parent(model, field_name)
+        return getattr(parent, leaf)
+
+    @classmethod
+    def _set_model_field_storage(cls, model: Any, field_name: str, value: Any) -> None:
+        parent, leaf = cls._model_field_parent(model, field_name)
+        setattr(parent, leaf, value)
+
+    @staticmethod
     def _model_host_fingerprint(value: np.ndarray) -> str:
         contiguous = np.ascontiguousarray(value)
         digest = hashlib.sha256()
@@ -538,12 +558,16 @@ class MjwarpBackend(SimBackend):
         """Clone one final compiled CPU default before any Model mutation."""
 
         try:
-            raw_default = getattr(self._cpu_model, field_name)
+            raw_default = self._get_model_field_storage(self._cpu_model, field_name)
         except AttributeError as exc:
             raise BackendBatchContractError(
                 f"mjwarp CPU model has no default field {field_name!r}"
             ) from exc
         default = np.ascontiguousarray(np.asarray(raw_default, dtype=source_host.dtype))
+        if field_name == "stat.meaninertia" and default.shape == (1,):
+            # MuJoCo exposes mjStatistic scalars as length-one views, while
+            # MJWarp uses this array axis for its per-world storage contract.
+            default = default.reshape(())
         expected = source_host.shape[1:]
         if default.shape != expected:
             raise BackendBatchContractError(
@@ -586,7 +610,7 @@ class MjwarpBackend(SimBackend):
         field_name: str,
     ) -> _MjwarpStagedModelField:
         try:
-            source = getattr(self._device_model, field_name)
+            source = self._get_model_field_storage(self._device_model, field_name)
         except AttributeError as exc:
             raise BackendBatchContractError(
                 f"mjwarp device model has no field {field_name!r}"
@@ -724,7 +748,7 @@ class MjwarpBackend(SimBackend):
             try:
                 model_field = replacements.get(field_name)
                 if model_field is None:
-                    model_field = getattr(self._device_model, field_name)
+                    model_field = self._get_model_field_storage(self._device_model, field_name)
                 bridge = self._warp.to_torch(model_field)
             except Exception as exc:
                 raise BackendBatchContractError(
@@ -749,7 +773,7 @@ class MjwarpBackend(SimBackend):
                 f"mjwarp model field {field_name!r} was not materialized"
             )
         try:
-            model_field = getattr(self._device_model, field_name)
+            model_field = self._get_model_field_storage(self._device_model, field_name)
         except AttributeError as exc:  # pragma: no cover - guarded by receipt verification.
             raise BackendBatchContractError(
                 f"mjwarp materialized field {field_name!r} disappeared"
@@ -797,10 +821,19 @@ class MjwarpBackend(SimBackend):
     ) -> MjwarpModelMaterializationReceipt:
         """Freeze only direct and derived fields required by one bound plan."""
 
+        derived_fields = contract.derived_fields
+        if contract.kind in {
+            MjwarpModelRecomputeKind.SET_CONST_0,
+            MjwarpModelRecomputeKind.SET_CONST,
+        }:
+            # MJWarp declares meaninertia as per-world solver state, but uploads
+            # singleton storage.  Keep this internal field in the same atomic
+            # cold-path transaction as the public recompute descriptor fields.
+            derived_fields = tuple(sorted((*derived_fields, "stat.meaninertia")))
         request = MjwarpModelMaterializationRequest(
             num_worlds=self._num_envs,
             direct_fields=contract.direct_fields,
-            derived_fields=contract.derived_fields,
+            derived_fields=derived_fields,
         )
         return self._materialize_model_fields(request)
 
@@ -853,7 +886,10 @@ class MjwarpBackend(SimBackend):
         self._verify_device_graph_storage()
         for field in receipt.fields:
             try:
-                actual = getattr(self._device_model, field.field_name)
+                actual = self._get_model_field_storage(
+                    self._device_model,
+                    field.field_name,
+                )
             except AttributeError as exc:
                 self._model_materialization_poisoned = True
                 raise BackendBatchContractError(
@@ -873,190 +909,9 @@ class MjwarpBackend(SimBackend):
         self,
         request: MjwarpModelMaterializationRequest,
     ) -> MjwarpModelMaterializationReceipt:
-        """Atomically publish per-world Model storage and all graph consumers."""
+        """Delegate the atomic transaction to the cold-path owner module."""
 
-        if not isinstance(request, MjwarpModelMaterializationRequest):
-            raise BackendBatchContractError(
-                "mjwarp model materialization requires an immutable request"
-            )
-        try:
-            request.verify_fingerprint()
-        except MjwarpModelMaterializationContractError as exc:
-            raise BackendBatchContractError(
-                "mjwarp model materialization request identity is corrupt"
-            ) from exc
-        if request.num_worlds != self._num_envs:
-            raise BackendBatchContractError(
-                "mjwarp model materialization world count does not match the backend"
-            )
-        if self._model_materialization_poisoned:
-            raise BackendBatchContractError(
-                "mjwarp model materialization owner is permanently poisoned"
-            )
-        if self._model_materialization_in_progress:
-            raise BackendBatchContractError("mjwarp model materialization is not reentrant")
-
-        existing = self._model_materialization_receipt
-        if existing is not None:
-            self._verify_model_materialization_receipt(existing)
-            required_roles = {
-                **{field_name: MjwarpModelFieldRole.DIRECT for field_name in request.direct_fields},
-                **{
-                    field_name: MjwarpModelFieldRole.DERIVED
-                    for field_name in request.derived_fields
-                },
-            }
-            existing_fields = {field.field_name: field for field in existing.fields}
-            missing = tuple(sorted(set(required_roles).difference(existing_fields)))
-            mismatched = tuple(
-                sorted(
-                    field_name
-                    for field_name, role in required_roles.items()
-                    if field_name in existing_fields
-                    and existing_fields[field_name].role is not role
-                )
-            )
-            missing_defaults = tuple(
-                sorted(
-                    field_name
-                    for field_name in request.per_world_default_fields
-                    if field_name in existing_fields
-                    and existing_fields[field_name].per_world_default_shape is None
-                )
-            )
-            if missing or mismatched or missing_defaults:
-                raise BackendBatchContractError(
-                    "mjwarp model fields were already frozen without the requested subset: "
-                    f"missing={missing!r}, mismatched={mismatched!r}, "
-                    f"missing_defaults={missing_defaults!r}"
-                )
-            return existing
-        if self._runtime_barrier_count:
-            raise BackendBatchContractError(
-                "mjwarp model fields must materialize before the first runtime physics barrier"
-            )
-
-        self._verify_device_graph_storage()
-        self._model_materialization_in_progress = True
-        staged: tuple[_MjwarpStagedModelField, ...] = ()
-        graph_before = self._snapshot_device_graph_state()
-        bridge_cache_before = dict(self._model_bridge_cache)
-        bridge_generation_before = self._model_bridge_generation
-        sensor_before = self._model_sensor_context
-        sensor_generation_before = self._model_sensor_generation
-        baselines_before = dict(self._model_default_baselines)
-        expanded_before = self._expanded_model_fields
-        try:
-            staged = tuple(
-                self._stage_model_field(request, field_name) for field_name in request.all_fields
-            )
-            # Staged arrays are populated on Warp's current stream, while graph
-            # capture uses the dedicated physics stream.  Publish only after all
-            # model and baseline copies are visible to every capture consumer.
-            self._warp.synchronize_device()
-            storage_replaced = any(item.receipt.replaced for item in staged)
-            prepared_bridge_cache = bridge_cache_before
-            prepared_sensor = sensor_before
-            if storage_replaced:
-                prepared_bridge_cache = self._prepare_model_bridge_cache(
-                    staged,
-                    bridge_cache_before,
-                )
-                prepared_sensor = self._prepare_model_sensor_context(
-                    frozenset((*self._expanded_model_fields, *request.all_fields))
-                )
-                self._warp.synchronize_device()
-            graph_keys_before = tuple(sorted(graph_before.bundles))
-
-            try:
-                for item in staged:
-                    if item.receipt.replaced:
-                        setattr(self._device_model, item.field_name, item.materialized)
-                self._model_default_baselines.update(
-                    {item.field_name: item.baseline for item in staged if item.baseline is not None}
-                )
-                self._expanded_model_fields = frozenset(
-                    (*self._expanded_model_fields, *request.all_fields)
-                )
-                if storage_replaced:
-                    self._model_bridge_cache = prepared_bridge_cache
-                    self._model_bridge_generation += 1
-                    self._model_sensor_context = prepared_sensor
-                    self._model_sensor_generation += 1
-                    self._recapture_device_graphs_after_storage_change()
-
-                graph_after = self._snapshot_device_graph_state()
-                graph_keys_after = tuple(sorted(graph_after.bundles))
-                if graph_keys_after != graph_keys_before:
-                    raise BackendBatchContractError(
-                        "mjwarp model materialization changed the active graph plan set"
-                    )
-                receipt = MjwarpModelMaterializationReceipt(
-                    request_fingerprint=request.fingerprint,
-                    backend_instance_id=self._batch_instance_id,
-                    num_worlds=self._num_envs,
-                    fields=tuple(item.receipt for item in staged),
-                    invalidations=self._model_invalidation_receipts(
-                        storage_replaced=storage_replaced,
-                        bridge_entries=len(bridge_cache_before),
-                        sensor_present=prepared_sensor is not None,
-                        graph_keys=len(graph_keys_before),
-                    ),
-                    storage_generation_before=graph_before.storage_generation,
-                    storage_generation_after=graph_after.storage_generation,
-                    storage_fingerprint_before=graph_before.storage_fingerprint,
-                    storage_fingerprint_after=graph_after.storage_fingerprint,
-                    graph_plan_fingerprints_before=graph_keys_before,
-                    graph_plan_fingerprints_after=graph_keys_after,
-                    model_bridge_generation_before=bridge_generation_before,
-                    model_bridge_generation_after=self._model_bridge_generation,
-                    sensor_generation_before=sensor_generation_before,
-                    sensor_generation_after=self._model_sensor_generation,
-                    expanded_model_bytes=sum(
-                        item.receipt.model_bytes for item in staged if item.receipt.replaced
-                    ),
-                    baseline_bytes=sum(item.baseline_bytes for item in staged),
-                )
-                self._model_materialization_receipt = receipt
-                return receipt
-            except Exception as exc:
-                rollback_error: Exception | None = None
-                try:
-                    for item in staged:
-                        setattr(self._device_model, item.field_name, item.original)
-                    self._model_bridge_cache = bridge_cache_before
-                    self._model_bridge_generation = bridge_generation_before
-                    self._model_sensor_context = sensor_before
-                    self._model_sensor_generation = sensor_generation_before
-                    self._model_default_baselines = baselines_before
-                    self._expanded_model_fields = expanded_before
-                    self._restore_device_graph_state(graph_before)
-                    actual = self._snapshot_device_graph_storage()
-                    if actual != graph_before.storage_buffers:
-                        raise BackendBatchContractError(
-                            "mjwarp model materialization rollback left stale storage"
-                        )
-                except Exception as rollback_exc:  # pragma: no cover - hard fault path.
-                    rollback_error = rollback_exc
-                if rollback_error is not None:
-                    self._model_materialization_poisoned = True
-                    self._device_graph_storage_poisoned = True
-                    self._device_graph_bundles.clear()
-                    raise BackendBatchContractError(
-                        "mjwarp model materialization failed and rollback could not restore "
-                        "graph storage; backend is permanently poisoned"
-                    ) from rollback_error
-                raise BackendBatchContractError(
-                    "mjwarp model materialization transaction rolled back"
-                ) from exc
-        except BackendBatchContractError:
-            raise
-        except Exception as exc:
-            raise BackendBatchContractError(
-                "mjwarp model materialization preparation failed before publication"
-            ) from exc
-        finally:
-            self._model_materialization_in_progress = False
+        return MjwarpModelMaterializationCoordinator(self).materialize(request)
 
     # ------------------------------------------------------------------ #
     # Explicit host-cache barriers                                        #

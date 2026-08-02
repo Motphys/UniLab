@@ -23,47 +23,26 @@ import numpy as np
 
 from unilab.base.backend import (
     BoundMutationPlan,
-    BufferContract,
-    BufferLayout,
     BufferLifetime,
-    BufferMutability,
-    BufferOwner,
-    BufferPlacement,
     BufferView,
     ControlSpec,
     ExecutionProfile,
-    MutationBaseline,
-    MutationCommitPhase,
-    MutationFieldKind,
-    MutationOperation,
-    MutationPersistence,
-    MutationRecomputeLevel,
-    MutationTargetKind,
-    MutationTrigger,
     MutationValueBatch,
-    PhysicalUnit,
-    ReferenceFrame,
     RowSelection,
     SimulationStateMutationBatch,
     StateBatch,
-    StateFieldKind,
     TypedBackendMutationBatch,
 )
 from unilab.base.backend.base import SimBackend
 from unilab.dtype_config import get_global_dtype
 from unilab.manager import (
     BackendEntityResolver,
-    EntityKind,
-    EntitySelector,
     ManagedKernelBinding,
     ManagedMetric,
     ManagedReferenceRuntime,
     ManagedResetRequest,
     ManagerContractError,
-    MutationTemplate,
     PolicySpec,
-    QuaternionOrder,
-    StateRequirement,
     TaskCompiler,
     TaskSpec,
     TensorSpec,
@@ -76,436 +55,33 @@ from unilab.manager import (
 from unilab.manager.plan import CompiledTaskPlan
 from unilab.utils.rotation import np_quat_mul, np_yaw_to_quat
 
-from .joystick import (
-    G1WalkEnvCfg,
-    G1WalkRewardConfig,
-    build_upper_body_pose_weights,
-    compute_feet_phase_height_targets,
-    compute_forward_speed_gate,
+from .joystick import G1WalkEnvCfg, compute_feet_phase_height_targets, compute_forward_speed_gate
+from .managed_schema import (
+    G1_ACTOR_OBSERVATION_WIDTH,
+    G1_CRITIC_OBSERVATION_WIDTH,
+    G1_RESET_TERM,
+    G1_ROOT_RESET_SPECS,
+    G1_STATE_KEYS,
+    G1KernelConfig,
+    G1ResetSample,
+    G1StateViews,
+    build_g1_kernel_config,
+    g1_action_scale,
+    g1_reset_templates,
+    g1_selectors,
+    g1_state_requirements,
+    manager_buffer_contract,
+    reset_suffix_for_dof,
+    reset_term_key,
+    validate_g1_managed_profile,
 )
 
 G1_MANAGED_REFERENCE_EXECUTOR_KEY = "reference.numpy.g1-walk-flat.v1"
 """The explicit host-only executor identity used in the compiled plan."""
 
-_ROOT_NAME = "pelvis"
-_ACTOR_WIDTH = 98
-_CRITIC_WIDTH = 101
-_RESET_TERM = "g1_reset_state"
-_ROOT_RESET_SUFFIXES = (
-    ("root_position", "state.root.position", MutationFieldKind.POSITION, (3,)),
-    (
-        "root_orientation",
-        "state.root.orientation",
-        MutationFieldKind.ORIENTATION,
-        (4,),
-    ),
-    (
-        "root_linear_velocity",
-        "state.root.linear_velocity",
-        MutationFieldKind.LINEAR_VELOCITY,
-        (3,),
-    ),
-    (
-        "root_angular_velocity",
-        "state.root.angular_velocity",
-        MutationFieldKind.ANGULAR_VELOCITY,
-        (3,),
-    ),
-)
-_STATE_KEYS = (
-    "g1.dof.angular_velocity",
-    "g1.dof.position",
-    "g1.root.angular_velocity",
-    "g1.root.linear_velocity",
-    "g1.root.orientation",
-    "g1.root.position",
-    "g1.sensor.left_foot_pos",
-    "g1.sensor.pelvis_local_linvel",
-    "g1.sensor.right_foot_pos",
-    "g1.sensor.torso_gyro",
-    "g1.sensor.torso_upvector",
-)
-_SUPPORTED_REWARD_TERMS = frozenset(
-    {
-        "action_rate",
-        "alive",
-        "ang_vel_xy",
-        "base_height",
-        "feet_phase",
-        "feet_phase_contrast",
-        "forward_progress",
-        "lin_vel_z",
-        "orientation",
-        "penalty_action_rate",
-        "penalty_ang_vel_xy",
-        "penalty_close_feet_xy",
-        "penalty_orientation",
-        "pose",
-        "tracking_ang_vel",
-        "tracking_lin_vel",
-        "under_speed",
-        "upper_body_pose",
-    }
-)
-
 
 class G1ManagedReferenceError(ManagerContractError):
     """Raised when a requested G1 managed-reference profile is unsupported."""
-
-
-def _manager_buffer(*, row_shape: tuple[int, ...], lifetime: BufferLifetime) -> BufferContract:
-    return BufferContract(
-        row_shape=row_shape,
-        dtype=np.dtype(get_global_dtype()).name,
-        layout=BufferLayout.C_CONTIGUOUS,
-        placement=BufferPlacement.host(),
-        owner=BufferOwner.MANAGER,
-        mutability=BufferMutability.READ_ONLY,
-        lifetime=lifetime,
-        dlpack_exportable=False,
-    )
-
-
-def _state_requirement(
-    *,
-    key: str,
-    selector: EntitySelector,
-    field_kind: StateFieldKind,
-    shape: tuple[int, ...],
-    frame: ReferenceFrame,
-    unit: PhysicalUnit,
-    quaternion_order: QuaternionOrder = QuaternionOrder.NONE,
-    entity_axis: int | None = None,
-) -> StateRequirement:
-    return StateRequirement(
-        semantic_key=key,
-        selector=selector,
-        field_kind=field_kind,
-        tensor=TensorSpec(
-            shape,
-            np.dtype(get_global_dtype()).name,
-            frame=frame,
-            unit=unit,
-            quaternion_order=quaternion_order,
-        ),
-        entity_axis=entity_axis,
-    )
-
-
-def _validate_reference_profile(
-    cfg: G1WalkEnvCfg,
-    *,
-    allow_pd_randomization: bool = False,
-    allow_dof_armature_randomization: bool = False,
-    allow_body_gravity_compensation_randomization: bool = False,
-) -> G1WalkRewardConfig:
-    """Reject legacy features whose effects are not in this compiled slice."""
-
-    if not isinstance(allow_pd_randomization, bool):
-        raise G1ManagedReferenceError("allow_pd_randomization must be a bool")
-    if not isinstance(allow_dof_armature_randomization, bool):
-        raise G1ManagedReferenceError("allow_dof_armature_randomization must be a bool")
-    if not isinstance(allow_body_gravity_compensation_randomization, bool):
-        raise G1ManagedReferenceError(
-            "allow_body_gravity_compensation_randomization must be a bool"
-        )
-
-    reward = cfg.reward_config
-    if not isinstance(reward, G1WalkRewardConfig):
-        raise G1ManagedReferenceError("G1 managed reference requires a G1WalkRewardConfig")
-    unsupported_rewards = tuple(sorted(set(reward.scales) - _SUPPORTED_REWARD_TERMS))
-    if unsupported_rewards:
-        raise G1ManagedReferenceError(
-            "G1 managed reference does not implement reward terms: "
-            + ", ".join(unsupported_rewards)
-        )
-    if any(not np.isfinite(float(scale)) for scale in reward.scales.values()):
-        raise G1ManagedReferenceError("G1 managed reference reward scales must be finite")
-    if cfg.curriculum.enabled:
-        raise G1ManagedReferenceError(
-            "G1 managed reference does not implement the legacy penalty curriculum"
-        )
-    if cfg.numba_acceleration:
-        raise G1ManagedReferenceError(
-            "G1 managed reference does not select the legacy Numba executor"
-        )
-    if cfg.commands.heading_command:
-        raise G1ManagedReferenceError(
-            "G1 managed reference does not implement heading-command task state"
-        )
-    if cfg.commands.resampling_time != 0.0:
-        raise G1ManagedReferenceError(
-            "G1 managed reference only supports reset-sampled velocity commands"
-        )
-    if cfg.gait_phase_init_mode not in {"offset_phase", "independent"}:
-        raise G1ManagedReferenceError(
-            "G1 managed reference requires gait_phase_init_mode='offset_phase' or 'independent'"
-        )
-
-    dr = cfg.domain_rand
-    enabled_dr = tuple(
-        name
-        for name, enabled in (
-            ("randomize_base_mass", dr.randomize_base_mass),
-            ("randomize_body_mass", dr.randomize_body_mass),
-            ("random_com", dr.random_com),
-            ("randomize_gravity", dr.randomize_gravity),
-            ("randomize_ground_friction", dr.randomize_ground_friction),
-            (
-                "randomize_dof_armature",
-                dr.randomize_dof_armature and not allow_dof_armature_randomization,
-            ),
-            (
-                "randomize_body_gravity_compensation",
-                dr.randomize_body_gravity_compensation
-                and not allow_body_gravity_compensation_randomization,
-            ),
-            ("push_robots", dr.push_robots),
-            ("randomize_kp", dr.randomize_kp and not allow_pd_randomization),
-            ("randomize_kd", dr.randomize_kd and not allow_pd_randomization),
-        )
-        if enabled
-    )
-    if enabled_dr:
-        raise G1ManagedReferenceError(
-            "G1 managed reference has no typed DR/Event implementation for: "
-            + ", ".join(enabled_dr)
-        )
-    return reward
-
-
-def _action_scale(cfg: G1WalkEnvCfg, action_dim: int) -> np.ndarray:
-    raw = np.asarray(cfg.control_config.action_scale, dtype=get_global_dtype())
-    if raw.ndim == 0:
-        values = np.full((action_dim,), raw.item(), dtype=get_global_dtype())
-    elif raw.shape == (action_dim,):
-        values = np.asarray(raw, dtype=get_global_dtype())
-    else:
-        raise G1ManagedReferenceError(
-            f"G1 action_scale must be scalar or shape ({action_dim},), got {raw.shape}"
-        )
-    if not np.isfinite(values).all() or np.any(values <= 0.0):
-        raise G1ManagedReferenceError("G1 action_scale must contain finite positive values")
-    return values
-
-
-def _walk_observation_profile(reward: G1WalkRewardConfig, cfg: G1WalkEnvCfg) -> bool:
-    scales = reward.scales
-    if any(
-        key in scales
-        for key in (
-            "penalty_orientation",
-            "penalty_ang_vel_xy",
-            "penalty_action_rate",
-            "alive",
-        )
-    ):
-        return True
-    if any(key in scales for key in ("orientation", "ang_vel_xy", "action_rate")):
-        return False
-    return cfg.curriculum.enabled
-
-
-def _reset_suffix_for_dof(*, kind: str, index: int) -> str:
-    return f"dof_{kind}_{index:02d}"
-
-
-def _reset_term_key(*, suffix: str) -> str:
-    return f"{_RESET_TERM}.{suffix}"
-
-
-def _g1_selectors(
-    actuator_names: tuple[str, ...],
-) -> tuple[
-    EntitySelector,
-    EntitySelector,
-    tuple[EntitySelector, ...],
-    tuple[EntitySelector, ...],
-]:
-    root = EntitySelector(
-        key="g1.root",
-        entity="g1",
-        kind=EntityKind.ROOT,
-        expressions=(_ROOT_NAME,),
-    )
-    dofs = EntitySelector(
-        key="g1.actuated_dofs",
-        entity="g1",
-        kind=EntityKind.DOF,
-        expressions=actuator_names,
-    )
-    reset_position = tuple(
-        EntitySelector(
-            key=f"g1.reset.dof_position.{index:02d}",
-            entity="g1",
-            kind=EntityKind.DOF,
-            expressions=(name,),
-        )
-        for index, name in enumerate(actuator_names)
-    )
-    reset_velocity = tuple(
-        EntitySelector(
-            key=f"g1.reset.dof_velocity.{index:02d}",
-            entity="g1",
-            kind=EntityKind.DOF,
-            expressions=(name,),
-        )
-        for index, name in enumerate(actuator_names)
-    )
-    return root, dofs, reset_position, reset_velocity
-
-
-def _g1_state_requirements(
-    *, root: EntitySelector, dofs: EntitySelector, action_dim: int
-) -> tuple[StateRequirement, ...]:
-    sensors = (
-        (
-            "pelvis_local_linvel",
-            ReferenceFrame.SENSOR,
-            PhysicalUnit.METER_PER_SECOND,
-        ),
-        ("torso_gyro", ReferenceFrame.SENSOR, PhysicalUnit.RADIAN_PER_SECOND),
-        ("torso_upvector", ReferenceFrame.WORLD, PhysicalUnit.UNITLESS),
-        ("left_foot_pos", ReferenceFrame.WORLD, PhysicalUnit.METER),
-        ("right_foot_pos", ReferenceFrame.WORLD, PhysicalUnit.METER),
-    )
-    requirements = [
-        _state_requirement(
-            key="g1.root.position",
-            selector=root,
-            field_kind=StateFieldKind.POSITION,
-            shape=(3,),
-            frame=ReferenceFrame.WORLD,
-            unit=PhysicalUnit.METER,
-        ),
-        _state_requirement(
-            key="g1.root.orientation",
-            selector=root,
-            field_kind=StateFieldKind.ORIENTATION,
-            shape=(4,),
-            frame=ReferenceFrame.WORLD,
-            unit=PhysicalUnit.QUATERNION,
-            quaternion_order=QuaternionOrder.WXYZ,
-        ),
-        _state_requirement(
-            key="g1.root.linear_velocity",
-            selector=root,
-            field_kind=StateFieldKind.LINEAR_VELOCITY,
-            shape=(3,),
-            frame=ReferenceFrame.WORLD,
-            unit=PhysicalUnit.METER_PER_SECOND,
-        ),
-        _state_requirement(
-            key="g1.root.angular_velocity",
-            selector=root,
-            field_kind=StateFieldKind.ANGULAR_VELOCITY,
-            shape=(3,),
-            frame=ReferenceFrame.WORLD,
-            unit=PhysicalUnit.RADIAN_PER_SECOND,
-        ),
-        _state_requirement(
-            key="g1.dof.position",
-            selector=dofs,
-            field_kind=StateFieldKind.POSITION,
-            shape=(action_dim,),
-            frame=ReferenceFrame.JOINT,
-            unit=PhysicalUnit.RADIAN,
-            entity_axis=0,
-        ),
-        _state_requirement(
-            key="g1.dof.angular_velocity",
-            selector=dofs,
-            field_kind=StateFieldKind.ANGULAR_VELOCITY,
-            shape=(action_dim,),
-            frame=ReferenceFrame.JOINT,
-            unit=PhysicalUnit.RADIAN_PER_SECOND,
-            entity_axis=0,
-        ),
-    ]
-    for name, frame, unit in sensors:
-        requirements.append(
-            _state_requirement(
-                key=f"g1.sensor.{name}",
-                selector=EntitySelector(
-                    key=f"g1.sensor.{name}",
-                    entity="g1",
-                    kind=EntityKind.SENSOR,
-                    expressions=(name,),
-                ),
-                field_kind=StateFieldKind.VALUE,
-                shape=(3,),
-                frame=frame,
-                unit=unit,
-            )
-        )
-    return tuple(requirements)
-
-
-def _g1_reset_templates(
-    *,
-    root: EntitySelector,
-    reset_position: tuple[EntitySelector, ...],
-    reset_velocity: tuple[EntitySelector, ...],
-) -> tuple[MutationTemplate, ...]:
-    templates: list[MutationTemplate] = []
-    for suffix, target_key, field_kind, row_shape in _ROOT_RESET_SUFFIXES:
-        templates.append(
-            MutationTemplate(
-                key_suffix=suffix,
-                target_key=target_key,
-                target_kind=MutationTargetKind.SIMULATION_STATE,
-                selector=root,
-                field_kind=field_kind,
-                trigger=MutationTrigger.RESET,
-                commit_phase=MutationCommitPhase.RESET,
-                operation=MutationOperation.SET,
-                baseline=MutationBaseline.DEFAULT,
-                persistence=MutationPersistence.EPISODE,
-                recompute=MutationRecomputeLevel.KINEMATICS,
-                value_template=_manager_buffer(
-                    row_shape=row_shape, lifetime=BufferLifetime.UNTIL_COMMIT
-                ),
-            )
-        )
-    for index, selector in enumerate(reset_position):
-        templates.append(
-            MutationTemplate(
-                key_suffix=_reset_suffix_for_dof(kind="position", index=index),
-                target_key="state.dof.position",
-                target_kind=MutationTargetKind.SIMULATION_STATE,
-                selector=selector,
-                field_kind=MutationFieldKind.POSITION,
-                trigger=MutationTrigger.RESET,
-                commit_phase=MutationCommitPhase.RESET,
-                operation=MutationOperation.SET,
-                baseline=MutationBaseline.DEFAULT,
-                persistence=MutationPersistence.EPISODE,
-                recompute=MutationRecomputeLevel.KINEMATICS,
-                value_template=_manager_buffer(
-                    row_shape=(1,), lifetime=BufferLifetime.UNTIL_COMMIT
-                ),
-            )
-        )
-    for index, selector in enumerate(reset_velocity):
-        templates.append(
-            MutationTemplate(
-                key_suffix=_reset_suffix_for_dof(kind="velocity", index=index),
-                target_key="state.dof.angular_velocity",
-                target_kind=MutationTargetKind.SIMULATION_STATE,
-                selector=selector,
-                field_kind=MutationFieldKind.ANGULAR_VELOCITY,
-                trigger=MutationTrigger.RESET,
-                commit_phase=MutationCommitPhase.RESET,
-                operation=MutationOperation.SET,
-                baseline=MutationBaseline.DEFAULT,
-                persistence=MutationPersistence.EPISODE,
-                recompute=MutationRecomputeLevel.KINEMATICS,
-                value_template=_manager_buffer(
-                    row_shape=(1,), lifetime=BufferLifetime.UNTIL_COMMIT
-                ),
-            )
-        )
-    return tuple(templates)
 
 
 def compile_g1_managed_reference_task(
@@ -519,18 +95,22 @@ def compile_g1_managed_reference_task(
 
     if not isinstance(backend, SimBackend):
         raise G1ManagedReferenceError("G1 managed reference requires a SimBackend")
-    reward = _validate_reference_profile(cfg)
+    reward = validate_g1_managed_profile(
+        cfg,
+        profile_name="managed reference",
+        error_type=G1ManagedReferenceError,
+    )
     actuator_names = backend.get_actuator_names()
     if not actuator_names:
         raise G1ManagedReferenceError("G1 managed reference requires named actuators")
     if len(set(actuator_names)) != len(actuator_names):
         raise G1ManagedReferenceError("G1 managed reference actuator names must be unique")
     action_dim = len(actuator_names)
-    _action_scale(cfg, action_dim)
+    g1_action_scale(cfg, action_dim, error_type=G1ManagedReferenceError)
 
-    root, dofs, reset_position, reset_velocity = _g1_selectors(actuator_names)
-    state_requirements = _g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
-    reset_templates = _g1_reset_templates(
+    root, dofs, reset_position, reset_velocity = g1_selectors(actuator_names)
+    state_requirements = g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
+    reset_templates = g1_reset_templates(
         root=root,
         reset_position=reset_position,
         reset_velocity=reset_velocity,
@@ -575,7 +155,7 @@ def compile_g1_managed_reference_task(
             phase=TermPhase.TERMINAL_OBSERVATION,
             role=TermRole.OBSERVATION,
             state_requirements=state_requirements,
-            output=TensorSpec((_ACTOR_WIDTH,), np.dtype(get_global_dtype()).name),
+            output=TensorSpec((G1_ACTOR_OBSERVATION_WIDTH,), np.dtype(get_global_dtype()).name),
         )
     )
     registry.register(
@@ -585,17 +165,17 @@ def compile_g1_managed_reference_task(
             phase=TermPhase.TERMINAL_OBSERVATION,
             role=TermRole.OBSERVATION,
             state_requirements=state_requirements,
-            output=TensorSpec((_CRITIC_WIDTH,), np.dtype(get_global_dtype()).name),
+            output=TensorSpec((G1_CRITIC_OBSERVATION_WIDTH,), np.dtype(get_global_dtype()).name),
         )
     )
     task = TaskSpec.create(
         key="g1_walk_flat.managed_reference",
         terms=(
-            TermInvocation.create(key=_RESET_TERM, definition_key="g1.reference.reset"),
+            TermInvocation.create(key=G1_RESET_TERM, definition_key="g1.reference.reset"),
             TermInvocation.create(
                 key="g1_termination",
                 definition_key="g1.reference.termination",
-                dependencies=(_RESET_TERM,),
+                dependencies=(G1_RESET_TERM,),
             ),
             TermInvocation.create(
                 key="g1_reward",
@@ -617,7 +197,7 @@ def compile_g1_managed_reference_task(
         ),
         control=ControlSpec(
             semantic_key="g1.joint.position_target",
-            buffer=_manager_buffer(
+            buffer=manager_buffer_contract(
                 row_shape=(action_dim,), lifetime=BufferLifetime.UNTIL_STEP_COMPLETE
             ),
             physics_substeps_per_control=cfg.sim_substeps,
@@ -626,7 +206,10 @@ def compile_g1_managed_reference_task(
         executor_key=G1_MANAGED_REFERENCE_EXECUTOR_KEY,
         policy=PolicySpec(
             ("obs", "critic"),
-            tuple(float(value) for value in _action_scale(cfg, action_dim)),
+            tuple(
+                float(value)
+                for value in g1_action_scale(cfg, action_dim, error_type=G1ManagedReferenceError)
+            ),
         ),
     )
     capabilities = frozenset(
@@ -645,70 +228,13 @@ def compile_g1_managed_reference_task(
         resolver=BackendEntityResolver(backend),
         capabilities=capabilities,
     )
-    if plan.policy_abi.observation_groups[0].width != _ACTOR_WIDTH or (
-        plan.policy_abi.observation_groups[1].width != _CRITIC_WIDTH
+    if plan.policy_abi.observation_groups[0].width != G1_ACTOR_OBSERVATION_WIDTH or (
+        plan.policy_abi.observation_groups[1].width != G1_CRITIC_OBSERVATION_WIDTH
     ):
         raise G1ManagedReferenceError("compiled G1 policy ABI has an unexpected observation width")
     if reward is not cfg.reward_config:  # pragma: no cover - type-narrowing invariant
         raise G1ManagedReferenceError("G1 reward configuration changed during compilation")
     return plan
-
-
-@dataclass(frozen=True)
-class _G1KernelConfig:
-    action_scale: np.ndarray
-    default_angles: np.ndarray
-    initial_qpos: np.ndarray
-    initial_qvel: np.ndarray
-    reward_terms: tuple[tuple[str, float], ...]
-    ctrl_dt: float
-    tracking_sigma: float
-    gait_phase_delta: float
-    gait_phase_init_mode: str
-    reset_base_qvel_limit: float
-    command_low: np.ndarray
-    command_high: np.ndarray
-    standing_probability: float
-    base_height_target: float
-    min_base_height: float
-    max_tilt_rad: float
-    feet_phase_swing_height: float
-    feet_phase_tracking_sigma: float
-    min_forward_speed_for_gait_reward: float
-    close_feet_threshold: float
-    pose_weights: np.ndarray
-    upper_body_pose_weights: np.ndarray
-    walk_observation_profile: bool
-    observation_noise_level: float
-    observation_noise_scale_joint_angle: float
-    observation_noise_scale_joint_vel: float
-    observation_noise_scale_gyro: float
-    observation_noise_scale_gravity: float
-    reset_seed: int
-    observation_noise_seed: int | None
-
-
-@dataclass(frozen=True)
-class _G1StateViews:
-    """Named, validated views of the canonical compiled G1 state fields.
-
-    ``TaskCompiler`` deliberately orders fields by semantic key, rather than
-    by a task's preferred math order.  Keeping the mapping here explicit
-    prevents a future compiler ordering change from silently feeding the
-    reward or observation kernel a semantically different vector.
-    """
-
-    dof_angular_velocity: np.ndarray
-    dof_position: np.ndarray
-    root_angular_velocity: np.ndarray
-    root_linear_velocity: np.ndarray
-    root_orientation: np.ndarray
-    root_position: np.ndarray
-    left_foot_position: np.ndarray
-    pelvis_local_linear_velocity: np.ndarray
-    right_foot_position: np.ndarray
-    torso_gyro: np.ndarray
-    torso_upvector: np.ndarray
 
 
 @dataclass
@@ -730,18 +256,13 @@ class _G1ManagedTaskState:
     has_logged_reward: np.ndarray
 
 
-@dataclass(frozen=True)
-class _G1ResetSample:
-    rows: RowSelection
-
-
 class G1ManagedReferenceKernel:
     """Pure host-Numpy G1 task kernel over the bound typed state plan."""
 
     executor_key = G1_MANAGED_REFERENCE_EXECUTOR_KEY
 
-    def __init__(self, config: _G1KernelConfig) -> None:
-        if not isinstance(config, _G1KernelConfig):
+    def __init__(self, config: G1KernelConfig) -> None:
+        if not isinstance(config, G1KernelConfig):
             raise G1ManagedReferenceError("G1 managed reference kernel requires frozen config")
         self._config = config
         self._action_dim = int(config.default_angles.size)
@@ -765,12 +286,12 @@ class G1ManagedReferenceKernel:
                 "G1 managed reference dtype must match the repository global dtype"
             )
         state_index_by_key = dict(binding.state_field_indices)
-        missing_state = tuple(key for key in _STATE_KEYS if key not in state_index_by_key)
+        missing_state = tuple(key for key in G1_STATE_KEYS if key not in state_index_by_key)
         if missing_state:
             raise G1ManagedReferenceError(
                 "G1 managed reference plan is missing state fields: " + ", ".join(missing_state)
             )
-        self._state_indices = tuple(state_index_by_key[key] for key in _STATE_KEYS)
+        self._state_indices = tuple(state_index_by_key[key] for key in G1_STATE_KEYS)
         obs_index_by_key = dict(binding.observation_buffer_indices)
         try:
             self._obs_buffer_indices = (obs_index_by_key["obs"], obs_index_by_key["critic"])
@@ -783,13 +304,13 @@ class G1ManagedReferenceKernel:
         if mutation_plan is None:
             raise G1ManagedReferenceError("G1 managed reference requires typed reset mutations")
         mutation_indices = {spec.term_key: index for index, spec in enumerate(mutation_plan.specs)}
-        root_keys = tuple(_reset_term_key(suffix=item[0]) for item in _ROOT_RESET_SUFFIXES)
+        root_keys = tuple(reset_term_key(suffix=item[0]) for item in G1_ROOT_RESET_SPECS)
         position_keys = tuple(
-            _reset_term_key(suffix=_reset_suffix_for_dof(kind="position", index=index))
+            reset_term_key(suffix=reset_suffix_for_dof(kind="position", index=index))
             for index in range(self._action_dim)
         )
         velocity_keys = tuple(
-            _reset_term_key(suffix=_reset_suffix_for_dof(kind="velocity", index=index))
+            reset_term_key(suffix=reset_suffix_for_dof(kind="velocity", index=index))
             for index in range(self._action_dim)
         )
         required_mutations = (*root_keys, *position_keys, *velocity_keys)
@@ -852,7 +373,7 @@ class G1ManagedReferenceKernel:
             raise G1ManagedReferenceError(f"G1 typed state {name} must be a numpy array")
         return value
 
-    def _state_views(self, state: StateBatch) -> _G1StateViews:
+    def _state_views(self, state: StateBatch) -> G1StateViews:
         """Return semantic state views without relying on compiler field order."""
 
         state.assert_valid()
@@ -872,7 +393,7 @@ class G1ManagedReferenceKernel:
             "g1.sensor.torso_upvector": (3,),
         }
         arrays: dict[str, np.ndarray] = {}
-        for key, index in zip(_STATE_KEYS, self._require_state_indices(), strict=True):
+        for key, index in zip(G1_STATE_KEYS, self._require_state_indices(), strict=True):
             array = self._host_array(state.buffer_at(index).handle, name=key)
             expected_shape = (state.rows.count, *expected_shapes[key])
             if array.shape != expected_shape:
@@ -885,7 +406,7 @@ class G1ManagedReferenceKernel:
                     f"got {array.dtype.name}"
                 )
             arrays[key] = array
-        return _G1StateViews(
+        return G1StateViews(
             dof_angular_velocity=arrays["g1.dof.angular_velocity"],
             dof_position=arrays["g1.dof.position"],
             root_angular_velocity=arrays["g1.root.angular_velocity"],
@@ -1140,9 +661,12 @@ class G1ManagedReferenceKernel:
         except IndexError as exc:
             raise G1ManagedReferenceError("G1 runtime observation buffers are incomplete") from exc
         binding = self._require_binding()
-        if actor_all.shape != (binding.num_envs, _ACTOR_WIDTH) or critic_all.shape != (
+        if actor_all.shape != (
             binding.num_envs,
-            _CRITIC_WIDTH,
+            G1_ACTOR_OBSERVATION_WIDTH,
+        ) or critic_all.shape != (
+            binding.num_envs,
+            G1_CRITIC_OBSERVATION_WIDTH,
         ):
             raise G1ManagedReferenceError("G1 runtime observation buffers have invalid widths")
         if (
@@ -1196,7 +720,7 @@ class G1ManagedReferenceKernel:
         cursor += 3
         actor_all[target_rows, cursor : cursor + 2] = gait_phase
         cursor += 2
-        if cursor != _ACTOR_WIDTH:  # pragma: no cover - static layout assertion
+        if cursor != G1_ACTOR_OBSERVATION_WIDTH:  # pragma: no cover - static layout assertion
             raise G1ManagedReferenceError("G1 actor observation layout is inconsistent")
 
         cursor = 0
@@ -1220,7 +744,7 @@ class G1ManagedReferenceKernel:
             views.pelvis_local_linear_velocity * linvel_scale
         )
         cursor += 3
-        if cursor != _CRITIC_WIDTH:  # pragma: no cover - static layout assertion
+        if cursor != G1_CRITIC_OBSERVATION_WIDTH:  # pragma: no cover - static layout assertion
             raise G1ManagedReferenceError("G1 critic observation layout is inconsistent")
         if state.phase.value == "terminal":
             if state.rows.is_all:
@@ -1321,7 +845,7 @@ class G1ManagedReferenceKernel:
         return ManagedResetRequest(
             rows=rows,
             mutation_batch=mutation,
-            kernel_state=_G1ResetSample(rows=rows),
+            kernel_state=G1ResetSample(rows=rows),
         )
 
     def complete_reset(
@@ -1332,7 +856,7 @@ class G1ManagedReferenceKernel:
         task_state: object,
     ) -> None:
         task = self._require_task_state(task_state)
-        if not isinstance(request.kernel_state, _G1ResetSample):
+        if not isinstance(request.kernel_state, G1ResetSample):
             raise G1ManagedReferenceError("G1 reset request carries foreign task state")
         sample = request.kernel_state
         if sample.rows != request.rows or state.rows != request.rows:
@@ -1349,136 +873,6 @@ class G1ManagedReferenceKernel:
         task.last_actions[target] = 0.0
         task.gait_phase[target] = task.reset_gait_phase[:count]
         task.steps[target] = 0
-
-
-def _kernel_config(
-    *,
-    backend: SimBackend,
-    cfg: G1WalkEnvCfg,
-    reset_seed: int,
-    observation_noise_seed: int | None,
-    allow_pd_randomization: bool = False,
-    allow_dof_armature_randomization: bool = False,
-    allow_body_gravity_compensation_randomization: bool = False,
-) -> _G1KernelConfig:
-    reward = _validate_reference_profile(
-        cfg,
-        allow_pd_randomization=allow_pd_randomization,
-        allow_dof_armature_randomization=allow_dof_armature_randomization,
-        allow_body_gravity_compensation_randomization=(
-            allow_body_gravity_compensation_randomization
-        ),
-    )
-    if not np.isfinite(float(cfg.sim_dt)) or float(cfg.sim_dt) <= 0.0:
-        raise G1ManagedReferenceError("G1 sim_dt must be finite and positive")
-    if not np.isfinite(float(cfg.ctrl_dt)) or float(cfg.ctrl_dt) <= 0.0:
-        raise G1ManagedReferenceError("G1 ctrl_dt must be finite and positive")
-    if cfg.sim_substeps <= 0:
-        raise G1ManagedReferenceError("G1 managed reference requires positive sim_substeps")
-    if isinstance(reset_seed, bool) or not isinstance(reset_seed, int) or reset_seed < 0:
-        raise G1ManagedReferenceError("G1 reset_seed must be a non-negative integer")
-    if observation_noise_seed is None:
-        observation_noise_seed = cfg.noise_config.seed
-    if observation_noise_seed is not None and (
-        isinstance(observation_noise_seed, bool)
-        or not isinstance(observation_noise_seed, int)
-        or observation_noise_seed < 0
-    ):
-        raise G1ManagedReferenceError("G1 observation_noise_seed must be non-negative or None")
-    if cfg.noise_config.level > 0.0 and observation_noise_seed is None:
-        raise G1ManagedReferenceError(
-            "G1 managed reference requires an explicit observation noise seed when noise is enabled"
-        )
-    actuator_names = backend.get_actuator_names()
-    action_dim = len(actuator_names)
-    default_qpos = np.asarray(backend.get_keyframe_qpos("stand"), dtype=get_global_dtype())
-    initial_qvel = np.asarray(backend.get_init_qvel(), dtype=get_global_dtype())
-    if default_qpos.shape != (7 + action_dim,) or initial_qvel.shape != (6 + action_dim,):
-        raise G1ManagedReferenceError(
-            "G1 managed reference requires one floating root and one coordinate per actuator"
-        )
-    if not np.isfinite(default_qpos).all() or not np.isfinite(initial_qvel).all():
-        raise G1ManagedReferenceError("G1 initial state must be finite")
-    command_low = np.asarray(cfg.commands.vel_limit[0], dtype=get_global_dtype())
-    command_high = np.asarray(cfg.commands.vel_limit[1], dtype=get_global_dtype())
-    if command_low.shape != (3,) or command_high.shape != (3,):
-        raise G1ManagedReferenceError("G1 command limits must have shape (2, 3)")
-    if (
-        not np.isfinite(command_low).all()
-        or not np.isfinite(command_high).all()
-        or np.any(command_high < command_low)
-    ):
-        raise G1ManagedReferenceError("G1 command maximum must be >= minimum")
-    standing_probability = float(cfg.commands.rel_standing_envs)
-    if not np.isfinite(standing_probability) or standing_probability < 0.0:
-        raise G1ManagedReferenceError("G1 standing probability must be finite and non-negative")
-    pose_weights = np.asarray(reward.pose_weights, dtype=get_global_dtype())
-    if pose_weights.shape != (action_dim,) or not np.isfinite(pose_weights).all():
-        raise G1ManagedReferenceError(
-            f"G1 pose_weights must be finite with shape ({action_dim},), got {pose_weights.shape}"
-        )
-    finite_positive = {
-        "tracking_sigma": reward.tracking_sigma,
-        "feet_phase_tracking_sigma": reward.feet_phase_tracking_sigma,
-    }
-    for name, value in finite_positive.items():
-        if not np.isfinite(float(value)) or float(value) <= 0.0:
-            raise G1ManagedReferenceError(f"G1 {name} must be finite and positive")
-    finite_non_negative = {
-        "reset_base_qvel_limit": cfg.reset_base_qvel_limit,
-        "feet_phase_swing_height": reward.feet_phase_swing_height,
-        "min_forward_speed_for_gait_reward": reward.min_forward_speed_for_gait_reward,
-        "close_feet_threshold": reward.close_feet_threshold,
-        "noise_config.level": cfg.noise_config.level,
-    }
-    for name, value in finite_non_negative.items():
-        if not np.isfinite(float(value)) or float(value) < 0.0:
-            raise G1ManagedReferenceError(f"G1 {name} must be finite and non-negative")
-    finite_values = {
-        "gait_frequency": reward.gait_frequency,
-        "base_height_target": reward.base_height_target,
-        "min_base_height": reward.min_base_height,
-        "max_tilt_deg": reward.max_tilt_deg,
-        "noise_config.scale_joint_angle": cfg.noise_config.scale_joint_angle,
-        "noise_config.scale_joint_vel": cfg.noise_config.scale_joint_vel,
-        "noise_config.scale_gyro": cfg.noise_config.scale_gyro,
-        "noise_config.scale_gravity": cfg.noise_config.scale_gravity,
-    }
-    for name, value in finite_values.items():
-        if not np.isfinite(float(value)):
-            raise G1ManagedReferenceError(f"G1 {name} must be finite")
-    return _G1KernelConfig(
-        action_scale=np.asarray(_action_scale(cfg, action_dim), dtype=get_global_dtype()),
-        default_angles=np.asarray(default_qpos[-action_dim:], dtype=get_global_dtype()),
-        initial_qpos=np.asarray(default_qpos, dtype=get_global_dtype()),
-        initial_qvel=np.asarray(initial_qvel, dtype=get_global_dtype()),
-        reward_terms=tuple((name, float(scale)) for name, scale in reward.scales.items()),
-        ctrl_dt=float(cfg.ctrl_dt),
-        tracking_sigma=float(reward.tracking_sigma),
-        gait_phase_delta=float(2.0 * math.pi * reward.gait_frequency * cfg.ctrl_dt),
-        gait_phase_init_mode=cfg.gait_phase_init_mode,
-        reset_base_qvel_limit=float(cfg.reset_base_qvel_limit),
-        command_low=command_low,
-        command_high=command_high,
-        standing_probability=min(standing_probability, 1.0),
-        base_height_target=float(reward.base_height_target),
-        min_base_height=float(reward.min_base_height),
-        max_tilt_rad=float(np.deg2rad(reward.max_tilt_deg)),
-        feet_phase_swing_height=float(reward.feet_phase_swing_height),
-        feet_phase_tracking_sigma=float(reward.feet_phase_tracking_sigma),
-        min_forward_speed_for_gait_reward=float(reward.min_forward_speed_for_gait_reward),
-        close_feet_threshold=float(reward.close_feet_threshold),
-        pose_weights=pose_weights,
-        upper_body_pose_weights=build_upper_body_pose_weights(pose_weights.tolist()),
-        walk_observation_profile=_walk_observation_profile(reward, cfg),
-        observation_noise_level=float(cfg.noise_config.level),
-        observation_noise_scale_joint_angle=float(cfg.noise_config.scale_joint_angle),
-        observation_noise_scale_joint_vel=float(cfg.noise_config.scale_joint_vel),
-        observation_noise_scale_gyro=float(cfg.noise_config.scale_gyro),
-        observation_noise_scale_gravity=float(cfg.noise_config.scale_gravity),
-        reset_seed=reset_seed,
-        observation_noise_seed=observation_noise_seed,
-    )
 
 
 def create_g1_managed_reference_runtime(
@@ -1498,11 +892,13 @@ def create_g1_managed_reference_runtime(
     """
 
     kernel = G1ManagedReferenceKernel(
-        _kernel_config(
+        build_g1_kernel_config(
             backend=backend,
             cfg=cfg,
             reset_seed=reset_seed,
             observation_noise_seed=observation_noise_seed,
+            profile_name="managed reference",
+            error_type=G1ManagedReferenceError,
         )
     )
     plan = compile_g1_managed_reference_task(backend=backend, cfg=cfg)

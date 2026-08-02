@@ -105,6 +105,7 @@ class DeviceTransition:
     observations: tuple[DeviceTransitionBuffer, ...]
     terminal_observations: tuple[DeviceTransitionBuffer, ...]
     final_observations: tuple[DeviceTransitionBuffer, ...]
+    metrics: tuple[DeviceTransitionBuffer, ...]
     reward: DeviceTensorView = field(repr=False, compare=False)
     terminated: DeviceTensorView = field(repr=False, compare=False)
     truncated: DeviceTensorView = field(repr=False, compare=False)
@@ -139,12 +140,20 @@ class DeviceTransition:
             raise DeviceManagedRuntimeError(
                 "device transition observation key layouts must be identical"
             )
+        if not isinstance(self.metrics, tuple) or any(
+            not isinstance(buffer, DeviceTransitionBuffer) for buffer in self.metrics
+        ):
+            raise DeviceManagedRuntimeError("device transition metrics must contain typed buffers")
+        metric_keys = tuple(buffer.key for buffer in self.metrics)
+        if len(set(metric_keys)) != len(metric_keys):
+            raise DeviceManagedRuntimeError("device transition metrics have duplicate keys")
         if not isinstance(self.completion, DeviceCompletion):
             raise DeviceManagedRuntimeError("device transition completion is invalid")
         all_views = (
             *(buffer.view for buffer in self.observations),
             *(buffer.view for buffer in self.terminal_observations),
             *(buffer.view for buffer in self.final_observations),
+            *(buffer.view for buffer in self.metrics),
             self.reward,
             self.terminated,
             self.truncated,
@@ -192,6 +201,14 @@ class DeviceTransition:
             if buffer.key == key:
                 return buffer.view
         raise DeviceManagedRuntimeError(f"device transition has no final observation group {key!r}")
+
+    def metric(self, key: str) -> DeviceTensorView:
+        """Return one task metric without materializing it on the host."""
+
+        for buffer in self.metrics:
+            if buffer.key == key:
+                return buffer.view
+        raise DeviceManagedRuntimeError(f"device transition has no metric {key!r}")
 
 
 @dataclass(frozen=True)
@@ -574,6 +591,7 @@ class DeviceManagedTaskKernel(Protocol):
     """Torch CUDA task-math ABI consumed by :class:`DeviceManagedRuntime`."""
 
     executor_key: str
+    metric_keys: tuple[str, ...]
 
     def bind(self, *, binding: ManagedKernelBinding) -> None:
         """Capture cold-bound public plan metadata exactly once."""
@@ -608,6 +626,7 @@ class DeviceManagedTaskKernel(Protocol):
         state: StateBatch,
         task_state: object,
         reward_out: torch.Tensor,
+        metric_buffers: tuple[torch.Tensor, ...],
         terminated_out: torch.Tensor,
         terminal_observation_buffers: tuple[torch.Tensor, ...],
     ) -> None:
@@ -726,7 +745,7 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError("max_episode_steps must be a positive integer or None")
         if isinstance(run_seed, bool) or not isinstance(run_seed, int):
             raise DeviceManagedRuntimeError("device managed runtime run_seed must be an integer")
-        self._validate_kernel(kernel, plan)
+        metric_keys = self._validate_kernel(kernel, plan)
 
         bound = backend.bind_task_io(plan.backend_io)
         self._validate_bound_plan(backend=backend, plan=plan, bound=bound)
@@ -914,8 +933,10 @@ class DeviceManagedRuntime:
             event_mutation_indices=self._event_mutation_indices,
         )
         kernel.bind(binding=binding)
-        self._validate_kernel(kernel, plan)
+        if self._validate_kernel(kernel, plan) != metric_keys:
+            raise DeviceManagedRuntimeError("device managed kernel metric keys changed during bind")
         self._kernel_binding = binding
+        self._metric_keys = metric_keys
         self._task_state = kernel.create_task_state(
             num_envs=self._num_envs,
             dtype=self._dtype,
@@ -934,6 +955,10 @@ class DeviceManagedRuntime:
         )
         self._bool_contract = _runtime_contract(placement=placement, row_shape=(), dtype="bool")
         self._reward = torch.empty((self._num_envs,), dtype=self._dtype, device=self._device)
+        self._metrics = tuple(
+            torch.empty((self._num_envs,), dtype=self._dtype, device=self._device)
+            for _ in self._metric_keys
+        )
         self._terminated = torch.empty((self._num_envs,), dtype=torch.bool, device=self._device)
         self._truncated = torch.empty((self._num_envs,), dtype=torch.bool, device=self._device)
         self._done = torch.empty((self._num_envs,), dtype=torch.bool, device=self._device)
@@ -962,7 +987,9 @@ class DeviceManagedRuntime:
         self._initialized = False
 
     @staticmethod
-    def _validate_kernel(kernel: DeviceManagedTaskKernel, plan: CompiledTaskPlan) -> None:
+    def _validate_kernel(
+        kernel: DeviceManagedTaskKernel, plan: CompiledTaskPlan
+    ) -> tuple[str, ...]:
         try:
             executor_key = kernel.executor_key
         except AttributeError as exc:
@@ -971,14 +998,27 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError(
                 "device managed kernel executor_key does not match the compiled task plan"
             )
-        # This is a cold-path structural check.  Device task math may retain
-        # tensors/configuration, but never a backend/env owner it could use to
-        # bypass StateBatch.
+        try:
+            metric_keys = kernel.metric_keys
+        except AttributeError as exc:
+            raise DeviceManagedRuntimeError("device managed kernel has no metric_keys") from exc
+        if (
+            not isinstance(metric_keys, tuple)
+            or any(not isinstance(key, str) or not key.strip() for key in metric_keys)
+            or len(set(metric_keys)) != len(metric_keys)
+        ):
+            raise DeviceManagedRuntimeError(
+                "device managed kernel metric_keys must be unique non-empty strings"
+            )
+        # This cold-path depth check inspects instance attributes only.  It
+        # intentionally does not claim to detect class attributes or closure
+        # captures; task implementations remain responsible for the protocol.
         for forbidden in ("backend", "env", "_backend", "_env", "model", "_model"):
             if forbidden in vars(kernel):
                 raise DeviceManagedRuntimeError(
                     f"device managed kernel must not retain forbidden {forbidden!r} owner reference"
                 )
+        return metric_keys
 
     @staticmethod
     def _validate_bound_plan(
@@ -1062,6 +1102,12 @@ class DeviceManagedRuntime:
     @property
     def device(self) -> torch.device:
         return self._device
+
+    @property
+    def metric_keys(self) -> tuple[str, ...]:
+        """Return the cold-bound task metric layout in transition order."""
+
+        return self._metric_keys
 
     @property
     def event_bindings(self) -> tuple[DeviceMutationEventBinding, ...]:
@@ -1272,6 +1318,10 @@ class DeviceManagedRuntime:
             DeviceRuntimeBuffer("runtime.final_observation_mask", self._final_observation_mask),
             DeviceRuntimeBuffer("runtime.episode_steps", self._episode_steps),
         ]
+        buffers.extend(
+            DeviceRuntimeBuffer(f"runtime.metric.{key}", value)
+            for key, value in zip(self._metric_keys, self._metrics, strict=True)
+        )
         for key, observation, terminal, final in zip(
             self._observation_keys,
             self._observations,
@@ -1696,11 +1746,20 @@ class DeviceManagedRuntime:
                 )
             )
 
+        metrics = tuple(
+            DeviceTransitionBuffer(
+                key=key,
+                view=self._transition_view(value, self._reward_contract, completion),
+            )
+            for key, value in zip(self._metric_keys, self._metrics, strict=True)
+        )
+
         return DeviceTransition(
             plan_fingerprint=self._plan.fingerprint,
             observations=named(self._observations),
             terminal_observations=named(self._terminal_observations),
             final_observations=named(self._final_observations),
+            metrics=metrics,
             reward=self._transition_view(self._reward, self._reward_contract, completion),
             terminated=self._transition_view(self._terminated, self._bool_contract, completion),
             truncated=self._transition_view(self._truncated, self._bool_contract, completion),
@@ -1762,6 +1821,8 @@ class DeviceManagedRuntime:
                 terminal.copy_(observation, non_blocking=True)
                 final.copy_(observation, non_blocking=True)
             self._reward.zero_()
+            for metric in self._metrics:
+                metric.zero_()
             self._terminated.zero_()
             self._truncated.zero_()
             self._final_observation_mask.zero_()
@@ -1825,11 +1886,14 @@ class DeviceManagedRuntime:
         with torch.cuda.stream(self._task_stream):
             step_completion.wait(self._task_stream)
             self._reward.zero_()
+            for metric in self._metrics:
+                metric.zero_()
             self._terminated.zero_()
             self._kernel.evaluate_terminal(
                 state=terminal,
                 task_state=self._task_state,
                 reward_out=self._reward,
+                metric_buffers=self._metrics,
                 terminated_out=self._terminated,
                 terminal_observation_buffers=self._terminal_observations,
             )
