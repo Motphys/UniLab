@@ -163,11 +163,12 @@ def _host_device_fixture(*, num_envs: int, seed: int) -> Iterator[_HostDeviceFix
         observation_noise_level=0.0,
         observation_noise_seed=None,
     )
+    # Use the production reward config (feet_phase, non-zero gait_frequency,
+    # non-zero vel_limit) so the device implementation's independent Bezier /
+    # gait-phase math is covered by the oracle.  Stripping those fields was a
+    # pre-existing workaround that left the highest-risk device term without
+    # any host↔device equivalence evidence (issue #860).
     assert cfg.reward_config is not None
-    cfg.reward_config.scales.pop("feet_phase")
-    cfg.reward_config.gait_frequency = 0.0
-    cfg.reset_base_qvel_limit = 0.0
-    cfg.commands.vel_limit = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     assert cfg.scene is not None
 
     host_cfg = deepcopy(cfg)
