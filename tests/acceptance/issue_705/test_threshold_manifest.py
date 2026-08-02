@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 from pathlib import Path
 
 from unilab.tools.issue705_thresholds import (

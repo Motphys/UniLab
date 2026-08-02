@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 from dataclasses import replace
 from pathlib import Path
 
