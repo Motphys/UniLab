@@ -96,6 +96,7 @@ def _model_diagnostics() -> BackendMutationPerformanceDiagnostics:
             reset_graph_launches=2,
             forward_graph_launches=2,
             state_refreshes=3,
+            invalid_model_sample_rows=4,
         ),
         graph=_graph(),
     )
@@ -104,6 +105,7 @@ def _model_diagnostics() -> BackendMutationPerformanceDiagnostics:
 def test_mutation_performance_contract_accepts_consistent_model_and_state_evidence() -> None:
     model = _model_diagnostics()
     assert model.contract_version == BACKEND_PERFORMANCE_DIAGNOSTICS_VERSION
+    assert model.lifecycle.invalid_model_sample_rows == 4
     assert model.materialization is not None
     assert model.materialization.expanded_model_bytes == sum(
         field.model_bytes for field in model.materialization.fields if field.replaced
@@ -126,6 +128,7 @@ def test_mutation_performance_contract_accepts_consistent_model_and_state_eviden
             reset_graph_launches=0,
             forward_graph_launches=0,
             state_refreshes=0,
+            invalid_model_sample_rows=0,
         ),
         graph=_graph(launches=0),
     )

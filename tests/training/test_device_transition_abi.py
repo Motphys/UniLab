@@ -247,6 +247,21 @@ def test_device_action_requires_explicit_producer_completion() -> None:
         fixture.backend.step_batch(fixture.plan, control, nsteps=1)
 
 
+def test_legacy_host_runtime_apis_fail_after_device_plan_binding() -> None:
+    fixture = _fixture(2)
+    backend = fixture.backend
+    qpos = torch.zeros((2, backend.get_default_qpos().size), dtype=torch.float32).numpy()
+    qvel = torch.zeros((2, backend.get_init_qvel().size), dtype=torch.float32).numpy()
+    ctrl = torch.zeros((2, backend.num_actuators), dtype=torch.float32).numpy()
+
+    with pytest.raises(BackendBatchContractError, match="legacy step.*device_resident"):
+        backend.step(ctrl, nsteps=1)
+    with pytest.raises(BackendBatchContractError, match="legacy set_state.*device_resident"):
+        backend.set_state(torch.arange(2, dtype=torch.int32).numpy(), qpos, qvel)
+    with pytest.raises(BackendBatchContractError, match="legacy get_base_pos.*device_resident"):
+        backend.get_base_pos()
+
+
 def test_stale_completion_epoch_is_rejected_before_physics() -> None:
     fixture = _fixture(1)
     action = torch.zeros((1, 29), dtype=torch.float32, device="cuda:0")
