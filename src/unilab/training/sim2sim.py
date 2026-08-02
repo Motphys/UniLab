@@ -172,6 +172,25 @@ def _normalize_managed_policy_abi_for_resolver(
         ) from exc
 
 
+# Fields that carry backend-local execution identity — they differ legitimately
+# between independent compilation runs (different GPU ordinal, host vs device
+# executor) and must NOT influence the policy I/O compatibility decision.
+_ABI_EXECUTION_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {"plan_fingerprint", "executor_key", "execution_profile"}
+)
+
+
+def _semantic_abi_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Return the policy-semantic subset of a normalized ABI snapshot.
+
+    Strips backend-local execution-identity fields (``plan_fingerprint``,
+    ``executor_key``, ``execution_profile``) so that two snapshots compiled
+    on different GPU ordinals or executor profiles compare equal whenever
+    their observable policy I/O contract is identical.
+    """
+    return {k: v for k, v in snapshot.items() if k not in _ABI_EXECUTION_IDENTITY_FIELDS}
+
+
 def _managed_policy_abi_asymmetric_line(*, source_present: bool) -> str:
     if source_present:
         return (
@@ -275,12 +294,18 @@ def resolve_sim2sim_config(
         elif target_has_managed_abi and not source_has_managed_abi:
             denials.append(_managed_policy_abi_asymmetric_line(source_present=False))
         elif source_managed_abi is not None and target_managed_abi is not None:
-            if not _values_equal(source_managed_abi, target_managed_abi):
+            # Compare only the policy-semantic payload — strip backend-local
+            # execution-identity fields (plan_fingerprint, executor_key,
+            # execution_profile) that differ legitimately across GPU ordinals
+            # and executor profiles without affecting policy I/O compatibility.
+            source_semantic = _semantic_abi_payload(source_managed_abi)
+            target_semantic = _semantic_abi_payload(target_managed_abi)
+            if not _values_equal(source_semantic, target_semantic):
                 denials.append(
                     _diff_line(
                         MANAGED_POLICY_ABI_SNAPSHOT_KEY,
-                        source_managed_abi,
-                        target_managed_abi,
+                        source_semantic,
+                        target_semantic,
                     )
                 )
 
