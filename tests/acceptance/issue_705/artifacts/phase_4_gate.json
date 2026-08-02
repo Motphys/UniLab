@@ -39,7 +39,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.969859261997044,
+      "duration_sec": 3.203178432000641,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_no_fallback#1",
@@ -55,7 +55,7 @@
       ],
       "series": "lane_a_no_fallback",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_never_silently_falls_back PASSED [100%]\n\n============================== 1 passed in 0.88s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_never_silently_falls_back PASSED [100%]\n\n============================== 1 passed in 0.85s ===============================\n"
     },
     {
       "argv": [
@@ -66,7 +66,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.024831830000039,
+      "duration_sec": 5.720578612999816,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_fused_parity#1",
@@ -82,7 +82,7 @@
       ],
       "series": "lane_b_fused_parity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.77s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/Desktop/UniLab2/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/Desktop/UniLab2/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.69s =========================\n"
     },
     {
       "argv": [
@@ -93,7 +93,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.265718172013294,
+      "duration_sec": 5.683659469001213,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_fused_parity#2",
@@ -109,7 +109,7 @@
       ],
       "series": "lane_b_fused_parity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 4.08s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/Desktop/UniLab2/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/Desktop/UniLab2/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.66s =========================\n"
     },
     {
       "argv": [
@@ -120,7 +120,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.853965607006103,
+      "duration_sec": 5.607551549999698,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_fused_parity#3",
@@ -136,7 +136,7 @@
       ],
       "series": "lane_b_fused_parity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.82s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/Desktop/UniLab2/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/Desktop/UniLab2/.venv/lib/python3.13/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.59s =========================\n"
     },
     {
       "argv": [
@@ -149,7 +149,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.742424294992816,
+      "duration_sec": 7.405650987000627,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_allocation_stability#1",
@@ -165,7 +165,7 @@
       ],
       "series": "lane_b_allocation_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.55s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.39s ===============================\n"
     },
     {
       "argv": [
@@ -178,7 +178,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.543342160002794,
+      "duration_sec": 7.45529507900028,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_allocation_stability#2",
@@ -194,7 +194,7 @@
       ],
       "series": "lane_b_allocation_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.46s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.44s ===============================\n"
     },
     {
       "argv": [
@@ -207,7 +207,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.51660464098677,
+      "duration_sec": 7.423683765000533,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_allocation_stability#3",
@@ -223,7 +223,7 @@
       ],
       "series": "lane_b_allocation_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.53s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.40s ===============================\n"
     },
     {
       "argv": [
@@ -234,7 +234,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.177141631953418,
+      "duration_sec": 5.037974471999405,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#1",
@@ -250,7 +250,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.33s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.03s ===============================\n"
     },
     {
       "argv": [
@@ -261,7 +261,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.271543685987126,
+      "duration_sec": 5.037597792999804,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#2",
@@ -277,7 +277,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.36s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.01s ===============================\n"
     },
     {
       "argv": [
@@ -288,7 +288,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.198513734037988,
+      "duration_sec": 5.100333701999261,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#3",
@@ -304,7 +304,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.31s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.09s ===============================\n"
     },
     {
       "argv": [
@@ -315,7 +315,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.794965494016651,
+      "duration_sec": 5.033344072000546,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#4",
@@ -331,7 +331,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.49s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.01s ===============================\n"
     },
     {
       "argv": [
@@ -342,7 +342,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.223889247979969,
+      "duration_sec": 5.086240093000015,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#5",
@@ -358,7 +358,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.29s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.06s ===============================\n"
     }
   ],
   "environment": {
@@ -366,33 +366,109 @@
       "mujoco": "3.10.0",
       "numba": "0.66.0"
     },
-    "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
-    "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]"
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]"
   },
-  "generated_at_utc": "2026-08-02T09:15:20.355857+00:00",
+  "generated_at_utc": "2026-08-02T20:32:51.250756+00:00",
   "inputs": {
     "claim_config_hashes": {
       "P4-ALLOCATION-STABILITY": "sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb",
       "P4-FUSED-PARITY": "sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb",
       "P4-HOST-PERFORMANCE": "sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb",
-      "P4-NO-FALLBACK": "sha256:0873151a93550c2f9211fcc1d80230616012925cc8f285ad3b4877297ac4da30"
+      "P4-NO-FALLBACK": "sha256:a837c6cc919cf49a6c75184e9aaaf73773a49a4fe845263f652984878ccebccc"
     },
     "files": {
       "benchmark/env/benchmark_managed_g1.py": "sha256:bd9f008113035bc91303b8d036ac9a5704552c4982fdb355bf0689bb07f2bf21",
+      "benchmark/numba_profile/__init__.py": "sha256:8644bfbcacc575c7571ab9f4d967ad6eb83d5c2649cea5f41229cd8e9053cc94",
+      "benchmark/numba_profile/bench.py": "sha256:1bd25715e9c74a89e7ea964518f8f96a0ea95da8d94eaf616aee561035fad36d",
+      "benchmark/numba_profile/numba_fused.py": "sha256:7d9b2179ed65f971c2348dda5f8545731cd399ec1ef1e70de904e1898d0e3aa1",
+      "benchmark/numba_profile/numba_terms.py": "sha256:effdb2de98af7bfab3f95ef6b9647120f3cd4cc62d74993286233f20c178cf3e",
+      "benchmark/numba_profile/numpy_reference.py": "sha256:e13583cd806c09dacd5b2609ce2d67075b362c3efa800f5061c3cf2982a64fe7",
+      "benchmark/numba_profile/spec.py": "sha256:557ad9c03276c9553c274c002b68b97071f4ab629a6aa5354ec199b8f23c57b2",
+      "benchmark/numba_profile/state.py": "sha256:3175955ae051de8d503663986f06cfbabb4a047339bc18c4d2ed2bdb075975b8",
+      "benchmark/numba_profile/test_parity.py": "sha256:3277c2c623a505b880c8a854ee2b875c4a46580baee1b34c20723b1bbfeb9895",
       "conf/ppo/task/g1_walk_flat/mujoco.yaml": "sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb",
       "scripts/capture_issue705_phase4_evidence.py": "sha256:a4d1fb98867894a20dbaa30a56d200a5ae5a95e3164751c18de72b81432759b4",
-      "src/unilab/tools/issue705_phase4_evidence.py": "sha256:c6e943e948d28b69e1e23884a442ceece2dc3ad64f27135baded80d932bba38a",
-      "src/unilab/tools/issue705_phase_evidence.py": "sha256:4149f7098d95b91fdbb9749cb455bb5eb49b5115ee30cf7d66bc4e28af2e1b3b",
+      "src/unilab/base/__init__.py": "sha256:da3afa40ba208de24b9468d33b8a9aee27e1ca0dfb9b2f8bfa5fe27543ef0ed8",
+      "src/unilab/base/augmentation.py": "sha256:c82e730fdb112287e9f74cf7ada7c4809f4f0a576b56d6b95110f5ac6e7e7405",
+      "src/unilab/base/backend/__init__.py": "sha256:d81ddc08d703143f1cf9867ba201d2a582c363a2a5f92de9664eea4264f1910d",
+      "src/unilab/base/backend/base.py": "sha256:d67357ceeb9ef585dcd7b18f8e83a92dd54a30030156a0decd570acbc2c1aa40",
+      "src/unilab/base/backend/batch.py": "sha256:3ba6c497fbca46bc33718847bef11a4a35ba24b6c12a7b074679498a5acc9e04",
+      "src/unilab/base/backend/device.py": "sha256:319f7be36094652de5d189f68176417177c57cdb67bdfcefa820ceabff80b0bc",
+      "src/unilab/base/backend/drake/__init__.py": "sha256:d4dce08737f5091a2c761a370e62e54e645ed5afe683d0055a6736bc1f9bda10",
+      "src/unilab/base/backend/drake/backend.py": "sha256:c21fde1c4f027b94eb5b2da041bb57269faf2fc5a01a8160042a5b45fd51af72",
+      "src/unilab/base/backend/drake/playback.py": "sha256:33f1d3a2abdae8686133d0e57a0d89ff1f4add9a764c8a9289b581253ec38221",
+      "src/unilab/base/backend/graph.py": "sha256:46bff9de87e02c067b4478fc3c53725e27a1a279d342564a6f51009c76cddbf3",
+      "src/unilab/base/backend/mjwarp/__init__.py": "sha256:07100364beff307b0ac5149b7e794ecc0e8900ef672ce4b10a89025475d8d46b",
+      "src/unilab/base/backend/mjwarp/armature_recompute.py": "sha256:52586bce7e9e1ff638dd9767fd5da6fd89dfe0a80ad634135422fd64ad2c924b",
+      "src/unilab/base/backend/mjwarp/backend.py": "sha256:6d559e5d8491da9fdb2a5662d3f688fc5fa4976a30939aba1dbf172018402e2c",
+      "src/unilab/base/backend/mjwarp/batch.py": "sha256:189018fb07e2facfd4b0e4d2c6bda8ac4b98aa21ff54d6f38168939f1acfab9e",
+      "src/unilab/base/backend/mjwarp/capability.py": "sha256:37f23d74807b9aa018650c3fdc2cdc2b479a5755da30fa64e17f4d9945657002",
+      "src/unilab/base/backend/mjwarp/controller.py": "sha256:a4776857e669e142b3d51a64b3c2e10f22978d3ef0802c95c1c3268797b7828c",
+      "src/unilab/base/backend/mjwarp/dependencies.py": "sha256:3e33c5426eae21ab1291613b310b86b5187cf488ebf85de9834f3170b6a96694",
+      "src/unilab/base/backend/mjwarp/device.py": "sha256:41ef62aef2db23b01a0c2d895e57b4d3aaf807df764c0d8aa5c82ad76b19d272",
+      "src/unilab/base/backend/mjwarp/device_mutation.py": "sha256:45994ccd88be5adb99a55fea3e1d8b54c595502fbbbc91a9d55fe50cb8eb292a",
+      "src/unilab/base/backend/mjwarp/materialization.py": "sha256:cf084f7ad2e3e0e21089661489cc77d14ab664cdbf52cb2a9aa111e3727a76bf",
+      "src/unilab/base/backend/mjwarp/model_mutation.py": "sha256:b6ca124e89aa15591e7939844468b810d7a8180d85ee885e1f5d4133de67704c",
+      "src/unilab/base/backend/mjwarp/mutation.py": "sha256:ff8b9489cd71dec55068b8e84915d63f2bc28920f5df1ef7e0d70940cb1f85e4",
+      "src/unilab/base/backend/mjwarp/recompute.py": "sha256:e10dfa36b56abf1200c355f2e8fd8fe9d8c358d88f58392b9eafe570a72a4978",
+      "src/unilab/base/backend/mjwarp/telemetry.py": "sha256:704427777dda2d6d22a020b1ed339ff0a16dc7aef0fab31ff32ba60fe031033d",
+      "src/unilab/base/backend/motrix/__init__.py": "sha256:30f7ab8c09de649939e019b9ae0b6f9c474f0f4b103b0ff0ff6ee618baaf4727",
+      "src/unilab/base/backend/motrix/backend.py": "sha256:159c8c5b03a3a6a60d6f179735a352c16776020b43001707d276260db6307a49",
+      "src/unilab/base/backend/motrix/playback.py": "sha256:424ba1122d8ffbf33a231220362d403d10a631cc2df721bbb7cc1b3838dc2272",
+      "src/unilab/base/backend/motrix/scene.py": "sha256:0bcd29302b680e1f2730d0754d5a1fe531232b8e67aaa56a8559411edb436abc",
+      "src/unilab/base/backend/motrix_camera.py": "sha256:18dbf06fc3334891e98ab9182db267ca0510c2d99f1730e3cf4b9898d8a97dde",
+      "src/unilab/base/backend/mujoco/__init__.py": "sha256:c305f99214d4950550b8a34c5399b102a52c1de46366a6dbc778c796e9f601da",
+      "src/unilab/base/backend/mujoco/backend.py": "sha256:5e78d2a1485ff233c05d7a31bbaea220c4efa831daf823467876f880ff5995bf",
+      "src/unilab/base/backend/mujoco/batch.py": "sha256:12364575ee7c885edbe3e0537a9211f8eeefbea1077ce60ced532a2696f4e778",
+      "src/unilab/base/backend/mujoco/capability.py": "sha256:9270bbce6c7cb4807bfc17ace6e653c01e132f7160daa254021ddc7fab00383b",
+      "src/unilab/base/backend/mujoco/chunk_tuner.py": "sha256:a122d0380ce712f6baf3cb8315f555fc8a24c81187709cf22d384e74fead497f",
+      "src/unilab/base/backend/mujoco/playback.py": "sha256:e4dd61203a91512066928fc12d64ab3a6d94817b12ce11579627771db39c5fce",
+      "src/unilab/base/backend/mujoco/xml.py": "sha256:d089852e5d3f0a45b61dfef98ae814f8ff20d332f9a52f8b8aa31a5ac7136f6d",
+      "src/unilab/base/backend/mutation.py": "sha256:35d375f3adc16e4a8d84a18fcb16b7d8141b92c132bf295dba1ff5e7cc348a95",
+      "src/unilab/base/backend/mutation_batch.py": "sha256:94d0afa47943cbc64b771e027dacf323a0fd60587f0d1c899450893391f1b7e6",
+      "src/unilab/base/backend/performance.py": "sha256:b40b8775ef8c8c34b82a43148fdd2a65321beb738071347758eb9a85aff5d709",
+      "src/unilab/base/backend/phase_timing.py": "sha256:2f0c760c8decc3d27b1d75c41487509562228acb810249ea9b415ee27716ad79",
+      "src/unilab/base/backend/playback_common.py": "sha256:5f1ca916f4c240c4ddf239ca2dfd00b54a8c5f8cee266f4e4a00ad53e4932250",
+      "src/unilab/base/backend/telemetry.py": "sha256:acadf708d0de93f0c968f48d6e7ed027ff49a2f04468d37a1dae0200e93c1a73",
+      "src/unilab/base/base.py": "sha256:6ff005b4d94358e62485ffed882104f69dcc32ce10a95a24afb4b8bdb91e8eec",
+      "src/unilab/base/curriculum.py": "sha256:975dd8543696c7cc05d2b98ae26527a8c5815ac99639433b210221f6861bf6da",
+      "src/unilab/base/final_observation.py": "sha256:0e4b870f230529f88f2f5d3875aeb52f5aa3bc17081b0a294b06b18506736909",
+      "src/unilab/base/np_env.py": "sha256:1a0cc5978453ecbd75b2c7ade6493843e5f75f5916efa36448b996d1b7f8a78d",
+      "src/unilab/base/observations.py": "sha256:4524f775b213c203f0030466c6095b42f26f2c06004b8ee1834a1926737b298a",
+      "src/unilab/base/registry.py": "sha256:8292dc6c62308c2b2e244b9505df47f8be381e5d41178a57be2e0f49e7bacb58",
+      "src/unilab/base/scene.py": "sha256:552d44223121002065d8e455434461975bba2df218509f384d4e061f7973f403",
+      "src/unilab/envs/locomotion/g1/__init__.py": "sha256:1ca457e4007aa426aa97ceb7ae37160bfdf79eaceb163e77e84f49d2313fb63a",
+      "src/unilab/envs/locomotion/g1/base.py": "sha256:01487a7b26570e6e491c0af98c8306b9747256eed17f4f04ca0a702f15fb4c3d",
+      "src/unilab/envs/locomotion/g1/joystick.py": "sha256:6e1d8fca28fc0997e3f1b6c558abb71f9a689ec74408ff34c194789ed5ddc6a0",
+      "src/unilab/envs/locomotion/g1/joystick_numba.py": "sha256:bcb57465a3c97004cfd4e0f20cbef010d6dd642081cb1f7026df649e83f08ff4",
+      "src/unilab/envs/locomotion/g1/managed_device.py": "sha256:1e21994c99fa1f4982e0401de78e1189ca44d35dae9416734720c00e36c7522d",
+      "src/unilab/envs/locomotion/g1/managed_fused.py": "sha256:6c7c960cc54c5765a0bda00b4cc48c1ceebd02a9621025b79a372d336590ad35",
+      "src/unilab/envs/locomotion/g1/managed_reference.py": "sha256:192da76a419138b6d959579eb7f04ca1fe86f54482d3b4ffd57e53d30a571229",
+      "src/unilab/envs/locomotion/g1/managed_schema.py": "sha256:ab326f1e95b210b24e9231e7892aef8edc4939223a098daa21ca666f432def46",
+      "src/unilab/envs/locomotion/g1/symmetry.py": "sha256:5ac02744d18800b222b3d72171b9fcc9f0ab1981a490ce37536fc6aad14e996d",
+      "src/unilab/manager/__init__.py": "sha256:720b6af1571caca4dab02da6c5640097b69e38b36fe61fd6369c2f980213779b",
+      "src/unilab/manager/backend_resolver.py": "sha256:bcb5e420a3137ff6dacc5848211c0d73e50f5e9c85a4a960ec2700409179e7f2",
+      "src/unilab/manager/compiler.py": "sha256:1cb875dfcab4f48afc64b28eaa0fb9dad425a33b7f6c1c768d0ef7155c20c7aa",
+      "src/unilab/manager/device_runtime.py": "sha256:5af1776b64e586eb35d6898eeed48f78853c6330ccccc6367431c6e07f0e8e5a",
+      "src/unilab/manager/entities.py": "sha256:0def431d615d7d2b4337f57954d54f5be9cc4c295dbe3a4f6dadd96a46a63307",
+      "src/unilab/manager/fingerprint.py": "sha256:9b3725069ae780a55766f12e21ffb9c75eec66496ef2d3e94562f3d590e01475",
+      "src/unilab/manager/plan.py": "sha256:2176d6791ad6b1f77b828e56ada1662a5a31f7f1aa4329189aa7dafc49e54f4c",
+      "src/unilab/manager/registry.py": "sha256:8ec2335b5ac5c7d37df837437b523aef89d445c478883f1aa6fa25c5d05b2bff",
+      "src/unilab/manager/runtime.py": "sha256:aafc9199fa08019b3354018f965d1eb95c133be8ae33ad0c4410555cc6e48b2d",
+      "src/unilab/manager/spec.py": "sha256:1d3521987417adac454551ac4e0c262a37096016aa836043ea4db57c01175367",
+      "src/unilab/tools/issue705_phase4_evidence.py": "sha256:e5371a34397b2a841ccf75ec848a57ab15d647093ca04b2618209b17c3deb991",
+      "src/unilab/tools/issue705_phase_evidence.py": "sha256:da85a5e65b4e9da5c00a91ca53b165cb76000b657d7aaf8434857e0d2e46bb55",
       "tests/acceptance/issue_705/artifacts/phase_4_host_benchmark.json": "sha256:d9abe0db36975c2c7aa4e175400e9ddc5701f025bd868d1f49396a28668b5b36",
       "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml": "sha256:3c2c9a1f788b6e7600398589cf644d2d4cfb90e6116ea67b5ede75564ef7dede",
       "tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml": "sha256:3f5ab9d930a0ef00ca2dbc50838200d196e9049bdcfe73466776bdba5cfc961d",
       "tests/acceptance/issue_705/g1_threshold_manifest.yaml": "sha256:c39e3a001d5c516982b33eae1be684b58e4b6f85d2610fb253e5742321b62a74",
       "tests/acceptance/issue_705/test_phase4_evidence.py": "sha256:636cc656829f81606688b5d5dee6a1cf2caa4a4fe3436a0120a801b59fcdf901",
       "tests/benchmark/test_managed_g1_host_benchmark.py": "sha256:8466c022646520f7ab071f8d6e63654d3bdbdcdeaeaffdc2f782874c77826fe8",
-      "tests/manager/test_fused_executor.py": "sha256:0873151a93550c2f9211fcc1d80230616012925cc8f285ad3b4877297ac4da30",
+      "tests/manager/test_fused_executor.py": "sha256:a837c6cc919cf49a6c75184e9aaaf73773a49a4fe845263f652984878ccebccc",
       "tests/manager/test_fused_runtime_stability.py": "sha256:7a920ac24657ae9a39673f2c01db7332487fbaa81fdd82276bd414e3074e4179",
-      "tests/tools/test_issue705_phase4_evidence.py": "sha256:6b9c800aba311058c8d37ca30057fa0a11713187fae364b6251bb00f908036f0",
-      "uv.lock": "sha256:ed8f2070a0c73daddcf4dd3aa8917ad846dba5cbe7cd34fc75fdc6961eeb2f8a"
+      "tests/tools/test_issue705_phase4_evidence.py": "sha256:acb12f509f49ba85bac3f4c73877cdaac0d4c940a1b80d1b7b4722b8d35238ad",
+      "uv.lock": "sha256:295b61d0077be5ddbbc316ac225832f59209c064981886fcd4d273955fc176f4"
     }
   },
   "issue": 705,
@@ -400,8 +476,8 @@
   "phase": 4,
   "schema_version": 1,
   "source": {
-    "branch": "fix/issue-855-ci-aggregate-dependencies",
-    "commit_sha": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
+    "branch": "chore/issue-871-t9-hygiene",
+    "commit_sha": "e3f7b732f97c5326e99cdcdf78f929f118167a75",
     "tree_clean": true
   }
 }
