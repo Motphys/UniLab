@@ -89,7 +89,10 @@ def test_current_ci_shards_cover_every_test_file_once() -> None:
     result = audit_ci_test_shards(root)
 
     assert result.ok, "\n".join(result.errors)
-    assert result.shards == ("a", "b", "c", "d", "e", "f", "g", "h")
+    # Standard CI shards (fast, runs on every PR).
+    # Full CI shards (c, e, g, h) live in ci-full.yml and are validated by
+    # the combined-coverage check inside audit_ci_test_shards.
+    assert result.shards == ("a", "b", "d", "f", "scripts")
     assert result.test_files > 0
 
 
