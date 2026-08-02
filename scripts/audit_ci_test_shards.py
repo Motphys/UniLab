@@ -15,10 +15,17 @@ from typing import Any
 
 import yaml
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
+PYPROJECT_PATH = Path("pyproject.toml")
 TEST_ROOT = Path("tests")
 LOCAL_EVIDENCE_EXPRESSION = "not slow and not local_evidence"
+AGGREGATE_INSTALL_COMMAND = "uv sync --only-group dev"
 EXPECTED_LOCAL_EVIDENCE_TEST_IDS = frozenset(
     {
         "tests/benchmark/test_issue705_g1_baseline_runner.py::"
@@ -87,6 +94,32 @@ def _test_files(root: Path) -> tuple[Path, ...]:
     return tuple(
         sorted(path.relative_to(root) for path in tests_root.rglob("test*.py") if path.is_file())
     )
+
+
+def _audit_aggregate_dependencies(root: Path, errors: list[str]) -> None:
+    pyproject_path = root / PYPROJECT_PATH
+    try:
+        pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+        errors.append(
+            f"{PYPROJECT_PATH}: cannot parse project metadata: {type(exc).__name__}: {exc}"
+        )
+        return
+
+    pyproject_map = _mapping(pyproject, str(PYPROJECT_PATH), errors)
+    dependency_groups = _mapping(
+        pyproject_map.get("dependency-groups"),
+        f"{PYPROJECT_PATH}.dependency-groups",
+        errors,
+    )
+    dev_dependencies = dependency_groups.get("dev")
+    if not isinstance(dev_dependencies, list):
+        errors.append(f"{PYPROJECT_PATH}.dependency-groups.dev must be a list")
+        return
+    if "pyyaml" not in dev_dependencies:
+        errors.append(
+            f"{PYPROJECT_PATH}.dependency-groups.dev must declare pyyaml for the CI shard audit"
+        )
 
 
 def _is_local_evidence_marker(node: ast.expr) -> bool:
@@ -195,6 +228,7 @@ def audit_ci_test_shards(
         )
 
     workflow_map = _mapping(workflow, str(WORKFLOW_PATH), errors)
+    _audit_aggregate_dependencies(root, errors)
     jobs = _mapping(workflow_map.get("jobs"), "jobs", errors)
     smoke_job = _mapping(jobs.get("benchmark-smoke"), "jobs.benchmark-smoke", errors)
     shard_job = _mapping(jobs.get("test-shard"), "jobs.test-shard", errors)
@@ -338,6 +372,13 @@ def audit_ci_test_shards(
     if "always()" not in str(aggregate_job.get("if", "")):
         errors.append("aggregate test job must run with always() and fail closed on shard failure")
     aggregate_steps = _steps(aggregate_job, "jobs.test", errors)
+    install_step = _named_step(aggregate_steps, "Install validation dependencies")
+    install_command = "" if install_step is None else str(install_step.get("run", "")).strip()
+    if install_command != AGGREGATE_INSTALL_COMMAND:
+        errors.append(
+            "aggregate test job must install its isolated validation environment with "
+            f"`{AGGREGATE_INSTALL_COMMAND}`"
+        )
     require_step = _named_step(aggregate_steps, "Require smoke and all test shards")
     require_command = "" if require_step is None else str(require_step.get("run", ""))
     require_environment = None if require_step is None else require_step.get("env")

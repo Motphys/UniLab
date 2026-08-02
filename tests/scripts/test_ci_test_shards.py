@@ -10,6 +10,10 @@ def _audit_fixture(root: Path) -> CiTestShardAuditResult:
 
 
 def _write_fixture(root: Path, *, paths_a: str, paths_b: str, selection: str) -> None:
+    (root / "pyproject.toml").write_text(
+        '[dependency-groups]\ndev = ["pytest", "pytest-cov", "pyyaml"]\n',
+        encoding="utf-8",
+    )
     workflow = root / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(
@@ -58,6 +62,8 @@ jobs:
         run: |
           test "$BENCHMARK_SMOKE_RESULT" = success
           test "$TEST_SHARD_RESULT" = success
+      - name: Install validation dependencies
+        run: uv sync --only-group dev
       - name: Download coverage data
         uses: actions/download-artifact@v4
         with:
@@ -131,6 +137,43 @@ def test_audit_requires_full_git_history_for_evidence_ancestry(tmp_path: Path) -
 
     assert not result.ok
     assert any("fetch-depth: 0" in error for error in result.errors)
+
+
+def test_audit_requires_isolated_aggregate_dependency_install(tmp_path: Path) -> None:
+    _write_fixture(
+        tmp_path,
+        paths_a="tests/a",
+        paths_b="tests/b",
+        selection="not slow and not local_evidence",
+    )
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    content = workflow.read_text(encoding="utf-8")
+    workflow.write_text(
+        content.replace("uv sync --only-group dev", "uv sync"),
+        encoding="utf-8",
+    )
+
+    result = _audit_fixture(tmp_path)
+
+    assert not result.ok
+    assert any("isolated validation environment" in error for error in result.errors)
+
+
+def test_audit_requires_pyyaml_in_aggregate_dev_group(tmp_path: Path) -> None:
+    _write_fixture(
+        tmp_path,
+        paths_a="tests/a",
+        paths_b="tests/b",
+        selection="not slow and not local_evidence",
+    )
+    pyproject = tmp_path / "pyproject.toml"
+    content = pyproject.read_text(encoding="utf-8")
+    pyproject.write_text(content.replace(', "pyyaml"', ""), encoding="utf-8")
+
+    result = _audit_fixture(tmp_path)
+
+    assert not result.ok
+    assert any("must declare pyyaml" in error for error in result.errors)
 
 
 def test_audit_requires_fail_closed_coverage_aggregation(tmp_path: Path) -> None:
