@@ -386,7 +386,12 @@ def test_specialized_armature_recompute_matches_cpu_mujoco_per_world() -> None:
             MjwarpArmatureRecomputeWorkspace,
         )
 
-        derived_names = ("dof_invweight0", "body_invweight0", "actuator_acc0")
+        derived_names = (
+            "dof_invweight0",
+            "body_invweight0",
+            "actuator_acc0",
+            "stat.meaninertia",
+        )
         derived_before = {name: runtime.model_field(name).clone() for name in derived_names}
         buffers = ResetBatchBuffers(runtime, plan)
         buffers.active_mask[list(selected)] = True
@@ -403,7 +408,7 @@ def test_specialized_armature_recompute_matches_cpu_mujoco_per_world() -> None:
 
         armature = runtime.model_field("dof_armature").detach().cpu().numpy()
         actual = {name: runtime.model_field(name).detach().cpu() for name in derived_names}
-        for world_id in selected:
+        for world_id in range(runtime.num_envs):
             reference_model = copy.deepcopy(runtime.backend._cpu_model)
             reference_model.dof_armature[:] = armature[world_id]
             reference_data = runtime.backend._mujoco.MjData(reference_model)
@@ -412,6 +417,7 @@ def test_specialized_armature_recompute_matches_cpu_mujoco_per_world() -> None:
                 "dof_invweight0": reference_model.dof_invweight0,
                 "body_invweight0": reference_model.body_invweight0,
                 "actuator_acc0": reference_model.actuator_acc0,
+                "stat.meaninertia": reference_model.stat.meaninertia,
             }
             for name in derived_names:
                 torch.testing.assert_close(

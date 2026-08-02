@@ -58,6 +58,7 @@ from ..batch import (
     BufferOwner,
     BufferPlacement,
     ControlBatch,
+    ExecutionProfile,
     RowSelection,
     StateBatchPhase,
 )
@@ -65,6 +66,7 @@ from ..mutation import (
     BoundMutationPlan,
     MutationBaseline,
     MutationCapability,
+    MutationCapabilityManifest,
     MutationCommitPhase,
     MutationContractError,
     MutationEntityKind,
@@ -83,6 +85,7 @@ from ..mutation import (
 from ..mutation_batch import TypedBackendMutationBatch
 from ..phase_timing import DeviceResetPhaseTimingSampleToken
 from .batch import _bind_mujoco_host_batch, _MuJoCoHostBatchPlan, _MuJoCoHostMutationPlan
+from .capability import mujoco_host_mutation_descriptor
 from .playback import run_mujoco_playback
 
 
@@ -924,6 +927,9 @@ class MuJoCoBackend(SimBackend):
                 baselines=frozenset({MutationBaseline.CURRENT}),
                 persistences=frozenset({MutationPersistence.ONE_STEP}),
                 recompute_levels=frozenset({MutationRecomputeLevel.NONE}),
+                descriptor=mujoco_host_mutation_descriptor(
+                    target_key="wrench.body.force",
+                ),
             ),
         ]
         if self._typed_floating_root_body_id() is not None:
@@ -955,6 +961,7 @@ class MuJoCoBackend(SimBackend):
                         baselines=frozenset({MutationBaseline.DEFAULT}),
                         persistences=frozenset({MutationPersistence.EPISODE}),
                         recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                        descriptor=mujoco_host_mutation_descriptor(target_key=target_key),
                     )
                 )
         if self._num_dof_pos > 0:
@@ -972,6 +979,7 @@ class MuJoCoBackend(SimBackend):
                     baselines=frozenset({MutationBaseline.DEFAULT}),
                     persistences=frozenset({MutationPersistence.EPISODE}),
                     recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                    descriptor=mujoco_host_mutation_descriptor(target_key="state.dof.position"),
                 )
             )
         if self._num_dof_vel > 0:
@@ -989,9 +997,26 @@ class MuJoCoBackend(SimBackend):
                     baselines=frozenset({MutationBaseline.DEFAULT}),
                     persistences=frozenset({MutationPersistence.EPISODE}),
                     recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                    descriptor=mujoco_host_mutation_descriptor(
+                        target_key="state.dof.angular_velocity"
+                    ),
                 )
             )
         return tuple(capabilities)
+
+    def get_mutation_capability_manifest(
+        self,
+        execution_profile: ExecutionProfile,
+    ) -> MutationCapabilityManifest:
+        if execution_profile is not ExecutionProfile.HOST_NUMPY:
+            raise MutationContractError(
+                "MuJoCo mutation capabilities only support the host_numpy profile"
+            )
+        return MutationCapabilityManifest(
+            backend_type=self.backend_type,
+            execution_profile=execution_profile,
+            capabilities=self._mujoco_typed_mutation_capabilities(),
+        )
 
     def _resolve_mujoco_typed_mutation_selector(self, spec: MutationTargetSpec) -> tuple[int, ...]:
         selector = spec.selector_spec
@@ -1066,13 +1091,15 @@ class MuJoCoBackend(SimBackend):
             raise BackendBatchContractError(
                 "MuJoCo typed mutation binding requires a materialized backend pool"
             )
+        capability_manifest = self.get_mutation_capability_manifest(ExecutionProfile.HOST_NUMPY)
         bound = bind_typed_mutation_plan(
             backend_type=self.backend_type,
             backend_instance_id=self._batch_instance_id,
             num_envs=self._num_envs,
             specs=specs,
-            capabilities=self._mujoco_typed_mutation_capabilities(),
+            capabilities=capability_manifest.capabilities,
             resolve_selector=self._resolve_mujoco_typed_mutation_selector,
+            capability_manifest=capability_manifest,
         )
         existing = self._host_mutation_plans.get(bound.fingerprint)
         if existing is not None:
@@ -1180,16 +1207,20 @@ class MuJoCoBackend(SimBackend):
         reset_pool_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        for row_offset, row_id in enumerate(mutation_runtime.reset_row_ids(rows)):
-            np.copyto(self._physics_state[row_id], state_np[row_offset], casting="unsafe")
-            np.copyto(self._sensor_data[row_id], sensor_np[row_offset], casting="unsafe")
+        if rows.is_all:
+            np.copyto(self._physics_state, state_np, casting="unsafe")
+            np.copyto(self._sensor_data, sensor_np, casting="unsafe")
+        else:
+            row_ids = mutation_runtime.reset_row_ids(rows)
+            self._physics_state[row_ids] = state_np
+            self._sensor_data[row_ids] = sensor_np
         refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
 
         read_result = bound.materialize(rows, StateBatchPhase.RESET)
         diagnostics = BackendBatchDiagnostics(
             counters=replace(
                 read_result.diagnostics.counters,
-                allocations=bound.step_allocations,
+                allocations=bound.reset_allocations,
             ),
             timings=(
                 BackendTiming("reset_pool_ms", reset_pool_ms),

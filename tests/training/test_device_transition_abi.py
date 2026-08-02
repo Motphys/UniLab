@@ -240,6 +240,22 @@ def test_dlpack_pointer_shape_dtype_and_lifetime(num_envs: int) -> None:
         view.__dlpack__()
 
 
+def test_dlpack_export_requires_explicit_producer_completion() -> None:
+    fixture = _fixture(1)
+    state = fixture.backend.read_state_batch(fixture.plan, RowSelection.all(1)).state
+    source = state.buffer("root.position").handle
+    assert isinstance(source, DeviceTensorView)
+    view = DeviceTensorView(
+        tensor_handle=source.tensor_handle,
+        contract=source.contract,
+        lease=source.lease,
+        completion=None,
+    )
+
+    with pytest.raises(DeviceBufferContractError, match="no producer completion"):
+        view.__dlpack__()
+
+
 def test_device_action_requires_explicit_producer_completion() -> None:
     fixture = _fixture(128)
     control, _ = _control_batch(fixture, completion=None)

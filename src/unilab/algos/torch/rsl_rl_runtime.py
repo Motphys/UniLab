@@ -44,6 +44,11 @@ def validate_rsl_rl_ppo_runtime_owner(
             f"PPO runtime requires training.sim_backend={required_backend!r}, got {sim_backend!r}"
         )
     required_profile = runtime.required_execution_profile
+    if required_profile is None and execution_profile is not None:
+        raise ValueError(
+            "PPO runtime does not accept training.execution_profile; "
+            f"got {execution_profile!r} for an owner without an execution profile"
+        )
     if required_profile is not None and execution_profile != required_profile:
         raise ValueError(
             "PPO runtime requires "

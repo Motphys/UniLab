@@ -19,20 +19,17 @@ from .manager import DomainRandomizationManager
 from .provider import DomainRandomizationProvider
 from .types import (
     DomainRandomizationCapabilities,
-    DomainRandomizationExecutionMode,
     GeomSizeOverride,
     InitRandomizationPlan,
     IntervalRandomizationPlan,
     ModelVariantSpec,
     ResetPlan,
     ResetRandomizationPayload,
-    UnsupportedDomainRandomizationError,
 )
 
 __all__ = [
     "KEYED_RNG_ALGORITHM",
     "DomainRandomizationCapabilities",
-    "DomainRandomizationExecutionMode",
     "DomainRandomizationManager",
     "DomainRandomizationProvider",
     "GeomSizeOverride",
@@ -49,6 +46,5 @@ __all__ = [
     "RandomCorrelation",
     "RandomDistribution",
     "StaleKeyedRandomBatchError",
-    "UnsupportedDomainRandomizationError",
     "keyed_random_reference",
 ]

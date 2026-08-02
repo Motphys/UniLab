@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-import unilab.tools.issue705_phase3_evidence as phase3_evidence
+import unilab.tools.issue705_phase_evidence as generic_evidence
 from unilab.tools.issue705_phase3_evidence import (
     ARTIFACT_KIND,
     ISSUE,
@@ -17,6 +17,9 @@ from unilab.tools.issue705_phase3_evidence import (
     PHASE3_COMMANDS,
     PHASE3_MIN_REPETITIONS,
     PHASE3_REQUIRED_TEST_IDS,
+    PHASE3_SPEC,
+    Phase3EvidenceError,
+    capture_phase3_evidence,
     sha256_file,
     validate_phase3_evidence,
 )
@@ -35,32 +38,11 @@ def _head() -> str:
 
 
 def _input_paths() -> tuple[Path, ...]:
-    return (
-        Path("uv.lock"),
-        Path("conf/ppo/task/g1_walk_flat/mujoco.yaml"),
-        Path("conf/ppo/task/g1_walk_flat/mjwarp.yaml"),
-        Path("src/unilab/tools/issue705_phase3_evidence.py"),
-        Path("scripts/capture_issue705_phase3_evidence.py"),
-        Path("tests/tools/test_issue705_phase3_evidence.py"),
-        Path("tests/manager/test_task_compiler.py"),
-        Path("tests/manager/test_managed_lifecycle.py"),
-        Path("tests/manager/test_g1_reference_differential.py"),
-        Path("tests/training/test_managed_policy_abi.py"),
-        Path("tests/manager/test_cross_backend_plan.py"),
-        Path("tests/manager/test_manipulation_compile_fixture.py"),
-    )
+    return PHASE3_SPEC.input_files
 
 
 def _config_input(claim_id: str) -> Path:
-    mapping = {
-        "P3-TASK-COMPILER": Path("tests/manager/test_task_compiler.py"),
-        "P3-LIFECYCLE-PARITY": Path("conf/ppo/task/g1_walk_flat/mujoco.yaml"),
-        "P3-G1-REFERENCE-DIFFERENTIAL": Path("conf/ppo/task/g1_walk_flat/mujoco.yaml"),
-        "P3-POLICY-ABI": Path("conf/ppo/task/g1_walk_flat/mujoco.yaml"),
-        "P3-CROSS-BACKEND-PLAN": Path("conf/ppo/task/g1_walk_flat/mjwarp.yaml"),
-        "P3-GENERALITY-FIXTURE": Path("tests/manager/test_manipulation_compile_fixture.py"),
-    }
-    return mapping[claim_id]
+    return next(claim.config_input for claim in PHASE3_SPEC.claims if claim.claim_id == claim_id)
 
 
 def _valid_report() -> dict[str, Any]:
@@ -203,7 +185,8 @@ def test_capture_rejects_registered_input_mutated_by_evidence_command(
 ) -> None:
     root = _capture_fixture_root(tmp_path)
 
-    def fake_cuda_environment(_: Path) -> dict[str, Any]:
+    def fake_cuda_environment(_: object, *, root: Path) -> dict[str, Any]:
+        del root
         return {
             "platform": "Linux",
             "python": "test",
@@ -228,8 +211,19 @@ def test_capture_rejects_registered_input_mutated_by_evidence_command(
             "stderr": "",
         }
 
-    monkeypatch.setattr(phase3_evidence, "_cuda_environment", fake_cuda_environment)
-    monkeypatch.setattr(phase3_evidence, "_run_evidence_command", fake_evidence_command)
+    monkeypatch.setattr(generic_evidence, "_capture_environment", fake_cuda_environment)
+    monkeypatch.setattr(generic_evidence, "_run_evidence_command", fake_evidence_command)
 
-    with pytest.raises(phase3_evidence.Phase3EvidenceError, match="clean source"):
-        phase3_evidence.capture_phase3_evidence(root)
+    with pytest.raises(Phase3EvidenceError, match="clean source"):
+        capture_phase3_evidence(root)
+
+
+def test_phase3_claim_mapping_and_freshness_inputs_cover_implementation() -> None:
+    assert {claim.claim_id for claim in PHASE3_SPEC.claims} == set(PHASE3_REQUIRED_TEST_IDS)
+    for path in (
+        Path("src/unilab/base/backend/base.py"),
+        Path("src/unilab/envs/locomotion/g1/managed_reference.py"),
+        Path("src/unilab/manager/runtime.py"),
+        Path("src/unilab/training/sim2sim.py"),
+    ):
+        assert path in PHASE3_SPEC.input_files

@@ -54,6 +54,14 @@ class BufferMutability(str, Enum):
 
 
 class BufferLifetime(str, Enum):
+    """Validity horizon for a typed buffer view.
+
+    ``BORROWED_UNTIL_MUTATION`` is a lease, not a promise that read-only
+    materialization preserves prior views. A backend may treat every later
+    materialization as a lease barrier so that it can safely reuse scratch
+    storage; consumers must regard the previously borrowed view as stale.
+    """
+
     BORROWED_UNTIL_MUTATION = "borrowed_until_mutation"
     UNTIL_STEP_COMPLETE = "until_step_complete"
     UNTIL_COMMIT = "until_commit"
@@ -539,6 +547,7 @@ class BoundBackendPlan:
     contract_version: str = BACKEND_BATCH_CONTRACT_VERSION
     hot_path_budget: BackendBatchCounterBudget | None = None
     reset_hot_path_budget: BackendBatchCounterBudget | None = None
+    reset_requires_mutation_batch: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.state, BoundStatePlan):
@@ -559,6 +568,8 @@ class BoundBackendPlan:
                 raise BackendBatchContractError(
                     f"{name} must be a BackendBatchCounterBudget or None"
                 )
+        if not isinstance(self.reset_requires_mutation_batch, bool):
+            raise BackendBatchContractError("reset_requires_mutation_batch must be a bool")
         if self.contract_version != BACKEND_BATCH_CONTRACT_VERSION:
             raise BackendBatchContractError(
                 f"unsupported backend batch contract version {self.contract_version!r}"
