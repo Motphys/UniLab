@@ -39,7 +39,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.67917378799757,
+      "duration_sec": 2.969859261997044,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_no_fallback#1",
@@ -55,7 +55,7 @@
       ],
       "series": "lane_a_no_fallback",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_never_silently_falls_back PASSED [100%]\n\n============================== 1 passed in 5.19s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_never_silently_falls_back PASSED [100%]\n\n============================== 1 passed in 0.88s ===============================\n"
     },
     {
       "argv": [
@@ -66,7 +66,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.802005036966875,
+      "duration_sec": 6.024831830000039,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_fused_parity#1",
@@ -82,7 +82,7 @@
       ],
       "series": "lane_b_fused_parity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.75s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.77s =========================\n"
     },
     {
       "argv": [
@@ -93,7 +93,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.780251424992457,
+      "duration_sec": 6.265718172013294,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_fused_parity#2",
@@ -109,7 +109,7 @@
       ],
       "series": "lane_b_fused_parity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.79s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 4.08s =========================\n"
     },
     {
       "argv": [
@@ -120,7 +120,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 5.659747344965581,
+      "duration_sec": 5.853965607006103,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_fused_parity#3",
@@ -136,7 +136,7 @@
       ],
       "series": "lane_b_fused_parity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.70s =========================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors PASSED [100%]\n\n=============================== warnings summary ===============================\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:226: RuntimeWarning: overflow encountered in cast\n    elif low.dtype != self.dtype and np.any(low < dtype_min):\n\ntests/manager/test_fused_executor.py::test_fused_executor_matches_reference_generated_vectors\n  /home/tatp/ws/unilabsim/UniLab/.venv/lib/python3.11/site-packages/gymnasium/spaces/box.py:296: RuntimeWarning: overflow encountered in cast\n    elif high.dtype != self.dtype and np.any(dtype_max < high):\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n======================== 1 passed, 2 warnings in 3.82s =========================\n"
     },
     {
       "argv": [
@@ -149,7 +149,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.381872889003716,
+      "duration_sec": 7.742424294992816,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_allocation_stability#1",
@@ -165,7 +165,7 @@
       ],
       "series": "lane_b_allocation_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.41s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.55s ===============================\n"
     },
     {
       "argv": [
@@ -178,7 +178,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.446697007981129,
+      "duration_sec": 7.543342160002794,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_allocation_stability#2",
@@ -194,7 +194,7 @@
       ],
       "series": "lane_b_allocation_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.47s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.46s ===============================\n"
     },
     {
       "argv": [
@@ -207,7 +207,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 7.4502778989844956,
+      "duration_sec": 7.51660464098677,
       "exit_code": 0,
       "lane": "B",
       "name": "lane_b_allocation_stability#3",
@@ -223,7 +223,7 @@
       ],
       "series": "lane_b_allocation_stability",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.47s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 2 items\n\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[128] PASSED [ 50%]\ntests/manager/test_fused_runtime_stability.py::test_warm_loop_has_stable_addresses_and_allocations[4096] PASSED [100%]\n\n============================== 2 passed in 5.53s ===============================\n"
     },
     {
       "argv": [
@@ -234,7 +234,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.1961793869850226,
+      "duration_sec": 5.177141631953418,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#1",
@@ -250,7 +250,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 1.31s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.33s ===============================\n"
     },
     {
       "argv": [
@@ -261,7 +261,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.2053166099940427,
+      "duration_sec": 5.271543685987126,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#2",
@@ -277,7 +277,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 1.30s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.36s ===============================\n"
     },
     {
       "argv": [
@@ -288,7 +288,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.1968310849624686,
+      "duration_sec": 5.198513734037988,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#3",
@@ -304,7 +304,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 1.30s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.31s ===============================\n"
     },
     {
       "argv": [
@@ -315,7 +315,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.2193427669699304,
+      "duration_sec": 5.794965494016651,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#4",
@@ -331,7 +331,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 1.31s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.49s ===============================\n"
     },
     {
       "argv": [
@@ -342,7 +342,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 3.19641195400618,
+      "duration_sec": 5.223889247979969,
       "exit_code": 0,
       "lane": "D",
       "name": "lane_d_host_performance#5",
@@ -358,7 +358,7 @@
       ],
       "series": "lane_d_host_performance",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 1.27s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/benchmark/test_managed_g1_host_benchmark.py::test_fused_host_meets_preregistered_gate PASSED [100%]\n\n============================== 1 passed in 2.29s ===============================\n"
     }
   ],
   "environment": {
@@ -369,7 +369,7 @@
     "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
     "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]"
   },
-  "generated_at_utc": "2026-08-01T12:16:19.430688+00:00",
+  "generated_at_utc": "2026-08-02T09:15:20.355857+00:00",
   "inputs": {
     "claim_config_hashes": {
       "P4-ALLOCATION-STABILITY": "sha256:aacc7543db7b9cc6f765b0b3096fc88109354e78bfa5c272d86175e1eaee7beb",
@@ -392,7 +392,7 @@
       "tests/manager/test_fused_executor.py": "sha256:0873151a93550c2f9211fcc1d80230616012925cc8f285ad3b4877297ac4da30",
       "tests/manager/test_fused_runtime_stability.py": "sha256:7a920ac24657ae9a39673f2c01db7332487fbaa81fdd82276bd414e3074e4179",
       "tests/tools/test_issue705_phase4_evidence.py": "sha256:6b9c800aba311058c8d37ca30057fa0a11713187fae364b6251bb00f908036f0",
-      "uv.lock": "sha256:fe3b4c9dc315a7556464d636b9da02bece2e1ef0b0b8fec1c28d14edbba7540c"
+      "uv.lock": "sha256:ed8f2070a0c73daddcf4dd3aa8917ad846dba5cbe7cd34fc75fdc6961eeb2f8a"
     }
   },
   "issue": 705,
@@ -400,8 +400,8 @@
   "phase": 4,
   "schema_version": 1,
   "source": {
-    "branch": "fix/issue-855-ci-portable-evidence",
-    "commit_sha": "cd8c1733352487e156cd2941fe7e31733b42a64a",
+    "branch": "fix/issue-855-ci-aggregate-dependencies",
+    "commit_sha": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
     "tree_clean": true
   }
 }
