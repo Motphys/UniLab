@@ -93,7 +93,7 @@ training:
   log_dir: null
 
 entrypoints:
-  fingerprint: issue705-entrypoints-v1
+  fingerprint: entrypoints-v1
   identity:
     task_name: ${training.task_name}
     backend: ${training.sim_backend}

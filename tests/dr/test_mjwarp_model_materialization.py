@@ -11,8 +11,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
+from tests._support.device_runtime import forbid_host_roundtrip, require_cuda
 from tests.manager.test_g1_reference_differential import _cfg
-from tests.training.device_runtime_harness import forbid_host_roundtrip, require_cuda
 
 from unilab.base.backend import (
     BackendBatchContractError,

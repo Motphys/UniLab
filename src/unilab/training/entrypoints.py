@@ -15,7 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 from unilab.manager.fingerprint import normalize_managed_policy_abi_snapshot
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
-ENTRYPOINT_CONTRACT_FINGERPRINT = "issue705-entrypoints-v1"
+ENTRYPOINT_CONTRACT_FINGERPRINT = "entrypoints-v1"
 
 
 class EntrypointContractError(RuntimeError):

@@ -15,8 +15,8 @@ from unilab.tools.mjwarp_dr_inventory import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-INVENTORY_PATH = REPO_ROOT / "tests/acceptance/issue_705/mjwarp_dr_inventory.yaml"
-CLAIM_INVENTORY_PATH = REPO_ROOT / "tests/acceptance/issue_705/claim_test_inventory.yaml"
+INVENTORY_PATH = REPO_ROOT / "tests/acceptance/manager_mjwarp/mjwarp_dr_inventory.yaml"
+CLAIM_INVENTORY_PATH = REPO_ROOT / "tests/acceptance/manager_mjwarp/claim_test_inventory.yaml"
 
 
 def _raw() -> dict:
@@ -76,7 +76,7 @@ def test_valid_inventory_parses_without_advertising_support() -> None:
         ),
         (
             lambda raw: raw["required_capability_ids"].pop(),
-            "does not match the frozen Issue #705",
+            "does not match the frozen managed MuJoCo/MJWarp rollout",
         ),
         (
             lambda raw: raw["derived_field_sets"]["set_const_0"].pop(),

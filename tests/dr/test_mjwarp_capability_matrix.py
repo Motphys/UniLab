@@ -16,7 +16,7 @@ from typing import Any, Sequence
 import numpy as np
 import pytest
 import torch
-from tests.dr.mjwarp_model_mutation_support import reset_device_state
+from tests._support.mjwarp_model_mutation import reset_device_state
 
 from unilab.base.backend import (
     BackendIORequirements,

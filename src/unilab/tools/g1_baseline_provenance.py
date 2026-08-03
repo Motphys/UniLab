@@ -1,4 +1,4 @@
-"""Strict plan and artifact contracts for the Issue #705 G1 baseline."""
+"""Strict plan and artifact contracts for the managed MuJoCo/MJWarp rollout G1 baseline."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ class BaselineValidationError(ValueError):
         self.source = source
         self.errors = tuple(errors)
         detail = "\n".join(f"- {error}" for error in self.errors)
-        super().__init__(f"invalid Issue #705 baseline data {source}:\n{detail}")
+        super().__init__(f"invalid managed MuJoCo/MJWarp rollout baseline data {source}:\n{detail}")
 
 
 class _Parser:
@@ -1446,10 +1446,14 @@ def resolve_benchmark_affinity(plan: G1BaselinePlan) -> tuple[int, ...]:
     """
 
     if not hasattr(os, "sched_getaffinity"):
-        raise RuntimeError("Issue #705 baseline requires Linux CPU affinity support")
+        raise RuntimeError(
+            "managed MuJoCo/MJWarp rollout baseline requires Linux CPU affinity support"
+        )
     available = set(os.sched_getaffinity(0))
     if not available:
-        raise RuntimeError("Issue #705 baseline requires at least one available CPU")
+        raise RuntimeError(
+            "managed MuJoCo/MJWarp rollout baseline requires at least one available CPU"
+        )
     preferred = set(plan.hardware.affinity_cpus)
     return tuple(sorted(preferred if preferred.issubset(available) else available))
 

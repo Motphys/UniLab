@@ -1,4 +1,4 @@
-"""Claim-to-test inventory contracts for Issue #705."""
+"""Claim-to-test inventory contracts for managed MuJoCo/MJWarp rollout."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from unilab.tools.phase_acceptance import (
 
 SCHEMA_VERSION = 1
 ISSUE = 705
-INTEGRATION_BRANCH = "feat/issue-705-manager-mjwarp"
+INTEGRATION_BRANCH = "feat/manager-mjwarp-manager-mjwarp"
 PHASES = tuple(range(8))
 
 _CLAIM_ID_RE = re.compile(r"^P(?P<phase>[0-7])-[A-Z0-9]+(?:-[A-Z0-9]+)*$")

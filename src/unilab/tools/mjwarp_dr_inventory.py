@@ -1,4 +1,4 @@
-"""Strict field-level mjwarp DR capability inventory contracts for Issue #705."""
+"""Strict field-level mjwarp DR capability inventory contracts for managed MuJoCo/MJWarp rollout."""
 
 from __future__ import annotations
 
@@ -699,7 +699,7 @@ def _semantic_errors(inventory: MjwarpDrInventory) -> list[str]:
     actual_ids = {capability.capability_id for capability in inventory.capabilities}
     if declared_ids != EXPECTED_CAPABILITY_IDS:
         errors.append(
-            "required_capability_ids: does not match the frozen Issue #705 Tier A-F scope"
+            "required_capability_ids: does not match the frozen managed MuJoCo/MJWarp rollout Tier A-F scope"
         )
     if set(inventory.source.dependencies) != EXPECTED_DEPENDENCIES:
         errors.append("source.dependencies: does not match the frozen mjlab dependency baseline")
@@ -722,7 +722,9 @@ def _semantic_errors(inventory: MjwarpDrInventory) -> list[str]:
         capability.capability_id: capability.tier.value for capability in inventory.capabilities
     }
     if actual_tiers != EXPECTED_TIERS:
-        errors.append("capabilities: Tier assignments do not match the frozen Issue #705 matrix")
+        errors.append(
+            "capabilities: Tier assignments do not match the frozen managed MuJoCo/MJWarp rollout matrix"
+        )
     actual_states = {
         capability.capability_id: capability.support_state.value
         for capability in inventory.capabilities

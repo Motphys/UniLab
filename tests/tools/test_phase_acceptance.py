@@ -65,7 +65,7 @@ def _manifest() -> dict:
         "schema_version": 1,
         "issue": 705,
         "phase": 0,
-        "integration_branch": "feat/issue-705-manager-mjwarp",
+        "integration_branch": "feat/manager-mjwarp-manager-mjwarp",
         "required_lanes": ["A"],
         "claims": [_claim()],
     }

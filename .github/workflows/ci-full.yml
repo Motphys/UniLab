@@ -7,8 +7,8 @@ name: CI Full
 # Shards covered here (do not overlap with ci.yml standard shards):
 #   c — tests/acceptance          (phase evidence, marked slow)
 #   e — tests/benchmark            (local_evidence gates, benchmark profiling)
-#   g — issue705 final gate script
-#   h — issue705 audit + drake smoke scripts
+#   g — manager_mjwarp final gate script
+#   h — manager_mjwarp audit + drake smoke scripts
 #
 # The union of ci.yml shards and ci-full.yml shards covers every test file;
 # audit_ci_test_shards.py validates this property.
@@ -112,19 +112,19 @@ jobs:
           - shard: e
             paths: tests/benchmark
           - shard: g
-            paths: tests/scripts/test_issue705_final_gate.py
+            paths: tests/scripts/test_manager_mjwarp_final_gate.py
           - shard: h
             paths: >-
               tests/scripts/test_drake_training_smoke.py
-              tests/scripts/test_issue705_claim_gap_audit.py
-              tests/scripts/test_issue705_dr_inventory.py
-              tests/scripts/test_issue705_g1_baseline.py
-              tests/scripts/test_issue705_legacy_retirement_audit.py
-              tests/scripts/test_issue705_phase_acceptance.py
-              tests/scripts/test_issue705_support_audit.py
-              tests/scripts/test_issue705_task_rollout_audit.py
-              tests/scripts/test_issue705_thresholds.py
-              tests/scripts/test_issue705_workflow_audit.py
+              tests/scripts/test_manager_mjwarp_claim_gap_audit.py
+              tests/scripts/test_manager_mjwarp_dr_inventory.py
+              tests/scripts/test_manager_mjwarp_g1_baseline.py
+              tests/scripts/test_manager_mjwarp_legacy_retirement_audit.py
+              tests/scripts/test_manager_mjwarp_phase_acceptance.py
+              tests/scripts/test_manager_mjwarp_support_audit.py
+              tests/scripts/test_manager_mjwarp_task_rollout_audit.py
+              tests/scripts/test_manager_mjwarp_thresholds.py
+              tests/scripts/test_manager_mjwarp_workflow_audit.py
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2

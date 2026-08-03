@@ -12,8 +12,8 @@ from typing import Iterator
 import pytest
 import torch
 
+from tests._support.device_runtime import require_cuda
 from tests.manager.test_g1_reference_differential import _cfg
-from tests.training.device_runtime_harness import require_cuda
 from unilab.algos.torch.rsl_rl_runtime import (
     resolve_rsl_rl_ppo_runtime,
     validate_rsl_rl_ppo_runtime_owner,

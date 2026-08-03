@@ -34,16 +34,18 @@ ISSUE = 829
 PARENT_ISSUE = 705
 BENCHMARK_ID = "mjwarp-dr-performance-v1"
 ARTIFACT_KIND = "issue829-mjwarp-dr-performance-v1"
-PLAN_PATH = Path("tests/acceptance/issue_705/mjwarp_dr_performance_plan.yaml")
-FREEZE_RECEIPT_PATH = Path("tests/acceptance/issue_705/mjwarp_dr_performance_freeze_receipt.yaml")
+PLAN_PATH = Path("tests/acceptance/manager_mjwarp/mjwarp_dr_performance_plan.yaml")
+FREEZE_RECEIPT_PATH = Path(
+    "tests/acceptance/manager_mjwarp/mjwarp_dr_performance_freeze_receipt.yaml"
+)
 DEFAULT_ARTIFACT_PATH = Path(
-    "tests/acceptance/issue_705/artifacts/phase_6_mjwarp_dr_performance.json"
+    "tests/acceptance/manager_mjwarp/artifacts/phase_6_mjwarp_dr_performance.json"
 )
 PLAN_SHA256 = "sha256:094a49b35be6a7860d1c67716721700886912b765964b153dc06fbd1f1866950"
 PLAN_GIT_BLOB = "b2f966ebfe329408c03de2f668e48d3fd9ae983e"
 FREEZE_COMMIT = "9b1dc068f99802586f6c042f282be409292afae3"
 SOURCE_INPUTS = (
-    "benchmark/issue705/process_evidence.py",
+    "benchmark/mjwarp/process_dr_evidence.py",
     "benchmark/mjwarp/benchmark_dr_profiles.py",
     "scripts/train_rsl_rl.py",
     "src/unilab/base/backend",

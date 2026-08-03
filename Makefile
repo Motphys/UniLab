@@ -60,15 +60,19 @@ check: format type
 
 .PHONY: test
 test:
-	uv run pytest -m "not slow"
+	uv run pytest -m "not slow and not local_evidence"
 
 .PHONY: test-cov
 test-cov:
-	uv run pytest -m "not slow" --cov=src/unilab --cov-report=term-missing
+	uv run pytest -m "not slow and not local_evidence" --cov=src/unilab --cov-report=term-missing
 
 .PHONY: test-slow
 test-slow:
-	uv run pytest -m "slow" -v
+	uv run pytest -m "slow and not local_evidence" -v
+
+.PHONY: test-evidence
+test-evidence:
+	uv run pytest -m "local_evidence" -v
 
 .PHONY: test-benchmark-smoke
 test-benchmark-smoke:

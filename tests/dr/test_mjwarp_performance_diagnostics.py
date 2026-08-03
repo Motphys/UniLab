@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 
 import pytest
-from tests.training.device_runtime_harness import forbid_host_roundtrip, runtime_harness
+from tests._support.device_runtime import forbid_host_roundtrip, runtime_harness
 
 pytestmark = pytest.mark.slow
 

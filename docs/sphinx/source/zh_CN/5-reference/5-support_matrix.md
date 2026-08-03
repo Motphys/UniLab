@@ -43,7 +43,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
 
-`mjwarp` 不继承 entrypoint 级的通用 `Tested` 标记；其 `Tested` 及以上等级必须来自 `tests/acceptance/issue_705/support_evidence.yaml` 中的逐组合声明，并通过双向审计。
+`mjwarp` 不继承 entrypoint 级的通用 `Tested` 标记；其 `Tested` 及以上等级必须来自 `conf/support/evidence.yaml` 中的逐组合声明，并通过仓库验收工具双向审计。
 Phase 7 task rollout 完成前，任何 `mjwarp` 组合都不得提升为 `Recommended`。
 `Recommended` 只适用于矩阵中声明的 entrypoint、task owner、backend 和 execution profile；不隐含未声明的原生 play/visualization 能力。当前 `mjwarp` 原生 play/visualization 仍显式 fail closed。
 
@@ -149,9 +149,9 @@ Phase 7 task rollout 完成前，任何 `mjwarp` 组合都不得提升为 `Recom
 
 - Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
-- High-grade mjwarp evidence: `tests/acceptance/issue_705/support_evidence.yaml`.
-- Bidirectional audit: `uv run scripts/audit_issue705_support.py`.
-- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
-- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
-- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
+- High-grade mjwarp declaration: `conf/support/evidence.yaml`.
+- Bidirectional audit: `uv run scripts/audit_acceptance.py support`.
+- Generic compose coverage is audited against the configured owner set.
+- MLX-specific declarations in `conf/support/evidence.yaml` upgrade these task owners: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
+- Runtime smoke and owner coverage are checked by the repository test lanes.
 <!-- END GENERATED SUPPORT MATRIX -->

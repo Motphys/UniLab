@@ -123,3 +123,11 @@ APPO_HARDWARE_TIMING_ANALYSIS.md
 
 # Training log artifacts (checkpoints, ONNX exports)
 log/
+# Regenerable local acceptance evidence.  Content addresses and commands are
+# committed in tests/acceptance/manager_mjwarp/artifact_receipts.yaml.
+tests/acceptance/manager_mjwarp/artifacts/g1_mujoco_phase0_baseline.json
+tests/acceptance/manager_mjwarp/artifacts/phase_4_host_benchmark.json
+tests/acceptance/manager_mjwarp/artifacts/phase_5_mjwarp_ppo.json
+tests/acceptance/manager_mjwarp/artifacts/phase_5_mjwarp_ppo_trace.json
+tests/acceptance/manager_mjwarp/artifacts/phase_6_mjwarp_dr_performance.json
+tests/acceptance/manager_mjwarp/artifacts/phase_7_training_behavior.json

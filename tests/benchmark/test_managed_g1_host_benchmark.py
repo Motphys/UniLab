@@ -1,4 +1,4 @@
-"""Contract tests for the Issue #705 paired managed-G1 host benchmark."""
+"""Contract tests for the managed MuJoCo/MJWarp rollout paired managed-G1 host benchmark."""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ from typing import Any
 
 import pytest
 from benchmark.env import benchmark_managed_g1 as managed_benchmark
-
-from unilab.tools.issue705_phase4_evidence import validate_host_benchmark_artifact
+from tooling.acceptance.phase4 import validate_host_benchmark_artifact
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -144,7 +143,7 @@ def _artifact(
         },
         "candidate": {
             "candidate_commit": "b" * 40,
-            "branch": "feat/issue-705-manager-mjwarp",
+            "branch": "feat/manager-mjwarp-manager-mjwarp",
             "source_dirty": False,
             "source_tree_sha256": "sha256:" + "d" * 64,
             "uv_lock_sha256": "sha256:" + "e" * 64,

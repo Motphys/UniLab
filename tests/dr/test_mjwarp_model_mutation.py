@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 import torch
-from tests.dr.mjwarp_model_mutation_support import (
+from tests._support.device_runtime import forbid_host_roundtrip
+from tests._support.mjwarp_model_mutation import (
     ACTUATOR_NAME,
     ModelMutationRuntime,
     PlanKey,
@@ -17,7 +18,6 @@ from tests.dr.mjwarp_model_mutation_support import (
     control_batch,
     model_mutation_runtime,
 )
-from tests.training.device_runtime_harness import forbid_host_roundtrip
 
 from unilab.base.backend import (
     BackendBatchContractError,

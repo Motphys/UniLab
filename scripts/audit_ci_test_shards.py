@@ -41,19 +41,39 @@ LOCAL_EVIDENCE_EXPRESSION = "not slow and not local_evidence"
 AGGREGATE_INSTALL_COMMAND = "uv sync --only-group dev"
 EXPECTED_LOCAL_EVIDENCE_TEST_IDS = frozenset(
     {
-        "tests/benchmark/test_issue705_g1_baseline_runner.py::"
+        "tests/acceptance/manager_mjwarp/test_g1_baseline_provenance.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_phase1_evidence.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_phase2_evidence.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_phase3_evidence.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_phase4_evidence.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_phase5_evidence.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_phase6_evidence.py::<module>",
+        "tests/acceptance/manager_mjwarp/test_threshold_manifest.py::<module>",
+        "tests/benchmark/test_manager_mjwarp_g1_baseline_runner.py::"
         "test_subprocess_is_uv_run_and_enforces_cpu_affinity",
-        "tests/benchmark/test_issue705_training_behavior.py::"
+        "tests/benchmark/test_manager_mjwarp_training_behavior.py::"
         "test_all_paired_seeds_meet_frozen_behavior_gates",
         "tests/benchmark/test_managed_g1_host_benchmark.py::"
         "test_fused_host_meets_preregistered_gate",
         "tests/benchmark/test_mjwarp_dr_benchmark.py::"
         "test_dr_profiles_meet_preregistered_density_gates",
         "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate",
-        "tests/integration/test_issue705_legacy_retirement.py::"
+        "tests/integration/test_manager_mjwarp_legacy_retirement.py::"
         "test_legacy_removal_requires_full_entrypoint_and_rollback_evidence",
-        "tests/scripts/test_issue705_final_gate.py::"
+        "tests/scripts/test_manager_mjwarp_final_gate.py::"
         "test_committed_final_artifact_is_fresh_and_promoted",
+        "tests/scripts/test_manager_mjwarp_final_gate.py::<module>",
+        "tests/scripts/test_manager_mjwarp_g1_baseline.py::<module>",
+        "tests/scripts/test_manager_mjwarp_support_audit.py::<module>",
+        "tests/scripts/test_manager_mjwarp_task_rollout_audit.py::<module>",
+        "tests/scripts/test_manager_mjwarp_thresholds.py::<module>",
+        "tests/tools/test_manager_mjwarp_phase4_evidence.py::<module>",
+        "tests/tools/test_manager_mjwarp_phase5_evidence.py::<module>",
+        "tests/tools/test_manager_mjwarp_phase6_evidence.py::<module>",
+        "tests/tools/test_manager_mjwarp_threshold_amendment.py::<module>",
+        "tests/tools/test_manager_mjwarp_threshold_contract.py::<module>",
+        "tests/tools/test_manager_mjwarp_threshold_freeze_receipt.py::<module>",
+        "tests/tools/test_manager_mjwarp_training_behavior.py::<module>",
     }
 )
 

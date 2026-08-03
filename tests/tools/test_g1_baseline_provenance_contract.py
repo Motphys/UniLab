@@ -33,7 +33,7 @@ from unilab.tools.g1_baseline_provenance import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PLAN_PATH = REPO_ROOT / "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml"
+PLAN_PATH = REPO_ROOT / "tests/acceptance/manager_mjwarp/g1_mujoco_baseline_plan.yaml"
 
 
 def _plan() -> G1BaselinePlan:
@@ -285,8 +285,8 @@ def _recorded_source_fixture(tmp_path: Path) -> tuple[G1BaselinePlan, dict, str]
     (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (tmp_path / "plan.yaml").write_text("baseline: frozen\n", encoding="utf-8")
     _git(tmp_path, "init", "-q")
-    _git(tmp_path, "config", "user.name", "Issue 705 Test")
-    _git(tmp_path, "config", "user.email", "issue705@example.invalid")
+    _git(tmp_path, "config", "user.name", "managed MuJoCo/MJWarp rollout Test")
+    _git(tmp_path, "config", "user.email", "manager_mjwarp@example.invalid")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-q", "-m", "baseline")
     baseline_commit = _git(tmp_path, "rev-parse", "HEAD")

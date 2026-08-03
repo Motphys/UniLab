@@ -11,7 +11,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-from tests.dr.mjwarp_model_mutation_support import (
+from tests._support.device_runtime import forbid_host_roundtrip
+from tests._support.mjwarp_model_mutation import (
     ModelMutationRuntime,
     PlanKey,
     ResetBatchBuffers,
@@ -24,7 +25,6 @@ from tests.dr.mjwarp_model_mutation_support import (
     state_tensor,
     wait_result,
 )
-from tests.training.device_runtime_harness import forbid_host_roundtrip
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend import (

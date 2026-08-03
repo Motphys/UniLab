@@ -1,4 +1,4 @@
-"""Contract and tamper tests for the Issue #705 mjwarp PPO benchmark."""
+"""Contract and tamper tests for the managed MuJoCo/MJWarp rollout mjwarp PPO benchmark."""
 
 from __future__ import annotations
 
@@ -13,7 +13,9 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PHASE5_PPO_ARTIFACT = REPO_ROOT / "tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json"
+PHASE5_PPO_ARTIFACT = (
+    REPO_ROOT / "tests/acceptance/manager_mjwarp/artifacts/phase_5_mjwarp_ppo.json"
+)
 
 
 def _scalars(*, iterations: int, fps: float = 30_000.0, reward: float = -0.4) -> dict[str, Any]:
@@ -505,9 +507,9 @@ def test_matrix_process_and_contention_tampering_fail_closed() -> None:
 
 
 def test_production_benchmark_uses_side_effect_free_evidence_helpers() -> None:
-    assert ppo_benchmark._event_scalars.__module__ == "benchmark.issue705.process_evidence"
-    assert "benchmark/issue705/benchmark_g1_phase0.py" not in ppo_benchmark.SOURCE_INPUTS
-    assert "benchmark/issue705/process_evidence.py" in ppo_benchmark.SOURCE_INPUTS
+    assert ppo_benchmark._event_scalars.__module__ == "benchmark.mjwarp.process_dr_evidence"
+    assert "benchmark/env/benchmark_g1_baseline.py" not in ppo_benchmark.SOURCE_INPUTS
+    assert "benchmark/mjwarp/process_dr_evidence.py" in ppo_benchmark.SOURCE_INPUTS
 
 
 @pytest.mark.parametrize("backend", ["mujoco", "mjwarp"])
@@ -628,7 +630,7 @@ def test_profiler_trace_sidecar_hash_and_counts_are_independently_checked(
     trace = {
         "traceEvents": [
             {
-                "name": "issue705.mjwarp_ppo_rollout",
+                "name": "manager_mjwarp.mjwarp_ppo_rollout",
                 "cat": "user_annotation",
                 "ts": 0.0,
                 "dur": 100.0,

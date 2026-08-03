@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
-from tests.dr.mjwarp_model_mutation_support import (
+from tests._support.mjwarp_model_mutation import (
     PlanKey,
     ResetBatchBuffers,
     bind_model_plan,

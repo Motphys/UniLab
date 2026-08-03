@@ -1,4 +1,4 @@
-"""Long-loop CUDA allocation, address, and instrumentation gates for Issue 705."""
+"""Long-loop CUDA allocation, address, and instrumentation gates for managed MuJoCo/MJWarp rollout."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
-from tests.training.device_runtime_harness import forbid_host_roundtrip, runtime_harness
+from tests._support.device_runtime import forbid_host_roundtrip, runtime_harness
 from tests.training.test_device_lifecycle import _force_root_state
 
 from unilab.base.backend import (

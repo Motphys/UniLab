@@ -1,4 +1,4 @@
-"""Fail-closed paired host benchmark for Issue #705's managed G1 executors.
+"""Fail-closed paired host benchmark for managed MuJoCo/MJWarp rollout's managed G1 executors.
 
 The benchmark deliberately uses a fresh ``uv run`` process for every
 ``(batch, repeat, mode)`` sample and rotates the execution order in each
@@ -10,9 +10,9 @@ Typical use after this benchmark implementation has been committed and the
 worktree is clean::
 
     uv run benchmark/env/benchmark_managed_g1.py --execute \
-      --out /tmp/issue705-g1-host-fused.json
+      --out /tmp/manager_mjwarp-g1-host-fused.json
     uv run benchmark/env/benchmark_managed_g1.py \
-      --validate-artifact /tmp/issue705-g1-host-fused.json
+      --validate-artifact /tmp/manager_mjwarp-g1-host-fused.json
 
 ``--execute`` is intentionally rejected for a dirty source tree.  A later
 evidence PR must capture from a clean committed implementation; it must not
@@ -48,7 +48,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from benchmark.core.mem_profile import build_memory_summary, memory_snapshot
 from benchmark.env.benchmark_env_step import _g1_flat_cfg, _g1_walk_env_cls
-from benchmark.issue705.benchmark_g1_phase0 import (
+from benchmark.env.benchmark_g1_baseline import (
     _hardware_payload,
     _json_safe,
     _preflight_payload,
@@ -84,10 +84,10 @@ EXPECTED_EXECUTOR_KEYS = {
     "managed_reference": G1_MANAGED_REFERENCE_EXECUTOR_KEY,
     "managed_fused": G1_MANAGED_FUSED_EXECUTOR_KEY,
 }
-DEFAULT_BASELINE_PLAN = Path("tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml")
-DEFAULT_THRESHOLD_MANIFEST = Path("tests/acceptance/issue_705/g1_threshold_manifest.yaml")
-DEFAULT_THRESHOLD_RECEIPT = Path("tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml")
-DEFAULT_OUTPUT = Path("/tmp/unilab_issue705_g1_host_fused.json")
+DEFAULT_BASELINE_PLAN = Path("tests/acceptance/manager_mjwarp/g1_mujoco_baseline_plan.yaml")
+DEFAULT_THRESHOLD_MANIFEST = Path("tests/acceptance/manager_mjwarp/g1_threshold_manifest.yaml")
+DEFAULT_THRESHOLD_RECEIPT = Path("tests/acceptance/manager_mjwarp/g1_threshold_freeze_receipt.yaml")
+DEFAULT_OUTPUT = Path("/tmp/unilab_manager_mjwarp_g1_host_fused.json")
 
 # Keep this list deliberately narrow: it contains every input that can change
 # this benchmark's measured managed host lifecycle, but not the output
@@ -96,7 +96,7 @@ DEFAULT_OUTPUT = Path("/tmp/unilab_issue705_g1_host_fused.json")
 SOURCE_INPUTS = (
     "benchmark/env/benchmark_managed_g1.py",
     "benchmark/env/benchmark_env_step.py",
-    "benchmark/issue705/benchmark_g1_phase0.py",
+    "benchmark/env/benchmark_g1_baseline.py",
     "benchmark/core/mem_profile.py",
     "src/unilab/base/backend/base.py",
     "src/unilab/base/backend/mujoco",
@@ -109,9 +109,9 @@ SOURCE_INPUTS = (
     "src/unilab/envs/locomotion/g1",
     "src/unilab/tools/g1_baseline_provenance.py",
     "conf/ppo/task/g1_walk_flat/mujoco.yaml",
-    "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml",
-    "tests/acceptance/issue_705/g1_threshold_manifest.yaml",
-    "tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml",
+    "tests/acceptance/manager_mjwarp/g1_mujoco_baseline_plan.yaml",
+    "tests/acceptance/manager_mjwarp/g1_threshold_manifest.yaml",
+    "tests/acceptance/manager_mjwarp/g1_threshold_freeze_receipt.yaml",
     "tests/benchmark/test_managed_g1_host_benchmark.py",
     "uv.lock",
 )
@@ -213,7 +213,9 @@ def load_threshold_binding(
     manifest = _load_yaml(manifest_path)
     receipt = _load_yaml(receipt_path)
     if manifest.get("schema_version") != 1 or manifest.get("issue") != ISSUE:
-        raise HostBenchmarkError("threshold manifest does not belong to Issue #705 schema v1")
+        raise HostBenchmarkError(
+            "threshold manifest does not belong to managed MuJoCo/MJWarp rollout schema v1"
+        )
     if manifest.get("state") != "frozen":
         raise HostBenchmarkError("host benchmark requires a frozen threshold manifest")
     threshold_set_id = _require_string(manifest.get("threshold_set_id"), label="threshold_set_id")
@@ -582,7 +584,7 @@ def _run_case_subprocess(
     repeat_index: int,
     sequence_index: int,
 ) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="unilab_issue705_host_worker_") as directory:
+    with tempfile.TemporaryDirectory(prefix="unilab_manager_mjwarp_host_worker_") as directory:
         output = Path(directory) / "raw.json"
         command = [
             "uv",

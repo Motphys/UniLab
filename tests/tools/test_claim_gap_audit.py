@@ -71,7 +71,7 @@ def _manifest():
             "schema_version": 1,
             "issue": 705,
             "phase": 0,
-            "integration_branch": "feat/issue-705-manager-mjwarp",
+            "integration_branch": "feat/manager-mjwarp-manager-mjwarp",
             "required_lanes": ["A"],
             "claims": [_claim()],
         }
@@ -102,7 +102,7 @@ def _inventory() -> dict:
     return {
         "schema_version": 1,
         "issue": 705,
-        "integration_branch": "feat/issue-705-manager-mjwarp",
+        "integration_branch": "feat/manager-mjwarp-manager-mjwarp",
         "entries": [
             _entry("tests/test_contract.py::test_contract", state="existing"),
             _entry(

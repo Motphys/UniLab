@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from tests.dr.mjwarp_model_mutation_support import (
+from tests._support.mjwarp_model_mutation import (
     ModelMutationRuntime,
     PlanKey,
     ResetBatchBuffers,

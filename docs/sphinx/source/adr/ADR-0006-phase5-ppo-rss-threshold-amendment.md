@@ -14,7 +14,7 @@ orphan: true
 
 ## Context
 
-Issue #705 的 Phase 0 threshold manifest 在候选实现前冻结，并由独立 commit、Git blob 和
+managed MuJoCo/MJWarp rollout 的 Phase 0 threshold manifest 在候选实现前冻结，并由独立 commit、Git blob 和
 SHA-256 receipt 保护。Phase 5 PPO benchmark 在两个完整 40-case capture 和后续 b128 focused
 capture 中，mjwarp/MuJoCo 的进程树 peak RSS median ratio 稳定落在约 `1.248` 到 `1.2517`。
 最新 clean candidate 的 b128 延迟和吞吐均有余量，RSS 只比 `1.25` 上限多约 3.29 MB。
@@ -28,7 +28,7 @@ capture 中，mjwarp/MuJoCo 的进程树 peak RSS median ratio 稳定落在约 `
 1. Phase 0 threshold manifest 和 freeze receipt 保持逐字节不变。
 2. 新增版本化 amendment `g1-phase5-ppo-rss-ratio-v1`，只覆盖 Phase 5 PPO artifact 的进程树
    peak RSS median ratio，将上限从 `1.25` 调整到 `1.26`。
-3. amendment 仅适用于 `issue705-mjwarp-device-ppo-benchmark-v1` 的
+3. amendment 仅适用于 `manager_mjwarp-mjwarp-device-ppo-benchmark-v1` 的
    `device_resident` profile，并覆盖 throughput paired lane 与 behavior lane。所有其他 threshold、
    profile、artifact 和 acceptance phase 继续使用 base manifest。
 4. amendment 使用独立 manifest 和 freeze receipt。receipt 绑定 amendment manifest 的
@@ -85,15 +85,15 @@ capture 中，mjwarp/MuJoCo 的进程树 peak RSS median ratio 稳定落在约 `
 
 ## Evidence In Repo
 
-- Base manifest: `tests/acceptance/issue_705/g1_threshold_manifest.yaml`
-- Amendment manifest: `tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml`
-- Validator: `src/unilab/tools/issue705_thresholds.py`
+- Base manifest: `tests/acceptance/manager_mjwarp/g1_threshold_manifest.yaml`
+- Amendment manifest: `tests/acceptance/manager_mjwarp/g1_phase5_ppo_threshold_amendment.yaml`
+- Validator: `tooling/acceptance/thresholds.py`
 - PPO consumer: `benchmark/rl/benchmark_mjwarp_ppo.py`
-- Contract tests: `tests/tools/test_issue705_threshold_amendment.py`
+- Contract tests: `tests/tools/test_manager_mjwarp_threshold_amendment.py`
 
 ## Related Documents
 
-- [Issue #705](https://github.com/unilabsim/UniLab/issues/705)
+- [managed MuJoCo/MJWarp rollout](https://github.com/unilabsim/UniLab/issues/705)
 - [Issue #807](https://github.com/unilabsim/UniLab/issues/807)
 - {doc}`ADR Index </adr/README>`
 - {doc}`协作流程 </zh_CN/4-developer_guide/5-contributing_workflow>`

@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-from tests.training.device_runtime_harness import runtime_harness
+from tests._support.device_runtime import runtime_harness
 
 from unilab.base.backend import (
     BufferPlacement,

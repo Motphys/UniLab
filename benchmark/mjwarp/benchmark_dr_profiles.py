@@ -40,7 +40,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from benchmark.issue705.process_evidence import event_scalars, json_safe, utc_now
+from benchmark.mjwarp.process_dr_evidence import event_scalars, json_safe, utc_now
 from unilab.tools.g1_baseline_provenance import (
     canonical_sha256,
     sha256_file,

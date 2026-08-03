@@ -1,4 +1,4 @@
-"""Profiler/counter reconciliation for the Issue 705 all-device rollout path."""
+"""Profiler/counter reconciliation for the managed MuJoCo/MJWarp rollout all-device rollout path."""
 
 from __future__ import annotations
 
@@ -9,16 +9,16 @@ from unittest.mock import patch
 
 import pytest
 import torch
-from tests.training.device_runtime_harness import forbid_host_roundtrip, runtime_harness
+from tests._support.device_runtime import forbid_host_roundtrip, runtime_harness
 from torch.profiler import ProfilerActivity, profile, record_function
 
 from unilab.manager import DeviceRuntimeTrafficDiagnostics
 
 pytestmark = pytest.mark.slow
 
-_ROLLOUT_SCOPE = "issue705.device_rollout"
-_PHYSICS_STEP_SCOPE = "issue705.device_physics_step"
-_PHYSICS_RESET_SCOPE = "issue705.device_physics_reset"
+_ROLLOUT_SCOPE = "manager_mjwarp.device_rollout"
+_PHYSICS_STEP_SCOPE = "manager_mjwarp.device_physics_step"
+_PHYSICS_RESET_SCOPE = "manager_mjwarp.device_physics_reset"
 
 
 def _traffic_signature(value: DeviceRuntimeTrafficDiagnostics) -> tuple[int, ...]:

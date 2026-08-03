@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-from tests.training.device_runtime_harness import forbid_host_roundtrip, runtime_harness
+from tests._support.device_runtime import forbid_host_roundtrip, runtime_harness
 
 import unilab.base.backend.phase_timing as phase_timing_module
 from unilab.base.backend import (

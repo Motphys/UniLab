@@ -1,4 +1,4 @@
-"""Capability-derived production task rollout for Issue #705."""
+"""Capability-derived production task rollout for managed MuJoCo/MJWarp rollout."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tooling.acceptance.task_rollout import ROLLOUT_PLAN_PATH, load_task_rollout_plan
+from tooling.acceptance.task_rollout_run import validate_task_rollout_run
 
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
-from unilab.tools.issue705_task_rollout import ROLLOUT_PLAN_PATH, load_task_rollout_plan
-from unilab.tools.issue705_task_rollout_run import validate_task_rollout_run
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
@@ -73,7 +73,7 @@ def test_promoted_tasks_pass_capability_derived_matrix(tmp_path: Path) -> None:
             timeout=300,
         )
         assert result.returncode == 0, (
-            f"Issue #705 task rollout failed for seed={seed}:\n"
+            f"managed MuJoCo/MJWarp rollout task rollout failed for seed={seed}:\n"
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )

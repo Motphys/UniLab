@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 import torch
+from tests._support.device_runtime import forbid_host_roundtrip, require_cuda
 from tests.manager.test_g1_reference_differential import _cfg
-from tests.training.device_runtime_harness import forbid_host_roundtrip, require_cuda
 
 from unilab.envs.locomotion.g1.joystick import G1WalkEnv
 from unilab.envs.locomotion.g1.managed_device import G1ManagedDeviceError

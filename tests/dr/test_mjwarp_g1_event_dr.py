@@ -7,12 +7,12 @@ from contextlib import ExitStack
 import numpy as np
 import pytest
 import torch
-from tests.dr.mjwarp_model_mutation_support import reset_device_state
-from tests.training.device_runtime_harness import (
+from tests._support.device_runtime import (
     DeviceRuntimeHarness,
     forbid_host_roundtrip,
     runtime_harness,
 )
+from tests._support.mjwarp_model_mutation import reset_device_state
 
 from unilab.base.backend import DeviceTensorView
 from unilab.base.backend.mjwarp.backend import MjwarpBackend

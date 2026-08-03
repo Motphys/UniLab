@@ -1,4 +1,4 @@
-"""Fail-closed, process-isolated PPO benchmark for Issue #705's ``mjwarp`` profile.
+"""Fail-closed, process-isolated PPO benchmark for managed MuJoCo/MJWarp rollout's ``mjwarp`` profile.
 
 The benchmark intentionally keeps performance collection outside the training
 entrypoint.  Every measured PPO run is a fresh invocation of the public
@@ -44,25 +44,33 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from benchmark.issue705.process_evidence import (  # noqa: E402
+from tooling.acceptance.thresholds import (  # noqa: E402
+    ThresholdManifest,
+    load_amendment_freeze_receipt,
+    load_freeze_receipt,
+    load_threshold_amendment,
+    load_threshold_manifest,
+)
+
+from benchmark.mjwarp.process_dr_evidence import (  # noqa: E402
     event_scalars as _event_scalars,
 )
-from benchmark.issue705.process_evidence import (
+from benchmark.mjwarp.process_dr_evidence import (
     hardware_payload as _hardware_payload,
 )
-from benchmark.issue705.process_evidence import (
+from benchmark.mjwarp.process_dr_evidence import (
     json_safe as _json_safe,
 )
-from benchmark.issue705.process_evidence import (
+from benchmark.mjwarp.process_dr_evidence import (
     load_plan as _load_evidence_plan,
 )
-from benchmark.issue705.process_evidence import (
+from benchmark.mjwarp.process_dr_evidence import (
     preflight_payload as _preflight_payload,
 )
-from benchmark.issue705.process_evidence import (
+from benchmark.mjwarp.process_dr_evidence import (
     run_subprocess as _run_evidence_subprocess,
 )
-from benchmark.issue705.process_evidence import (
+from benchmark.mjwarp.process_dr_evidence import (
     utc_now as _utc_now,
 )
 from unilab.tools.g1_baseline_provenance import (  # noqa: E402
@@ -73,29 +81,22 @@ from unilab.tools.g1_baseline_provenance import (  # noqa: E402
     source_tree_sha256,
     source_tree_sha256_at_commit,
 )
-from unilab.tools.issue705_thresholds import (  # noqa: E402
-    ThresholdManifest,
-    load_amendment_freeze_receipt,
-    load_freeze_receipt,
-    load_threshold_amendment,
-    load_threshold_manifest,
-)
 
 ISSUE = 705
 SCHEMA_VERSION = 1
-ARTIFACT_KIND = "issue705-mjwarp-device-ppo-benchmark-v1"
+ARTIFACT_KIND = "manager_mjwarp-mjwarp-device-ppo-benchmark-v1"
 PROFILE = "device_resident"
-DEFAULT_BASELINE_PLAN = Path("tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml")
-DEFAULT_THRESHOLD_MANIFEST = Path("tests/acceptance/issue_705/g1_threshold_manifest.yaml")
-DEFAULT_THRESHOLD_RECEIPT = Path("tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml")
+DEFAULT_BASELINE_PLAN = Path("tests/acceptance/manager_mjwarp/g1_mujoco_baseline_plan.yaml")
+DEFAULT_THRESHOLD_MANIFEST = Path("tests/acceptance/manager_mjwarp/g1_threshold_manifest.yaml")
+DEFAULT_THRESHOLD_RECEIPT = Path("tests/acceptance/manager_mjwarp/g1_threshold_freeze_receipt.yaml")
 DEFAULT_THRESHOLD_AMENDMENT = Path(
-    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml"
+    "tests/acceptance/manager_mjwarp/g1_phase5_ppo_threshold_amendment.yaml"
 )
 DEFAULT_THRESHOLD_AMENDMENT_RECEIPT = Path(
-    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml"
+    "tests/acceptance/manager_mjwarp/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml"
 )
-DEFAULT_OUTPUT = Path("/tmp/unilab_issue705_mjwarp_device_ppo.json")
-DEFAULT_TRACE_OUTPUT = Path("/tmp/unilab_issue705_mjwarp_device_ppo_trace.json")
+DEFAULT_OUTPUT = Path("/tmp/unilab_manager_mjwarp_mjwarp_device_ppo.json")
+DEFAULT_TRACE_OUTPUT = Path("/tmp/unilab_manager_mjwarp_mjwarp_device_ppo_trace.json")
 THROUGHPUT_MODES = ("mujoco_host", "mjwarp_device")
 THROUGHPUT_ITERATIONS = 20
 CONTENTION_ITERATIONS = 20
@@ -113,7 +114,7 @@ COMMON_PERFORMANCE_OVERRIDES = (
 )
 SOURCE_INPUTS = (
     "benchmark/rl/benchmark_mjwarp_ppo.py",
-    "benchmark/issue705/process_evidence.py",
+    "benchmark/mjwarp/process_dr_evidence.py",
     "scripts/train_rsl_rl.py",
     "src/unilab/algos/torch/rsl_rl_ppo.py",
     "src/unilab/algos/torch/rsl_rl_runtime.py",
@@ -123,15 +124,15 @@ SOURCE_INPUTS = (
     "src/unilab/manager",
     "src/unilab/training",
     "src/unilab/tools/g1_baseline_provenance.py",
-    "src/unilab/tools/issue705_thresholds.py",
+    "tooling/acceptance/thresholds.py",
     "conf/ppo/config.yaml",
     "conf/ppo/task/g1_walk_flat/mujoco.yaml",
     "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
-    "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml",
-    "tests/acceptance/issue_705/g1_threshold_manifest.yaml",
-    "tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml",
-    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment.yaml",
-    "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml",
+    "tests/acceptance/manager_mjwarp/g1_mujoco_baseline_plan.yaml",
+    "tests/acceptance/manager_mjwarp/g1_threshold_manifest.yaml",
+    "tests/acceptance/manager_mjwarp/g1_threshold_freeze_receipt.yaml",
+    "tests/acceptance/manager_mjwarp/g1_phase5_ppo_threshold_amendment.yaml",
+    "tests/acceptance/manager_mjwarp/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml",
     "docs/sphinx/source/adr/ADR-0006-phase5-ppo-rss-threshold-amendment.md",
     "tests/benchmark/test_mjwarp_ppo_benchmark.py",
     "uv.lock",
@@ -557,7 +558,7 @@ def _run_training_case(
     """Run one public PPO process and retain every raw output needed by the gate."""
 
     backend, expected_profile = _mode_owner(mode)
-    with tempfile.TemporaryDirectory(prefix=f"unilab_issue705_p5_{lane}_{mode}_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix=f"unilab_manager_mjwarp_p5_{lane}_{mode}_") as temp_dir:
         log_root = Path(temp_dir) / "logs"
         command = [
             "uv",
@@ -1362,7 +1363,7 @@ def _validate_trace_sibling(
         return
     try:
         trace_data = _mapping(json.loads(trace_path.read_text(encoding="utf-8")), "trace")
-        actual = _trace_transfer_counts(trace_data, scope_name="issue705.mjwarp_ppo_rollout")
+        actual = _trace_transfer_counts(trace_data, scope_name="manager_mjwarp.mjwarp_ppo_rollout")
         profile = _mapping(device.get("profiler_summary"), "device.profiler_summary")
         trace_counts = _mapping(profile.get("trace_counts"), "device.profiler_summary.trace_counts")
         expected = (
@@ -1784,13 +1785,15 @@ def _device_profile_worker(*, output: Path, steps: int) -> int:
         runtime_before = wrapper.runtime.traffic_diagnostics
         wrapper_before = wrapper.traffic_diagnostics
         with profile(activities=(ProfilerActivity.CPU, ProfilerActivity.CUDA)) as profiler:
-            with record_function("issue705.mjwarp_ppo_rollout"):
+            with record_function("manager_mjwarp.mjwarp_ppo_rollout"):
                 for _ in range(steps):
                     wrapper.step(actions)
             wrapper.last_transition.completion.event.synchronize()
         profiler.export_chrome_trace(str(output))
         trace = _mapping(json.loads(output.read_text(encoding="utf-8")), "profiler trace")
-        h2d, d2h, sync = _trace_transfer_counts(trace, scope_name="issue705.mjwarp_ppo_rollout")
+        h2d, d2h, sync = _trace_transfer_counts(
+            trace, scope_name="manager_mjwarp.mjwarp_ppo_rollout"
+        )
         runtime_after = wrapper.runtime.traffic_diagnostics
         wrapper.finish_rollout()
         wrapper_after = wrapper.traffic_diagnostics
@@ -1893,7 +1896,7 @@ def _run_contention_case(
 ) -> dict[str, Any]:
     """Measure a device case while an explicitly-owned same-GPU load is active."""
 
-    with tempfile.TemporaryDirectory(prefix="unilab_issue705_p5_contention_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="unilab_manager_mjwarp_p5_contention_") as temp_dir:
         root = Path(temp_dir)
         ready = root / "ready"
         stop = root / "stop"
@@ -1990,7 +1993,9 @@ def _run_registered_case_process(
 ) -> dict[str, Any]:
     """Run one benchmark worker in a fresh process and retain both process layers."""
 
-    with tempfile.TemporaryDirectory(prefix=f"unilab_issue705_p5_worker_{case_id}_") as temp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix=f"unilab_manager_mjwarp_p5_worker_{case_id}_"
+    ) as temp_dir:
         output = Path(temp_dir) / "case.json"
         command = [
             "uv",

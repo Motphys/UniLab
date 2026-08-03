@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import re
 from dataclasses import dataclass
 from enum import IntEnum
@@ -12,7 +11,7 @@ from omegaconf import OmegaConf
 
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
-from unilab.tools.issue705_support import (
+from unilab.support.evidence import (
     SUPPORT_EVIDENCE_PATH,
     DeclaredEvidenceLevel,
     SupportEvidenceManifest,
@@ -181,18 +180,6 @@ def _load_registry_backends() -> dict[str, set[str]]:
     }
 
 
-def _mlx_tested_task_slugs(root: Path) -> set[str]:
-    config_test_path = root / "tests" / "config" / "test_config_system.py"
-    content = config_test_path.read_text(encoding="utf-8")
-    match = re.search(r"_PPO_MLX_TASKS\s*=\s*(\{[^\n]+\})", content)
-    if match is None:
-        return set()
-    parsed = ast.literal_eval(match.group(1))
-    if not isinstance(parsed, set):
-        return set()
-    return {item for item in parsed if isinstance(item, str)}
-
-
 def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str, str]]:
     task_root = root / spec.config_dir
     entries: dict[str, dict[str, str]] = {}
@@ -205,13 +192,11 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
     return entries
 
 
-def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -> bool:
+def _is_tested(spec: EntrypointSpec, backend: str) -> bool:
     # mjwarp claims are always combination-specific.  Generic compose coverage
     # may establish Configured, but cannot promote an execution profile.
     if backend == "mjwarp":
         return False
-    if spec.entrypoint_id == "ppo_mlx":
-        return task_slug in _mlx_tested_task_slugs(root)
     return spec.generic_tested
 
 
@@ -280,7 +265,7 @@ def build_support_rows(
                         env_name=env_name,
                         configured_backends=configured_backends,
                         registry_backends=registry_backends,
-                        tested=_is_tested(spec, task_slug, backend, resolved_root),
+                        tested=_is_tested(spec, backend),
                         declared=(
                             declarations[(spec.entrypoint_id, task_slug, backend)].evidence_level
                             if (spec.entrypoint_id, task_slug, backend) in declarations
@@ -310,7 +295,18 @@ def build_support_rows(
 
 def render_support_matrix(root: Path | None = None) -> str:
     resolved_root = repo_root(root)
-    mlx_tested_tasks = sorted(_mlx_tested_task_slugs(resolved_root), key=_task_sort_key)
+    evidence = _load_declarations(resolved_root)
+    mlx_tested_tasks = sorted(
+        {
+            combination.task_slug
+            for combination in evidence.combinations
+            if combination.entrypoint_id == "ppo_mlx"
+            and combination.evidence_level == DeclaredEvidenceLevel.TESTED
+        }
+        if evidence is not None
+        else (),
+        key=_task_sort_key,
+    )
 
     lines = [
         "### Evidence Grades",
@@ -327,7 +323,7 @@ def render_support_matrix(root: Path | None = None) -> str:
         "例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
         "`mjwarp` 不继承 entrypoint 级的通用 `Tested` 标记；其 `Tested` 及以上等级必须来自"
-        " `tests/acceptance/issue_705/support_evidence.yaml` 中的逐组合声明，并通过双向审计。",
+        " `conf/support/evidence.yaml` 中的逐组合声明，并通过仓库验收工具双向审计。",
         "Phase 7 task rollout 完成前，任何 `mjwarp` 组合都不得提升为 `Recommended`。",
         "`Recommended` 只适用于矩阵中声明的 entrypoint、task owner、backend 和 execution profile；"
         "不隐含未声明的原生 play/visualization 能力。当前 `mjwarp` 原生 play/visualization 仍显式 fail closed。",
@@ -352,13 +348,13 @@ def render_support_matrix(root: Path | None = None) -> str:
             "",
             "- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.",
             "- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.",
-            "- High-grade mjwarp evidence: `tests/acceptance/issue_705/support_evidence.yaml`.",
-            "- Bidirectional audit: `uv run scripts/audit_issue705_support.py`.",
-            "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
-            "- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: "
+            "- High-grade mjwarp declaration: `conf/support/evidence.yaml`.",
+            "- Bidirectional audit: `uv run scripts/audit_acceptance.py support`.",
+            "- Generic compose coverage is audited against the configured owner set.",
+            "- MLX-specific declarations in `conf/support/evidence.yaml` upgrade these task owners: "
             + ", ".join(f"`{task}`" for task in mlx_tested_tasks)
             + ".",
-            "- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.",
+            "- Runtime smoke and owner coverage are checked by the repository test lanes.",
         ]
     )
     return "\n".join(lines)
