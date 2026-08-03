@@ -159,3 +159,10 @@ def test_phase4_host_artifact_rejects_gate_matrix_and_candidate_tampering() -> N
 
 def test_phase4_claim_mapping_is_exact() -> None:
     assert {claim.claim_id for claim in PHASE4_SPEC.claims} == set(PHASE4_REQUIRED_TEST_IDS)
+    for path in (
+        Path("src/unilab/base/backend/base.py"),
+        Path("src/unilab/envs/locomotion/g1/managed_fused.py"),
+        Path("src/unilab/manager/runtime.py"),
+        Path("benchmark/numba_profile/numba_fused.py"),
+    ):
+        assert path in PHASE4_SPEC.input_files

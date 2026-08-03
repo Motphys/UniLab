@@ -161,7 +161,7 @@ def test_field_expansion_invalidates_and_recaptures_all_graph_consumers(
         assert fields[_DIRECT_FIELD].role is MjwarpModelFieldRole.DIRECT
         assert {
             name for name, item in fields.items() if item.role is MjwarpModelFieldRole.DERIVED
-        } == set(recompute_derived_fields(_RECOMPUTE_KIND))
+        } == {*recompute_derived_fields(_RECOMPUTE_KIND), "stat.meaninertia"}
         for name, original in old_arrays.items():
             current = getattr(backend._device_model, name)
             assert current is not original

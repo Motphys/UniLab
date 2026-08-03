@@ -16,6 +16,7 @@ from unilab.tools.issue705_phase_evidence import (
     capture_phase_evidence,
     load_phase_evidence,
     sha256_file,
+    tracked_input_files,
     validate_phase_evidence,
     write_phase_evidence,
 )
@@ -26,6 +27,7 @@ ARTIFACT_KIND = "issue705-phase4-gate-v1"
 MANIFEST_PATH = Path("tests/acceptance/issue_705/manifests/phase_4.yaml")
 MUJOCO_OWNER = Path("conf/ppo/task/g1_walk_flat/mujoco.yaml")
 HOST_BENCHMARK_ARTIFACT = Path("tests/acceptance/issue_705/artifacts/phase_4_host_benchmark.json")
+ROOT_DIR = Path(__file__).resolve().parents[3]
 
 PHASE4_REQUIRED_TEST_IDS: dict[str, str] = {
     "P4-FUSED-PARITY": (
@@ -139,7 +141,13 @@ _COMMAND_BY_CLAIM = {
     "P4-HOST-PERFORMANCE": "lane_d_host_performance",
 }
 
-_INPUT_FILES = (
+_SOURCE_INPUT_TREES = (
+    Path("src/unilab/base"),
+    Path("src/unilab/envs/locomotion/g1"),
+    Path("src/unilab/manager"),
+    Path("benchmark/numba_profile"),
+)
+_STATIC_INPUTS = (
     Path("uv.lock"),
     MUJOCO_OWNER,
     Path("tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml"),
@@ -155,6 +163,19 @@ _INPUT_FILES = (
     Path("tests/manager/test_fused_executor.py"),
     Path("tests/manager/test_fused_runtime_stability.py"),
     Path("tests/benchmark/test_managed_g1_host_benchmark.py"),
+)
+_INPUT_FILES = tuple(
+    sorted(
+        {
+            *_STATIC_INPUTS,
+            *(
+                path
+                for path in tracked_input_files(ROOT_DIR, _SOURCE_INPUT_TREES)
+                if path.suffix == ".py"
+            ),
+        },
+        key=Path.as_posix,
+    )
 )
 
 PHASE4_SPEC = PhaseEvidenceSpec(

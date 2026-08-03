@@ -872,7 +872,6 @@ def test_compiler_rejects_policy_abi_group_action_and_dtype_mismatch() -> None:
             resolver=RecordingResolver({"robot.base": (0,), "robot.policy_joints": (3, 7)}),
             capabilities=_capabilities(),
         )
-
     bad_scale = replace(_task(), policy=PolicySpec(("policy", "critic"), (1.0, 2.0, 3.0)))
     with pytest.raises(ManagerContractError, match="action_scale"):
         TaskCompiler(_registry()).compile(
@@ -904,6 +903,12 @@ def test_compiler_rejects_policy_abi_group_action_and_dtype_mismatch() -> None:
             resolver=RecordingResolver({"robot.base": (0,), "robot.policy_joints": (3, 7)}),
             capabilities=_capabilities(),
         )
+
+
+@pytest.mark.parametrize("invalid_scale", (True, False, "0.5", object()))
+def test_policy_spec_rejects_non_real_action_scale_values(invalid_scale: object) -> None:
+    with pytest.raises(ManagerContractError, match="action_scale values must be real numbers"):
+        PolicySpec(("policy",), (invalid_scale,))  # type: ignore[arg-type]
 
 
 def test_builder_copies_mutable_config_inputs() -> None:

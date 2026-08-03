@@ -579,6 +579,7 @@ class ManagedReferenceRuntime:
         max_episode_steps: int | None,
         autoreset: bool = True,
         record_lifecycle: bool = False,
+        validate_observation_terms: bool = False,
         stability_buffer_provider: ManagedRuntimeBufferProvider | None = None,
         require_complete_backend_instrumentation: bool = False,
     ) -> None:
@@ -593,6 +594,8 @@ class ManagedReferenceRuntime:
             raise ManagedRuntimeError("managed autoreset must be a bool")
         if not isinstance(record_lifecycle, bool):
             raise ManagedRuntimeError("record_lifecycle must be a bool")
+        if not isinstance(validate_observation_terms, bool):
+            raise ManagedRuntimeError("validate_observation_terms must be a bool")
         if stability_buffer_provider is not None and not isinstance(
             stability_buffer_provider, ManagedRuntimeBufferProvider
         ):
@@ -621,6 +624,7 @@ class ManagedReferenceRuntime:
         self._kernel = kernel
         self._autoreset = autoreset
         self._record_lifecycle = record_lifecycle
+        self._validate_observation_terms_enabled = validate_observation_terms
         self._max_episode_steps = max_episode_steps
         self._stability_buffer_provider = stability_buffer_provider
         self._stability_monitor = (
@@ -653,6 +657,8 @@ class ManagedReferenceRuntime:
             )
         self._bound_plan = bound
         self._mutation_plan = self._bind_mutation_plan()
+        if bound.reset_requires_mutation_batch and self._mutation_plan is None:
+            raise ManagedRuntimeError("backend reset contract requires a bound mutation plan")
         self._num_envs = bound.num_envs
         self._dtype = np.dtype(bound.control.buffer.dtype)
         self._kernel_binding = ManagedKernelBinding(
@@ -688,6 +694,17 @@ class ManagedReferenceRuntime:
             ),
         )
         self._observation_keys, self._observation_buffers = self._allocate_observations()
+        if validate_observation_terms:
+            unsupported = tuple(
+                group.key
+                for group in plan.policy_abi.observation_groups
+                if not np.issubdtype(np.dtype(group.dtype), np.floating)
+            )
+            if unsupported:
+                raise ManagedRuntimeError(
+                    "observation term validation requires floating-point groups; "
+                    f"unsupported={unsupported}"
+                )
         self._obs = dict(zip(self._observation_keys, self._observation_buffers, strict=True))
         self._reward = np.zeros((self._num_envs,), dtype=self._dtype)
         self._terminated = np.zeros((self._num_envs,), dtype=bool)
@@ -720,8 +737,9 @@ class ManagedReferenceRuntime:
             raise ManagedRuntimeError(
                 "managed kernel executor_key does not match the compiled task plan"
             )
-        # This is a cold-path structural guard, not runtime capability probing.
-        # A kernel must never close over an env/backend and bypass StateBatch.
+        # This cold-path depth check only sees instance attributes.  It cannot
+        # detect class attributes or closure captures; the public kernel
+        # protocol remains the owning backend-isolation contract.
         for name in ("backend", "env", "_backend", "_env"):
             if hasattr(kernel, name):
                 raise ManagedRuntimeError(
@@ -985,17 +1003,66 @@ class ManagedReferenceRuntime:
         state.assert_valid()
 
     def _validate_observation_buffers(self) -> None:
-        for key, buffer in zip(self._observation_keys, self._observation_buffers, strict=True):
+        for key, buffer, group in zip(
+            self._observation_keys,
+            self._observation_buffers,
+            self._plan.policy_abi.observation_groups,
+            strict=True,
+        ):
+            if key != group.key:  # pragma: no cover - constructor-owned invariant
+                raise ManagedRuntimeError(
+                    "managed observation buffer order differs from policy ABI"
+                )
             _require_full_array(
                 buffer,
-                shape=(self._num_envs, buffer.shape[1]),
-                dtype=buffer.dtype,
+                shape=(self._num_envs, group.width),
+                dtype=np.dtype(group.dtype),
                 name=f"managed observation buffer {key!r}",
             )
             if not np.isfinite(buffer).all():
                 raise ManagedRuntimeError(
                     f"managed observation buffer {key!r} contains non-finite values"
                 )
+
+    @staticmethod
+    def _row_indices(rows: RowSelection) -> slice | np.ndarray:
+        if rows.is_all:
+            return slice(None)
+        assert rows.indices is not None
+        return np.asarray(rows.indices, dtype=np.intp)
+
+    def _poison_observation_terms(self, rows: RowSelection) -> None:
+        if not self._validate_observation_terms_enabled:
+            return
+        indices = self._row_indices(rows)
+        for buffer, group in zip(
+            self._observation_buffers,
+            self._plan.policy_abi.observation_groups,
+            strict=True,
+        ):
+            for observation in group.outputs:
+                output = observation.output
+                buffer[indices, output.start : output.stop] = np.nan
+
+    def _validate_observation_term_writes(self, rows: RowSelection) -> None:
+        if not self._validate_observation_terms_enabled:
+            return
+        indices = self._row_indices(rows)
+        unwritten: list[str] = []
+        for buffer, group in zip(
+            self._observation_buffers,
+            self._plan.policy_abi.observation_groups,
+            strict=True,
+        ):
+            for observation in group.outputs:
+                output = observation.output
+                if np.isnan(buffer[indices, output.start : output.stop]).any():
+                    unwritten.append(observation.semantic_key)
+        if unwritten:
+            raise ManagedRuntimeError(
+                "managed observation kernel left declared term outputs unwritten; "
+                f"semantic_keys={tuple(unwritten)}"
+            )
 
     def _apply_metrics(self, metrics: tuple[ManagedMetric, ...]) -> None:
         if not isinstance(metrics, tuple) or any(
@@ -1084,12 +1151,14 @@ class ManagedReferenceRuntime:
         )
         reset_result.reset_state.assert_valid()
         self._trace(ManagedLifecyclePhase.OBSERVATION, rows)
+        self._poison_observation_terms(rows)
         self._kernel.write_observations(
             state=reset_result.reset_state,
             task_state=task_state,
             observation_buffers=self._observation_buffers,
         )
         reset_result.reset_state.assert_valid()
+        self._validate_observation_term_writes(rows)
         self._validate_observation_buffers()
 
     @staticmethod
@@ -1134,7 +1203,7 @@ class ManagedReferenceRuntime:
 
     def step(self, actions: np.ndarray) -> NpEnvState:
         if self._state is None:
-            self.init_state()
+            raise ManagedRuntimeError("managed runtime step requires init_state() first")
         assert self._state is not None
         task_state = self._require_task_state()
         self._observe_stability_buffers()
@@ -1228,12 +1297,14 @@ class ManagedReferenceRuntime:
         )
         terminal.assert_valid()
         self._trace(ManagedLifecyclePhase.TERMINAL_OBSERVATION)
+        self._poison_observation_terms(self._all_rows)
         self._kernel.write_observations(
             state=terminal,
             task_state=task_state,
             observation_buffers=self._observation_buffers,
         )
         terminal.assert_valid()
+        self._validate_observation_term_writes(self._all_rows)
         self._validate_observation_buffers()
 
         self._steps += 1

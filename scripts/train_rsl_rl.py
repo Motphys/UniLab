@@ -53,6 +53,7 @@ from unilab.training.experiment import (
 from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     normalize_ppo_train_cfg,
+    validate_rsl_rl_policy_exports,
 )
 from unilab.training.rsl_rl import (
     validate_rsl_rl_checkpoint as _validate_rsl_rl_checkpoint,
@@ -300,20 +301,17 @@ def _export_runner_policy(
     output_dir: Path,
     formats: tuple[str, ...],
 ) -> tuple[Path, ...]:
-    outputs: list[Path] = []
+    artifacts: dict[str, Path] = {}
     if "onnx" in formats:
         runner.export_policy_to_onnx(path=str(output_dir))
-        outputs.append(output_dir / "policy.onnx")
+        artifacts["onnx"] = output_dir / "policy.onnx"
     if "jit" in formats:
         runner.export_policy_to_jit(path=str(output_dir))
-        outputs.append(output_dir / "policy.pt")
-    missing = [path for path in outputs if not path.is_file()]
-    if missing:
-        raise EntrypointContractError(
-            "Policy export returned without producing required artifacts: "
-            + ", ".join(str(path) for path in missing)
-        )
-    return tuple(outputs)
+        artifacts["jit"] = output_dir / "policy.pt"
+    return validate_rsl_rl_policy_exports(
+        policy=runner.alg.get_policy(),
+        artifacts=artifacts,
+    )
 
 
 def _write_entrypoint_receipt(path: Path, payload: dict[str, Any]) -> None:

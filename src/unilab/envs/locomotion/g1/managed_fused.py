@@ -67,25 +67,24 @@ from unilab.manager.plan import CompiledTaskPlan
 from unilab.utils.rotation import np_quat_mul, np_yaw_to_quat
 
 from .joystick import G1WalkEnvCfg
-from .managed_reference import (
-    _ACTOR_WIDTH,
-    _CRITIC_WIDTH,
-    _RESET_TERM,
-    _ROOT_RESET_SUFFIXES,
-    _STATE_KEYS,
-    G1ManagedReferenceError,
-    _action_scale,
-    _g1_reset_templates,
-    _g1_selectors,
-    _g1_state_requirements,
-    _G1KernelConfig,
-    _G1ResetSample,
-    _G1StateViews,
-    _kernel_config,
-    _manager_buffer,
-    _reset_suffix_for_dof,
-    _reset_term_key,
-    _validate_reference_profile,
+from .managed_schema import (
+    G1_ACTOR_OBSERVATION_WIDTH,
+    G1_CRITIC_OBSERVATION_WIDTH,
+    G1_RESET_TERM,
+    G1_ROOT_RESET_SPECS,
+    G1_STATE_KEYS,
+    G1KernelConfig,
+    G1ResetSample,
+    G1StateViews,
+    build_g1_kernel_config,
+    g1_action_scale,
+    g1_reset_templates,
+    g1_selectors,
+    g1_state_requirements,
+    manager_buffer_contract,
+    reset_suffix_for_dof,
+    reset_term_key,
+    validate_g1_managed_profile,
 )
 
 G1_MANAGED_FUSED_EXECUTOR_KEY = "host.numba.g1-walk-flat.v1"
@@ -549,7 +548,7 @@ class _G1ManagedFusedTaskState:
     # cannot make a stale lease usable.  Do not cache ``id(state)`` alone:
     # Python may reuse an object id after the borrowed batch is released.
     cached_state: StateBatch | None = field(default=None, repr=False, compare=False)
-    cached_state_views: _G1StateViews | None = field(default=None, repr=False, compare=False)
+    cached_state_views: G1StateViews | None = field(default=None, repr=False, compare=False)
 
 
 def _require_numba() -> None:
@@ -559,15 +558,13 @@ def _require_numba() -> None:
         )
 
 
-def _term_code_array(
-    config: _G1KernelConfig, dtype: np.dtype[Any]
-) -> tuple[np.ndarray, np.ndarray]:
+def _term_code_array(config: G1KernelConfig, dtype: np.dtype[Any]) -> tuple[np.ndarray, np.ndarray]:
     codes: list[int] = []
     scales: list[float] = []
     for name, scale in config.reward_terms:
         try:
             code = _TERM_CODES[name]
-        except KeyError as exc:  # _validate_reference_profile normally catches this first.
+        except KeyError as exc:  # Shared profile validation normally catches this first.
             raise G1ManagedFusedError(
                 f"G1 fused executor does not implement reward term {name!r}"
             ) from exc
@@ -590,21 +587,22 @@ def compile_g1_managed_fused_task(*, backend: SimBackend, cfg: G1WalkEnvCfg) -> 
     _require_numba()
     if not isinstance(backend, SimBackend):
         raise G1ManagedFusedError("G1 managed fused executor requires a SimBackend")
-    try:
-        reward = _validate_reference_profile(cfg)
-    except G1ManagedReferenceError as exc:
-        raise G1ManagedFusedError(str(exc).replace("managed reference", "fused executor")) from exc
+    reward = validate_g1_managed_profile(
+        cfg,
+        profile_name="fused executor",
+        error_type=G1ManagedFusedError,
+    )
     actuator_names = backend.get_actuator_names()
     if not actuator_names:
         raise G1ManagedFusedError("G1 managed fused executor requires named actuators")
     if len(set(actuator_names)) != len(actuator_names):
         raise G1ManagedFusedError("G1 managed fused executor actuator names must be unique")
     action_dim = len(actuator_names)
-    _action_scale(cfg, action_dim)
+    g1_action_scale(cfg, action_dim, error_type=G1ManagedFusedError)
 
-    root, dofs, reset_position, reset_velocity = _g1_selectors(actuator_names)
-    state_requirements = _g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
-    reset_templates = _g1_reset_templates(
+    root, dofs, reset_position, reset_velocity = g1_selectors(actuator_names)
+    state_requirements = g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
+    reset_templates = g1_reset_templates(
         root=root,
         reset_position=reset_position,
         reset_velocity=reset_velocity,
@@ -648,7 +646,7 @@ def compile_g1_managed_fused_task(*, backend: SimBackend, cfg: G1WalkEnvCfg) -> 
             phase=TermPhase.TERMINAL_OBSERVATION,
             role=TermRole.OBSERVATION,
             state_requirements=state_requirements,
-            output=TensorSpec((_ACTOR_WIDTH,), np.dtype(get_global_dtype()).name),
+            output=TensorSpec((G1_ACTOR_OBSERVATION_WIDTH,), np.dtype(get_global_dtype()).name),
         )
     )
     registry.register(
@@ -658,17 +656,17 @@ def compile_g1_managed_fused_task(*, backend: SimBackend, cfg: G1WalkEnvCfg) -> 
             phase=TermPhase.TERMINAL_OBSERVATION,
             role=TermRole.OBSERVATION,
             state_requirements=state_requirements,
-            output=TensorSpec((_CRITIC_WIDTH,), np.dtype(get_global_dtype()).name),
+            output=TensorSpec((G1_CRITIC_OBSERVATION_WIDTH,), np.dtype(get_global_dtype()).name),
         )
     )
     task = TaskSpec.create(
         key="g1_walk_flat.managed_fused",
         terms=(
-            TermInvocation.create(key=_RESET_TERM, definition_key="g1.fused.reset"),
+            TermInvocation.create(key=G1_RESET_TERM, definition_key="g1.fused.reset"),
             TermInvocation.create(
                 key="g1_termination",
                 definition_key="g1.fused.termination",
-                dependencies=(_RESET_TERM,),
+                dependencies=(G1_RESET_TERM,),
             ),
             TermInvocation.create(
                 key="g1_reward",
@@ -690,7 +688,7 @@ def compile_g1_managed_fused_task(*, backend: SimBackend, cfg: G1WalkEnvCfg) -> 
         ),
         control=ControlSpec(
             semantic_key="g1.joint.position_target",
-            buffer=_manager_buffer(
+            buffer=manager_buffer_contract(
                 row_shape=(action_dim,),
                 lifetime=BufferLifetime.UNTIL_STEP_COMPLETE,
             ),
@@ -700,7 +698,10 @@ def compile_g1_managed_fused_task(*, backend: SimBackend, cfg: G1WalkEnvCfg) -> 
         executor_key=G1_MANAGED_FUSED_EXECUTOR_KEY,
         policy=PolicySpec(
             ("obs", "critic"),
-            tuple(float(value) for value in _action_scale(cfg, action_dim)),
+            tuple(
+                float(value)
+                for value in g1_action_scale(cfg, action_dim, error_type=G1ManagedFusedError)
+            ),
         ),
     )
     capabilities = frozenset(
@@ -719,8 +720,8 @@ def compile_g1_managed_fused_task(*, backend: SimBackend, cfg: G1WalkEnvCfg) -> 
         resolver=BackendEntityResolver(backend),
         capabilities=capabilities,
     )
-    if plan.policy_abi.observation_groups[0].width != _ACTOR_WIDTH or (
-        plan.policy_abi.observation_groups[1].width != _CRITIC_WIDTH
+    if plan.policy_abi.observation_groups[0].width != G1_ACTOR_OBSERVATION_WIDTH or (
+        plan.policy_abi.observation_groups[1].width != G1_CRITIC_OBSERVATION_WIDTH
     ):
         raise G1ManagedFusedError("compiled G1 fused policy ABI has an unexpected width")
     if reward is not cfg.reward_config:  # pragma: no cover - type narrowing invariant.
@@ -733,9 +734,9 @@ class G1ManagedFusedKernel:
 
     executor_key = G1_MANAGED_FUSED_EXECUTOR_KEY
 
-    def __init__(self, config: _G1KernelConfig, *, expected_plan_fingerprint: str) -> None:
+    def __init__(self, config: G1KernelConfig, *, expected_plan_fingerprint: str) -> None:
         _require_numba()
-        if not isinstance(config, _G1KernelConfig):
+        if not isinstance(config, G1KernelConfig):
             raise G1ManagedFusedError("G1 managed fused kernel requires frozen config")
         if not isinstance(expected_plan_fingerprint, str) or not expected_plan_fingerprint.strip():
             raise G1ManagedFusedError(
@@ -800,7 +801,7 @@ class G1ManagedFusedKernel:
                 "G1 managed fused executor dtype must match the repository global dtype"
             )
         state_index_by_key = dict(binding.state_field_indices)
-        missing_state = tuple(key for key in _STATE_KEYS if key not in state_index_by_key)
+        missing_state = tuple(key for key in G1_STATE_KEYS if key not in state_index_by_key)
         if missing_state:
             raise G1ManagedFusedError(
                 "G1 managed fused plan is missing state fields: " + ", ".join(missing_state)
@@ -819,13 +820,13 @@ class G1ManagedFusedKernel:
         if mutation_plan is None:
             raise G1ManagedFusedError("G1 managed fused executor requires typed reset mutations")
         mutation_indices = {spec.term_key: index for index, spec in enumerate(mutation_plan.specs)}
-        root_keys = tuple(_reset_term_key(suffix=item[0]) for item in _ROOT_RESET_SUFFIXES)
+        root_keys = tuple(reset_term_key(suffix=item[0]) for item in G1_ROOT_RESET_SPECS)
         position_keys = tuple(
-            _reset_term_key(suffix=_reset_suffix_for_dof(kind="position", index=index))
+            reset_term_key(suffix=reset_suffix_for_dof(kind="position", index=index))
             for index in range(self._action_dim)
         )
         velocity_keys = tuple(
-            _reset_term_key(suffix=_reset_suffix_for_dof(kind="velocity", index=index))
+            reset_term_key(suffix=reset_suffix_for_dof(kind="velocity", index=index))
             for index in range(self._action_dim)
         )
         required_mutations = (*root_keys, *position_keys, *velocity_keys)
@@ -835,7 +836,7 @@ class G1ManagedFusedKernel:
                 "G1 managed fused plan is missing reset mutations: " + ", ".join(missing_mutations)
             )
         self._binding = binding
-        self._state_indices = tuple(state_index_by_key[key] for key in _STATE_KEYS)
+        self._state_indices = tuple(state_index_by_key[key] for key in G1_STATE_KEYS)
         self._obs_buffer_indices = observation_indices
         self._mutation_plan = mutation_plan
         self._root_reset_indices = tuple(mutation_indices[key] for key in root_keys)  # type: ignore[assignment]
@@ -859,8 +860,8 @@ class G1ManagedFusedKernel:
         state_dofs.flags.writeable = False
         commands = np.zeros((one, 3), dtype=dtype)
         phase = np.zeros((one, 2), dtype=dtype)
-        actor = np.zeros((one, _ACTOR_WIDTH), dtype=dtype)
-        critic = np.zeros((one, _CRITIC_WIDTH), dtype=dtype)
+        actor = np.zeros((one, G1_ACTOR_OBSERVATION_WIDTH), dtype=dtype)
+        critic = np.zeros((one, G1_CRITIC_OBSERVATION_WIDTH), dtype=dtype)
         reward = np.zeros((one,), dtype=dtype)
         terminated = np.zeros((one,), dtype=bool)
         weighted = np.zeros((one, len(self._term_codes)), dtype=dtype)
@@ -989,7 +990,7 @@ class G1ManagedFusedKernel:
         self,
         state: StateBatch,
         task: _G1ManagedFusedTaskState,
-    ) -> _G1StateViews:
+    ) -> G1StateViews:
         """Validate and map typed fields without compiler-order assumptions."""
 
         state.assert_valid()
@@ -1014,7 +1015,7 @@ class G1ManagedFusedKernel:
         )
         values: list[np.ndarray] = []
         for key, index, row_shape in zip(
-            _STATE_KEYS, self._require_state_indices(), expected_shapes, strict=True
+            G1_STATE_KEYS, self._require_state_indices(), expected_shapes, strict=True
         ):
             handle = state.buffer_at(index).handle
             if not isinstance(handle, np.ndarray):
@@ -1036,7 +1037,7 @@ class G1ManagedFusedKernel:
                     f"G1 fused executor rejects non-finite typed state {key} before math dispatch"
                 )
             values.append(handle)
-        views = _G1StateViews(
+        views = G1StateViews(
             dof_angular_velocity=values[0],
             dof_position=values[1],
             root_angular_velocity=values[2],
@@ -1130,8 +1131,8 @@ class G1ManagedFusedKernel:
             metrics_cache=(),
             reward_scratch=np.empty((num_envs,), dtype=dtype),
             weighted_term_scratch=np.empty((num_envs, len(self._config.reward_terms)), dtype=dtype),
-            actor_scratch=np.empty((num_envs, _ACTOR_WIDTH), dtype=dtype),
-            critic_scratch=np.empty((num_envs, _CRITIC_WIDTH), dtype=dtype),
+            actor_scratch=np.empty((num_envs, G1_ACTOR_OBSERVATION_WIDTH), dtype=dtype),
+            critic_scratch=np.empty((num_envs, G1_CRITIC_OBSERVATION_WIDTH), dtype=dtype),
             row_scratch=np.arange(num_envs, dtype=np.intp),
             command_row_scratch=np.empty((num_envs, 3), dtype=dtype),
             action_row_scratch=np.empty((num_envs, self._action_dim), dtype=dtype),
@@ -1363,9 +1364,12 @@ class G1ManagedFusedKernel:
                 "G1 fused runtime observation buffers are incomplete"
             ) from exc
         binding = self._require_binding()
-        if actor_all.shape != (binding.num_envs, _ACTOR_WIDTH) or critic_all.shape != (
+        if actor_all.shape != (
             binding.num_envs,
-            _CRITIC_WIDTH,
+            G1_ACTOR_OBSERVATION_WIDTH,
+        ) or critic_all.shape != (
+            binding.num_envs,
+            G1_CRITIC_OBSERVATION_WIDTH,
         ):
             raise G1ManagedFusedError("G1 fused runtime observation buffers have invalid widths")
         if (
@@ -1435,7 +1439,7 @@ class G1ManagedFusedKernel:
         self,
         *,
         task: _G1ManagedFusedTaskState,
-        views: _G1StateViews,
+        views: G1StateViews,
         rows: RowSelection,
         actor_all: np.ndarray,
     ) -> None:
@@ -1572,7 +1576,7 @@ class G1ManagedFusedKernel:
                     bound_buffer_window=task.reset_value_buffer_set.window(rows)
                 ),
             ),
-            kernel_state=_G1ResetSample(rows=rows),
+            kernel_state=G1ResetSample(rows=rows),
         )
 
     def complete_reset(
@@ -1583,7 +1587,7 @@ class G1ManagedFusedKernel:
         task_state: object,
     ) -> None:
         task = self._require_task_state(task_state)
-        if not isinstance(request.kernel_state, _G1ResetSample):
+        if not isinstance(request.kernel_state, G1ResetSample):
             raise G1ManagedFusedError("G1 fused reset request carries foreign task state")
         sample = request.kernel_state
         if sample.rows != request.rows or state.rows != request.rows:
@@ -1618,18 +1622,17 @@ def create_g1_managed_fused_runtime(
     _require_numba()
     if not isinstance(enable_stability_instrumentation, bool):
         raise G1ManagedFusedError("enable_stability_instrumentation must be a bool")
-    # ``_kernel_config`` validates every unsupported legacy feature before its
+    # The shared schema validates every unsupported legacy feature before its
     # first public backend metadata query.  It is a cold-path schema helper,
     # not a reference executor invocation.
-    try:
-        config = _kernel_config(
-            backend=backend,
-            cfg=cfg,
-            reset_seed=reset_seed,
-            observation_noise_seed=observation_noise_seed,
-        )
-    except G1ManagedReferenceError as exc:
-        raise G1ManagedFusedError(str(exc).replace("managed reference", "fused executor")) from exc
+    config = build_g1_kernel_config(
+        backend=backend,
+        cfg=cfg,
+        reset_seed=reset_seed,
+        observation_noise_seed=observation_noise_seed,
+        profile_name="fused executor",
+        error_type=G1ManagedFusedError,
+    )
     plan = compile_g1_managed_fused_task(backend=backend, cfg=cfg)
     kernel = G1ManagedFusedKernel(config, expected_plan_fingerprint=plan.fingerprint)
     backend.materialize()

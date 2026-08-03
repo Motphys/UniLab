@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from numbers import Real
 from typing import TypeAlias
 
 import numpy as np
@@ -520,6 +521,8 @@ class PolicySpec:
         object.__setattr__(self, "observation_groups", groups)
         if not isinstance(self.action_scale, tuple) or not self.action_scale:
             raise ManagerContractError("policy action_scale must be a non-empty tuple")
+        if any(isinstance(item, bool) or not isinstance(item, Real) for item in self.action_scale):
+            raise ManagerContractError("policy action_scale values must be real numbers")
         scales = tuple(float(item) for item in self.action_scale)
         if any(not np.isfinite(item) or item <= 0 for item in scales):
             raise ManagerContractError("policy action_scale values must be finite and positive")

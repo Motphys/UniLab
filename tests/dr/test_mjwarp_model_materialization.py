@@ -582,7 +582,7 @@ def test_unrecoverable_rollback_permanently_poisons_owner() -> None:
         original = backend._device_model.dof_armature
         with (
             patch(
-                "unilab.base.backend.mjwarp.backend.MjwarpModelMaterializationReceipt",
+                "unilab.base.backend.mjwarp.materialization.MjwarpModelMaterializationReceipt",
                 side_effect=RuntimeError("injected receipt failure"),
             ),
             patch.object(
