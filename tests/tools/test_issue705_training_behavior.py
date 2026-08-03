@@ -385,6 +385,26 @@ def test_plan_rejects_schema_budget_success_and_threshold_tamper(
         load_training_behavior_plan(path)
 
 
+def test_linked_plan_hardware_is_advisory_but_thread_environment_is_strict(
+    tmp_path: Path,
+) -> None:
+    raw = yaml.safe_load((REPO_ROOT / PLAN_PATH).read_text(encoding="utf-8"))
+    raw["hardware"]["gpu_uuid"] = "GPU-another-host"
+    advisory_path = tmp_path / "advisory.yaml"
+    advisory_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="hardware plan differs"):
+        load_training_behavior_plan(advisory_path, repo_root=REPO_ROOT)
+
+    raw = yaml.safe_load((REPO_ROOT / PLAN_PATH).read_text(encoding="utf-8"))
+    raw["hardware"]["environment_variables"]["OMP_NUM_THREADS"] = "2"
+    invalid_path = tmp_path / "invalid.yaml"
+    invalid_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(TrainingBehaviorContractError, match="thread environment"):
+        load_training_behavior_plan(invalid_path, repo_root=REPO_ROOT)
+
+
 def test_freeze_receipt_binds_plan_bytes_and_git_history() -> None:
     plan = load_training_behavior_plan(REPO_ROOT / PLAN_PATH, repo_root=REPO_ROOT)
 
@@ -449,6 +469,49 @@ def test_synthetic_artifact_satisfies_full_independent_validator(
     )
 
     assert report.ok, report.errors
+
+
+def test_artifact_hardware_difference_is_provenance_advisory(
+    synthetic_artifact_bundle: tuple[
+        Any, Any, Mapping[str, Any], Mapping[str, Any], dict[str, Any]
+    ],
+) -> None:
+    plan, receipt, threshold, baseline, valid_artifact = synthetic_artifact_bundle
+    artifact = copy.deepcopy(valid_artifact)
+    artifact["hardware"]["driver_version"] = "580.173.02"
+
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        report = validate_training_behavior_artifact(
+            artifact,
+            plan=plan,
+            receipt=receipt,
+            threshold=threshold,
+            baseline=baseline,
+            repo_root=None,
+        )
+
+    assert report.ok, report.errors
+
+
+def test_artifact_affinity_receipts_must_match_recorded_hardware(
+    synthetic_artifact_bundle: tuple[
+        Any, Any, Mapping[str, Any], Mapping[str, Any], dict[str, Any]
+    ],
+) -> None:
+    plan, receipt, threshold, baseline, valid_artifact = synthetic_artifact_bundle
+    artifact = copy.deepcopy(valid_artifact)
+    artifact["cases"][0]["process"]["affinity_cpus"] = [99]
+
+    report = validate_training_behavior_artifact(
+        artifact,
+        plan=plan,
+        receipt=receipt,
+        threshold=threshold,
+        baseline=baseline,
+        repo_root=None,
+    )
+
+    assert any("recorded hardware provenance" in error for error in report.errors)
 
 
 @pytest.mark.parametrize(

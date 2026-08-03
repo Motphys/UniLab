@@ -398,21 +398,36 @@ def test_artifact_validator_allows_zero_legacy_component_timings() -> None:
     )
 
 
-def test_artifact_validator_rejects_hardware_and_preflight_tampering() -> None:
+def test_artifact_validator_warns_for_hardware_and_rejects_preflight_tampering() -> None:
     artifact, binding, plan = _artifact()
     tampered = deepcopy(artifact)
     tampered["hardware"]["cpu_model"] = "not-the-frozen-host"
     tampered["execution"]["preflight_before"]["gpu_compute_processes"] = [
         {"pid": 1, "process_name": "foreign", "used_memory_mib": 1}
     ]
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        errors = managed_benchmark.validate_artifact(
+            tampered,
+            binding=binding,
+            plan=plan,
+            repo_root=None,
+        )
+    assert not any("hardware.cpu_model" in error for error in errors)
+    assert any("foreign GPU" in error for error in errors)
+
+
+def test_artifact_validator_rejects_affinity_receipts_that_disagree() -> None:
+    artifact, binding, plan = _artifact()
+    artifact["execution"]["affinity_cpus"] = [99]
+
     errors = managed_benchmark.validate_artifact(
-        tampered,
+        artifact,
         binding=binding,
         plan=plan,
         repo_root=None,
     )
-    assert any("hardware.cpu_model" in error for error in errors)
-    assert any("foreign GPU" in error for error in errors)
+
+    assert any("recorded hardware provenance" in error for error in errors)
 
 
 def test_artifact_validator_gates_cpu_load_before_not_after_cpu_workers() -> None:

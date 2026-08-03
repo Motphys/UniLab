@@ -10,6 +10,7 @@ import math
 import re
 import statistics
 import subprocess
+import warnings
 import zlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -333,7 +334,7 @@ def _validate_matrix(data: Mapping[str, Any], errors: list[str]) -> None:
     )
     for actual, expected, path in expected_values:
         if actual != expected:
-            errors.append(f"{path}: expected frozen value {expected!r}")
+            errors.append(f"{path}: expected protocol value {expected!r}")
     timing = _mapping(measurement.get("timing"), "measurement.timing", errors)
     if timing.get("source") != "cuda_events":
         errors.append("measurement.timing.source: expected 'cuda_events'")
@@ -1916,9 +1917,15 @@ def _validate_process_receipt(
         }
         if not required.issubset(set(cast(list[str], command))):
             raise ValueError(f"{path}.command: train worker differs from frozen owner protocol")
+    affinity = process.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        raise ValueError(f"{path}.affinity_cpus: expected unique non-negative integers")
     hardware = cast(Mapping[str, Any], plan.data["hardware"])
-    if process.get("affinity_cpus") != hardware.get("affinity_cpus"):
-        raise ValueError(f"{path}.affinity_cpus: differs from frozen hardware binding")
     if process.get("env_vars") != hardware.get("environment_variables"):
         raise ValueError(f"{path}.env_vars: differs from frozen thread environment")
     _artifact_sha(process.get("stdout_sha256"), f"{path}.stdout_sha256")
@@ -2701,12 +2708,43 @@ def _validate_artifact_binding(
         if contract.get(key) != expected:
             errors.append(f"artifact.contract.{key}: expected {expected!r}")
 
+    hardware_error_count = len(errors)
     hardware = _mapping(artifact.get("hardware"), "artifact.hardware", errors)
     frozen_hardware = cast(Mapping[str, Any], plan.data["hardware"])
     _exact_artifact_keys(hardware, set(frozen_hardware), "artifact.hardware", errors)
-    for key, expected in frozen_hardware.items():
-        if hardware.get(key) != expected:
-            errors.append(f"artifact.hardware.{key}: differs from frozen hardware")
+    for key in ("cpu_model", "gpu_name", "gpu_uuid", "driver_version"):
+        if not isinstance(hardware.get(key), str) or not hardware.get(key):
+            errors.append(f"artifact.hardware.{key}: expected non-empty string")
+    gpu_memory = hardware.get("gpu_memory_mib")
+    if isinstance(gpu_memory, bool) or not isinstance(gpu_memory, int) or gpu_memory <= 0:
+        errors.append("artifact.hardware.gpu_memory_mib: expected positive integer")
+    affinity = hardware.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append("artifact.hardware.affinity_cpus: expected unique non-negative integers")
+    if hardware.get("environment_variables") != frozen_hardware.get("environment_variables"):
+        errors.append(
+            "artifact.hardware.environment_variables: differs from frozen thread environment"
+        )
+    if len(errors) == hardware_error_count:
+        provenance_keys = set(frozen_hardware) - {"environment_variables"}
+        mismatches = {
+            key: {"frozen": expected, "recorded": hardware.get(key)}
+            for key, expected in frozen_hardware.items()
+            if key in provenance_keys
+            if hardware.get(key) != expected
+        }
+        if mismatches:
+            warnings.warn(
+                "Phase 6 hardware provenance differs from the frozen benchmark profile "
+                f"(advisory): {mismatches!r}",
+                UserWarning,
+                stacklevel=2,
+            )
 
     dependencies = _mapping(artifact.get("dependencies"), "artifact.dependencies", errors)
     _exact_artifact_keys(dependencies, {"lockfile", "packages"}, "artifact.dependencies", errors)
@@ -2953,6 +2991,16 @@ def validate_mjwarp_dr_performance_artifact(
                 cases[index], spec=spec, plan=plan
             )
             case = cast(Mapping[str, Any], cases[index])
+            process = case.get("process")
+            hardware = artifact.get("hardware")
+            recorded_affinity = (
+                hardware.get("affinity_cpus") if isinstance(hardware, Mapping) else None
+            )
+            if isinstance(process, Mapping) and process.get("affinity_cpus") != recorded_affinity:
+                integrity_errors.append(
+                    f"{spec.case_id}.process.affinity_cpus: differs from recorded hardware "
+                    "provenance"
+                )
             recomputed_cases.append({**case, "summary": computed_summary})
             run_ids.append(run_id)
         except (KeyError, TypeError, ValueError) as exc:

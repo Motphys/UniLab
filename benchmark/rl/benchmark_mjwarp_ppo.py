@@ -33,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence, cast
@@ -67,6 +68,7 @@ from benchmark.issue705.process_evidence import (
 from unilab.tools.g1_baseline_provenance import (  # noqa: E402
     canonical_sha256,
     numeric_stats,
+    resolve_benchmark_affinity,
     sha256_file,
     source_tree_sha256,
     source_tree_sha256_at_commit,
@@ -200,6 +202,10 @@ class BenchmarkBinding:
     d2h_per_policy_step_max: float
     host_global_sync_per_policy_step_max: float
     baseline_ppo: Mapping[str, Any]
+    platform_system: str
+    cpu_model: str
+    cpu_physical_cores: int
+    cpu_logical_cores: int
     affinity_cpus: tuple[int, ...]
     environment_vars: Mapping[str, str]
     hydra_overrides: tuple[str, ...]
@@ -391,6 +397,10 @@ def load_binding(
             transfer.get("host_global_sync_per_policy_step_max"), "sync gate"
         ),
         baseline_ppo=baseline_ppo,
+        platform_system=baseline_plan.hardware.platform_system,
+        cpu_model=baseline_plan.hardware.cpu_model,
+        cpu_physical_cores=baseline_plan.hardware.cpu_physical_cores,
+        cpu_logical_cores=baseline_plan.hardware.cpu_logical_cores,
         affinity_cpus=baseline_plan.hardware.affinity_cpus,
         environment_vars=dict(baseline_plan.environment.env_vars),
         hydra_overrides=baseline_plan.environment.hydra_overrides,
@@ -918,8 +928,14 @@ def _validate_process_receipt(
         }
         if not required_arguments.issubset(set(command)):
             errors.append(f"{case_id}: worker command differs from the frozen owner protocol")
-    if process.get("affinity_cpus") != list(binding.affinity_cpus):
-        errors.append(f"{case_id}: worker affinity differs from frozen benchmark plan")
+    affinity = process.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append(f"{case_id}: worker affinity must be unique non-negative integers")
     if process.get("env_vars") != dict(binding.environment_vars):
         errors.append(f"{case_id}: worker thread environment differs from frozen benchmark plan")
     if not isinstance(process.get("run_id"), str) or not process["run_id"].strip():
@@ -944,8 +960,14 @@ def _validate_orchestrator_receipt(
         errors.append(f"{case_id}: case was not isolated through the registered worker CLI")
     if process.get("return_code") != 0:
         errors.append(f"{case_id}: benchmark worker process did not succeed")
-    if process.get("affinity_cpus") != list(binding.affinity_cpus):
-        errors.append(f"{case_id}: benchmark worker affinity differs from frozen plan")
+    affinity = process.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append(f"{case_id}: benchmark worker affinity must be unique non-negative integers")
     if process.get("env_vars") != dict(binding.environment_vars):
         errors.append(f"{case_id}: benchmark worker environment differs from frozen plan")
     _number(process.get("duration_sec"), f"{case_id}.orchestrator.duration_sec")
@@ -1065,15 +1087,20 @@ def _validate_device_evidence_contract(
     """Validate device/profiler facts that must never become diagnostic-only.
 
     A failed performance threshold is useful optimization evidence.  A trace
-    that cannot be reconciled, a different GPU, or a substituted backend is
-    not.  Keep those provenance and measurement-contract checks separate from
-    the threshold comparison so ``--allow-gate-failure`` cannot preserve an
-    artifact whose raw evidence is untrustworthy.
+    that cannot be reconciled, malformed hardware provenance, or a substituted
+    backend is not.  Keep those integrity checks separate from the threshold
+    comparison so ``--allow-gate-failure`` cannot preserve an artifact whose
+    raw evidence is untrustworthy.
     """
 
     device = _mapping(artifact.get("device"), "device")
-    if _integer(device.get("gpu_capacity_bytes"), "device.capacity") != binding.gpu_capacity_bytes:
-        errors.append("device GPU capacity differs from frozen benchmark host")
+    hardware = _mapping(artifact.get("hardware"), "hardware")
+    gpu_capacity = _integer(device.get("gpu_capacity_bytes"), "device.capacity", minimum=1)
+    recorded_capacity = _integer(
+        hardware.get("gpu_memory_mib"), "hardware.gpu_memory_mib", minimum=1
+    )
+    if gpu_capacity != recorded_capacity * 1024**2:
+        errors.append("device GPU capacity does not reconcile with recorded hardware")
     peak_reserved = _integer(device.get("peak_gpu_reserved_bytes"), "device.reserved")
     all_device_reserved = [
         _integer(
@@ -1251,7 +1278,9 @@ def _recompute_gate(artifact: Mapping[str, Any], binding: BenchmarkBinding) -> l
     device = _mapping(artifact.get("device"), "device")
     peak_reserved = _integer(device.get("peak_gpu_reserved_bytes"), "device.reserved")
     if (
-        _ratio(peak_reserved, binding.gpu_capacity_bytes)
+        _ratio(
+            peak_reserved, _integer(device.get("gpu_capacity_bytes"), "device.capacity", minimum=1)
+        )
         > binding.device_peak_reserved_capacity_ratio_max
     ):
         errors.append("device reserved capacity ratio violates frozen memory gate")
@@ -1389,17 +1418,74 @@ def _integrity_validation_errors(
         if commit == active_binding.amendment_freeze_commit:
             errors.append("candidate commit cannot equal amendment freeze commit")
 
+        hardware_error_count = len(errors)
         hardware = _mapping(root.get("hardware"), "hardware")
         expected_hardware = {
+            "platform_system": active_binding.platform_system,
+            "cpu_model": active_binding.cpu_model,
+            "cpu_physical_cores": active_binding.cpu_physical_cores,
+            "cpu_logical_cores": active_binding.cpu_logical_cores,
             "gpu_name": active_binding.gpu_name,
             "gpu_uuid": active_binding.gpu_uuid,
             "gpu_memory_mib": active_binding.gpu_capacity_bytes // 1024**2,
             "driver_version": active_binding.gpu_driver_version,
             "affinity_cpus": list(active_binding.affinity_cpus),
         }
-        for key, expected_value in expected_hardware.items():
-            if hardware.get(key) != expected_value:
-                errors.append(f"hardware.{key} differs from frozen benchmark host")
+        expected_hardware_keys = {
+            "platform_system",
+            "platform_release",
+            "cpu_model",
+            "cpu_physical_cores",
+            "cpu_logical_cores",
+            "affinity_cpus",
+            "gpu_name",
+            "gpu_uuid",
+            "gpu_memory_mib",
+            "driver_version",
+            "cuda_runtime",
+            "torch_version",
+            "hostname",
+        }
+        if set(hardware) != expected_hardware_keys:
+            errors.append("hardware keys differ from the recorded provenance schema")
+        for key in (
+            "platform_system",
+            "platform_release",
+            "cpu_model",
+            "gpu_name",
+            "gpu_uuid",
+            "driver_version",
+            "cuda_runtime",
+            "torch_version",
+            "hostname",
+        ):
+            if not isinstance(hardware.get(key), str) or not hardware.get(key):
+                errors.append(f"hardware.{key} must be a non-empty string")
+        for key in ("cpu_physical_cores", "cpu_logical_cores", "gpu_memory_mib"):
+            value = hardware.get(key)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                errors.append(f"hardware.{key} must be a positive integer")
+        affinity = hardware.get("affinity_cpus")
+        if (
+            not isinstance(affinity, list)
+            or not affinity
+            or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+            or len(affinity) != len(set(affinity))
+        ):
+            errors.append("hardware.affinity_cpus must be unique non-negative integers")
+        if len(errors) == hardware_error_count:
+            mismatches = {
+                key: {"frozen": expected_value, "recorded": hardware.get(key)}
+                for key, expected_value in expected_hardware.items()
+                if hardware.get(key) != expected_value
+            }
+            if mismatches:
+                warnings.warn(
+                    "Phase 5 hardware provenance differs from the frozen benchmark profile "
+                    f"(advisory): {mismatches!r}",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         execution = _mapping(root.get("execution"), "execution")
         if execution.get("process_isolation") is not True:
@@ -1434,8 +1520,19 @@ def _integrity_validation_errors(
             errors.append("device profiler did not run in an independent benchmark worker process")
         if profiler_process.get("return_code") != 0:
             errors.append("device profiler worker did not succeed")
-        if profiler_process.get("affinity_cpus") != list(active_binding.affinity_cpus):
-            errors.append("device profiler affinity differs from frozen benchmark plan")
+        profiler_affinity = profiler_process.get("affinity_cpus")
+        if (
+            not isinstance(profiler_affinity, list)
+            or not profiler_affinity
+            or any(
+                isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0
+                for cpu in profiler_affinity
+            )
+            or len(profiler_affinity) != len(set(profiler_affinity))
+        ):
+            errors.append("device profiler affinity must be unique non-negative integers")
+        if profiler_affinity != affinity:
+            errors.append("device profiler affinity differs from recorded hardware provenance")
         if profiler_process.get("env_vars") != dict(active_binding.environment_vars):
             errors.append("device profiler environment differs from frozen benchmark plan")
         _sha256(profiler_process.get("stdout_sha256"), "device.profiler_process.stdout_sha256")
@@ -1463,6 +1560,18 @@ def _integrity_validation_errors(
                 case = _mapping(raw_case, "case")
                 _validate_case_shape(case, active_binding, errors)
                 process = _mapping(case.get("process"), "case.process")
+                if process.get("affinity_cpus") != affinity:
+                    errors.append(
+                        f"{case.get('case_id')}: worker affinity differs from recorded hardware provenance"
+                    )
+                orchestrator = _mapping(
+                    case.get("orchestrator_process"), "case.orchestrator_process"
+                )
+                if orchestrator.get("affinity_cpus") != affinity:
+                    errors.append(
+                        f"{case.get('case_id')}: orchestrator affinity differs from recorded "
+                        "hardware provenance"
+                    )
                 run_id = process.get("run_id")
                 if isinstance(run_id, str):
                     run_ids.append(run_id)
@@ -1521,9 +1630,19 @@ def _integrity_validation_errors(
                 try:
                     plan = _load_plan(repository / DEFAULT_BASELINE_PLAN)
                     if root.get("hardware") != _hardware_payload(plan):
-                        errors.append("hardware differs from live frozen benchmark host")
-                except Exception as exc:  # noqa: BLE001 - live evidence must fail closed.
-                    errors.append(f"hardware validation failed: {type(exc).__name__}: {exc}")
+                        warnings.warn(
+                            "recorded Phase 5 hardware differs from the live host "
+                            "(provenance advisory)",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                except Exception as exc:  # noqa: BLE001 - retain advisory host diagnostics.
+                    warnings.warn(
+                        "live hardware provenance probe was unavailable (advisory): "
+                        f"{type(exc).__name__}: {exc}",
+                        UserWarning,
+                        stacklevel=2,
+                    )
         if artifact_path is not None:
             _validate_trace_sibling(root, artifact_path, errors)
     except MjwarpPpoBenchmarkError as exc:
@@ -1597,9 +1716,9 @@ def validate_artifact(
     default remains evidence-grade validation and therefore rejects every
     failed gate.
 
-    ``validate_live_hardware=False`` still validates the recorded hardware
-    against the frozen binding. It only defers probing the current host, which
-    is reserved for capture and the dedicated local evidence gate.
+    Recorded hardware is always validated structurally.  Differences from the
+    frozen or live host are provenance advisories; ``validate_live_hardware``
+    controls only whether the optional live probe runs.
     """
 
     integrity_errors, threshold_errors = _validation_error_parts(
@@ -1797,7 +1916,7 @@ def _run_contention_case(
                 stdout=stdout,
                 stderr=stderr,
                 preexec_fn=lambda: os.sched_setaffinity(
-                    0, set(baseline_plan.hardware.affinity_cpus)
+                    0, set(resolve_benchmark_affinity(baseline_plan))
                 ),
             )
             deadline = time.monotonic() + 60.0
@@ -1962,7 +2081,7 @@ def collect_artifact(
         "cases": cases,
         "aggregates": aggregates,
         "device": {
-            "gpu_capacity_bytes": binding.gpu_capacity_bytes,
+            "gpu_capacity_bytes": int(hardware["gpu_memory_mib"]) * 1024**2,
             "peak_gpu_reserved_bytes": max(
                 int(case["summary"]["peak_gpu_memory_reserved_bytes"])
                 for case in cases

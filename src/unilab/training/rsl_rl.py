@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -188,8 +188,8 @@ class RslRlVecEnvWrapper:
         env = self.env
         snapshot = getattr(env, "managed_policy_abi_snapshot", None)
         if snapshot is not None:
-            return snapshot
-        return getattr(env, "policy_abi_snapshot", None)
+            return cast(dict[str, Any], snapshot)
+        return cast(dict[str, Any] | None, getattr(env, "policy_abi_snapshot", None))
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":

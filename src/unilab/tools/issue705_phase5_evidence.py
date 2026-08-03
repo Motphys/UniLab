@@ -245,7 +245,7 @@ def validate_ppo_benchmark_payload(
     artifact_path: Path | None = None,
     validate_live_hardware: bool = False,
 ) -> tuple[str, ...]:
-    """Recompute the PPO contract, optionally including the frozen live host."""
+    """Recompute the PPO contract, optionally probing live hardware provenance."""
 
     root = root.resolve()
     try:

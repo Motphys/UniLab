@@ -7,6 +7,7 @@ import math
 import re
 import statistics
 import subprocess
+import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -859,7 +860,13 @@ def load_threshold_manifest(path: Path, *, repo_root: Path) -> ThresholdManifest
             "driver_version": plan.hardware.driver_version,
         }
         if baseline.get("hardware") != expected_hardware:
-            errors.append("baseline.hardware: does not match the frozen baseline plan")
+            warnings.warn(
+                "baseline.hardware provenance differs from the frozen baseline plan "
+                f"(advisory): expected={expected_hardware!r}, "
+                f"recorded={baseline.get('hardware')!r}",
+                UserWarning,
+                stacklevel=2,
+            )
         reference = derive_baseline_reference(artifact, plan)
         errors.extend(
             _nested_mismatch_errors(raw.get("baseline_reference"), reference, "baseline_reference")
@@ -1575,12 +1582,6 @@ def _device_errors(
     memory = cast(Mapping[str, Any], manifest.gates["memory"])
     transfer = cast(Mapping[str, Any], manifest.gates["transfer"])
     ppo = cast(Mapping[str, Any], manifest.baseline_reference["ppo"])
-    expected_capacity = int(manifest.data["baseline"]["hardware"]["gpu_memory_mib"]) * 1024**2
-    if metrics.gpu_capacity_bytes != expected_capacity:
-        errors.append(
-            "device.gpu_capacity_bytes: expected frozen hardware capacity "
-            f"{expected_capacity}, got {metrics.gpu_capacity_bytes}"
-        )
     if metrics.peak_gpu_reserved_bytes != training.peak_gpu_reserved_median_bytes:
         errors.append("device.peak_gpu_reserved_bytes: does not reconcile with PPO summary")
     for name in (

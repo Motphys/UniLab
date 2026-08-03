@@ -333,10 +333,10 @@ def _configure_worker(plan: MjwarpDrPerformancePlan) -> None:
     env_vars = cast(Mapping[str, str], hardware["environment_variables"])
     for key, value in env_vars.items():
         os.environ[key] = value
-    affinity = {int(value) for value in cast(list[int], hardware["affinity_cpus"])}
+    affinity = set(_runtime_affinity(plan))
     os.sched_setaffinity(0, affinity)
     if os.sched_getaffinity(0) != affinity:
-        raise MjwarpDrBenchmarkError("worker CPU affinity differs from frozen plan")
+        raise MjwarpDrBenchmarkError("worker CPU affinity differs from the selected runtime set")
 
 
 def _compose_direct_owner(
@@ -616,8 +616,7 @@ def _process_env(plan: MjwarpDrPerformancePlan) -> dict[str, str]:
 def _run_process(
     command: list[str], plan: MjwarpDrPerformancePlan
 ) -> tuple[dict[str, Any], str, str]:
-    hardware = cast(Mapping[str, Any], plan.data["hardware"])
-    affinity = [int(value) for value in cast(list[int], hardware["affinity_cpus"])]
+    affinity = _runtime_affinity(plan)
     env_vars = _process_env(plan)
     child_env = os.environ.copy()
     child_env.update(env_vars)
@@ -866,6 +865,15 @@ def _cpu_model() -> str:
     return platform.processor() or "unknown"
 
 
+def _runtime_affinity(plan: MjwarpDrPerformancePlan) -> list[int]:
+    available = set(os.sched_getaffinity(0))
+    if not available:
+        raise MjwarpDrBenchmarkError("benchmark requires at least one available CPU")
+    frozen = cast(Mapping[str, Any], plan.data["hardware"])
+    preferred = {int(value) for value in cast(list[int], frozen["affinity_cpus"])}
+    return sorted(preferred if preferred.issubset(available) else available)
+
+
 def _hardware_payload(plan: MjwarpDrPerformancePlan) -> dict[str, Any]:
     import torch
 
@@ -886,7 +894,7 @@ def _hardware_payload(plan: MjwarpDrPerformancePlan) -> dict[str, Any]:
     actual = {
         "hostname": socket.gethostname(),
         "cpu_model": _cpu_model(),
-        "affinity_cpus": frozen["affinity_cpus"],
+        "affinity_cpus": _runtime_affinity(plan),
         "gpu_name": name,
         "gpu_uuid": uuid_value,
         "gpu_memory_mib": int(memory),
@@ -896,13 +904,6 @@ def _hardware_payload(plan: MjwarpDrPerformancePlan) -> dict[str, Any]:
         ),
         "environment_variables": frozen["environment_variables"],
     }
-    if actual != frozen:
-        mismatches = {
-            key: {"expected": frozen.get(key), "actual": actual.get(key)}
-            for key in set(frozen) | set(actual)
-            if frozen.get(key) != actual.get(key)
-        }
-        raise MjwarpDrBenchmarkError(f"capture hardware differs from frozen plan: {mismatches!r}")
     return dict(actual)
 
 

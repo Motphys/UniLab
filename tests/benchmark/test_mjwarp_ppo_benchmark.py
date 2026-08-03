@@ -166,11 +166,19 @@ def _artifact() -> tuple[dict[str, Any], ppo_benchmark.BenchmarkBinding]:
         },
         "threshold": ppo_benchmark._threshold_payload(binding),
         "hardware": {
+            "platform_system": binding.platform_system,
+            "platform_release": "test-kernel",
+            "cpu_model": binding.cpu_model,
+            "cpu_physical_cores": binding.cpu_physical_cores,
+            "cpu_logical_cores": binding.cpu_logical_cores,
             "gpu_name": binding.gpu_name,
             "gpu_uuid": binding.gpu_uuid,
             "gpu_memory_mib": binding.gpu_capacity_bytes // 1024**2,
             "driver_version": binding.gpu_driver_version,
             "affinity_cpus": list(binding.affinity_cpus),
+            "cuda_runtime": "12.8",
+            "torch_version": "2.9.0",
+            "hostname": "test-host",
         },
         "execution": {
             "process_isolation": True,
@@ -304,6 +312,40 @@ def test_complete_artifact_passes_independent_gate_recomputation() -> None:
     assert ppo_benchmark.validate_artifact(artifact, binding=binding) == ()
 
 
+def test_artifact_uses_recorded_gpu_capacity_without_hardware_equality() -> None:
+    artifact, binding = _artifact()
+    artifact["hardware"].update(
+        {
+            "cpu_model": "another-cpu",
+            "cpu_physical_cores": 32,
+            "cpu_logical_cores": 64,
+            "gpu_name": "another-gpu",
+            "gpu_uuid": "GPU-another-host",
+            "gpu_memory_mib": 80 * 1024,
+            "driver_version": "580.173.02",
+        }
+    )
+    artifact["device"]["gpu_capacity_bytes"] = 80 * 1024**3
+
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        _refresh(artifact, binding)
+        errors = ppo_benchmark.validate_artifact(artifact, binding=binding)
+
+    assert artifact["gate"] == {"passed": True, "errors": []}
+    assert errors == ()
+
+
+def test_artifact_affinity_receipts_must_match_recorded_hardware() -> None:
+    artifact, binding = _artifact()
+    artifact["cases"][0]["process"]["affinity_cpus"] = [99]
+
+    errors = ppo_benchmark.validate_artifact(artifact, binding=binding)
+
+    assert any(
+        "worker affinity differs from recorded hardware provenance" in error for error in errors
+    )
+
+
 @pytest.mark.local_evidence
 def test_device_profile_meets_end_to_end_gate() -> None:
     """The committed 40-worker artifact must independently re-pass every gate."""
@@ -399,9 +441,11 @@ def test_diagnostic_validation_accepts_only_recomputed_threshold_failures() -> N
     )
 
     artifact["hardware"]["gpu_uuid"] = "wrong-gpu"
-    _refresh(artifact, binding)
-    errors = ppo_benchmark.validate_artifact(artifact, binding=binding, require_passing_gate=False)
-    assert any("hardware.gpu_uuid" in error for error in errors)
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        errors = ppo_benchmark.validate_artifact(
+            artifact, binding=binding, require_passing_gate=False
+        )
+    assert errors == ()
 
 
 def test_allow_gate_failure_is_execute_only_and_writes_diagnostic_artifact(
@@ -518,9 +562,9 @@ def test_provenance_owner_policy_and_aggregate_tampering_fail_closed() -> None:
         "execution_profile"
     ] = "host_numpy"
     artifact["aggregates"]["behavior"]["fps_p50_median"] = 999_999.0
-    errors = ppo_benchmark.validate_artifact(artifact, binding=binding)
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        errors = ppo_benchmark.validate_artifact(artifact, binding=binding)
     assert any("threshold differs" in error for error in errors)
-    assert any("hardware.gpu_uuid" in error for error in errors)
     assert any("source must be clean" in error for error in errors)
     assert any("execution profile" in error for error in errors)
     assert any("aggregates are not" in error for error in errors)

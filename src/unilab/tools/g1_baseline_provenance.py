@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import uuid
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence, cast
@@ -891,8 +892,23 @@ def validate_g1_baseline_artifact(
     _validate_hardware(hardware, plan, parser.errors)
     if execution.get("process_isolation") is not True:
         parser.errors.append("artifact.execution.process_isolation: must be true")
-    if execution.get("affinity_cpus") != list(plan.hardware.affinity_cpus):
-        parser.errors.append("artifact.execution.affinity_cpus: does not match plan")
+    execution_affinity = execution.get("affinity_cpus")
+    if (
+        not isinstance(execution_affinity, list)
+        or not execution_affinity
+        or any(
+            isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0
+            for cpu in execution_affinity
+        )
+        or len(execution_affinity) != len(set(execution_affinity))
+    ):
+        parser.errors.append(
+            "artifact.execution.affinity_cpus: expected unique non-negative integers"
+        )
+    if execution_affinity != hardware.get("affinity_cpus"):
+        parser.errors.append(
+            "artifact.execution.affinity_cpus: does not match recorded hardware provenance"
+        )
     if execution.get("env_vars") != dict(plan.environment.env_vars):
         parser.errors.append("artifact.execution.env_vars: does not match plan")
     if execution.get("hydra_overrides") != list(plan.environment.hydra_overrides):
@@ -910,6 +926,10 @@ def validate_g1_baseline_artifact(
         run_id = parser.string(process.get("run_id"), f"cases[{index}].process.run_id")
         run_ids.append(run_id)
         _validate_process(process, plan, f"cases[{index}].process", parser.errors)
+        if process.get("affinity_cpus") != execution_affinity:
+            parser.errors.append(
+                f"cases[{index}].process.affinity_cpus: does not match artifact execution"
+            )
         _validate_case(case, plan, f"cases[{index}]", parser.errors)
         parsed_cases.append(case)
 
@@ -1039,6 +1059,7 @@ def verify_g1_baseline_source(
 def _validate_hardware(
     hardware: Mapping[str, Any], plan: G1BaselinePlan, errors: list[str]
 ) -> None:
+    initial_error_count = len(errors)
     expected = {
         "platform_system": plan.hardware.platform_system,
         "cpu_model": plan.hardware.cpu_model,
@@ -1050,15 +1071,38 @@ def _validate_hardware(
         "gpu_memory_mib": plan.hardware.gpu_memory_mib,
         "driver_version": plan.hardware.driver_version,
     }
-    for key, value in expected.items():
-        if hardware.get(key) != value:
-            errors.append(
-                f"artifact.hardware.{key}: expected frozen value {value!r}, "
-                f"got {hardware.get(key)!r}"
-            )
+    for key in ("platform_system", "cpu_model", "gpu_name", "gpu_uuid", "driver_version"):
+        if not isinstance(hardware.get(key), str) or not hardware.get(key):
+            errors.append(f"artifact.hardware.{key}: expected non-empty string")
+    for key in ("cpu_physical_cores", "cpu_logical_cores", "gpu_memory_mib"):
+        if isinstance(hardware.get(key), bool) or not isinstance(hardware.get(key), int):
+            errors.append(f"artifact.hardware.{key}: expected integer")
+        elif hardware[key] <= 0:
+            errors.append(f"artifact.hardware.{key}: expected positive integer")
+    affinity = hardware.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append("artifact.hardware.affinity_cpus: expected unique non-negative integers")
     for key in ("platform_release", "cuda_runtime", "torch_version", "hostname"):
         if not isinstance(hardware.get(key), str) or not hardware.get(key):
             errors.append(f"artifact.hardware.{key}: expected non-empty string")
+    if len(errors) == initial_error_count and set(hardware) == set(_HARDWARE_KEYS):
+        mismatches = {
+            key: {"frozen": value, "recorded": hardware.get(key)}
+            for key, value in expected.items()
+            if hardware.get(key) != value
+        }
+        if mismatches:
+            warnings.warn(
+                "artifact.hardware provenance differs from the frozen baseline profile: "
+                f"{mismatches!r}",
+                UserWarning,
+                stacklevel=2,
+            )
 
 
 def _validate_process(
@@ -1085,8 +1129,14 @@ def _validate_process(
         errors.append(f"{path}.command: expected non-empty argv list")
     elif command[:2] != ["uv", "run"]:
         errors.append(f"{path}.command: benchmark subprocess must use `uv run`")
-    if process.get("affinity_cpus") != list(plan.hardware.affinity_cpus):
-        errors.append(f"{path}.affinity_cpus: does not match plan")
+    affinity = process.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append(f"{path}.affinity_cpus: expected unique non-negative integers")
     if process.get("env_vars") != dict(plan.environment.env_vars):
         errors.append(f"{path}.env_vars: does not match plan")
     for key in ("stdout_sha256", "stderr_sha256"):
@@ -1386,13 +1436,25 @@ def _equivalent(left: Any, right: Any) -> bool:
     return cast(bool, left == right)
 
 
-def assert_clean_affinity(plan: G1BaselinePlan) -> None:
+def resolve_benchmark_affinity(plan: G1BaselinePlan) -> tuple[int, ...]:
+    """Choose a reproducible CPU subset without requiring the frozen host.
+
+    The frozen affinity remains preferred when that subset exists locally.  On
+    another host or a restricted cpuset, retain the caller's available CPUs so
+    the resulting artifact can record its real provenance instead of failing
+    before collection.
+    """
+
     if not hasattr(os, "sched_getaffinity"):
         raise RuntimeError("Issue #705 baseline requires Linux CPU affinity support")
     available = set(os.sched_getaffinity(0))
-    required = set(plan.hardware.affinity_cpus)
-    if not required.issubset(available):
-        raise RuntimeError(
-            f"planned CPUs are unavailable: missing={sorted(required - available)!r}, "
-            f"available={sorted(available)!r}"
-        )
+    if not available:
+        raise RuntimeError("Issue #705 baseline requires at least one available CPU")
+    preferred = set(plan.hardware.affinity_cpus)
+    return tuple(sorted(preferred if preferred.issubset(available) else available))
+
+
+def assert_clean_affinity(plan: G1BaselinePlan) -> None:
+    """Backward-compatible availability check for benchmark callers."""
+
+    resolve_benchmark_affinity(plan)

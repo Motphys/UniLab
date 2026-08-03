@@ -729,6 +729,62 @@ def test_complete_synthetic_artifact_accepts_high_but_stable_rss(
     )
 
 
+def test_artifact_hardware_difference_is_provenance_advisory(
+    passing_artifact: dict[str, Any],
+    plan: contract.MjwarpDrPerformancePlan,
+    receipt: contract.MjwarpDrPerformanceFreezeReceipt,
+) -> None:
+    artifact = deepcopy(passing_artifact)
+    artifact["hardware"]["gpu_uuid"] = "GPU-another-host"
+    artifact["hardware"]["driver_version"] = "580.173.02"
+
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        errors = contract.validate_mjwarp_dr_performance_artifact(
+            artifact,
+            plan=plan,
+            receipt=receipt,
+            repo_root=None,
+        )
+
+    assert errors == ()
+
+
+def test_artifact_affinity_receipts_must_match_recorded_hardware(
+    passing_artifact: dict[str, Any],
+    plan: contract.MjwarpDrPerformancePlan,
+    receipt: contract.MjwarpDrPerformanceFreezeReceipt,
+) -> None:
+    artifact = deepcopy(passing_artifact)
+    artifact["cases"][0]["process"]["affinity_cpus"] = [99]
+
+    errors = contract.validate_mjwarp_dr_performance_artifact(
+        artifact,
+        plan=plan,
+        receipt=receipt,
+        repo_root=None,
+    )
+
+    assert any("recorded hardware provenance" in error for error in errors)
+
+
+def test_artifact_hardware_thread_environment_remains_strict(
+    passing_artifact: dict[str, Any],
+    plan: contract.MjwarpDrPerformancePlan,
+    receipt: contract.MjwarpDrPerformanceFreezeReceipt,
+) -> None:
+    artifact = deepcopy(passing_artifact)
+    artifact["hardware"]["environment_variables"]["OMP_NUM_THREADS"] = "2"
+
+    errors = contract.validate_mjwarp_dr_performance_artifact(
+        artifact,
+        plan=plan,
+        receipt=receipt,
+        repo_root=None,
+    )
+
+    assert any("frozen thread environment" in error for error in errors)
+
+
 def test_materialization_accepts_backend_canonical_model_target_order(
     plan: contract.MjwarpDrPerformancePlan,
 ) -> None:

@@ -226,6 +226,18 @@ def test_manifest_rejects_missing_loosened_or_tampered_data(
         load_threshold_manifest(path, repo_root=REPO_ROOT)
 
 
+def test_manifest_hardware_difference_is_provenance_advisory(tmp_path: Path) -> None:
+    path = _write_mutated_manifest(
+        tmp_path,
+        lambda raw: raw["baseline"]["hardware"].update({"driver_version": "580.173.02"}),
+    )
+
+    with pytest.warns(UserWarning, match="baseline.hardware provenance"):
+        manifest = load_threshold_manifest(path, repo_root=REPO_ROOT)
+
+    assert manifest.data["baseline"]["hardware"]["driver_version"] == "580.173.02"
+
+
 def test_baseline_candidate_passes_host_and_device_profiles(
     manifest: ThresholdManifest, receipt: FreezeReceipt
 ) -> None:
@@ -602,6 +614,16 @@ def test_device_gate_fails_memory_transfer_sync_and_profiler_dimensions(
     assert candidate.device is not None
     errors = _errors(replace(candidate, device=change(candidate.device)), manifest, receipt)
     assert any(message in error for error in errors)
+
+
+def test_device_gate_uses_recorded_capacity_without_frozen_hardware_equality(
+    manifest: ThresholdManifest, receipt: FreezeReceipt
+) -> None:
+    candidate = _candidate(manifest, profile="device_resident")
+    assert candidate.device is not None
+    device = replace(candidate.device, gpu_capacity_bytes=80 * 1024**3)
+
+    assert _errors(replace(candidate, device=device), manifest, receipt) == []
 
 
 def test_profile_payloads_fail_closed(manifest: ThresholdManifest, receipt: FreezeReceipt) -> None:

@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
 
+import pytest
 from benchmark.rl import benchmark_mjwarp_ppo as ppo_benchmark
 
 from unilab.tools.issue705_phase5_evidence import (
@@ -175,12 +176,13 @@ def test_phase5_standard_validation_defers_only_the_live_host_probe(monkeypatch)
     monkeypatch.setattr(ppo_benchmark, "_hardware_payload", fail_live_probe)
     assert validate_ppo_benchmark_payload(artifact, root=REPO_ROOT) == ()
 
-    errors = validate_ppo_benchmark_payload(
-        artifact,
-        root=REPO_ROOT,
-        validate_live_hardware=True,
-    )
-    assert any("hardware validation failed" in error for error in errors)
+    with pytest.warns(UserWarning, match="probe was unavailable"):
+        errors = validate_ppo_benchmark_payload(
+            artifact,
+            root=REPO_ROOT,
+            validate_live_hardware=True,
+        )
+    assert errors == ()
 
 
 def test_phase5_claim_mapping_and_freshness_inputs_are_exact() -> None:

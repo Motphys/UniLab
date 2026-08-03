@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 import pytest
-from benchmark.issue705 import benchmark_g1_phase0
+from benchmark.issue705 import benchmark_g1_phase0, process_evidence
 from benchmark.issue705.benchmark_g1_phase0 import (
     DEFAULT_PLAN,
     _build_env_config,
@@ -43,6 +43,39 @@ def test_baseline_generation_rejects_a_dirty_source_tree(
 
     with pytest.raises(RuntimeError, match="clean git worktree"):
         _source_payload(plan)
+
+
+@pytest.mark.parametrize(
+    ("module", "preflight"),
+    [
+        (benchmark_g1_phase0, benchmark_g1_phase0._preflight_payload),
+        (process_evidence, process_evidence.preflight_payload),
+    ],
+)
+def test_preflight_normalizes_load_by_actual_host_core_count(
+    monkeypatch: pytest.MonkeyPatch,
+    module,
+    preflight,
+) -> None:
+    plan = _load_plan(DEFAULT_PLAN)
+    monkeypatch.setattr(module.os, "getloadavg", lambda: (4.0, 0.0, 0.0))
+    monkeypatch.setattr(module.psutil, "cpu_count", lambda *, logical: 8 if not logical else 16)
+    monkeypatch.setattr(module, "_gpu_compute_processes", lambda: [])
+    monkeypatch.setattr(
+        module,
+        "_gpu_idle_sample",
+        lambda: {
+            "utilization_percent": 0,
+            "memory_used_mib": 0,
+            "temperature_c": 30,
+            "pstate": "P8",
+        },
+    )
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+
+    payload = preflight(plan, enforce_cpu_load=False)
+
+    assert payload["load_per_physical_core"] == 0.5
 
 
 def test_env_config_uses_owner_then_applies_frozen_benchmark_profile() -> None:

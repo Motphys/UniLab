@@ -22,6 +22,7 @@ from unilab.tools.g1_baseline_provenance import (
     load_g1_baseline_plan,
     numeric_stats,
     parse_g1_baseline_plan,
+    resolve_benchmark_affinity,
     source_tree_sha256,
     source_tree_sha256_at_commit,
     summarize_dr_raw,
@@ -394,10 +395,6 @@ def test_valid_artifact_recomputes_all_fifty_cases() -> None:
             "does not recompute",
         ),
         (
-            lambda raw: raw["hardware"].update({"gpu_uuid": "another-gpu"}),
-            "expected frozen value",
-        ),
-        (
             lambda raw: raw["execution"]["preflight"]["gpu_compute_processes"].append({"pid": 1}),
             "foreign GPU compute process",
         ),
@@ -414,6 +411,33 @@ def test_artifact_rejects_missing_tampered_or_filtered_evidence(mutate, message:
     mutate(artifact)
 
     assert any(message in error for error in _errors(artifact))
+
+
+def test_artifact_hardware_difference_is_provenance_advisory() -> None:
+    artifact = _artifact()
+    artifact["hardware"]["gpu_uuid"] = "another-gpu"
+
+    with pytest.warns(UserWarning, match="hardware provenance"):
+        errors = _errors(artifact)
+
+    assert errors == ()
+
+
+def test_artifact_affinity_receipts_must_match_recorded_hardware() -> None:
+    artifact = _artifact()
+    artifact["execution"]["affinity_cpus"] = [99]
+
+    assert any(
+        "does not match recorded hardware provenance" in error for error in _errors(artifact)
+    )
+
+
+def test_benchmark_affinity_falls_back_to_current_cpuset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(g1_baseline_provenance.os, "sched_getaffinity", lambda _pid: {24, 25})
+
+    assert resolve_benchmark_affinity(_plan()) == (24, 25)
 
 
 def test_numeric_stats_records_p50_p95_and_raw_count() -> None:

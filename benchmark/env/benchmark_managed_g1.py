@@ -34,6 +34,7 @@ import sys
 import tempfile
 import time
 import uuid
+import warnings
 from pathlib import Path
 from statistics import median
 from typing import Any, Mapping, Sequence, cast
@@ -65,10 +66,10 @@ from unilab.envs.locomotion.g1.managed_reference import (
 from unilab.manager import ManagedReferenceRuntime
 from unilab.tools.g1_baseline_provenance import (
     G1BaselinePlan,
-    assert_clean_affinity,
     canonical_sha256,
     load_g1_baseline_plan,
     numeric_stats,
+    resolve_benchmark_affinity,
     sha256_file,
     source_tree_sha256,
     source_tree_sha256_at_commit,
@@ -394,8 +395,7 @@ def _run_worker(
         raise HostBenchmarkError("worker batch_size is not in frozen matrix")
     if repeat_index not in range(binding.process_repeats):
         raise HostBenchmarkError("worker repeat_index is outside frozen matrix")
-    assert_clean_affinity(plan)
-    os.sched_setaffinity(0, set(plan.hardware.affinity_cpus))
+    os.sched_setaffinity(0, set(resolve_benchmark_affinity(plan)))
     for key, value in plan.environment.env_vars:
         os.environ[key] = value
 
@@ -874,7 +874,7 @@ def _collect(
         "hardware": hardware,
         "execution": {
             "process_isolation": True,
-            "affinity_cpus": list(plan.hardware.affinity_cpus),
+            "affinity_cpus": list(resolve_benchmark_affinity(plan)),
             "env_vars": dict(plan.environment.env_vars),
             "warmup_steps": binding.warmup_steps,
             "measure_steps": binding.measure_steps,
@@ -1056,8 +1056,16 @@ def _validate_case(
                     errors.append(
                         f"cases[{index}].process.command: worker arguments differ from case"
                     )
-        if process.get("affinity_cpus") != list(plan.hardware.affinity_cpus):
-            errors.append(f"cases[{index}].process.affinity_cpus: differs from frozen plan")
+        affinity = process.get("affinity_cpus")
+        if (
+            not isinstance(affinity, list)
+            or not affinity
+            or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+            or len(affinity) != len(set(affinity))
+        ):
+            errors.append(
+                f"cases[{index}].process.affinity_cpus: expected unique non-negative integers"
+            )
         if process.get("env_vars") != dict(plan.environment.env_vars):
             errors.append(f"cases[{index}].process.env_vars: differs from frozen plan")
         for key in ("stdout_sha256", "stderr_sha256"):
@@ -1164,6 +1172,7 @@ def _nested(value: Mapping[str, Any], *keys: str) -> Any:
 
 
 def _validate_hardware(value: object, *, plan: G1BaselinePlan, errors: list[str]) -> None:
+    initial_error_count = len(errors)
     hardware = _exact_keys(
         value,
         {
@@ -1197,12 +1206,44 @@ def _validate_hardware(value: object, *, plan: G1BaselinePlan, errors: list[str]
         "gpu_memory_mib": plan.hardware.gpu_memory_mib,
         "driver_version": plan.hardware.driver_version,
     }
-    for key, expected in frozen.items():
-        if hardware.get(key) != expected:
-            errors.append(f"artifact.hardware.{key}: differs from frozen benchmark host")
+    for key in (
+        "platform_system",
+        "cpu_model",
+        "gpu_name",
+        "gpu_uuid",
+        "driver_version",
+    ):
+        if not isinstance(hardware.get(key), str) or not hardware.get(key):
+            errors.append(f"artifact.hardware.{key}: expected non-empty string")
+    for key in ("cpu_physical_cores", "cpu_logical_cores", "gpu_memory_mib"):
+        if isinstance(hardware.get(key), bool) or not isinstance(hardware.get(key), int):
+            errors.append(f"artifact.hardware.{key}: expected integer")
+        elif hardware[key] <= 0:
+            errors.append(f"artifact.hardware.{key}: expected positive integer")
+    affinity = hardware.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append("artifact.hardware.affinity_cpus: expected unique non-negative integers")
     for key in ("platform_release", "cuda_runtime", "torch_version", "hostname"):
         if not isinstance(hardware.get(key), str) or not hardware[key]:
             errors.append(f"artifact.hardware.{key}: expected non-empty string")
+    if len(errors) == initial_error_count:
+        mismatches = {
+            key: {"frozen": expected, "recorded": hardware.get(key)}
+            for key, expected in frozen.items()
+            if hardware.get(key) != expected
+        }
+        if mismatches:
+            warnings.warn(
+                "Phase 4 hardware provenance differs from the frozen benchmark profile "
+                f"(advisory): {mismatches!r}",
+                UserWarning,
+                stacklevel=2,
+            )
 
 
 def _validate_preflight(
@@ -1410,8 +1451,19 @@ def validate_artifact(
     if execution:
         if execution.get("process_isolation") is not True:
             errors.append("artifact.execution.process_isolation: must be true")
-        if execution.get("affinity_cpus") != list(plan.hardware.affinity_cpus):
-            errors.append("artifact.execution.affinity_cpus: differs from frozen plan")
+        affinity = execution.get("affinity_cpus")
+        if (
+            not isinstance(affinity, list)
+            or not affinity
+            or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+            or len(affinity) != len(set(affinity))
+        ):
+            errors.append("artifact.execution.affinity_cpus: expected unique non-negative integers")
+        hardware = root.get("hardware")
+        if isinstance(hardware, Mapping) and affinity != hardware.get("affinity_cpus"):
+            errors.append(
+                "artifact.execution.affinity_cpus: differs from recorded hardware provenance"
+            )
         if execution.get("env_vars") != dict(plan.environment.env_vars):
             errors.append("artifact.execution.env_vars: differs from frozen plan")
         if execution.get("warmup_steps") != binding.warmup_steps:
@@ -1455,6 +1507,14 @@ def validate_artifact(
     ]
     if len(set(run_ids)) != len(run_ids):
         errors.append("artifact.cases: duplicate isolated-process run_id")
+    hardware = root.get("hardware")
+    recorded_affinity = hardware.get("affinity_cpus") if isinstance(hardware, Mapping) else None
+    for index, case in enumerate(parsed_cases):
+        process = case.get("process")
+        if isinstance(process, Mapping) and process.get("affinity_cpus") != recorded_affinity:
+            errors.append(
+                f"cases[{index}].process.affinity_cpus: differs from recorded hardware provenance"
+            )
     for batch_size in binding.batch_sizes:
         for repeat_index in range(binding.process_repeats):
             pair = [

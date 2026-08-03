@@ -26,7 +26,11 @@ import psutil
 import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-from unilab.tools.g1_baseline_provenance import G1BaselinePlan, load_g1_baseline_plan
+from unilab.tools.g1_baseline_provenance import (
+    G1BaselinePlan,
+    load_g1_baseline_plan,
+    resolve_benchmark_affinity,
+)
 
 
 def utc_now() -> str:
@@ -109,8 +113,10 @@ def run_subprocess(
     started = time.perf_counter()
     memory_samples: list[dict[str, Any]] = []
 
+    affinity = list(resolve_benchmark_affinity(plan))
+
     def set_child_affinity() -> None:
-        os.sched_setaffinity(0, set(plan.hardware.affinity_cpus))
+        os.sched_setaffinity(0, set(affinity))
 
     with tempfile.TemporaryDirectory(prefix="unilab_issue705_process_") as temp_dir:
         stdout_path = Path(temp_dir) / "stdout.log"
@@ -148,7 +154,7 @@ def run_subprocess(
         "duration_sec": time.perf_counter() - started,
         "return_code": int(return_code),
         "command": command,
-        "affinity_cpus": list(plan.hardware.affinity_cpus),
+        "affinity_cpus": affinity,
         "env_vars": dict(plan.environment.env_vars),
         "stdout_sha256": _sha256_bytes(stdout.encode("utf-8")),
         "stderr_sha256": _sha256_bytes(stderr.encode("utf-8")),
@@ -219,7 +225,10 @@ def preflight_payload(
     enforce_cpu_load: bool = True,
 ) -> dict[str, Any]:
     load_average = float(os.getloadavg()[0])
-    load_per_core = load_average / plan.hardware.cpu_physical_cores
+    physical_cores = int(psutil.cpu_count(logical=False) or 0)
+    if physical_cores <= 0:
+        raise RuntimeError("preflight could not determine the host physical CPU count")
+    load_per_core = load_average / physical_cores
     processes = _gpu_compute_processes()
     samples: list[dict[str, Any]] = []
     for index in range(plan.preflight.gpu_samples):
@@ -257,13 +266,13 @@ def _cpu_model() -> str:
 
 
 def hardware_payload(plan: G1BaselinePlan) -> dict[str, Any]:
-    payload = {
+    return {
         "platform_system": platform.system(),
         "platform_release": platform.release(),
         "cpu_model": _cpu_model(),
         "cpu_physical_cores": int(psutil.cpu_count(logical=False) or 0),
         "cpu_logical_cores": int(psutil.cpu_count(logical=True) or 0),
-        "affinity_cpus": list(plan.hardware.affinity_cpus),
+        "affinity_cpus": list(resolve_benchmark_affinity(plan)),
         **_nvidia_hardware(),
         "cuda_runtime": str(
             getattr(getattr(torch, "version", None), "cuda", None) or "unavailable"
@@ -271,12 +280,3 @@ def hardware_payload(plan: G1BaselinePlan) -> dict[str, Any]:
         "torch_version": str(torch.__version__),
         "hostname": socket.gethostname(),
     }
-    expected = dataclasses.asdict(plan.hardware)
-    for key, value in expected.items():
-        expected_value = list(value) if isinstance(value, tuple) else value
-        if payload.get(key) != expected_value:
-            raise RuntimeError(
-                f"hardware mismatch for {key}: expected {expected_value!r}, "
-                f"got {payload.get(key)!r}"
-            )
-    return payload

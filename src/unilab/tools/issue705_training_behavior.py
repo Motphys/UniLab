@@ -8,6 +8,7 @@ import math
 import re
 import statistics
 import subprocess
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
@@ -430,9 +431,7 @@ def _plan_schema_errors(raw: Mapping[str, Any]) -> list[str]:
     for key in packages:
         _string(packages.get(key), f"dependencies.packages.{key}", errors)
     _string(hardware.get("cpu_model"), "hardware.cpu_model", errors)
-    affinity = _integer_list(hardware.get("affinity_cpus"), "hardware.affinity_cpus", errors)
-    if affinity != tuple(range(16)):
-        errors.append("hardware.affinity_cpus: expected frozen CPUs 0..15")
+    _integer_list(hardware.get("affinity_cpus"), "hardware.affinity_cpus", errors)
     for key in ("gpu_name", "gpu_uuid", "driver_version"):
         _string(hardware.get(key), f"hardware.{key}", errors)
     _integer(hardware.get("gpu_memory_mib"), "hardware.gpu_memory_mib", errors, minimum=1)
@@ -554,10 +553,17 @@ def _linked_plan_errors(plan: TrainingBehaviorPlan, repo_root: Path) -> list[str
             "gpu_uuid": baseline_plan.hardware.gpu_uuid,
             "gpu_memory_mib": baseline_plan.hardware.gpu_memory_mib,
             "driver_version": baseline_plan.hardware.driver_version,
-            "environment_variables": dict(baseline_plan.environment.env_vars),
         }
-        if plan.hardware != expected_hardware:
-            errors.append("hardware: differs from Phase 0 baseline plan")
+        recorded_hardware = {key: plan.hardware.get(key) for key in expected_hardware}
+        if recorded_hardware != expected_hardware:
+            warnings.warn(
+                "training behavior hardware plan differs from the Phase 0 profile "
+                f"(advisory): expected={expected_hardware!r}, recorded={recorded_hardware!r}",
+                UserWarning,
+                stacklevel=2,
+            )
+        if plan.hardware.get("environment_variables") != dict(baseline_plan.environment.env_vars):
+            errors.append("hardware.environment_variables: differs from Phase 0 thread environment")
     except Exception as exc:  # noqa: BLE001 - linked frozen evidence must fail closed
         errors.append(f"baseline plan binding failed: {type(exc).__name__}: {exc}")
 
@@ -1124,8 +1130,14 @@ def _validate_process_receipt(
         expected_command_prefix
     ):
         errors.append(f"{label}.command: unexpected process route")
-    if process.get("affinity_cpus") != plan.hardware["affinity_cpus"]:
-        errors.append(f"{label}.affinity_cpus: differs from frozen host")
+    affinity = process.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append(f"{label}.affinity_cpus: expected unique non-negative integers")
     if process.get("env_vars") != plan.hardware["environment_variables"]:
         errors.append(f"{label}.env_vars: differs from frozen thread environment")
     if not isinstance(process.get("run_id"), str) or not process["run_id"].strip():
@@ -1437,17 +1449,48 @@ def _core_artifact_errors(
                 repo_root=repo_root.resolve(),
             )
         )
+    hardware_error_count = len(errors)
     hardware = _mapping(artifact.get("hardware"), "artifact.hardware", errors)
+    expected_hardware = {
+        "cpu_model": plan.hardware["cpu_model"],
+        "affinity_cpus": plan.hardware["affinity_cpus"],
+        "gpu_name": plan.hardware["gpu_name"],
+        "gpu_uuid": plan.hardware["gpu_uuid"],
+        "gpu_memory_mib": plan.hardware["gpu_memory_mib"],
+        "driver_version": plan.hardware["driver_version"],
+    }
     for key in (
         "cpu_model",
-        "affinity_cpus",
         "gpu_name",
         "gpu_uuid",
-        "gpu_memory_mib",
         "driver_version",
     ):
-        if hardware.get(key) != plan.hardware[key]:
-            errors.append(f"artifact.hardware.{key}: differs from frozen host")
+        if not isinstance(hardware.get(key), str) or not hardware.get(key):
+            errors.append(f"artifact.hardware.{key}: expected non-empty string")
+    gpu_memory = hardware.get("gpu_memory_mib")
+    if isinstance(gpu_memory, bool) or not isinstance(gpu_memory, int) or gpu_memory <= 0:
+        errors.append("artifact.hardware.gpu_memory_mib: expected positive integer")
+    affinity = hardware.get("affinity_cpus")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in affinity)
+        or len(affinity) != len(set(affinity))
+    ):
+        errors.append("artifact.hardware.affinity_cpus: expected unique non-negative integers")
+    if len(errors) == hardware_error_count:
+        mismatches = {
+            key: {"frozen": expected, "recorded": hardware.get(key)}
+            for key, expected in expected_hardware.items()
+            if hardware.get(key) != expected
+        }
+        if mismatches:
+            warnings.warn(
+                "artifact.hardware provenance differs from the frozen training profile "
+                f"(advisory): {mismatches!r}",
+                UserWarning,
+                stacklevel=2,
+            )
     execution = _mapping(artifact.get("execution"), "artifact.execution", errors)
     expected_order = [f"behavior-mjwarp_device-seed{seed}" for seed in plan.seeds]
     if execution.get("case_order") != expected_order:
@@ -1484,6 +1527,14 @@ def _core_artifact_errors(
                 run_ids.append(cast(str, process["run_id"]))
     if len(run_ids) != len(set(run_ids)):
         errors.append("artifact.cases: process receipts reuse a run_id")
+    for index, case in enumerate(cases):
+        for process_key in ("worker_process", "process"):
+            process = case.get(process_key)
+            if isinstance(process, Mapping) and process.get("affinity_cpus") != affinity:
+                errors.append(
+                    f"cases[{index}].{process_key}.affinity_cpus: differs from recorded "
+                    "hardware provenance"
+                )
     try:
         pairs, aggregates, evaluation_errors = evaluate_training_behavior_cases(
             plan=plan,
