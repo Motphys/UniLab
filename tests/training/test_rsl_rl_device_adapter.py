@@ -70,6 +70,10 @@ def test_device_adapter_preserves_terminal_timeout_and_storage_contract() -> Non
         assert rewards.device == wrapper.device
         assert dones.device == wrapper.device
         assert extras["time_outs"].device == wrapper.device
+        assert tuple(extras["metrics"]) == wrapper.runtime.metric_keys
+        assert tuple(extras["metrics"]) == tuple(buffer.key for buffer in transition.metrics)
+        for buffer in transition.metrics:
+            assert extras["metrics"][buffer.key].data_ptr() == buffer.view.torch().data_ptr()
         assert extras["time_out_bootstrap_obs"]["actor"].data_ptr() == (
             transition.final_observation("obs").torch().data_ptr()
         )

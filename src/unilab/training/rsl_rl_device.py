@@ -447,6 +447,7 @@ class DeviceRslRlVecEnvWrapper:
         extras: dict[str, Any] = {
             "time_outs": truncated,
             "time_out_bootstrap_obs": final_observations,
+            "metrics": {buffer.key: buffer.view.torch() for buffer in transition.metrics},
         }
         return observations, rewards, self._dones, extras
 
@@ -511,7 +512,13 @@ class DeviceRslRlVecEnvWrapper:
 class DeviceRolloutLogger(Logger):
     """RSL-RL logger with one episode-metric D2H boundary per iteration."""
 
-    def __init__(self, *args: Any, rollout_steps: int, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        rollout_steps: int,
+        metric_keys: tuple[str, ...] = (),
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         if (
             isinstance(rollout_steps, bool)
@@ -519,18 +526,35 @@ class DeviceRolloutLogger(Logger):
             or rollout_steps <= 0
         ):
             raise DeviceRslRlContractError("device logger rollout_steps must be positive")
+        if (
+            not isinstance(metric_keys, tuple)
+            or any(not isinstance(key, str) or not key.strip() for key in metric_keys)
+            or len(set(metric_keys)) != len(metric_keys)
+        ):
+            raise DeviceRslRlContractError(
+                "device logger metric_keys must be unique non-empty strings"
+            )
         self._rollout_steps = rollout_steps
+        self._task_metric_keys = metric_keys
         raw_device = torch.device(self.device)
         self._torch_device = (
             torch.device(f"cuda:{torch.cuda.current_device()}")
             if raw_device.type == "cuda" and raw_device.index is None
             else raw_device
         )
-        self._metric_channels = 5 if self.cfg["algorithm"]["rnd_cfg"] else 3
-        self._rollout_metrics = torch.empty(
-            (self._metric_channels, rollout_steps, self.num_envs),
+        self._episode_metric_channels = 5 if self.cfg["algorithm"]["rnd_cfg"] else 3
+        episode_value_count = self._episode_metric_channels * rollout_steps * self.num_envs
+        task_value_count = len(self._task_metric_keys) * rollout_steps
+        self._rollout_staging = torch.empty(
+            (episode_value_count + task_value_count,),
             dtype=torch.float32,
             device=self.device,
+        )
+        self._episode_metrics = self._rollout_staging[:episode_value_count].view(
+            self._episode_metric_channels, rollout_steps, self.num_envs
+        )
+        self._task_metric_means = self._rollout_staging[episode_value_count:].view(
+            len(self._task_metric_keys), rollout_steps
         )
         self._rollout_cursor = 0
         self._device_diagnostics = DeviceRslRlLoggingDiagnostics()
@@ -571,6 +595,11 @@ class DeviceRolloutLogger(Logger):
             raise DeviceRslRlContractError(
                 "device logger requires typed pre-aggregated task metrics; arbitrary per-step extras are unsupported"
             )
+        metrics = extras.get("metrics", {})
+        if not isinstance(metrics, dict) or tuple(metrics) != self._task_metric_keys:
+            raise DeviceRslRlContractError(
+                "device logger metrics differ from the cold-bound metric layout"
+            )
         if self._rollout_cursor >= self._rollout_steps:
             raise DeviceRslRlContractError("device episode metric staging overflow")
         self._validate_step_tensor(rewards, name="rewards", dtype=torch.float32)
@@ -581,6 +610,8 @@ class DeviceRolloutLogger(Logger):
                 name="intrinsic_rewards",
                 dtype=torch.float32,
             )
+        for key in self._task_metric_keys:
+            self._validate_step_tensor(metrics[key], name=f"metric {key!r}", dtype=torch.float32)
 
         if intrinsic_rewards is not None:
             self.cur_ereward_sum.add_(rewards)
@@ -591,12 +622,14 @@ class DeviceRolloutLogger(Logger):
         self.cur_episode_length.add_(1)
 
         step = self._rollout_cursor
-        self._rollout_metrics[0, step].copy_(self.cur_reward_sum, non_blocking=True)
-        self._rollout_metrics[1, step].copy_(self.cur_episode_length, non_blocking=True)
-        self._rollout_metrics[2, step].copy_(dones, non_blocking=True)
+        self._episode_metrics[0, step].copy_(self.cur_reward_sum, non_blocking=True)
+        self._episode_metrics[1, step].copy_(self.cur_episode_length, non_blocking=True)
+        self._episode_metrics[2, step].copy_(dones, non_blocking=True)
         if intrinsic_rewards is not None:
-            self._rollout_metrics[3, step].copy_(self.cur_ereward_sum, non_blocking=True)
-            self._rollout_metrics[4, step].copy_(self.cur_ireward_sum, non_blocking=True)
+            self._episode_metrics[3, step].copy_(self.cur_ereward_sum, non_blocking=True)
+            self._episode_metrics[4, step].copy_(self.cur_ireward_sum, non_blocking=True)
+        for index, key in enumerate(self._task_metric_keys):
+            torch.mean(metrics[key], out=self._task_metric_means[index, step])
 
         self.cur_reward_sum.masked_fill_(dones, 0.0)
         self.cur_episode_length.masked_fill_(dones, 0.0)
@@ -613,15 +646,29 @@ class DeviceRolloutLogger(Logger):
             raise DeviceRslRlContractError(
                 "device logger metric boundary does not match the configured rollout length"
             )
-        staged = self._rollout_metrics[:, : self._rollout_cursor]
+        staged = self._rollout_staging
         host = staged.to(device="cpu", non_blocking=False)
+        episode_value_count = self._episode_metric_channels * self._rollout_steps * self.num_envs
+        host_episode_metrics = host[:episode_value_count].view(
+            self._episode_metric_channels, self._rollout_steps, self.num_envs
+        )
+        host_task_metric_means = host[episode_value_count:].view(
+            len(self._task_metric_keys), self._rollout_steps
+        )
         for step in range(self._rollout_cursor):
-            mask = host[2, step] > 0.0
-            self.rewbuffer.extend(host[0, step, mask].tolist())
-            self.lenbuffer.extend(host[1, step, mask].tolist())
-            if self._metric_channels == 5:
-                self.erewbuffer.extend(host[3, step, mask].tolist())
-                self.irewbuffer.extend(host[4, step, mask].tolist())
+            mask = host_episode_metrics[2, step] > 0.0
+            self.rewbuffer.extend(host_episode_metrics[0, step, mask].tolist())
+            self.lenbuffer.extend(host_episode_metrics[1, step, mask].tolist())
+            if self._episode_metric_channels == 5:
+                self.erewbuffer.extend(host_episode_metrics[3, step, mask].tolist())
+                self.irewbuffer.extend(host_episode_metrics[4, step, mask].tolist())
+        if self._task_metric_keys:
+            self.ep_extras.append(
+                {
+                    key: host_task_metric_means[index]
+                    for index, key in enumerate(self._task_metric_keys)
+                }
+            )
         self._device_diagnostics = DeviceRslRlLoggingDiagnostics(
             rollout_steps=self._device_diagnostics.rollout_steps + self._rollout_cursor,
             metric_materializations=self._device_diagnostics.metric_materializations + 1,
@@ -668,6 +715,7 @@ class DeviceOnPolicyRunner(OnPolicyRunner):
             gpu_global_rank=self.gpu_global_rank,
             device=self.device,
             rollout_steps=int(self.cfg["num_steps_per_env"]),
+            metric_keys=self.env.runtime.metric_keys,
         )
         self._host_memory_diagnostics: DeviceRslRlHostMemoryDiagnostics | None = None
         capture_performance_diagnostics = self.cfg.get("capture_performance_diagnostics", False)

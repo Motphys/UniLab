@@ -166,7 +166,8 @@ def test_capture_rejects_registered_input_mutated_by_evidence_command(
 ) -> None:
     root = _capture_fixture_root(tmp_path)
 
-    def fake_environment(_: object) -> dict[str, Any]:
+    def fake_environment(_: object, *, root: Path) -> dict[str, Any]:
+        del root
         return {"platform": "Linux", "python": "test", "packages": {"mujoco": "3.10"}}
 
     def fake_evidence_command(command: Any, *, root: Path, repetition: int) -> dict[str, Any]:
@@ -190,3 +191,13 @@ def test_capture_rejects_registered_input_mutated_by_evidence_command(
 
     with pytest.raises(PhaseEvidenceError, match="clean source"):
         capture_phase1_evidence(root)
+
+
+def test_phase1_claim_mapping_and_freshness_inputs_cover_implementation() -> None:
+    assert {claim.claim_id for claim in PHASE1_SPEC.claims} == set(PHASE1_REQUIRED_TEST_IDS)
+    for path in (
+        Path("src/unilab/base/backend/base.py"),
+        Path("src/unilab/dr/manager.py"),
+        Path("src/unilab/envs/locomotion/g1/base.py"),
+    ):
+        assert path in PHASE1_SPEC.input_files

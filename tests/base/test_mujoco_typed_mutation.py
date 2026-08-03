@@ -227,16 +227,27 @@ def _close(backend: MuJoCoBackend) -> None:
 
 
 @pytest.mark.parametrize(
-    ("np_dtype", "atol"),
-    ((np.float32, 2e-6), (np.float64, 1e-12)),
+    ("np_dtype", "atol", "trigger"),
+    (
+        (np.float32, 2e-6, MutationTrigger.INTERVAL),
+        (np.float32, 2e-6, MutationTrigger.STEP),
+        (np.float64, 1e-12, MutationTrigger.INTERVAL),
+        (np.float64, 1e-12, MutationTrigger.STEP),
+    ),
+    ids=("float32-interval", "float32-step", "float64-interval", "float64-step"),
 )
 def test_mujoco_typed_wrench_commits_to_next_step_with_selected_row_isolation(
-    tmp_path: Path, np_dtype: type[np.floating], atol: float
+    tmp_path: Path,
+    np_dtype: type[np.floating],
+    atol: float,
+    trigger: MutationTrigger,
 ) -> None:
     backend = _backend(tmp_path, np_dtype=np_dtype)
     try:
         plan = backend.bind_task_io(_requirements(backend))
-        mutation_plan = backend.bind_mutation_plan((_force_spec(np.dtype(np_dtype)),))
+        mutation_plan = backend.bind_mutation_plan(
+            (replace(_force_spec(np.dtype(np_dtype)), trigger=trigger),)
+        )
         _reset_to_default(backend)
         control = _zero_control(plan, backend.num_envs)
         pre_step = backend.read_state_batch(plan, RowSelection.all(backend.num_envs))

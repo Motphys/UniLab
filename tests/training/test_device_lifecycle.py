@@ -94,6 +94,7 @@ class _TransitionSnapshot:
     observations: dict[str, torch.Tensor]
     terminal_observations: dict[str, torch.Tensor]
     final_observations: dict[str, torch.Tensor]
+    metrics: dict[str, torch.Tensor]
     reward: torch.Tensor
     terminated: torch.Tensor
     truncated: torch.Tensor
@@ -105,6 +106,7 @@ class _HostDeviceFixture:
     host_backend: SimBackend
     host_runtime: ManagedReferenceRuntime
     device: _RuntimeFixture
+    ctrl_dt: float
 
 
 def _require_cuda() -> None:
@@ -216,6 +218,7 @@ def _host_device_fixture(*, num_envs: int, seed: int) -> Iterator[_HostDeviceFix
                 placement=placement,
                 device=torch.device(f"cuda:{placement.device_index}"),
             ),
+            ctrl_dt=float(cfg.ctrl_dt),
         )
     finally:
         host_backend.cleanup_scene_assets()
@@ -278,6 +281,8 @@ def _snapshot(
             device_values[f"observation.{key}"] = transition.observation(key).torch().clone()
             device_values[f"terminal.{key}"] = transition.terminal_observation(key).torch().clone()
             device_values[f"final.{key}"] = transition.final_observation(key).torch().clone()
+        for metric in transition.metrics:
+            device_values[f"metric.{metric.key}"] = metric.view.torch().clone()
         device_values["reward"] = transition.reward.torch().clone()
         device_values["terminated"] = transition.terminated.torch().clone()
         device_values["truncated"] = transition.truncated.torch().clone()
@@ -289,6 +294,7 @@ def _snapshot(
         observations={key: host[f"observation.{key}"] for key in _OBSERVATION_KEYS},
         terminal_observations={key: host[f"terminal.{key}"] for key in _OBSERVATION_KEYS},
         final_observations={key: host[f"final.{key}"] for key in _OBSERVATION_KEYS},
+        metrics={metric.key: host[f"metric.{metric.key}"] for metric in transition.metrics},
         reward=host["reward"],
         terminated=host["terminated"],
         truncated=host["truncated"],
@@ -572,12 +578,12 @@ def _assert_final_contract(snapshot: _TransitionSnapshot, expected_done: torch.T
         )
 
 
-def _align_host_physics_from_device(
+def _align_host_state_from_device(
     fixture: _HostDeviceFixture,
     *,
     consumer_stream: torch.cuda.Stream,
 ) -> DeviceCompletion:
-    """Test-only D2H oracle that aligns host qpos/qvel to public device state."""
+    """Test-only D2H oracle that aligns host physics and task state to device state."""
 
     device = fixture.device
     result = device.backend.read_state_batch(
@@ -626,15 +632,15 @@ def _align_host_physics_from_device(
     )
     rows = np.arange(device.backend.num_envs, dtype=np.int32)
     fixture.host_backend.set_state(rows, qpos, qvel)
+    host_task = cast(Any, fixture.host_runtime.task_state)
+    device_task = cast(Any, device.runtime.task_state)
+    for name in ("commands", "current_actions", "last_actions", "gait_phase"):
+        host_value = cast(np.ndarray, getattr(host_task, name))
+        device_value = cast(torch.Tensor, getattr(device_task, name))
+        np.copyto(host_value, device_value.cpu().numpy())
     event = result.diagnostics.completion_event
     assert event is not None and isinstance(event.handle, DeviceCompletion)
     return event.handle
-
-
-def _without_rng_gait_columns(key: str, value: np.ndarray) -> np.ndarray:
-    if key == "obs":
-        return value[:, :96]
-    return np.concatenate((value[:, :96], value[:, 98:]), axis=1)
 
 
 def _assert_host_device_transition(
@@ -642,6 +648,8 @@ def _assert_host_device_transition(
     host: Any,
     device: _TransitionSnapshot,
     label: str,
+    ctrl_dt: float,
+    host_metrics_are_current: bool,
 ) -> None:
     host_mask = np.asarray(host.info["_final_observation"], dtype=bool)
     np.testing.assert_array_equal(device.final_observation_mask.numpy(), host_mask)
@@ -654,32 +662,48 @@ def _assert_host_device_transition(
         rtol=1.0e-3,
         err_msg=f"{label}.reward",
     )
+    assert tuple(device.metrics) == tuple(host.info["log"])
+    metric_total = torch.stack(tuple(device.metrics.values())).sum(dim=0) * ctrl_dt
+    torch.testing.assert_close(metric_total, device.reward, atol=1.0e-6, rtol=1.0e-5)
+    if host_metrics_are_current:
+        for key, value in device.metrics.items():
+            np.testing.assert_allclose(
+                value.mean().numpy(),
+                host.info["log"][key],
+                atol=1.0e-4,
+                rtol=1.0e-3,
+                err_msg=f"{label}.{key}",
+            )
     for key in _OBSERVATION_KEYS:
         host_terminal = np.array(host.obs[key], copy=True)
         if host.final_observation is not None:
             host_terminal[host_mask] = host.final_observation[key][host_mask]
         np.testing.assert_allclose(
-            _without_rng_gait_columns(key, device.terminal_observations[key].numpy()),
-            _without_rng_gait_columns(key, host_terminal),
+            device.terminal_observations[key].numpy(),
+            host_terminal,
             atol=1.0e-4,
             rtol=1.0e-3,
             err_msg=f"{label}.terminal[{key}]",
         )
+        device_next = device.observations[key].numpy()
+        host_next = np.asarray(host.obs[key])
         np.testing.assert_allclose(
-            _without_rng_gait_columns(key, device.observations[key].numpy()),
-            _without_rng_gait_columns(key, np.asarray(host.obs[key])),
+            device_next[~host_mask],
+            host_next[~host_mask],
             atol=1.0e-4,
             rtol=1.0e-3,
-            err_msg=f"{label}.next[{key}]",
+            err_msg=f"{label}.next[{key}].active",
         )
         if np.any(host_mask):
             assert host.final_observation is not None
+            # Reset rows resample both physics and task state through different
+            # NumPy/Torch RNG implementations, so only their pre-reset terminal
+            # state has aligned numeric inputs.
+            assert np.isfinite(device_next[host_mask]).all()
+            assert np.isfinite(host_next[host_mask]).all()
             np.testing.assert_allclose(
-                _without_rng_gait_columns(
-                    key,
-                    device.final_observations[key][torch.from_numpy(host_mask)].numpy(),
-                ),
-                _without_rng_gait_columns(key, host.final_observation[key][host_mask]),
+                device.final_observations[key][torch.from_numpy(host_mask)].numpy(),
+                host.final_observation[key][host_mask],
                 atol=1.0e-4,
                 rtol=1.0e-3,
                 err_msg=f"{label}.final[{key}]",
@@ -800,7 +824,7 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
         fixture.host_runtime.init_state()
         device.runtime.reset()
 
-        after = _align_host_physics_from_device(fixture, consumer_stream=consumer)
+        after = _align_host_state_from_device(fixture, consumer_stream=consumer)
         action = _action_view(
             device,
             producer_stream=producer,
@@ -812,7 +836,13 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
         with _forbid_hot_path_fallbacks(device.backend):
             device_step = device.runtime.step(action)
         snapshot = _snapshot(device_step, consumer_stream=consumer)
-        _assert_host_device_transition(host=host_step, device=snapshot, label="no_done")
+        _assert_host_device_transition(
+            host=host_step,
+            device=snapshot,
+            label="no_done",
+            ctrl_dt=fixture.ctrl_dt,
+            host_metrics_are_current=True,
+        )
 
         forced = _force_root_state(
             device,
@@ -823,7 +853,7 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
             orientation=(0.95371695, 0.3007058, 0.0, 0.0),
         )
         forced.wait(consumer)
-        after = _align_host_physics_from_device(fixture, consumer_stream=consumer)
+        after = _align_host_state_from_device(fixture, consumer_stream=consumer)
         action = _action_view(
             device,
             producer_stream=producer,
@@ -838,7 +868,15 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
         expected_partial = np.zeros((8,), dtype=bool)
         expected_partial[-1] = True
         np.testing.assert_array_equal(host_step.info["_final_observation"], expected_partial)
-        _assert_host_device_transition(host=host_step, device=snapshot, label="partial_reset")
+        _assert_host_device_transition(
+            host=host_step,
+            device=snapshot,
+            label="partial_reset",
+            ctrl_dt=fixture.ctrl_dt,
+            # The host logger samples every fourth step; this transition still
+            # validates the current per-term buffers through their reward sum.
+            host_metrics_are_current=False,
+        )
 
 
 def test_device_timeout_captures_terminal_before_all_world_reset() -> None:

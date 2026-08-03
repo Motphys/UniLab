@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import torch
 
-KEYED_RNG_ALGORITHM = "splitmix32-v1"
+KEYED_RNG_ALGORITHM = "splitmix32-v2"
 _UINT32_MASK = 0xFFFFFFFF
 _ENV_MULTIPLIER = 0x9E3779B1
 _TRIGGER_MULTIPLIER = 0x85EBCA77
@@ -85,6 +85,14 @@ def _finite_pair(value: object, *, distribution: RandomDistribution) -> tuple[fl
 
 def _stable_u32(value: str) -> int:
     return int.from_bytes(hashlib.sha256(value.encode("utf-8")).digest()[:4], "little")
+
+
+def _mix_u32(value: int) -> int:
+    value &= _UINT32_MASK
+    for _ in range(2):
+        value ^= value >> 16
+        value = (value * _MIX_MULTIPLIER) & _UINT32_MASK
+    return (value ^ (value >> 16)) & _UINT32_MASK
 
 
 @dataclass(frozen=True)
@@ -162,7 +170,9 @@ def _component_keys(spec: KeyedRandomSpec) -> np.ndarray:
 def _seed_term_key(run_seed: int, spec: KeyedRandomSpec) -> int:
     seed_key = _stable_u32(f"seed:{run_seed}")
     term_key = _stable_u32(f"term:{spec.term_key}:{spec.term_version}:{spec.algorithm}")
-    return (seed_key + term_key) & _UINT32_MASK
+    # Cascade the two identities through separate avalanche rounds.  The v1
+    # additive combiner admitted algebraic seed/term collision families.
+    return _mix_u32(_mix_u32(seed_key) ^ term_key)
 
 
 def _mix_numpy(value: np.ndarray) -> np.ndarray:

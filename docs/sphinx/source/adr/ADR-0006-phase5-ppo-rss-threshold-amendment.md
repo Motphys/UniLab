@@ -47,6 +47,25 @@ capture 中，mjwarp/MuJoCo 的进程树 peak RSS median ratio 稳定落在约 `
 - RSS boundary `<= 1.26` 通过，`> 1.26` 失败；其余 gate 继续读取 immutable base manifest。
 - threshold amendment PR 不包含 candidate benchmark 结果或 production runtime 修改。
 
+## Future Amendment Acceptance Criteria
+
+后续 threshold amendment 必须同时满足以下五项；任一项缺失即拒绝，不得仅以当前 candidate
+距离阈值很近为理由放宽：
+
+1. 在原 threshold、原 harness 和完整预注册 matrix 下至少完成两次独立 clean capture，并保留原始
+   PASS/FAIL artifact；focused run 只能用于定位，不能替代完整复现。
+2. child issue 必须给出可审计的根因、对 correctness / transfer / synchronization 等相邻 gate 的影响
+   分析，以及新阈值的独立工程预算或统计依据；禁止用“observed maximum 加 epsilon”作为唯一依据。
+3. amendment 必须通过独立的 threshold-only PR 在下一次 candidate capture 前冻结；该 PR 不得包含
+   production runtime、benchmark harness、matrix、aggregation 规则或 candidate 结果的修改，并继续使用
+   SHA-256、Git blob 和 ancestry receipt。
+4. amendment 的 metric、artifact、profile、lane 和 phase scope 必须取最小闭包并显式列出；不得按已
+   观察到的 batch、seed、worker order 或单次样本做特判。至少两名 maintainer 批准，且其中一名不是
+   amendment 作者或 candidate 实现者。
+5. freeze 后必须从严格后代 clean commit 重跑完整 matrix 并生成新 artifact；历史失败 artifact 保持
+   失败且不得追溯改判。新 artifact 必须同时验证 base 与 amendment provenance，并重新通过所有未改动
+   gate。
+
 ## Alternatives Considered
 
 - 直接修改 Phase 0 manifest。拒绝原因：会使既有 Phase 4 evidence 失去原始 threshold identity，

@@ -399,7 +399,14 @@ class SimBackend(abc.ABC):
         mutation_batch: BackendMutationBatch | None = None,
         phase_timing: DeviceResetPhaseTimingSampleToken | None = None,
     ) -> BackendResetResult:
-        """Reset selected rows through a bound typed batch plan."""
+        """Reset selected rows through a bound typed batch plan.
+
+        ``mutation_batch=None`` is part of the shared backend ABI because a
+        concrete reset contract may support an identity reset. Backends whose
+        compiled task contract requires reset values must reject ``None`` at
+        the earliest owner boundary where that requirement is known, and must
+        still fail closed here if no earlier binding boundary has that data.
+        """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support typed backend batches"
         )

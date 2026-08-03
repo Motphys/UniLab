@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -66,20 +67,25 @@ from unilab.manager import (
 from unilab.manager.plan import CompiledTaskPlan
 
 from .joystick import G1WalkEnvCfg, G1WalkRewardConfig
-from .managed_reference import (
-    _ACTOR_WIDTH,
-    _CRITIC_WIDTH,
-    _RESET_TERM,
-    _ROOT_RESET_SUFFIXES,
-    _STATE_KEYS,
-    G1ManagedReferenceError,
-    _action_scale,
-    _g1_selectors,
-    _g1_state_requirements,
-    _G1KernelConfig,
-    _kernel_config,
-    _reset_term_key,
-    _validate_reference_profile,
+from .managed_reward_terms import (
+    TORCH_G1_REWARD_MATH,
+    G1RewardContext,
+    G1RewardScratch,
+    bind_g1_reward_terms,
+)
+from .managed_schema import (
+    G1_ACTOR_OBSERVATION_WIDTH,
+    G1_CRITIC_OBSERVATION_WIDTH,
+    G1_RESET_TERM,
+    G1_ROOT_RESET_SPECS,
+    G1_STATE_KEYS,
+    G1KernelConfig,
+    build_g1_kernel_config,
+    g1_action_scale,
+    g1_selectors,
+    g1_state_requirements,
+    reset_term_key,
+    validate_g1_managed_profile,
 )
 
 G1_MANAGED_DEVICE_EXECUTOR_KEY = "device.torch.g1-walk-flat.v1"
@@ -123,7 +129,7 @@ def _device_reset_templates(
     dofs: Any,
 ) -> tuple[MutationTemplate, ...]:
     templates: list[MutationTemplate] = []
-    for suffix, target_key, field_kind, row_shape in _ROOT_RESET_SUFFIXES:
+    for suffix, target_key, field_kind, row_shape in G1_ROOT_RESET_SPECS:
         templates.append(
             MutationTemplate(
                 key_suffix=suffix,
@@ -285,17 +291,14 @@ def _device_gravity_compensation_event_template(
 
 
 def _validate_device_profile(cfg: G1WalkEnvCfg) -> G1WalkRewardConfig:
-    try:
-        reward = _validate_reference_profile(
-            cfg,
-            allow_pd_randomization=True,
-            allow_dof_armature_randomization=True,
-            allow_body_gravity_compensation_randomization=True,
-        )
-    except G1ManagedReferenceError as exc:
-        raise G1ManagedDeviceError(
-            str(exc).replace("managed reference", "device executor")
-        ) from exc
+    reward = validate_g1_managed_profile(
+        cfg,
+        profile_name="device executor",
+        error_type=G1ManagedDeviceError,
+        allow_pd_randomization=True,
+        allow_dof_armature_randomization=True,
+        allow_body_gravity_compensation_randomization=True,
+    )
     if float(cfg.noise_config.level) != 0.0:
         raise G1ManagedDeviceError(
             "G1 device executor observation noise is not implemented; disable it explicitly"
@@ -330,8 +333,8 @@ def compile_g1_managed_device_task(
     if not actuator_names or len(set(actuator_names)) != len(actuator_names):
         raise G1ManagedDeviceError("G1 device executor requires unique named actuators")
     action_dim = len(actuator_names)
-    _action_scale(cfg, action_dim)
-    root, dofs, _, _ = _g1_selectors(actuator_names)
+    g1_action_scale(cfg, action_dim, error_type=G1ManagedDeviceError)
+    root, dofs, _, _ = g1_selectors(actuator_names)
     actuators = EntitySelector(
         key="g1.position_actuators",
         entity="g1",
@@ -355,7 +358,7 @@ def compile_g1_managed_device_task(
             kind=EntityKind.BODY,
             expressions=body_names,
         )
-    state_requirements = _g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
+    state_requirements = g1_state_requirements(root=root, dofs=dofs, action_dim=action_dim)
     reset_templates = _device_reset_templates(
         placement=placement,
         root=root,
@@ -470,7 +473,7 @@ def compile_g1_managed_device_task(
             phase=TermPhase.TERMINAL_OBSERVATION,
             role=TermRole.OBSERVATION,
             state_requirements=state_requirements,
-            output=TensorSpec((_ACTOR_WIDTH,), "float32"),
+            output=TensorSpec((G1_ACTOR_OBSERVATION_WIDTH,), "float32"),
         )
     )
     registry.register(
@@ -480,16 +483,16 @@ def compile_g1_managed_device_task(
             phase=TermPhase.TERMINAL_OBSERVATION,
             role=TermRole.OBSERVATION,
             state_requirements=state_requirements,
-            output=TensorSpec((_CRITIC_WIDTH,), "float32"),
+            output=TensorSpec((G1_CRITIC_OBSERVATION_WIDTH,), "float32"),
         )
     )
-    reset_terms = [TermInvocation.create(key=_RESET_TERM, definition_key="g1.device.reset")]
+    reset_terms = [TermInvocation.create(key=G1_RESET_TERM, definition_key="g1.device.reset")]
     if cfg.domain_rand.randomize_kp:
         reset_terms.append(
             TermInvocation.create(
                 key=_KP_EVENT_TERM,
                 definition_key="g1.device.randomize_kp",
-                dependencies=(_RESET_TERM,),
+                dependencies=(G1_RESET_TERM,),
             )
         )
     if cfg.domain_rand.randomize_kd:
@@ -497,7 +500,7 @@ def compile_g1_managed_device_task(
             TermInvocation.create(
                 key=_KD_EVENT_TERM,
                 definition_key="g1.device.randomize_kd",
-                dependencies=(_RESET_TERM,),
+                dependencies=(G1_RESET_TERM,),
             )
         )
     if cfg.domain_rand.randomize_dof_armature:
@@ -505,7 +508,7 @@ def compile_g1_managed_device_task(
             TermInvocation.create(
                 key=_ARMATURE_EVENT_TERM,
                 definition_key="g1.device.randomize_dof_armature",
-                dependencies=(_RESET_TERM,),
+                dependencies=(G1_RESET_TERM,),
             )
         )
     if cfg.domain_rand.randomize_body_gravity_compensation:
@@ -513,7 +516,7 @@ def compile_g1_managed_device_task(
             TermInvocation.create(
                 key=_GRAVCOMP_EVENT_TERM,
                 definition_key="g1.device.randomize_body_gravity_compensation",
-                dependencies=(_RESET_TERM,),
+                dependencies=(G1_RESET_TERM,),
             )
         )
     reset_dependencies = tuple(term.key for term in reset_terms)
@@ -558,7 +561,10 @@ def compile_g1_managed_device_task(
         executor_key=G1_MANAGED_DEVICE_EXECUTOR_KEY,
         policy=PolicySpec(
             ("obs", "critic"),
-            tuple(float(value) for value in _action_scale(cfg, action_dim)),
+            tuple(
+                float(value)
+                for value in g1_action_scale(cfg, action_dim, error_type=G1ManagedDeviceError)
+            ),
         ),
     )
     capabilities = frozenset(
@@ -586,7 +592,7 @@ def compile_g1_managed_device_task(
         capabilities=capabilities,
     )
     widths = tuple(group.width for group in plan.policy_abi.observation_groups)
-    if widths != (_ACTOR_WIDTH, _CRITIC_WIDTH):
+    if widths != (G1_ACTOR_OBSERVATION_WIDTH, G1_CRITIC_OBSERVATION_WIDTH):
         raise G1ManagedDeviceError("compiled G1 device policy ABI has unexpected widths")
     if reward is not cfg.reward_config:  # pragma: no cover - narrowing invariant.
         raise G1ManagedDeviceError("G1 reward configuration changed during device compilation")
@@ -634,6 +640,20 @@ class _G1DeviceTaskState:
     zero_actions: torch.Tensor
     generator: torch.Generator
 
+    @cached_property
+    def reward_scratch(self) -> G1RewardScratch:
+        return G1RewardScratch(
+            bool_a=self.reset_bool_scratch,
+            bool_b=self.bool_scratch_b,
+            scalar_b=self.scalar_scratch_b,
+            scalar_c=self.scalar_scratch_c,
+            scalar_d=self.scalar_scratch_d,
+            vector2=self.vector2_scratch,
+            action=self.action_scratch,
+            left_height=self.left_height_scratch,
+            right_height=self.right_height_scratch,
+        )
+
 
 class G1ManagedDeviceKernel:
     """G1 task math implemented directly with Torch CUDA operations."""
@@ -642,18 +662,22 @@ class G1ManagedDeviceKernel:
 
     def __init__(
         self,
-        config: _G1KernelConfig,
+        config: G1KernelConfig,
         *,
         expected_plan_fingerprint: str,
         placement: BufferPlacement,
     ) -> None:
-        if not isinstance(config, _G1KernelConfig):
+        if not isinstance(config, G1KernelConfig):
             raise G1ManagedDeviceError("G1 device kernel requires a frozen G1 config")
         if not isinstance(expected_plan_fingerprint, str) or not expected_plan_fingerprint.strip():
             raise G1ManagedDeviceError("G1 device kernel requires an expected plan fingerprint")
         if placement.device_type != "cuda" or placement.device_index is None:
             raise G1ManagedDeviceError("G1 device kernel requires CUDA placement")
         self._config = config
+        try:
+            bound_reward_terms = bind_g1_reward_terms(config.reward_terms)
+        except ValueError as exc:  # pragma: no cover - cold profile validation owns this.
+            raise G1ManagedDeviceError(str(exc)) from exc
         self._expected_plan_fingerprint = expected_plan_fingerprint
         self._device = torch.device(f"cuda:{placement.device_index}")
         self._action_dim = int(config.default_angles.size)
@@ -692,7 +716,10 @@ class G1ManagedDeviceKernel:
         self._upper_body_pose_weights = torch.as_tensor(
             config.upper_body_pose_weights, dtype=torch.float32, device=self._device
         )
-        self._reward_scales = {name: float(scale) for name, scale in config.reward_terms}
+        self._reward_terms = tuple(
+            (term, float(scale)) for term, scale in bound_reward_terms if scale != 0.0
+        )
+        self.metric_keys = tuple(f"reward/{term.key}" for term, _ in self._reward_terms)
 
     def bind(self, *, binding: ManagedKernelBinding) -> None:
         if self._binding is not None:
@@ -706,7 +733,7 @@ class G1ManagedDeviceKernel:
         if binding.dtype != "float32":
             raise G1ManagedDeviceError("G1 device kernel requires float32 binding")
         state_indices = dict(binding.state_field_indices)
-        missing_state = tuple(key for key in _STATE_KEYS if key not in state_indices)
+        missing_state = tuple(key for key in G1_STATE_KEYS if key not in state_indices)
         if missing_state:
             raise G1ManagedDeviceError(
                 "G1 device plan is missing state fields: " + ", ".join(missing_state)
@@ -720,9 +747,9 @@ class G1ManagedDeviceKernel:
         if mutation_plan is None:
             raise G1ManagedDeviceError("G1 device plan requires typed reset mutations")
         mutation_indices = {spec.term_key: index for index, spec in enumerate(mutation_plan.specs)}
-        root_keys = tuple(_reset_term_key(suffix=item[0]) for item in _ROOT_RESET_SUFFIXES)
-        position_key = _reset_term_key(suffix="dof_position")
-        velocity_key = _reset_term_key(suffix="dof_angular_velocity")
+        root_keys = tuple(reset_term_key(suffix=item[0]) for item in G1_ROOT_RESET_SPECS)
+        position_key = reset_term_key(suffix="dof_position")
+        velocity_key = reset_term_key(suffix="dof_angular_velocity")
         missing_mutations = tuple(
             key for key in (*root_keys, position_key, velocity_key) if key not in mutation_indices
         )
@@ -757,7 +784,7 @@ class G1ManagedDeviceKernel:
             )
         offsets = {index: offset for offset, index in enumerate(deterministic_indices)}
         self._binding = binding
-        self._state_indices = tuple(state_indices[key] for key in _STATE_KEYS)
+        self._state_indices = tuple(state_indices[key] for key in G1_STATE_KEYS)
         self._observation_indices = observation_indices
         self._mutation_plan = mutation_plan
         self._deterministic_reset_indices = deterministic_indices
@@ -903,7 +930,7 @@ class G1ManagedDeviceKernel:
         )
         values: list[torch.Tensor] = []
         for key, field_index, row_shape in zip(
-            _STATE_KEYS, self._state_indices, expected_shapes, strict=True
+            G1_STATE_KEYS, self._state_indices, expected_shapes, strict=True
         ):
             handle = state.buffer_at(field_index).handle
             if not isinstance(handle, DeviceTensorView):
@@ -947,156 +974,35 @@ class G1ManagedDeviceKernel:
         torch.mul(actions, self._action_scale, out=control_out)
         control_out.add_(self._default_angles)
 
-    @staticmethod
-    def _bezier_height_into(
-        phase: torch.Tensor,
-        swing_height: float,
-        *,
-        out: torch.Tensor,
-        task: _G1DeviceTaskState,
-    ) -> None:
-        """Evaluate the periodic smoothstep profile using registered scratch."""
-
-        a = task.reset_scalar_scratch
-        b = task.scalar_scratch_b
-        c = task.scalar_scratch_c
-        d = task.scalar_scratch_d
-        torch.add(phase, math.pi, out=a)
-        torch.remainder(a, 2.0 * math.pi, out=a)
-        a.div_(2.0 * math.pi)
-        torch.le(a, 0.5, out=task.reset_bool_scratch)
-
-        torch.mul(a, 2.0, out=b)
-        torch.square(b, out=out)
-        out.mul_(3.0)
-        torch.square(b, out=c)
-        c.mul_(b).mul_(2.0)
-        out.sub_(c)
-
-        b.sub_(1.0)
-        torch.square(b, out=c)
-        c.mul_(3.0)
-        torch.square(b, out=d)
-        d.mul_(b).mul_(2.0)
-        c.sub_(d).neg_().add_(1.0)
-        torch.where(task.reset_bool_scratch, out, c, out=d)
-        out.copy_(d, non_blocking=True)
-        out.mul_(swing_height)
-
-    def _reward_value_into(
+    def _reward_context(
         self,
-        name: str,
         *,
         views: _G1DeviceStateViews,
         task: _G1DeviceTaskState,
-        out: torch.Tensor,
-    ) -> None:
-        b = task.scalar_scratch_b
-        c = task.scalar_scratch_c
-        d = task.scalar_scratch_d
-        vector2 = task.vector2_scratch
-        action = task.action_scratch
-        if name == "tracking_lin_vel":
-            torch.sub(
-                task.commands[:, :2],
-                views.pelvis_local_linear_velocity[:, :2],
-                out=vector2,
-            )
-            torch.square(vector2, out=vector2)
-            torch.sum(vector2, dim=1, out=out)
-            out.mul_(-1.0 / self._config.tracking_sigma)
-            torch.exp(out, out=out)
-        elif name == "tracking_ang_vel":
-            torch.sub(task.commands[:, 2], views.torso_gyro[:, 2], out=out)
-            torch.square(out, out=out)
-            out.mul_(-1.0 / self._config.tracking_sigma)
-            torch.exp(out, out=out)
-        elif name == "forward_progress":
-            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=out)
-            torch.clamp_min(task.commands[:, 0], 1.0e-6, out=b)
-            out.div_(b)
-            torch.clamp_max(out, 1.0, out=out)
-        elif name == "under_speed":
-            torch.clamp_min(task.commands[:, 0], 1.0e-6, out=b)
-            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=out)
-            torch.sub(task.commands[:, 0], out, out=c)
-            torch.clamp_min(c, 0.0, out=c)
-            torch.div(c, b, out=out)
-        elif name == "lin_vel_z":
-            torch.square(views.pelvis_local_linear_velocity[:, 2], out=out)
-        elif name in {"orientation", "penalty_orientation"}:
-            torch.square(views.torso_upvector[:, :2], out=vector2)
-            torch.sum(vector2, dim=1, out=out)
-        elif name in {"ang_vel_xy", "penalty_ang_vel_xy"}:
-            torch.square(views.torso_gyro[:, :2], out=vector2)
-            torch.sum(vector2, dim=1, out=out)
-        elif name in {"action_rate", "penalty_action_rate"}:
-            torch.sub(task.current_actions, task.last_actions, out=action)
-            torch.square(action, out=action)
-            torch.sum(action, dim=1, out=out)
-        elif name == "base_height":
-            torch.sub(views.root_position[:, 2], self._config.base_height_target, out=out)
-            torch.square(out, out=out)
-        elif name == "pose":
-            torch.sub(views.dof_position, self._default_angles, out=action)
-            torch.square(action, out=action)
-            action.mul_(self._pose_weights)
-            torch.sum(action, dim=1, out=out)
-        elif name == "upper_body_pose":
-            torch.sub(views.dof_position, self._default_angles, out=action)
-            torch.square(action, out=action)
-            action.mul_(self._upper_body_pose_weights)
-            torch.sum(action, dim=1, out=out)
-        elif name == "penalty_close_feet_xy":
-            torch.sub(
-                views.left_foot_position[:, :2],
-                views.right_foot_position[:, :2],
-                out=vector2,
-            )
-            torch.linalg.vector_norm(vector2, dim=1, out=out)
-            torch.lt(out, self._config.close_feet_threshold, out=task.reset_bool_scratch)
-            torch.sub(out, self._config.close_feet_threshold, out=b)
-            torch.square(b, out=b)
-            c.zero_()
-            torch.where(task.reset_bool_scratch, b, c, out=out)
-        elif name in {"feet_phase", "feet_phase_contrast"}:
-            self._bezier_height_into(
-                task.gait_phase[:, 0],
-                self._config.feet_phase_swing_height,
-                out=task.left_height_scratch,
-                task=task,
-            )
-            self._bezier_height_into(
-                task.gait_phase[:, 1],
-                self._config.feet_phase_swing_height,
-                out=task.right_height_scratch,
-                task=task,
-            )
-            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=c)
-            torch.ge(
-                c,
-                self._config.min_forward_speed_for_gait_reward,
-                out=task.bool_scratch_b,
-            )
-            d.copy_(task.bool_scratch_b, non_blocking=True)
-            if name == "feet_phase":
-                torch.sub(views.left_foot_position[:, 2], task.left_height_scratch, out=out)
-                torch.square(out, out=out)
-                torch.sub(views.right_foot_position[:, 2], task.right_height_scratch, out=b)
-                torch.square(b, out=b)
-                out.add_(b)
-            else:
-                torch.sub(views.left_foot_position[:, 2], views.right_foot_position[:, 2], out=out)
-                torch.sub(task.left_height_scratch, task.right_height_scratch, out=b)
-                out.sub_(b)
-                torch.square(out, out=out)
-            out.mul_(-1.0 / self._config.feet_phase_tracking_sigma)
-            torch.exp(out, out=out)
-            out.mul_(d)
-        elif name == "alive":
-            out.fill_(1.0)
-        else:
-            raise G1ManagedDeviceError(f"unsupported G1 device reward term {name!r}")
+    ) -> G1RewardContext:
+        return G1RewardContext(
+            commands=task.commands,
+            current_actions=task.current_actions,
+            last_actions=task.last_actions,
+            gait_phase=task.gait_phase,
+            root_position=views.root_position,
+            dof_position=views.dof_position,
+            linear_velocity=views.pelvis_local_linear_velocity,
+            gyro=views.torso_gyro,
+            upvector=views.torso_upvector,
+            left_foot_position=views.left_foot_position,
+            right_foot_position=views.right_foot_position,
+            default_angles=self._default_angles,
+            pose_weights=self._pose_weights,
+            upper_body_pose_weights=self._upper_body_pose_weights,
+            tracking_sigma=self._config.tracking_sigma,
+            base_height_target=self._config.base_height_target,
+            feet_phase_swing_height=self._config.feet_phase_swing_height,
+            feet_phase_tracking_sigma=self._config.feet_phase_tracking_sigma,
+            min_forward_speed_for_gait_reward=(self._config.min_forward_speed_for_gait_reward),
+            close_feet_threshold=self._config.close_feet_threshold,
+            scratch=task.reward_scratch,
+        )
 
     def _write_observations(
         self,
@@ -1112,8 +1018,8 @@ class G1ManagedDeviceKernel:
             critic = observation_buffers[self._observation_indices[1]]
         except IndexError as exc:
             raise G1ManagedDeviceError("G1 device observation buffers are incomplete") from exc
-        expected_actor = (self._require_binding().num_envs, _ACTOR_WIDTH)
-        expected_critic = (self._require_binding().num_envs, _CRITIC_WIDTH)
+        expected_actor = (self._require_binding().num_envs, G1_ACTOR_OBSERVATION_WIDTH)
+        expected_critic = (self._require_binding().num_envs, G1_CRITIC_OBSERVATION_WIDTH)
         if tuple(actor.shape) != expected_actor or tuple(critic.shape) != expected_critic:
             raise G1ManagedDeviceError("G1 device observation buffer widths are incompatible")
         gyro_scale = 0.25 if self._config.walk_observation_profile else 1.0
@@ -1143,7 +1049,7 @@ class G1ManagedDeviceKernel:
         cursor += 3
         actor[:, cursor : cursor + 2].copy_(task.gait_phase, non_blocking=True)
         cursor += 2
-        if cursor != _ACTOR_WIDTH:  # pragma: no cover - static layout.
+        if cursor != G1_ACTOR_OBSERVATION_WIDTH:  # pragma: no cover - static layout.
             raise G1ManagedDeviceError("G1 device actor observation layout is inconsistent")
 
         cursor = 0
@@ -1175,7 +1081,7 @@ class G1ManagedDeviceKernel:
             out=critic[:, cursor : cursor + 3],
         )
         cursor += 3
-        if cursor != _CRITIC_WIDTH:  # pragma: no cover - static layout.
+        if cursor != G1_CRITIC_OBSERVATION_WIDTH:  # pragma: no cover - static layout.
             raise G1ManagedDeviceError("G1 device critic observation layout is inconsistent")
 
     def evaluate_terminal(
@@ -1184,11 +1090,23 @@ class G1ManagedDeviceKernel:
         state: StateBatch,
         task_state: object,
         reward_out: torch.Tensor,
+        metric_buffers: tuple[torch.Tensor, ...],
         terminated_out: torch.Tensor,
         terminal_observation_buffers: tuple[torch.Tensor, ...],
     ) -> None:
         task = self._task(task_state)
         views = self._state_views(state)
+        expected_shape = (self._require_binding().num_envs,)
+        if len(metric_buffers) != len(self.metric_keys) or any(
+            tuple(metric.shape) != expected_shape
+            or metric.dtype is not torch.float32
+            or metric.device != self._device
+            or not metric.is_contiguous()
+            for metric in metric_buffers
+        ):
+            raise G1ManagedDeviceError(
+                "G1 device metric buffers differ from the cold-bound metric layout"
+            )
         torch.clamp(
             views.torso_upvector[:, 2],
             -1.0,
@@ -1211,16 +1129,12 @@ class G1ManagedDeviceKernel:
             task.bool_scratch_b,
             out=terminated_out,
         )
+        reward_context = self._reward_context(views=views, task=task)
         reward_out.zero_()
-        for name, scale in self._reward_scales.items():
-            if scale != 0.0:
-                self._reward_value_into(
-                    name,
-                    views=views,
-                    task=task,
-                    out=task.reset_scalar_scratch,
-                )
-                reward_out.add_(task.reset_scalar_scratch, alpha=scale)
+        for (term, scale), metric in zip(self._reward_terms, metric_buffers, strict=True):
+            term.evaluate(TORCH_G1_REWARD_MATH, reward_context, out=metric)
+            metric.mul_(scale)
+            reward_out.add_(metric)
         reward_out.mul_(self._config.ctrl_dt)
         self._write_observations(
             views=views,
@@ -1347,20 +1261,17 @@ def create_g1_managed_device_runtime(
     if not isinstance(enable_stability_diagnostics, bool):
         raise G1ManagedDeviceError("enable_stability_diagnostics must be a bool")
     _validate_device_profile(cfg)
-    try:
-        config = _kernel_config(
-            backend=backend,
-            cfg=cfg,
-            reset_seed=reset_seed,
-            observation_noise_seed=None,
-            allow_pd_randomization=True,
-            allow_dof_armature_randomization=True,
-            allow_body_gravity_compensation_randomization=True,
-        )
-    except G1ManagedReferenceError as exc:
-        raise G1ManagedDeviceError(
-            str(exc).replace("managed reference", "device executor")
-        ) from exc
+    config = build_g1_kernel_config(
+        backend=backend,
+        cfg=cfg,
+        reset_seed=reset_seed,
+        observation_noise_seed=None,
+        profile_name="device executor",
+        error_type=G1ManagedDeviceError,
+        allow_pd_randomization=True,
+        allow_dof_armature_randomization=True,
+        allow_body_gravity_compensation_randomization=True,
+    )
     plan = compile_g1_managed_device_task(backend=backend, cfg=cfg)
     placement = plan.backend_io.control.buffer.placement
     kernel = G1ManagedDeviceKernel(

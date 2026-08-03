@@ -67,6 +67,7 @@ from unilab.dr.keyed_rng import (
     KeyedRandomTrafficDiagnostics,
 )
 
+from .device_sync import DeviceRuntimeSynchronization
 from .fingerprint import managed_policy_abi_snapshot, validate_compiled_plan_fingerprints
 from .plan import CompiledMutationEvent, CompiledTaskPlan
 from .runtime import ManagedKernelBinding, ManagedLifecyclePhase, ManagedRuntimeError
@@ -105,6 +106,7 @@ class DeviceTransition:
     observations: tuple[DeviceTransitionBuffer, ...]
     terminal_observations: tuple[DeviceTransitionBuffer, ...]
     final_observations: tuple[DeviceTransitionBuffer, ...]
+    metrics: tuple[DeviceTransitionBuffer, ...]
     reward: DeviceTensorView = field(repr=False, compare=False)
     terminated: DeviceTensorView = field(repr=False, compare=False)
     truncated: DeviceTensorView = field(repr=False, compare=False)
@@ -139,12 +141,20 @@ class DeviceTransition:
             raise DeviceManagedRuntimeError(
                 "device transition observation key layouts must be identical"
             )
+        if not isinstance(self.metrics, tuple) or any(
+            not isinstance(buffer, DeviceTransitionBuffer) for buffer in self.metrics
+        ):
+            raise DeviceManagedRuntimeError("device transition metrics must contain typed buffers")
+        metric_keys = tuple(buffer.key for buffer in self.metrics)
+        if len(set(metric_keys)) != len(metric_keys):
+            raise DeviceManagedRuntimeError("device transition metrics have duplicate keys")
         if not isinstance(self.completion, DeviceCompletion):
             raise DeviceManagedRuntimeError("device transition completion is invalid")
         all_views = (
             *(buffer.view for buffer in self.observations),
             *(buffer.view for buffer in self.terminal_observations),
             *(buffer.view for buffer in self.final_observations),
+            *(buffer.view for buffer in self.metrics),
             self.reward,
             self.terminated,
             self.truncated,
@@ -192,6 +202,14 @@ class DeviceTransition:
             if buffer.key == key:
                 return buffer.view
         raise DeviceManagedRuntimeError(f"device transition has no final observation group {key!r}")
+
+    def metric(self, key: str) -> DeviceTensorView:
+        """Return one task metric without materializing it on the host."""
+
+        for buffer in self.metrics:
+            if buffer.key == key:
+                return buffer.view
+        raise DeviceManagedRuntimeError(f"device transition has no metric {key!r}")
 
 
 @dataclass(frozen=True)
@@ -574,6 +592,7 @@ class DeviceManagedTaskKernel(Protocol):
     """Torch CUDA task-math ABI consumed by :class:`DeviceManagedRuntime`."""
 
     executor_key: str
+    metric_keys: tuple[str, ...]
 
     def bind(self, *, binding: ManagedKernelBinding) -> None:
         """Capture cold-bound public plan metadata exactly once."""
@@ -608,6 +627,7 @@ class DeviceManagedTaskKernel(Protocol):
         state: StateBatch,
         task_state: object,
         reward_out: torch.Tensor,
+        metric_buffers: tuple[torch.Tensor, ...],
         terminated_out: torch.Tensor,
         terminal_observation_buffers: tuple[torch.Tensor, ...],
     ) -> None:
@@ -726,7 +746,7 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError("max_episode_steps must be a positive integer or None")
         if isinstance(run_seed, bool) or not isinstance(run_seed, int):
             raise DeviceManagedRuntimeError("device managed runtime run_seed must be an integer")
-        self._validate_kernel(kernel, plan)
+        metric_keys = self._validate_kernel(kernel, plan)
 
         bound = backend.bind_task_io(plan.backend_io)
         self._validate_bound_plan(backend=backend, plan=plan, bound=bound)
@@ -878,22 +898,12 @@ class DeviceManagedRuntime:
         self._last_step_diagnostics: BackendBatchDiagnostics | None = None
         self._last_reset_diagnostics: BackendBatchDiagnostics | None = None
 
-        self._task_stream = cast(torch.cuda.Stream, torch.cuda.Stream(device=self._device))
+        self._synchronization = DeviceRuntimeSynchronization.create(self._device)
         self._control_lease = DeviceBufferLease(
             f"{bound.backend_instance_id}:device-runtime-control"
         )
         self._reset_lease = DeviceBufferLease(f"{bound.backend_instance_id}:device-manager-reset")
         self._output_lease = DeviceBufferLease(f"{bound.backend_instance_id}:device-runtime-output")
-        self._control_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
-        self._reset_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
-        self._output_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
-        # RSL-RL initializes random episode lengths on its policy/default
-        # stream.  The runtime consumes the resulting buffer on
-        # ``_task_stream``.  Keep a dedicated event for this low-frequency
-        # handoff rather than relying on CUDA default-stream semantics.
-        self._episode_length_input_event = cast(
-            torch.cuda.Event, torch.cuda.Event(enable_timing=False)
-        )
         self._consumed_action_epochs: WeakKeyDictionary[DeviceBufferLease, int] = (
             WeakKeyDictionary()
         )
@@ -914,8 +924,10 @@ class DeviceManagedRuntime:
             event_mutation_indices=self._event_mutation_indices,
         )
         kernel.bind(binding=binding)
-        self._validate_kernel(kernel, plan)
+        if self._validate_kernel(kernel, plan) != metric_keys:
+            raise DeviceManagedRuntimeError("device managed kernel metric keys changed during bind")
         self._kernel_binding = binding
+        self._metric_keys = metric_keys
         self._task_state = kernel.create_task_state(
             num_envs=self._num_envs,
             dtype=self._dtype,
@@ -934,6 +946,10 @@ class DeviceManagedRuntime:
         )
         self._bool_contract = _runtime_contract(placement=placement, row_shape=(), dtype="bool")
         self._reward = torch.empty((self._num_envs,), dtype=self._dtype, device=self._device)
+        self._metrics = tuple(
+            torch.empty((self._num_envs,), dtype=self._dtype, device=self._device)
+            for _ in self._metric_keys
+        )
         self._terminated = torch.empty((self._num_envs,), dtype=torch.bool, device=self._device)
         self._truncated = torch.empty((self._num_envs,), dtype=torch.bool, device=self._device)
         self._done = torch.empty((self._num_envs,), dtype=torch.bool, device=self._device)
@@ -950,19 +966,13 @@ class DeviceManagedRuntime:
         )
         self._terminal_observations = tuple(torch.empty_like(value) for value in self._observations)
         self._final_observations = tuple(torch.empty_like(value) for value in self._observations)
-        # Construction may run on a policy/default stream while every warm
-        # lifecycle operation runs on ``_task_stream``.  Publish all cold-path
-        # tensor initialization explicitly before the first reset instead of
-        # relying on CUDA default-stream ordering.
-        self._cold_init_event = cast(torch.cuda.Event, torch.cuda.Event(enable_timing=False))
-        cold_init_stream = torch.cuda.current_stream(self._device)
-        if cold_init_stream != self._task_stream:
-            self._cold_init_event.record(cold_init_stream)
-            self._task_stream.wait_event(cast(Any, self._cold_init_event))
+        self._synchronization.publish_cold_initialization()
         self._initialized = False
 
     @staticmethod
-    def _validate_kernel(kernel: DeviceManagedTaskKernel, plan: CompiledTaskPlan) -> None:
+    def _validate_kernel(
+        kernel: DeviceManagedTaskKernel, plan: CompiledTaskPlan
+    ) -> tuple[str, ...]:
         try:
             executor_key = kernel.executor_key
         except AttributeError as exc:
@@ -971,14 +981,27 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError(
                 "device managed kernel executor_key does not match the compiled task plan"
             )
-        # This is a cold-path structural check.  Device task math may retain
-        # tensors/configuration, but never a backend/env owner it could use to
-        # bypass StateBatch.
+        try:
+            metric_keys = kernel.metric_keys
+        except AttributeError as exc:
+            raise DeviceManagedRuntimeError("device managed kernel has no metric_keys") from exc
+        if (
+            not isinstance(metric_keys, tuple)
+            or any(not isinstance(key, str) or not key.strip() for key in metric_keys)
+            or len(set(metric_keys)) != len(metric_keys)
+        ):
+            raise DeviceManagedRuntimeError(
+                "device managed kernel metric_keys must be unique non-empty strings"
+            )
+        # This cold-path depth check inspects instance attributes only.  It
+        # intentionally does not claim to detect class attributes or closure
+        # captures; task implementations remain responsible for the protocol.
         for forbidden in ("backend", "env", "_backend", "_env", "model", "_model"):
             if forbidden in vars(kernel):
                 raise DeviceManagedRuntimeError(
                     f"device managed kernel must not retain forbidden {forbidden!r} owner reference"
                 )
+        return metric_keys
 
     @staticmethod
     def _validate_bound_plan(
@@ -1064,6 +1087,12 @@ class DeviceManagedRuntime:
         return self._device
 
     @property
+    def metric_keys(self) -> tuple[str, ...]:
+        """Return the cold-bound task metric layout in transition order."""
+
+        return self._metric_keys
+
+    @property
     def event_bindings(self) -> tuple[DeviceMutationEventBinding, ...]:
         """Return immutable backend-bound Event metadata without exposing samplers."""
 
@@ -1073,7 +1102,9 @@ class DeviceManagedRuntime:
         """Materialize per-world counters at an explicit diagnostic boundary."""
 
         if self._initialized:
-            torch.cuda.current_stream(self._device).wait_event(cast(Any, self._output_event))
+            torch.cuda.current_stream(self._device).wait_event(
+                cast(Any, self._synchronization.output_event)
+            )
         return tuple(
             (binding.event.term_key, stream.capture_trigger_counts())
             for binding, stream in zip(self._event_bindings, self._event_streams, strict=True)
@@ -1127,18 +1158,7 @@ class DeviceManagedRuntime:
             raise DeviceManagedRuntimeError(
                 "device episode-length initialization differs from the runtime contract"
             )
-        producer_stream = torch.cuda.current_stream(self._device)
-        with torch.cuda.stream(self._task_stream):
-            if producer_stream != self._task_stream:
-                self._episode_length_input_event.record(producer_stream)
-                # PyTorch's stubs expose two internal Event aliases here;
-                # runtime validation above still guarantees a CUDA event.
-                self._task_stream.wait_event(cast(Any, self._episode_length_input_event))
-            self._episode_steps.copy_(values, non_blocking=True)
-            # The caller may release this temporary tensor as soon as the
-            # setter returns. Keep its allocator storage alive until the task
-            # stream has consumed the asynchronous copy.
-            values.record_stream(self._task_stream)
+        self._synchronization.copy_episode_lengths(values=values, target=self._episode_steps)
 
     @property
     def bound_plan(self) -> BoundBackendPlan:
@@ -1272,6 +1292,10 @@ class DeviceManagedRuntime:
             DeviceRuntimeBuffer("runtime.final_observation_mask", self._final_observation_mask),
             DeviceRuntimeBuffer("runtime.episode_steps", self._episode_steps),
         ]
+        buffers.extend(
+            DeviceRuntimeBuffer(f"runtime.metric.{key}", value)
+            for key, value in zip(self._metric_keys, self._metrics, strict=True)
+        )
         for key, observation, terminal, final in zip(
             self._observation_keys,
             self._observations,
@@ -1531,7 +1555,7 @@ class DeviceManagedRuntime:
         phase_timing_token: DeviceResetPhaseTimingSampleToken | None = None
         try:
             if phase_timing is not None:
-                phase_timing_token = phase_timing.begin_sample(self._task_stream)
+                phase_timing_token = phase_timing.begin_sample(self._synchronization.task_stream)
             for binding, stream in zip(self._event_bindings, self._event_streams, strict=True):
                 sampled = stream.sample(mask).values
                 expected_shape = (self._num_envs, *binding.value_contract.row_shape)
@@ -1547,7 +1571,9 @@ class DeviceManagedRuntime:
                 tensors[binding.event.mutation_index] = sampled
             if phase_timing is not None:
                 assert phase_timing_token is not None
-                phase_timing.end_mutation_sample(phase_timing_token, self._task_stream)
+                phase_timing.end_mutation_sample(
+                    phase_timing_token, self._synchronization.task_stream
+                )
         except DevicePhaseTimingError as exc:
             raise DeviceManagedRuntimeError(f"reset phase timing failed: {exc}") from exc
         if any(tensor is None for tensor in tensors):
@@ -1558,8 +1584,8 @@ class DeviceManagedRuntime:
             placement=self._placement,
             owner_id=self._reset_lease.owner_id,
             epoch=self._reset_lease.epoch,
-            stream=self._task_stream,
-            event=self._reset_event,
+            stream=self._synchronization.task_stream,
+            event=self._synchronization.reset_event,
         )
         mask_view = DeviceTensorView(
             tensor_handle=mask,
@@ -1637,8 +1663,8 @@ class DeviceManagedRuntime:
             placement=self._placement,
             owner_id=self._control_lease.owner_id,
             epoch=self._control_lease.epoch,
-            stream=self._task_stream,
-            event=self._control_event,
+            stream=self._synchronization.task_stream,
+            event=self._synchronization.control_event,
         )
         view = DeviceTensorView(
             tensor_handle=self._control,
@@ -1661,8 +1687,8 @@ class DeviceManagedRuntime:
             placement=self._placement,
             owner_id=self._output_lease.owner_id,
             epoch=self._output_lease.epoch,
-            stream=self._task_stream,
-            event=self._output_event,
+            stream=self._synchronization.task_stream,
+            event=self._synchronization.output_event,
         )
 
     def _transition_view(
@@ -1696,11 +1722,20 @@ class DeviceManagedRuntime:
                 )
             )
 
+        metrics = tuple(
+            DeviceTransitionBuffer(
+                key=key,
+                view=self._transition_view(value, self._reward_contract, completion),
+            )
+            for key, value in zip(self._metric_keys, self._metrics, strict=True)
+        )
+
         return DeviceTransition(
             plan_fingerprint=self._plan.fingerprint,
             observations=named(self._observations),
             terminal_observations=named(self._terminal_observations),
             final_observations=named(self._final_observations),
+            metrics=metrics,
             reward=self._transition_view(self._reward, self._reward_contract, completion),
             terminated=self._transition_view(self._terminated, self._bool_contract, completion),
             truncated=self._transition_view(self._truncated, self._bool_contract, completion),
@@ -1726,7 +1761,7 @@ class DeviceManagedRuntime:
         self._reset_lease.invalidate()
         self._begin_trace()
         self._trace(ManagedLifecyclePhase.INITIAL_RESET_REQUEST)
-        with torch.cuda.stream(self._task_stream):
+        with torch.cuda.stream(self._synchronization.task_stream):
             all_mask = self._done
             all_mask.fill_(True)
             payload = self._kernel.prepare_reset(active_mask=all_mask, task_state=self._task_state)
@@ -1745,8 +1780,8 @@ class DeviceManagedRuntime:
         self._record_backend_diagnostics(phase="reset", diagnostics=result.diagnostics)
         self._observe_stability_state(result.reset_state)
         self._trace(ManagedLifecyclePhase.TASK_STATE_RESET)
-        with torch.cuda.stream(self._task_stream):
-            reset_completion.wait(self._task_stream)
+        with torch.cuda.stream(self._synchronization.task_stream):
+            reset_completion.wait(self._synchronization.task_stream)
             self._kernel.complete_reset(
                 active_mask=payload.active_mask,
                 state=result.reset_state,
@@ -1762,6 +1797,8 @@ class DeviceManagedRuntime:
                 terminal.copy_(observation, non_blocking=True)
                 final.copy_(observation, non_blocking=True)
             self._reward.zero_()
+            for metric in self._metrics:
+                metric.zero_()
             self._terminated.zero_()
             self._truncated.zero_()
             self._final_observation_mask.zero_()
@@ -1792,8 +1829,8 @@ class DeviceManagedRuntime:
         self._control_lease.invalidate()
         self._begin_trace()
         self._trace(ManagedLifecyclePhase.ACTION)
-        with torch.cuda.stream(self._task_stream):
-            action_completion.wait(self._task_stream)
+        with torch.cuda.stream(self._synchronization.task_stream):
+            action_completion.wait(self._synchronization.task_stream)
             self._kernel.apply_action(
                 actions=action,
                 task_state=self._task_state,
@@ -1822,14 +1859,17 @@ class DeviceManagedRuntime:
 
         self._reset_lease.invalidate()
         self._trace(ManagedLifecyclePhase.TERMINATION)
-        with torch.cuda.stream(self._task_stream):
-            step_completion.wait(self._task_stream)
+        with torch.cuda.stream(self._synchronization.task_stream):
+            step_completion.wait(self._synchronization.task_stream)
             self._reward.zero_()
+            for metric in self._metrics:
+                metric.zero_()
             self._terminated.zero_()
             self._kernel.evaluate_terminal(
                 state=terminal,
                 task_state=self._task_state,
                 reward_out=self._reward,
+                metric_buffers=self._metrics,
                 terminated_out=self._terminated,
                 terminal_observation_buffers=self._terminal_observations,
             )
@@ -1876,8 +1916,8 @@ class DeviceManagedRuntime:
         self._record_backend_diagnostics(phase="reset", diagnostics=reset_result.diagnostics)
         self._observe_stability_state(reset_result.reset_state)
         self._trace(ManagedLifecyclePhase.TASK_STATE_RESET)
-        with torch.cuda.stream(self._task_stream):
-            reset_completion.wait(self._task_stream)
+        with torch.cuda.stream(self._synchronization.task_stream):
+            reset_completion.wait(self._synchronization.task_stream)
             self._kernel.complete_reset(
                 active_mask=payload.active_mask,
                 state=reset_result.reset_state,

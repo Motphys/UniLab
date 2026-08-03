@@ -265,11 +265,12 @@ class DeviceTensorView:
     def __dlpack__(
         self, stream: int | None = None, max_version: tuple[int, int] | None = None
     ) -> Any:
-        """Export a fresh DLPack capsule while the source lease remains valid."""
+        """Wait for the producer, then export a fresh DLPack capsule."""
 
         self.assert_valid()
         if not self.contract.dlpack_exportable:
             raise DeviceBufferContractError("this typed device buffer is not DLPack exportable")
+        self.wait()
         try:
             return self.tensor_handle.__dlpack__(stream=stream, max_version=max_version)
         except TypeError:
