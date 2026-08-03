@@ -2,6 +2,18 @@
 
 uv run scripts/audit_ci_test_shards.py
 uv run scripts/audit_ci_test_shards.py --json
+
+Two-workflow model
+------------------
+ci.yml     — standard PR gate: fast shards (a, b, d, f, scripts).
+ci-full.yml — full CI: evidence / benchmark / acceptance shards (c, e, g, h).
+
+Together the two workflows cover every test file exactly once.  This script
+validates:
+  1. ci.yml structural contract (fetch-depth, coverage artifacts, aggregate job).
+  2. Combined shard coverage: every test file matches exactly one route across
+     ci.yml + ci-full.yml.
+  3. No overlapping routes between the two workflows.
 """
 
 from __future__ import annotations
@@ -22,6 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
+FULL_WORKFLOW_PATH = Path(".github/workflows/ci-full.yml")
 PYPROJECT_PATH = Path("pyproject.toml")
 TEST_ROOT = Path("tests")
 LOCAL_EVIDENCE_EXPRESSION = "not slow and not local_evidence"
@@ -39,6 +52,8 @@ EXPECTED_LOCAL_EVIDENCE_TEST_IDS = frozenset(
         "tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate",
         "tests/integration/test_issue705_legacy_retirement.py::"
         "test_legacy_removal_requires_full_entrypoint_and_rollback_evidence",
+        "tests/scripts/test_issue705_final_gate.py::"
+        "test_committed_final_artifact_is_fresh_and_promoted",
     }
 )
 
@@ -210,6 +225,59 @@ def _local_evidence_test_ids(
     return tuple(sorted(test_ids))
 
 
+def _load_shard_routes(
+    workflow: dict[str, Any],
+    workflow_label: str,
+    errors: list[str],
+) -> dict[str, tuple[str, ...]]:
+    """Extract {shard_name: (route, ...)} from a parsed workflow YAML."""
+    jobs = _mapping(workflow.get("jobs"), f"{workflow_label}.jobs", errors)
+    shard_job = _mapping(jobs.get("test-shard"), f"{workflow_label}.jobs.test-shard", errors)
+    strategy = _mapping(
+        shard_job.get("strategy"), f"{workflow_label}.jobs.test-shard.strategy", errors
+    )
+    matrix = _mapping(
+        strategy.get("matrix"), f"{workflow_label}.jobs.test-shard.strategy.matrix", errors
+    )
+    raw_includes = matrix.get("include")
+    includes: list[dict[str, Any]] = []
+    if not isinstance(raw_includes, list) or not raw_includes:
+        errors.append(
+            f"{workflow_label}.jobs.test-shard.strategy.matrix.include must be a non-empty list"
+        )
+        return {}
+    if not all(isinstance(entry, dict) for entry in raw_includes):
+        errors.append(
+            f"{workflow_label}.jobs.test-shard.strategy.matrix.include must contain only mappings"
+        )
+        return {}
+    includes = raw_includes
+
+    shard_routes: dict[str, tuple[str, ...]] = {}
+    for index, entry in enumerate(includes):
+        shard = entry.get("shard")
+        paths = entry.get("paths")
+        if not isinstance(shard, str) or not shard:
+            errors.append(
+                f"{workflow_label}.matrix.include[{index}].shard must be a non-empty string"
+            )
+            continue
+        if shard in shard_routes:
+            errors.append(f"{workflow_label}: duplicate shard name: {shard}")
+            continue
+        if not isinstance(paths, str) or not paths.split():
+            errors.append(
+                f"{workflow_label}.matrix.include[{index}].paths must be a non-empty string"
+            )
+            continue
+        routes = tuple(paths.split())
+        invalid = [route for route in routes if not route.startswith("tests/")]
+        if invalid:
+            errors.append(f"{workflow_label} shard {shard} has routes outside tests/: {invalid}")
+        shard_routes[shard] = routes
+    return shard_routes
+
+
 def audit_ci_test_shards(
     root: Path = REPO_ROOT,
     *,
@@ -234,6 +302,7 @@ def audit_ci_test_shards(
     shard_job = _mapping(jobs.get("test-shard"), "jobs.test-shard", errors)
     aggregate_job = _mapping(jobs.get("test"), "jobs.test", errors)
 
+    # --- standard shard routes (structural contract applies) ---
     strategy = _mapping(shard_job.get("strategy"), "jobs.test-shard.strategy", errors)
     matrix = _mapping(strategy.get("matrix"), "jobs.test-shard.strategy.matrix", errors)
     raw_includes = matrix.get("include")
@@ -270,6 +339,35 @@ def audit_ci_test_shards(
     if duplicate_routes:
         errors.append(f"test routes appear more than once: {duplicate_routes}")
 
+    # --- full CI shard routes (loaded from ci-full.yml if present) ---
+    full_shard_routes: dict[str, tuple[str, ...]] = {}
+    full_workflow_path = root / FULL_WORKFLOW_PATH
+    if full_workflow_path.exists():
+        try:
+            full_workflow = yaml.load(
+                full_workflow_path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+            )
+        except (OSError, UnicodeError, yaml.YAMLError) as exc:
+            errors.append(
+                f"{FULL_WORKFLOW_PATH}: cannot parse workflow: {type(exc).__name__}: {exc}"
+            )
+            full_workflow = None
+        if isinstance(full_workflow, dict):
+            full_shard_routes = _load_shard_routes(full_workflow, str(FULL_WORKFLOW_PATH), errors)
+            # Check for route overlap between standard and full workflows
+            full_all_routes: list[str] = [
+                route for routes in full_shard_routes.values() for route in routes
+            ]
+            overlap = sorted(set(all_routes) & set(full_all_routes))
+            if overlap:
+                errors.append(
+                    f"routes appear in both ci.yml and ci-full.yml (must be non-overlapping): "
+                    f"{overlap}"
+                )
+
+    # --- combined coverage check across standard + full shards ---
+    combined_routes: dict[str, tuple[str, ...]] = {**shard_routes, **full_shard_routes}
+
     test_files = _test_files(root)
     if not test_files:
         errors.append(f"{TEST_ROOT}: no test*.py files found")
@@ -281,11 +379,13 @@ def audit_ci_test_shards(
         errors.append(f"local_evidence nodes are missing markers: {missing_local_evidence}")
     if unexpected_local_evidence:
         errors.append(f"unregistered local_evidence nodes: {unexpected_local_evidence}")
-    route_hits = dict.fromkeys(all_routes, 0)
+
+    combined_all_routes = [route for routes in combined_routes.values() for route in routes]
+    route_hits = dict.fromkeys(combined_all_routes, 0)
     for test_file in test_files:
         matched_routes = [
             (shard, route)
-            for shard, routes in shard_routes.items()
+            for shard, routes in combined_routes.items()
             for route in routes
             if _matches_test_path(test_file, route, root)
         ]
