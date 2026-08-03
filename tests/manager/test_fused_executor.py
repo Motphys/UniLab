@@ -38,9 +38,12 @@ from unilab.envs.locomotion.g1.managed_fused import (
 )
 from unilab.envs.locomotion.g1.managed_reference import (
     G1ManagedReferenceKernel,
-    _kernel_config,
     compile_g1_managed_reference_task,
     create_g1_managed_reference_runtime,
+)
+from unilab.envs.locomotion.g1.managed_schema import (
+    G1_STATE_KEYS,
+    build_g1_kernel_config,
 )
 from unilab.manager import ManagedReferenceRuntime, ManagedRuntimeError
 
@@ -457,7 +460,7 @@ def test_fused_terminal_state_views_are_validated_once_per_borrowed_batch() -> N
             runtime.step(actions)
 
         state_indices = dict(runtime.kernel_binding.state_field_indices)
-        assert field_reads == [state_indices[key] for key in fused_module._STATE_KEYS]
+        assert field_reads == [state_indices[key] for key in G1_STATE_KEYS]
     finally:
         _cleanup(backend)
 
@@ -594,11 +597,13 @@ def test_fused_executor_never_silently_falls_back() -> None:
         reference_plan = compile_g1_managed_reference_task(backend=wrong_backend, cfg=wrong_cfg)
         wrong_backend.materialize()
         kernel = G1ManagedFusedKernel(
-            _kernel_config(
+            build_g1_kernel_config(
                 backend=wrong_backend,
                 cfg=wrong_cfg,
                 reset_seed=0,
                 observation_noise_seed=None,
+                profile_name="fused executor",
+                error_type=G1ManagedFusedError,
             ),
             expected_plan_fingerprint=reference_plan.fingerprint,
         )
@@ -620,11 +625,13 @@ def test_fused_executor_never_silently_falls_back() -> None:
         fused_plan = compile_g1_managed_fused_task(backend=stale_backend, cfg=stale_cfg)
         stale_backend.materialize()
         stale_kernel = G1ManagedFusedKernel(
-            _kernel_config(
+            build_g1_kernel_config(
                 backend=stale_backend,
                 cfg=stale_cfg,
                 reset_seed=0,
                 observation_noise_seed=None,
+                profile_name="fused executor",
+                error_type=G1ManagedFusedError,
             ),
             expected_plan_fingerprint="stale-plan-fingerprint",
         )

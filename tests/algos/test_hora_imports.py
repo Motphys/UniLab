@@ -52,3 +52,40 @@ def test_rsl_rl_runtime_resolver_rejects_unresolved_custom_runtime() -> None:
             {"runtime_impl": "hora_ppo"},
             default_wrapper_cls=RslRlVecEnvWrapper,
         )
+
+
+def test_rsl_rl_runtime_owner_rejects_profile_for_profileless_runtime() -> None:
+    from unilab.algos.torch.rsl_rl_runtime import (
+        RslRlPPORuntime,
+        validate_rsl_rl_ppo_runtime_owner,
+    )
+
+    runtime = RslRlPPORuntime(
+        wrapper_cls=object,
+        runner_cls=object,
+        wrapper_kwargs={},
+    )
+
+    with pytest.raises(ValueError, match="does not accept training.execution_profile"):
+        validate_rsl_rl_ppo_runtime_owner(
+            runtime,
+            sim_backend="mujoco",
+            execution_profile="device_resident",
+        )
+
+
+def test_rsl_rl_runtime_owner_accepts_absent_profile_for_profileless_runtime() -> None:
+    from unilab.algos.torch.rsl_rl_runtime import (
+        RslRlPPORuntime,
+        validate_rsl_rl_ppo_runtime_owner,
+    )
+
+    validate_rsl_rl_ppo_runtime_owner(
+        RslRlPPORuntime(
+            wrapper_cls=object,
+            runner_cls=object,
+            wrapper_kwargs={},
+        ),
+        sim_backend="mujoco",
+        execution_profile=None,
+    )

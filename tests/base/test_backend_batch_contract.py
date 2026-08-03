@@ -565,6 +565,11 @@ def test_managed_hot_path_has_no_dynamic_getters() -> None:
         replace(_requirements(), hot_path_budget=cast(Any, object()))
     with pytest.raises(BackendBatchContractError, match="reset_hot_path_budget"):
         replace(_requirements(), reset_hot_path_budget=cast(Any, object()))
+    with pytest.raises(BackendBatchContractError, match="reset_requires_mutation_batch"):
+        replace(
+            _FakeBatchBackend().plan,
+            reset_requires_mutation_batch=cast(Any, "true"),
+        )
 
     unbudgeted = _FakeBatchBackend().plan
     assert unbudgeted.fingerprint == backend.plan.fingerprint

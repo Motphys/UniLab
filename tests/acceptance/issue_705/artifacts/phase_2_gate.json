@@ -3,48 +3,56 @@
     {
       "claim_id": "P2-BACKEND-IDENTITY",
       "command": "lane_a_identity",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 1,
       "required_test_id": "tests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco"
     },
     {
       "claim_id": "P2-GPU-CORRECTNESS",
       "command": "lane_c_production_cuda",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 2,
       "required_test_id": "tests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step"
     },
     {
       "claim_id": "P2-RESET-ISOLATION",
       "command": "lane_c_production_cuda",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 3,
       "required_test_id": "tests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated"
     },
     {
       "claim_id": "P2-TRAJECTORY-DIFFERENTIAL",
       "command": "lane_c_production_cuda",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 3,
       "required_test_id": "tests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco"
     },
     {
       "claim_id": "P2-DR-OWNER-SEMANTICS",
       "command": "lane_c_dr_owner_semantics",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 3,
       "required_test_id": "tests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled"
     },
     {
       "claim_id": "P2-TRANSFER-ACCOUNTING",
       "command": "lane_c_production_cuda",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 2,
       "required_test_id": "tests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan"
     },
     {
       "claim_id": "P2-UNSUPPORTED-FAIL-CLOSED",
       "command": "lane_c_production_cuda",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 1,
       "required_test_id": "tests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step"
     },
     {
       "claim_id": "P2-TRAIN-LIVENESS",
       "command": "lane_c_production_cuda",
+      "config_input": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
       "minimum_repetitions": 1,
       "required_test_id": "tests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp"
     }
@@ -60,7 +68,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 6.585910413006786,
+      "duration_sec": 6.8507095069999195,
       "exit_code": 0,
       "lane": "A",
       "name": "lane_a_identity#1",
@@ -76,7 +84,7 @@
       ],
       "series": "lane_a_identity",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/base/test_backend_imports.py::test_mujoco_backend_import_path_does_not_eagerly_import_motrix PASSED [ 25%]\ntests/base/test_backend_imports.py::test_motrix_backend_import_path_does_not_eagerly_import_mujoco PASSED [ 50%]\ntests/base/test_backend_imports.py::test_mjwarp_recompute_import_path_does_not_eagerly_import_warp PASSED [ 75%]\ntests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco PASSED [100%]\n\n============================== 4 passed in 4.62s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 4 items\n\ntests/base/test_backend_imports.py::test_mujoco_backend_import_path_does_not_eagerly_import_motrix PASSED [ 25%]\ntests/base/test_backend_imports.py::test_motrix_backend_import_path_does_not_eagerly_import_mujoco PASSED [ 50%]\ntests/base/test_backend_imports.py::test_mjwarp_recompute_import_path_does_not_eagerly_import_warp PASSED [ 75%]\ntests/base/test_mjwarp_identity.py::test_mjwarp_identity_is_independent_from_mujoco PASSED [100%]\n\n============================== 4 passed in 4.66s ===============================\n"
     },
     {
       "argv": [
@@ -96,7 +104,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 23.02049361198442,
+      "duration_sec": 22.085589766998964,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_production_cuda#1",
@@ -117,7 +125,7 @@
       ],
       "series": "lane_c_production_cuda",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 11 items\n\ntests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step PASSED [  9%]\ntests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated PASSED [ 18%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-1] PASSED [ 27%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-32] PASSED [ 36%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-1] PASSED [ 45%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-32] PASSED [ 54%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-1] PASSED [ 63%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-32] PASSED [ 72%]\ntests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan PASSED [ 81%]\ntests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step PASSED [ 90%]\ntests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp PASSED [100%]\n\n============================= 11 passed in 20.02s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 11 items\n\ntests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step PASSED [  9%]\ntests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated PASSED [ 18%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-1] PASSED [ 27%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-32] PASSED [ 36%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-1] PASSED [ 45%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-32] PASSED [ 54%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-1] PASSED [ 63%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-32] PASSED [ 72%]\ntests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan PASSED [ 81%]\ntests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step PASSED [ 90%]\ntests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp PASSED [100%]\n\n============================= 11 passed in 19.11s ==============================\n"
     },
     {
       "argv": [
@@ -137,7 +145,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 24.295941327000037,
+      "duration_sec": 20.773305054999582,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_production_cuda#2",
@@ -158,7 +166,7 @@
       ],
       "series": "lane_c_production_cuda",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 11 items\n\ntests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step PASSED [  9%]\ntests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated PASSED [ 18%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-1] PASSED [ 27%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-32] PASSED [ 36%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-1] PASSED [ 45%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-32] PASSED [ 54%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-1] PASSED [ 63%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-32] PASSED [ 72%]\ntests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan PASSED [ 81%]\ntests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step PASSED [ 90%]\ntests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp PASSED [100%]\n\n============================= 11 passed in 21.41s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 11 items\n\ntests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step PASSED [  9%]\ntests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated PASSED [ 18%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-1] PASSED [ 27%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-32] PASSED [ 36%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-1] PASSED [ 45%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-32] PASSED [ 54%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-1] PASSED [ 63%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-32] PASSED [ 72%]\ntests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan PASSED [ 81%]\ntests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step PASSED [ 90%]\ntests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp PASSED [100%]\n\n============================= 11 passed in 17.72s ==============================\n"
     },
     {
       "argv": [
@@ -178,7 +186,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 22.695071440015454,
+      "duration_sec": 21.440997102999972,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_production_cuda#3",
@@ -199,7 +207,7 @@
       ],
       "series": "lane_c_production_cuda",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 11 items\n\ntests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step PASSED [  9%]\ntests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated PASSED [ 18%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-1] PASSED [ 27%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-32] PASSED [ 36%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-1] PASSED [ 45%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-32] PASSED [ 54%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-1] PASSED [ 63%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-32] PASSED [ 72%]\ntests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan PASSED [ 81%]\ntests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step PASSED [ 90%]\ntests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp PASSED [100%]\n\n============================= 11 passed in 19.72s ==============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 11 items\n\ntests/base/test_mjwarp_backend.py::test_real_cuda_init_reset_step PASSED [  9%]\ntests/base/test_mjwarp_backend.py::test_selected_row_reset_isolated PASSED [ 18%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-1] PASSED [ 27%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[0-batch-32] PASSED [ 36%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-1] PASSED [ 45%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[1-batch-32] PASSED [ 54%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-1] PASSED [ 63%]\ntests/base/test_mjwarp_differential.py::test_g1_short_trajectory_matches_mujoco[2-batch-32] PASSED [ 72%]\ntests/base/test_mjwarp_transfers.py::test_host_profile_transfer_count_matches_bound_plan PASSED [ 81%]\ntests/base/test_mjwarp_capabilities.py::test_unsupported_matrix_fails_before_step PASSED [ 90%]\ntests/integration/test_mjwarp_train_smoke.py::test_g1_one_iteration_uses_production_mjwarp PASSED [100%]\n\n============================= 11 passed in 18.47s ==============================\n"
     },
     {
       "argv": [
@@ -212,7 +220,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 2.1636618329794146,
+      "duration_sec": 1.7849658219984121,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_owner_semantics#1",
@@ -228,7 +236,7 @@
       ],
       "series": "lane_c_dr_owner_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled PASSED [100%]\n\n============================== 1 passed in 0.11s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled PASSED [100%]\n\n============================== 1 passed in 0.09s ===============================\n"
     },
     {
       "argv": [
@@ -241,7 +249,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.8177079939632677,
+      "duration_sec": 1.810456436000095,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_owner_semantics#2",
@@ -257,7 +265,7 @@
       ],
       "series": "lane_c_dr_owner_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled PASSED [100%]\n\n============================== 1 passed in 0.10s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled PASSED [100%]\n\n============================== 1 passed in 0.09s ===============================\n"
     },
     {
       "argv": [
@@ -270,7 +278,7 @@
         "-v",
         "-rsxX"
       ],
-      "duration_sec": 1.877259782049805,
+      "duration_sec": 1.797833429000093,
       "exit_code": 0,
       "lane": "C",
       "name": "lane_c_dr_owner_semantics#3",
@@ -286,12 +294,12 @@
       ],
       "series": "lane_c_dr_owner_semantics",
       "stderr": "",
-      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/ws/unilabsim/UniLab/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /home/tatp/ws/unilabsim/UniLab\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled PASSED [100%]\n\n============================== 1 passed in 0.11s ===============================\n"
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0 -- /home/tatp/Desktop/UniLab2/.venv/bin/python3\ncachedir: .pytest_cache\nrootdir: /home/tatp/Desktop/UniLab2\nconfigfile: pyproject.toml\nplugins: anyio-4.13.0, cov-7.1.0, hydra-core-1.3.2\ncollecting ... collected 1 item\n\ntests/dr/test_mjwarp_g1_dr.py::test_g1_kp_kd_owner_semantics_have_physics_effect_or_are_disabled PASSED [100%]\n\n============================== 1 passed in 0.09s ===============================\n"
     }
   ],
   "environment": {
     "nvidia_smi": [
-      "NVIDIA RTX 6000 Ada Generation, GPU-e154a732-d539-0424-cdb2-de408e0c5a21, 570.133.07, 49140 MiB"
+      "NVIDIA RTX 6000 Ada Generation, GPU-e154a732-d539-0424-cdb2-de408e0c5a21, 580.173.02, 49140 MiB"
     ],
     "packages": {
       "mujoco": "3.10.0",
@@ -300,24 +308,108 @@
       "torch": "2.7.0+cu128",
       "warp-lang": "1.15.0"
     },
-    "platform": "Linux-6.8.0-60-generic-x86_64-with-glibc2.35",
-    "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "python": "3.13.12 (main, Mar  3 2026, 15:01:51) [Clang 21.1.4 ]",
     "warp_device": "cuda:0"
   },
-  "generated_at_utc": "2026-08-02T09:13:12.740407+00:00",
+  "generated_at_utc": "2026-08-02T20:30:51.278157+00:00",
   "inputs": {
-    "owner_yaml": "conf/ppo/task/g1_walk_flat/mjwarp.yaml",
-    "owner_yaml_sha256": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
-    "uv_lock": "uv.lock",
-    "uv_lock_sha256": "sha256:ed8f2070a0c73daddcf4dd3aa8917ad846dba5cbe7cd34fc75fdc6961eeb2f8a"
+    "claim_config_hashes": {
+      "P2-BACKEND-IDENTITY": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-DR-OWNER-SEMANTICS": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-GPU-CORRECTNESS": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-RESET-ISOLATION": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-TRAIN-LIVENESS": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-TRAJECTORY-DIFFERENTIAL": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-TRANSFER-ACCOUNTING": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "P2-UNSUPPORTED-FAIL-CLOSED": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c"
+    },
+    "files": {
+      "conf/ppo/task/g1_walk_flat/mjwarp.yaml": "sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c",
+      "scripts/capture_issue705_phase2_evidence.py": "sha256:c207230996cefc0cb4bfa2f6030f3c1357105ea1851c22343f8c02d6776afd6c",
+      "scripts/train_rsl_rl.py": "sha256:8caad6ccb63ee844087cc39ff9f0f031e0ebe07789750a588ff8dfe8ebbaad88",
+      "src/unilab/base/backend/__init__.py": "sha256:d81ddc08d703143f1cf9867ba201d2a582c363a2a5f92de9664eea4264f1910d",
+      "src/unilab/base/backend/base.py": "sha256:d67357ceeb9ef585dcd7b18f8e83a92dd54a30030156a0decd570acbc2c1aa40",
+      "src/unilab/base/backend/batch.py": "sha256:3ba6c497fbca46bc33718847bef11a4a35ba24b6c12a7b074679498a5acc9e04",
+      "src/unilab/base/backend/device.py": "sha256:319f7be36094652de5d189f68176417177c57cdb67bdfcefa820ceabff80b0bc",
+      "src/unilab/base/backend/drake/__init__.py": "sha256:d4dce08737f5091a2c761a370e62e54e645ed5afe683d0055a6736bc1f9bda10",
+      "src/unilab/base/backend/drake/backend.py": "sha256:c21fde1c4f027b94eb5b2da041bb57269faf2fc5a01a8160042a5b45fd51af72",
+      "src/unilab/base/backend/drake/playback.py": "sha256:33f1d3a2abdae8686133d0e57a0d89ff1f4add9a764c8a9289b581253ec38221",
+      "src/unilab/base/backend/graph.py": "sha256:46bff9de87e02c067b4478fc3c53725e27a1a279d342564a6f51009c76cddbf3",
+      "src/unilab/base/backend/mjwarp/__init__.py": "sha256:07100364beff307b0ac5149b7e794ecc0e8900ef672ce4b10a89025475d8d46b",
+      "src/unilab/base/backend/mjwarp/armature_recompute.py": "sha256:52586bce7e9e1ff638dd9767fd5da6fd89dfe0a80ad634135422fd64ad2c924b",
+      "src/unilab/base/backend/mjwarp/backend.py": "sha256:6d559e5d8491da9fdb2a5662d3f688fc5fa4976a30939aba1dbf172018402e2c",
+      "src/unilab/base/backend/mjwarp/batch.py": "sha256:189018fb07e2facfd4b0e4d2c6bda8ac4b98aa21ff54d6f38168939f1acfab9e",
+      "src/unilab/base/backend/mjwarp/capability.py": "sha256:37f23d74807b9aa018650c3fdc2cdc2b479a5755da30fa64e17f4d9945657002",
+      "src/unilab/base/backend/mjwarp/controller.py": "sha256:a4776857e669e142b3d51a64b3c2e10f22978d3ef0802c95c1c3268797b7828c",
+      "src/unilab/base/backend/mjwarp/dependencies.py": "sha256:3e33c5426eae21ab1291613b310b86b5187cf488ebf85de9834f3170b6a96694",
+      "src/unilab/base/backend/mjwarp/device.py": "sha256:41ef62aef2db23b01a0c2d895e57b4d3aaf807df764c0d8aa5c82ad76b19d272",
+      "src/unilab/base/backend/mjwarp/device_mutation.py": "sha256:45994ccd88be5adb99a55fea3e1d8b54c595502fbbbc91a9d55fe50cb8eb292a",
+      "src/unilab/base/backend/mjwarp/materialization.py": "sha256:cf084f7ad2e3e0e21089661489cc77d14ab664cdbf52cb2a9aa111e3727a76bf",
+      "src/unilab/base/backend/mjwarp/model_mutation.py": "sha256:b6ca124e89aa15591e7939844468b810d7a8180d85ee885e1f5d4133de67704c",
+      "src/unilab/base/backend/mjwarp/mutation.py": "sha256:ff8b9489cd71dec55068b8e84915d63f2bc28920f5df1ef7e0d70940cb1f85e4",
+      "src/unilab/base/backend/mjwarp/recompute.py": "sha256:e10dfa36b56abf1200c355f2e8fd8fe9d8c358d88f58392b9eafe570a72a4978",
+      "src/unilab/base/backend/mjwarp/telemetry.py": "sha256:704427777dda2d6d22a020b1ed339ff0a16dc7aef0fab31ff32ba60fe031033d",
+      "src/unilab/base/backend/motrix/__init__.py": "sha256:30f7ab8c09de649939e019b9ae0b6f9c474f0f4b103b0ff0ff6ee618baaf4727",
+      "src/unilab/base/backend/motrix/backend.py": "sha256:159c8c5b03a3a6a60d6f179735a352c16776020b43001707d276260db6307a49",
+      "src/unilab/base/backend/motrix/playback.py": "sha256:424ba1122d8ffbf33a231220362d403d10a631cc2df721bbb7cc1b3838dc2272",
+      "src/unilab/base/backend/motrix/scene.py": "sha256:0bcd29302b680e1f2730d0754d5a1fe531232b8e67aaa56a8559411edb436abc",
+      "src/unilab/base/backend/motrix_camera.py": "sha256:18dbf06fc3334891e98ab9182db267ca0510c2d99f1730e3cf4b9898d8a97dde",
+      "src/unilab/base/backend/mujoco/__init__.py": "sha256:c305f99214d4950550b8a34c5399b102a52c1de46366a6dbc778c796e9f601da",
+      "src/unilab/base/backend/mujoco/backend.py": "sha256:5e78d2a1485ff233c05d7a31bbaea220c4efa831daf823467876f880ff5995bf",
+      "src/unilab/base/backend/mujoco/batch.py": "sha256:12364575ee7c885edbe3e0537a9211f8eeefbea1077ce60ced532a2696f4e778",
+      "src/unilab/base/backend/mujoco/capability.py": "sha256:9270bbce6c7cb4807bfc17ace6e653c01e132f7160daa254021ddc7fab00383b",
+      "src/unilab/base/backend/mujoco/chunk_tuner.py": "sha256:a122d0380ce712f6baf3cb8315f555fc8a24c81187709cf22d384e74fead497f",
+      "src/unilab/base/backend/mujoco/playback.py": "sha256:e4dd61203a91512066928fc12d64ab3a6d94817b12ce11579627771db39c5fce",
+      "src/unilab/base/backend/mujoco/xml.py": "sha256:d089852e5d3f0a45b61dfef98ae814f8ff20d332f9a52f8b8aa31a5ac7136f6d",
+      "src/unilab/base/backend/mutation.py": "sha256:35d375f3adc16e4a8d84a18fcb16b7d8141b92c132bf295dba1ff5e7cc348a95",
+      "src/unilab/base/backend/mutation_batch.py": "sha256:94d0afa47943cbc64b771e027dacf323a0fd60587f0d1c899450893391f1b7e6",
+      "src/unilab/base/backend/performance.py": "sha256:b40b8775ef8c8c34b82a43148fdd2a65321beb738071347758eb9a85aff5d709",
+      "src/unilab/base/backend/phase_timing.py": "sha256:2f0c760c8decc3d27b1d75c41487509562228acb810249ea9b415ee27716ad79",
+      "src/unilab/base/backend/playback_common.py": "sha256:5f1ca916f4c240c4ddf239ca2dfd00b54a8c5f8cee266f4e4a00ad53e4932250",
+      "src/unilab/base/backend/telemetry.py": "sha256:acadf708d0de93f0c968f48d6e7ed027ff49a2f04468d37a1dae0200e93c1a73",
+      "src/unilab/cli.py": "sha256:c54f240506257f9d0dd7ca7d3be0584be933e6fee241b020d94255b5742fb203",
+      "src/unilab/dr/__init__.py": "sha256:ceebe31a15656d264493addb2b6209da485a4ae1cfdab1bf9826b1dea9962370",
+      "src/unilab/dr/dr_utils.py": "sha256:34edd9d898fa43826faa3bbc578a48157c9faeaf85cfb8094671105c5fcc00f3",
+      "src/unilab/dr/keyed_rng.py": "sha256:441d5a341ed67b5c42dd5d85f3648ade1922dc54bc2797572be36163bb2ad2fe",
+      "src/unilab/dr/manager.py": "sha256:4be20ef596cc4192832c07649e9a8ec1d4265e5f7c9596a6ae5b73955b6fd79a",
+      "src/unilab/dr/provider.py": "sha256:52ec3ce89a2a8588df5bafee3c08e92c3cb8c58bfeacdda60faf68c6cba1113f",
+      "src/unilab/dr/types.py": "sha256:c1d35dd95161ff29d12f666fa64e46c69beac37c50944817d7868d4d8c278164",
+      "src/unilab/structured_configs.py": "sha256:9ebc72ed5417ee906dc63626ea3f25c99e30a22c46de546d3b326ee2f9cc9010",
+      "src/unilab/tools/issue705_phase2_evidence.py": "sha256:3fbc77ab526c86850676b48708543c5cdecdfd8df457ff84dc71bdefbacd8143",
+      "src/unilab/tools/issue705_phase_evidence.py": "sha256:da85a5e65b4e9da5c00a91ca53b165cb76000b657d7aaf8434857e0d2e46bb55",
+      "src/unilab/training/__init__.py": "sha256:f647e9e22a958d38524925498fcb735abcea7c52c459c7a4b3b28b8e0582aea5",
+      "src/unilab/training/backend_adapter.py": "sha256:ea2201dfae748a55098f3e76b8837f7d9d24982478e1c0312384492ed7eddfc5",
+      "src/unilab/training/common.py": "sha256:d8b9c467c4677803eb638677ab5e0417ddfb8da06b03280a6abf6b07a2375dbc",
+      "src/unilab/training/entrypoints.py": "sha256:92d72a5e539de00aaf844178a23fca93c1e5585722fc5f307df23edfe7f90bee",
+      "src/unilab/training/experiment.py": "sha256:9c602e8a693f39de2a4947892524c06c7a94bb16e4324ac4420e6e6b7597c08f",
+      "src/unilab/training/monitoring.py": "sha256:56c49d303d9b70668bf8dd4abcd500986bd120badd5a6075d2c8be7010ab1108",
+      "src/unilab/training/reward.py": "sha256:cf0dbd0bcc8934dca37888a0a5a73d1cf688b1bf63ab69f23676cc1c569f8204",
+      "src/unilab/training/rsl_rl.py": "sha256:e0e20fce8f26e24c130b7fe5f8935ac6d9718925be150df4aa8b12d6a105f341",
+      "src/unilab/training/rsl_rl_device.py": "sha256:7ff26fd1776fc68e2657cfbea0aaa7f33a2dc2064d83dae63e5a628950286cfe",
+      "src/unilab/training/run.py": "sha256:ec7b39a6d5fda0f5cc23d6bc3233268d818e5f200370df28eb1014ab106d1fbe",
+      "src/unilab/training/seed.py": "sha256:2d34c441fd8f92ba3151462c3d7aa8cfee1528e0a8a5753a9fc63957f531a348",
+      "src/unilab/training/sim2sim.py": "sha256:d4b4daef9e1c8e87acfe97494acf7981d282e90676a8d89ca76f27f1142bc305",
+      "tests/acceptance/issue_705/test_phase2_evidence.py": "sha256:33f199064b340d34d43ad26ad9dd886df7bfe7ac882a5a20113d92c6cfe5ac2b",
+      "tests/base/test_backend_imports.py": "sha256:a3de63a166923f8777578d8f0c01871bf913b51b0913f3f0b35fbaba85342822",
+      "tests/base/test_mjwarp_backend.py": "sha256:d4a5e255cb5452570d9665f8207b0aa78f925f90080b0c53201a2d41a1d3c2cf",
+      "tests/base/test_mjwarp_capabilities.py": "sha256:97bef3c988ed8e9349e28c0eca5c69efa9b3078943ae59a33827b2129664f93d",
+      "tests/base/test_mjwarp_differential.py": "sha256:0128ce0335ad3411ff0443c82daafc55c3ac17c784c154053a5b01fe614adf24",
+      "tests/base/test_mjwarp_identity.py": "sha256:0365d6bb8554a6485be0009f536139a863cfcfecc842ac666bb6e44c3303185c",
+      "tests/base/test_mjwarp_transfers.py": "sha256:ab1e3873c1c6e592944a02c750abd368104ffce528b84a5f902a1fb218f1be16",
+      "tests/dr/test_mjwarp_g1_dr.py": "sha256:1d9f3b089de4f536d4ef6693cda67334a50df9abf6a439735388e97cd66f0305",
+      "tests/integration/test_mjwarp_train_smoke.py": "sha256:5d9ad30cf1562f59f995c335d2365390bef207f339f52aa1b7783ee92933f460",
+      "tests/tools/test_issue705_phase2_evidence.py": "sha256:50de9ac4d72d95f9355a2034e6f440165a2527e5cdca061fa24975653507f93f",
+      "uv.lock": "sha256:295b61d0077be5ddbbc316ac225832f59209c064981886fcd4d273955fc176f4"
+    }
   },
   "issue": 705,
   "kind": "issue705-phase2-gate-v1",
   "phase": 2,
   "schema_version": 1,
   "source": {
-    "branch": "fix/issue-855-ci-aggregate-dependencies",
-    "commit_sha": "01fd09c2b1c78261c31dcc9c6959704682e4f9a6",
+    "branch": "chore/issue-871-t9-hygiene",
+    "commit_sha": "e3f7b732f97c5326e99cdcdf78f929f118167a75",
     "tree_clean": true
   }
 }

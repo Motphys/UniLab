@@ -339,6 +339,8 @@ def _root_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDeviceS
 def _contiguous_columns(indices: tuple[int, ...], *, context: str) -> slice:
     if not indices:
         raise BackendBatchContractError(f"{context} requires at least one bound coordinate")
+    if indices[0] < 0:
+        raise BackendBatchContractError(f"{context} contains a negative ID")
     expected = tuple(range(indices[0], indices[0] + len(indices)))
     if indices != expected:
         raise BackendBatchContractError(
@@ -405,7 +407,7 @@ def _dof_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDeviceSt
     indices = tuple(int(index) for index in spec.identity.entity_ids)
     source_slice = _contiguous_columns(indices, context=f"mjwarp device DOF field {spec.key!r}")
     if spec.identity.field_kind is StateFieldKind.POSITION:
-        if indices[-1] >= backend._num_dof_pos:
+        if indices[0] < 0 or indices[-1] >= backend._num_dof_pos:
             raise BackendBatchContractError(f"mjwarp device DOF field {spec.key!r} is out of range")
         source = bridge.qpos[
             :,
@@ -413,7 +415,7 @@ def _dof_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpDeviceSt
             + source_slice.stop,
         ]
     else:
-        if indices[-1] >= backend._num_dof_vel:
+        if indices[0] < 0 or indices[-1] >= backend._num_dof_vel:
             raise BackendBatchContractError(f"mjwarp device DOF field {spec.key!r} is out of range")
         source = bridge.qvel[
             :,
@@ -620,6 +622,7 @@ def _binding_payload(backend: MjwarpBackend, requirements: BackendIORequirements
             if requirements.reset_hot_path_budget is None
             else dict(requirements.reset_hot_path_budget.items())
         ),
+        "reset_requires_mutation_batch": True,
     }
 
 
@@ -660,6 +663,7 @@ def bind_mjwarp_device_batch(
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{_payload_digest(payload)}",
         hot_path_budget=requirements.hot_path_budget,
         reset_hot_path_budget=requirements.reset_hot_path_budget,
+        reset_requires_mutation_batch=True,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     controller = bind_mjwarp_device_controller(

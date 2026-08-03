@@ -35,7 +35,7 @@ def test_phase2_gate_artifact_and_manifest_are_fresh_and_complete() -> None:
     assert set(claims) == set(PHASE2_REQUIRED_TEST_IDS)
     assert set(artifact_claims) == set(PHASE2_REQUIRED_TEST_IDS)
     source_commit = report["source"]["commit_sha"]
-    config_hash = report["inputs"]["owner_yaml_sha256"]
+    config_hashes = report["inputs"]["claim_config_hashes"]
     for claim_id, test_id in PHASE2_REQUIRED_TEST_IDS.items():
         claim = claims[claim_id]
         assert claim.status is ClaimStatus.VERIFIED
@@ -44,7 +44,7 @@ def test_phase2_gate_artifact_and_manifest_are_fresh_and_complete() -> None:
         assert claim.evidence.executed_test_ids == (test_id,)
         assert claim.evidence.artifact_refs == (ARTIFACT_REF,)
         assert claim.evidence.commit_sha == source_commit
-        assert claim.evidence.config_hash == config_hash
+        assert claim.evidence.config_hash == config_hashes[claim_id]
         assert claim.evidence.skipped_test_ids == ()
         assert claim.evidence.xfailed_test_ids == ()
         assert artifact_claims[claim_id]["minimum_repetitions"] == PHASE2_MIN_REPETITIONS[claim_id]

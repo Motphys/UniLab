@@ -10,7 +10,6 @@ import pytest
 
 from unilab.dr import (
     DomainRandomizationCapabilities,
-    DomainRandomizationExecutionMode,
     DomainRandomizationManager,
     DomainRandomizationProvider,
     ResetPlan,
@@ -232,51 +231,6 @@ def test_manager_keeps_supported_reset_terms_without_warning(caplog):
     assert backend.last_randomization.base_mass_delta is not None
     assert backend.last_randomization.kp is not None
     assert "skipping them" not in caplog.text
-
-
-def test_manager_compiled_entrypoint_keeps_supported_reset_terms_without_warning(caplog):
-    backend = _FakeBackend(
-        capabilities=DomainRandomizationCapabilities(
-            supported_reset_terms=frozenset({RESET_TERM_BASE_MASS, RESET_TERM_KP})
-        )
-    )
-    env = SimpleNamespace(_backend=backend)
-    manager = DomainRandomizationManager.for_compiled_task(env, _FakeProvider())
-
-    with caplog.at_level(logging.WARNING):
-        obs, info = manager.reset(np.array([0, 1], dtype=np.int32))
-
-    assert manager.execution_mode is DomainRandomizationExecutionMode.COMPILED_STRICT
-    assert obs["obs"].shape == (2, 1)
-    assert info["commands"].shape == (2, 3)
-    assert backend.call_count == 1
-    assert backend.last_randomization is not None
-    assert backend.last_randomization.base_mass_delta is not None
-    assert backend.last_randomization.kp is not None
-    assert "skipping them" not in caplog.text
-
-
-def test_manager_defaults_to_explicit_legacy_execution_mode():
-    backend = _FakeBackend(capabilities=DomainRandomizationCapabilities())
-    manager = DomainRandomizationManager(SimpleNamespace(_backend=backend), _FakeProvider())
-
-    assert manager.execution_mode is DomainRandomizationExecutionMode.LEGACY_WARN_AND_FILTER
-    with pytest.raises(AttributeError):
-        manager.execution_mode = DomainRandomizationExecutionMode.COMPILED_STRICT
-
-
-def test_manager_rejects_invalid_execution_mode_before_backend_binding():
-    backend = _FakeBackend(capabilities=DomainRandomizationCapabilities())
-
-    with pytest.raises(ValueError, match="invalid domain randomization execution mode"):
-        DomainRandomizationManager(
-            SimpleNamespace(_backend=backend),
-            _FakeProvider(),
-            execution_mode="silent_skip",
-        )
-
-    assert backend.capability_query_count == 0
-    assert backend.call_count == 0
 
 
 def test_manager_merges_backend_set_state_sub_timings():

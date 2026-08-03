@@ -67,6 +67,26 @@ def test_mjwarp_missing_dependency_reports_extra(monkeypatch: pytest.MonkeyPatch
         dependencies.load_mjwarp_dependencies()
 
 
+def test_mjwarp_dependency_version_mismatch_fails_before_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    imported: list[str] = []
+    monkeypatch.setattr(dependencies.metadata, "version", lambda _name: "3.10.0.4")
+    monkeypatch.setattr(
+        dependencies.importlib,
+        "import_module",
+        lambda name: imported.append(name),
+    )
+
+    with pytest.raises(
+        dependencies.MjwarpDependencyError,
+        match=r"requires exact mujoco-warp version 3\.10\.0\.3, found 3\.10\.0\.4",
+    ):
+        dependencies.load_mjwarp_dependencies()
+
+    assert imported == []
+
+
 def test_mjwarp_identity_is_independent_from_mujoco(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -770,3 +770,36 @@ def test_create_backend_does_not_route_post_step_forward_sensor_to_motrix(monkey
     )
 
     assert "post_step_forward_sensor" not in captured["kwargs"]
+
+
+def test_create_backend_warns_when_mjwarp_ignores_non_default_mujoco_options(
+    monkeypatch,
+) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMjwarpBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_mjwarp_backend", lambda: FakeMjwarpBackend)
+
+    with pytest.warns(
+        UserWarning,
+        match="post_step_forward_sensor=False.*adaptive_chunk_size=True.*bench_nsteps=4",
+    ):
+        backend_factory.create_backend(
+            "mjwarp",
+            SceneCfg(model_file="model.xml"),
+            num_envs=1,
+            sim_dt=0.01,
+            post_step_forward_sensor=False,
+            adaptive_chunk_size=True,
+            bench_nsteps=4,
+        )
+
+    assert "post_step_forward_sensor" not in captured["kwargs"]
+    assert "adaptive_chunk_size" not in captured["kwargs"]
+    assert "bench_nsteps" not in captured["kwargs"]

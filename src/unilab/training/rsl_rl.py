@@ -42,6 +42,108 @@ def validate_rsl_rl_checkpoint(checkpoint_path: str | Path) -> Mapping[str, Any]
     return payload
 
 
+def validate_rsl_rl_policy_exports(
+    *,
+    policy: Any,
+    artifacts: Mapping[str, str | Path],
+    rtol: float = 1.0e-5,
+    atol: float = 1.0e-6,
+) -> tuple[Path, ...]:
+    """Reload exported policies and compare deterministic inference to ``as_jit``."""
+
+    if not isinstance(artifacts, Mapping) or not artifacts:
+        raise EntrypointContractError("RSL-RL policy export produced no artifacts to validate.")
+    unsupported = tuple(key for key in artifacts if key not in {"jit", "onnx"})
+    if unsupported:
+        raise EntrypointContractError(
+            "RSL-RL policy export validation received unsupported formats: "
+            + ", ".join(repr(key) for key in unsupported)
+        )
+    if isinstance(rtol, bool) or not isinstance(rtol, (int, float)) or rtol < 0:
+        raise EntrypointContractError("RSL-RL export validation rtol must be non-negative.")
+    if isinstance(atol, bool) or not isinstance(atol, (int, float)) or atol < 0:
+        raise EntrypointContractError("RSL-RL export validation atol must be non-negative.")
+
+    paths = {key: Path(path) for key, path in artifacts.items()}
+    missing = tuple(
+        path for path in paths.values() if not path.is_file() or path.stat().st_size <= 0
+    )
+    if missing:
+        raise EntrypointContractError(
+            "Policy export returned without producing required non-empty artifacts: "
+            + ", ".join(str(path) for path in missing)
+        )
+
+    obs_dim = getattr(policy, "obs_dim", None)
+    if isinstance(obs_dim, bool) or not isinstance(obs_dim, int) or obs_dim <= 0:
+        raise EntrypointContractError(
+            "RSL-RL export validation requires policy.obs_dim to be a positive integer."
+        )
+    try:
+        reference = policy.as_jit().to("cpu").eval()
+    except Exception as exc:
+        raise EntrypointContractError(
+            "RSL-RL policy.as_jit() could not construct the export oracle: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    sample = torch.linspace(-0.5, 0.5, obs_dim, dtype=torch.float32).reshape(1, obs_dim)
+    try:
+        with torch.inference_mode():
+            expected = reference(sample)
+    except Exception as exc:
+        raise EntrypointContractError(
+            "RSL-RL policy.as_jit() failed on the export validation input: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(expected, torch.Tensor):
+        raise EntrypointContractError(
+            "RSL-RL policy.as_jit() must return one tensor for export validation."
+        )
+    expected = expected.detach().cpu()
+
+    if "jit" in paths:
+        path = paths["jit"]
+        try:
+            reloaded = torch.jit.load(str(path), map_location="cpu").eval()
+            with torch.inference_mode():
+                actual = reloaded(sample)
+            if not isinstance(actual, torch.Tensor):
+                raise TypeError("reloaded TorchScript policy did not return a tensor")
+            torch.testing.assert_close(actual.detach().cpu(), expected, rtol=rtol, atol=atol)
+        except Exception as exc:
+            raise EntrypointContractError(
+                f"TorchScript policy export at {path} failed reload/parity validation: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+    if "onnx" in paths:
+        path = paths["onnx"]
+        try:
+            import onnxruntime as ort
+
+            session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            inputs = session.get_inputs()
+            outputs = session.get_outputs()
+            if len(inputs) != 1 or len(outputs) != 1:
+                raise ValueError(
+                    "validated RSL-RL ONNX policy must expose exactly one input and one output"
+                )
+            actual_array = session.run(
+                [outputs[0].name],
+                {inputs[0].name: sample.numpy()},
+            )[0]
+            actual = torch.from_numpy(np.asarray(actual_array))
+            torch.testing.assert_close(actual, expected, rtol=rtol, atol=atol)
+        except Exception as exc:
+            raise EntrypointContractError(
+                f"ONNX policy export at {path} failed reload/parity validation: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+    return tuple(paths[key] for key in artifacts)
+
+
 def infer_rsl_rl_checkpoint_actor_input_dim(checkpoint_path: str | Path) -> int | None:
     """Read the actor input width from a validated RSL-RL checkpoint."""
 
@@ -186,10 +288,22 @@ class RslRlVecEnvWrapper:
         # Prefer an explicit managed_policy_abi_snapshot on the env; then
         # fall through to policy_abi_snapshot (the ManagedRuntime API).
         env = self.env
-        snapshot = getattr(env, "managed_policy_abi_snapshot", None)
-        if snapshot is not None:
-            return snapshot
-        return getattr(env, "policy_abi_snapshot", None)
+        for attribute_name in ("managed_policy_abi_snapshot", "policy_abi_snapshot"):
+            snapshot = getattr(env, attribute_name, None)
+            if snapshot is None:
+                continue
+            if not isinstance(snapshot, Mapping):
+                raise TypeError(
+                    f"env.{attribute_name} must be a mapping or None, got "
+                    f"{type(snapshot).__name__}."
+                )
+            normalized: dict[str, Any] = {}
+            for key, value in snapshot.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"env.{attribute_name} keys must be strings.")
+                normalized[key] = value
+            return normalized
+        return None
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":

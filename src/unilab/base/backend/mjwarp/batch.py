@@ -279,6 +279,8 @@ def _bind_root_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpSt
 def _bind_dof_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _MjwarpStateSource:
     identity = spec.identity
     indices = np.asarray(identity.entity_ids, dtype=np.intp)
+    if np.any(indices < 0):
+        raise BackendBatchContractError(f"mjwarp DOF field {spec.key!r} contains a negative id")
     model = backend._cpu_model
     mujoco = backend._mujoco
     if identity.field_kind is StateFieldKind.POSITION:
@@ -389,7 +391,7 @@ def _bind_sensor_source(backend: MjwarpBackend, spec: StateFieldSpec) -> _Mjwarp
     expected_contracts: set[tuple[ReferenceFrame, PhysicalUnit]] = set()
     sensor_columns: list[int] = []
     for sensor_id in identity.entity_ids:
-        if sensor_id >= int(model.nsensor):
+        if sensor_id < 0 or sensor_id >= int(model.nsensor):
             raise BackendBatchContractError(
                 f"mjwarp sensor field {spec.key!r} contains an out-of-range id"
             )
@@ -575,6 +577,7 @@ def _binding_payloads(
             if requirements.reset_hot_path_budget is None
             else dict(requirements.reset_hot_path_budget.items())
         ),
+        "reset_requires_mutation_batch": True,
     }
     return state_payload, plan_payload
 
@@ -669,6 +672,7 @@ def bind_mjwarp_host_batch(
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{_payload_digest(plan_payload)}",
         hot_path_budget=requirements.hot_path_budget,
         reset_hot_path_budget=requirements.reset_hot_path_budget,
+        reset_requires_mutation_batch=True,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     return MjwarpHostBatchPlan(
