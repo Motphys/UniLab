@@ -8,6 +8,7 @@ from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from omegaconf import OmegaConf
 
 from unilab.tools.issue705_final_gate import (
@@ -146,6 +147,7 @@ def test_malformed_final_artifact_fails_closed(monkeypatch) -> None:
     assert "artifact: keys do not exactly match the v1 schema" in errors
 
 
+@pytest.mark.local_evidence
 def test_committed_final_artifact_is_fresh_and_promoted() -> None:
     artifact = load_final_gate_evidence(REPO_ROOT / ARTIFACT_PATH)
     errors = validate_final_gate_evidence(

@@ -3,41 +3,41 @@ issue: 705
 claim_id: P7-SUPPORT-MATRIX
 integration_branch: feat/issue-705-manager-mjwarp
 phase_gates:
-  - phase: 2
-    manifest: tests/acceptance/issue_705/manifests/phase_2.yaml
-    gate_artifact: tests/acceptance/issue_705/artifacts/phase_2_gate.json
-    sha256: sha256:34a0779ed332ef27798f801c0b70d5e519bfcadf1598a4cdc0ea08f6d7da70e8
-  - phase: 3
-    manifest: tests/acceptance/issue_705/manifests/phase_3.yaml
-    gate_artifact: tests/acceptance/issue_705/artifacts/phase_3_gate.json
-    sha256: sha256:99d5df9582631046a255f5702b68262cf27c0cde22ba8d5a65252366459541a5
-  - phase: 5
-    manifest: tests/acceptance/issue_705/manifests/phase_5.yaml
-    gate_artifact: tests/acceptance/issue_705/artifacts/phase_5_gate.json
-    sha256: sha256:85b121944e4fda46bdbe19ee53942fc03fd7be15f0cd4dd61a430f5ccf9f16a6
-  - phase: 6
-    manifest: tests/acceptance/issue_705/manifests/phase_6.yaml
-    gate_artifact: tests/acceptance/issue_705/artifacts/phase_6_gate.json
-    sha256: sha256:8136e6892ab5a0d701c74297265069b658545abc0aa4ea68b144478331bf0b70
+- phase: 2
+  manifest: tests/acceptance/issue_705/manifests/phase_2.yaml
+  gate_artifact: tests/acceptance/issue_705/artifacts/phase_2_gate.json
+  sha256: sha256:34a0779ed332ef27798f801c0b70d5e519bfcadf1598a4cdc0ea08f6d7da70e8
+- phase: 3
+  manifest: tests/acceptance/issue_705/manifests/phase_3.yaml
+  gate_artifact: tests/acceptance/issue_705/artifacts/phase_3_gate.json
+  sha256: sha256:99d5df9582631046a255f5702b68262cf27c0cde22ba8d5a65252366459541a5
+- phase: 5
+  manifest: tests/acceptance/issue_705/manifests/phase_5.yaml
+  gate_artifact: tests/acceptance/issue_705/artifacts/phase_5_gate.json
+  sha256: sha256:ba2350823688361f6a3c5df63cffee9a84ed186a6a3b2f2561ad225beacc5a7b
+- phase: 6
+  manifest: tests/acceptance/issue_705/manifests/phase_6.yaml
+  gate_artifact: tests/acceptance/issue_705/artifacts/phase_6_gate.json
+  sha256: sha256:694e0df0a4b34c151ec4051f0e12cea73b4d1dc2b6910fd63ba019d34d18a314
 combinations:
-  - entrypoint_id: ppo_torch
-    task_slug: g1_walk_flat
-    env_name: G1WalkFlat
-    backend: mjwarp
-    execution_profile: device_resident
-    evidence_level: recommended
-    owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
-    owner_yaml_sha256: sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c
-    required_phase: 5
-    mandatory_test_ids:
-      - tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate
-    benchmark:
-      path: tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json
-      sha256: sha256:41a0b3970789656a6afbf39d2b5dd1491cc6d8fed0035b6f5989f47ef514dfe8
-      validator: issue705_phase5_ppo_v1
-    compiled_signature:
-      task_key: g1_walk_flat.managed_device
-      executor_key: device.torch.g1-walk-flat.v1
-      task_plan_fingerprint: manager-task-contract-v1:51654b40da528186ad1a05cc1c54f463f8358f446fff1a3a0c492438542f10a9
-      policy_abi_fingerprint: managed-policy-abi-v1:931aaecc6db37967f05db6439ec509a071bea1dce6ee53fec3f8069a2c030ae9
-      backend_plan_fingerprint: mjwarp-device-batch-v1:6046ec598106f8c84770f2e751702a7322762ba0fb29f1383091237260843ea6
+- entrypoint_id: ppo_torch
+  task_slug: g1_walk_flat
+  env_name: G1WalkFlat
+  backend: mjwarp
+  execution_profile: device_resident
+  evidence_level: recommended
+  owner_yaml: conf/ppo/task/g1_walk_flat/mjwarp.yaml
+  owner_yaml_sha256: sha256:c886ea57bb5e8733a8b4dffe442161c654fa9ecfe547953b8fac5e5bff32812c
+  required_phase: 5
+  mandatory_test_ids:
+  - tests/benchmark/test_mjwarp_ppo_benchmark.py::test_device_profile_meets_end_to_end_gate
+  benchmark:
+    path: tests/acceptance/issue_705/artifacts/phase_5_mjwarp_ppo.json
+    sha256: sha256:41a0b3970789656a6afbf39d2b5dd1491cc6d8fed0035b6f5989f47ef514dfe8
+    validator: issue705_phase5_ppo_v1
+  compiled_signature:
+    task_key: g1_walk_flat.managed_device
+    executor_key: device.torch.g1-walk-flat.v1
+    task_plan_fingerprint: manager-task-contract-v1:51654b40da528186ad1a05cc1c54f463f8358f446fff1a3a0c492438542f10a9
+    policy_abi_fingerprint: managed-policy-abi-v1:931aaecc6db37967f05db6439ec509a071bea1dce6ee53fec3f8069a2c030ae9
+    backend_plan_fingerprint: mjwarp-device-batch-v1:6046ec598106f8c84770f2e751702a7322762ba0fb29f1383091237260843ea6
