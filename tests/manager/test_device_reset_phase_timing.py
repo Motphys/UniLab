@@ -172,7 +172,7 @@ def test_phase_timing_rejects_invalid_token_before_graph_launch(token_kind: str)
                 placement=harness.placement,
                 capacity=1,
             )
-            foreign_token = foreign_session.begin_sample(runtime._task_stream)
+            foreign_token = foreign_session.begin_sample(runtime._synchronization.task_stream)
 
         original_reset = harness.backend.reset_batch
 
