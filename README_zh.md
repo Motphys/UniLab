@@ -94,6 +94,13 @@ cd UniLab
 
 # 2. 安装依赖
 # 请按你的平台选择对应的安装命令。
+#
+# 前置条件：`mujoco` extra 会在 `uv sync` 时编译原生扩展，
+# 使用系统 Python 时需要 Python 开发头文件：
+#   Ubuntu / Debian：sudo apt-get install build-essential python3-dev
+#   macOS：          xcode-select --install
+#   Windows：        MSVC Build Tools
+# （通过 `uv python install` 安装的 uv 托管 Python 已自带头文件。）
 
 # Linux CUDA、macOS 或 Windows
 make setup

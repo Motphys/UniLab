@@ -94,6 +94,13 @@ cd UniLab
 
 # 2. Install dependencies
 # Pick the setup command for your platform.
+#
+# Prerequisite: the `mujoco` extra compiles a native extension during `uv sync`
+# and needs Python development headers when using a system Python:
+#   Ubuntu / Debian: sudo apt-get install build-essential python3-dev
+#   macOS:           xcode-select --install
+#   Windows:         MSVC Build Tools
+# (uv-managed Pythons from `uv python install` already bundle the headers.)
 
 # Linux CUDA, macOS, or Windows
 make setup
