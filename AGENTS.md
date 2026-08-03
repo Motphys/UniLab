@@ -14,6 +14,16 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 6. **Validate near risk**: 在最接近风险的边界补验证，不只跑顶层命令。
 7. **Cold-path asset access only**: asset/XML/model metadata 只允许在 init / materialization / cache 等低频路径处理；热路径不能解析 asset，也不能靠 `getattr` / `hasattr` 探测 backend 私有能力。
 
+## Roadmap 与 Issue Scope
+
+- Roadmap 先用普通中文说明：只做什么、不做什么、预计规模和永久维护成本；maintainer 看不懂时必须停止并重写。
+- 一个 implementation issue 只允许一个主要结果，默认不超过 15 个文件、800 行净手写改动和一个 PR；超过即作为 umbrella 拆分，不能整单执行。
+- 批准 roadmap、umbrella 或“新建 issue”只授权规划；“开始开发”默认只授权当前明确确认的第一个 child issue。
+- 新公共 contract、execution path、runner/lifecycle、常规 CI、support 升级或 adapter production 化都必须单独确认，不得顺手扩张。
+- AI review、测试和 gate 不能代替产品判断，也不能证明 maintainer 已理解。
+
+详细规则见[协作工作流](docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md#ai-roadmap-与-issue-scope-治理)。
+
 ## High-Risk Areas
 
 | 区域 | 不可破坏的不变量 |
