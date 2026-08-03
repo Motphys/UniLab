@@ -565,9 +565,9 @@ def _require_full_array(
 class ManagedReferenceRuntime:
     """Host reference runtime with one canonical terminal/autoreset lifecycle.
 
-    It is intentionally a correctness executor.  Future fused/device
-    executors consume the same ``CompiledTaskPlan`` and preserve the lifecycle
-    semantics proven here rather than copying NpEnv control flow.
+    It is intentionally a correctness executor.  Fused executors consume the
+    same ``CompiledTaskPlan`` and preserve the lifecycle semantics proven here
+    rather than copying NpEnv control flow.
     """
 
     def __init__(

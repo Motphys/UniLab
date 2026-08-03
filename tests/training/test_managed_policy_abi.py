@@ -410,20 +410,19 @@ def _variant_snapshot(
     return snapshot
 
 
-def test_abi_comparison_ignores_executor_key_and_execution_profile(tmp_path: Path) -> None:
-    """Fix #856: same policy I/O on different GPU/executor must not be denied."""
-    # Source: trained on cuda:0 with device_resident profile
+def test_abi_comparison_ignores_executor_key(tmp_path: Path) -> None:
+    """Fix #856: same policy I/O on different executors must not be denied."""
+    # Source: trained with a different executor identity (e.g. another host lane)
     source_abi = _variant_snapshot(
-        executor_key="device.cuda.0.v1",
-        execution_profile="device_resident",
+        executor_key="host.numpy.alt.v1",
+        execution_profile="host_numpy",
     )
-    # Target: play on cuda:1 with host_numpy profile (e.g. mujoco reference)
+    # Target: play with the reference executor, same host profile
     target_abi = _variant_snapshot(
         executor_key="reference.numpy.v1",
         execution_profile="host_numpy",
     )
     assert source_abi["executor_key"] != target_abi["executor_key"]
-    assert source_abi["execution_profile"] != target_abi["execution_profile"]
     # Semantic policy I/O (obs groups, action, normalization) is identical.
     assert source_abi["policy_abi_fingerprint"] == target_abi["policy_abi_fingerprint"]
 
@@ -434,6 +433,16 @@ def test_abi_comparison_ignores_executor_key_and_execution_profile(tmp_path: Pat
     # Must NOT raise — execution identity alone must not block cross-backend play.
     cfg = resolve_sim2sim_config(tmp_path, _target_cfg(), managed_policy_abi=target_abi)
     assert cfg is not None
+
+
+def test_retired_device_resident_abi_snapshot_is_rejected() -> None:
+    """The retired device_resident profile (#886) is not a valid ABI snapshot."""
+    source_abi = _variant_snapshot(
+        executor_key="device.cuda.0.v1",
+        execution_profile="device_resident",
+    )
+    with pytest.raises(ValueError, match="invalid managed policy ABI snapshot"):
+        extract_contract_snapshot(_target_cfg(), managed_policy_abi=source_abi)
 
 
 def test_abi_comparison_still_denies_mismatched_plan_fingerprint(tmp_path: Path) -> None:

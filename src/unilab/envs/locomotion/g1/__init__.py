@@ -1,6 +1,4 @@
 from .joystick import (
-    G1MjwarpManagedEnv,
-    G1MjwarpManagedOnlyError,
     G1WalkControlConfig,
     G1WalkEnv,
     G1WalkEnvCfg,
@@ -11,8 +9,6 @@ from .joystick import (
 )
 
 __all__ = [
-    "G1MjwarpManagedEnv",
-    "G1MjwarpManagedOnlyError",
     "G1WalkControlConfig",
     "G1WalkEnv",
     "G1WalkEnvCfg",

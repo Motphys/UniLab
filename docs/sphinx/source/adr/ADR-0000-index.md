@@ -19,7 +19,6 @@ orphan: true
 | [ADR-0003 Task Owner And Config Compose Contract](ADR-0003-task-owner-and-config-compose-contract.md) | Config owner | Accepted |
 | [ADR-0004 Registry Bootstrap Contract](ADR-0004-registry-bootstrap-contract.md) | Registry bootstrap | Accepted |
 | [ADR-0005 Unified Obs Critic Env And IPC Contract](ADR-0005-unified-obs-critic-env-and-ipc-contract.md) | Observation / IPC | Accepted |
-| [ADR-0006 Phase 5 PPO RSS Threshold Amendment](ADR-0006-phase5-ppo-rss-threshold-amendment.md) | Evidence / threshold governance | Accepted |
 
 ## ADR Governance
 

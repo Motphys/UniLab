@@ -122,11 +122,8 @@ class _FakeBackend:
 
     def __post_init__(self) -> None:
         self.last_randomization: ResetRandomizationPayload | None = None
-        self.call_count = 0
-        self.capability_query_count = 0
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        self.capability_query_count += 1
         return self.capabilities
 
     def set_state(
@@ -137,7 +134,6 @@ class _FakeBackend:
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
         self.last_randomization = randomization
-        self.call_count += 1
 
 
 @dataclass

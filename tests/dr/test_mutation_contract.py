@@ -735,11 +735,15 @@ def test_capability_manifest_validation_fails_near_malformed_metadata() -> None:
         )
 
     capability = replace(capabilities[1], descriptor=_descriptor(spec))
+    device_template = replace(
+        capability.value_template,
+        placement=BufferPlacement.device("cuda", 0),
+    )
     with pytest.raises(MutationContractError, match="placement does not match profile"):
         MutationCapabilityManifest(
             backend_type="fake",
-            execution_profile=ExecutionProfile.DEVICE_RESIDENT,
-            capabilities=(capability,),
+            execution_profile=ExecutionProfile.HOST_NUMPY,
+            capabilities=(replace(capability, value_template=device_template),),
         )
     manifest = MutationCapabilityManifest(
         backend_type="fake",

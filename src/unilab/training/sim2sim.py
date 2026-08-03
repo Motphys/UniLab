@@ -14,6 +14,7 @@ from unilab.manager.fingerprint import (
     ManagedPolicyABISnapshotError,
     normalize_managed_policy_abi_snapshot,
 )
+from unilab.training.retirement import check_retired_checkpoint
 
 
 class CrossBackendIncompatibleError(RuntimeError):
@@ -233,6 +234,9 @@ def resolve_sim2sim_config(
     DENYLIST field differs, including asymmetric presence for
     :data:`ENV_STRUCTURAL_DENYLIST` paths.  A malformed managed ABI always
     raises, including in non-strict mode, because it cannot be compared safely.
+    A source run produced by the retired device-resident mjwarp path raises
+    :class:`~unilab.training.retirement.RetiredDevicePathError` before any
+    contract comparison.
     """
     if not isinstance(defer_managed_policy_abi, bool):
         raise TypeError("defer_managed_policy_abi must be a bool")
@@ -243,6 +247,9 @@ def resolve_sim2sim_config(
         return None
 
     run_dir = Path(source_run_dir)
+    # A run produced by the retired device-resident mjwarp path must surface an
+    # explicit retirement diagnostic, not a generic contract mismatch.
+    check_retired_checkpoint(run_dir)
     snapshot = _read_snapshot(run_dir)
     if snapshot is None:
         print(

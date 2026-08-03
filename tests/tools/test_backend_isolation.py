@@ -90,10 +90,8 @@ def test_clean_runtime_and_cold_sibling_adapter_pass(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("module_name", "symbol"),
     (
-        ("telemetry", "TransferCounters"),
-        ("graph", "GraphDiagnostics"),
-        ("performance", "PerformanceDiagnostics"),
-        ("phase_timing", "PhaseTimingSession"),
+        ("batch", "BatchContract"),
+        ("mutation", "MutationContract"),
     ),
 )
 def test_runtime_can_import_approved_shared_contract(

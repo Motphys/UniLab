@@ -18,7 +18,7 @@ from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
 _PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
-_BACKENDS = ("mujoco", "mjwarp", "motrix")
+_BACKENDS = ("mujoco", "motrix")
 _NUMBA_ACCEL_SUPPORTED_TASK_NAMES = {
     "G1MotionTracking",
     "G1MotionTrackingSAC",
@@ -206,29 +206,6 @@ def test_supported_task_composes(
     assert cfg.training.task_name, f"{task_file} should resolve task_name"
     assert cfg.training.sim_backend == backend, f"{task_file} should set backend"
     _assert_reward_populated(cfg, task_file)
-
-
-def test_ppo_g1_mjwarp_owner_selects_strict_device_runtime_profile():
-    """The independent owner cannot silently route through host RSL-RL defaults."""
-
-    cfg = _compose("ppo", overrides=["task=g1_walk_flat/mjwarp"])
-
-    assert cfg.training.sim_backend == "mjwarp"
-    assert cfg.training.execution_profile == "device_resident"
-    assert cfg.training.no_play is True
-    assert cfg.training.play_render_mode == "none"
-    assert cfg.training.nan_guard.enabled is False
-    assert cfg.algo.runtime_impl == "mjwarp_device_v1"
-    assert (
-        cfg.algo.runtime_resolver
-        == "unilab.training.rsl_rl_device:resolve_mjwarp_device_ppo_runtime"
-    )
-    assert cfg.algo.check_for_nan is False
-    assert cfg.env.noise_config.level == pytest.approx(0.0)
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
-    assert cfg.env.domain_rand.randomize_dof_armature is False
-    assert cfg.env.domain_rand.randomize_body_gravity_compensation is False
 
 
 def test_ppo_go2_arm_manip_loco_motrix_preserves_backend_overrides():

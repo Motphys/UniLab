@@ -71,15 +71,7 @@ motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
-dev = [
-    "pytest",
-    "pytest-cov",
-    "ruff",
-    "mypy",
-    "pyright>=1.1.408",
-    "pyyaml",
-    "tomli; python_version < '3.11'",
-]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -151,7 +143,6 @@ exclude = [
 testpaths = ["tests"]
 markers = [
     "slow: long-running training or script smoke tests, or cumulatively expensive backend matrices",
-    "local_evidence: release evidence that requires frozen hardware or full Git ancestry",
 ]
 addopts = "--tb=short -m 'not slow'"
 

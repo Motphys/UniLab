@@ -47,8 +47,8 @@ from unilab.base.backend.mutation import (
     MutationSpec,
     MutationTargetKind,
     MutationTrigger,
+    TypedBackendMutationBatch,
 )
-from unilab.base.backend.mutation_batch import TypedBackendMutationBatch
 from unilab.manager import (
     EntityKind,
     EntitySelector,
@@ -106,14 +106,9 @@ def _mutation_buffer(*, placement: BufferPlacement) -> BufferContract:
 
 def _build_plan(
     *,
-    profile: ExecutionProfile = ExecutionProfile.HOST_NUMPY,
     with_mutation: bool = False,
 ):
-    placement = (
-        BufferPlacement.host()
-        if profile is ExecutionProfile.HOST_NUMPY
-        else BufferPlacement.device("cuda", 0)
-    )
+    placement = BufferPlacement.host()
     base = EntitySelector(
         key="robot.base",
         entity="robot",
@@ -185,7 +180,7 @@ def _build_plan(
                 semantic_key="robot.command",
                 buffer=_control_buffer(placement=placement),
             ),
-            execution_profile=profile,
+            execution_profile=ExecutionProfile.HOST_NUMPY,
             executor_key="recording.reference.v1",
             policy=PolicySpec(observation_groups=("policy",), action_scale=(1.0,)),
         ),
@@ -816,20 +811,6 @@ def test_kernel_owner_capture_fails_before_backend_bind(forbidden_name: str) -> 
             backend=cast(SimBackend, backend),
             plan=_build_plan(),
             kernel=kernel,
-            max_episode_steps=None,
-        )
-
-    assert backend.bind_calls == 0
-
-
-def test_reference_runtime_rejects_device_profile_before_backend_bind() -> None:
-    backend = _RecordingBackend()
-
-    with pytest.raises(ManagedRuntimeError, match="host_numpy"):
-        ManagedReferenceRuntime(
-            backend=cast(SimBackend, backend),
-            plan=_build_plan(profile=ExecutionProfile.DEVICE_RESIDENT),
-            kernel=_RecordingKernel((np.zeros((3,), dtype=bool),)),
             max_episode_steps=None,
         )
 

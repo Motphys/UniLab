@@ -13,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class DomainRandomizationManager:
-    def __init__(
-        self,
-        env: Any,
-        provider: DomainRandomizationProvider,
-    ):
+    def __init__(self, env: Any, provider: DomainRandomizationProvider):
         self._env = env
         self._provider = provider
         self._capabilities: DomainRandomizationCapabilities = env._backend.get_dr_capabilities()

@@ -16,7 +16,6 @@ from unilab.base.backend.batch import (
     BackendBatchCounterBudget,
     BackendBatchCounters,
     BackendBatchDiagnostics,
-    BackendCompletionEvent,
     BackendCounterViolation,
     BackendHotPathViolationError,
     BackendIORequirements,
@@ -36,12 +35,8 @@ from unilab.base.backend.batch import (
     BufferView,
     ControlBatch,
     ControlImplementation,
-    ControllerParameter,
-    ControllerStateRead,
     ControlSpec,
-    DeviceControllerSpec,
     ExecutionProfile,
-    MemorySpace,
     PhysicalUnit,
     ReferenceFrame,
     RowSelection,
@@ -618,41 +613,7 @@ def test_reset_counter_budget_is_explicit_and_defaults_to_step_budget() -> None:
         )
 
 
-def test_completion_event_is_explicitly_device_owned() -> None:
-    event = BackendCompletionEvent(
-        backend_type="fake",
-        placement=BufferPlacement.device("cuda", 0),
-        handle=object(),
-    )
-    diagnostics = BackendBatchDiagnostics(completion_event=event)
-    assert diagnostics.completion_event is event
-
-    with pytest.raises(BackendBatchContractError, match="require device placement"):
-        BackendCompletionEvent(
-            backend_type="fake",
-            placement=BufferPlacement.host(),
-            handle=object(),
-        )
-
-    placement = BufferPlacement.device("cuda", 0)
-    requirements = _requirements(
-        fields=(_field(buffer=_state_buffer(placement=placement, dlpack_exportable=True)),),
-        profile=ExecutionProfile.DEVICE_RESIDENT,
-        control=ControlSpec("joint.command", _control_buffer(placement=placement)),
-    )
-    backend = _FakeBatchBackend(requirements)
-    terminal = backend.state(RowSelection.all(4), phase=StateBatchPhase.TERMINAL)
-    BackendStepResult(terminal, diagnostics)
-
-    wrong_event = replace(event, backend_type="other")
-    with pytest.raises(BackendBatchContractError, match="different backend type"):
-        BackendStepResult(
-            terminal,
-            BackendBatchDiagnostics(completion_event=wrong_event),
-        )
-
-
-def test_batch_contract_version_and_cross_device_placement_fail_closed() -> None:
+def test_batch_contract_version_fails_closed() -> None:
     positional = BackendIORequirements(
         (_field(),),
         ControlSpec("joint.command", _control_buffer()),
@@ -665,132 +626,15 @@ def test_batch_contract_version_and_cross_device_placement_fail_closed() -> None
     with pytest.raises(BackendBatchContractError, match="unsupported backend batch contract"):
         replace(_requirements(), contract_version="backend-batch-contract-v0")
 
-    cuda0 = BufferPlacement.device("cuda", 0)
-    cuda1 = BufferPlacement.device("cuda", 1)
-    field = _field(buffer=_state_buffer(placement=cuda0, dlpack_exportable=True))
-    control = ControlSpec("joint.command", _control_buffer(placement=cuda1))
-    with pytest.raises(BackendBatchContractError, match="one shared state/control placement"):
-        _requirements(
-            fields=(field,),
-            profile=ExecutionProfile.DEVICE_RESIDENT,
-            control=control,
-        )
 
-
-def test_device_profile_requires_explicit_device_placement() -> None:
-    placement = BufferPlacement.device("cuda", 0)
-    field = _field(buffer=_state_buffer(placement=placement, dlpack_exportable=True))
-    control = ControlSpec("joint.command", _control_buffer(placement=placement))
-    requirements = _requirements(
-        fields=(field,),
-        profile=ExecutionProfile.DEVICE_RESIDENT,
-        control=control,
-    )
-    assert requirements.state_fields[0].buffer.placement.memory_space is MemorySpace.DEVICE
-
-
-def test_device_controller_descriptor_and_profile_fail_closed() -> None:
-    placement = BufferPlacement.device("cuda", 0)
-    fields = (
-        _field(
-            "dof.position",
-            entity_ids=(0,),
-            buffer=_state_buffer(placement=placement, dlpack_exportable=True),
-        ),
-        _field(
-            "dof.velocity",
-            entity_ids=(1,),
-            buffer=_state_buffer(placement=placement, dlpack_exportable=True),
-        ),
-    )
-    descriptor = DeviceControllerSpec(
-        implementation_key="test.pd.v1",
-        state_reads=(
-            ControllerStateRead("dof.position"),
-            ControllerStateRead("dof.velocity"),
-        ),
-        parameters=(
-            ControllerParameter("damping", (0.5,)),
-            ControllerParameter("stiffness", (4.0,)),
-        ),
-    )
-    control_buffer = replace(
-        _control_buffer(placement=placement),
-        dlpack_exportable=True,
-    )
-    control = ControlSpec(
-        "joint.command",
-        control_buffer,
-        physics_substeps_per_control=4,
-        implementation=ControlImplementation.DEVICE_SUBSTEP_CONTROLLER,
-        controller=descriptor,
-    )
-    requirements = _requirements(
-        fields=fields,
-        profile=ExecutionProfile.DEVICE_RESIDENT,
-        control=control,
-    )
-    assert requirements.control.controller is descriptor
-
-    with pytest.raises(BackendBatchContractError, match="unique canonical key order"):
-        replace(
-            descriptor,
-            state_reads=(
-                ControllerStateRead("dof.velocity"),
-                ControllerStateRead("dof.position"),
-            ),
-        )
-    with pytest.raises(BackendBatchContractError, match="unique canonical key order"):
-        replace(
-            descriptor,
-            parameters=(
-                ControllerParameter("damping", (0.5,)),
-                ControllerParameter("damping", (0.6,)),
-            ),
-        )
-    with pytest.raises(BackendBatchContractError, match="real numbers"):
-        ControllerParameter("damping", (True,))
-    with pytest.raises(BackendBatchContractError, match="finite"):
-        ControllerParameter("damping", (float("nan"),))
-    with pytest.raises(BackendBatchContractError, match="unsupported device controller"):
-        replace(descriptor, contract_version="device-controller-v0")
-    with pytest.raises(BackendBatchContractError, match="requires a DeviceControllerSpec"):
-        replace(control, controller=None)
-    with pytest.raises(BackendBatchContractError, match="only device_substep_controller"):
-        replace(
-            control,
-            implementation=ControlImplementation.CONTROL_STEP_CONSTANT,
-        )
-    with pytest.raises(BackendBatchContractError, match="execution_profile=device_resident"):
-        _requirements(
-            fields=tuple(
-                replace(field, buffer=replace(field.buffer, placement=BufferPlacement.host()))
-                for field in fields
-            ),
-            profile=ExecutionProfile.HOST_NUMPY,
-            control=replace(
-                control,
-                buffer=replace(control.buffer, placement=BufferPlacement.host()),
-            ),
-        )
-    with pytest.raises(BackendBatchContractError, match="not bound state fields"):
-        _requirements(
-            fields=(fields[0],),
-            profile=ExecutionProfile.DEVICE_RESIDENT,
-            control=control,
-        )
-
+def test_host_substep_callback_control_fails_closed() -> None:
     callback_control = ControlSpec(
         "joint.command",
-        control_buffer,
+        _control_buffer(),
         implementation=ControlImplementation.HOST_SUBSTEP_CALLBACK,
     )
     with pytest.raises(BackendBatchContractError, match="reject host substep callbacks"):
-        _requirements(
-            fields=fields,
-            profile=ExecutionProfile.DEVICE_RESIDENT,
-            control=callback_control,
-        )
+        _requirements(control=callback_control)
 
 
 def test_sim_backend_batch_extensions_are_additive_and_fail_closed() -> None:
@@ -1296,13 +1140,12 @@ def test_mujoco_batch_contract_faults_fail_closed() -> None:
             requirements.control,
             buffer=replace(requirements.control.buffer, placement=device_placement),
         )
-        with pytest.raises(BackendBatchContractError, match="only support host_numpy"):
+        with pytest.raises(BackendBatchContractError, match="host_numpy requires"):
             backend.bind_task_io(
                 replace(
                     requirements,
                     state_fields=device_fields,
                     control=device_control,
-                    execution_profile=ExecutionProfile.DEVICE_RESIDENT,
                 )
             )
 

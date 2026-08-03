@@ -12,11 +12,7 @@ from unilab.base.backend import (
     BufferMutability,
     BufferOwner,
     BufferPlacement,
-    ControlImplementation,
-    ControllerParameter,
-    ControllerStateRead,
     ControlSpec,
-    DeviceControllerSpec,
     ExecutionProfile,
     MutationBaseline,
     MutationCommitPhase,
@@ -55,7 +51,6 @@ from unilab.manager import (
     TermRegistry,
     TermRole,
 )
-from unilab.manager.fingerprint import canonical_digest, compiled_plan_payload
 
 
 class RecordingResolver:
@@ -399,97 +394,6 @@ def test_compiler_fingerprint_is_canonical_and_sensitive() -> None:
     assert changed_binding.selector_binding_fingerprint != plan.selector_binding_fingerprint
 
 
-def test_controller_contract_changes_manager_semantic_fingerprint() -> None:
-    plan, _, _ = _compile()
-    placement = BufferPlacement.device("cuda", 0)
-    state_fields = tuple(
-        replace(
-            field,
-            buffer=replace(
-                field.buffer,
-                placement=placement,
-                dlpack_exportable=True,
-            ),
-        )
-        for field in plan.backend_io.state_fields
-    )
-    controller = DeviceControllerSpec(
-        implementation_key="test.controller.v1",
-        state_reads=(
-            ControllerStateRead("robot.base.position"),
-            ControllerStateRead("robot.joint.position"),
-        ),
-        parameters=(ControllerParameter("gain", (1.0, 2.0)),),
-    )
-    control = replace(
-        plan.backend_io.control,
-        buffer=replace(
-            plan.backend_io.control.buffer,
-            placement=placement,
-            dlpack_exportable=True,
-        ),
-        implementation=ControlImplementation.DEVICE_SUBSTEP_CONTROLLER,
-        controller=controller,
-    )
-    backend_io = replace(
-        plan.backend_io,
-        state_fields=state_fields,
-        control=control,
-        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
-    )
-
-    variants = (
-        backend_io,
-        replace(backend_io, control=replace(control, physics_substeps_per_control=3)),
-        replace(
-            backend_io,
-            control=replace(
-                control,
-                controller=replace(
-                    controller,
-                    state_reads=(ControllerStateRead("robot.base.position"),),
-                ),
-            ),
-        ),
-        replace(
-            backend_io,
-            control=replace(
-                control,
-                controller=replace(
-                    controller,
-                    parameters=(ControllerParameter("gain", (1.0, 3.0)),),
-                ),
-            ),
-        ),
-        replace(
-            backend_io,
-            control=replace(
-                control,
-                controller=replace(controller, implementation_key="test.controller.v2"),
-            ),
-        ),
-        replace(
-            backend_io,
-            control=replace(
-                control,
-                implementation=ControlImplementation.CONTROL_STEP_CONSTANT,
-                controller=None,
-            ),
-        ),
-    )
-    digests = {
-        canonical_digest(
-            compiled_plan_payload(
-                replace(plan, backend_io=variant),
-                include_bindings=False,
-            )
-        )
-        for variant in variants
-    }
-
-    assert len(digests) == len(variants)
-
-
 def test_compiled_mutation_selector_must_match_its_immutable_selector_binding() -> None:
     plan, _, _ = _compile()
     mutation = plan.mutation_specs[0]
@@ -660,50 +564,6 @@ def test_compiler_rejects_missing_capability_before_backend_binding() -> None:
     assert resolver.calls == []
 
 
-def test_compiler_propagates_explicit_device_placement_without_cuda_zero_assumption() -> None:
-    placement = BufferPlacement.device("cuda", 3)
-    control = BufferContract(
-        row_shape=(2,),
-        dtype="float32",
-        layout=BufferLayout.C_CONTIGUOUS,
-        placement=placement,
-        owner=BufferOwner.RUNNER,
-        mutability=BufferMutability.READ_ONLY,
-        lifetime=BufferLifetime.UNTIL_STEP_COMPLETE,
-        dlpack_exportable=True,
-    )
-    task = TaskSpec.create(
-        key="device_placement_fixture",
-        terms=(
-            TermInvocation.create(
-                key="joint_pos",
-                definition_key="obs.joint_position",
-                parameters={"scale": 1.0},
-                observation_group="policy",
-            ),
-            TermInvocation.create(
-                key="base_quat",
-                definition_key="obs.base_quaternion",
-                observation_group="critic",
-            ),
-        ),
-        control=ControlSpec("robot.joint.command", control),
-        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
-        executor_key="device.fused.v1",
-        policy=PolicySpec(("policy", "critic"), (1.0,)),
-    )
-    plan = TaskCompiler(_registry()).compile(
-        task,
-        resolver=RecordingResolver({"robot.base": (0,), "robot.policy_joints": (3, 7)}),
-        capabilities=frozenset({"state.body.orientation", "state.dof.position"}),
-    )
-
-    assert all(item.buffer.placement == placement for item in plan.backend_io.state_fields)
-    assert all(item.buffer.placement == placement for item in plan.output_channels)
-    assert all(item.buffer.dlpack_exportable for item in plan.backend_io.state_fields)
-    assert all(item.buffer.dlpack_exportable for item in plan.output_channels)
-
-
 def test_compiler_rejects_mutation_value_on_different_placement() -> None:
     placement = BufferPlacement.device("cuda", 2)
     control = replace(
@@ -714,7 +574,6 @@ def test_compiler_rejects_mutation_value_on_different_placement() -> None:
     task = replace(
         _task(),
         control=ControlSpec("robot.joint.command", control, physics_substeps_per_control=4),
-        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
     )
     with pytest.raises(ManagerContractError, match="placement does not match"):
         TaskCompiler(_registry()).compile(

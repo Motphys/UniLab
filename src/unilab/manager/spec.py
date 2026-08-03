@@ -300,7 +300,7 @@ class MutationRandomization:
     """Backend-neutral random semantics for one managed mutation Event.
 
     The backend mutation ABI deliberately does not carry this descriptor.
-    A compiler freezes the semantic identity here, then a device runtime adds
+    A compiler freezes the semantic identity here, then an executor adds
     the actual row shape from the backend-bound mutation value contract.
     """
 
@@ -555,6 +555,8 @@ class TaskSpec:
             raise ManagerContractError("task control must be a ControlSpec")
         if not isinstance(self.execution_profile, ExecutionProfile):
             raise ManagerContractError("task execution_profile must be an ExecutionProfile")
+        if self.execution_profile is not ExecutionProfile.HOST_NUMPY:
+            raise ManagerContractError("task execution_profile must be host_numpy")
         object.__setattr__(self, "executor_key", _non_empty(self.executor_key, "executor key"))
         if not isinstance(self.policy, PolicySpec):
             raise ManagerContractError("task policy must be a PolicySpec")

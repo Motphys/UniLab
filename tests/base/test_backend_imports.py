@@ -77,38 +77,3 @@ def test_motrix_backend_import_path_does_not_eagerly_import_mujoco() -> None:
     lines = result.stdout.splitlines()
     assert lines[0] in {"motrix_backend imported", "motrix_backend skipped"}
     assert lines[1:] == ["mujoco_backend False", "mujoco False"]
-
-
-def test_mjwarp_recompute_import_path_does_not_eagerly_import_warp() -> None:
-    code = textwrap.dedent(
-        """
-        import importlib.abc
-        import sys
-
-        class BlockWarpImport(importlib.abc.MetaPathFinder):
-            def find_spec(self, fullname, path, target=None):
-                if fullname == "warp" or fullname.startswith("warp."):
-                    raise ModuleNotFoundError(
-                        "warp import was attempted during module collection",
-                        name=fullname,
-                    )
-                return None
-
-        sys.meta_path.insert(0, BlockWarpImport())
-
-        from unilab.base.backend.mjwarp.armature_recompute import (
-            MjwarpArmatureRecomputeWorkspace,
-        )
-
-        assert MjwarpArmatureRecomputeWorkspace is not None
-        print("warp", "warp" in sys.modules)
-        """
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.stdout.splitlines() == ["warp False"]

@@ -240,11 +240,8 @@ class FinalObservationAwarePPO(PPO):
         timeout_bootstrap_obs = extras.get("time_out_bootstrap_obs")
         if isinstance(timeouts, torch.Tensor):
             timeout_mask = timeouts.to(self.device).float()
-            if timeout_bootstrap_obs is not None:
+            if timeout_bootstrap_obs is not None and torch.count_nonzero(timeout_mask) > 0:
                 bootstrap_obs = timeout_bootstrap_obs.to(self.device)
-                # Keep the full-batch critic forward unconditional: inspecting the
-                # timeout mask on the host would add a device synchronization.  The
-                # runner accounts this work in Perf/collection_time.
                 bootstrap_values = self.critic(bootstrap_obs).detach()
                 self.transition.rewards += self.gamma * torch.squeeze(
                     bootstrap_values * timeout_mask.unsqueeze(1), 1

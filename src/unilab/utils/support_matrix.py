@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from enum import IntEnum
@@ -11,16 +12,10 @@ from omegaconf import OmegaConf
 
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
-from unilab.support.evidence import (
-    SUPPORT_EVIDENCE_PATH,
-    DeclaredEvidenceLevel,
-    SupportEvidenceManifest,
-    load_support_evidence,
-)
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
-BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix")
+BACKENDS: tuple[str, str] = ("mujoco", "motrix")
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -87,12 +82,10 @@ class EntrypointSpec:
 class SupportCell:
     env_name: str
     level: EvidenceLevel
-    execution_profile: str | None = None
 
 
 @dataclass(frozen=True)
 class SupportRow:
-    entrypoint_id: str
     entrypoint_label: str
     task_slug: str
     task_label: str
@@ -180,6 +173,28 @@ def _load_registry_backends() -> dict[str, set[str]]:
     }
 
 
+def _mlx_tested_task_slugs(root: Path) -> set[str]:
+    config_test_path = root / "tests" / "config" / "test_config_system.py"
+    content = config_test_path.read_text(encoding="utf-8")
+    match = re.search(r"_PPO_MLX_TASKS\s*=\s*(\{[^\n]+\})", content)
+    if match is None:
+        return set()
+    parsed = ast.literal_eval(match.group(1))
+    if not isinstance(parsed, set):
+        return set()
+    return {item for item in parsed if isinstance(item, str)}
+
+
+def _has_checked_in_benchmark_manifest(root: Path) -> bool:
+    del root
+    return False
+
+
+def _has_recommendation_metadata(root: Path) -> bool:
+    del root
+    return False
+
+
 def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str, str]]:
     task_root = root / spec.config_dir
     entries: dict[str, dict[str, str]] = {}
@@ -192,25 +207,10 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
     return entries
 
 
-def _is_tested(spec: EntrypointSpec, backend: str) -> bool:
-    # mjwarp claims are always combination-specific.  Generic compose coverage
-    # may establish Configured, but cannot promote an execution profile.
-    if backend == "mjwarp":
-        return False
+def _is_tested(spec: EntrypointSpec, task_slug: str, root: Path) -> bool:
+    if spec.entrypoint_id == "ppo_mlx":
+        return task_slug in _mlx_tested_task_slugs(root)
     return spec.generic_tested
-
-
-def _declared_level(level: DeclaredEvidenceLevel) -> EvidenceLevel:
-    return {
-        DeclaredEvidenceLevel.TESTED: EvidenceLevel.TESTED,
-        DeclaredEvidenceLevel.BENCHMARKED: EvidenceLevel.BENCHMARKED,
-        DeclaredEvidenceLevel.RECOMMENDED: EvidenceLevel.RECOMMENDED,
-    }[level]
-
-
-def _load_declarations(root: Path) -> SupportEvidenceManifest | None:
-    path = root / SUPPORT_EVIDENCE_PATH
-    return load_support_evidence(path) if path.is_file() else None
 
 
 def _cell_level(
@@ -220,7 +220,8 @@ def _cell_level(
     configured_backends: dict[str, str],
     registry_backends: dict[str, set[str]],
     tested: bool,
-    declared: DeclaredEvidenceLevel | None,
+    benchmarked: bool,
+    recommended: bool,
 ) -> EvidenceLevel:
     available_backends = registry_backends.get(env_name, set())
     if backend not in available_backends:
@@ -229,26 +230,20 @@ def _cell_level(
     level = EvidenceLevel.REGISTERED
     if backend in configured_backends:
         level = EvidenceLevel.CONFIGURED
-    if declared is not None and backend in configured_backends:
-        return _declared_level(declared)
     if backend in configured_backends and tested:
         level = EvidenceLevel.TESTED
+    if backend in configured_backends and tested and benchmarked:
+        level = EvidenceLevel.BENCHMARKED
+    if backend in configured_backends and tested and benchmarked and recommended:
+        level = EvidenceLevel.RECOMMENDED
     return level
 
 
-def build_support_rows(
-    root: Path | None = None,
-    *,
-    support_evidence: SupportEvidenceManifest | None = None,
-) -> list[SupportRow]:
+def build_support_rows(root: Path | None = None) -> list[SupportRow]:
     resolved_root = repo_root(root)
     registry_backends = _load_registry_backends()
-    evidence = support_evidence or _load_declarations(resolved_root)
-    declarations = (
-        {combination.key: combination for combination in evidence.combinations}
-        if evidence is not None
-        else {}
-    )
+    benchmarked = _has_checked_in_benchmark_manifest(resolved_root)
+    recommended = _has_recommendation_metadata(resolved_root)
     rows: list[SupportRow] = []
 
     for spec in ENTRYPOINT_SPECS:
@@ -257,6 +252,7 @@ def build_support_rows(
             key=lambda item: _task_sort_key(item[0]),
         ):
             env_name = next(iter(configured_backends.values()))
+            tested = _is_tested(spec, task_slug, resolved_root)
             cells = {
                 backend: SupportCell(
                     env_name=env_name,
@@ -265,24 +261,15 @@ def build_support_rows(
                         env_name=env_name,
                         configured_backends=configured_backends,
                         registry_backends=registry_backends,
-                        tested=_is_tested(spec, backend),
-                        declared=(
-                            declarations[(spec.entrypoint_id, task_slug, backend)].evidence_level
-                            if (spec.entrypoint_id, task_slug, backend) in declarations
-                            else None
-                        ),
-                    ),
-                    execution_profile=(
-                        declarations[(spec.entrypoint_id, task_slug, backend)].execution_profile
-                        if (spec.entrypoint_id, task_slug, backend) in declarations
-                        else None
+                        tested=tested,
+                        benchmarked=benchmarked,
+                        recommended=recommended,
                     ),
                 )
                 for backend in BACKENDS
             }
             rows.append(
                 SupportRow(
-                    entrypoint_id=spec.entrypoint_id,
                     entrypoint_label=spec.label,
                     task_slug=task_slug,
                     task_label=_task_label(task_slug),
@@ -295,17 +282,12 @@ def build_support_rows(
 
 def render_support_matrix(root: Path | None = None) -> str:
     resolved_root = repo_root(root)
-    evidence = _load_declarations(resolved_root)
-    mlx_tested_tasks = sorted(
-        {
-            combination.task_slug
-            for combination in evidence.combinations
-            if combination.entrypoint_id == "ppo_mlx"
-            and combination.evidence_level == DeclaredEvidenceLevel.TESTED
-        }
-        if evidence is not None
-        else (),
-        key=_task_sort_key,
+    mlx_tested_tasks = sorted(_mlx_tested_task_slugs(resolved_root), key=_task_sort_key)
+    benchmark_note = (
+        "未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。"
+    )
+    recommendation_note = (
+        "仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。"
     )
 
     lines = [
@@ -316,29 +298,25 @@ def render_support_matrix(root: Path | None = None) -> str:
         "| `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |",
         "| `Configured` | 存在对应的 owner YAML：`conf/{ppo,appo,offpolicy}/task/...`。 |",
         "| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合。这里的 `Tested` 包含 config compose 与脚本/运行时测试，不等同于默认推荐路径。 |",
-        "| `Benchmarked` | 逐组合 metadata 绑定 passing benchmark、fresh phase gate 与 compiled signature。 |",
-        "| `Recommended` | 在 `Benchmarked` 基础上还有显式 rollout/support promotion 证据。 |",
+        "| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |",
+        "| `Recommended` | 仓库中存在显式 recommendation 元数据。 |",
         "",
         "`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；"
         "例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
-        "`mjwarp` 不继承 entrypoint 级的通用 `Tested` 标记；其 `Tested` 及以上等级必须来自"
-        " `conf/support/evidence.yaml` 中的逐组合声明，并通过仓库验收工具双向审计。",
-        "Phase 7 task rollout 完成前，任何 `mjwarp` 组合都不得提升为 `Recommended`。",
-        "`Recommended` 只适用于矩阵中声明的 entrypoint、task owner、backend 和 execution profile；"
-        "不隐含未声明的原生 play/visualization 能力。当前 `mjwarp` 原生 play/visualization 仍显式 fail closed。",
+        benchmark_note,
+        recommendation_note,
         "",
         "### Entrypoint x Task Owner",
         "",
-        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix |",
-        "|------------|------------|--------|--------|--------|",
+        "| Entrypoint | Task owner | MuJoCo | Motrix |",
+        "|------------|------------|--------|--------|",
     ]
 
     for row in build_support_rows(resolved_root):
         lines.append(
             f"| {row.entrypoint_label} | `{row.task_slug}` ({row.task_label}) | "
-            f"{row.cells['mujoco'].level.label} | {row.cells['mjwarp'].level.label} | "
-            f"{row.cells['motrix'].level.label} |"
+            f"{row.cells['mujoco'].level.label} | {row.cells['motrix'].level.label} |"
         )
 
     lines.extend(
@@ -348,13 +326,11 @@ def render_support_matrix(root: Path | None = None) -> str:
             "",
             "- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.",
             "- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.",
-            "- High-grade mjwarp declaration: `conf/support/evidence.yaml`.",
-            "- Bidirectional audit: `uv run scripts/audit_acceptance.py support`.",
-            "- Generic compose coverage is audited against the configured owner set.",
-            "- MLX-specific declarations in `conf/support/evidence.yaml` upgrade these task owners: "
+            "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
+            "- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: "
             + ", ".join(f"`{task}`" for task in mlx_tested_tasks)
             + ".",
-            "- Runtime smoke and owner coverage are checked by the repository test lanes.",
+            "- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.",
         ]
     )
     return "\n".join(lines)

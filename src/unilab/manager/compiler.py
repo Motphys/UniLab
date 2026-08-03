@@ -13,8 +13,6 @@ from unilab.base.backend.batch import (
     BufferMutability,
     BufferOwner,
     BufferPlacement,
-    ExecutionProfile,
-    MemorySpace,
     StateFieldSpec,
 )
 from unilab.base.backend.mutation import (
@@ -225,7 +223,6 @@ def _bind_selectors(
 
 def _state_buffer(
     requirement: StateRequirement,
-    profile: ExecutionProfile,
     placement: BufferPlacement,
 ) -> BufferContract:
     return BufferContract(
@@ -236,7 +233,7 @@ def _state_buffer(
         owner=BufferOwner.BACKEND,
         mutability=BufferMutability.READ_ONLY,
         lifetime=BufferLifetime.BORROWED_UNTIL_MUTATION,
-        dlpack_exportable=profile is ExecutionProfile.DEVICE_RESIDENT,
+        dlpack_exportable=False,
         address_stable=True,
     )
 
@@ -244,7 +241,6 @@ def _state_buffer(
 def _compile_state_fields(
     resolved: dict[str, _ResolvedInvocation],
     selectors: dict[str, CompiledSelector],
-    profile: ExecutionProfile,
     placement: BufferPlacement,
 ) -> tuple[tuple[StateFieldSpec, ...], dict[str, tuple[str, ...]]]:
     fields: dict[str, StateFieldSpec] = {}
@@ -269,7 +265,7 @@ def _compile_state_fields(
                 ),
                 frame=requirement.tensor.frame,
                 unit=requirement.tensor.unit,
-                buffer=_state_buffer(requirement, profile, placement),
+                buffer=_state_buffer(requirement, placement),
             )
             previous = fields.get(field.semantic_key)
             if previous is not None and previous != field:
@@ -319,18 +315,14 @@ def _compile_mutations(
                     )
                 value = template.value_template
                 if (
-                    value.placement.memory_space is not MemorySpace.DEVICE
-                    or value.placement.device_type != "cuda"
-                    or value.placement.device_index is None
-                    or value.dtype not in {"float32", "float64"}
+                    value.dtype not in {"float32", "float64"}
                     or value.owner is not BufferOwner.MANAGER
                     or value.mutability is not BufferMutability.READ_ONLY
                     or value.lifetime is not BufferLifetime.UNTIL_COMMIT
-                    or not value.dlpack_exportable
                     or not value.address_stable
                 ):
                     raise ManagerContractError(
-                        f"random mutation {key!r} requires a stable manager-owned CUDA "
+                        f"random mutation {key!r} requires a stable manager-owned "
                         "float commit buffer"
                     )
                 if template.target_kind not in {
@@ -446,7 +438,6 @@ def _build_output_channels(
     outputs: dict[str, OutputSlice | None],
     *,
     placement: BufferPlacement,
-    profile: ExecutionProfile,
 ) -> tuple[OutputChannelPlan, ...]:
     widths: dict[str, int] = {}
     dtypes: dict[str, str] = {}
@@ -469,7 +460,7 @@ def _build_output_channels(
                 owner=BufferOwner.RUNTIME,
                 mutability=BufferMutability.READ_WRITE,
                 lifetime=BufferLifetime.PLAN,
-                dlpack_exportable=profile is ExecutionProfile.DEVICE_RESIDENT,
+                dlpack_exportable=False,
                 address_stable=True,
             ),
         )
@@ -613,7 +604,6 @@ class TaskCompiler:
         state_fields, term_state_keys = _compile_state_fields(
             resolved,
             selector_map,
-            task.execution_profile,
             task.control.buffer.placement,
         )
         mutations, term_mutation_keys, random_owners = _compile_mutations(
@@ -632,7 +622,6 @@ class TaskCompiler:
         output_channels = _build_output_channels(
             outputs,
             placement=task.control.buffer.placement,
-            profile=task.execution_profile,
         )
         term_indices = {key: index for index, key in enumerate(ordered_keys)}
         state_indices = {item.semantic_key: index for index, item in enumerate(state_fields)}

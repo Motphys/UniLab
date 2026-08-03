@@ -10,12 +10,8 @@ from importlib.machinery import ModuleSpec
 from pathlib import Path
 
 import pytest
-from hydra import compose, initialize_config_dir
-from hydra.core.global_hydra import GlobalHydra
 
-from unilab.base import registry
 from unilab.base.backend.mjwarp import dependencies
-from unilab.base.registry import ensure_registries
 
 
 def _repo_root() -> Path:
@@ -90,19 +86,9 @@ def test_mjwarp_dependency_version_mismatch_fails_before_import(
 def test_mjwarp_identity_is_independent_from_mujoco(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ensure_registries()
-    assert "mjwarp" in registry.list_registered_envs()["G1WalkFlat"]["available_backends"]
-
-    conf_dir = _repo_root() / "conf" / "ppo"
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(conf_dir), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_walk_flat/mjwarp"])
-    assert cfg.training.sim_backend == "mjwarp"
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
-
     from unilab import cli
 
+    assert "mjwarp" in cli.SUPPORTED_SIMS
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
     owner = tmp_path / "conf" / "ppo" / "task" / "g1_walk_flat"

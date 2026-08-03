@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.utils.support_matrix import BACKENDS, EvidenceLevel, build_support_rows
+from unilab.utils.support_matrix import EvidenceLevel, build_support_rows
 
 
 def _row(entrypoint_label: str, task_slug: str):
@@ -18,22 +18,6 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
 
     assert row.cells["mujoco"].level == EvidenceLevel.TESTED
     assert row.cells["motrix"].level == EvidenceLevel.TESTED
-    assert row.cells["mjwarp"].level == EvidenceLevel.MISSING
-
-
-def test_support_matrix_has_independent_mjwarp_recommended_cell():
-    row = _row("PPO (torch)", "g1_walk_flat")
-
-    assert BACKENDS == ("mujoco", "mjwarp", "motrix")
-    assert row.cells["mjwarp"].level == EvidenceLevel.RECOMMENDED
-    assert row.cells["mjwarp"].execution_profile == "device_resident"
-
-
-def test_support_matrix_does_not_leak_torch_mjwarp_evidence_to_mlx():
-    row = _row("PPO (mlx)", "g1_walk_flat")
-
-    assert row.cells["mjwarp"].level == EvidenceLevel.CONFIGURED
-    assert row.cells["mjwarp"].execution_profile is None
 
 
 def test_support_matrix_marks_appo_go1_backends_as_tested():

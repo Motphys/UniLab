@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from os import PathLike
-from typing import Any, NoReturn, cast
+from typing import Any
 
-import gymnasium as gym
 import numpy as np
 from etils import epath
 
@@ -17,7 +14,7 @@ from unilab.base import registry
 from unilab.base.augmentation import SymmetryObsLayout
 from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
-from unilab.base.np_env import NpEnv, NpEnvState
+from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
@@ -353,27 +350,6 @@ class G1WalkEnv(G1BaseEnv):
         # gyro(3) + gravity(3) + diff(29) + dof_vel(29) + action(29) + cmd(3) + phase(2) = 98
         return {"obs": 98, "critic": 101}
 
-    def create_device_managed_runtime(
-        self,
-        *,
-        reset_seed: int,
-        record_lifecycle: bool = False,
-        enable_stability_diagnostics: bool = False,
-    ):
-        """Build the strict G1 device runtime without exposing the backend."""
-
-        from unilab.envs.locomotion.g1.managed_device import (
-            create_g1_managed_device_runtime,
-        )
-
-        return create_g1_managed_device_runtime(
-            backend=self._backend,
-            cfg=self._cfg,
-            reset_seed=reset_seed,
-            record_lifecycle=record_lifecycle,
-            enable_stability_diagnostics=enable_stability_diagnostics,
-        )
-
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
             "tracking_lin_vel": rewards.tracking_lin_vel,
@@ -707,157 +683,6 @@ class G1WalkEnv(G1BaseEnv):
         return ctrl
 
 
-class G1MjwarpManagedOnlyError(RuntimeError):
-    """Raised when callers try to use the retired mjwarp NumPy lifecycle."""
-
-
-class G1MjwarpManagedEnv(NpEnv):
-    """Cold-path shell for the managed-only G1 mjwarp production owner.
-
-    The device runner needs an env-owned backend, config, and static policy
-    spaces before it can build ``DeviceManagedRuntime``.  It must not inherit
-    the hand-written G1 lifecycle: reset, step, reward, and observation math
-    are owned by the compiled device runtime for this backend.
-    """
-
-    _OBS_GROUPS_SPEC = {"obs": 98, "critic": 101}
-
-    def __init__(self, cfg: G1WalkEnvCfg, num_envs: int = 1, backend_type: str = "mjwarp"):
-        if backend_type != "mjwarp":
-            raise ValueError(
-                "G1MjwarpManagedEnv is owned only by backend='mjwarp'; "
-                "select the registered mujoco or motrix owner for another physics backend"
-            )
-        if cfg.reward_config is None:
-            raise ValueError("reward_config must be provided via Hydra configuration")
-        backend = create_backend(
-            backend_type,
-            cfg.scene,
-            num_envs,
-            cfg.sim_dt,
-            base_name=cfg.asset.base_name,
-            push_body_name=cfg.domain_rand.push_body_name,
-            **env_backend_kwargs(cfg),
-        )
-        try:
-            super().__init__(cfg, backend, num_envs)
-            ctrl_range = np.asarray(backend.get_actuator_ctrl_range(), dtype=float)
-            expected_shape = (backend.num_actuators, 2)
-            if ctrl_range.shape != expected_shape:
-                raise ValueError(
-                    "mjwarp actuator control range shape mismatch: "
-                    f"expected {expected_shape}, got {ctrl_range.shape}"
-                )
-            self._action_space = gym.spaces.Box(
-                ctrl_range[:, 0],
-                ctrl_range[:, 1],
-                (backend.num_actuators,),
-                dtype=float,
-            )
-        except Exception:
-            backend.cleanup_scene_assets()
-            raise
-
-    @property
-    def obs_groups_spec(self) -> dict[str, int]:
-        return dict(self._OBS_GROUPS_SPEC)
-
-    @property
-    def action_space(self) -> gym.spaces.Box:
-        return self._action_space
-
-    def create_device_managed_runtime(
-        self,
-        *,
-        reset_seed: int,
-        record_lifecycle: bool = False,
-        enable_stability_diagnostics: bool = False,
-    ):
-        """Build the only supported lifecycle for the mjwarp G1 owner."""
-
-        from unilab.envs.locomotion.g1.managed_device import (
-            create_g1_managed_device_runtime,
-        )
-
-        return create_g1_managed_device_runtime(
-            backend=self._backend,
-            cfg=cast(G1WalkEnvCfg, self._cfg),
-            reset_seed=reset_seed,
-            record_lifecycle=record_lifecycle,
-            enable_stability_diagnostics=enable_stability_diagnostics,
-        )
-
-    @staticmethod
-    def _reject_legacy_lifecycle(operation: str) -> NoReturn:
-        raise G1MjwarpManagedOnlyError(
-            "G1WalkFlat + mjwarp is managed-only; direct "
-            f"{operation} through the retired hand-written NpEnv lifecycle is unsupported. "
-            "Use `uv run scripts/train_rsl_rl.py task=g1_walk_flat/mjwarp "
-            "training.operation=train` for training, or set `training.operation=export` "
-            "to export a versioned checkpoint. Native mjwarp play and visualization are "
-            "unsupported; select task=g1_walk_flat/mujoco only when MuJoCo physics is intended."
-        )
-
-    def init_state(self) -> NoReturn:
-        self._reject_legacy_lifecycle("init_state")
-
-    def reset(self, env_indices: np.ndarray) -> NoReturn:
-        del env_indices
-        self._reject_legacy_lifecycle("reset")
-
-    def step(self, actions: np.ndarray) -> NoReturn:
-        del actions
-        self._reject_legacy_lifecycle("step")
-
-    def apply_action(self, actions: np.ndarray, state: NpEnvState) -> NoReturn:
-        del actions, state
-        self._reject_legacy_lifecycle("apply_action")
-
-    def update_state(self, state: NpEnvState) -> NoReturn:
-        del state
-        self._reject_legacy_lifecycle("update_state")
-
-    def resolve_play_render_plan(
-        self,
-        *,
-        play_render_mode: str | None,
-        play_steps: int | None,
-        output_video: str | PathLike[str] | None,
-    ) -> NoReturn:
-        del play_render_mode, play_steps, output_video
-        self._reject_legacy_lifecycle("play")
-
-    def run_playback(
-        self,
-        *,
-        initialize: Callable[[], Any],
-        step: Callable[[Any], Any],
-        num_steps: int | None,
-        output_video: str | PathLike[str] | None = None,
-        render_spacing: float | None = None,
-        render_offset_mode: str | None = None,
-        headless: bool | None = None,
-        record_video: bool | None = None,
-        frame_state_getter: Callable[[], np.ndarray] | None = None,
-        camera_kwargs: dict[str, Any] | None = None,
-        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
-    ) -> NoReturn:
-        del (
-            initialize,
-            step,
-            num_steps,
-            output_video,
-            render_spacing,
-            render_offset_mode,
-            headless,
-            record_video,
-            frame_state_getter,
-            camera_kwargs,
-            extra_data_getter,
-        )
-        self._reject_legacy_lifecycle("play")
-
-
 def _walk_curriculum() -> CurriculumConfig:
     return CurriculumConfig(
         enabled=True,
@@ -905,7 +730,6 @@ class G1WalkRoughCfg(G1WalkFlatCfg):
 
 
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mujoco")
-registry.register_env("G1WalkFlat", G1MjwarpManagedEnv, sim_backend="mjwarp")
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="motrix")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="mujoco")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="motrix")

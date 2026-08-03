@@ -7,27 +7,12 @@ reads the runtime-private state of :mod:`unilab.base.backend.mujoco`.
 
 from __future__ import annotations
 
-from .materialization import (
-    MJWARP_MODEL_INVALIDATIONS,
-    MJWARP_MODEL_MATERIALIZATION_VERSION,
-    MjwarpModelFieldReceipt,
-    MjwarpModelFieldRole,
-    MjwarpModelInvalidationOutcome,
-    MjwarpModelInvalidationReceipt,
-    MjwarpModelMaterializationContractError,
-    MjwarpModelMaterializationReceipt,
-    MjwarpModelMaterializationRequest,
-)
-
 
 def __getattr__(name: str):
-    if name in {"MjwarpBackend", "MjwarpDeviceCapacityDiagnostics"}:
-        from .backend import MjwarpBackend, MjwarpDeviceCapacityDiagnostics
+    if name == "MjwarpBackend":
+        from .backend import MjwarpBackend
 
-        return {
-            "MjwarpBackend": MjwarpBackend,
-            "MjwarpDeviceCapacityDiagnostics": MjwarpDeviceCapacityDiagnostics,
-        }[name]
+        return MjwarpBackend
     if name == "MJWARP_AVAILABLE":
         from .dependencies import mjwarp_dependencies_available
 
@@ -37,15 +22,5 @@ def __getattr__(name: str):
 
 __all__ = [
     "MJWARP_AVAILABLE",
-    "MJWARP_MODEL_INVALIDATIONS",
-    "MJWARP_MODEL_MATERIALIZATION_VERSION",
     "MjwarpBackend",
-    "MjwarpDeviceCapacityDiagnostics",
-    "MjwarpModelFieldReceipt",
-    "MjwarpModelFieldRole",
-    "MjwarpModelInvalidationOutcome",
-    "MjwarpModelInvalidationReceipt",
-    "MjwarpModelMaterializationContractError",
-    "MjwarpModelMaterializationReceipt",
-    "MjwarpModelMaterializationRequest",
 ]

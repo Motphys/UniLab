@@ -40,7 +40,6 @@ from ..batch import (
     StateFieldKind,
     StateFieldSpec,
 )
-from ..telemetry import BackendTransferCounters
 
 if TYPE_CHECKING:
     from .backend import MjwarpBackend
@@ -171,25 +170,6 @@ class MjwarpHostBatchPlan:
                 timings=(BackendTiming("state_materialize", elapsed_ms),),
             ),
         )
-
-
-def transfer_delta_to_batch_counters(
-    transfer: BackendTransferCounters,
-    *,
-    allocations: int,
-    state_materializations: int,
-) -> BackendBatchCounters:
-    """Translate public transfer telemetry into one managed-barrier diagnostic."""
-    return BackendBatchCounters(
-        host_to_device_transfers=transfer.host_to_device_transfers,
-        device_to_host_transfers=transfer.device_to_host_transfers,
-        host_to_device_bytes=transfer.host_to_device_bytes,
-        device_to_host_bytes=transfer.device_to_host_bytes,
-        global_synchronizations=transfer.global_synchronizations,
-        allocations=allocations,
-        state_materializations=state_materializations,
-        instrumentation_complete=True,
-    )
 
 
 def _require_field_contract(
@@ -544,28 +524,6 @@ def _binding_payloads(
             "buffer": _buffer_payload(requirements.control.buffer),
             "cadence": requirements.control.physics_substeps_per_control,
             "implementation": requirements.control.implementation.value,
-            "controller": (
-                None
-                if requirements.control.controller is None
-                else {
-                    "contract_version": requirements.control.controller.contract_version,
-                    "implementation_key": requirements.control.controller.implementation_key,
-                    "state_reads": tuple(
-                        {
-                            "semantic_key": item.semantic_key,
-                            "phase": item.phase.value,
-                        }
-                        for item in requirements.control.controller.state_reads
-                    ),
-                    "parameters": tuple(
-                        {
-                            "semantic_key": item.semantic_key,
-                            "values": item.values,
-                        }
-                        for item in requirements.control.controller.parameters
-                    ),
-                }
-            ),
         },
         "hot_path_budget": (
             None
@@ -577,7 +535,7 @@ def _binding_payloads(
             if requirements.reset_hot_path_budget is None
             else dict(requirements.reset_hot_path_budget.items())
         ),
-        "reset_requires_mutation_batch": True,
+        "reset_requires_mutation_batch": False,
     }
     return state_payload, plan_payload
 
@@ -672,7 +630,7 @@ def bind_mjwarp_host_batch(
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{_payload_digest(plan_payload)}",
         hot_path_budget=requirements.hot_path_budget,
         reset_hot_path_budget=requirements.reset_hot_path_budget,
-        reset_requires_mutation_batch=True,
+        reset_requires_mutation_batch=False,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     return MjwarpHostBatchPlan(
@@ -685,5 +643,4 @@ def bind_mjwarp_host_batch(
 __all__ = [
     "MjwarpHostBatchPlan",
     "bind_mjwarp_host_batch",
-    "transfer_delta_to_batch_counters",
 ]

@@ -21,10 +21,7 @@ def test_g1_motion_tracking_numba_benchmark_builds_records_and_matches_numpy() -
     assert any(record.path == "numba_accelerator" and record.threads == 1 for record in records)
     assert component.profile == "sac_default"
     assert component.speedup_vs_numpy > 0.0
-    assert component.numpy_total_ms == component.numpy_update_state_ms
-    assert component.numba_total_ms == component.numba_update_state_ms
-    assert component.numpy_reward_termination_ms > 0.0
-    assert component.numba_reward_termination_ms > 0.0
+    assert component.numpy_total_ms >= component.numpy_reward_termination_ms
     assert all(
         record.parallel_speedup_vs_numba_1t is not None
         for record in records

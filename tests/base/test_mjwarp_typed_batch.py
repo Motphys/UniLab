@@ -201,7 +201,13 @@ def _requirements(
         )
         getters.append(lambda name=sensor_name: backend.get_sensor_data(name))
 
-    transfer_bytes = {item.name: item.nbytes for item in backend.get_transfer_buffers()}
+    transfer_bytes = {
+        "control": backend._ctrl_staging.nbytes,
+        "reset_mask": backend._reset_mask_host.nbytes,
+        "qpos": backend._qpos_cache.nbytes,
+        "qvel": backend._qvel_cache.nbytes,
+        "sensordata": backend._sensor_cache.nbytes,
+    }
     control = ControlSpec(
         "joint.position_target",
         BufferContract(
@@ -299,8 +305,6 @@ def test_mjwarp_typed_batch_matches_getter_and_transfer_contract(
     expected = tuple(np.asarray(getter()).copy() for getter in getters)
 
     selected_rows = tuple(int(row) for row in rng.permutation(num_envs)[: max(1, num_envs // 2)])
-    backend.reset_transfer_telemetry()
-    before_read = backend.get_transfer_counters()
     with (
         patch.object(backend, "get_base_pos", side_effect=AssertionError("getter fallback")),
         patch.object(backend, "get_base_quat", side_effect=AssertionError("getter fallback")),
@@ -332,8 +336,6 @@ def test_mjwarp_typed_batch_matches_getter_and_transfer_contract(
             _ = selected_view.handle
         assert cast(np.ndarray, selected_again.buffer_at(0).handle).ctypes.data == selected_address
         _assert_state_matches(selected_again, expected, selected_rows)
-        assert backend.get_transfer_counters() == before_read
-        assert backend.get_transfer_trace().events == ()
 
         control_array = rng.uniform(
             -0.1,
@@ -345,21 +347,21 @@ def test_mjwarp_typed_batch_matches_getter_and_transfer_contract(
             rows=RowSelection.all(num_envs),
             buffer=BufferView(control_array, control_array.shape, plan.control.buffer),
         )
-        before_step = backend.get_transfer_counters()
         terminal = backend.step_batch(plan, control, nsteps=2)
         with pytest.raises(StaleStateBatchError, match="mutation barrier"):
             selected_again.assert_valid()
-        transfer_delta = backend.get_transfer_counters().delta(before_step)
 
     terminal_expected = tuple(np.asarray(getter()).copy() for getter in getters)
     _assert_state_matches(terminal.terminal_state, terminal_expected)
     assert terminal.terminal_state.phase is StateBatchPhase.TERMINAL
     counters = terminal.diagnostics.counters
-    assert counters.host_to_device_transfers == transfer_delta.host_to_device_transfers == 1
-    assert counters.device_to_host_transfers == transfer_delta.device_to_host_transfers == 3
-    assert counters.host_to_device_bytes == transfer_delta.host_to_device_bytes
-    assert counters.device_to_host_bytes == transfer_delta.device_to_host_bytes
-    assert counters.global_synchronizations == transfer_delta.global_synchronizations == 1
+    assert counters.host_to_device_transfers == 1
+    assert counters.device_to_host_transfers == 3
+    assert counters.host_to_device_bytes == backend._ctrl_staging.nbytes
+    assert counters.device_to_host_bytes == (
+        backend._qpos_cache.nbytes + backend._qvel_cache.nbytes + backend._sensor_cache.nbytes
+    )
+    assert counters.global_synchronizations == 1
     assert counters.allocations == 3
     assert counters.state_materializations == 1
     assert counters.dynamic_getter_calls == 0
@@ -374,7 +376,6 @@ def test_mjwarp_typed_batch_fails_closed_before_physics() -> None:
     requirements, _ = _requirements(backend)
     plan = backend.bind_task_io(requirements)
     state = backend.read_state_batch(plan, RowSelection.all(2)).state
-    telemetry = backend.get_transfer_counters()
 
     with pytest.raises(BackendHotPathViolationError, match="host_to_device_transfers"):
         backend.bind_task_io(replace(requirements, reset_hot_path_budget=None))
@@ -445,10 +446,13 @@ def test_mjwarp_typed_batch_fails_closed_before_physics() -> None:
             mutation_batch=cast(Any, object()),
             nsteps=2,
         )
-    with pytest.raises(BackendBatchContractError, match="TypedBackendMutationBatch"):
-        backend.reset_batch(plan, RowSelection.selected(2, (0,)))
+    with pytest.raises(BackendBatchContractError, match="identity reset"):
+        backend.reset_batch(
+            plan,
+            RowSelection.selected(2, (0,)),
+            mutation_batch=cast(Any, object()),
+        )
 
-    assert backend.get_transfer_counters() == telemetry
     state.assert_valid()
 
     backend.step(valid, nsteps=1)

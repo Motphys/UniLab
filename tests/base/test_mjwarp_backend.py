@@ -7,12 +7,11 @@ instead of treating an unavailable fake implementation as evidence.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pytest
 
-from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
 from unilab.base.scene import SceneCfg
@@ -82,59 +81,3 @@ def test_selected_row_reset_isolated() -> None:
     np.testing.assert_allclose(backend.get_base_pos()[complement], previous_pos[complement])
     np.testing.assert_allclose(backend.get_base_lin_vel()[complement], previous_vel[complement])
     assert np.isfinite(backend.get_sensor_data("pelvis_local_linvel")).all()
-
-
-def _g1_reward_config():
-    from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
-
-    return G1WalkRewardConfig(
-        scales={
-            "tracking_lin_vel": 2.0,
-            "tracking_ang_vel": 0.2,
-            "feet_phase": 1.0,
-            "lin_vel_z": -1.0,
-            "ang_vel_xy": -0.25,
-            "base_height": -500.0,
-            "orientation": -5.0,
-            "action_rate": -0.01,
-            "pose": -0.1,
-        },
-        tracking_sigma=0.25,
-        gait_frequency=1.5,
-        feet_phase_swing_height=0.09,
-        feet_phase_tracking_sigma=0.008,
-        base_height_target=0.754,
-        min_base_height=0.55,
-        max_tilt_deg=25.0,
-        pose_weights=[0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0] + [50.0] * 17,
-    )
-
-
-def test_g1_host_profile_init_reset_step() -> None:
-    _require_cuda_mjwarp()
-    from unilab.base.registry import ensure_registries
-
-    ensure_registries()
-    env = cast(
-        Any,
-        registry.make(
-            "G1WalkFlat",
-            sim_backend="mjwarp",
-            num_envs=2,
-            env_cfg_override={
-                "reward_config": _g1_reward_config(),
-                "domain_rand": {"randomize_kp": False, "randomize_kd": False},
-                "curriculum": {"enabled": False},
-            },
-        ),
-    )
-    try:
-        initial = env.init_state()
-        stepped = env.step(np.zeros((2, env.action_space.shape[0]), dtype=np.float32))
-    finally:
-        env.close()
-
-    assert initial.obs["obs"].shape == (2, 98)
-    assert stepped.obs["critic"].shape == (2, 101)
-    assert np.isfinite(stepped.obs["obs"]).all()
-    assert np.isfinite(stepped.reward).all()

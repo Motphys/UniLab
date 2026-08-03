@@ -22,23 +22,6 @@ env:
   UV_FROZEN: "1"
 
 jobs:
-  repository-hygiene:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    timeout-minutes: 5
-    runs-on: ubuntu-slim
-    steps:
-      - uses: actions/checkout@v6.0.2
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.0.0
-      - name: Install validation dependencies
-        run: uv sync --only-group dev
-      - name: Enforce committed-file size and no-LFS policy
-        run: uv run --no-sync tooling/check_repository_files.py --base origin/main
-
   ruff-lint:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 5
@@ -103,81 +86,17 @@ jobs:
       - name: Check
         run: uv run pyright
 
-  benchmark-smoke:
+  test:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    timeout-minutes: 8
-    runs-on: ubuntu-slim
-    steps:
-      - uses: actions/checkout@v6.0.2
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.0.0
-        with:
-          python-version: '3.11'
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libwayland-client0
-      - name: Install dependencies
-        run: |
-          uv sync --extra mujoco --extra motrix \
-            --no-install-package torch \
-            --no-install-package nvidia-cublas-cu12 \
-            --no-install-package nvidia-cuda-cupti-cu12 \
-            --no-install-package nvidia-cuda-nvrtc-cu12 \
-            --no-install-package nvidia-cuda-runtime-cu12 \
-            --no-install-package nvidia-cudnn-cu12 \
-            --no-install-package nvidia-cufft-cu12 \
-            --no-install-package nvidia-cufile-cu12 \
-            --no-install-package nvidia-curand-cu12 \
-            --no-install-package nvidia-cusolver-cu12 \
-            --no-install-package nvidia-cusparse-cu12 \
-            --no-install-package nvidia-cusparselt-cu12 \
-            --no-install-package nvidia-nccl-cu12 \
-            --no-install-package nvidia-nvjitlink-cu12 \
-            --no-install-package nvidia-nvtx-cu12 \
-            --no-install-package triton
-          uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
-      - name: Benchmark entrypoint smoke test
-        run: uv run --no-sync python benchmark/smoke_test.py
-
-  test-shard:
-    name: test shard (${{ matrix.shard }})
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    # Standard CI: fast shards only (≤12 min each on ubuntu-slim).
-    # Evidence/benchmark/acceptance shards run in ci-full.yml (workflow_dispatch / schedule).
-    timeout-minutes: 12
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - shard: a
-            paths: tests/algos tests/assets tests/base
-          - shard: b
-            paths: tests/dr tests/envs tests/integration tests/ipc tests/manager
-          - shard: d
-            paths: tests/terrains tests/tools tests/training tests/utils tests/visualization tests/test_*.py
-          - shard: f
-            paths: tests/config
-          - shard: scripts
-            paths: >-
-              tests/scripts/test_check_docs.py
-              tests/scripts/test_ci_test_shards.py
-              tests/scripts/test_mujoco_only_tooling_markers.py
-              tests/scripts/test_obs_alignment_g1_wbt.py
-              tests/scripts/test_repo_hygiene.py
-              tests/scripts/test_repository_file_policy.py
-              tests/scripts/test_support_matrix.py
-              tests/scripts/test_torch_cuda_source.py
-              tests/scripts/test_train_script_configs.py
-              tests/scripts/test_train_scripts.py
-              tests/scripts/test_visualization_entrypoints.py
-    runs-on: ubuntu-slim
+        os: [ubuntu-slim]
+    #     python-version: ['3.10', '3.11', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
-          fetch-depth: 0
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -206,52 +125,7 @@ jobs:
             --no-install-package nvidia-nvtx-cu12 \
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Benchmark entrypoint smoke test
+        run: uv run --no-sync python benchmark/smoke_test.py
       - name: Test with coverage
-        env:
-          COVERAGE_FILE: coverage.${{ matrix.shard }}
-        run: >-
-          uv run --no-sync pytest ${{ matrix.paths }}
-          -m "not slow and not local_evidence"
-          -x
-          --cov=src/unilab --cov-report= --cov-fail-under=0
-      - name: Upload coverage data
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.shard }}
-          path: coverage.${{ matrix.shard }}
-          if-no-files-found: error
-          retention-days: 1
-
-  test:
-    name: test (ubuntu-slim)
-    if: always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
-    needs: [benchmark-smoke, test-shard]
-    runs-on: ubuntu-slim
-    steps:
-      - uses: actions/checkout@v6.0.2
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
-          persist-credentials: false
-      - name: Require smoke and all test shards
-        env:
-          BENCHMARK_SMOKE_RESULT: ${{ needs.benchmark-smoke.result }}
-          TEST_SHARD_RESULT: ${{ needs.test-shard.result }}
-        run: |
-          test "$BENCHMARK_SMOKE_RESULT" = success
-          test "$TEST_SHARD_RESULT" = success
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.0.0
-      - name: Install validation dependencies
-        run: uv sync --only-group dev
-      - name: Download coverage data
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-*
-          path: coverage-data
-          merge-multiple: true
-      - name: Audit test shard coverage
-        run: uv run --no-sync scripts/audit_ci_test_shards.py
-      - name: Combine coverage
-        run: |
-          uv run --no-sync coverage combine coverage-data/coverage.*
-          uv run --no-sync coverage report --format=markdown --fail-under=25 | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+        run: uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25

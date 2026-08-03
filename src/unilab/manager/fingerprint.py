@@ -358,7 +358,7 @@ def normalize_managed_policy_abi_snapshot(value: object) -> dict[str, Any]:
     execution_profile = _require_non_empty_string(
         snapshot["execution_profile"], name="managed policy ABI.execution_profile"
     )
-    if execution_profile not in {"host_numpy", "device_resident"}:
+    if execution_profile != "host_numpy":
         raise ManagedPolicyABISnapshotError("managed policy ABI has invalid execution_profile")
     normalization = _require_non_empty_string(
         snapshot["normalization"], name="managed policy ABI.normalization"
@@ -501,26 +501,6 @@ def compiled_plan_payload(
                     plan.backend_io.control.physics_substeps_per_control
                 ),
                 "implementation": plan.backend_io.control.implementation.value,
-                "controller": None
-                if plan.backend_io.control.controller is None
-                else {
-                    "contract_version": plan.backend_io.control.controller.contract_version,
-                    "implementation_key": (plan.backend_io.control.controller.implementation_key),
-                    "state_reads": [
-                        {
-                            "semantic_key": item.semantic_key,
-                            "phase": item.phase.value,
-                        }
-                        for item in plan.backend_io.control.controller.state_reads
-                    ],
-                    "parameters": [
-                        {
-                            "semantic_key": item.semantic_key,
-                            "values": list(item.values),
-                        }
-                        for item in plan.backend_io.control.controller.parameters
-                    ],
-                },
             },
             "hot_path_budget": None
             if plan.backend_io.hot_path_budget is None

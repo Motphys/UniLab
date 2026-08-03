@@ -20,7 +20,6 @@ from unilab.dtype_config import get_global_dtype
 
 if TYPE_CHECKING:
     from unilab.base.augmentation import SymmetryAugmentation
-    from unilab.manager import DeviceManagedRuntime
     from unilab.utils.nan_guard import NanGuard
 
 
@@ -147,25 +146,6 @@ class NpEnv(ABEnv):
     def build_symmetry_augmentation(self, *, device: str) -> "SymmetryAugmentation | None":
         """Return an env-owned runtime symmetry adapter when the task/backend supports it."""
         return None
-
-    def create_device_managed_runtime(
-        self,
-        *,
-        reset_seed: int,
-        record_lifecycle: bool = False,
-        enable_stability_diagnostics: bool = False,
-    ) -> "DeviceManagedRuntime":
-        """Build an env-owned device runtime through public backend contracts.
-
-        Device training adapters call this cold-path hook instead of reaching
-        into ``_backend`` or selecting a task implementation themselves.
-        Tasks without a verified device profile fail closed.
-        """
-
-        del reset_seed, record_lifecycle, enable_stability_diagnostics
-        raise NotImplementedError(
-            f"{type(self).__name__} does not provide a device-managed runtime"
-        )
 
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()

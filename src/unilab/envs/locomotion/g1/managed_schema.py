@@ -1,8 +1,8 @@
 """Shared public schema for compiled G1 walking executors.
 
 This module owns the cold-path constants, selectors, reset descriptors, and
-validated kernel configuration shared by the reference, fused-host, and
-device-resident executors.  Executor implementations may evolve independently
+validated kernel configuration shared by the reference and fused-host
+executors.  Executor implementations may evolve independently
 without importing private symbols from one another.
 """
 

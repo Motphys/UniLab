@@ -13,15 +13,9 @@ _SHARED_RUNTIME_MODULES = frozenset(
     {
         "base",
         "batch",
-        "device",
-        "graph",
         "motrix_camera",
         "mutation",
-        "mutation_batch",
-        "performance",
-        "phase_timing",
         "playback_common",
-        "telemetry",
     }
 )
 _RAW_BACKEND_MEMBERS = frozenset({"model"})

@@ -66,7 +66,7 @@ def _buffer(
     owner: BufferOwner = BufferOwner.MANAGER,
     lifetime: BufferLifetime = BufferLifetime.UNTIL_COMMIT,
 ) -> BufferContract:
-    resolved = placement or BufferPlacement.device("cuda", 0)
+    resolved = placement or BufferPlacement.host()
     return BufferContract(
         row_shape=row_shape,
         dtype="float32",
@@ -75,8 +75,8 @@ def _buffer(
         owner=owner,
         mutability=BufferMutability.READ_ONLY,
         lifetime=lifetime,
-        dlpack_exportable=resolved.device_type == "cuda",
-        address_stable=resolved.device_type == "cuda",
+        dlpack_exportable=False,
+        address_stable=True,
     )
 
 
@@ -177,8 +177,8 @@ def _compile(
             ),
             physics_substeps_per_control=1,
         ),
-        execution_profile=ExecutionProfile.DEVICE_RESIDENT,
-        executor_key="device.fixture.v1",
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        executor_key="host.fixture.v1",
         policy=PolicySpec(("policy",), (1.0, 1.0)),
     )
     return TaskCompiler(registry).compile(
@@ -249,7 +249,10 @@ def test_non_random_plan_keeps_the_legacy_payload_shape() -> None:
             {"commit_phase": MutationCommitPhase.PRE_PHYSICS},
             "reset trigger and phase",
         ),
-        ({"event_placement": BufferPlacement.host()}, "stable manager-owned CUDA"),
+        (
+            {"event_placement": BufferPlacement.device("cuda", 0)},
+            "placement does not match",
+        ),
     ),
 )
 def test_compiler_rejects_unsupported_random_event_contracts(
