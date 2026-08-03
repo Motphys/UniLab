@@ -66,6 +66,8 @@ class MjwarpDeviceModelMutationPlan:
     _targets: tuple[_DeviceModelTarget, ...] = field(init=False, repr=False)
     _effective_mask: torch.Tensor = field(init=False, repr=False)
     _effective_mask_2d: torch.Tensor = field(init=False, repr=False)
+    _invalid_rows: torch.Tensor = field(init=False, repr=False)
+    _invalid_model_sample_rows: torch.Tensor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.placement.device_index is None:
@@ -153,6 +155,10 @@ class MjwarpDeviceModelMutationPlan:
             device=device,
         )
         self._effective_mask_2d = self._effective_mask.view(self.public_plan.num_envs, 1)
+        self._invalid_rows = torch.empty_like(self._effective_mask)
+        self._invalid_model_sample_rows = torch.zeros(
+            (self.public_plan.num_envs,), dtype=torch.int64, device=device
+        )
 
     @staticmethod
     def _target_scratch(
@@ -316,12 +322,23 @@ class MjwarpDeviceModelMutationPlan:
                     target.valid_worlds,
                 )
             )
-        buffers.append(self._effective_mask)
+        buffers.extend(
+            (
+                self._effective_mask,
+                self._invalid_rows,
+                self._invalid_model_sample_rows,
+            )
+        )
         return tuple(int(value.data_ptr()) for value in buffers)
 
     @property
     def effective_mask(self) -> torch.Tensor:
         return self._effective_mask
+
+    def materialize_invalid_model_sample_rows(self) -> int:
+        """Read the cumulative CUDA counter at an explicit cold diagnostic boundary."""
+
+        return int(self._invalid_model_sample_rows.sum().item())
 
     @staticmethod
     def _value_tensor(value: MutationValueBatch, *, expected: BoundMutationSpec) -> torch.Tensor:
@@ -424,6 +441,14 @@ class MjwarpDeviceModelMutationPlan:
                 target.valid_worlds,
                 out=self._effective_mask,
             )
+        # effective_mask is always a subset of active_mask, so XOR identifies
+        # active reset rows rejected by at least one Model target.
+        torch.logical_xor(active_mask, self._effective_mask, out=self._invalid_rows)
+        torch.add(
+            self._invalid_model_sample_rows,
+            self._invalid_rows,
+            out=self._invalid_model_sample_rows,
+        )
         return self._effective_mask
 
     @staticmethod
