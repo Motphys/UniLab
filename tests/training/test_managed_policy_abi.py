@@ -499,14 +499,19 @@ def test_rsl_rl_vec_env_wrapper_returns_none_for_plain_env() -> None:
     assert wrapper.managed_policy_abi_snapshot is None
 
 
-def test_rsl_rl_vec_env_wrapper_rejects_invalid_policy_abi_snapshot() -> None:
+@pytest.mark.parametrize("attribute_name", ("managed_policy_abi_snapshot", "policy_abi_snapshot"))
+def test_rsl_rl_vec_env_wrapper_rejects_invalid_policy_abi_snapshot(
+    attribute_name: str,
+) -> None:
     from unilab.training.rsl_rl import RslRlVecEnvWrapper
 
     class _InvalidEnv:
-        managed_policy_abi_snapshot = ("not", "a", "mapping")
+        pass
 
+    env = _InvalidEnv()
+    setattr(env, attribute_name, ["not", "a", "mapping"])
     wrapper = RslRlVecEnvWrapper.__new__(RslRlVecEnvWrapper)
-    wrapper.env = _InvalidEnv()
+    wrapper.env = env
 
-    with pytest.raises(TypeError, match="must be a dict or None"):
+    with pytest.raises(TypeError, match=attribute_name):
         _ = wrapper.managed_policy_abi_snapshot

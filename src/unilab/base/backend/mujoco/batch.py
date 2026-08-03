@@ -117,6 +117,16 @@ def _step_allocations(dtype: str) -> int:
     return 2 + input_conversions
 
 
+def _reset_allocations() -> int:
+    """Count the two native pool outputs produced by ``BatchEnvPool.reset``.
+
+    Reset input uses a cold-owned float64 staging buffer, and cache refresh
+    casts through assignment without allocating another full-state buffer.
+    """
+
+    return 2
+
+
 def _readonly_view(array: np.ndarray) -> np.ndarray:
     view = array.view()
     view.flags.writeable = False
@@ -228,6 +238,11 @@ class _MuJoCoHostBatchPlan:
     def step_allocations(self) -> int:
         """Per-step numeric storage allocated by the pool after plan binding."""
         return _step_allocations(self.public_plan.control.buffer.dtype)
+
+    @property
+    def reset_allocations(self) -> int:
+        """Per-reset numeric storage allocated by the pool after plan binding."""
+        return _reset_allocations()
 
     def materialize(self, rows: RowSelection, phase: StateBatchPhase) -> BackendReadResult:
         self.lease.invalidate()
@@ -359,6 +374,7 @@ class _MuJoCoHostMutationPlan:
     _reset_source_state: np.ndarray | None = field(init=False, repr=False)
     _reset_env_ids: np.ndarray = field(init=False, repr=False)
     _reset_row_ids: np.ndarray = field(init=False, repr=False)
+    _wrench_force_columns: dict[str, np.ndarray] = field(init=False, repr=False)
     _staged_reset_rows: RowSelection | None = field(default=None, init=False, repr=False)
     _control_trajectories: dict[str, np.ndarray] = field(default_factory=dict, init=False)
     _prepared_reset_slots: tuple[_PreparedResetSlot, ...] | None = field(
@@ -407,6 +423,18 @@ class _MuJoCoHostMutationPlan:
         for row_id in range(self.public_plan.num_envs):
             self._reset_env_ids[row_id] = row_id
             self._reset_row_ids[row_id] = row_id
+        self._wrench_force_columns = {}
+        for spec in self.public_plan.specs:
+            if spec.target.target_key != "wrench.body.force":
+                continue
+            columns = np.empty(3 * len(spec.target.entity_ids), dtype=np.intp)
+            for body_offset, body_id in enumerate(spec.target.entity_ids):
+                columns[3 * body_offset : 3 * body_offset + 3] = (
+                    6 * body_id,
+                    6 * body_id + 1,
+                    6 * body_id + 2,
+                )
+            self._wrench_force_columns[spec.term_key] = columns
         self._prepared_reset_slots = _compile_prepared_reset_slots(
             self.public_plan,
             qpos_state_offset=self.qpos_state_offset,
@@ -509,15 +537,15 @@ class _MuJoCoHostMutationPlan:
             staged_values.append((spec, self._require_value_handle(value, batch.rows)))
 
         self._staged_xfrc.fill(0.0)
-        if batch.rows.indices is None:
-            row_ids = tuple(range(batch.rows.universe_size))
-        else:
-            row_ids = batch.rows.indices
+        row_ids = self._reset_row_ids[: batch.rows.count]
+        if not batch.rows.is_all:
+            assert batch.rows.indices is not None
+            row_ids[...] = batch.rows.indices
         for spec, values in staged_values:
-            for body_offset, body_id in enumerate(spec.target.entity_ids):
-                force_slice = slice(6 * body_id, 6 * body_id + 3)
-                for row_offset, row_id in enumerate(row_ids):
-                    self._staged_xfrc[row_id, force_slice] = values[row_offset, body_offset]
+            force_columns = self._wrench_force_columns[spec.term_key]
+            self._staged_xfrc[row_ids[:, None], force_columns[None, :]] = values.reshape(
+                batch.rows.count, -1
+            )
         return True
 
     def stage_control_with_wrench(
@@ -1308,6 +1336,7 @@ def _binding_payloads(
             if requirements.reset_hot_path_budget is None
             else dict(requirements.reset_hot_path_budget.items())
         ),
+        "reset_requires_mutation_batch": True,
     }
     return state_payload, plan_payload
 
@@ -1369,6 +1398,7 @@ def _bind_mujoco_host_batch(
         fingerprint=f"{_PLAN_FINGERPRINT_PREFIX}:{plan_digest}",
         hot_path_budget=requirements.hot_path_budget,
         reset_hot_path_budget=requirements.reset_hot_path_budget,
+        reset_requires_mutation_batch=True,
         contract_version=BACKEND_BATCH_CONTRACT_VERSION,
     )
     return _MuJoCoHostBatchPlan(

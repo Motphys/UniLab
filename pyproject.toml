@@ -64,7 +64,7 @@ mjwarp = [
     # ``mujoco-warp`` imports as ``mujoco_warp`` and owns the GPU physics
     # implementation; it is deliberately a separate optional extra rather
     # than a mode of the ``mujoco`` backend.
-    "mujoco-warp>=3.10.0.3,~=3.10.0",
+    "mujoco-warp==3.10.0.3",
     "warp-lang>=1.14.0",
 ]
 motrix = ["motrixsim-core==0.8.2"]

@@ -1144,6 +1144,9 @@ def summarize_mjwarp_dr_performance_case(
         for tag in TRAIN_SCALAR_TAGS
     }
     fps = values["Perf/total_fps"][warmup:]
+    # Device collection deliberately performs the timeout-bootstrap critic
+    # forward for the full batch to avoid a D2H predicate.  RSL-RL reports that
+    # cost in Perf/collection_time, so the frozen train gate includes it here.
     collection = [value * 1000.0 for value in values["Perf/collection_time"][warmup:]]
     learning = [value * 1000.0 for value in values["Perf/learning_time"][warmup:]]
     iteration = [left + right for left, right in zip(collection, learning, strict=True)]

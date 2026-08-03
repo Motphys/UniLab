@@ -20,21 +20,6 @@ RESET_TERM_KP = "kp"
 RESET_TERM_KD = "kd"
 
 
-class DomainRandomizationExecutionMode(str, Enum):
-    LEGACY_WARN_AND_FILTER = "legacy_warn_and_filter"
-    COMPILED_STRICT = "compiled_strict"
-
-
-class UnsupportedDomainRandomizationError(RuntimeError):
-    def __init__(self, *, backend_type: str, unsupported_terms: frozenset[str]) -> None:
-        self.backend_type = backend_type
-        self.unsupported_terms = frozenset(unsupported_terms)
-        terms = ", ".join(sorted(self.unsupported_terms))
-        super().__init__(
-            f"{backend_type} backend does not support compiled reset randomization terms: {terms}"
-        )
-
-
 @dataclass(frozen=True)
 class GeomSizeOverride:
     geom_name: str

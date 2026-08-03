@@ -215,13 +215,13 @@ def test_frozen_algorithm_vector_and_fingerprint_detect_semantic_changes() -> No
     )
     torch.testing.assert_close(
         values[0].flatten(),
-        torch.tensor([0.92262006, -0.19305289, 0.66231829, -0.10574204, 0.82954270, -0.69017231]),
+        torch.tensor([0.93618476, 0.48210573, -0.30309224, -0.10035950, -0.42574829, -0.69396234]),
         rtol=0,
         atol=1.0e-7,
     )
     assert spec.algorithm == KEYED_RNG_ALGORITHM
     assert spec.fingerprint == (
-        "splitmix32-v1:01909a6dec3871441b42e39d7ffd0d99d906689a52e87e3354765b8dac587200"
+        "splitmix32-v2:e0c6eccc8eb1631a65c437060f7eb98260b0e4549fb156547b372842e46b18e0"
     )
     variants = (
         replace(spec, term_key="y"),
