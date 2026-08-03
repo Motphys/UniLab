@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -80,6 +81,12 @@ from .managed_reference import (
     _kernel_config,
     _reset_term_key,
     _validate_reference_profile,
+)
+from .managed_reward_terms import (
+    TORCH_G1_REWARD_MATH,
+    G1RewardContext,
+    G1RewardScratch,
+    bind_g1_reward_terms,
 )
 
 G1_MANAGED_DEVICE_EXECUTOR_KEY = "device.torch.g1-walk-flat.v1"
@@ -634,6 +641,20 @@ class _G1DeviceTaskState:
     zero_actions: torch.Tensor
     generator: torch.Generator
 
+    @cached_property
+    def reward_scratch(self) -> G1RewardScratch:
+        return G1RewardScratch(
+            bool_a=self.reset_bool_scratch,
+            bool_b=self.bool_scratch_b,
+            scalar_b=self.scalar_scratch_b,
+            scalar_c=self.scalar_scratch_c,
+            scalar_d=self.scalar_scratch_d,
+            vector2=self.vector2_scratch,
+            action=self.action_scratch,
+            left_height=self.left_height_scratch,
+            right_height=self.right_height_scratch,
+        )
+
 
 class G1ManagedDeviceKernel:
     """G1 task math implemented directly with Torch CUDA operations."""
@@ -654,6 +675,10 @@ class G1ManagedDeviceKernel:
         if placement.device_type != "cuda" or placement.device_index is None:
             raise G1ManagedDeviceError("G1 device kernel requires CUDA placement")
         self._config = config
+        try:
+            self._reward_terms = bind_g1_reward_terms(config.reward_terms)
+        except ValueError as exc:  # pragma: no cover - cold profile validation owns this.
+            raise G1ManagedDeviceError(str(exc)) from exc
         self._expected_plan_fingerprint = expected_plan_fingerprint
         self._device = torch.device(f"cuda:{placement.device_index}")
         self._action_dim = int(config.default_angles.size)
@@ -692,7 +717,6 @@ class G1ManagedDeviceKernel:
         self._upper_body_pose_weights = torch.as_tensor(
             config.upper_body_pose_weights, dtype=torch.float32, device=self._device
         )
-        self._reward_scales = {name: float(scale) for name, scale in config.reward_terms}
 
     def bind(self, *, binding: ManagedKernelBinding) -> None:
         if self._binding is not None:
@@ -947,156 +971,35 @@ class G1ManagedDeviceKernel:
         torch.mul(actions, self._action_scale, out=control_out)
         control_out.add_(self._default_angles)
 
-    @staticmethod
-    def _bezier_height_into(
-        phase: torch.Tensor,
-        swing_height: float,
-        *,
-        out: torch.Tensor,
-        task: _G1DeviceTaskState,
-    ) -> None:
-        """Evaluate the periodic smoothstep profile using registered scratch."""
-
-        a = task.reset_scalar_scratch
-        b = task.scalar_scratch_b
-        c = task.scalar_scratch_c
-        d = task.scalar_scratch_d
-        torch.add(phase, math.pi, out=a)
-        torch.remainder(a, 2.0 * math.pi, out=a)
-        a.div_(2.0 * math.pi)
-        torch.le(a, 0.5, out=task.reset_bool_scratch)
-
-        torch.mul(a, 2.0, out=b)
-        torch.square(b, out=out)
-        out.mul_(3.0)
-        torch.square(b, out=c)
-        c.mul_(b).mul_(2.0)
-        out.sub_(c)
-
-        b.sub_(1.0)
-        torch.square(b, out=c)
-        c.mul_(3.0)
-        torch.square(b, out=d)
-        d.mul_(b).mul_(2.0)
-        c.sub_(d).neg_().add_(1.0)
-        torch.where(task.reset_bool_scratch, out, c, out=d)
-        out.copy_(d, non_blocking=True)
-        out.mul_(swing_height)
-
-    def _reward_value_into(
+    def _reward_context(
         self,
-        name: str,
         *,
         views: _G1DeviceStateViews,
         task: _G1DeviceTaskState,
-        out: torch.Tensor,
-    ) -> None:
-        b = task.scalar_scratch_b
-        c = task.scalar_scratch_c
-        d = task.scalar_scratch_d
-        vector2 = task.vector2_scratch
-        action = task.action_scratch
-        if name == "tracking_lin_vel":
-            torch.sub(
-                task.commands[:, :2],
-                views.pelvis_local_linear_velocity[:, :2],
-                out=vector2,
-            )
-            torch.square(vector2, out=vector2)
-            torch.sum(vector2, dim=1, out=out)
-            out.mul_(-1.0 / self._config.tracking_sigma)
-            torch.exp(out, out=out)
-        elif name == "tracking_ang_vel":
-            torch.sub(task.commands[:, 2], views.torso_gyro[:, 2], out=out)
-            torch.square(out, out=out)
-            out.mul_(-1.0 / self._config.tracking_sigma)
-            torch.exp(out, out=out)
-        elif name == "forward_progress":
-            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=out)
-            torch.clamp_min(task.commands[:, 0], 1.0e-6, out=b)
-            out.div_(b)
-            torch.clamp_max(out, 1.0, out=out)
-        elif name == "under_speed":
-            torch.clamp_min(task.commands[:, 0], 1.0e-6, out=b)
-            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=out)
-            torch.sub(task.commands[:, 0], out, out=c)
-            torch.clamp_min(c, 0.0, out=c)
-            torch.div(c, b, out=out)
-        elif name == "lin_vel_z":
-            torch.square(views.pelvis_local_linear_velocity[:, 2], out=out)
-        elif name in {"orientation", "penalty_orientation"}:
-            torch.square(views.torso_upvector[:, :2], out=vector2)
-            torch.sum(vector2, dim=1, out=out)
-        elif name in {"ang_vel_xy", "penalty_ang_vel_xy"}:
-            torch.square(views.torso_gyro[:, :2], out=vector2)
-            torch.sum(vector2, dim=1, out=out)
-        elif name in {"action_rate", "penalty_action_rate"}:
-            torch.sub(task.current_actions, task.last_actions, out=action)
-            torch.square(action, out=action)
-            torch.sum(action, dim=1, out=out)
-        elif name == "base_height":
-            torch.sub(views.root_position[:, 2], self._config.base_height_target, out=out)
-            torch.square(out, out=out)
-        elif name == "pose":
-            torch.sub(views.dof_position, self._default_angles, out=action)
-            torch.square(action, out=action)
-            action.mul_(self._pose_weights)
-            torch.sum(action, dim=1, out=out)
-        elif name == "upper_body_pose":
-            torch.sub(views.dof_position, self._default_angles, out=action)
-            torch.square(action, out=action)
-            action.mul_(self._upper_body_pose_weights)
-            torch.sum(action, dim=1, out=out)
-        elif name == "penalty_close_feet_xy":
-            torch.sub(
-                views.left_foot_position[:, :2],
-                views.right_foot_position[:, :2],
-                out=vector2,
-            )
-            torch.linalg.vector_norm(vector2, dim=1, out=out)
-            torch.lt(out, self._config.close_feet_threshold, out=task.reset_bool_scratch)
-            torch.sub(out, self._config.close_feet_threshold, out=b)
-            torch.square(b, out=b)
-            c.zero_()
-            torch.where(task.reset_bool_scratch, b, c, out=out)
-        elif name in {"feet_phase", "feet_phase_contrast"}:
-            self._bezier_height_into(
-                task.gait_phase[:, 0],
-                self._config.feet_phase_swing_height,
-                out=task.left_height_scratch,
-                task=task,
-            )
-            self._bezier_height_into(
-                task.gait_phase[:, 1],
-                self._config.feet_phase_swing_height,
-                out=task.right_height_scratch,
-                task=task,
-            )
-            torch.clamp_min(views.pelvis_local_linear_velocity[:, 0], 0.0, out=c)
-            torch.ge(
-                c,
-                self._config.min_forward_speed_for_gait_reward,
-                out=task.bool_scratch_b,
-            )
-            d.copy_(task.bool_scratch_b, non_blocking=True)
-            if name == "feet_phase":
-                torch.sub(views.left_foot_position[:, 2], task.left_height_scratch, out=out)
-                torch.square(out, out=out)
-                torch.sub(views.right_foot_position[:, 2], task.right_height_scratch, out=b)
-                torch.square(b, out=b)
-                out.add_(b)
-            else:
-                torch.sub(views.left_foot_position[:, 2], views.right_foot_position[:, 2], out=out)
-                torch.sub(task.left_height_scratch, task.right_height_scratch, out=b)
-                out.sub_(b)
-                torch.square(out, out=out)
-            out.mul_(-1.0 / self._config.feet_phase_tracking_sigma)
-            torch.exp(out, out=out)
-            out.mul_(d)
-        elif name == "alive":
-            out.fill_(1.0)
-        else:
-            raise G1ManagedDeviceError(f"unsupported G1 device reward term {name!r}")
+    ) -> G1RewardContext:
+        return G1RewardContext(
+            commands=task.commands,
+            current_actions=task.current_actions,
+            last_actions=task.last_actions,
+            gait_phase=task.gait_phase,
+            root_position=views.root_position,
+            dof_position=views.dof_position,
+            linear_velocity=views.pelvis_local_linear_velocity,
+            gyro=views.torso_gyro,
+            upvector=views.torso_upvector,
+            left_foot_position=views.left_foot_position,
+            right_foot_position=views.right_foot_position,
+            default_angles=self._default_angles,
+            pose_weights=self._pose_weights,
+            upper_body_pose_weights=self._upper_body_pose_weights,
+            tracking_sigma=self._config.tracking_sigma,
+            base_height_target=self._config.base_height_target,
+            feet_phase_swing_height=self._config.feet_phase_swing_height,
+            feet_phase_tracking_sigma=self._config.feet_phase_tracking_sigma,
+            min_forward_speed_for_gait_reward=(self._config.min_forward_speed_for_gait_reward),
+            close_feet_threshold=self._config.close_feet_threshold,
+            scratch=task.reward_scratch,
+        )
 
     def _write_observations(
         self,
@@ -1211,13 +1114,13 @@ class G1ManagedDeviceKernel:
             task.bool_scratch_b,
             out=terminated_out,
         )
+        reward_context = self._reward_context(views=views, task=task)
         reward_out.zero_()
-        for name, scale in self._reward_scales.items():
+        for term, scale in self._reward_terms:
             if scale != 0.0:
-                self._reward_value_into(
-                    name,
-                    views=views,
-                    task=task,
+                term.evaluate(
+                    TORCH_G1_REWARD_MATH,
+                    reward_context,
                     out=task.reset_scalar_scratch,
                 )
                 reward_out.add_(task.reset_scalar_scratch, alpha=scale)

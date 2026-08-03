@@ -572,12 +572,12 @@ def _assert_final_contract(snapshot: _TransitionSnapshot, expected_done: torch.T
         )
 
 
-def _align_host_physics_from_device(
+def _align_host_state_from_device(
     fixture: _HostDeviceFixture,
     *,
     consumer_stream: torch.cuda.Stream,
 ) -> DeviceCompletion:
-    """Test-only D2H oracle that aligns host qpos/qvel to public device state."""
+    """Test-only D2H oracle that aligns host physics and task state to device state."""
 
     device = fixture.device
     result = device.backend.read_state_batch(
@@ -626,15 +626,15 @@ def _align_host_physics_from_device(
     )
     rows = np.arange(device.backend.num_envs, dtype=np.int32)
     fixture.host_backend.set_state(rows, qpos, qvel)
+    host_task = cast(Any, fixture.host_runtime.task_state)
+    device_task = cast(Any, device.runtime.task_state)
+    for name in ("commands", "current_actions", "last_actions", "gait_phase"):
+        host_value = cast(np.ndarray, getattr(host_task, name))
+        device_value = cast(torch.Tensor, getattr(device_task, name))
+        np.copyto(host_value, device_value.cpu().numpy())
     event = result.diagnostics.completion_event
     assert event is not None and isinstance(event.handle, DeviceCompletion)
     return event.handle
-
-
-def _without_rng_gait_columns(key: str, value: np.ndarray) -> np.ndarray:
-    if key == "obs":
-        return value[:, :96]
-    return np.concatenate((value[:, :96], value[:, 98:]), axis=1)
 
 
 def _assert_host_device_transition(
@@ -659,27 +659,31 @@ def _assert_host_device_transition(
         if host.final_observation is not None:
             host_terminal[host_mask] = host.final_observation[key][host_mask]
         np.testing.assert_allclose(
-            _without_rng_gait_columns(key, device.terminal_observations[key].numpy()),
-            _without_rng_gait_columns(key, host_terminal),
+            device.terminal_observations[key].numpy(),
+            host_terminal,
             atol=1.0e-4,
             rtol=1.0e-3,
             err_msg=f"{label}.terminal[{key}]",
         )
+        device_next = device.observations[key].numpy()
+        host_next = np.asarray(host.obs[key])
         np.testing.assert_allclose(
-            _without_rng_gait_columns(key, device.observations[key].numpy()),
-            _without_rng_gait_columns(key, np.asarray(host.obs[key])),
+            device_next[~host_mask],
+            host_next[~host_mask],
             atol=1.0e-4,
             rtol=1.0e-3,
-            err_msg=f"{label}.next[{key}]",
+            err_msg=f"{label}.next[{key}].active",
         )
         if np.any(host_mask):
             assert host.final_observation is not None
+            # Reset rows resample both physics and task state through different
+            # NumPy/Torch RNG implementations, so only their pre-reset terminal
+            # state has aligned numeric inputs.
+            assert np.isfinite(device_next[host_mask]).all()
+            assert np.isfinite(host_next[host_mask]).all()
             np.testing.assert_allclose(
-                _without_rng_gait_columns(
-                    key,
-                    device.final_observations[key][torch.from_numpy(host_mask)].numpy(),
-                ),
-                _without_rng_gait_columns(key, host.final_observation[key][host_mask]),
+                device.final_observations[key][torch.from_numpy(host_mask)].numpy(),
+                host.final_observation[key][host_mask],
                 atol=1.0e-4,
                 rtol=1.0e-3,
                 err_msg=f"{label}.final[{key}]",
@@ -800,7 +804,7 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
         fixture.host_runtime.init_state()
         device.runtime.reset()
 
-        after = _align_host_physics_from_device(fixture, consumer_stream=consumer)
+        after = _align_host_state_from_device(fixture, consumer_stream=consumer)
         action = _action_view(
             device,
             producer_stream=producer,
@@ -823,7 +827,7 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
             orientation=(0.95371695, 0.3007058, 0.0, 0.0),
         )
         forced.wait(consumer)
-        after = _align_host_physics_from_device(fixture, consumer_stream=consumer)
+        after = _align_host_state_from_device(fixture, consumer_stream=consumer)
         action = _action_view(
             device,
             producer_stream=producer,
