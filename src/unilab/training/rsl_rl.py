@@ -288,10 +288,22 @@ class RslRlVecEnvWrapper:
         # Prefer an explicit managed_policy_abi_snapshot on the env; then
         # fall through to policy_abi_snapshot (the ManagedRuntime API).
         env = self.env
-        snapshot = getattr(env, "managed_policy_abi_snapshot", None)
-        if snapshot is not None:
-            return snapshot
-        return getattr(env, "policy_abi_snapshot", None)
+        for attribute_name in ("managed_policy_abi_snapshot", "policy_abi_snapshot"):
+            snapshot = getattr(env, attribute_name, None)
+            if snapshot is None:
+                continue
+            if not isinstance(snapshot, Mapping):
+                raise TypeError(
+                    f"env.{attribute_name} must be a mapping or None, got "
+                    f"{type(snapshot).__name__}."
+                )
+            normalized: dict[str, Any] = {}
+            for key, value in snapshot.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"env.{attribute_name} keys must be strings.")
+                normalized[key] = value
+            return normalized
+        return None
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":
