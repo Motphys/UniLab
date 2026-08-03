@@ -55,7 +55,13 @@ from unilab.manager import (
 from unilab.manager.plan import CompiledTaskPlan
 from unilab.utils.rotation import np_quat_mul, np_yaw_to_quat
 
-from .joystick import G1WalkEnvCfg, compute_feet_phase_height_targets, compute_forward_speed_gate
+from .joystick import G1WalkEnvCfg
+from .managed_reward_terms import (
+    NUMPY_G1_REWARD_MATH,
+    G1RewardContext,
+    G1RewardScratch,
+    bind_g1_reward_terms,
+)
 from .managed_schema import (
     G1_ACTOR_OBSERVATION_WIDTH,
     G1_CRITIC_OBSERVATION_WIDTH,
@@ -254,6 +260,9 @@ class _G1ManagedTaskState:
     reward_means: np.ndarray
     logged_reward_means: np.ndarray
     has_logged_reward: np.ndarray
+    reward_value: np.ndarray
+    weighted_reward: np.ndarray
+    reward_scratch: G1RewardScratch
 
 
 class G1ManagedReferenceKernel:
@@ -265,6 +274,10 @@ class G1ManagedReferenceKernel:
         if not isinstance(config, G1KernelConfig):
             raise G1ManagedReferenceError("G1 managed reference kernel requires frozen config")
         self._config = config
+        try:
+            self._reward_terms = bind_g1_reward_terms(config.reward_terms)
+        except ValueError as exc:  # pragma: no cover - cold profile validation owns this.
+            raise G1ManagedReferenceError(str(exc)) from exc
         self._action_dim = int(config.default_angles.size)
         self._binding: ManagedKernelBinding | None = None
         self._state_indices: tuple[int, ...] | None = None
@@ -455,6 +468,19 @@ class G1ManagedReferenceKernel:
             reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
             logged_reward_means=np.zeros((len(self._config.reward_terms),), dtype=dtype),
             has_logged_reward=np.zeros((len(self._config.reward_terms),), dtype=bool),
+            reward_value=np.empty((num_envs,), dtype=dtype),
+            weighted_reward=np.empty((num_envs,), dtype=dtype),
+            reward_scratch=G1RewardScratch(
+                bool_a=np.empty((num_envs,), dtype=bool),
+                bool_b=np.empty((num_envs,), dtype=bool),
+                scalar_b=np.empty((num_envs,), dtype=dtype),
+                scalar_c=np.empty((num_envs,), dtype=dtype),
+                scalar_d=np.empty((num_envs,), dtype=dtype),
+                vector2=np.empty((num_envs, 2), dtype=dtype),
+                action=np.empty((num_envs, self._action_dim), dtype=dtype),
+                left_height=np.empty((num_envs,), dtype=dtype),
+                right_height=np.empty((num_envs,), dtype=dtype),
+            ),
         )
 
     def apply_action(
@@ -501,87 +527,6 @@ class G1ManagedReferenceKernel:
             out=terminated_out,
         )
 
-    def _reward_value(
-        self,
-        *,
-        name: str,
-        task: _G1ManagedTaskState,
-        root_position: np.ndarray,
-        dof_position: np.ndarray,
-        linear_velocity: np.ndarray,
-        gyro: np.ndarray,
-        upvector: np.ndarray,
-        left_foot_position: np.ndarray,
-        right_foot_position: np.ndarray,
-    ) -> np.ndarray:
-        if name == "tracking_lin_vel":
-            error = np.sum(np.square(task.commands[:, :2] - linear_velocity[:, :2]), axis=1)
-            return np.exp(-error / self._config.tracking_sigma)
-        if name == "tracking_ang_vel":
-            error = np.square(task.commands[:, 2] - gyro[:, 2])
-            return np.exp(-error / self._config.tracking_sigma)
-        if name == "forward_progress":
-            commanded_speed = np.maximum(task.commands[:, 0], 1.0e-6)
-            return np.minimum(np.maximum(linear_velocity[:, 0], 0.0) / commanded_speed, 1.0)
-        if name == "under_speed":
-            commanded_speed = np.maximum(task.commands[:, 0], 1.0e-6)
-            gap = np.maximum(task.commands[:, 0] - np.maximum(linear_velocity[:, 0], 0.0), 0.0)
-            return gap / commanded_speed
-        if name == "lin_vel_z":
-            return np.square(linear_velocity[:, 2])
-        if name in {"orientation", "penalty_orientation"}:
-            return np.square(upvector[:, 0]) + np.square(upvector[:, 1])
-        if name in {"ang_vel_xy", "penalty_ang_vel_xy"}:
-            return np.sum(np.square(gyro[:, :2]), axis=1)
-        if name in {"action_rate", "penalty_action_rate"}:
-            return np.sum(np.square(task.current_actions - task.last_actions), axis=1)
-        if name == "base_height":
-            return np.square(root_position[:, 2] - self._config.base_height_target)
-        if name == "pose":
-            diff = dof_position - self._config.default_angles
-            return np.asarray(
-                np.sum(self._config.pose_weights * np.square(diff), axis=1),
-                dtype=dof_position.dtype,
-            )
-        if name == "upper_body_pose":
-            diff = dof_position - self._config.default_angles
-            return np.asarray(
-                np.sum(self._config.upper_body_pose_weights * np.square(diff), axis=1),
-                dtype=dof_position.dtype,
-            )
-        if name == "penalty_close_feet_xy":
-            feet_distance = np.linalg.norm(
-                left_foot_position[:, :2] - right_foot_position[:, :2], axis=1
-            )
-            return np.where(
-                feet_distance < self._config.close_feet_threshold,
-                np.square(feet_distance - self._config.close_feet_threshold),
-                0.0,
-            )
-        if name in {"feet_phase", "feet_phase_contrast"}:
-            left_target, right_target = compute_feet_phase_height_targets(
-                task.gait_phase, self._config.feet_phase_swing_height
-            )
-            gate = compute_forward_speed_gate(
-                linear_velocity, self._config.min_forward_speed_for_gait_reward
-            )
-            if name == "feet_phase":
-                error = np.square(left_foot_position[:, 2] - left_target) + np.square(
-                    right_foot_position[:, 2] - right_target
-                )
-            else:
-                error = np.square(
-                    (left_foot_position[:, 2] - right_foot_position[:, 2])
-                    - (left_target - right_target)
-                )
-            return np.asarray(
-                np.exp(-error / self._config.feet_phase_tracking_sigma) * gate,
-                dtype=linear_velocity.dtype,
-            )
-        if name == "alive":
-            return np.ones((linear_velocity.shape[0],), dtype=linear_velocity.dtype)
-        raise G1ManagedReferenceError(f"unsupported bound G1 reward term {name!r}")
-
     def evaluate_reward(
         self,
         *,
@@ -593,25 +538,38 @@ class G1ManagedReferenceKernel:
         views = self._state_views(state)
         if reward_out.shape != task.steps.shape or reward_out.dtype != task.current_actions.dtype:
             raise G1ManagedReferenceError("G1 reward output has an invalid shape or dtype")
+        context = G1RewardContext(
+            commands=task.commands,
+            current_actions=task.current_actions,
+            last_actions=task.last_actions,
+            gait_phase=task.gait_phase,
+            root_position=views.root_position,
+            dof_position=views.dof_position,
+            linear_velocity=views.pelvis_local_linear_velocity,
+            gyro=views.torso_gyro,
+            upvector=views.torso_upvector,
+            left_foot_position=views.left_foot_position,
+            right_foot_position=views.right_foot_position,
+            default_angles=self._config.default_angles,
+            pose_weights=self._config.pose_weights,
+            upper_body_pose_weights=self._config.upper_body_pose_weights,
+            tracking_sigma=self._config.tracking_sigma,
+            base_height_target=self._config.base_height_target,
+            feet_phase_swing_height=self._config.feet_phase_swing_height,
+            feet_phase_tracking_sigma=self._config.feet_phase_tracking_sigma,
+            min_forward_speed_for_gait_reward=(self._config.min_forward_speed_for_gait_reward),
+            close_feet_threshold=self._config.close_feet_threshold,
+            scratch=task.reward_scratch,
+        )
         reward_out.fill(0.0)
-        for index, (name, scale) in enumerate(self._config.reward_terms):
+        for index, (term, scale) in enumerate(self._reward_terms):
             if scale == 0.0:
                 task.reward_means[index] = 0.0
                 continue
-            value = self._reward_value(
-                name=name,
-                task=task,
-                root_position=views.root_position,
-                dof_position=views.dof_position,
-                linear_velocity=views.pelvis_local_linear_velocity,
-                gyro=views.torso_gyro,
-                upvector=views.torso_upvector,
-                left_foot_position=views.left_foot_position,
-                right_foot_position=views.right_foot_position,
-            )
-            weighted = value * scale
-            reward_out += weighted
-            task.reward_means[index] = np.mean(weighted)
+            term.evaluate(NUMPY_G1_REWARD_MATH, context, out=task.reward_value)
+            np.multiply(task.reward_value, scale, out=task.weighted_reward)
+            np.add(reward_out, task.weighted_reward, out=reward_out)
+            task.reward_means[index] = np.mean(task.weighted_reward)
         reward_out *= np.asarray(self._config.ctrl_dt, dtype=reward_out.dtype)
 
     def evaluate_metrics(

@@ -50,6 +50,7 @@ from .joystick import (
     G1WalkRewardConfig,
     build_upper_body_pose_weights,
 )
+from .managed_reward_terms import unsupported_g1_reward_terms
 
 G1_ROOT_NAME = "pelvis"
 G1_ACTOR_OBSERVATION_WIDTH = 98
@@ -88,28 +89,6 @@ G1_STATE_KEYS = (
     "g1.sensor.right_foot_pos",
     "g1.sensor.torso_gyro",
     "g1.sensor.torso_upvector",
-)
-G1_SUPPORTED_REWARD_TERMS = frozenset(
-    {
-        "action_rate",
-        "alive",
-        "ang_vel_xy",
-        "base_height",
-        "feet_phase",
-        "feet_phase_contrast",
-        "forward_progress",
-        "lin_vel_z",
-        "orientation",
-        "penalty_action_rate",
-        "penalty_ang_vel_xy",
-        "penalty_close_feet_xy",
-        "penalty_orientation",
-        "pose",
-        "tracking_ang_vel",
-        "tracking_lin_vel",
-        "under_speed",
-        "upper_body_pose",
-    }
 )
 
 
@@ -231,7 +210,7 @@ def validate_g1_managed_profile(
     reward = cfg.reward_config
     if not isinstance(reward, G1WalkRewardConfig):
         raise error_type(f"G1 {profile_name} requires a G1WalkRewardConfig")
-    unsupported_rewards = tuple(sorted(set(reward.scales) - G1_SUPPORTED_REWARD_TERMS))
+    unsupported_rewards = unsupported_g1_reward_terms(reward.scales)
     if unsupported_rewards:
         raise error_type(
             f"G1 {profile_name} does not implement reward terms: " + ", ".join(unsupported_rewards)
