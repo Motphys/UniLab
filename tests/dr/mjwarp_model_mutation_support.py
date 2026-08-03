@@ -38,6 +38,8 @@ from unilab.base.backend import (
     MutationOperation,
     MutationPersistence,
     MutationRecomputeLevel,
+    MutationSelectorMode,
+    MutationSelectorSpec,
     MutationSpec,
     MutationTargetKind,
     MutationTargetSpec,
@@ -138,8 +140,14 @@ class ModelMutationRuntime:
         if target_position is not None:
             qpos[:, self.raw_qpos_index] = target_position
         qvel[:, self.raw_qvel_index] = target_velocity
-        rows = np.arange(self.num_envs, dtype=np.int32)
-        self.backend.set_state(rows, qpos, qvel)
+        reset_device_state(
+            backend=self.backend,
+            plan=self.plan,
+            placement=self.placement,
+            base_name=self.base_name,
+            qpos=qpos,
+            qvel=qvel,
+        )
         initial = self.backend.read_state_batch(
             self.plan,
             RowSelection.all(self.num_envs),
@@ -397,6 +405,165 @@ def bind_state_reset_plan(runtime: ModelMutationRuntime) -> BoundMutationPlan:
     )
 
 
+def reset_device_state(
+    *,
+    backend: MjwarpBackend,
+    plan: BoundBackendPlan,
+    placement: BufferPlacement,
+    base_name: str,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+) -> None:
+    """Reset the floating root and hinge DoFs through the typed device contract."""
+
+    model = backend._cpu_model
+    mujoco = backend._mujoco
+    hinge_type = int(mujoco.mjtJoint.mjJNT_HINGE)
+    hinge_joint_ids = tuple(
+        joint_id for joint_id in range(model.njnt) if int(model.jnt_type[joint_id]) == hinge_type
+    )
+    hinge_names = tuple(
+        str(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id))
+        for joint_id in hinge_joint_ids
+    )
+    qpos_coordinates = tuple(int(model.jnt_qposadr[joint_id]) for joint_id in hinge_joint_ids)
+    qvel_coordinates = tuple(int(model.jnt_dofadr[joint_id]) for joint_id in hinge_joint_ids)
+    if qpos.shape != (backend.num_envs, int(model.nq)) or qvel.shape != (
+        backend.num_envs,
+        int(model.nv),
+    ):
+        raise AssertionError("device reset fixture does not match the mjwarp state layout")
+
+    capabilities = {
+        capability.target_key: capability
+        for capability in backend.get_mutation_capability_manifest(
+            ExecutionProfile.DEVICE_RESIDENT
+        ).capabilities
+    }
+    all_hinges = MutationSelectorSpec(
+        semantic_key="all_hinge_joints",
+        mode=MutationSelectorMode.EXACT,
+        expressions=hinge_names,
+    )
+    spec_entries: list[tuple[str, str, MutationSelectorSpec | str]] = [
+        ("reset.dof.position", "state.dof.position", all_hinges),
+        ("reset.dof.angular_velocity", "state.dof.angular_velocity", all_hinges),
+    ]
+    root_entries = (
+        ("reset.root.position", "state.root.position", base_name),
+        ("reset.root.orientation", "state.root.orientation", base_name),
+        ("reset.root.linear_velocity", "state.root.linear_velocity", base_name),
+        ("reset.root.angular_velocity", "state.root.angular_velocity", base_name),
+    )
+    if all(target_key in capabilities for _, target_key, _ in root_entries):
+        spec_entries[0:0] = root_entries
+
+    def state_spec(
+        *,
+        term_key: str,
+        target_key: str,
+        selector: MutationSelectorSpec | str,
+    ) -> MutationSpec:
+        capability = capabilities[target_key]
+        return MutationSpec(
+            term_key=term_key,
+            target=MutationTargetSpec(
+                target_key=target_key,
+                target_kind=capability.target_kind,
+                entity_kind=capability.entity_kind,
+                field_kind=capability.field_kind,
+                selector=selector,
+            ),
+            trigger=MutationTrigger.RESET,
+            commit_phase=MutationCommitPhase.RESET,
+            operation=MutationOperation.SET,
+            baseline=MutationBaseline.DEFAULT,
+            persistence=MutationPersistence.EPISODE,
+            recompute=next(iter(capability.recompute_levels)),
+            value_template=capability.value_template,
+        )
+
+    mutation_plan = backend.bind_mutation_plan(
+        tuple(
+            state_spec(term_key=term_key, target_key=target_key, selector=selector)
+            for term_key, target_key, selector in spec_entries
+        )
+    )
+    device = torch.device(f"cuda:{placement.device_index}")
+    qpos_device = torch.as_tensor(qpos, dtype=torch.float32, device=device)
+    qvel_device = torch.as_tensor(qvel, dtype=torch.float32, device=device)
+    tensors: dict[str, torch.Tensor] = {
+        "reset.dof.position": qpos_device[:, qpos_coordinates, None].contiguous(),
+        "reset.dof.angular_velocity": qvel_device[:, qvel_coordinates, None].contiguous(),
+    }
+    if len(spec_entries) == 6:
+        tensors.update(
+            {
+                "reset.root.position": qpos_device[:, None, 0:3].contiguous(),
+                "reset.root.orientation": qpos_device[:, None, 3:7].contiguous(),
+                "reset.root.linear_velocity": qvel_device[:, None, 0:3].contiguous(),
+                "reset.root.angular_velocity": qvel_device[:, None, 3:6].contiguous(),
+            }
+        )
+    active_mask = torch.ones((backend.num_envs,), dtype=torch.bool, device=device)
+    rows = RowSelection.all(backend.num_envs)
+    lease = DeviceBufferLease(f"complete-device-state-reset-{id(tensors):x}")
+    completion = DeviceCompletion.record(
+        placement=placement,
+        owner_id=lease.owner_id,
+        epoch=lease.epoch,
+    )
+    values: list[MutationValueBatch] = []
+    for field_index, spec in enumerate(mutation_plan.specs):
+        tensor = tensors[spec.term_key]
+        view = DeviceTensorView(
+            tensor_handle=tensor,
+            contract=spec.value_buffer,
+            lease=lease,
+            completion=completion,
+        )
+        values.append(
+            MutationValueBatch(
+                plan=mutation_plan,
+                field_index=field_index,
+                rows=rows,
+                buffer=BufferView(view, tuple(tensor.shape), spec.value_buffer),
+            )
+        )
+    mask_contract = BufferContract(
+        row_shape=(),
+        dtype="bool",
+        layout=BufferLayout.C_CONTIGUOUS,
+        placement=placement,
+        owner=BufferOwner.MANAGER,
+        mutability=BufferMutability.READ_ONLY,
+        lifetime=BufferLifetime.UNTIL_COMMIT,
+        dlpack_exportable=True,
+    )
+    mask_view = DeviceTensorView(
+        tensor_handle=active_mask,
+        contract=mask_contract,
+        lease=lease,
+        completion=completion,
+    )
+    mutation = TypedBackendMutationBatch(
+        plan=mutation_plan,
+        rows=rows,
+        state=SimulationStateMutationBatch(tuple(values)),
+    )
+    result = backend.reset_batch(
+        plan,
+        rows,
+        mutation_batch=DeviceResetMutationBatch(
+            plan=mutation_plan,
+            rows=rows,
+            mutation=mutation,
+            active_mask=BufferView(mask_view, tuple(active_mask.shape), mask_contract),
+        ),
+    )
+    wait_result(result)
+
+
 @contextmanager
 def model_mutation_runtime(
     *,
@@ -613,6 +780,7 @@ __all__ = [
     "control_batch",
     "model_mutation_runtime",
     "model_mutation_spec",
+    "reset_device_state",
     "state_tensor",
     "wait_result",
 ]

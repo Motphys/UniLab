@@ -84,6 +84,7 @@ def test_public_diagnostics_cover_receipt_bytes_and_lifecycle_deltas(
         assert before.recompute_kind == profile.recompute_kind
         assert before.instrumentation_complete
         assert before.lifecycle.instrumentation_complete
+        assert before.lifecycle.invalid_model_sample_rows == 0
         assert before.graph.instrumentation_complete
         assert before.graph.eager_fallback_count == 0
         assert before.graph.stale_rejection_count == 0
@@ -136,6 +137,7 @@ def test_public_diagnostics_cover_receipt_bytes_and_lifecycle_deltas(
         assert after.lifecycle.reset_graph_launches == before.lifecycle.reset_graph_launches + 1
         assert after.lifecycle.forward_graph_launches == before.lifecycle.forward_graph_launches + 1
         assert after.lifecycle.state_refreshes == before.lifecycle.state_refreshes + 2
+        assert after.lifecycle.invalid_model_sample_rows == 0
         assert after.graph.launch_count == before.graph.launch_count + 3
         expected_recompute_delta = int(profile.recompute_kind != "none")
         assert (
@@ -150,3 +152,38 @@ def test_public_diagnostics_cover_receipt_bytes_and_lifecycle_deltas(
         assert traffic.device_to_host_transfers == 0
         assert traffic.global_synchronizations == 0
         assert traffic.backend_allocations == 0
+
+
+def test_runtime_surfaces_invalid_model_sample_rows_at_cold_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with runtime_harness(
+        num_envs=8,
+        seed=705871,
+        max_episode_steps=1,
+        randomize_dof_armature=True,
+    ) as harness:
+        harness.wait()
+        stream_index = next(
+            index
+            for index, binding in enumerate(harness.runtime.event_bindings)
+            if binding.event.term_key == "g1_randomize_dof_armature"
+        )
+        stream = harness.runtime._event_streams[stream_index]
+        sample_candidate = stream._sample_candidate
+
+        def sample_with_invalid_row() -> None:
+            sample_candidate()
+            stream._candidate[0].fill_(float("nan"))
+
+        monkeypatch.setattr(stream, "_sample_candidate", sample_with_invalid_row)
+        before = harness.runtime.capture_performance_diagnostics()
+        with forbid_host_roundtrip(harness.backend):
+            harness.step(0.0)
+        harness.wait()
+        after = harness.runtime.capture_performance_diagnostics()
+
+        assert (
+            after.lifecycle.invalid_model_sample_rows
+            == before.lifecycle.invalid_model_sample_rows + 1
+        )

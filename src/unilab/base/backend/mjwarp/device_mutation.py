@@ -559,6 +559,13 @@ class MjwarpDeviceMutationPlan:
             return active_mask
         return self.model_plan.effective_active_mask(batch, active_mask=active_mask)
 
+    def materialize_invalid_model_sample_rows(self) -> int:
+        """Read plan-local invalid Model samples outside the device hot path."""
+
+        if self.model_plan is None:
+            return 0
+        return self.model_plan.materialize_invalid_model_sample_rows()
+
     def stage_reset_state(
         self,
         batch: DeviceResetMutationBatch,
