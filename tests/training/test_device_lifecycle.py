@@ -94,6 +94,7 @@ class _TransitionSnapshot:
     observations: dict[str, torch.Tensor]
     terminal_observations: dict[str, torch.Tensor]
     final_observations: dict[str, torch.Tensor]
+    metrics: dict[str, torch.Tensor]
     reward: torch.Tensor
     terminated: torch.Tensor
     truncated: torch.Tensor
@@ -105,6 +106,7 @@ class _HostDeviceFixture:
     host_backend: SimBackend
     host_runtime: ManagedReferenceRuntime
     device: _RuntimeFixture
+    ctrl_dt: float
 
 
 def _require_cuda() -> None:
@@ -216,6 +218,7 @@ def _host_device_fixture(*, num_envs: int, seed: int) -> Iterator[_HostDeviceFix
                 placement=placement,
                 device=torch.device(f"cuda:{placement.device_index}"),
             ),
+            ctrl_dt=float(cfg.ctrl_dt),
         )
     finally:
         host_backend.cleanup_scene_assets()
@@ -278,6 +281,8 @@ def _snapshot(
             device_values[f"observation.{key}"] = transition.observation(key).torch().clone()
             device_values[f"terminal.{key}"] = transition.terminal_observation(key).torch().clone()
             device_values[f"final.{key}"] = transition.final_observation(key).torch().clone()
+        for metric in transition.metrics:
+            device_values[f"metric.{metric.key}"] = metric.view.torch().clone()
         device_values["reward"] = transition.reward.torch().clone()
         device_values["terminated"] = transition.terminated.torch().clone()
         device_values["truncated"] = transition.truncated.torch().clone()
@@ -289,6 +294,7 @@ def _snapshot(
         observations={key: host[f"observation.{key}"] for key in _OBSERVATION_KEYS},
         terminal_observations={key: host[f"terminal.{key}"] for key in _OBSERVATION_KEYS},
         final_observations={key: host[f"final.{key}"] for key in _OBSERVATION_KEYS},
+        metrics={metric.key: host[f"metric.{metric.key}"] for metric in transition.metrics},
         reward=host["reward"],
         terminated=host["terminated"],
         truncated=host["truncated"],
@@ -642,6 +648,8 @@ def _assert_host_device_transition(
     host: Any,
     device: _TransitionSnapshot,
     label: str,
+    ctrl_dt: float,
+    host_metrics_are_current: bool,
 ) -> None:
     host_mask = np.asarray(host.info["_final_observation"], dtype=bool)
     np.testing.assert_array_equal(device.final_observation_mask.numpy(), host_mask)
@@ -654,6 +662,18 @@ def _assert_host_device_transition(
         rtol=1.0e-3,
         err_msg=f"{label}.reward",
     )
+    assert tuple(device.metrics) == tuple(host.info["log"])
+    metric_total = torch.stack(tuple(device.metrics.values())).sum(dim=0) * ctrl_dt
+    torch.testing.assert_close(metric_total, device.reward, atol=1.0e-6, rtol=1.0e-5)
+    if host_metrics_are_current:
+        for key, value in device.metrics.items():
+            np.testing.assert_allclose(
+                value.mean().numpy(),
+                host.info["log"][key],
+                atol=1.0e-4,
+                rtol=1.0e-3,
+                err_msg=f"{label}.{key}",
+            )
     for key in _OBSERVATION_KEYS:
         host_terminal = np.array(host.obs[key], copy=True)
         if host.final_observation is not None:
@@ -812,7 +832,13 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
         with _forbid_hot_path_fallbacks(device.backend):
             device_step = device.runtime.step(action)
         snapshot = _snapshot(device_step, consumer_stream=consumer)
-        _assert_host_device_transition(host=host_step, device=snapshot, label="no_done")
+        _assert_host_device_transition(
+            host=host_step,
+            device=snapshot,
+            label="no_done",
+            ctrl_dt=fixture.ctrl_dt,
+            host_metrics_are_current=True,
+        )
 
         forced = _force_root_state(
             device,
@@ -838,7 +864,15 @@ def test_device_g1_transition_matches_verified_host_runtime_on_aligned_state() -
         expected_partial = np.zeros((8,), dtype=bool)
         expected_partial[-1] = True
         np.testing.assert_array_equal(host_step.info["_final_observation"], expected_partial)
-        _assert_host_device_transition(host=host_step, device=snapshot, label="partial_reset")
+        _assert_host_device_transition(
+            host=host_step,
+            device=snapshot,
+            label="partial_reset",
+            ctrl_dt=fixture.ctrl_dt,
+            # The host logger samples every fourth step; this transition still
+            # validates the current per-term buffers through their reward sum.
+            host_metrics_are_current=False,
+        )
 
 
 def test_device_timeout_captures_terminal_before_all_world_reset() -> None:

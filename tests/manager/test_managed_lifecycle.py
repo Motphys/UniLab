@@ -200,9 +200,16 @@ class _RecordingBackend:
     backend_type = "recording"
     _instance_id = "recording:managed-lifecycle"
 
-    def __init__(self, *, num_envs: int = 3, invalidate_on_reset: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        num_envs: int = 3,
+        invalidate_on_reset: bool = True,
+        reset_requires_mutation_batch: bool = False,
+    ) -> None:
         self._num_envs = num_envs
         self._invalidate_on_reset = invalidate_on_reset
+        self._reset_requires_mutation_batch = reset_requires_mutation_batch
         self._bound_plan: BoundBackendPlan | None = None
         self._mutation_plan: BoundMutationPlan | None = None
         self._lease = StateBatchLease(self._instance_id)
@@ -238,6 +245,7 @@ class _RecordingBackend:
             fingerprint=BACKEND_BATCH_CONTRACT_VERSION,
             hot_path_budget=requirements.hot_path_budget,
             reset_hot_path_budget=requirements.reset_hot_path_budget,
+            reset_requires_mutation_batch=self._reset_requires_mutation_batch,
         )
         return self._bound_plan
 
@@ -572,6 +580,17 @@ class _NoResetRequestKernel(_RecordingKernel):
         return cast(ManagedResetRequest, None)
 
 
+class _MissingObservationKernel(_RecordingKernel):
+    def write_observations(
+        self,
+        *,
+        state: StateBatch,
+        task_state: object,
+        observation_buffers: tuple[np.ndarray, ...],
+    ) -> None:
+        del state, task_state, observation_buffers
+
+
 class _LateTerminalReadKernel(_RecordingKernel):
     def __init__(self) -> None:
         super().__init__((np.array((True, False, False)),))
@@ -715,6 +734,75 @@ def test_no_done_branch_clears_final_observation_without_reallocating_outputs() 
         event.phase for event in runtime.last_trace
     ]
     assert ManagedLifecyclePhase.AUTORESET not in [event.phase for event in runtime.last_trace]
+
+
+def test_step_before_init_state_fails_without_touching_backend() -> None:
+    backend = _RecordingBackend()
+    runtime = ManagedReferenceRuntime(
+        backend=cast(SimBackend, backend),
+        plan=_build_plan(),
+        kernel=_RecordingKernel((np.zeros((3,), dtype=bool),)),
+        max_episode_steps=None,
+    )
+
+    with pytest.raises(ManagedRuntimeError, match=r"requires init_state\(\) first"):
+        runtime.step(np.zeros((3, 1), dtype=np.float32))
+
+    assert backend.reset_calls == []
+    assert backend.step_calls == 0
+
+
+def test_runtime_rejects_missing_required_reset_mutation_at_bind_time() -> None:
+    backend = _RecordingBackend(reset_requires_mutation_batch=True)
+
+    with pytest.raises(ManagedRuntimeError, match="requires a bound mutation plan"):
+        ManagedReferenceRuntime(
+            backend=cast(SimBackend, backend),
+            plan=_build_plan(),
+            kernel=_RecordingKernel((np.zeros((3,), dtype=bool),)),
+            max_episode_steps=None,
+        )
+
+    assert backend.reset_calls == []
+
+
+def test_observation_term_validation_reports_unwritten_semantic_key() -> None:
+    backend = _RecordingBackend()
+    runtime = ManagedReferenceRuntime(
+        backend=cast(SimBackend, backend),
+        plan=_build_plan(),
+        kernel=_MissingObservationKernel((np.zeros((3,), dtype=bool),)),
+        max_episode_steps=None,
+        validate_observation_terms=True,
+    )
+
+    with pytest.raises(ManagedRuntimeError, match="semantic_keys=\\('base_scalar',\\)"):
+        runtime.init_state()
+
+
+@pytest.mark.parametrize(
+    ("shape", "dtype", "match"),
+    (
+        ((3, 2), np.dtype(np.float32), r"must have shape \(3, 1\)"),
+        ((3, 1), np.dtype(np.float64), "must have dtype float32"),
+    ),
+    ids=("width", "dtype"),
+)
+def test_observation_buffer_validation_uses_policy_abi(
+    shape: tuple[int, ...],
+    dtype: np.dtype[Any],
+    match: str,
+) -> None:
+    runtime = ManagedReferenceRuntime(
+        backend=cast(SimBackend, _RecordingBackend()),
+        plan=_build_plan(),
+        kernel=_RecordingKernel((np.zeros((3,), dtype=bool),)),
+        max_episode_steps=None,
+    )
+    runtime._observation_buffers = (np.zeros(shape, dtype=dtype),)
+
+    with pytest.raises(ManagedRuntimeError, match=match):
+        runtime.init_state()
 
 
 @pytest.mark.parametrize("forbidden_name", ("backend", "env", "_backend", "_env"))

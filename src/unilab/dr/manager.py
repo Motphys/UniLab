@@ -7,11 +7,7 @@ from typing import Any
 import numpy as np
 
 from .provider import DomainRandomizationProvider
-from .types import (
-    DomainRandomizationCapabilities,
-    DomainRandomizationExecutionMode,
-    UnsupportedDomainRandomizationError,
-)
+from .types import DomainRandomizationCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -21,39 +17,13 @@ class DomainRandomizationManager:
         self,
         env: Any,
         provider: DomainRandomizationProvider,
-        *,
-        execution_mode: DomainRandomizationExecutionMode | str = (
-            DomainRandomizationExecutionMode.LEGACY_WARN_AND_FILTER
-        ),
     ):
         self._env = env
         self._provider = provider
-        try:
-            self._execution_mode = DomainRandomizationExecutionMode(execution_mode)
-        except (TypeError, ValueError) as exc:
-            valid_modes = ", ".join(mode.value for mode in DomainRandomizationExecutionMode)
-            raise ValueError(
-                f"invalid domain randomization execution mode {execution_mode!r}; "
-                f"expected one of: {valid_modes}"
-            ) from exc
         self._capabilities: DomainRandomizationCapabilities = env._backend.get_dr_capabilities()
         self._warned_reset_terms: frozenset[str] = frozenset()
         self._last_reset_timing_ms: dict[str, float] = {}
         self._provider.validate(env, self._capabilities)
-
-    @classmethod
-    def for_compiled_task(
-        cls, env: Any, provider: DomainRandomizationProvider
-    ) -> DomainRandomizationManager:
-        return cls(
-            env,
-            provider,
-            execution_mode=DomainRandomizationExecutionMode.COMPILED_STRICT,
-        )
-
-    @property
-    def execution_mode(self) -> DomainRandomizationExecutionMode:
-        return self._execution_mode
 
     @property
     def last_reset_timing_ms(self) -> dict[str, float]:
@@ -77,19 +47,9 @@ class DomainRandomizationManager:
         t0 = time.perf_counter()
         payload = plan.randomization
         if payload is not None:
-            if self._execution_mode is DomainRandomizationExecutionMode.COMPILED_STRICT:
-                unsupported = self._capabilities.get_unsupported_reset_terms(
-                    payload.requested_terms()
-                )
-                if unsupported:
-                    raise UnsupportedDomainRandomizationError(
-                        backend_type=self._env._backend.backend_type,
-                        unsupported_terms=unsupported,
-                    )
-            else:
-                payload, unsupported = self._capabilities.filter_reset_payload(payload)
-                if unsupported:
-                    self._log_unsupported_reset_terms(unsupported)
+            payload, unsupported = self._capabilities.filter_reset_payload(payload)
+            if unsupported:
+                self._log_unsupported_reset_terms(unsupported)
         payload_filter_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()

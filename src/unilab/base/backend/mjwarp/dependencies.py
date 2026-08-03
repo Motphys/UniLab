@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from importlib import metadata
 from importlib.util import find_spec
 from typing import Any
 
@@ -22,6 +23,7 @@ class MjwarpDependencies:
 
 
 _REQUIRED_MODULES = ("mujoco", "mujoco_warp", "warp")
+_REQUIRED_MUJOCO_WARP_VERSION = "3.10.0.3"
 _INSTALL_HINT = "Install it with `uv sync --extra mjwarp`."
 
 
@@ -32,6 +34,17 @@ def mjwarp_dependencies_available() -> bool:
 
 def load_mjwarp_dependencies() -> MjwarpDependencies:
     """Import optional runtime modules only when a backend instance is built."""
+    try:
+        installed_version = metadata.version("mujoco-warp")
+    except metadata.PackageNotFoundError as exc:
+        raise MjwarpDependencyError(
+            f"mjwarp backend requires optional dependency 'mujoco-warp'. {_INSTALL_HINT}"
+        ) from exc
+    if installed_version != _REQUIRED_MUJOCO_WARP_VERSION:
+        raise MjwarpDependencyError(
+            "mjwarp backend requires exact mujoco-warp version "
+            f"{_REQUIRED_MUJOCO_WARP_VERSION}, found {installed_version}. {_INSTALL_HINT}"
+        )
     try:
         mujoco = importlib.import_module("mujoco")
         mujoco_warp = importlib.import_module("mujoco_warp")

@@ -106,6 +106,7 @@ class PhaseEvidenceSpec:
     package_names: tuple[str, ...]
     commands: tuple[PhaseEvidenceCommand, ...]
     claims: tuple[PhaseEvidenceClaim, ...]
+    require_cuda_environment: bool = False
     schema_version: int = 1
 
     def __post_init__(self) -> None:
@@ -133,6 +134,8 @@ class PhaseEvidenceSpec:
             not isinstance(name, str) or not name for name in self.package_names
         ):
             raise ValueError("phase evidence packages must be unique non-empty strings")
+        if not isinstance(self.require_cuda_environment, bool):
+            raise ValueError("phase evidence CUDA environment flag must be a bool")
         if not self.commands or not self.claims:
             raise ValueError("phase evidence spec requires commands and claims")
         command_names = tuple(command.name for command in self.commands)
@@ -152,14 +155,32 @@ class PhaseEvidenceSpec:
                 raise ValueError("phase evidence claim references an unknown command") from exc
             if claim.required_test_id not in command.required_test_ids:
                 raise ValueError("phase evidence claim test is absent from its command")
-            if claim.minimum_repetitions != command.repetitions:
-                raise ValueError("phase evidence claim repetitions must match its command")
+            if claim.minimum_repetitions > command.repetitions:
+                raise ValueError("phase evidence claim repetitions exceed its command")
 
 
 def sha256_file(path: Path) -> str:
     """Return the canonical hash representation used by acceptance manifests."""
 
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def tracked_input_files(root: Path, paths: Sequence[Path]) -> tuple[Path, ...]:
+    """Enumerate tracked files below repository-relative freshness boundaries."""
+
+    if not paths or any(path.is_absolute() or ".." in path.parts for path in paths):
+        raise ValueError("tracked input paths must be non-empty and repository-relative")
+    try:
+        raw = subprocess.run(
+            ("git", "ls-files", "-z", "--", *(path.as_posix() for path in paths)),
+            cwd=root,
+            capture_output=True,
+            check=True,
+        ).stdout
+        tracked = {Path(item.decode("utf-8")) for item in raw.split(b"\0") if item}
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError) as exc:
+        raise PhaseEvidenceError(f"cannot enumerate tracked phase evidence inputs: {exc}") from exc
+    return tuple(sorted(tracked, key=Path.as_posix))
 
 
 def _registered_input_hashes(spec: PhaseEvidenceSpec, root: Path) -> dict[str, str]:
@@ -199,12 +220,37 @@ def _package_version(name: str) -> str:
         raise PhaseEvidenceError(f"required package {name!r} is not installed") from exc
 
 
-def _capture_environment(spec: PhaseEvidenceSpec) -> dict[str, Any]:
-    return {
+def _capture_environment(spec: PhaseEvidenceSpec, *, root: Path) -> dict[str, Any]:
+    environment: dict[str, Any] = {
         "platform": platform.platform(),
         "python": sys.version,
         "packages": {name: _package_version(name) for name in spec.package_names},
     }
+    if not spec.require_cuda_environment:
+        return environment
+
+    from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
+
+    dependencies = load_mjwarp_dependencies()
+    device = dependencies.warp.get_device()
+    if not bool(device.is_cuda):
+        raise PhaseEvidenceError(f"Phase {spec.phase} capture requires an active CUDA Warp device")
+    nvidia_smi = _run_checked(
+        (
+            "nvidia-smi",
+            "--query-gpu=name,uuid,driver_version,memory.total",
+            "--format=csv,noheader",
+        ),
+        root=root,
+        context="nvidia-smi",
+    )
+    environment.update(
+        {
+            "warp_device": str(device),
+            "nvidia_smi": nvidia_smi.splitlines(),
+        }
+    )
+    return environment
 
 
 def _pytest_counts(output: str) -> dict[str, int]:
@@ -273,7 +319,7 @@ def capture_phase_evidence(spec: PhaseEvidenceSpec, root: Path) -> dict[str, Any
         raise PhaseEvidenceError(f"git returned an invalid commit SHA: {source_commit!r}")
     input_hashes = _registered_input_hashes(spec, root)
     config_hashes = _claim_config_hashes(spec, root)
-    environment = _capture_environment(spec)
+    environment = _capture_environment(spec, root=root)
     commands = [
         _run_evidence_command(command, root=root, repetition=repetition)
         for command in spec.commands
@@ -428,14 +474,32 @@ def _validate_environment(
     spec: PhaseEvidenceSpec, report: Mapping[str, Any], *, errors: list[str]
 ) -> None:
     environment = _mapping(report.get("environment"), "environment", errors)
+    expected_keys = {"platform", "python", "packages"}
+    if spec.require_cuda_environment:
+        expected_keys.update(("warp_device", "nvidia_smi"))
     _keys_match(
         environment,
-        expected={"platform", "python", "packages"},
+        expected=expected_keys,
         name="environment",
         errors=errors,
     )
     _string(environment.get("platform"), "environment.platform", errors)
     _string(environment.get("python"), "environment.python", errors)
+    if spec.require_cuda_environment:
+        warp_device = _string(
+            environment.get("warp_device"),
+            "environment.warp_device",
+            errors,
+        )
+        if warp_device and "cuda" not in warp_device.lower():
+            errors.append("environment.warp_device: expected CUDA device")
+        nvidia_smi = environment.get("nvidia_smi")
+        if (
+            not isinstance(nvidia_smi, list)
+            or not nvidia_smi
+            or not all(isinstance(item, str) and item for item in nvidia_smi)
+        ):
+            errors.append("environment.nvidia_smi: expected non-empty GPU provenance")
     packages = _mapping(environment.get("packages"), "environment.packages", errors)
     if set(packages) != set(spec.package_names):
         errors.append("environment.packages: keys do not exactly match registered packages")
@@ -708,6 +772,7 @@ __all__ = [
     "capture_phase_evidence",
     "load_phase_evidence",
     "sha256_file",
+    "tracked_input_files",
     "validate_phase_evidence",
     "write_phase_evidence",
 ]

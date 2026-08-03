@@ -527,7 +527,7 @@ class MjwarpArmatureRecomputeWorkspace:
             )
         warp.launch(
             _mean_inertia_kernel(self.nv),
-            dim=model.stat.meaninertia.shape[0],
+            dim=self.num_worlds,
             inputs=[
                 self.active_mask,
                 self.reference_mass,
