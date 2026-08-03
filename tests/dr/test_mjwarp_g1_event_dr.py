@@ -7,6 +7,7 @@ from contextlib import ExitStack
 import numpy as np
 import pytest
 import torch
+from tests.dr.mjwarp_model_mutation_support import reset_device_state
 from tests.training.device_runtime_harness import (
     DeviceRuntimeHarness,
     forbid_host_roundtrip,
@@ -464,10 +465,14 @@ def _set_uniform_state(harness: DeviceRuntimeHarness) -> None:
         (harness.backend.num_envs, harness.backend.get_init_qvel().size),
         dtype=np.float32,
     )
-    harness.backend.set_state(
-        np.arange(harness.backend.num_envs, dtype=np.int32),
-        qpos,
-        qvel,
+    assert isinstance(harness.backend, MjwarpBackend)
+    reset_device_state(
+        backend=harness.backend,
+        plan=harness.runtime.bound_plan,
+        placement=harness.placement,
+        base_name="pelvis",
+        qpos=qpos,
+        qvel=qvel,
     )
 
 

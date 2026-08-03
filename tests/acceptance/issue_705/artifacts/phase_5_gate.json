@@ -1125,7 +1125,7 @@
       "tests/acceptance/issue_705/g1_phase5_ppo_threshold_amendment_freeze_receipt.yaml": "sha256:0de8c9b4677b37531747162d57247601a36f9bb1c7adb0d68bf45b8dc91f451c",
       "tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml": "sha256:3f5ab9d930a0ef00ca2dbc50838200d196e9049bdcfe73466776bdba5cfc961d",
       "tests/acceptance/issue_705/g1_threshold_manifest.yaml": "sha256:c39e3a001d5c516982b33eae1be684b58e4b6f85d2610fb253e5742321b62a74",
-      "tests/acceptance/issue_705/test_phase5_evidence.py": "sha256:8d6f2195604c19fb6e9e55d63c7b1ec69679b65c457a67467c03b08ecf96c16f",
+      "tests/acceptance/issue_705/test_phase5_evidence.py": "sha256:96dfbdef15b8e8cdbb85c72708d5e1f787894e2a002a7dd3e28682e0e0801692",
       "tests/benchmark/test_mjwarp_ppo_benchmark.py": "sha256:43ffe939f9b46e3d9a1f5294f6c6ea34dbdf599a62201db97c86a43a5fad35f9",
       "tests/tools/test_issue705_phase5_evidence.py": "sha256:08ff6fcf15b7aaa26e71045dbb394c0092be7b305203f6eda4dbb6c1ca4dcc7f",
       "uv.lock": "sha256:ed8f2070a0c73daddcf4dd3aa8917ad846dba5cbe7cd34fc75fdc6961eeb2f8a"

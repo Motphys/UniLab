@@ -1093,7 +1093,7 @@
       "tests/acceptance/issue_705/claim_test_inventory.yaml": "sha256:d83ee353da78995f511eb1e389790d5919ab2e5c25ebf093ccc6e1251a1b6e80",
       "tests/acceptance/issue_705/mjwarp_dr_performance_freeze_receipt.yaml": "sha256:ab61f25274bc60ebc7cb5d44cae01531ae38a6cab59f6e95bea530a2d302880b",
       "tests/acceptance/issue_705/mjwarp_dr_performance_plan.yaml": "sha256:094a49b35be6a7860d1c67716721700886912b765964b153dc06fbd1f1866950",
-      "tests/acceptance/issue_705/test_phase6_evidence.py": "sha256:c60d0f89e59d7133ce0ac8f66e43520271d4bb6d663949c47f3186adae3473bd",
+      "tests/acceptance/issue_705/test_phase6_evidence.py": "sha256:b09ba169bc23343fbb25359c2efa98ca4e53dbcd4452d5f60fe7089a9dc1ca48",
       "tests/base/test_device_controller_contract.py": "sha256:95eaab43408821ce7356249172d24cd0044fb4c43c87aa1f1e727c07a6da36f2",
       "tests/benchmark/test_mjwarp_dr_benchmark.py": "sha256:c6a324ea60a08c64bbe16c176a8ee703a92489d77d28a6134565f5ebb590c8cc",
       "tests/dr/mjwarp_model_mutation_support.py": "sha256:457f398752634bcd53c6f90e3acbbd50489760288c231773af755274b1689d01",

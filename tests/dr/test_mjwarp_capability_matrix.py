@@ -16,6 +16,7 @@ from typing import Any, Sequence
 import numpy as np
 import pytest
 import torch
+from tests.dr.mjwarp_model_mutation_support import reset_device_state
 
 from unilab.base.backend import (
     BackendIORequirements,
@@ -869,7 +870,17 @@ def _snapshot(runtime: _ProfileRuntime, state: StateBatch | None = None) -> dict
 def _reset_to_stand(runtime: _ProfileRuntime) -> dict[str, np.ndarray]:
     qpos = np.tile(runtime.backend.get_keyframe_qpos("stand"), (_NUM_ENVS, 1)).astype(np.float32)
     qvel = np.zeros((_NUM_ENVS, runtime.backend.get_init_qvel().size), dtype=np.float32)
-    runtime.backend.set_state(np.arange(_NUM_ENVS, dtype=np.int32), qpos, qvel)
+    if runtime.plan.execution_profile is ExecutionProfile.DEVICE_RESIDENT:
+        reset_device_state(
+            backend=runtime.backend,
+            plan=runtime.plan,
+            placement=runtime.placement,
+            base_name=_BASE,
+            qpos=qpos,
+            qvel=qvel,
+        )
+    else:
+        runtime.backend.set_state(np.arange(_NUM_ENVS, dtype=np.int32), qpos, qvel)
     snapshot = _snapshot(runtime)
     for key in _STATE_KEYS:
         np.testing.assert_allclose(

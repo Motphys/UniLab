@@ -238,7 +238,7 @@ def test_scale_uses_compiled_default_and_never_accumulates(
     torch.testing.assert_close(slot, first_values)
 
 
-def test_invalid_model_values_gate_the_entire_reset_row_before_physics(
+def test_invalid_model_values_preserve_model_and_still_reset_state(
     runtime: ModelMutationRuntime,
 ) -> None:
     runtime.restore_compiled_model_defaults()
@@ -257,11 +257,13 @@ def test_invalid_model_values_gate_the_entire_reset_row_before_physics(
         device=runtime.device,
     )
     qpos, _ = runtime.set_uniform_state(target_position=0.37)
+    default_qpos = runtime.backend.get_default_qpos()
     before = runtime.backend.read_state_batch(
         runtime.plan,
         RowSelection.all(runtime.num_envs),
     ).state
     before_position = before.buffer("dof.position").handle.torch().clone()
+    diagnostics_before = runtime.backend.get_mutation_performance_diagnostics(plan)
 
     result = runtime.backend.reset_batch(
         runtime.plan,
@@ -270,7 +272,17 @@ def test_invalid_model_values_gate_the_entire_reset_row_before_physics(
     )
     _wait(result)
     after = result.reset_state.buffer("dof.position").handle.torch()
-    torch.testing.assert_close(after, before_position)
+    torch.testing.assert_close(
+        after[list(invalid_rows), runtime.dof_position_index],
+        torch.full(
+            (len(invalid_rows),),
+            float(default_qpos[runtime.raw_qpos_index]),
+            dtype=torch.float32,
+            device=runtime.device,
+        ),
+    )
+    retained_rows = tuple(row for row in range(runtime.num_envs) if row not in invalid_rows)
+    torch.testing.assert_close(after[list(retained_rows)], before_position[list(retained_rows)])
     torch.testing.assert_close(
         runtime.gain,
         runtime.default_gain.expand_as(runtime.gain),
@@ -283,9 +295,14 @@ def test_invalid_model_values_gate_the_entire_reset_row_before_physics(
     owner = runtime.backend._device_mutation_plans[plan.fingerprint]
     assert owner.model_plan is not None
     assert not bool(owner.model_plan.effective_mask[list(invalid_rows)].any())
+    diagnostics_after = runtime.backend.get_mutation_performance_diagnostics(plan)
+    assert (
+        diagnostics_after.lifecycle.invalid_model_sample_rows
+        == diagnostics_before.lifecycle.invalid_model_sample_rows + len(invalid_rows)
+    )
 
 
-def test_combined_pd_and_state_plan_rejects_an_invalid_row_atomically(
+def test_combined_pd_and_state_plan_rejects_only_invalid_model_values(
     runtime: ModelMutationRuntime,
 ) -> None:
     runtime.restore_compiled_model_defaults()
@@ -302,6 +319,7 @@ def test_combined_pd_and_state_plan_rejects_an_invalid_row_atomically(
     )
     buffers.values["state.position"][[valid_row, invalid_row], 0, 0] = 0.31
     buffers.values["state.velocity"][[valid_row, invalid_row], 0, 0] = -0.27
+    diagnostics_before = runtime.backend.get_mutation_performance_diagnostics(plan)
 
     result = runtime.backend.reset_batch(
         runtime.plan,
@@ -343,11 +361,16 @@ def test_combined_pd_and_state_plan_rejects_an_invalid_row_atomically(
     )
     torch.testing.assert_close(
         position[invalid_row, runtime.dof_position_index],
-        torch.tensor(0.12, device=runtime.device),
+        torch.tensor(0.31, device=runtime.device),
     )
     torch.testing.assert_close(
         velocity[invalid_row, runtime.dof_velocity_index],
-        torch.tensor(-0.08, device=runtime.device),
+        torch.tensor(-0.27, device=runtime.device),
+    )
+    diagnostics_after = runtime.backend.get_mutation_performance_diagnostics(plan)
+    assert (
+        diagnostics_after.lifecycle.invalid_model_sample_rows
+        == diagnostics_before.lifecycle.invalid_model_sample_rows + 1
     )
 
 

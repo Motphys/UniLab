@@ -463,7 +463,7 @@
       "tests/acceptance/issue_705/g1_mujoco_baseline_plan.yaml": "sha256:3c2c9a1f788b6e7600398589cf644d2d4cfb90e6116ea67b5ede75564ef7dede",
       "tests/acceptance/issue_705/g1_threshold_freeze_receipt.yaml": "sha256:3f5ab9d930a0ef00ca2dbc50838200d196e9049bdcfe73466776bdba5cfc961d",
       "tests/acceptance/issue_705/g1_threshold_manifest.yaml": "sha256:c39e3a001d5c516982b33eae1be684b58e4b6f85d2610fb253e5742321b62a74",
-      "tests/acceptance/issue_705/test_phase4_evidence.py": "sha256:636cc656829f81606688b5d5dee6a1cf2caa4a4fe3436a0120a801b59fcdf901",
+      "tests/acceptance/issue_705/test_phase4_evidence.py": "sha256:701192653d49dbc70b4d9585211ee0ed17818d961b7aa1fe304c9276a1103a71",
       "tests/benchmark/test_managed_g1_host_benchmark.py": "sha256:8466c022646520f7ab071f8d6e63654d3bdbdcdeaeaffdc2f782874c77826fe8",
       "tests/manager/test_fused_executor.py": "sha256:a837c6cc919cf49a6c75184e9aaaf73773a49a4fe845263f652984878ccebccc",
       "tests/manager/test_fused_runtime_stability.py": "sha256:7a920ac24657ae9a39673f2c01db7332487fbaa81fdd82276bd414e3074e4179",
