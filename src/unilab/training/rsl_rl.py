@@ -278,9 +278,20 @@ class RslRlVecEnvWrapper:
 
     @property
     def managed_policy_abi_snapshot(self) -> dict[str, Any] | None:
-        """Return a compiled manager ABI when this wrapper owns one."""
+        """Return a compiled manager ABI from the underlying env when available.
 
-        return None
+        Delegates to the wrapped env so that a managed host runtime (e.g.
+        ``ManagedReferenceRuntime``) can propagate its policy ABI upward to
+        the sim2sim resolver without requiring a device-specific subclass.
+        Falls back to ``None`` for plain envs that carry no compiled plan.
+        """
+        # Prefer an explicit managed_policy_abi_snapshot on the env; then
+        # fall through to policy_abi_snapshot (the ManagedRuntime API).
+        env = self.env
+        snapshot = getattr(env, "managed_policy_abi_snapshot", None)
+        if snapshot is not None:
+            return snapshot
+        return getattr(env, "policy_abi_snapshot", None)
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":

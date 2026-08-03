@@ -88,6 +88,7 @@ jobs:
 
   benchmark-smoke:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    timeout-minutes: 8
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6.0.2
@@ -126,6 +127,9 @@ jobs:
   test-shard:
     name: test shard (${{ matrix.shard }})
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    # Standard CI: fast shards only (≤12 min each on ubuntu-slim).
+    # Evidence/benchmark/acceptance shards run in ci-full.yml (workflow_dispatch / schedule).
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -134,30 +138,14 @@ jobs:
             paths: tests/algos tests/assets tests/base
           - shard: b
             paths: tests/dr tests/envs tests/integration tests/ipc tests/manager
-          - shard: c
-            paths: tests/acceptance
           - shard: d
             paths: tests/terrains tests/tools tests/training tests/utils tests/visualization tests/test_*.py
-          - shard: e
-            paths: tests/benchmark
           - shard: f
             paths: tests/config
-          - shard: g
-            paths: tests/scripts/test_issue705_final_gate.py
-          - shard: h
+          - shard: scripts
             paths: >-
               tests/scripts/test_check_docs.py
               tests/scripts/test_ci_test_shards.py
-              tests/scripts/test_drake_training_smoke.py
-              tests/scripts/test_issue705_claim_gap_audit.py
-              tests/scripts/test_issue705_dr_inventory.py
-              tests/scripts/test_issue705_g1_baseline.py
-              tests/scripts/test_issue705_legacy_retirement_audit.py
-              tests/scripts/test_issue705_phase_acceptance.py
-              tests/scripts/test_issue705_support_audit.py
-              tests/scripts/test_issue705_task_rollout_audit.py
-              tests/scripts/test_issue705_thresholds.py
-              tests/scripts/test_issue705_workflow_audit.py
               tests/scripts/test_mujoco_only_tooling_markers.py
               tests/scripts/test_obs_alignment_g1_wbt.py
               tests/scripts/test_repo_hygiene.py

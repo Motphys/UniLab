@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .graph import DeviceGraphDiagnostics
 
-BACKEND_PERFORMANCE_DIAGNOSTICS_VERSION = 1
+BACKEND_PERFORMANCE_DIAGNOSTICS_VERSION = 2
 
 
 class BackendPerformanceDiagnosticsError(ValueError):
@@ -138,13 +138,14 @@ class BackendModelMaterializationDiagnostics:
 
 @dataclass(frozen=True)
 class BackendDeviceLifecycleDiagnostics:
-    """Cumulative graph launches split by semantic lifecycle operation."""
+    """Cumulative device lifecycle and reset-validation counters."""
 
     runtime_barriers: int
     step_graph_launches: int
     reset_graph_launches: int
     forward_graph_launches: int
     state_refreshes: int
+    invalid_model_sample_rows: int
     instrumentation_complete: bool = True
 
     def __post_init__(self) -> None:
@@ -154,6 +155,7 @@ class BackendDeviceLifecycleDiagnostics:
             "reset_graph_launches",
             "forward_graph_launches",
             "state_refreshes",
+            "invalid_model_sample_rows",
         ):
             object.__setattr__(self, name, _count(getattr(self, name), name))
         if not isinstance(self.instrumentation_complete, bool):
