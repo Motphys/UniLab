@@ -91,8 +91,8 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
         {
             "weight_sync_ms": 0.1,
             "action_select_ms": 0.2,
-            "env_step_ms": 3.0,
-            "env_step_backend_ms": 1.5,
+            "env_step_ms": 14.0,
+            "env_step_backend_ms": 12.5,
             "env_step_update_state_ms": 1.0,
             "env_step_reset_done_ms": 0.5,
             "replay_ms": 0.3,
@@ -115,12 +115,24 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
     assert collector_value_cells == [
         "0.1ms",
         "0.2ms",
-        "3.0ms",
-        "[dim cyan]├─ 1.5ms[/]",
-        "[dim cyan]├─ 1.0ms[/]",
-        "[dim cyan]└─ 0.5ms[/]",
+        "14.0ms",
+        "[dim cyan]12.5ms ─┤[/]",
+        "[dim cyan]1.0ms ─┤[/]",
+        "[dim cyan]0.5ms ─┘[/]",
         "0.3ms",
     ]
+
+    console = Console(width=100, record=True, force_terminal=False)
+    with console.capture() as capture:
+        console.print(table)
+    connector_columns = [
+        line.index(connector)
+        for line in capture.get().splitlines()
+        for connector in ("┤", "┘")
+        if connector in line
+    ]
+    assert len(connector_columns) == 3
+    assert len(set(connector_columns)) == 1
 
 
 def test_offpolicy_reward_component_names_stay_on_one_line_at_narrow_width() -> None:

@@ -668,11 +668,11 @@ class OffPolicyLogger(BaseTrainingLogger):
             value_text = f"{value:.1f}ms"
             if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS:
                 if self._unicode_console:
-                    connector = "└─" if key == last_env_step_detail_key else "├─"
+                    connector = "─┘" if key == last_env_step_detail_key else "─┤"
                 else:
-                    connector = "`-" if key == last_env_step_detail_key else "+-"
+                    connector = "-'" if key == last_env_step_detail_key else "-+"
                 label = f"[dim]{label}[/]"
-                value_text = f"[dim cyan]{connector} {value_text}[/]"
+                value_text = f"[dim cyan]{value_text} {connector}[/]"
             collector_items.append((label, value_text))
         system_items = [
             ("Buffer", f"{self._buffer_size:,}"),
