@@ -2219,6 +2219,7 @@ def _dummy_exit_immediately() -> None:
     _sys.exit(0)
 
 
+@pytest.mark.slow
 def test_safe_put_trainer_done_does_not_deadlock_on_real_dead_collector():
     """End-to-end: real Process exits, _safe_put detects death and raises fast.
 
