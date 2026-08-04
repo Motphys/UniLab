@@ -11,6 +11,13 @@ The off-policy runner decouples CPU simulation from GPU learning through shared
 memory: a collector subprocess fills a CPU-resident replay buffer while the
 learner trains on the GPU.
 
+Single-GPU CUDA and Apple MPS runs may select
+`training.replay_pipeline=gpu_resident`. The CPU replay remains authoritative,
+while the learner maintains a full device mirror and samples on the device.
+This consumes one additional full replay allocation on the device; the default
+remains `cpu_pinned_double_buffer`. On MPS, the learner thread submits mirror
+copies and gathers, avoiding background Metal command submission.
+
 The default FastSAC learner is also the currently validated replay-buffer
 multi-GPU SAC implementation. Enable it with `training.num_gpus > 1`; the host
 side packs and distributes batches in parallel, while the GPU learners default
@@ -25,6 +32,8 @@ constraints.
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
+uv run train --algo sac --task g1_walk_flat --sim mujoco \
+  training.replay_pipeline=gpu_resident
 ```
 
 Two-GPU MuJoCo example:
