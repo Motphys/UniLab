@@ -4646,7 +4646,7 @@ requires-dist = [
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
-    { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5,<3.11" },
+    { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5" },
     { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.3.0" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
     { name = "notebook", specifier = ">=7.5.5" },
