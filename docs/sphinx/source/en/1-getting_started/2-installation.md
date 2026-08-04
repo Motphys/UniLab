@@ -12,6 +12,8 @@ live in the getting-started and algorithm pages.
 - For the `mujoco` extra: a C++17 toolchain and Python development headers,
   because `mujoco-uni-runtime` ships as a source distribution and compiles its
   native extension during `uv sync` (against the locked mujoco version).
+  Without them, `make setup` fails while building `mujoco-uni-runtime` with
+  `fatal error: Python.h: No such file or directory`.
   - macOS: `xcode-select --install`
   - Ubuntu / Debian: `sudo apt-get install build-essential python3-dev`
   - Windows: MSVC Build Tools

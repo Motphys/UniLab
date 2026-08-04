@@ -10,7 +10,8 @@
   `docs/sphinx/source/zh_CN/1-getting_started/2-installation.md`。
 - 使用 `mujoco` extra 时：需要 C++17 工具链和 Python 开发头文件，
   因为 `mujoco-uni-runtime` 仅以源码分发，`uv sync` 时会就地编译其原生扩展
-  （针对 lock 钉住的 mujoco 版本）。
+  （针对 lock 钉住的 mujoco 版本）。缺少这些依赖时，`make setup` 会在编译
+  `mujoco-uni-runtime` 时失败，报错 `fatal error: Python.h: No such file or directory`。
   - macOS：`xcode-select --install`
   - Ubuntu / Debian：`sudo apt-get install build-essential python3-dev`
   - Windows：MSVC Build Tools
