@@ -78,7 +78,8 @@ Two caveats:
   init-lifecycle model materialization (see `GeomSizeOverride` /
   `ModelVariantSpec` in `src/unilab/dr/types.py`), not reset randomization.
 - `gravity` reset randomization requires a `mujoco-uni-runtime` build that ships
-  it. This repository depends on the official `mujoco` package (`>=3.5,<3.11`)
+  it. This repository depends on the official `mujoco` package (`>=3.5`, with
+  the default version pinned by `uv.lock`)
   plus `mujoco-uni-runtime`, whose `SUPPORTED_FIELDS` includes `gravity`; older
   batch-env packages such as `mujoco-uni==3.6.0.post6` do not.
 
