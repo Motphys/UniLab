@@ -2,7 +2,7 @@
 sync:
 	uv sync --extra mujoco --extra motrix
 
-# Switch the MuJoCo solver version (window: >=3.5,<3.11), e.g.
+# Switch the MuJoCo solver version (tested window: >=3.5,<3.11), e.g.
 #   make mujoco MJ=3.8.0
 # Repins mujoco in uv.lock, then rebuilds the mujoco-uni-runtime native
 # extension against it (the extension refuses to load on a version mismatch,

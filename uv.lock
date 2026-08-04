@@ -4873,7 +4873,7 @@ requires-dist = [
     { name = "mediapy" },
     { name = "mlx", marker = "sys_platform == 'darwin'" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
-    { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5,<3.11" },
+    { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5" },
     { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.3.0" },
     { name = "mujoco-warp", marker = "extra == 'mjwarp'", specifier = "==3.10.0.3" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
@@ -4898,7 +4898,7 @@ requires-dist = [
     { name = "typing-extensions" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
-    { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = ">=1.14.0,<1.15" },
+    { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = ">=1.14.0" },
     { name = "wheel", marker = "extra == 'mujoco'" },
 ]
 provides-extras = ["mujoco", "mjwarp", "motrix", "viser"]
