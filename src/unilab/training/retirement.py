@@ -49,8 +49,8 @@ _MIGRATION_HINT = (
     "The production device-resident mjwarp runtime (runtime_impl "
     f"{RETIRED_RUNTIME_IMPL!r}, execution_profile {RETIRED_EXECUTION_PROFILE!r}, "
     f"resolver {RETIRED_RESOLVER_FRAGMENT!r}) was retired in issue #886 and no "
-    "longer exists. task=g1_walk_flat/mjwarp now selects the Configured "
-    "backend-neutral host adapter; device-resident artifacts are incompatible "
+    "longer exists. task=g1_walk_flat/mjwarp now selects the backend-neutral "
+    "host adapter; device-resident artifacts are incompatible "
     "with it and must be retrained."
 )
 

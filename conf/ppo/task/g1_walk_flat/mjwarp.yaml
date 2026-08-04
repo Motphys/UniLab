@@ -5,7 +5,6 @@
 training:
   task_name: G1WalkFlat
   sim_backend: mjwarp
-  no_play: false
   play_render_mode: record
 algo:
   num_envs: 2048
