@@ -114,7 +114,7 @@ jobs:
           key: numba-v1-${{ runner.os }}-${{ runner.arch }}-py311-${{ hashFiles('uv.lock', 'src/unilab/**/*numba*.py', 'benchmark/**/*numba*.py') }}
       - name: Install dependencies
         run: |
-          uv sync \
+          uv sync --extra mujoco \
             --no-install-package torch \
             --no-install-package nvidia-cublas-cu12 \
             --no-install-package nvidia-cuda-cupti-cu12 \
