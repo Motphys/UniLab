@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -10,11 +11,15 @@ import torch
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.replay_pipelines.gpu_resident import (
     GPUResidentReplayPipeline,
+    _device_memory_budget,
     _ring_spans,
+    _validate_device_memory_budget,
 )
 
 _HAS_CUDA = torch.cuda.is_available()
 cuda_only = pytest.mark.skipif(not _HAS_CUDA, reason="CUDA required")
+_HAS_MPS = torch.backends.mps.is_available()
+mps_only = pytest.mark.skipif(not _HAS_MPS, reason="MPS required")
 
 _OBS_DIM = 4
 _ACTION_DIM = 2
@@ -116,9 +121,9 @@ class TestRingSpans:
 
 
 class TestConstructionGuards:
-    def test_non_cuda_device_rejected(self):
+    def test_non_accelerator_device_rejected(self):
         rb = _make_replay(device="cpu")
-        with pytest.raises(ValueError, match="CUDA"):
+        with pytest.raises(ValueError, match="CUDA or MPS"):
             GPUResidentReplayPipeline(rb, device="cpu", sample_count=8)
 
     def test_invalid_pack_layout_rejected(self):
@@ -133,6 +138,25 @@ class TestConstructionGuards:
 
         with pytest.raises(ValueError, match="replay_pipeline"):
             DoubleBufferOffPolicyRunner(replay_pipeline="bogus")
+
+    def test_mps_memory_budget_uses_recommended_budget(self, monkeypatch):
+        monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 1_000)
+        monkeypatch.setattr(torch.mps, "driver_allocated_memory", lambda: 250)
+
+        assert _device_memory_budget(torch.device("mps")) == (750, 1_000)
+
+    def test_mps_memory_budget_failure_is_actionable(self, monkeypatch):
+        monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 1_000)
+        monkeypatch.setattr(torch.mps, "driver_allocated_memory", lambda: 250)
+
+        with pytest.raises(RuntimeError, match=r"requires .* available budget .* total budget"):
+            _validate_device_memory_budget(
+                torch.device("mps"),
+                required_bytes=601,
+                storage_bytes=500,
+                batch_bytes=101,
+                headroom=0.8,
+            )
 
 
 @cuda_only
@@ -302,5 +326,133 @@ class TestGPUResidentPipeline:
         rb = _make_replay(capacity=64)
         pipeline = pipeline_factory(rb, sample_count=8)
         pipeline.close()
+        assert pipeline._sync_thread is not None
         assert not pipeline._sync_thread.is_alive()
         assert not rb._storage.is_pinned()
+
+
+@mps_only
+class TestMPSGPUResidentPipeline:
+    @pytest.fixture
+    def pipeline_factory(self):
+        created = []
+
+        def _make(rb, **kwargs):
+            kwargs.setdefault("device", "mps")
+            kwargs.setdefault("sample_count", 16)
+            pipeline = GPUResidentReplayPipeline(rb, **kwargs)
+            created.append(pipeline)
+            return pipeline
+
+        yield _make
+        for pipeline in created:
+            pipeline.close()
+
+    def test_allocates_mps_storage_and_samples_on_learner_thread(self, pipeline_factory):
+        rb = _make_replay(capacity=128, device="mps")
+        _pattern_add(rb, 0, 64)
+        pipeline = pipeline_factory(rb, sample_count=16)
+
+        batch = pipeline.sample_large_batch(1, 16)
+
+        assert pipeline._sync_thread is None
+        assert pipeline._host_pinned is False
+        assert pipeline.h2d_submitter == "gpu_resident_mirror_main_thread"
+        assert pipeline.transfer_manifest["device_submission_thread"] == "learner"
+        assert all(value.device.type == "mps" for value in batch.values())
+        rewards = batch["rewards"].cpu()
+        expected = _expected_pattern(rb, rewards)
+        for key, want in expected.items():
+            torch.testing.assert_close(batch[key].cpu(), want)
+
+    def test_incremental_mirror_matches_after_ring_wrap(self, pipeline_factory):
+        rb = _make_replay(capacity=64, device="mps")
+        _pattern_add(rb, 0, 64)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        pipeline.sample_large_batch(1, 8)
+        pipeline.after_tick()
+
+        _pattern_add(rb, 64, 48)
+        assert pipeline.start_prepare(2, 8) is True
+        _wait_batch_ready(pipeline, 2, 8)
+        pipeline.sample_large_batch(2, 8)
+
+        assert pipeline._visible_ptr == 112
+        torch.testing.assert_close(pipeline._gpu_storage.cpu(), rb._storage)
+
+    def test_deterministic_seed_produces_same_mps_batch(self, pipeline_factory):
+        rb = _make_replay(capacity=128, device="mps")
+        _pattern_add(rb, 0, 64)
+        first = pipeline_factory(rb, sample_count=16, base_seed=99)
+        first_rewards = first.sample_large_batch(7, 16)["rewards"].cpu().clone()
+        first.close()
+
+        second = pipeline_factory(rb, sample_count=16, base_seed=99)
+        second_rewards = second.sample_large_batch(7, 16)["rewards"].cpu()
+
+        torch.testing.assert_close(first_rewards, second_rewards)
+
+    def test_min_snapshot_ptr_gates_mps_prepare(self, pipeline_factory):
+        rb = _make_replay(capacity=128, device="mps")
+        _pattern_add(rb, 0, 32)
+        pipeline = pipeline_factory(rb, sample_count=8)
+
+        assert pipeline.start_prepare(5, 8, min_snapshot_ptr=48) is True
+        deadline = time.monotonic() + 2.0
+        while pipeline._visible_ptr < 32 and time.monotonic() < deadline:
+            assert pipeline.batch_ready(5, 8) is False
+            time.sleep(0.001)
+        assert pipeline._visible_ptr == 32
+
+        _pattern_add(rb, 32, 16)
+        _wait_batch_ready(pipeline, 5, 8)
+        batch = pipeline.sample_large_batch(5, 8)
+
+        assert pipeline._visible_ptr == 48
+        assert batch["obs"].shape == (8, rb._obs_dim)
+
+    def test_mps_device_work_rejects_background_thread(self, pipeline_factory):
+        rb = _make_replay(capacity=64, device="mps")
+        _pattern_add(rb, 0, 32)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        errors: list[BaseException] = []
+
+        def drive_from_background() -> None:
+            try:
+                pipeline.batch_ready(1, 8)
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=drive_from_background)
+        thread.start()
+        thread.join(timeout=2.0)
+
+        assert not thread.is_alive()
+        assert len(errors) == 1
+        assert "learner thread" in str(errors[0])
+
+    def test_mps_pipeline_uses_event_waits_not_global_sync(self, pipeline_factory, monkeypatch):
+        rb = _make_replay(capacity=64, device="mps")
+        _pattern_add(rb, 0, 32)
+        pipeline = pipeline_factory(rb, sample_count=8)
+
+        def reject_global_sync() -> None:
+            raise AssertionError("gpu_resident MPS path must not globally synchronize")
+
+        monkeypatch.setattr(torch.mps, "synchronize", reject_global_sync)
+        batch = pipeline.sample_large_batch(1, 8)
+
+        assert batch["obs"].device.type == "mps"
+
+    def test_mps_sac_graph_layout_preserves_columns(self, pipeline_factory):
+        rb = _make_replay(capacity=128, device="mps")
+        _pattern_add(rb, 0, 64)
+        pipeline = pipeline_factory(rb, sample_count=16, pack_layout="sac_graph")
+
+        batch = pipeline.sample_large_batch(1, 16)
+        rewards = batch["rewards"].cpu()
+        expected = _expected_pattern(rb, rewards)
+
+        assert batch["sac_graph_packed_source"].device.type == "mps"
+        for key, want in expected.items():
+            torch.testing.assert_close(batch[key].cpu(), want)
