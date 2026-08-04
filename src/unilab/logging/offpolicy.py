@@ -39,6 +39,12 @@ OFFPOLICY_COLLECTOR_TIMING_LABELS = {
     "sync_coordination_ms": "Sync Coordination",
 }
 
+OFFPOLICY_ENV_STEP_DETAIL_KEYS = (
+    "env_step_backend_ms",
+    "env_step_update_state_ms",
+    "env_step_reset_done_ms",
+)
+
 
 def _metric_backend_key(key: str) -> str:
     """Keep canonical slash metrics intact; namespace legacy flat metrics under train/."""
@@ -643,18 +649,31 @@ class OffPolicyLogger(BaseTrainingLogger):
             learner_items.append(("Param Sync", _fmt_phase(self._learner_param_sync_time)))
         learner_items.append(("Weight Sync", _fmt_phase(self._weight_sync_time)))
         learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:>7.1f}ms  100%"))
-        collector_items = [
-            (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
-            for key, value in sorted(
-                self._collector_timing.items(),
-                key=lambda item: (
-                    OFFPOLICY_COLLECTOR_TIMING_ORDER.get(
-                        item[0], len(OFFPOLICY_COLLECTOR_TIMING_ORDER)
-                    ),
-                    item[0],
+        sorted_collector_timing = sorted(
+            self._collector_timing.items(),
+            key=lambda item: (
+                OFFPOLICY_COLLECTOR_TIMING_ORDER.get(
+                    item[0], len(OFFPOLICY_COLLECTOR_TIMING_ORDER)
                 ),
-            )
+                item[0],
+            ),
+        )
+        env_step_detail_keys = [
+            key for key, _ in sorted_collector_timing if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS
         ]
+        last_env_step_detail_key = env_step_detail_keys[-1] if env_step_detail_keys else None
+        collector_items: list[tuple[str, str]] = []
+        for key, value in sorted_collector_timing:
+            label = OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key)
+            value_text = f"{value:.1f}ms"
+            if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS:
+                if self._unicode_console:
+                    connector = "└─" if key == last_env_step_detail_key else "├─"
+                else:
+                    connector = "`-" if key == last_env_step_detail_key else "+-"
+                label = f"[dim]{label}[/]"
+                value_text = f"[dim cyan]{connector} {value_text}[/]"
+            collector_items.append((label, value_text))
         system_items = [
             ("Buffer", f"{self._buffer_size:,}"),
         ]

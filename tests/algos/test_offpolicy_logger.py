@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.console import Console
+
 import unilab.logging.common as common_logger_module
 from unilab.logging.offpolicy import OffPolicyLogger
 
@@ -99,16 +101,50 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
 
     table = logger._build_timing_table()
     collector_cells = list(table.columns[2].cells)
+    collector_value_cells = list(table.columns[3].cells)
 
     assert collector_cells == [
         "Weight Sync",
         "Action Select",
         "Env Step",
-        "  Backend Step",
-        "  Update State",
-        "  Reset Done",
+        "[dim]  Backend Step[/]",
+        "[dim]  Update State[/]",
+        "[dim]  Reset Done[/]",
         "Replay",
     ]
+    assert collector_value_cells == [
+        "0.1ms",
+        "0.2ms",
+        "3.0ms",
+        "[dim cyan]├─ 1.5ms[/]",
+        "[dim cyan]├─ 1.0ms[/]",
+        "[dim cyan]└─ 0.5ms[/]",
+        "0.3ms",
+    ]
+
+
+def test_offpolicy_reward_component_names_stay_on_one_line_at_narrow_width() -> None:
+    logger = OffPolicyLogger(
+        algo_name="SAC",
+        max_iterations=2,
+        num_envs=8,
+        env_name="Dummy",
+        log_backend="no_print",
+    )
+    logger._reward_history.extend([1.0, 2.0])
+    logger._latest_reward_components = {
+        "reward/penalty_action_rate": -0.1,
+        "reward/penalty_ang_vel_xy": -0.2,
+        "reward/penalty_orientation": -0.3,
+    }
+    console = Console(width=47, record=True, force_terminal=False)
+
+    console.print(logger._build_reward_table())
+    output_lines = console.export_text().splitlines()
+
+    for component in ("penalty action rate", "penalty ang vel xy", "penalty orientation"):
+        matching_lines = [line for line in output_lines if component in line]
+        assert len(matching_lines) == 1
 
 
 def test_offpolicy_logger_training_timer_excludes_warmup_from_elapsed_and_eta(

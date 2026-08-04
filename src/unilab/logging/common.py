@@ -372,8 +372,8 @@ class BaseTrainingLogger:
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Rewards", style="white", ratio=1)
-        table.add_column("Value", justify="right", ratio=2)
+        table.add_column("Rewards", style="white", width=21, no_wrap=True)
+        table.add_column("Value", justify="right", ratio=2, no_wrap=True)
 
         if self._reward_history:
             recent = list(self._reward_history)
