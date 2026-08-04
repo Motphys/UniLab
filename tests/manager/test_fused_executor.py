@@ -3,7 +3,7 @@
 The reference and fused candidates receive independent physics instances.  The
 test never treats the fused kernel's arrays as an oracle: generated vectors,
 the separate reference executor, terminal/final observations, and lifecycle
-trace all have to agree through the public ``NpEnvState`` contract.
+trace all have to agree through the public ``ManagedEnvState`` contract.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from unilab.base.backend import (
     create_backend,
     env_backend_kwargs,
 )
-from unilab.base.np_env import NpEnvState
 from unilab.envs.locomotion.g1 import managed_fused as fused_module
 from unilab.envs.locomotion.g1.joystick import G1WalkEnv, G1WalkFlatCfg, G1WalkRewardConfig
 from unilab.envs.locomotion.g1.managed_fused import (
@@ -45,7 +44,7 @@ from unilab.envs.locomotion.g1.managed_schema import (
     G1_STATE_KEYS,
     build_g1_kernel_config,
 )
-from unilab.manager import ManagedReferenceRuntime, ManagedRuntimeError
+from unilab.manager import ManagedEnvState, ManagedReferenceRuntime, ManagedRuntimeError
 
 _ATOL = 1.0e-6
 _RTOL = 1.0e-5
@@ -137,7 +136,7 @@ def _assert_array_close(*, expected: np.ndarray, actual: np.ndarray, label: str)
     np.testing.assert_allclose(expected, actual, atol=_ATOL, rtol=_RTOL, err_msg=label)
 
 
-def _assert_state_close(*, expected: NpEnvState, actual: NpEnvState, label: str) -> None:
+def _assert_state_close(*, expected: ManagedEnvState, actual: ManagedEnvState, label: str) -> None:
     assert tuple(expected.obs) == tuple(actual.obs), f"{label}: observation keys differ"
     for key in expected.obs:
         _assert_array_close(

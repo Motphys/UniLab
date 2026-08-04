@@ -49,7 +49,7 @@ class BackendHeightScanner(abc.ABC):
 
 @dataclass(frozen=True)
 class BackendTerrainSpawnData:
-    """Cold-path terrain metadata required by locomotion spawn managers."""
+    """Cold-path terrain spawn metadata owned by the backend."""
 
     origins: np.ndarray
     surface_sampler: object | None = None
@@ -73,7 +73,7 @@ def normalize_play_render_mode(play_render_mode: str | None) -> str:
     mode = "auto" if play_render_mode is None else str(play_render_mode).strip().lower()
     if mode not in PLAY_RENDER_MODES:
         joined = ", ".join(sorted(PLAY_RENDER_MODES))
-        raise ValueError(f"training.play_render_mode must be one of: {joined}; got {mode!r}.")
+        raise ValueError(f"play render mode must be one of: {joined}; got {mode!r}.")
     return mode
 
 
@@ -246,7 +246,7 @@ class SimBackend(abc.ABC):
         raise NotImplementedError(f"{self.__class__.__name__} does not expose dof armature")
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        """Resolve MuJoCo-style body IDs used by motion datasets."""
+        """Resolve backend-native body IDs used by motion datasets."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose motion body ids")
 
     def cleanup_scene_assets(self) -> None:
@@ -418,24 +418,6 @@ class SimBackend(abc.ABC):
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
 
-    def apply_body_linear_velocity_delta(
-        self,
-        body_ids: np.ndarray,
-        velocity_delta: np.ndarray,
-    ) -> None:
-        """Apply a world-frame linear-velocity delta to specific bodies.
-
-        Args:
-            body_ids: Body ids whose linear velocities should be perturbed.
-            velocity_delta: Velocity delta with shape ``(num_envs, len(body_ids), 3)``.
-
-        Returns:
-            None. Backends that support this mutate their pending simulation state.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support interval body velocity perturbation"
-        )
-
     def apply_body_force(
         self,
         body_ids: np.ndarray,
@@ -486,7 +468,17 @@ class SimBackend(abc.ABC):
         camera_kwargs: dict[str, Any] | None = None,
         extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
-        """Execute backend-owned playback for an env wrapper."""
+        """Execute backend-owned playback for an env wrapper.
+
+        Known boundary: ``env`` is the owning env wrapper, not a physics-layer
+        concept. Current playback implementations read env-level configuration
+        (e.g. ``cfg.scene``, ``cfg.ctrl_dt``, ``cfg.render_spacing``) and
+        env-owned playback helpers (``get_playback_model``,
+        ``get_physics_state_snapshot``) that have no backend-native equivalent
+        yet. The parameter stays on this contract until playback asset/config
+        resolution moves onto backend-owned metadata; backends must only use
+        it on the cold playback path.
+        """
         raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
 
     def init_renderer(

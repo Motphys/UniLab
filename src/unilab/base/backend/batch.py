@@ -322,9 +322,7 @@ def _validate_profile(
     control: ControlSpec,
 ) -> None:
     _enum(execution_profile, ExecutionProfile, "execution_profile")
-    expected_space = (
-        MemorySpace.HOST if execution_profile is ExecutionProfile.HOST_NUMPY else MemorySpace.DEVICE
-    )
+    expected_space = MemorySpace.HOST
     buffers = [field.buffer for field in fields]
     buffers.append(control.buffer)
     if any(buffer.placement.memory_space is not expected_space for buffer in buffers):
@@ -344,9 +342,7 @@ def _validate_state_profile(
     fields: tuple[StateFieldSpec, ...],
 ) -> None:
     _enum(execution_profile, ExecutionProfile, "execution_profile")
-    expected_space = (
-        MemorySpace.HOST if execution_profile is ExecutionProfile.HOST_NUMPY else MemorySpace.DEVICE
-    )
+    expected_space = MemorySpace.HOST
     if any(field.buffer.placement.memory_space is not expected_space for field in fields):
         raise BackendBatchContractError(
             f"{execution_profile.value} requires every state buffer in "

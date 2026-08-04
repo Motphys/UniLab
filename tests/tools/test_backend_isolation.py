@@ -67,7 +67,31 @@ def _codes(root: Path) -> set[str]:
     return {violation.code for violation in audit_backend_isolation(root).violations}
 
 
-def test_clean_runtime_and_cold_sibling_adapter_pass(tmp_path: Path) -> None:
+def test_clean_runtime_and_shared_module_imports_pass(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/base/backend/mujoco/playback.py": (
+                "from unilab.base.backend.playback_common import write_playback_video\n"
+            ),
+        },
+    )
+
+    report = audit_backend_isolation(root)
+
+    assert report.ok
+    assert report.backend_packages == ("motrix", "mujoco")
+    # Every package file is audited, including __init__.py re-export modules.
+    assert report.runtime_modules == (
+        "unilab.base.backend.motrix",
+        "unilab.base.backend.motrix.backend",
+        "unilab.base.backend.mujoco",
+        "unilab.base.backend.mujoco.backend",
+        "unilab.base.backend.mujoco.playback",
+    )
+
+
+def test_sibling_import_in_any_package_file_fails_closed(tmp_path: Path) -> None:
     root = _fixture_repo(
         tmp_path,
         {
@@ -79,12 +103,32 @@ def test_clean_runtime_and_cold_sibling_adapter_pass(tmp_path: Path) -> None:
 
     report = audit_backend_isolation(root)
 
-    assert report.ok
-    assert report.backend_packages == ("motrix", "mujoco")
-    assert report.runtime_modules == (
-        "unilab.base.backend.motrix.backend",
-        "unilab.base.backend.mujoco.backend",
+    assert "sibling-runtime-import" in {violation.code for violation in report.violations}
+    assert any(
+        violation.path == "src/unilab/base/backend/mujoco/playback.py"
+        for violation in report.violations
     )
+
+
+def test_documented_sibling_cold_path_exception_passes(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/base/backend/mujoco/playback.py": (
+                "def run_mujoco_playback():\n    pass\n"
+            ),
+            "src/unilab/base/backend/motrix/playback.py": (
+                "from unilab.base.backend.mujoco.playback import run_mujoco_playback\n"
+            ),
+        },
+    )
+
+    report = audit_backend_isolation(
+        root,
+        sibling_exceptions={("motrix", "unilab.base.backend.mujoco.playback")},
+    )
+
+    assert report.ok
 
 
 @pytest.mark.parametrize(
@@ -235,3 +279,177 @@ def test_missing_and_empty_runtime_roots_fail_closed(tmp_path: Path) -> None:
     assert "empty-runtime-root" in {violation.code for violation in empty_report.violations}
     with pytest.raises(BackendIsolationAuditError, match="backend isolation audit failed"):
         empty_report.require_ok()
+
+
+@pytest.mark.parametrize(
+    "forbidden_import",
+    (
+        "import hydra\n",
+        "from omegaconf import DictConfig\n",
+        "from unilab.envs.task import Task\n",
+        "from unilab.training import create_env\n",
+        "from unilab.algos import ppo\n",
+        "from unilab.manager import ManagedEnvState\n",
+        "from unilab.ipc import async_runner\n",
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from unilab.training import create_env\n",
+    ),
+)
+def test_physics_layer_forbidden_imports_fail_closed(
+    tmp_path: Path, forbidden_import: str
+) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {"src/unilab/base/backend/mujoco/backend.py": forbidden_import},
+    )
+
+    assert "physics-layer-forbidden-import" in _codes(root)
+
+
+@pytest.mark.parametrize(
+    "allowed_import",
+    (
+        "from unilab.dr.types import ResetRandomizationPayload\n",
+        "from unilab.base.scene import SceneCfg\n",
+        "from unilab.terrains.terrain_generator import TerrainGeneratorCfg\n",
+        "from unilab.dtype_config import get_global_dtype\n",
+        "from unilab.visualization import render_many\n",
+        (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from unilab.base.base import EnvCfg\n"
+        ),
+    ),
+)
+def test_physics_layer_documented_allowlist_passes(tmp_path: Path, allowed_import: str) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/base/backend/mujoco/backend.py": (
+                allowed_import + "from ..base import SimBackend\n"
+            ),
+        },
+    )
+
+    assert audit_backend_isolation(root).ok
+
+
+def test_physics_layer_undocumented_unilab_import_fails_closed(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/base/backend/mujoco/backend.py": (
+                "from unilab.utils.rotation import quat_apply\n"
+            ),
+        },
+    )
+
+    assert "physics-layer-undocumented-import" in _codes(root)
+
+
+def test_physics_layer_type_checking_only_import_at_runtime_fails_closed(
+    tmp_path: Path,
+) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/base/backend/__init__.py": (
+                "from unilab.base.base import EnvCfg\n"
+            ),
+        },
+    )
+
+    report = audit_backend_isolation(root)
+
+    assert "physics-layer-forbidden-import" in {violation.code for violation in report.violations}
+    assert any(
+        violation.path == "src/unilab/base/backend/__init__.py"
+        for violation in report.violations
+    )
+
+
+def test_physics_layer_audit_covers_shared_modules(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {"src/unilab/base/backend/playback_common.py": "import hydra\n"},
+    )
+
+    assert "physics-layer-forbidden-import" in _codes(root)
+
+
+def test_scripts_private_probe_fails_closed(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "scripts/tool.py": (
+                "def diag(env):\n"
+                "    backend = getattr(env, '_backend', None)\n"
+                "    return getattr(backend, '_n_threads', -1)\n"
+            ),
+        },
+    )
+
+    report = audit_backend_isolation(root)
+
+    assert "dynamic-backend-probe" in {violation.code for violation in report.violations}
+    assert any(violation.path == "scripts/tool.py" for violation in report.violations)
+
+
+def test_scripts_public_probe_and_contract_calls_pass(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "scripts/tool.py": (
+                "def diag(env):\n"
+                "    backend = getattr(env, '_backend', None)\n"
+                "    if not hasattr(backend, 'allowed'):\n"
+                "        return None\n"
+                "    optional = getattr(backend, 'scene_visual_model_file', None)\n"
+                "    backend.allowed()\n"
+                "    return optional\n"
+            ),
+        },
+    )
+
+    assert audit_backend_isolation(root).ok
+
+
+def test_runtime_layers_keep_strict_probe_rules(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/manager/scene.py": (
+                "def diag(env):\n"
+                "    backend = getattr(env, '_backend', None)\n"
+                "    return getattr(backend, 'scene_visual_model_file', None)\n"
+            ),
+            "src/unilab/training/run.py": (
+                "def diag(env):\n"
+                "    return hasattr(env._backend, 'allowed')\n"
+            ),
+        },
+    )
+
+    report = audit_backend_isolation(root)
+
+    assert "dynamic-backend-probe" in {violation.code for violation in report.violations}
+    assert {violation.path for violation in report.violations} == {
+        "src/unilab/manager/scene.py",
+        "src/unilab/training/run.py",
+    }
+
+
+def test_scripts_private_backend_member_via_getattr_alias_fails_closed(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "scripts/tool.py": (
+                "def diag(env):\n"
+                "    backend = getattr(env, '_backend', None)\n"
+                "    return backend._model\n"
+            ),
+        },
+    )
+
+    assert "private-backend-member" in _codes(root)
