@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -39,8 +40,10 @@ def test_unsupported_matrix_fails_before_step() -> None:
             offsets=np.zeros((1, 2), dtype=np.float32),
             frame_body_id=1,
         )
-    with pytest.raises(NotImplementedError, match="playback model export"):
-        backend.get_playback_model()
+    assert backend.get_play_capabilities().supports_physics_state_playback
+    assert not backend.get_play_capabilities().supports_native_interactive_renderer
+    assert not backend.get_play_capabilities().supports_native_video_capture
+    assert Path(backend.get_playback_model()).is_file()
     with pytest.raises(NotImplementedError, match="interval randomization"):
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(push_perturbation_limit=np.ones((3,), dtype=np.float32))

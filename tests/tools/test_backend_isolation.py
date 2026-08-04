@@ -249,6 +249,21 @@ def test_future_mjwarp_package_is_discovered_automatically(tmp_path: Path) -> No
     assert "sibling-runtime-import" in {violation.code for violation in report.violations}
 
 
+def test_mjwarp_playback_uses_documented_mujoco_cold_path_exception(tmp_path: Path) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            "src/unilab/base/backend/mjwarp/__init__.py": "",
+            "src/unilab/base/backend/mjwarp/backend.py": "",
+            "src/unilab/base/backend/mjwarp/playback.py": (
+                "from unilab.base.backend.mujoco.playback import run_mujoco_playback\n"
+            ),
+        },
+    )
+
+    assert audit_backend_isolation(root).ok
+
+
 def test_syntax_error_and_invalid_layout_fail_closed(tmp_path: Path) -> None:
     syntax_root = _fixture_repo(
         tmp_path / "syntax",

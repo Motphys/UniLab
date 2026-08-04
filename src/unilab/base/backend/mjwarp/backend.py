@@ -11,11 +11,17 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from os import PathLike
 from typing import Any
 
 import numpy as np
 
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend.base import (
+    BackendPlayCapabilities,
+    BackendPlayRenderPlan,
+    SimBackend,
+    normalize_play_render_mode,
+)
 from unilab.base.backend.batch import (
     BackendBatchContractError,
     BackendBatchDiagnostics,
@@ -62,6 +68,7 @@ from .batch import (
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
 from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
+from .playback import run_mjwarp_playback, validate_mjwarp_visual_model
 
 
 class MjwarpBackend(SimBackend):
@@ -69,8 +76,9 @@ class MjwarpBackend(SimBackend):
 
     State and control cross the host/device boundary only at explicit
     step/reset barriers with bounded, statically declared transfers.  Typed
-    Model mutation, interval DR, rendering, and host-substep-controller
-    combinations remain fail-closed. The typed reset surface is limited to
+    Model mutation, interval DR, native rendering, and host-substep-controller
+    combinations remain fail-closed. Detached host snapshots support finite
+    MuJoCo-based offline recording. The typed reset surface is limited to
     selected-row floating-root and hinge state used by the manager pilot.
     """
 
@@ -112,6 +120,8 @@ class MjwarpBackend(SimBackend):
         scene_context = materialize_mjwarp_scene(scene)
         self._scene_cleanup_handle = scene_context.cleanup_handle
         self.scene_model_file = scene_context.diagnostic_model_file
+        self.scene_visual_model_file = str(scene.visual_model_file or scene.model_file)
+        self._playback_model_validated = False
         self._pre_step_control_fn = None
         self.backend_type = "mjwarp"
         self._num_envs = int(num_envs)
@@ -186,6 +196,7 @@ class MjwarpBackend(SimBackend):
         # device step or a reset/forward lifecycle barrier.
         self._qpos_cache = np.zeros((self._num_envs, self._nq), dtype=np.float32)
         self._qvel_cache = np.zeros((self._num_envs, self._nv), dtype=np.float32)
+        self._time_cache = np.zeros((self._num_envs,), dtype=np.float32)
         self._sensor_cache = np.zeros(
             (self._num_envs, int(self._cpu_model.nsensordata)),
             dtype=np.float32,
@@ -681,6 +692,7 @@ class MjwarpBackend(SimBackend):
 
         t0 = time.perf_counter()
         self._refresh_host_cache()
+        self._time_cache += np.float32(nsteps * self._sim_dt)
         host_cache_ms = (time.perf_counter() - t0) * 1000.0
         return {
             "control_upload_ms": control_upload_ms,
@@ -726,6 +738,7 @@ class MjwarpBackend(SimBackend):
 
         t0 = time.perf_counter()
         self._refresh_host_cache()
+        self._time_cache[row_ids] = 0.0
         host_cache_ms = (time.perf_counter() - t0) * 1000.0
         return {
             "reset_upload_ms": reset_upload_ms,
@@ -912,11 +925,103 @@ class MjwarpBackend(SimBackend):
     def materialize(self) -> None:
         """Resources are fully materialized during the constructor cold path."""
 
-    def get_playback_model(self, env_index: int | None = None) -> Any:
-        del env_index
-        raise NotImplementedError(
-            "mjwarp host_numpy profile does not support playback model export or rendering."
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return BackendPlayCapabilities(supports_physics_state_playback=True)
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        mode = normalize_play_render_mode(play_render_mode)
+        if mode == "none":
+            return BackendPlayRenderPlan(
+                mode="none",
+                headless=True,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        if mode == "auto":
+            raise NotImplementedError(
+                "mjwarp playback does not support auto mode; select record or none explicitly."
+            )
+        if mode == "interactive":
+            raise NotImplementedError(
+                "mjwarp playback does not support interactive or native rendering; "
+                "select record or none."
+            )
+        if isinstance(play_steps, bool) or play_steps is None or int(play_steps) <= 0:
+            raise ValueError(
+                "mjwarp record playback requires a positive finite training.play_steps value."
+            )
+        if output_video is None:
+            raise ValueError("mjwarp record playback requires an output video path.")
+        return BackendPlayRenderPlan(
+            mode="record",
+            headless=True,
+            record_video=True,
+            num_steps=int(play_steps),
+            output_video=output_video,
         )
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize: Any,
+        step: Any,
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Any = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Any = None,
+    ) -> str | None:
+        del render_offset_mode
+        should_record = bool(record_video) if record_video is not None else output_video is not None
+        should_run_headless = bool(headless) if headless is not None else should_record
+        return run_mjwarp_playback(
+            backend=self,
+            env=env,
+            initialize=initialize,
+            step=step,
+            num_steps=num_steps,
+            output_video=output_video,
+            render_spacing=render_spacing,
+            headless=should_run_headless,
+            record_video=should_record,
+            snapshot_shape=(self._num_envs, 1 + self._nq + self._nv),
+            frame_state_getter=frame_state_getter,
+            camera_kwargs=camera_kwargs,
+            extra_data_getter=extra_data_getter,
+        )
+
+    def get_physics_state(self) -> np.ndarray:
+        state = np.empty((self._num_envs, 1 + self._nq + self._nv), dtype=np.float32)
+        state[:, 0] = self._time_cache
+        state[:, 1 : 1 + self._nq] = self._qpos_cache
+        state[:, 1 + self._nq :] = self._qvel_cache
+        return state
+
+    def get_playback_model(self, env_index: int | None = None) -> str:
+        if env_index is not None:
+            idx = int(env_index)
+            if idx < 0 or idx >= self._num_envs:
+                raise IndexError(f"env_index must be in [0, {self._num_envs - 1}], got {idx}")
+        if not self._playback_model_validated:
+            self.scene_visual_model_file = validate_mjwarp_visual_model(
+                mujoco=self._mujoco,
+                physics_model=self._cpu_model,
+                model_file=self.scene_visual_model_file,
+            )
+            self._playback_model_validated = True
+        return self.scene_visual_model_file
 
     # ------------------------------------------------------------------ #
     # Legacy getters: cache views only, never direct Warp transfers       #

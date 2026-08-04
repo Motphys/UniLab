@@ -25,6 +25,7 @@ _SHARED_RUNTIME_MODULES = frozenset(
 _SIBLING_COLD_PATH_EXCEPTIONS = frozenset(
     {
         ("drake", "unilab.base.backend.mujoco.playback"),
+        ("mjwarp", "unilab.base.backend.mujoco.playback"),
         ("mjwarp", "unilab.base.backend.mujoco.xml"),
     }
 )
