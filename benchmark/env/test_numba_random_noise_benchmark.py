@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+
 from benchmark.env import benchmark_numba_random_noise as bench
 
 
