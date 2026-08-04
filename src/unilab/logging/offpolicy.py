@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from rich import box
@@ -144,6 +145,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._staging_pool_max: int = 0
         self._status: str = "Initializing..."
         self._terminal_refresh_started: bool = False
+        self._training_timer_started: bool = False
 
     def _format_tensorboard_message(self, tb_dir: str) -> str:
         return f"[dim]TensorBoard logging to: {tb_dir}[/]"
@@ -153,6 +155,13 @@ class OffPolicyLogger(BaseTrainingLogger):
 
     def start(self, *, status: str = "Warming up..."):
         super().start(status=status)
+
+    def start_training_timer(self) -> float:
+        """Start the measured training window after collector warm-up is complete."""
+        if not self._training_timer_started:
+            self._start_time = time.time()
+            self._training_timer_started = True
+        return self._start_time
 
     def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
         super().finish(
@@ -227,6 +236,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self,
         *,
         include_status: bool,
+        include_identity: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         iter_steps_per_sec = self._get_iter_steps_per_sec()
@@ -244,6 +254,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
             include_status=include_status,
+            include_identity=include_identity,
             extra_fields=header_extra_fields,
         )
 
@@ -530,7 +541,10 @@ class OffPolicyLogger(BaseTrainingLogger):
             self._refresh()
 
     def _build_display(self) -> Panel:
-        header = self._build_compact_header(include_status=True)
+        header = self._build_compact_header(
+            include_status=self._status != "Training",
+            include_identity=False,
+        )
         left = self._build_metrics_table()
         right = self._build_reward_table()
         bottom = self._build_timing_table()
@@ -539,13 +553,17 @@ class OffPolicyLogger(BaseTrainingLogger):
         grid.add_column(width=2)
         grid.add_column(ratio=1)
         grid.add_row(left, "", right)
+        title = Text()
+        if self._unicode_console:
+            title.append(" 🚀")
+        title.append(" UniLab Off-Policy Training ", style="bold")
+        title.append("|", style="dim")
+        title.append(f" {self.algo_name} ", style="bold cyan")
+        title.append("|", style="dim")
+        title.append(f" {self.env_name} ", style="bold white")
         return Panel(
             Group(header, Text(""), grid, Text(""), bottom),
-            title=(
-                "[bold] 🚀 UniLab Off-Policy Training [/]"
-                if self._unicode_console
-                else "[bold] UniLab Off-Policy Training [/]"
-            ),
+            title=title,
             border_style="bright_blue",
             padding=(0, 1),
         )

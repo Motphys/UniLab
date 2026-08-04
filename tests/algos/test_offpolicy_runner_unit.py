@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import time
 from collections import deque
 from typing import cast
 
@@ -209,6 +210,7 @@ class _FakeLogger:
         self.step_calls: list[dict] = []
         self.finish_calls = 0
         self.close_calls = 0
+        self.training_timer_start_calls = 0
         self._total_steps = 0
         self._buffer_size = 0
         self._mean_ep_length = 0.0
@@ -220,6 +222,10 @@ class _FakeLogger:
 
     def start(self) -> None:
         pass
+
+    def start_training_timer(self) -> float:
+        self.training_timer_start_calls += 1
+        return time.time()
 
     def log_status(self, status: str) -> None:
         del status
@@ -514,6 +520,7 @@ def test_offpolicy_runner_sync_waits_for_train_start_threshold(
     assert replay_buffer.sample_sizes_at_call == [threshold]
     assert trainer_done_queue.put_calls == [1, 1, 1, 1]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
+    assert logger.training_timer_start_calls == 1
     assert "collect_time" not in logger.step_calls[0]
     assert "learner_replay_wait_time" not in logger.step_calls[0]
     assert "wait_time" not in logger.step_calls[0]
@@ -601,6 +608,7 @@ def test_offpolicy_runner_async_waits_for_train_start_threshold(
     assert replay_buffer.sample_calls == 1
     assert replay_buffer.sample_sizes_at_call == [threshold]
     assert logger.step_calls and logger.step_calls[0]["iteration"] == 1
+    assert logger.training_timer_start_calls == 1
     assert "collect_time" not in logger.step_calls[0]
     assert "learner_replay_wait_time" not in logger.step_calls[0]
     assert "wait_time" not in logger.step_calls[0]
@@ -1261,6 +1269,7 @@ def test_flashsac_double_buffer_runner_trace_writes_b_path_events(
     logger = _FakeLogger.last_instance
     assert logger is not None
     assert logger.step_calls
+    assert logger.training_timer_start_calls == 1
     assert logger.step_calls[0]["extra_info"]["throughput_steps"] == 2
 
 
@@ -1588,6 +1597,7 @@ def test_multi_gpu_learner_worker_logs_wall_clock_and_per_rank_batch_context(
     )
 
     assert logger.step_calls
+    assert logger.training_timer_start_calls == 1
     step = logger.step_calls[-1]
     assert "wait_time" not in step
     assert step["collector_wait_time"] == pytest.approx(0.1)

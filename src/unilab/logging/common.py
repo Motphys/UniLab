@@ -320,16 +320,28 @@ class BaseTrainingLogger:
         self,
         *,
         include_status: bool,
+        include_identity: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         elapsed = time.time() - self._start_time if self._start_time else 0
         eta = self._estimate_eta()
-        fields: list[tuple[str, str]] = [
-            (f" {self.algo_name}", "bold cyan"),
-            (self.env_name, "bold white"),
-            (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
-            (f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}", "green"),
-        ]
+        fields: list[tuple[str, str]] = []
+        if include_identity:
+            fields.extend(
+                [
+                    (f" {self.algo_name}", "bold cyan"),
+                    (self.env_name, "bold white"),
+                ]
+            )
+        fields.extend(
+            [
+                (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
+                (
+                    f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}",
+                    "green",
+                ),
+            ]
+        )
         if eta:
             fields.append((f"ETA {eta}", "bold magenta"))
         if self._mean_ep_length > 0:

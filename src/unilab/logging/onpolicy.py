@@ -221,6 +221,7 @@ class OnPolicyLogger(BaseTrainingLogger):
         self,
         *,
         include_status: bool,
+        include_identity: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         iter_time = self._collect_time + self._train_time
@@ -232,5 +233,6 @@ class OnPolicyLogger(BaseTrainingLogger):
             header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
             include_status=include_status,
+            include_identity=include_identity,
             extra_fields=header_extra_fields,
         )

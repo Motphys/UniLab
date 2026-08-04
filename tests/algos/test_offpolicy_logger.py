@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import unilab.logging.common as common_logger_module
 from unilab.logging.offpolicy import OffPolicyLogger
 
 
@@ -108,3 +109,53 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
         "  Reset Done",
         "Replay",
     ]
+
+
+def test_offpolicy_logger_training_timer_excludes_warmup_from_elapsed_and_eta(
+    monkeypatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr(common_logger_module.time, "time", lambda: now)
+
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        max_iterations=2,
+        num_envs=8,
+        env_name="G1WalkFlat",
+        log_backend="no_print",
+    )
+    logger._unicode_console = False
+    logger.start()
+
+    now = 130.0
+    assert logger.start_training_timer() == 130.0
+
+    now = 132.0
+    logger.log_step(iteration=1, extra_info={"throughput_steps": 8})
+
+    header = logger._build_compact_header(include_status=False, include_identity=False)
+    assert "time 2s" in header.plain
+    assert "ETA 2s" in header.plain
+    assert "30s" not in header.plain
+
+
+def test_offpolicy_logger_moves_identity_to_panel_title_and_omits_training_status() -> None:
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        max_iterations=5000,
+        num_envs=4096,
+        env_name="G1WalkFlat",
+        log_backend="no_print",
+    )
+    logger._unicode_console = True
+    logger.start_training_timer()
+    logger.log_step(iteration=1, extra_info={"throughput_steps": 4096})
+
+    display = logger._build_display()
+    header = logger._build_compact_header(include_status=False, include_identity=False)
+
+    assert isinstance(display.title, type(header))
+    assert display.title.plain == " 🚀 UniLab Off-Policy Training | FastSAC | G1WalkFlat "
+    assert "FastSAC" not in header.plain
+    assert "G1WalkFlat" not in header.plain
+    assert "Training" not in header.plain

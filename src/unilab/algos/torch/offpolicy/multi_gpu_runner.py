@@ -393,6 +393,8 @@ def _learner_worker(
             collector_wait_time = (
                 time.perf_counter() - wait_start - collector_wait_overhead if rank == 0 else 0.0
             )
+            if rank == 0 and it == 1 and logger is not None:
+                logger.start_training_timer()
 
             _barrier_initial_start = time.perf_counter()
             dist.barrier()
