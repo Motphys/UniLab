@@ -1,11 +1,12 @@
 # @package _global_
-# Configured-only mjwarp owner for the unified host contract adapter. Native
-# playback and device-resident training/runtime routing are intentionally absent.
+# Configured-only mjwarp owner for the unified host contract adapter. Offline
+# record reuses MuJoCo rendering; native playback and device-resident runtime
+# routing are intentionally absent.
 training:
   task_name: G1WalkFlat
   sim_backend: mjwarp
-  no_play: true
-  play_render_mode: none
+  no_play: false
+  play_render_mode: record
 algo:
   num_envs: 2048
   max_iterations: 2200
@@ -54,4 +55,6 @@ reward:
   max_tilt_deg: 25.0
   pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
 play_profile:
-  enabled: false
+  enabled: true
+  env:
+    render_spacing: 2.0

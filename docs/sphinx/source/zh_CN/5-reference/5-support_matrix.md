@@ -20,8 +20,8 @@
 
 - `mujoco`: `--render-mode auto` 会导出 `play_video.mp4`
 - `motrix`: `--render-mode auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制
-- `mjwarp`: 当前 owner 禁用 playback，不支持 `auto` 或 `record`
-- `--render-mode record`: MuJoCo 和 Motrix 都只录制视频
+- `mjwarp`: 仅支持显式、有限步数的 `record`，通过 task owner 的 MuJoCo visual model 离线录制；不支持 `auto`、interactive 或 native renderer
+- `--render-mode record`: MuJoCo、mjwarp 和 Motrix 都只录制视频
 - `--render-mode none`: 不回放
 
 ## Support Matrix
@@ -45,7 +45,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
 
-`mjwarp` 只为 `g1_walk_flat` 恢复普通 backend identity 和最小 owner；通用 compose 测试不会把它提升到 `Tested`，当前等级封顶为 `Configured`。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、原生 playback、terrain、完整 DR 或 production training 支持。
+`mjwarp` 只为 `g1_walk_flat` 提供 Configured host adapter；它已测试通过显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，但不支持 `auto`、interactive 或 native playback。通用 compose 和该 playback 覆盖不会把 entrypoint 支持等级提升到 `Tested`，当前仍封顶为 `Configured`。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
 
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
