@@ -65,7 +65,10 @@ mjwarp = [
     # implementation; it is deliberately a separate optional extra rather
     # than a mode of the ``mujoco`` backend.
     "mujoco-warp==3.10.0.3",
-    "warp-lang>=1.14.0",
+    # Pin to the 1.14.x line that mjlab locks (mujoco-warp 3.10.0.3 only
+    # requires warp-lang>=1.14); unconstrained resolution pulled the freshly
+    # released 1.16.0, a ~163MB wheel download for no benefit here.
+    "warp-lang>=1.14.0,<1.15",
 ]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
