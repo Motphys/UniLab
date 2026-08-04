@@ -86,6 +86,61 @@ jobs:
       - name: Check
         run: uv run pyright
 
+  benchmark-smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    timeout-minutes: 10
+    runs-on: ubuntu-slim
+    env:
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.cache/numba
+      # Cached machine code must be portable across hosted runner CPU models.
+      NUMBA_CPU_NAME: generic
+      NUMBA_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || format('refs/pull/{0}/merge', github.event.pull_request.number) }}
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          python-version: '3.11'
+      # Numba validates disk caches with source mtime and size; hashFiles guards content.
+      - name: Normalize Numba source timestamps
+        run: find src/unilab benchmark -type f -name '*numba*.py' -exec touch -d @946684800 {} +
+      - name: Restore Numba cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUMBA_CACHE_DIR }}
+          key: numba-v1-${{ runner.os }}-${{ runner.arch }}-py311-${{ hashFiles('uv.lock', 'src/unilab/**/*numba*.py', 'benchmark/**/*numba*.py') }}
+      - name: Install dependencies
+        run: |
+          uv sync --extra mujoco \
+            --no-install-package torch \
+            --no-install-package nvidia-cublas-cu12 \
+            --no-install-package nvidia-cuda-cupti-cu12 \
+            --no-install-package nvidia-cuda-nvrtc-cu12 \
+            --no-install-package nvidia-cuda-runtime-cu12 \
+            --no-install-package nvidia-cudnn-cu12 \
+            --no-install-package nvidia-cufft-cu12 \
+            --no-install-package nvidia-cufile-cu12 \
+            --no-install-package nvidia-curand-cu12 \
+            --no-install-package nvidia-cusolver-cu12 \
+            --no-install-package nvidia-cusparse-cu12 \
+            --no-install-package nvidia-cusparselt-cu12 \
+            --no-install-package nvidia-nccl-cu12 \
+            --no-install-package nvidia-nvjitlink-cu12 \
+            --no-install-package nvidia-nvtx-cu12 \
+            --no-install-package triton
+          uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Benchmark entrypoint smoke test
+        run: uv run --no-sync python benchmark/smoke_test.py
+      - name: Numba benchmark contracts
+        run: |
+          uv run --no-sync pytest -q \
+            benchmark/env/test_g1_joystick_numba_benchmark.py \
+            benchmark/env/test_g1_motion_tracking_numba_benchmark.py \
+            benchmark/env/test_numba_random_noise_benchmark.py
+
   test:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     strategy:
@@ -125,7 +180,5 @@ jobs:
             --no-install-package nvidia-nvtx-cu12 \
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
-      - name: Benchmark entrypoint smoke test
-        run: uv run --no-sync python benchmark/smoke_test.py
       - name: Test with coverage
         run: uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25

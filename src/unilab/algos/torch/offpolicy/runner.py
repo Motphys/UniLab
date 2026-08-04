@@ -393,7 +393,7 @@ class OffPolicyRunner(AsyncRunner):
         reward_stats_ptr = 0
         train_start_threshold = self.train_start_threshold
 
-        training_e2e_start_ns = time.perf_counter_ns() if trace_recorder else 0
+        training_e2e_start_ns = 0
 
         # Training loop
         for iteration in range(1, max_iterations + 1):
@@ -511,6 +511,10 @@ class OffPolicyRunner(AsyncRunner):
                     end_ns=time.perf_counter_ns(),
                     args={"iteration": iteration},
                 )
+            if iteration == 1:
+                train_start_wall = logger.start_training_timer()
+                if trace_recorder:
+                    training_e2e_start_ns = time.perf_counter_ns()
             self._drain_metrics(
                 metrics_queue,
                 reward_history,

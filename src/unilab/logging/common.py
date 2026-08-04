@@ -320,16 +320,28 @@ class BaseTrainingLogger:
         self,
         *,
         include_status: bool,
+        include_identity: bool = True,
+        include_iteration: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         elapsed = time.time() - self._start_time if self._start_time else 0
         eta = self._estimate_eta()
-        fields: list[tuple[str, str]] = [
-            (f" {self.algo_name}", "bold cyan"),
-            (self.env_name, "bold white"),
-            (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
-            (f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}", "green"),
-        ]
+        fields: list[tuple[str, str]] = []
+        if include_identity:
+            fields.extend(
+                [
+                    (f" {self.algo_name}", "bold cyan"),
+                    (self.env_name, "bold white"),
+                ]
+            )
+        if include_iteration:
+            fields.append((f"iter {self._iteration}/{self.max_iterations}", "yellow"))
+        fields.append(
+            (
+                f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}",
+                "green",
+            )
+        )
         if eta:
             fields.append((f"ETA {eta}", "bold magenta"))
         if self._mean_ep_length > 0:
@@ -360,8 +372,8 @@ class BaseTrainingLogger:
             expand=True,
             pad_edge=False,
         )
-        table.add_column("Rewards", style="white", ratio=1)
-        table.add_column("Value", justify="right", ratio=2)
+        table.add_column("Rewards", style="white", width=21, no_wrap=True)
+        table.add_column("Value", justify="right", ratio=2, no_wrap=True)
 
         if self._reward_history:
             recent = list(self._reward_history)

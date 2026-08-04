@@ -9,6 +9,12 @@ SAC 通过共享的 off-policy 入口 `scripts/train_offpolicy.py` 选择，TD3 
 off-policy runner 通过 shared memory 把 CPU 仿真与 GPU 学习解耦：collector 子进程
 填充驻留在 CPU 上的 replay buffer，learner 在 GPU 上训练。
 
+单 GPU CUDA 或 Apple MPS 训练可选择
+`training.replay_pipeline=gpu_resident`：CPU replay buffer 仍是权威数据源，learner
+另外维护完整的 device mirror 并在 device 上随机采样。该模式会额外占用一份完整
+replay 的 device 内存；默认仍是 `cpu_pinned_double_buffer`。MPS 路径由 learner
+线程提交 mirror copy 和采样，不使用后台 Metal command submission。
+
 默认 FastSAC learner 也是当前已验证的 replay-buffer 多 GPU SAC 实现。多卡模式通过
 `training.num_gpus > 1` 打开，host 侧并行打包并分发 batch，多张 GPU 上的 learner
 默认使用 `training.multi_gpu_sync_mode=local_sgd` 做 delayed-sync 参数平均。custom
@@ -20,6 +26,8 @@ SAC runtime 必须显式声明 distributed learner contract 后才能使用这�
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
+uv run train --algo sac --task g1_walk_flat --sim mujoco \
+  training.replay_pipeline=gpu_resident
 ```
 
 两卡 MuJoCo 训练示例：
