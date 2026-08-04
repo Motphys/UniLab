@@ -1,7 +1,8 @@
 # MuJoCo Backend
 
 MuJoCo is the default backend path in the committed owner configs. The Python
-dependencies are the official `mujoco` package (`>=3.5,<3.11`) plus
+dependencies are the official `mujoco` package (`>=3.5`, with the default
+version pinned by the committed `uv.lock`) plus
 `mujoco-uni-runtime` in `pyproject.toml`, and the adapter lives
 under `src/unilab/base/backend/mujoco/`.
 
@@ -28,8 +29,10 @@ rather than opening the Motrix native interactive renderer.
 
 ## Switching MuJoCo Versions
 
-The mujoco extra supports any solver version in `>=3.5,<3.11`. Fresh installs
-default to the version pinned in the committed `uv.lock` (currently **3.8.0**).
+pyproject only constrains `mujoco>=3.5`; the default solver version is pinned
+by the committed `uv.lock`, and uv's prefer-locked semantics keep ordinary
+relocks from drifting. The tested window is `>=3.5,<3.11` — switch versions
+within it.
 The
 `mujoco-uni-runtime` native extension is compiled against the `mujoco`
 package in this environment and refuses to load against any other version,
