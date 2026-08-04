@@ -13,6 +13,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from unilab.base.backend import (
+    ExecutionProfile,
     RowSelection,
     SimBackend,
     create_backend,
@@ -28,6 +29,14 @@ pytestmark = pytest.mark.slow
 _ATOL = 1.0e-4
 _RTOL = 1.0e-3
 _NUM_ENVS = 32
+_RESET_CAPABILITY_STATE_KEYS = (
+    ("state.root.position", "g1.root.position"),
+    ("state.root.orientation", "g1.root.orientation"),
+    ("state.root.linear_velocity", "g1.root.linear_velocity"),
+    ("state.root.angular_velocity", "g1.root.angular_velocity"),
+    ("state.dof.position", "g1.dof.position"),
+    ("state.dof.angular_velocity", "g1.dof.angular_velocity"),
+)
 
 
 def _reward_config() -> G1WalkRewardConfig:
@@ -167,6 +176,43 @@ def _assert_transition_match(
             actual=np.asarray(actual.info["log"][key]),
             label=f"{label}.log[{key}]",
         )
+
+
+@pytest.mark.parametrize(
+    ("target_key", "state_key"),
+    _RESET_CAPABILITY_STATE_KEYS,
+    ids=tuple(item[0] for item in _RESET_CAPABILITY_STATE_KEYS),
+)
+def test_mjwarp_advertised_reset_capability(target_key: str, state_key: str) -> None:
+    """Each advertised reset target has a real MuJoCo/mjwarp effect oracle."""
+
+    cfg = _cfg()
+    mujoco_backend = _backend("mujoco", cfg)
+    mjwarp_backend = _backend("mjwarp", deepcopy(cfg))
+    try:
+        manifest = mjwarp_backend.get_mutation_capability_manifest(ExecutionProfile.HOST_NUMPY)
+        capability = next(item for item in manifest.capabilities if item.target_key == target_key)
+        assert capability.descriptor is not None
+        assert capability.descriptor.cases[0].mandatory_test_id.endswith(f"[{target_key}]")
+
+        mujoco_runtime = create_g1_managed_reference_runtime(
+            backend=mujoco_backend,
+            cfg=cfg,
+            reset_seed=0,
+        )
+        mjwarp_runtime = create_g1_managed_reference_runtime(
+            backend=mjwarp_backend,
+            cfg=deepcopy(cfg),
+            reset_seed=0,
+        )
+        mujoco_runtime.init_state()
+        mjwarp_runtime.init_state()
+        expected = _copy_public_state(mujoco_backend, mujoco_runtime)[state_key]
+        actual = _copy_public_state(mjwarp_backend, mjwarp_runtime)[state_key]
+        _assert_arrays_close(expected=expected, actual=actual, label=target_key)
+    finally:
+        mujoco_backend.cleanup_scene_assets()
+        mjwarp_backend.cleanup_scene_assets()
 
 
 @contextmanager

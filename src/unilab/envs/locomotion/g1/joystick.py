@@ -730,6 +730,7 @@ class G1WalkRoughCfg(G1WalkFlatCfg):
 
 
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mujoco")
+registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mjwarp")
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="motrix")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="mujoco")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="motrix")

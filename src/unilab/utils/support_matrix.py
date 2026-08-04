@@ -15,7 +15,7 @@ from unilab.base.registry import ensure_registries
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
-BACKENDS: tuple[str, str] = ("mujoco", "motrix")
+BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix")
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -207,7 +207,9 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
     return entries
 
 
-def _is_tested(spec: EntrypointSpec, task_slug: str, root: Path) -> bool:
+def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -> bool:
+    if backend == "mjwarp":
+        return False
     if spec.entrypoint_id == "ppo_mlx":
         return task_slug in _mlx_tested_task_slugs(root)
     return spec.generic_tested
@@ -252,7 +254,6 @@ def build_support_rows(root: Path | None = None) -> list[SupportRow]:
             key=lambda item: _task_sort_key(item[0]),
         ):
             env_name = next(iter(configured_backends.values()))
-            tested = _is_tested(spec, task_slug, resolved_root)
             cells = {
                 backend: SupportCell(
                     env_name=env_name,
@@ -261,7 +262,7 @@ def build_support_rows(root: Path | None = None) -> list[SupportRow]:
                         env_name=env_name,
                         configured_backends=configured_backends,
                         registry_backends=registry_backends,
-                        tested=tested,
+                        tested=_is_tested(spec, task_slug, backend, resolved_root),
                         benchmarked=benchmarked,
                         recommended=recommended,
                     ),
@@ -304,19 +305,24 @@ def render_support_matrix(root: Path | None = None) -> str:
         "`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；"
         "例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
+        "`mjwarp` 只为 `g1_walk_flat` 恢复普通 backend identity 和最小 owner；通用 compose 测试不会把它提升到"
+        " `Tested`，当前等级封顶为 `Configured`。其他 entrypoint 中出现的 `Registered` 只表示 env/backend"
+        " registry identity，不代表对应算法、原生 playback、terrain、完整 DR 或 production training 支持。",
+        "",
         benchmark_note,
         recommendation_note,
         "",
         "### Entrypoint x Task Owner",
         "",
-        "| Entrypoint | Task owner | MuJoCo | Motrix |",
-        "|------------|------------|--------|--------|",
+        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix |",
+        "|------------|------------|--------|--------|--------|",
     ]
 
     for row in build_support_rows(resolved_root):
         lines.append(
             f"| {row.entrypoint_label} | `{row.task_slug}` ({row.task_label}) | "
-            f"{row.cells['mujoco'].level.label} | {row.cells['motrix'].level.label} |"
+            f"{row.cells['mujoco'].level.label} | {row.cells['mjwarp'].level.label} | "
+            f"{row.cells['motrix'].level.label} |"
         )
 
     lines.extend(
