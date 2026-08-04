@@ -8,6 +8,7 @@ backend, selector, registry, asset, or model object.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
@@ -32,7 +33,6 @@ from unilab.base.backend.batch import (
     StateBatchPhase,
 )
 from unilab.base.backend.mutation import BoundMutationPlan
-from unilab.base.np_env import NpEnvState
 
 from .entities import ManagerContractError
 from .fingerprint import managed_policy_abi_snapshot, validate_compiled_plan_fingerprints
@@ -562,6 +562,28 @@ def _require_full_array(
     return array
 
 
+@dataclass
+class ManagedEnvState:
+    """Manager-owned lifecycle state returned by ``init_state()``/``step()``.
+
+    The fields intentionally mirror the env-layer ``NpEnvState`` contract
+    (dict observations, vector reward/termination flags, info mapping), but
+    the type is owned by the manager layer so the runtime never depends on
+    the env contract.  Conversion to ``NpEnvState`` is only allowed at env
+    adapter boundaries.
+    """
+
+    obs: dict[str, np.ndarray]
+    reward: np.ndarray
+    terminated: np.ndarray
+    truncated: np.ndarray
+    info: dict[str, Any]
+    final_observation: dict[str, np.ndarray] | None = None
+
+    def replace(self, **updates: Any) -> "ManagedEnvState":
+        return dataclasses.replace(self, **updates)
+
+
 class ManagedReferenceRuntime:
     """Host reference runtime with one canonical terminal/autoreset lifecycle.
 
@@ -723,7 +745,7 @@ class ManagedReferenceRuntime:
             "final_observation": self._compat_final_observation,
             "_final_observation": self._final_observation_mask,
         }
-        self._state: NpEnvState | None = None
+        self._state: ManagedEnvState | None = None
         self._task_state: object | None = None
         self._last_trace: tuple[ManagedLifecycleEvent, ...] = ()
         self._trace_events: list[ManagedLifecycleEvent] = []
@@ -824,7 +846,7 @@ class ManagedReferenceRuntime:
         return self._kernel_binding
 
     @property
-    def state(self) -> NpEnvState | None:
+    def state(self) -> ManagedEnvState | None:
         return self._state
 
     @property
@@ -1173,7 +1195,7 @@ class ManagedReferenceRuntime:
             "backend reset_batch did not invalidate the terminal StateBatch lease"
         )
 
-    def init_state(self) -> NpEnvState:
+    def init_state(self) -> ManagedEnvState:
         self._begin_trace()
         self._task_state = self._kernel.create_task_state(
             num_envs=self._num_envs, dtype=self._dtype
@@ -1185,7 +1207,7 @@ class ManagedReferenceRuntime:
         self._truncated.fill(False)
         self._steps.fill(0)
         self._info["log"].clear()
-        self._state = NpEnvState(
+        self._state = ManagedEnvState(
             obs=self._obs,
             reward=self._reward,
             terminated=self._terminated,
@@ -1201,7 +1223,7 @@ class ManagedReferenceRuntime:
         self._finish_trace()
         return self._state
 
-    def step(self, actions: np.ndarray) -> NpEnvState:
+    def step(self, actions: np.ndarray) -> ManagedEnvState:
         if self._state is None:
             raise ManagedRuntimeError("managed runtime step requires init_state() first")
         assert self._state is not None
@@ -1329,6 +1351,7 @@ class ManagedReferenceRuntime:
 
 
 __all__ = [
+    "ManagedEnvState",
     "ManagedLifecycleEvent",
     "ManagedLifecyclePhase",
     "ManagedKernelBinding",

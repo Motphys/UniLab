@@ -1540,7 +1540,21 @@ class MuJoCoBackend(SimBackend):
         if plan.body_linear_velocity_delta is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-velocity perturbation requires body_ids")
-            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+            self._apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+
+    def _apply_body_linear_velocity_delta(
+        self,
+        body_ids: np.ndarray,
+        velocity_delta: np.ndarray,
+    ) -> None:
+        """Apply a world-frame linear-velocity delta to specific bodies.
+
+        Backend-internal hook for ``apply_interval_randomization``; it is not
+        part of the public ``SimBackend`` surface.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body velocity perturbation"
+        )
 
     def push_robots(self, force_range: Sequence[float] | np.ndarray) -> None:
         self._pending_xfrc_applied.fill(0.0)

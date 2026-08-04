@@ -716,11 +716,7 @@ class MutationCapabilityManifest:
 
         case_ids: list[str] = []
         mandatory_test_ids: list[str] = []
-        expected_space = (
-            MemorySpace.HOST
-            if self.execution_profile is ExecutionProfile.HOST_NUMPY
-            else MemorySpace.DEVICE
-        )
+        expected_space = MemorySpace.HOST
         for capability in canonical:
             descriptor = capability.descriptor
             if descriptor is None:

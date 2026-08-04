@@ -18,6 +18,53 @@ _SHARED_RUNTIME_MODULES = frozenset(
         "playback_common",
     }
 )
+# Explicit cold-path exceptions: shared utilities that currently live in the
+# mujoco adapter package while sibling backends consume them.  Migrating these
+# helpers to a backend-neutral location is deferred to a follow-up issue; until
+# then these (owner, module prefix) pairs may import the sibling module.
+_SIBLING_COLD_PATH_EXCEPTIONS = frozenset(
+    {
+        ("drake", "unilab.base.backend.mujoco.playback"),
+        ("mjwarp", "unilab.base.backend.mujoco.xml"),
+    }
+)
+# The physics layer (unilab.base.backend) must stay importable without the
+# training/config stack so a future unisim extraction keeps a clean boundary.
+# These prefixes are forbidden at runtime and under TYPE_CHECKING alike.
+_PHYSICS_FORBIDDEN_IMPORT_PREFIXES = (
+    "hydra",
+    "omegaconf",
+    "unilab.envs",
+    "unilab.training",
+    "unilab.algos",
+    "unilab.manager",
+    "unilab.ipc",
+)
+# Documented unilab-internal dependencies of the physics layer.  Every entry
+# records an open decision for the future unisim extraction.
+_PHYSICS_ALLOWED_UNILAB_IMPORTS = {
+    # numpy-only DR payload types shared with the DR owner layer; unisim
+    # extraction decision: move the payload types into the physics package.
+    "unilab.dr.types": "move payload types into the physics package",
+    # Scene/materialization input; its downstream unilab.terrains imports are
+    # scene inputs too.  Extraction decision: move with the scene contract.
+    "unilab.base.scene": "move with the scene/materialization contract",
+    # Terrain materialization input reached through scene composition.
+    # Extraction decision: keep as a scene-level dependency.
+    "unilab.terrains": "keep as a scene-level materialization dependency",
+    # Global host dtype configuration.  Extraction decision: replace with an
+    # explicit backend construction option.
+    "unilab.dtype_config": "replace with an explicit backend construction option",
+    # TYPE_CHECKING-only EnvCfg import in base/backend/__init__.py.  A runtime
+    # import is a violation; extraction decision: type the factory on a local
+    # protocol instead of EnvCfg.
+    "unilab.base.base": "TYPE_CHECKING-only; replace with a local protocol",
+    # Offline playback frame rendering used by the cold-path playback helpers.
+    # Extraction decision: move playback rendering behind the play contract or
+    # into the physics package.
+    "unilab.visualization": "move playback rendering behind the play contract",
+}
+_PHYSICS_TYPE_CHECKING_ONLY_IMPORTS = frozenset({"unilab.base.base"})
 _RAW_BACKEND_MEMBERS = frozenset({"model"})
 _DIAGNOSTIC_MEMBERS = frozenset({"__class__"})
 
@@ -198,6 +245,37 @@ def _backend_owner(target: str, packages: frozenset[str]) -> str | None:
     return owner if owner in packages else None
 
 
+def _match_prefix(target: str, prefixes: Iterable[str]) -> str | None:
+    for prefix in prefixes:
+        if target == prefix or target.startswith(f"{prefix}."):
+            return prefix
+    return None
+
+
+def _module_name_for_path(source_root: Path, path: Path) -> str:
+    relative = path.relative_to(source_root.parent).with_suffix("")
+    parts = list(relative.parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _type_checking_nodes(tree: ast.Module) -> set[int]:
+    ids: set[int] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if (
+            isinstance(test, ast.Name)
+            and test.id == "TYPE_CHECKING"
+            or isinstance(test, ast.Attribute)
+            and test.attr == "TYPE_CHECKING"
+        ):
+            ids.update(id(child) for child in ast.walk(node))
+    return ids
+
+
 def _audit_runtime_module(
     *,
     root: Path,
@@ -206,6 +284,7 @@ def _audit_runtime_module(
     owner: str,
     packages: frozenset[str],
     tree: ast.Module,
+    sibling_exceptions: frozenset[tuple[str, str]],
 ) -> list[BackendIsolationViolation]:
     violations: list[BackendIsolationViolation] = []
     aliases: dict[str, str] = {}
@@ -230,6 +309,11 @@ def _audit_runtime_module(
         for target in _import_targets(node, module_name):
             target_owner = _backend_owner(target, packages)
             if target_owner is not None and target_owner != owner:
+                if any(
+                    exception_owner == owner and _match_prefix(target, (prefix,)) is not None
+                    for exception_owner, prefix in sibling_exceptions
+                ):
+                    continue
                 violations.append(
                     _violation(
                         root=root,
@@ -295,6 +379,72 @@ def _audit_runtime_module(
     return violations
 
 
+def _audit_physics_layer_imports(
+    *,
+    root: Path,
+    path: Path,
+    module_name: str,
+    tree: ast.Module,
+) -> list[BackendIsolationViolation]:
+    """Fail closed on physics-layer imports of the training/config stack."""
+
+    violations: list[BackendIsolationViolation] = []
+    type_checking_nodes = _type_checking_nodes(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for target in _import_targets(node, module_name):
+            forbidden = _match_prefix(target, _PHYSICS_FORBIDDEN_IMPORT_PREFIXES)
+            if forbidden is not None:
+                violations.append(
+                    _violation(
+                        root=root,
+                        path=path,
+                        node=node,
+                        code="physics-layer-forbidden-import",
+                        message=(
+                            f"physics layer must not import the config/training stack "
+                            f"({forbidden}): {target}"
+                        ),
+                    )
+                )
+                continue
+            if not target.startswith("unilab."):
+                continue
+            if target == "unilab" or _match_prefix(target, (_BACKEND_PREFIX,)) is not None:
+                continue
+            allowed = _match_prefix(target, tuple(_PHYSICS_ALLOWED_UNILAB_IMPORTS))
+            if allowed is None:
+                violations.append(
+                    _violation(
+                        root=root,
+                        path=path,
+                        node=node,
+                        code="physics-layer-undocumented-import",
+                        message=(
+                            f"physics layer import is not in the documented allowlist: {target}"
+                        ),
+                    )
+                )
+            elif (
+                allowed in _PHYSICS_TYPE_CHECKING_ONLY_IMPORTS
+                and id(node) not in type_checking_nodes
+            ):
+                violations.append(
+                    _violation(
+                        root=root,
+                        path=path,
+                        node=node,
+                        code="physics-layer-forbidden-import",
+                        message=(
+                            f"{allowed} is a TYPE_CHECKING-only physics layer dependency; "
+                            f"a runtime import is forbidden: {target}"
+                        ),
+                    )
+                )
+    return violations
+
+
 def _sim_backend_public_members(
     *,
     root: Path,
@@ -336,17 +486,33 @@ class _BackendContractUseVisitor(ast.NodeVisitor):
         root: Path,
         path: Path,
         public_members: frozenset[str],
+        strict_probes: bool = True,
     ) -> None:
         self._root = root
         self._path = path
         self._public_members = public_members
+        # Runtime layers (envs/dr/manager/training/np_env) forbid all
+        # getattr/hasattr capability probing on backend expressions.  Cold-path
+        # scripts may probe public names with a graceful fallback; private or
+        # dynamic probe targets stay forbidden there too.  Direct access to
+        # non-contract members is flagged in every layer either way.
+        self._strict_probes = strict_probes
         self._alias_scopes: list[set[str]] = [{"_backend"}]
         self.violations: list[BackendIsolationViolation] = []
 
     def _is_backend_expression(self, node: ast.AST) -> bool:
         if isinstance(node, ast.Name):
             return any(node.id in scope for scope in reversed(self._alias_scopes))
-        return isinstance(node, ast.Attribute) and node.attr == "_backend"
+        if isinstance(node, ast.Attribute) and node.attr == "_backend":
+            return True
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "_backend"
+        )
 
     def _add(self, node: ast.AST, code: str, message: str) -> None:
         self.violations.append(
@@ -391,11 +557,18 @@ class _BackendContractUseVisitor(ast.NodeVisitor):
             and node.args
             and self._is_backend_expression(node.args[0])
         ):
-            self._add(
-                node,
-                "dynamic-backend-probe",
-                f"{node.func.id} capability probing bypasses the SimBackend contract",
+            target = node.args[1] if len(node.args) >= 2 else None
+            public_constant_target = (
+                isinstance(target, ast.Constant)
+                and isinstance(target.value, str)
+                and not target.value.startswith("_")
             )
+            if self._strict_probes or not public_constant_target:
+                self._add(
+                    node,
+                    "dynamic-backend-probe",
+                    f"{node.func.id} capability probing bypasses the SimBackend contract",
+                )
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
@@ -424,8 +597,15 @@ class _BackendContractUseVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _contract_source_paths(source_root: Path) -> tuple[Path, ...]:
-    roots = (source_root / "envs", source_root / "dr")
+def _contract_source_paths(root: Path) -> tuple[Path, ...]:
+    source_root = root / "src" / "unilab"
+    roots = (
+        source_root / "envs",
+        source_root / "dr",
+        source_root / "manager",
+        source_root / "training",
+        root / "scripts",
+    )
     paths: list[Path] = []
     for scan_root in roots:
         if scan_root.is_dir():
@@ -442,15 +622,27 @@ def _missing_path_violation(
     return _violation(root=root, path=path, code=code, message=message)
 
 
-def audit_backend_isolation(root: Path) -> BackendIsolationReport:
+def audit_backend_isolation(
+    root: Path,
+    *,
+    sibling_exceptions: Iterable[tuple[str, str]] | None = None,
+) -> BackendIsolationReport:
     """Audit backend runtime imports and env/DR use of ``SimBackend``.
 
     ``root`` is the repository root containing ``src/unilab``.  The audit is
     fail-closed for missing roots, malformed backend packages, unreadable or
     invalid Python, and an invalid ``SimBackend`` declaration.
+
+    ``sibling_exceptions`` overrides the documented cold-path sibling import
+    exceptions; each entry is an ``(owner, module_prefix)`` pair.
     """
 
     root = root.resolve()
+    exceptions = (
+        _SIBLING_COLD_PATH_EXCEPTIONS
+        if sibling_exceptions is None
+        else frozenset(sibling_exceptions)
+    )
     source_root = root / "src" / "unilab"
     backend_root = source_root / "base" / "backend"
     base_path = backend_root / "base.py"
@@ -515,32 +707,55 @@ def audit_backend_isolation(root: Path) -> BackendIsolationReport:
                     f"backend package {package_name!r} is missing backend.py",
                 )
             )
-        for filename in sorted(_RUNTIME_FILENAMES):
-            path = package_dir / filename
-            if path.is_file():
-                runtime_paths.append((package_name, path))
+        for path in sorted(package_dir.glob("*.py")):
+            runtime_paths.append((package_name, path))
 
     frozen_packages = frozenset(packages)
     runtime_modules: list[str] = []
     for owner, path in runtime_paths:
-        module_name = f"{_BACKEND_PREFIX}.{owner}.{path.stem}"
+        module_name = _module_name_for_path(source_root, path)
         runtime_modules.append(module_name)
+        # Relative imports inside __init__.py resolve against the package
+        # itself, so resolve them against a synthetic child module name.
+        resolution_name = (
+            f"{module_name}.__init__" if path.stem == "__init__" else module_name
+        )
         tree = _parse_source(path, root=root, violations=violations)
         if tree is not None:
             violations.extend(
                 _audit_runtime_module(
                     root=root,
                     path=path,
-                    module_name=module_name,
+                    module_name=resolution_name,
                     owner=owner,
                     packages=frozen_packages,
                     tree=tree,
+                    sibling_exceptions=exceptions,
                 )
             )
 
-    base_tree = (
-        _parse_source(base_path, root=root, violations=violations) if base_path.is_file() else None
-    )
+    physics_trees: dict[Path, ast.Module | None] = {}
+    for path in sorted(backend_root.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = _parse_source(path, root=root, violations=violations)
+        physics_trees[path] = tree
+        if tree is None:
+            continue
+        violations.extend(
+            _audit_physics_layer_imports(
+                root=root,
+                path=path,
+                module_name=(
+                    f"{_module_name_for_path(source_root, path)}.__init__"
+                    if path.stem == "__init__"
+                    else _module_name_for_path(source_root, path)
+                ),
+                tree=tree,
+            )
+        )
+
+    base_tree = physics_trees.get(base_path) if base_path.is_file() else None
     public_members = _sim_backend_public_members(
         root=root,
         path=base_path,
@@ -548,7 +763,8 @@ def audit_backend_isolation(root: Path) -> BackendIsolationReport:
         violations=violations,
     )
 
-    contract_paths = _contract_source_paths(source_root)
+    contract_paths = _contract_source_paths(root)
+    scripts_root = root / "scripts"
     for path in contract_paths:
         tree = _parse_source(path, root=root, violations=violations)
         if tree is None:
@@ -557,6 +773,7 @@ def audit_backend_isolation(root: Path) -> BackendIsolationReport:
             root=root,
             path=path,
             public_members=public_members,
+            strict_probes=not path.is_relative_to(scripts_root),
         )
         visitor.visit(tree)
         violations.extend(visitor.violations)

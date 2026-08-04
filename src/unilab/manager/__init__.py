@@ -30,6 +30,7 @@ from .plan import (
 )
 from .registry import TermRegistry
 from .runtime import (
+    ManagedEnvState,
     ManagedKernelBinding,
     ManagedLifecycleEvent,
     ManagedLifecyclePhase,
@@ -75,6 +76,7 @@ __all__ = [
     "FrozenParameters",
     "ManagerContractError",
     "ManagedPolicyABISnapshotError",
+    "ManagedEnvState",
     "ManagedLifecycleEvent",
     "ManagedLifecyclePhase",
     "ManagedKernelBinding",

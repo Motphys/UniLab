@@ -24,7 +24,7 @@ from unilab.envs.locomotion.g1.managed_reference import (
     G1ManagedReferenceError,
     create_g1_managed_reference_runtime,
 )
-from unilab.manager import ManagedLifecyclePhase, ManagedReferenceRuntime
+from unilab.manager import ManagedEnvState, ManagedLifecyclePhase, ManagedReferenceRuntime
 
 _ATOL = 1.0e-6
 _RTOL = 1.0e-5
@@ -133,7 +133,7 @@ def _assert_close(*, expected: np.ndarray, actual: np.ndarray, label: str) -> No
     )
 
 
-def _assert_state_matches(*, expected: NpEnvState, actual: NpEnvState, label: str) -> None:
+def _assert_state_matches(*, expected: NpEnvState, actual: ManagedEnvState, label: str) -> None:
     assert tuple(expected.obs) == tuple(actual.obs), f"{label}: observation group keys differ"
     for key in expected.obs:
         _assert_close(
@@ -236,7 +236,7 @@ def _step_pair(
     managed_backend: SimBackend,
     actions: np.ndarray,
     label: str,
-) -> tuple[NpEnvState, NpEnvState]:
+) -> tuple[NpEnvState, ManagedEnvState]:
     expected = legacy.step(actions.copy())
     with _forbid_managed_hot_path_fallbacks(managed_backend):
         actual = managed.step(actions.copy())
