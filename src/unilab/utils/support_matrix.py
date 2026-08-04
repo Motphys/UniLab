@@ -17,6 +17,15 @@ BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
 BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix")
 
+# Maintainer-confirmed completed training validations. Keep this mapping narrow:
+# generic config/contract coverage must not promote an unvalidated entrypoint.
+_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS = frozenset(
+    {
+        ("ppo_torch", "g1_walk_flat"),
+        ("sac_torch", "g1_walk_flat"),
+    }
+)
+
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
     "go2_joystick_flat": 1,
@@ -209,7 +218,10 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
 
 def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -> bool:
     if backend == "mjwarp":
-        return False
+        return (
+            spec.entrypoint_id,
+            task_slug,
+        ) in _MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS
     if spec.entrypoint_id == "ppo_mlx":
         return task_slug in _mlx_tested_task_slugs(root)
     return spec.generic_tested
@@ -298,18 +310,18 @@ def render_support_matrix(root: Path | None = None) -> str:
         "|------|--------------|",
         "| `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |",
         "| `Configured` | 存在对应的 owner YAML：`conf/{ppo,appo,offpolicy}/task/...`。 |",
-        "| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合。这里的 `Tested` 包含 config compose 与脚本/运行时测试，不等同于默认推荐路径。 |",
+        "| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合，或存在显式 maintainer 完整训练验证并具备近风险自动化测试。这里的 `Tested` 不等同于默认推荐路径。 |",
         "| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |",
         "| `Recommended` | 仓库中存在显式 recommendation 元数据。 |",
         "",
-        "`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；"
-        "例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
+        "`Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo "
+        "owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
-        "`mjwarp` 只为 `g1_walk_flat` 提供 Configured host adapter；它已测试通过显式、有限步数的 `record`"
-        " 并复用 MuJoCo 离线 renderer，但不支持 `auto`、interactive 或 native playback。通用 compose 和该"
-        " playback 覆盖不会把 entrypoint 支持等级提升到 `Tested`，当前仍封顶为 `Configured`。其他"
-        " entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、"
-        "完整 DR 或 production training 支持。",
+        "`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 "
+        "backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`；PPO (mlx) 仍为 `Configured`。"
+        "mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、"
+        "interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry "
+        "identity，不代表对应算法、terrain、完整 DR 或 production training 支持。",
         "",
         benchmark_note,
         recommendation_note,
@@ -335,6 +347,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.",
             "- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.",
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
+            "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
             "- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: "
             + ", ".join(f"`{task}`" for task in mlx_tested_tasks)
             + ".",

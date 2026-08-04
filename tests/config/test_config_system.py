@@ -303,6 +303,35 @@ def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
     assert motrix_cfg.algo.use_symmetry is False
 
 
+def test_offpolicy_g1_walk_flat_mjwarp_owner_preserves_sac_contract():
+    mujoco_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"])
+    mjwarp_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/mjwarp"])
+
+    assert mjwarp_cfg.training.sim_backend == "mjwarp"
+    assert mjwarp_cfg.training.no_play is False
+    assert mjwarp_cfg.training.play_render_mode == "record"
+    assert mjwarp_cfg.algo.num_envs == mujoco_cfg.algo.num_envs
+    assert mjwarp_cfg.algo.use_symmetry is mujoco_cfg.algo.use_symmetry is True
+    assert mjwarp_cfg.env.control_config.action_scale == pytest.approx(
+        mujoco_cfg.env.control_config.action_scale
+    )
+    assert mjwarp_cfg.env.mjwarp_nconmax == 128
+    assert mjwarp_cfg.env.mjwarp_njmax == 256
+    assert mjwarp_cfg.env.render_spacing == pytest.approx(2.0)
+    assert mjwarp_cfg.env.domain_rand.randomize_kp is False
+    assert mjwarp_cfg.env.domain_rand.randomize_kd is False
+    assert OmegaConf.to_container(mjwarp_cfg.reward, resolve=True) == OmegaConf.to_container(
+        mujoco_cfg.reward, resolve=True
+    )
+
+
+def test_ppo_g1_mjwarp_inherits_enabled_playback_default():
+    cfg = _compose("ppo", overrides=["task=g1_walk_flat/mjwarp"])
+
+    assert cfg.training.no_play is False
+    assert cfg.training.play_render_mode == "record"
+
+
 def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     mujoco_cfg = _compose("ppo", overrides=["task=g1_walk_flat/mujoco"])
     motrix_cfg = _compose("ppo", overrides=["task=g1_walk_flat/motrix"])

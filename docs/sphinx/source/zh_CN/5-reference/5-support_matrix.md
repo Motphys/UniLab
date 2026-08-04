@@ -12,7 +12,7 @@
 
 - 默认后端是 `mujoco`
 - 切到 Motrix 用统一 CLI 的 `--sim motrix`
-- `--sim mjwarp` 当前只对应 `g1_walk_flat` 的 Configured host adapter，使用前需安装 `mjwarp` extra
+- `--sim mjwarp` 当前只对应 `g1_walk_flat` host adapter；PPO (torch) 与 SAC (torch) 为 Tested，其他入口按下方矩阵查证，使用前需安装 `mjwarp` extra
 - `--algo`、`--task`、`--sim` 共同选择 owner YAML
 - 不要把 `training.sim_backend` 当独立 backend switch
 
@@ -26,7 +26,7 @@
 
 ## Support Matrix
 
-下面的矩阵由 registry、owner YAML 和测试清单自动汇总；不要手工编辑表格内容。需要刷新时运行：
+下面的矩阵由 registry、owner YAML 和测试/验证清单自动汇总；不要手工编辑表格内容。需要刷新时运行：
 
 ```bash
 uv run scripts/generate_support_matrix.py --write
@@ -39,13 +39,13 @@ uv run scripts/generate_support_matrix.py --write
 |------|--------------|
 | `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |
 | `Configured` | 存在对应的 owner YAML：`conf/{ppo,appo,offpolicy}/task/...`。 |
-| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合。这里的 `Tested` 包含 config compose 与脚本/运行时测试，不等同于默认推荐路径。 |
+| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合，或存在显式 maintainer 完整训练验证并具备近风险自动化测试。这里的 `Tested` 不等同于默认推荐路径。 |
 | `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |
 | `Recommended` | 仓库中存在显式 recommendation 元数据。 |
 
-`Tested` 只描述仓库中已有自动化覆盖，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
+`Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
 
-`mjwarp` 只为 `g1_walk_flat` 提供 Configured host adapter；它已测试通过显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，但不支持 `auto`、interactive 或 native playback。通用 compose 和该 playback 覆盖不会把 entrypoint 支持等级提升到 `Tested`，当前仍封顶为 `Configured`。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
+`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`；PPO (mlx) 仍为 `Configured`。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
 
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
@@ -57,7 +57,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
 | PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
 | PPO (torch) | `go2_joystick_rough` (Go2 joystick rough) | Tested | - | Tested |
-| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested |
 | PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested |
 | PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested |
 | PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested |
@@ -128,7 +128,7 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered |
 | APPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested |
 | APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Tested |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | - | Tested |
 | SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested |
 | SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered |
@@ -153,6 +153,7 @@ uv run scripts/generate_support_matrix.py --write
 - Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
+- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.
 - MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
 - MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
 <!-- END GENERATED SUPPORT MATRIX -->
