@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from rich import box
@@ -37,6 +38,12 @@ OFFPOLICY_COLLECTOR_TIMING_LABELS = {
     "replay_ms": "Replay",
     "sync_coordination_ms": "Sync Coordination",
 }
+
+OFFPOLICY_ENV_STEP_DETAIL_KEYS = (
+    "env_step_backend_ms",
+    "env_step_update_state_ms",
+    "env_step_reset_done_ms",
+)
 
 
 def _metric_backend_key(key: str) -> str:
@@ -144,6 +151,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._staging_pool_max: int = 0
         self._status: str = "Initializing..."
         self._terminal_refresh_started: bool = False
+        self._training_timer_started: bool = False
 
     def _format_tensorboard_message(self, tb_dir: str) -> str:
         return f"[dim]TensorBoard logging to: {tb_dir}[/]"
@@ -153,6 +161,13 @@ class OffPolicyLogger(BaseTrainingLogger):
 
     def start(self, *, status: str = "Warming up..."):
         super().start(status=status)
+
+    def start_training_timer(self) -> float:
+        """Start the measured training window after collector warm-up is complete."""
+        if not self._training_timer_started:
+            self._start_time = time.time()
+            self._training_timer_started = True
+        return self._start_time
 
     def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
         super().finish(
@@ -227,6 +242,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self,
         *,
         include_status: bool,
+        include_identity: bool = True,
+        include_iteration: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         iter_steps_per_sec = self._get_iter_steps_per_sec()
@@ -244,6 +261,8 @@ class OffPolicyLogger(BaseTrainingLogger):
             header_extra_fields.extend(extra_fields)
         return super()._build_compact_header(
             include_status=include_status,
+            include_identity=include_identity,
+            include_iteration=include_iteration,
             extra_fields=header_extra_fields,
         )
 
@@ -530,7 +549,11 @@ class OffPolicyLogger(BaseTrainingLogger):
             self._refresh()
 
     def _build_display(self) -> Panel:
-        header = self._build_compact_header(include_status=True)
+        header = self._build_compact_header(
+            include_status=self._status != "Training",
+            include_identity=False,
+            include_iteration=False,
+        )
         left = self._build_metrics_table()
         right = self._build_reward_table()
         bottom = self._build_timing_table()
@@ -539,13 +562,19 @@ class OffPolicyLogger(BaseTrainingLogger):
         grid.add_column(width=2)
         grid.add_column(ratio=1)
         grid.add_row(left, "", right)
+        title = Text()
+        if self._unicode_console:
+            title.append(" 🚀")
+        title.append(" UniLab Off-Policy Training ", style="bold")
+        title.append("|", style="dim")
+        title.append(f" {self.algo_name} ", style="bold cyan")
+        title.append("|", style="dim")
+        title.append(f" {self.env_name} ", style="bold white")
+        title.append("|", style="dim")
+        title.append(f" iter {self._iteration}/{self.max_iterations} ", style="yellow")
         return Panel(
             Group(header, Text(""), grid, Text(""), bottom),
-            title=(
-                "[bold] 🚀 UniLab Off-Policy Training [/]"
-                if self._unicode_console
-                else "[bold] UniLab Off-Policy Training [/]"
-            ),
+            title=title,
             border_style="bright_blue",
             padding=(0, 1),
         )
@@ -625,18 +654,31 @@ class OffPolicyLogger(BaseTrainingLogger):
             learner_items.append(("Param Sync", _fmt_phase(self._learner_param_sync_time)))
         learner_items.append(("Weight Sync", _fmt_phase(self._weight_sync_time)))
         learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:>7.1f}ms  100%"))
-        collector_items = [
-            (OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key), f"{value:.1f}ms")
-            for key, value in sorted(
-                self._collector_timing.items(),
-                key=lambda item: (
-                    OFFPOLICY_COLLECTOR_TIMING_ORDER.get(
-                        item[0], len(OFFPOLICY_COLLECTOR_TIMING_ORDER)
-                    ),
-                    item[0],
+        sorted_collector_timing = sorted(
+            self._collector_timing.items(),
+            key=lambda item: (
+                OFFPOLICY_COLLECTOR_TIMING_ORDER.get(
+                    item[0], len(OFFPOLICY_COLLECTOR_TIMING_ORDER)
                 ),
-            )
+                item[0],
+            ),
+        )
+        env_step_detail_keys = [
+            key for key, _ in sorted_collector_timing if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS
         ]
+        last_env_step_detail_key = env_step_detail_keys[-1] if env_step_detail_keys else None
+        collector_items: list[tuple[str, str]] = []
+        for key, value in sorted_collector_timing:
+            label = OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key)
+            value_text = f"{value:.1f}ms"
+            if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS:
+                if self._unicode_console:
+                    connector = "─┘" if key == last_env_step_detail_key else "─┤"
+                else:
+                    connector = "-'" if key == last_env_step_detail_key else "-+"
+                label = f"[dim]{label}[/]"
+                value_text = f"[dim cyan]{value_text} {connector}[/]"
+            collector_items.append((label, value_text))
         system_items = [
             ("Buffer", f"{self._buffer_size:,}"),
         ]
