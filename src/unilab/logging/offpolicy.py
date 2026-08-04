@@ -243,6 +243,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         *,
         include_status: bool,
         include_identity: bool = True,
+        include_iteration: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         iter_steps_per_sec = self._get_iter_steps_per_sec()
@@ -261,6 +262,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         return super()._build_compact_header(
             include_status=include_status,
             include_identity=include_identity,
+            include_iteration=include_iteration,
             extra_fields=header_extra_fields,
         )
 
@@ -550,6 +552,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         header = self._build_compact_header(
             include_status=self._status != "Training",
             include_identity=False,
+            include_iteration=False,
         )
         left = self._build_metrics_table()
         right = self._build_reward_table()
@@ -567,6 +570,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         title.append(f" {self.algo_name} ", style="bold cyan")
         title.append("|", style="dim")
         title.append(f" {self.env_name} ", style="bold white")
+        title.append("|", style="dim")
+        title.append(f" iter {self._iteration}/{self.max_iterations} ", style="yellow")
         return Panel(
             Group(header, Text(""), grid, Text(""), bottom),
             title=title,

@@ -187,7 +187,7 @@ def test_offpolicy_logger_training_timer_excludes_warmup_from_elapsed_and_eta(
     assert "30s" not in header.plain
 
 
-def test_offpolicy_logger_moves_identity_to_panel_title_and_omits_training_status() -> None:
+def test_offpolicy_logger_moves_identity_and_iteration_to_panel_title() -> None:
     logger = OffPolicyLogger(
         algo_name="FastSAC",
         max_iterations=5000,
@@ -197,13 +197,20 @@ def test_offpolicy_logger_moves_identity_to_panel_title_and_omits_training_statu
     )
     logger._unicode_console = True
     logger.start_training_timer()
-    logger.log_step(iteration=1, extra_info={"throughput_steps": 4096})
+    logger.log_step(iteration=5000, extra_info={"throughput_steps": 4096})
 
     display = logger._build_display()
-    header = logger._build_compact_header(include_status=False, include_identity=False)
+    header = logger._build_compact_header(
+        include_status=False,
+        include_identity=False,
+        include_iteration=False,
+    )
 
     assert isinstance(display.title, type(header))
-    assert display.title.plain == " 🚀 UniLab Off-Policy Training | FastSAC | G1WalkFlat "
+    assert display.title.plain == (
+        " 🚀 UniLab Off-Policy Training | FastSAC | G1WalkFlat | iter 5000/5000 "
+    )
     assert "FastSAC" not in header.plain
     assert "G1WalkFlat" not in header.plain
+    assert "iter 5000/5000" not in header.plain
     assert "Training" not in header.plain

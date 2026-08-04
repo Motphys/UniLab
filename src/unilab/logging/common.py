@@ -321,6 +321,7 @@ class BaseTrainingLogger:
         *,
         include_status: bool,
         include_identity: bool = True,
+        include_iteration: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
         elapsed = time.time() - self._start_time if self._start_time else 0
@@ -333,14 +334,13 @@ class BaseTrainingLogger:
                     (self.env_name, "bold white"),
                 ]
             )
-        fields.extend(
-            [
-                (f"iter {self._iteration}/{self.max_iterations}", "yellow"),
-                (
-                    f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}",
-                    "green",
-                ),
-            ]
+        if include_iteration:
+            fields.append((f"iter {self._iteration}/{self.max_iterations}", "yellow"))
+        fields.append(
+            (
+                f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}",
+                "green",
+            )
         )
         if eta:
             fields.append((f"ETA {eta}", "bold magenta"))
