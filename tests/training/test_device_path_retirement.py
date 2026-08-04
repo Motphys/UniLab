@@ -34,32 +34,26 @@ def _write_run_config(run_dir: Path, payload: dict) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Task owner
+# Task owner identity
 # ---------------------------------------------------------------------------
-
-
-def test_retired_task_owner_hydra_path_form_raises() -> None:
-    with pytest.raises(RetiredDevicePathError, match="issue #886"):
-        check_retired_task_owner("g1_walk_flat/mjwarp")
-
-
-def test_retired_task_owner_composed_name_form_raises() -> None:
-    # train scripts see the composed training.task_name/sim_backend pair.
-    with pytest.raises(RetiredDevicePathError, match="g1_walk_flat/mujoco"):
-        check_retired_task_owner("G1WalkFlat/mjwarp")
 
 
 @pytest.mark.parametrize(
     "task",
-    ["g1_walk_flat/mujoco", "G1WalkFlat/mujoco", "go2_joystick_flat/motrix"],
+    [
+        "g1_walk_flat/mujoco",
+        "G1WalkFlat/mujoco",
+        "g1_walk_flat/mjwarp",
+        "G1WalkFlat/mjwarp",
+        "go2_joystick_flat/motrix",
+    ],
 )
 def test_active_task_owners_pass(task: str) -> None:
     check_retired_task_owner(task)
 
 
-def test_retired_task_override_scan_raises() -> None:
-    with pytest.raises(RetiredDevicePathError):
-        check_retired_task_overrides(["task=g1_walk_flat/mjwarp", "algo.num_envs=8"])
+def test_active_mjwarp_task_override_scan_passes() -> None:
+    check_retired_task_overrides(["task=g1_walk_flat/mjwarp", "algo.num_envs=8"])
     check_retired_task_overrides(["task=g1_walk_flat/mujoco", "algo.num_envs=8"])
 
 

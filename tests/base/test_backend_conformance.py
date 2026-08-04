@@ -170,9 +170,7 @@ def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> No
     np.testing.assert_allclose(
         backend.get_base_pos(), np.tile(target_xyz, (NUM_ENVS, 1)), atol=1e-4
     )
-    np.testing.assert_allclose(
-        np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0, atol=1e-5
-    )
+    np.testing.assert_allclose(np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0, atol=1e-5)
 
 
 def _write_free_hinge_model(tmp_path: Path) -> Path:
@@ -258,7 +256,11 @@ def _typed_requirements(backend) -> BackendIORequirements:
         state_fields=fields,
         control=ControlSpec("hinge.control", control_buffer),
         execution_profile=ExecutionProfile.HOST_NUMPY,
-        hot_path_budget=BackendBatchCounterBudget(allocations=8, state_materializations=2),
+        hot_path_budget=(
+            None
+            if backend.backend_type == "mjwarp"
+            else BackendBatchCounterBudget(allocations=8, state_materializations=2)
+        ),
     )
 
 

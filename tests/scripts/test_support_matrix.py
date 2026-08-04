@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.utils.support_matrix import EvidenceLevel, build_support_rows
+from unilab.utils.support_matrix import BACKENDS, EvidenceLevel, build_support_rows
 
 
 def _row(entrypoint_label: str, task_slug: str):
@@ -17,7 +17,25 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
     row = _row("PPO (torch)", "go2_joystick_flat")
 
     assert row.cells["mujoco"].level == EvidenceLevel.TESTED
+    assert row.cells["mjwarp"].level == EvidenceLevel.MISSING
     assert row.cells["motrix"].level == EvidenceLevel.TESTED
+
+
+def test_support_matrix_caps_g1_mjwarp_at_configured():
+    torch_row = _row("PPO (torch)", "g1_walk_flat")
+    mlx_row = _row("PPO (mlx)", "g1_walk_flat")
+
+    assert BACKENDS == ("mujoco", "mjwarp", "motrix")
+    assert torch_row.cells["mjwarp"].level == EvidenceLevel.CONFIGURED
+    assert mlx_row.cells["mjwarp"].level == EvidenceLevel.CONFIGURED
+
+
+def test_support_matrix_does_not_promote_mjwarp_from_generic_coverage():
+    rows = build_support_rows(Path(__file__).resolve().parents[2])
+
+    assert all(row.cells["mjwarp"].level <= EvidenceLevel.CONFIGURED for row in rows)
+    appo_row = _row("APPO (torch)", "g1_walk_flat")
+    assert appo_row.cells["mjwarp"].level == EvidenceLevel.REGISTERED
 
 
 def test_support_matrix_marks_appo_go1_backends_as_tested():

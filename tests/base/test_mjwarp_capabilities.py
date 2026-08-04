@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from unilab.base.backend import create_backend
+from unilab.base.backend import ExecutionProfile, MutationContractError, create_backend
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
@@ -45,10 +45,17 @@ def test_unsupported_matrix_fails_before_step() -> None:
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(push_perturbation_limit=np.ones((3,), dtype=np.float32))
         )
-    # Typed mutation plans are fail-closed on the minimal host adapter: the
-    # production device-resident mutation surface was retired, and binding a
-    # plan must error before any physics work instead of becoming a no-op.
-    with pytest.raises(NotImplementedError, match="typed backend mutations"):
+    manifest = backend.get_mutation_capability_manifest(ExecutionProfile.HOST_NUMPY)
+    assert {item.target_key for item in manifest.capabilities} == {
+        "state.root.position",
+        "state.root.orientation",
+        "state.root.linear_velocity",
+        "state.root.angular_velocity",
+        "state.dof.position",
+        "state.dof.angular_velocity",
+    }
+    # Empty or unsupported requests still fail during cold binding, before physics.
+    with pytest.raises(MutationContractError, match="non-empty"):
         backend.bind_mutation_plan(())
 
     qpos = np.tile(backend.get_keyframe_qpos("stand"), (1, 1))

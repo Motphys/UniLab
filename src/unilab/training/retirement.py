@@ -26,8 +26,8 @@ class RetiredDevicePathError(RuntimeError):
     """Raised when a request targets the retired device-resident mjwarp path."""
 
 
-RETIRED_TASK_OWNERS: tuple[str, ...] = ("g1_walk_flat/mjwarp",)
-"""Owner ``task/backend`` pairs retired together with the device path."""
+RETIRED_TASK_OWNERS: tuple[str, ...] = ()
+"""Owner identities still retired after the host mjwarp adapter was restored."""
 
 RETIRED_RUNTIME_IMPL = "mjwarp_device_v1"
 """Retired ``algo.runtime_impl`` marker for the device-resident runtime."""
@@ -49,9 +49,9 @@ _MIGRATION_HINT = (
     "The production device-resident mjwarp runtime (runtime_impl "
     f"{RETIRED_RUNTIME_IMPL!r}, execution_profile {RETIRED_EXECUTION_PROFILE!r}, "
     f"resolver {RETIRED_RESOLVER_FRAGMENT!r}) was retired in issue #886 and no "
-    "longer exists. Use the backend-neutral manager path instead, e.g. "
-    "task=g1_walk_flat/mujoco; artifacts produced by a device-resident run "
-    "must be retrained with the mujoco owner."
+    "longer exists. task=g1_walk_flat/mjwarp now selects the Configured "
+    "backend-neutral host adapter; device-resident artifacts are incompatible "
+    "with it and must be retrained."
 )
 
 
