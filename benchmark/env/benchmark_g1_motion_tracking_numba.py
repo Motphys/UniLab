@@ -3,8 +3,8 @@
 
 This benchmark has two scopes:
 
-* default hot slice: reward plus termination, using deterministic synthetic
-  arrays and the real ``G1MotionTrackingEnv`` reward/termination methods;
+* default hot slice: fused update-state numerics, using deterministic synthetic
+  arrays and the real ``G1MotionTrackingEnv`` owner methods;
 * default ``--e2e``: collector-side A/B through
   ``benchmark_offpolicy_collector_active.py`` without learner updates.
 
@@ -45,6 +45,7 @@ except Exception:  # pragma: no cover - plotting is optional in benchmark script
 
 from benchmark.core.device_info import get_device_info_dict, get_device_info_line
 from unilab.dtype_config import get_global_dtype
+from unilab.envs.motion_tracking.common.config import MotionTermPlanConfig
 from unilab.envs.motion_tracking.common.numba import (
     MotionTrackingNumbaAccelerator,
 )
@@ -132,8 +133,8 @@ class ComponentCase:
     num_envs: int
     numba_threads: int
     relative_transform_ms: float
-    numpy_reward_termination_ms: float
-    numba_reward_termination_ms: float
+    numpy_plan_state_ms: float
+    numba_plan_state_ms: float
     numpy_update_state_ms: float
     numba_update_state_ms: float
     numpy_total_ms: float
@@ -199,6 +200,7 @@ class SyntheticCfg:
     ee_body_names: tuple[str, ...] = G1MotionTrackingCfg.ee_body_names
     undesired_contact_z_threshold: float = G1MotionTrackingCfg.undesired_contact_z_threshold
     terminate_on_undesired_contacts: bool = G1MotionTrackingCfg.terminate_on_undesired_contacts
+    term_plan: MotionTermPlanConfig = field(default_factory=MotionTermPlanConfig)
 
 
 @dataclass
@@ -371,33 +373,19 @@ def make_batch(num_envs: int, spec: ProfileSpec, seed: int) -> SyntheticBatch:
 
 
 def compute_numpy(batch: SyntheticBatch) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
-    env = batch.env
-    info = {**batch.info, "log": {}}
-    terminated = env._compute_terminations(
-        batch.motion_data, batch.robot_body_pos_w, batch.robot_body_quat_w
-    )
-    reward = env._compute_reward(
-        info,
-        batch.motion_data,
-        batch.robot_body_pos_w,
-        batch.robot_body_quat_w,
-        batch.robot_body_lin_vel_w,
-        batch.robot_body_ang_vel_w,
-        batch.dof_pos,
-        batch.dof_vel,
-    )
-    return reward, terminated, info.get("log", {})
+    _, reward, terminated, log = compute_numpy_update_state(batch)
+    return reward, terminated, log
 
 
 def compute_numba(
     batch: SyntheticBatch, accelerator: MotionTrackingNumbaAccelerator
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
     info = {**batch.info, "log": {}}
-    out = accelerator.compute(
+    out = accelerator.compute_update_state(
         info=info,
         motion_data=batch.motion_data,
-        ref_body_pos_w=batch.env.body_pos_relative_w,
-        ref_body_quat_w=batch.env.body_quat_relative_w,
+        linvel=batch.linvel,
+        gyro=batch.gyro,
         robot_body_pos_w=batch.robot_body_pos_w,
         robot_body_quat_w=batch.robot_body_quat_w,
         robot_body_lin_vel_w=batch.robot_body_lin_vel_w,
@@ -454,7 +442,6 @@ def compute_numba_update_state(
     batch: SyntheticBatch, accelerator: MotionTrackingNumbaAccelerator
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, dict[str, float]]:
     info = {**batch.info, "log": {}}
-    noise_cfg = batch.env._cfg.noise_config
     out = accelerator.compute_update_state(
         info=info,
         motion_data=batch.motion_data,
@@ -466,18 +453,8 @@ def compute_numba_update_state(
         robot_body_quat_w=batch.robot_body_quat_w,
         robot_body_lin_vel_w=batch.robot_body_lin_vel_w,
         robot_body_ang_vel_w=batch.robot_body_ang_vel_w,
-        ref_body_pos_w=batch.env.body_pos_relative_w,
-        ref_body_quat_w=batch.env.body_quat_relative_w,
-        motion_anchor_pos_b=batch.env._motion_anchor_pos_b,
-        motion_anchor_ori_b=batch.env._motion_anchor_ori_b,
-        joint_pos_rel=batch.env._joint_pos_rel,
         scales=batch.env._cfg.reward_config.scales,
         enable_log=True,
-        noise_level=noise_cfg.level,
-        noise_scale_linvel=noise_cfg.scale_linvel,
-        noise_scale_gyro=noise_cfg.scale_gyro,
-        noise_scale_joint_angle=noise_cfg.scale_joint_angle,
-        noise_scale_joint_vel=noise_cfg.scale_joint_vel,
     )
     return out.obs, out.reward, out.terminated, out.log
 
@@ -612,8 +589,8 @@ def bench_one(
         num_envs=num_envs,
         numba_threads=int(best_numba.threads or 1),
         relative_transform_ms=relative_mean,
-        numpy_reward_termination_ms=numpy_mean,
-        numba_reward_termination_ms=best_numba.mean_ms,
+        numpy_plan_state_ms=numpy_mean,
+        numba_plan_state_ms=best_numba.mean_ms,
         numpy_update_state_ms=numpy_update_state_mean,
         numba_update_state_ms=numba_update_state_mean,
         numpy_total_ms=numpy_total_ms,
@@ -646,8 +623,8 @@ def _component_case_to_dict(case: ComponentCase) -> dict[str, Any]:
         "num_envs": case.num_envs,
         "numba_threads": case.numba_threads,
         "relative_transform_ms": case.relative_transform_ms,
-        "numpy_reward_termination_ms": case.numpy_reward_termination_ms,
-        "numba_reward_termination_ms": case.numba_reward_termination_ms,
+        "numpy_plan_state_ms": case.numpy_plan_state_ms,
+        "numba_plan_state_ms": case.numba_plan_state_ms,
         "numpy_update_state_ms": case.numpy_update_state_ms,
         "numba_update_state_ms": case.numba_update_state_ms,
         "numpy_total_ms": case.numpy_total_ms,
@@ -858,8 +835,8 @@ def _format_component_table(records: list[ComponentCase]) -> str:
         "envs",
         "threads",
         "rel ms",
-        "numpy reward+term ms",
-        "numba reward+term ms",
+        "numpy plan-state ms",
+        "numba plan-state ms",
         "numpy update_state ms",
         "numba update_state ms",
         "update_state speedup",
@@ -870,8 +847,8 @@ def _format_component_table(records: list[ComponentCase]) -> str:
             str(record.num_envs),
             str(record.numba_threads),
             f"{record.relative_transform_ms:.3f}",
-            f"{record.numpy_reward_termination_ms:.3f}",
-            f"{record.numba_reward_termination_ms:.3f}",
+            f"{record.numpy_plan_state_ms:.3f}",
+            f"{record.numba_plan_state_ms:.3f}",
             f"{record.numpy_update_state_ms:.3f}",
             f"{record.numba_update_state_ms:.3f}",
             f"{record.speedup_vs_numpy:.2f}x",
@@ -1128,9 +1105,7 @@ def save_plots(
     best_by_case = _best_numba_by_case(records)
 
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(21, 6))
-    fig.suptitle(
-        f"G1 motion tracking Numba reward+termination benchmark\n{device_info}", fontsize=13
-    )
+    fig.suptitle(f"G1 motion tracking Numba fused plan-state benchmark\n{device_info}", fontsize=13)
 
     ax1, ax2, ax3 = axes
     for profile in profiles:
@@ -1270,7 +1245,7 @@ def write_report(
         "skipped_threads": getattr(args, "skipped_threads", None),
         "numba_max_threads": getattr(args, "numba_max_threads", None),
         "scope": (
-            "G1 motion tracking reward+termination hot slice plus full update_state "
+            "G1 motion tracking fused plan-state hot slice plus repeated update_state "
             "array-path reconciliation; synthetic arrays"
         ),
         "e2e_enabled": args.e2e,
@@ -1294,7 +1269,7 @@ def write_report(
     summary_lines = [
         "# G1 motion tracking Numba benchmark",
         "",
-        "Scope: reward plus termination for `G1MotionTrackingEnv.update_state`, using",
+        "Scope: fused numeric state for `G1MotionTrackingEnv.update_state`, using",
         "deterministic synthetic arrays. The component table additionally measures the",
         "full array portion of `update_state`: relative transforms, reward, termination,",
         "and actor/critic observation assembly. Backend state getters, motion sampling,",
@@ -1304,7 +1279,7 @@ def write_report(
         "",
         "Definitions:",
         "",
-        "- `vs numpy`: numpy reward+termination time divided by numba reward+termination time.",
+        "- `vs numpy`: NumPy plan-state time divided by Numba plan-state time.",
         "- `vs numba1T`: numba 1-thread time divided by numba N-thread time.",
         "- `parallel eff`: `vs numba1T / N`; this is the only parallel-efficiency column.",
         "",
@@ -1493,7 +1468,7 @@ def main() -> None:
     args.skipped_threads = sorted({threads for threads in args.threads if threads > max_threads})
 
     print("=" * 80)
-    print("G1 motion tracking Numba benchmark: reward + termination")
+    print("G1 motion tracking Numba benchmark: fused plan state")
     print("=" * 80)
     print(f"host numba threads: {max_threads}")
     print(

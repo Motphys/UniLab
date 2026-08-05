@@ -401,7 +401,6 @@ class MotionTrackingEnv(G1BaseEnv):
 
         numba_accelerator = getattr(self, "_numba_accelerator", None)
         if numba_accelerator is not None:
-            noise_cfg = self._cfg.noise_config
             numba_result = numba_accelerator.compute_update_state(
                 info=state.info,
                 motion_data=motion_data,
@@ -413,18 +412,8 @@ class MotionTrackingEnv(G1BaseEnv):
                 robot_body_quat_w=robot_body_quat_w,
                 robot_body_lin_vel_w=robot_body_lin_vel_w,
                 robot_body_ang_vel_w=robot_body_ang_vel_w,
-                ref_body_pos_w=self.body_pos_relative_w,
-                ref_body_quat_w=self.body_quat_relative_w,
-                motion_anchor_pos_b=self._motion_anchor_pos_b,
-                motion_anchor_ori_b=self._motion_anchor_ori_b,
-                joint_pos_rel=self._joint_pos_rel,
                 scales=self._cfg.reward_config.scales,
                 enable_log=self._enable_reward_log,
-                noise_level=noise_cfg.level,
-                noise_scale_linvel=noise_cfg.scale_linvel,
-                noise_scale_gyro=noise_cfg.scale_gyro,
-                noise_scale_joint_angle=noise_cfg.scale_joint_angle,
-                noise_scale_joint_vel=noise_cfg.scale_joint_vel,
             )
             terminated = numba_result.terminated
             reward = numba_result.reward

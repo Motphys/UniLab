@@ -38,6 +38,21 @@ def _reward_numpy(context: NumpyTermContext) -> None:
     np.multiply(context.workspace["scratch"][:, 0], context.parameters["gain"], out=context.output)
 
 
+@numba.njit(inline="always", fastmath=True, nogil=True)
+def _typed_parameter_item(state, enabled, offset, indices, index):
+    value = 0.0
+    if enabled:
+        for column in indices:
+            value += state[index, column]
+    return value + offset
+
+
+def _typed_parameter_numpy(context: NumpyTermContext) -> None:
+    context.output.fill(float(context.parameters["offset"]))
+    if context.parameters["enabled"]:
+        context.output += context.inputs["state"][:, context.parameters["indices"]].sum(axis=1)
+
+
 def _plan(
     *,
     dtype: type[np.floating] = np.float32,
@@ -140,3 +155,38 @@ def test_fused_materialization_fails_closed_without_numba_item() -> None:
     clear_numba_plan_cache()
     with pytest.raises(TermPlanError, match="no Numba item implementation"):
         _materialize(_plan(item_fn=None))
+
+
+def test_fused_plan_executes_bool_int_and_typed_tuple_parameters() -> None:
+    registry = TermRegistry()
+    registry.register(
+        TermDefinition(
+            "synthetic.reward.typed.v1",
+            TermKind.REWARD,
+            _typed_parameter_numpy,
+            TensorSpec((), np.float32),
+            inputs=(NamedTensorSpec("state", TensorSpec((2,), np.float32)),),
+            parameters=(
+                ParameterSpec("enabled", ParameterKind.BOOLEAN),
+                ParameterSpec("offset", ParameterKind.INTEGER),
+                ParameterSpec("indices", ParameterKind.INTEGER, tuple_value=True),
+            ),
+            numba_item_fn=_typed_parameter_item,
+        )
+    )
+    plan = resolve_term_plan(
+        registry,
+        (
+            TermConfig(
+                "typed",
+                "synthetic.reward.typed.v1",
+                parameters={"enabled": True, "offset": 3, "indices": (0, 1)},
+            ),
+        ),
+    )
+    runtime, inputs = _materialize(plan)
+    scratch = np.zeros((numba.get_num_threads(), 1), dtype=np.float64)
+
+    runtime.execute(reward_multiplier=1.0, log_scratch=scratch)
+
+    np.testing.assert_allclose(runtime.reward, inputs["state"].sum(axis=1) + 3.0)
