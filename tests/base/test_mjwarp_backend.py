@@ -7,22 +7,16 @@ instead of treating an unavailable fake implementation as evidence.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
-from hydra import compose, initialize_config_dir
-from hydra.core.global_hydra import GlobalHydra
 
-from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
 from unilab.base.scene import SceneCfg
-from unilab.training.backend_adapter import BackendAdapter
 
 pytestmark = pytest.mark.slow
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _require_cuda_mjwarp() -> None:
@@ -87,51 +81,3 @@ def test_selected_row_reset_isolated() -> None:
     np.testing.assert_allclose(backend.get_base_pos()[complement], previous_pos[complement])
     np.testing.assert_allclose(backend.get_base_lin_vel()[complement], previous_vel[complement])
     assert np.isfinite(backend.get_sensor_data("pelvis_local_linvel")).all()
-
-
-@pytest.mark.parametrize(
-    ("config_group", "overrides", "algo_name"),
-    [
-        pytest.param("ppo", ["task=g1_walk_flat/mjwarp"], "ppo", id="ppo"),
-        pytest.param(
-            "offpolicy",
-            ["algo=sac", "task=sac/g1_walk_flat/mjwarp"],
-            "sac",
-            id="sac",
-        ),
-    ],
-)
-def test_g1_walk_flat_owner_one_step(
-    config_group: str,
-    overrides: list[str],
-    algo_name: str,
-) -> None:
-    _require_cuda_mjwarp()
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(
-        config_dir=str(REPO_ROOT / "conf" / config_group), version_base="1.3"
-    ):
-        cfg = compose("config", overrides=overrides)
-
-    env_cfg_override = BackendAdapter(
-        cfg,
-        root_dir=REPO_ROOT,
-        algo_name=algo_name,
-    ).build_task_env_cfg_override()
-    registry.ensure_registries()
-    env = registry.make(
-        str(cfg.training.task_name),
-        sim_backend=str(cfg.training.sim_backend),
-        env_cfg_override=env_cfg_override,
-        num_envs=2,
-    )
-
-    action_dim = int(env.action_space.shape[-1])
-    state = env.step(np.zeros((2, action_dim), dtype=np.float32))
-
-    assert set(state.obs) == {"obs", "critic"}
-    assert state.obs["obs"].shape == (2, 98)
-    assert state.obs["critic"].shape == (2, 101)
-    assert np.isfinite(state.obs["obs"]).all()
-    assert np.isfinite(state.obs["critic"]).all()
-    assert np.isfinite(state.reward).all()

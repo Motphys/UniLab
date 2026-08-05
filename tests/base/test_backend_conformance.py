@@ -1,7 +1,9 @@
 """Cross-backend conformance suite driven only through the public contract.
 
 Every interaction goes through ``create_backend`` and the public ``SimBackend``
-surface. mjwarp runs when a CUDA Warp device is available (slow lane).
+surface.  MuJoCo must pass the full legacy and typed flow; mjwarp runs when a
+CUDA Warp device is available (slow lane); motrix/drake must at least fail
+closed with ``NotImplementedError`` on the typed batch contract.
 """
 
 from __future__ import annotations
@@ -14,7 +16,42 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import create_backend
+from unilab.base.backend import (
+    BackendBatchCounterBudget,
+    BackendIORequirements,
+    BoundFieldIdentity,
+    BufferContract,
+    BufferLayout,
+    BufferLifetime,
+    BufferMutability,
+    BufferOwner,
+    BufferPlacement,
+    BufferView,
+    ControlBatch,
+    ControlSpec,
+    ExecutionProfile,
+    MutationBaseline,
+    MutationCommitPhase,
+    MutationEntityKind,
+    MutationFieldKind,
+    MutationOperation,
+    MutationPersistence,
+    MutationRecomputeLevel,
+    MutationSpec,
+    MutationTargetKind,
+    MutationTargetSpec,
+    MutationTrigger,
+    MutationValueBatch,
+    PhysicalUnit,
+    ReferenceFrame,
+    RowSelection,
+    SimulationStateMutationBatch,
+    StateEntityKind,
+    StateFieldKind,
+    StateFieldSpec,
+    TypedBackendMutationBatch,
+    create_backend,
+)
 from unilab.base.scene import SceneCfg
 from unilab.tools.backend_isolation import audit_backend_isolation
 
@@ -134,3 +171,214 @@ def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> No
         backend.get_base_pos(), np.tile(target_xyz, (NUM_ENVS, 1)), atol=1e-4
     )
     np.testing.assert_allclose(np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0, atol=1e-5)
+
+
+def _write_free_hinge_model(tmp_path: Path) -> Path:
+    model_file = tmp_path / "conformance_free_hinge.xml"
+    model_file.write_text(
+        """
+<mujoco model="conformance_free_hinge">
+  <option timestep="0.01" gravity="0 0 0"/>
+  <worldbody>
+    <body name="payload">
+      <freejoint name="payload_free"/>
+      <geom name="payload_geom" type="sphere" size="0.1" mass="1"/>
+      <body name="hinge_link" pos="0 0 0.15">
+        <joint name="hinge" type="hinge" axis="0 1 0"/>
+        <geom name="hinge_geom" type="capsule" fromto="0 0 0 0 0 0.15" size="0.02" mass="0.1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="hinge_motor" joint="hinge" gear="1"/>
+  </actuator>
+</mujoco>
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    return model_file
+
+
+def _state_buffer(dtype: np.dtype) -> BufferContract:
+    return BufferContract(
+        row_shape=(1,),
+        dtype=dtype.name,
+        layout=BufferLayout.C_CONTIGUOUS,
+        placement=BufferPlacement.host(),
+        owner=BufferOwner.BACKEND,
+        mutability=BufferMutability.READ_ONLY,
+        lifetime=BufferLifetime.BORROWED_UNTIL_MUTATION,
+        dlpack_exportable=False,
+    )
+
+
+def _typed_requirements(backend) -> BackendIORequirements:
+    dtype = np.dtype(backend.get_init_qvel().dtype)
+    position_id = tuple(int(value) for value in backend.get_joint_dof_pos_indices(("hinge",)))
+    velocity_id = tuple(int(value) for value in backend.get_joint_dof_vel_indices(("hinge",)))
+    state_buffer = _state_buffer(dtype)
+    fields = (
+        StateFieldSpec(
+            semantic_key="hinge.position",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.DOF,
+                field_kind=StateFieldKind.POSITION,
+                entity_ids=position_id,
+            ),
+            frame=ReferenceFrame.JOINT,
+            unit=PhysicalUnit.RADIAN,
+            buffer=state_buffer,
+        ),
+        StateFieldSpec(
+            semantic_key="hinge.angular_velocity",
+            identity=BoundFieldIdentity(
+                entity_kind=StateEntityKind.DOF,
+                field_kind=StateFieldKind.ANGULAR_VELOCITY,
+                entity_ids=velocity_id,
+            ),
+            frame=ReferenceFrame.JOINT,
+            unit=PhysicalUnit.RADIAN_PER_SECOND,
+            buffer=state_buffer,
+        ),
+    )
+    control_buffer = BufferContract(
+        row_shape=(backend.num_actuators,),
+        dtype=dtype.name,
+        layout=BufferLayout.C_CONTIGUOUS,
+        placement=BufferPlacement.host(),
+        owner=BufferOwner.MANAGER,
+        mutability=BufferMutability.READ_ONLY,
+        lifetime=BufferLifetime.UNTIL_STEP_COMPLETE,
+        dlpack_exportable=False,
+    )
+    return BackendIORequirements(
+        state_fields=fields,
+        control=ControlSpec("hinge.control", control_buffer),
+        execution_profile=ExecutionProfile.HOST_NUMPY,
+        hot_path_budget=(
+            None
+            if backend.backend_type == "mjwarp"
+            else BackendBatchCounterBudget(allocations=8, state_materializations=2)
+        ),
+    )
+
+
+def _reset_spec(dtype: np.dtype, *, term_key: str, target_key: str, field_kind) -> MutationSpec:
+    return MutationSpec(
+        term_key=term_key,
+        target=MutationTargetSpec(
+            target_key=target_key,
+            target_kind=MutationTargetKind.SIMULATION_STATE,
+            entity_kind=MutationEntityKind.DOF,
+            field_kind=field_kind,
+            selector="hinge",
+        ),
+        trigger=MutationTrigger.RESET,
+        commit_phase=MutationCommitPhase.RESET,
+        operation=MutationOperation.SET,
+        baseline=MutationBaseline.DEFAULT,
+        persistence=MutationPersistence.EPISODE,
+        recompute=MutationRecomputeLevel.KINEMATICS,
+        value_template=BufferContract(
+            row_shape=(1,),
+            dtype=dtype.name,
+            layout=BufferLayout.C_CONTIGUOUS,
+            placement=BufferPlacement.host(),
+            owner=BufferOwner.MANAGER,
+            mutability=BufferMutability.READ_ONLY,
+            lifetime=BufferLifetime.UNTIL_COMMIT,
+            dlpack_exportable=False,
+        ),
+    )
+
+
+def _state_value(mutation_plan, term_key: str, rows: RowSelection, values: np.ndarray):
+    field_index = mutation_plan.spec_index(term_key)
+    contract = mutation_plan.specs[field_index].value_buffer
+    handle = np.ascontiguousarray(values, dtype=contract.dtype)
+    return MutationValueBatch(
+        plan=mutation_plan,
+        field_index=field_index,
+        rows=rows,
+        buffer=BufferView(handle, handle.shape, contract),
+    )
+
+
+@pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
+def test_typed_contract_bind_step_read_reset(backend_type: str, tmp_path: Path) -> None:
+    _require_backend(backend_type)
+
+    kwargs = {"chunk_size": NUM_ENVS, "bench_nsteps": 1} if backend_type == "mujoco" else {}
+    backend = create_backend(
+        backend_type,
+        SceneCfg(model_file=str(_write_free_hinge_model(tmp_path))),
+        NUM_ENVS,
+        0.01,
+        base_name="payload",
+        **kwargs,
+    )
+    backend.materialize()
+    requirements = _typed_requirements(backend)
+
+    if backend_type in ("motrix", "drake"):
+        # Fail-closed on the typed contract is conformant for backends that do
+        # not implement typed batches yet.
+        with pytest.raises(NotImplementedError, match="does not support typed backend batches"):
+            backend.bind_task_io(requirements)
+        return
+
+    dtype = np.dtype(backend.get_init_qvel().dtype)
+    plan = backend.bind_task_io(requirements)
+    rows = RowSelection.all(NUM_ENVS)
+
+    before = backend.read_state_batch(plan, rows)
+    before_position = np.asarray(before.state.buffer("hinge.position").handle).copy()
+    assert before_position.shape == (NUM_ENVS, 1)
+
+    mutation_plan = backend.bind_mutation_plan(
+        (
+            _reset_spec(
+                dtype,
+                term_key="reset.hinge.position",
+                target_key="state.dof.position",
+                field_kind=MutationFieldKind.POSITION,
+            ),
+            _reset_spec(
+                dtype,
+                term_key="reset.hinge.velocity",
+                target_key="state.dof.angular_velocity",
+                field_kind=MutationFieldKind.ANGULAR_VELOCITY,
+            ),
+        )
+    )
+    position = np.asarray([[[0.5]], [[-0.25]]], dtype=dtype)
+    velocity = np.asarray([[[1.0]], [[-2.0]]], dtype=dtype)
+    mutation = TypedBackendMutationBatch(
+        plan=mutation_plan,
+        rows=rows,
+        state=SimulationStateMutationBatch(
+            (
+                _state_value(mutation_plan, "reset.hinge.position", rows, position),
+                _state_value(mutation_plan, "reset.hinge.velocity", rows, velocity),
+            )
+        ),
+    )
+    reset_result = backend.reset_batch(plan, rows, mutation_batch=mutation)
+    reset_position = np.asarray(reset_result.reset_state.buffer("hinge.position").handle)
+    reset_velocity = np.asarray(reset_result.reset_state.buffer("hinge.angular_velocity").handle)
+    np.testing.assert_allclose(reset_position, position[:, 0, :], atol=1e-5)
+    np.testing.assert_allclose(reset_velocity, velocity[:, 0, :], atol=1e-5)
+
+    control = np.zeros((NUM_ENVS, *plan.control.buffer.row_shape), dtype=plan.control.buffer.dtype)
+    terminal = backend.step_batch(
+        plan,
+        ControlBatch(
+            plan=plan,
+            rows=rows,
+            buffer=BufferView(control, control.shape, plan.control.buffer),
+        ),
+    )
+    terminal_position = np.asarray(terminal.terminal_state.buffer("hinge.position").handle)
+    assert terminal_position.shape == (NUM_ENVS, 1)
+    assert np.all(np.isfinite(terminal_position))

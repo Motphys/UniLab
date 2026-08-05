@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
@@ -122,6 +123,35 @@ class RslRlVecEnvWrapper:
         self.episode_length_buf = self.episode_lengths
         self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
         self.reset()
+
+    @property
+    def managed_policy_abi_snapshot(self) -> dict[str, Any] | None:
+        """Return a compiled manager ABI from the underlying env when available.
+
+        Delegates to the wrapped env so that a managed host runtime (e.g.
+        ``ManagedReferenceRuntime``) can propagate its policy ABI upward to
+        the sim2sim resolver without requiring a device-specific subclass.
+        Falls back to ``None`` for plain envs that carry no compiled plan.
+        """
+        # Prefer an explicit managed_policy_abi_snapshot on the env; then
+        # fall through to policy_abi_snapshot (the ManagedRuntime API).
+        env = self.env
+        for attribute_name in ("managed_policy_abi_snapshot", "policy_abi_snapshot"):
+            snapshot = getattr(env, attribute_name, None)
+            if snapshot is None:
+                continue
+            if not isinstance(snapshot, Mapping):
+                raise TypeError(
+                    f"env.{attribute_name} must be a mapping or None, got "
+                    f"{type(snapshot).__name__}."
+                )
+            normalized: dict[str, Any] = {}
+            for key, value in snapshot.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"env.{attribute_name} keys must be strings.")
+                normalized[key] = value
+            return normalized
+        return None
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":

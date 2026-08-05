@@ -35,6 +35,12 @@ from unilab.training.experiment import (
     patch_rsl_rl_resume_state,
     patch_rsl_rl_wandb_writer,
 )
+from unilab.training.retirement import (
+    check_retired_checkpoint,
+    check_retired_config,
+    check_retired_task_overrides,
+    check_retired_task_owner,
+)
 from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.device import get_default_device
@@ -201,6 +207,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         return None
 
     print(f"Loading latest model: {load_path}")
+    check_retired_checkpoint(load_path)
     _ckpt_keys = set(torch.load(load_path, map_location="cpu", weights_only=True).keys())
     if "actor_state_dict" not in _ckpt_keys:
         print(
@@ -297,6 +304,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
+    check_retired_task_owner(f"{cfg.training.task_name}/{cfg.training.sim_backend}")
+    check_retired_config(cfg)
 
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = build_ppo_env_cfg_override(cfg)
@@ -399,6 +408,7 @@ def main(cfg: DictConfig) -> None:
             if cfg.algo.load_run != "-1":
                 resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
                 if resume_path:
+                    check_retired_checkpoint(resume_path)
                     print(f"Resuming from {resume_path}")
                     runner.load(str(resume_path))
 
@@ -448,4 +458,7 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     EXPORT_POLICY = True
+    # Hydra composes the task group before main(); fail fast with an explicit
+    # retirement diagnostic instead of a generic "config not found" error.
+    check_retired_task_overrides(sys.argv[1:])
     main()

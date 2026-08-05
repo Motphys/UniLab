@@ -50,6 +50,7 @@ from unilab.training import (
     ensure_registries,
     get_entrypoint_log_root,
 )
+from unilab.training.retirement import check_retired_task_overrides
 from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
@@ -489,4 +490,7 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
+    # Hydra composes the task group before main(); fail fast with an explicit
+    # retirement diagnostic instead of a generic "config not found" error.
+    check_retired_task_overrides(sys.argv[1:])
     main()

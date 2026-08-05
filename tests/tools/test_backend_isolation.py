@@ -132,6 +132,34 @@ def test_documented_sibling_cold_path_exception_passes(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("module_name", "symbol"),
+    (
+        ("batch", "BatchContract"),
+        ("mutation", "MutationContract"),
+    ),
+)
+def test_runtime_can_import_approved_shared_contract(
+    tmp_path: Path, module_name: str, symbol: str
+) -> None:
+    root = _fixture_repo(
+        tmp_path,
+        {
+            f"src/unilab/base/backend/{module_name}.py": f"class {symbol}:\n    pass\n",
+            "src/unilab/base/backend/mujoco/backend.py": (
+                f"from unilab.base.backend.{module_name} import {symbol}\n"
+                "from ..base import SimBackend\n\n"
+                "class MuJoCoBackend(SimBackend):\n"
+                "    pass\n"
+            ),
+        },
+    )
+
+    report = audit_backend_isolation(root)
+
+    assert report.ok
+
+
+@pytest.mark.parametrize(
     ("source", "expected_code"),
     [
         (
@@ -276,6 +304,7 @@ def test_missing_and_empty_runtime_roots_fail_closed(tmp_path: Path) -> None:
         "from unilab.envs.task import Task\n",
         "from unilab.training import create_env\n",
         "from unilab.algos import ppo\n",
+        "from unilab.manager import ManagedEnvState\n",
         "from unilab.ipc import async_runner\n",
         "from typing import TYPE_CHECKING\n"
         "if TYPE_CHECKING:\n"
@@ -396,10 +425,15 @@ def test_scripts_public_probe_and_contract_calls_pass(tmp_path: Path) -> None:
     assert audit_backend_isolation(root).ok
 
 
-def test_training_runtime_keeps_strict_probe_rules(tmp_path: Path) -> None:
+def test_runtime_layers_keep_strict_probe_rules(tmp_path: Path) -> None:
     root = _fixture_repo(
         tmp_path,
         {
+            "src/unilab/manager/scene.py": (
+                "def diag(env):\n"
+                "    backend = getattr(env, '_backend', None)\n"
+                "    return getattr(backend, 'scene_visual_model_file', None)\n"
+            ),
             "src/unilab/training/run.py": (
                 "def diag(env):\n    return hasattr(env._backend, 'allowed')\n"
             ),
@@ -410,6 +444,7 @@ def test_training_runtime_keeps_strict_probe_rules(tmp_path: Path) -> None:
 
     assert "dynamic-backend-probe" in {violation.code for violation in report.violations}
     assert {violation.path for violation in report.violations} == {
+        "src/unilab/manager/scene.py",
         "src/unilab/training/run.py",
     }
 

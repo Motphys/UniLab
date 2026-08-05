@@ -4,7 +4,7 @@ import time
 import weakref
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from multiprocessing import cpu_count, current_process, get_context
 from typing import Any, Optional, cast
 
@@ -41,6 +41,50 @@ from ..base import (
     SimBackend,
     normalize_play_render_mode,
 )
+from ..batch import (
+    BackendBatchContractError,
+    BackendBatchDiagnostics,
+    BackendIORequirements,
+    BackendMutationBatch,
+    BackendReadResult,
+    BackendResetResult,
+    BackendStepResult,
+    BackendTiming,
+    BoundBackendPlan,
+    BufferContract,
+    BufferLayout,
+    BufferLifetime,
+    BufferMutability,
+    BufferOwner,
+    BufferPlacement,
+    ControlBatch,
+    ExecutionProfile,
+    RowSelection,
+    StateBatchPhase,
+)
+from ..mutation import (
+    BoundMutationPlan,
+    MutationBaseline,
+    MutationCapability,
+    MutationCapabilityManifest,
+    MutationCommitPhase,
+    MutationContractError,
+    MutationEntityKind,
+    MutationFieldKind,
+    MutationOperation,
+    MutationPersistence,
+    MutationRecomputeLevel,
+    MutationSpec,
+    MutationTargetKind,
+    MutationTargetSpec,
+    MutationTrigger,
+    TypedBackendMutationBatch,
+)
+from ..mutation import (
+    bind_mutation_plan as bind_typed_mutation_plan,
+)
+from .batch import _bind_mujoco_host_batch, _MuJoCoHostBatchPlan, _MuJoCoHostMutationPlan
+from .capability import mujoco_host_mutation_descriptor
 from .playback import run_mujoco_playback
 
 
@@ -327,6 +371,10 @@ class MuJoCoBackend(SimBackend):
         self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
         self._model_assignments = np.zeros((num_envs,), dtype=np.int32)
         self._pool: BatchEnvPool | None = None
+        self._batch_instance_id = f"mujoco:{id(self):x}"
+        self._host_batch_plans: dict[str, _MuJoCoHostBatchPlan] = {}
+        self._host_mutation_plans: dict[str, _MuJoCoHostMutationPlan] = {}
+
         # State indices.
         self.nq = self._model.nq
         self.nv = self._model.nv
@@ -814,7 +862,469 @@ class MuJoCoBackend(SimBackend):
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
+    def bind_task_io(self, requirements: BackendIORequirements) -> BoundBackendPlan:
+        if self._pool is None:
+            raise BackendBatchContractError(
+                "MuJoCo typed batch binding requires a materialized backend pool"
+            )
+        bound = _bind_mujoco_host_batch(
+            self,
+            requirements,
+            backend_instance_id=self._batch_instance_id,
+        )
+        existing = self._host_batch_plans.get(bound.public_plan.fingerprint)
+        if existing is not None:
+            existing.public_plan.require_compatible(bound.public_plan)
+            return existing.public_plan
+        self._host_batch_plans[bound.public_plan.fingerprint] = bound
+        for mutation_plan in self._host_mutation_plans.values():
+            mutation_plan.register_batch_plan(bound.public_plan)
+        return bound.public_plan
+
+    def _typed_floating_root_body_id(self) -> int | None:
+        """Return the only body eligible for typed floating-root mutation.
+
+        A free qpos/qvel prefix belongs to the model's first free joint, not
+        merely to whichever body a caller configures as ``base_name``.  Keep
+        this cold-path validation beside the owner-specific capability and
+        selector binding so a non-root body can never write that prefix.
+        """
+
+        if (
+            self._base_body_id < 0
+            or (self._root_qpos_dim, self._root_qvel_dim) != (7, 6)
+            or self._model.njnt <= 0
+            or int(self._model.jnt_bodyid[0]) != self._base_body_id
+        ):
+            return None
+        return self._base_body_id
+
+    def _mujoco_typed_mutation_capabilities(self) -> tuple[MutationCapability, ...]:
+        def value_template(row_shape: tuple[int, ...]) -> BufferContract:
+            return BufferContract(
+                row_shape=row_shape,
+                dtype=np.dtype(self._np_dtype).name,
+                layout=BufferLayout.C_CONTIGUOUS,
+                placement=BufferPlacement.host(),
+                owner=BufferOwner.MANAGER,
+                mutability=BufferMutability.READ_ONLY,
+                lifetime=BufferLifetime.UNTIL_COMMIT,
+                dlpack_exportable=False,
+            )
+
+        capabilities = [
+            MutationCapability(
+                target_key="wrench.body.force",
+                target_kind=MutationTargetKind.EXTERNAL_WRENCH,
+                entity_kind=MutationEntityKind.BODY,
+                field_kind=MutationFieldKind.FORCE,
+                entity_count=int(self._model.nbody),
+                value_template=value_template((3,)),
+                triggers=frozenset({MutationTrigger.INTERVAL, MutationTrigger.STEP}),
+                commit_phases=frozenset({MutationCommitPhase.PRE_PHYSICS}),
+                operations=frozenset({MutationOperation.SET}),
+                baselines=frozenset({MutationBaseline.CURRENT}),
+                persistences=frozenset({MutationPersistence.ONE_STEP}),
+                recompute_levels=frozenset({MutationRecomputeLevel.NONE}),
+                descriptor=mujoco_host_mutation_descriptor(
+                    target_key="wrench.body.force",
+                ),
+            ),
+        ]
+        if self._typed_floating_root_body_id() is not None:
+            for target_key, field_kind, row_shape in (
+                ("state.root.position", MutationFieldKind.POSITION, (3,)),
+                ("state.root.orientation", MutationFieldKind.ORIENTATION, (4,)),
+                (
+                    "state.root.linear_velocity",
+                    MutationFieldKind.LINEAR_VELOCITY,
+                    (3,),
+                ),
+                (
+                    "state.root.angular_velocity",
+                    MutationFieldKind.ANGULAR_VELOCITY,
+                    (3,),
+                ),
+            ):
+                capabilities.append(
+                    MutationCapability(
+                        target_key=target_key,
+                        target_kind=MutationTargetKind.SIMULATION_STATE,
+                        entity_kind=MutationEntityKind.BODY,
+                        field_kind=field_kind,
+                        entity_count=int(self._model.nbody),
+                        value_template=value_template(row_shape),
+                        triggers=frozenset({MutationTrigger.RESET}),
+                        commit_phases=frozenset({MutationCommitPhase.RESET}),
+                        operations=frozenset({MutationOperation.SET}),
+                        baselines=frozenset({MutationBaseline.DEFAULT}),
+                        persistences=frozenset({MutationPersistence.EPISODE}),
+                        recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                        descriptor=mujoco_host_mutation_descriptor(target_key=target_key),
+                    )
+                )
+        if self._num_dof_pos > 0:
+            capabilities.append(
+                MutationCapability(
+                    target_key="state.dof.position",
+                    target_kind=MutationTargetKind.SIMULATION_STATE,
+                    entity_kind=MutationEntityKind.DOF,
+                    field_kind=MutationFieldKind.POSITION,
+                    entity_count=self._num_dof_pos,
+                    value_template=value_template((1,)),
+                    triggers=frozenset({MutationTrigger.RESET}),
+                    commit_phases=frozenset({MutationCommitPhase.RESET}),
+                    operations=frozenset({MutationOperation.SET}),
+                    baselines=frozenset({MutationBaseline.DEFAULT}),
+                    persistences=frozenset({MutationPersistence.EPISODE}),
+                    recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                    descriptor=mujoco_host_mutation_descriptor(target_key="state.dof.position"),
+                )
+            )
+        if self._num_dof_vel > 0:
+            capabilities.append(
+                MutationCapability(
+                    target_key="state.dof.angular_velocity",
+                    target_kind=MutationTargetKind.SIMULATION_STATE,
+                    entity_kind=MutationEntityKind.DOF,
+                    field_kind=MutationFieldKind.ANGULAR_VELOCITY,
+                    entity_count=self._num_dof_vel,
+                    value_template=value_template((1,)),
+                    triggers=frozenset({MutationTrigger.RESET}),
+                    commit_phases=frozenset({MutationCommitPhase.RESET}),
+                    operations=frozenset({MutationOperation.SET}),
+                    baselines=frozenset({MutationBaseline.DEFAULT}),
+                    persistences=frozenset({MutationPersistence.EPISODE}),
+                    recompute_levels=frozenset({MutationRecomputeLevel.KINEMATICS}),
+                    descriptor=mujoco_host_mutation_descriptor(
+                        target_key="state.dof.angular_velocity"
+                    ),
+                )
+            )
+        return tuple(capabilities)
+
+    def get_mutation_capability_manifest(
+        self,
+        execution_profile: ExecutionProfile,
+    ) -> MutationCapabilityManifest:
+        if execution_profile is not ExecutionProfile.HOST_NUMPY:
+            raise MutationContractError(
+                "MuJoCo mutation capabilities only support the host_numpy profile"
+            )
+        return MutationCapabilityManifest(
+            backend_type=self.backend_type,
+            execution_profile=execution_profile,
+            capabilities=self._mujoco_typed_mutation_capabilities(),
+        )
+
+    def _resolve_mujoco_typed_mutation_selector(self, spec: MutationTargetSpec) -> tuple[int, ...]:
+        selector = spec.selector_spec
+        if selector is None:
+            raise MutationContractError("MuJoCo typed mutation selector must be explicit")
+        raw_selector = selector.require_exact_singleton(context="MuJoCo typed mutation")
+        if spec.target_kind is MutationTargetKind.EXTERNAL_WRENCH:
+            if spec.entity_kind is not MutationEntityKind.BODY:
+                raise MutationContractError("MuJoCo external wrench selector must name one body")
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, raw_selector)
+            if body_id <= 0:
+                raise MutationContractError(
+                    f"MuJoCo typed mutation body selector {raw_selector!r} did not resolve a dynamic body"
+                )
+            return (int(body_id),)
+        if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
+            raise MutationContractError("MuJoCo typed mutation selector has an unsupported target")
+        if spec.entity_kind is MutationEntityKind.BODY:
+            root_targets = {
+                "state.root.position": MutationFieldKind.POSITION,
+                "state.root.orientation": MutationFieldKind.ORIENTATION,
+                "state.root.linear_velocity": MutationFieldKind.LINEAR_VELOCITY,
+                "state.root.angular_velocity": MutationFieldKind.ANGULAR_VELOCITY,
+            }
+            expected_field = root_targets.get(spec.target_key)
+            if expected_field is None or spec.field_kind is not expected_field:
+                raise MutationContractError(
+                    "MuJoCo typed body reset only supports floating-root state targets"
+                )
+            root_body_id = self._typed_floating_root_body_id()
+            if root_body_id is None:
+                raise MutationContractError(
+                    "MuJoCo typed root reset requires a named first free-joint base body"
+                )
+            body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, raw_selector)
+            if body_id < 0:
+                raise MutationContractError(
+                    f"MuJoCo typed root selector {raw_selector!r} did not resolve a body"
+                )
+            if int(body_id) != root_body_id:
+                raise MutationContractError(
+                    f"MuJoCo typed root selector {raw_selector!r} must resolve the base body"
+                )
+            return (int(body_id),)
+        if spec.entity_kind is not MutationEntityKind.DOF:
+            raise MutationContractError(
+                "MuJoCo typed reset selector must name a floating root body or hinge DoF"
+            )
+        joint_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, raw_selector)
+        if joint_id < 0 or int(self._model.jnt_type[joint_id]) != int(mujoco.mjtJoint.mjJNT_HINGE):
+            raise MutationContractError(
+                f"MuJoCo typed reset selector {raw_selector!r} must resolve one hinge joint"
+            )
+        if spec.field_kind is MutationFieldKind.POSITION:
+            coordinate = int(self._model.jnt_qposadr[joint_id]) - self._root_qpos_dim
+            if coordinate < 0 or coordinate >= self._num_dof_pos:
+                raise MutationContractError(
+                    "MuJoCo typed reset position coordinate is out of range"
+                )
+            return (coordinate,)
+        if spec.field_kind is MutationFieldKind.ANGULAR_VELOCITY:
+            coordinate = int(self._model.jnt_dofadr[joint_id]) - self._root_qvel_dim
+            if coordinate < 0 or coordinate >= self._num_dof_vel:
+                raise MutationContractError(
+                    "MuJoCo typed reset velocity coordinate is out of range"
+                )
+            return (coordinate,)
+        raise MutationContractError("MuJoCo typed reset selector has an unsupported field kind")
+
+    def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
+        if self._pool is None:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation binding requires a materialized backend pool"
+            )
+        capability_manifest = self.get_mutation_capability_manifest(ExecutionProfile.HOST_NUMPY)
+        bound = bind_typed_mutation_plan(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+            num_envs=self._num_envs,
+            specs=specs,
+            capabilities=capability_manifest.capabilities,
+            resolve_selector=self._resolve_mujoco_typed_mutation_selector,
+            capability_manifest=capability_manifest,
+        )
+        existing = self._host_mutation_plans.get(bound.fingerprint)
+        if existing is not None:
+            existing.public_plan.require_compatible(bound)
+            return existing.public_plan
+        runtime_plan = _MuJoCoHostMutationPlan(
+            public_plan=bound,
+            num_bodies=int(self._model.nbody),
+            state_size=self._physics_state.shape[1],
+            state_dtype=np.dtype(self._physics_state.dtype).name,
+            qpos_state_offset=self._idx_qpos,
+            qvel_state_offset=self._idx_qvel,
+            root_qpos_dim=self._root_qpos_dim,
+            root_qvel_dim=self._root_qvel_dim,
+        )
+        for batch_plan in self._host_batch_plans.values():
+            runtime_plan.register_batch_plan(batch_plan.public_plan)
+        self._host_mutation_plans[bound.fingerprint] = runtime_plan
+        return bound
+
+    def _require_host_mutation_plan(
+        self,
+        mutation_batch: TypedBackendMutationBatch,
+        plan: BoundBackendPlan,
+    ) -> _MuJoCoHostMutationPlan:
+        mutation_batch.plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            runtime_plan = self._host_mutation_plans[mutation_batch.plan_fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "MuJoCo typed mutation plan was not bound by this backend instance"
+            ) from exc
+        runtime_plan.public_plan.require_compatible(mutation_batch.plan)
+        runtime_plan.require_registered_batch_plan(plan)
+        return runtime_plan
+
+    def _require_host_batch_plan(self, plan: BoundBackendPlan) -> _MuJoCoHostBatchPlan:
+        plan.require_owner(
+            backend_type=self.backend_type,
+            backend_instance_id=self._batch_instance_id,
+        )
+        try:
+            bound = self._host_batch_plans[plan.fingerprint]
+        except KeyError as exc:
+            raise BackendBatchContractError(
+                "MuJoCo batch plan was not bound by this backend instance"
+            ) from exc
+        bound.public_plan.require_compatible(plan)
+        return bound
+
+    def _invalidate_host_batch_state(self) -> None:
+        for bound in self._host_batch_plans.values():
+            bound.lease.invalidate()
+
+    def read_state_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        phase: StateBatchPhase = StateBatchPhase.CURRENT,
+    ) -> BackendReadResult:
+        bound = self._require_host_batch_plan(plan)
+        if rows.universe_size != self._num_envs:
+            raise BackendBatchContractError("MuJoCo row universe does not match backend num_envs")
+        return bound.materialize(rows, phase)
+
+    def reset_batch(
+        self,
+        plan: BoundBackendPlan,
+        rows: RowSelection,
+        *,
+        mutation_batch: BackendMutationBatch | None = None,
+    ) -> BackendResetResult:
+        bound = self._require_host_batch_plan(plan)
+        if rows.universe_size != self._num_envs:
+            raise BackendBatchContractError("MuJoCo row universe does not match backend num_envs")
+        if np.any(self._pending_xfrc_applied):
+            raise BackendBatchContractError(
+                "MuJoCo managed host batches reject out-of-band external wrench state"
+            )
+        if not isinstance(mutation_batch, TypedBackendMutationBatch):
+            raise BackendBatchContractError(
+                "MuJoCo typed reset requires a TypedBackendMutationBatch"
+            )
+        if mutation_batch.rows != rows:
+            raise BackendBatchContractError(
+                "MuJoCo typed reset rows must match the mutation envelope"
+            )
+        mutation_runtime = self._require_host_mutation_plan(mutation_batch, plan)
+        initial_state = mutation_runtime.stage_reset_state(mutation_batch, self._physics_state)
+
+        self._invalidate_host_batch_state()
+        t0 = time.perf_counter()
+        state_np, sensor_np = self._pool.reset(  # type: ignore[union-attr]
+            env_ids=mutation_runtime.reset_env_ids(rows),
+            initial_state=initial_state,
+            randomization=None,
+        )
+        reset_pool_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        if rows.is_all:
+            np.copyto(self._physics_state, state_np, casting="unsafe")
+            np.copyto(self._sensor_data, sensor_np, casting="unsafe")
+        else:
+            row_ids = mutation_runtime.reset_row_ids(rows)
+            self._physics_state[row_ids] = state_np
+            self._sensor_data[row_ids] = sensor_np
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        read_result = bound.materialize(rows, StateBatchPhase.RESET)
+        diagnostics = BackendBatchDiagnostics(
+            counters=replace(
+                read_result.diagnostics.counters,
+                allocations=bound.reset_allocations,
+            ),
+            timings=(
+                BackendTiming("reset_pool_ms", reset_pool_ms),
+                BackendTiming("refresh_cache_ms", refresh_cache_ms),
+                *read_result.diagnostics.timings,
+            ),
+        )
+        return BackendResetResult(reset_state=read_result.state, diagnostics=diagnostics)
+
+    def step_batch(
+        self,
+        plan: BoundBackendPlan,
+        control_batch: ControlBatch,
+        *,
+        mutation_batch: BackendMutationBatch | None = None,
+        nsteps: int = 1,
+    ) -> BackendStepResult:
+        bound = self._require_host_batch_plan(plan)
+        if self._pre_step_control_fn is not None:
+            raise BackendBatchContractError(
+                "MuJoCo managed host batches do not support pre-step control callbacks"
+            )
+        plan.require_compatible(control_batch.plan)
+        if np.any(self._pending_xfrc_applied):
+            raise BackendBatchContractError(
+                "MuJoCo managed host batches reject out-of-band external wrench state"
+            )
+        if not control_batch.rows.is_all:
+            raise BackendBatchContractError("MuJoCo physics steps require controls for all rows")
+        if nsteps != plan.control.physics_substeps_per_control:
+            raise BackendBatchContractError(
+                "MuJoCo nsteps does not match the bound control cadence"
+            )
+        control = control_batch.buffer.handle
+        if not isinstance(control, np.ndarray):
+            raise BackendBatchContractError("MuJoCo host control handle must be a numpy array")
+        if control.dtype.name != plan.control.buffer.dtype:
+            raise BackendBatchContractError("MuJoCo control handle dtype does not match the plan")
+        if control.shape != (self._num_envs, *plan.control.buffer.row_shape):
+            raise BackendBatchContractError("MuJoCo control handle shape does not match the plan")
+        if not control.flags.c_contiguous:
+            raise BackendBatchContractError("MuJoCo host control must be C-contiguous")
+
+        mutation_runtime = None
+        has_typed_wrench = False
+        if mutation_batch is not None:
+            if not isinstance(mutation_batch, TypedBackendMutationBatch):
+                raise BackendBatchContractError(
+                    "MuJoCo typed mutation batches require TypedBackendMutationBatch"
+                )
+            mutation_runtime = self._require_host_mutation_plan(mutation_batch, plan)
+            has_typed_wrench = mutation_runtime.stage_external_force(mutation_batch)
+
+        self._invalidate_host_batch_state()
+        t0 = time.perf_counter()
+        if has_typed_wrench:
+            assert mutation_runtime is not None
+            control_trajectory = mutation_runtime.stage_control_with_wrench(plan, control)
+            control_spec = int(mujoco.mjtState.mjSTATE_CTRL) | int(
+                mujoco.mjtState.mjSTATE_XFRC_APPLIED
+            )
+        else:
+            control_trajectory = bound.stage_control(control)
+            control_spec = int(mujoco.mjtState.mjSTATE_CTRL)
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        try:
+            state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
+                self._physics_state,
+                nstep=nsteps,
+                control=control_trajectory,
+                control_spec=control_spec,
+                chunk_size=self._chunk_size,
+                return_sensor=True,
+                post_step_forward_sensor=self._post_step_forward_sensor,
+            )
+        finally:
+            if has_typed_wrench:
+                assert mutation_runtime is not None
+                mutation_runtime.clear_staged_external_force()
+        np.copyto(self._physics_state, state_np, casting="unsafe")
+        physics_ms = (time.perf_counter() - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        np.copyto(self._sensor_data, sensor_np, casting="unsafe")
+        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
+
+        read_result = bound.materialize(RowSelection.all(self._num_envs), StateBatchPhase.TERMINAL)
+        diagnostics = BackendBatchDiagnostics(
+            counters=replace(
+                read_result.diagnostics.counters,
+                allocations=bound.step_allocations,
+            ),
+            timings=(
+                BackendTiming("set_ctrl_ms", set_ctrl_ms),
+                BackendTiming("physics_ms", physics_ms),
+                BackendTiming("refresh_cache_ms", refresh_cache_ms),
+                *read_result.diagnostics.timings,
+            ),
+        )
+        return BackendStepResult(
+            terminal_state=read_result.state,
+            diagnostics=diagnostics,
+        )
+
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
+        self._invalidate_host_batch_state()
         if self._pre_step_control_fn is not None:
             return self._step_with_pre_step_control(ctrl, nsteps)
 
@@ -931,6 +1441,8 @@ class MuJoCoBackend(SimBackend):
         }
         if len(env_indices) == 0:
             return {"timing": timing}
+
+        self._invalidate_host_batch_state()
 
         outer_t0 = time.perf_counter()
 

@@ -54,6 +54,7 @@ from unilab.training import (
     get_entrypoint_log_root,
     resolve_task_checkpoint_path,
 )
+from unilab.training.retirement import check_retired_checkpoint, check_retired_task_owner
 from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
@@ -233,6 +234,8 @@ def _parse_interactive_cli(argv: Sequence[str]) -> InteractiveCliArgs:
     if "/" in sim:
         parser.error("--sim must be a backend/config name without '/'.")
 
+    check_retired_task_owner(f"{task}/{sim}")
+
     extra_overrides = [str(item) for item in namespace.overrides]
     if extra_overrides and extra_overrides[0] == "--":
         extra_overrides = extra_overrides[1:]
@@ -336,6 +339,7 @@ def resolve_checkpoint(
         return None
 
     print(f"[play_interactive] Loading checkpoint: {checkpoint_path}")
+    check_retired_checkpoint(checkpoint_path)
     return str(checkpoint_path)
 
 
