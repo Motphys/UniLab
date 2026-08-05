@@ -9,51 +9,26 @@ not installed.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 import numpy as np
 
+from unilab.dtype_config import get_global_dtype
+
 try:  # pragma: no cover - exercised in environments with numba installed
-    from numba import get_num_threads, get_thread_id, njit, prange, set_num_threads
+    from numba import get_num_threads, njit, set_num_threads
 
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - default test env may not install numba
-    get_num_threads = get_thread_id = njit = prange = set_num_threads = None  # type: ignore[assignment]
+    get_num_threads = njit = set_num_threads = None  # type: ignore[assignment]
     NUMBA_AVAILABLE = False
 
 
-TERM_ORDER: tuple[str, ...] = (
-    "tracking_lin_vel",
-    "tracking_ang_vel",
-    "forward_progress",
-    "under_speed",
-    "lin_vel_z",
-    "orientation",
-    "penalty_orientation",
-    "ang_vel_xy",
-    "penalty_ang_vel_xy",
-    "action_rate",
-    "penalty_action_rate",
-    "base_height",
-    "pose",
-    "upper_body_pose",
-    "penalty_close_feet_xy",
-    "penalty_feet_ori",
-    "feet_phase",
-    "feet_phase_contrast",
-    "feet_phase_contact",
-    "feet_double_stance",
-    "feet_air_time",
-    "alive",
-)
-TERM_INDEX = {name: i for i, name in enumerate(TERM_ORDER)}
-SUPPORTED_TERMS = frozenset(TERM_ORDER)
-
-FOOT_POSITION_TERMS = frozenset(("penalty_close_feet_xy", "feet_phase", "feet_phase_contrast"))
-FOOT_QUAT_TERMS = frozenset(("penalty_feet_ori",))
-FOOT_CONTACT_TERMS = frozenset(("feet_phase_contact", "feet_double_stance"))
-FEET_AIR_TIME_TERMS = frozenset(("feet_air_time",))
+NUMBA_REWARD_ITEMS: dict[str, Any] = {}
+NUMBA_OBSERVATION_ITEM = None
+NUMBA_TERMINATION_ITEM = None
 
 
 @dataclass(frozen=True)
@@ -77,25 +52,13 @@ def _active_terms(scales: Mapping[str, float]) -> frozenset[str]:
 
 def unsupported_terms(scales: Mapping[str, float]) -> frozenset[str]:
     """Return nonzero reward terms this task-specific kernel cannot compute."""
-    return _active_terms(scales) - SUPPORTED_TERMS
+    from unilab.envs.locomotion.g1.terms import REWARD_TERM_KEYS
+
+    return _active_terms(scales) - REWARD_TERM_KEYS.keys()
 
 
 def is_available(scales: Mapping[str, float]) -> bool:
     return NUMBA_AVAILABLE and not unsupported_terms(scales)
-
-
-def _scalar_sensor(sensor_values: np.ndarray) -> np.ndarray:
-    arr = np.asarray(sensor_values)
-    if arr.ndim == 1:
-        return arr
-    if arr.ndim == 2 and arr.shape[1] == 1:
-        return arr[:, 0]
-    raise ValueError(f"Expected scalar sensor values, got shape {arr.shape}")
-
-
-def _aggregated_contact(backend: Any, sensor_names: tuple[str, ...]) -> np.ndarray:
-    contacts = [_scalar_sensor(backend.get_sensor_data(name)) for name in sensor_names]
-    return np.asarray(np.any(np.stack(contacts, axis=1) > 0.5, axis=1), dtype=np.bool_)
 
 
 if NUMBA_AVAILABLE:
@@ -151,26 +114,8 @@ if NUMBA_AVAILABLE:
         return acc
 
     @_dev
-    def weighted_pose_i(dof_pos, default_angles, weights, n_action, i):
-        acc = 0.0
-        for j in range(n_action):
-            d = dof_pos[i, j] - default_angles[j]
-            acc += weights[j] * d * d
-        return acc
-
-    @_dev
     def base_height_i(base_height, base_height_target, i):
         d = base_height[i] - base_height_target
-        return d * d
-
-    @_dev
-    def close_feet_xy_i(left_foot_pos, right_foot_pos, close_feet_threshold, i):
-        dx = left_foot_pos[i, 0] - right_foot_pos[i, 0]
-        dy = left_foot_pos[i, 1] - right_foot_pos[i, 1]
-        feet_dist = math.sqrt(dx * dx + dy * dy)
-        if feet_dist >= close_feet_threshold:
-            return 0.0
-        d = feet_dist - close_feet_threshold
         return d * d
 
     @_dev
@@ -267,15 +212,6 @@ if NUMBA_AVAILABLE:
         return double_stance * forward_command
 
     @_dev
-    def feet_air_time_i(feet_air_time, i):
-        acc = 0.0
-        if feet_air_time[i, 0] > 0.05 and feet_air_time[i, 0] < 0.5:
-            acc += 1.0
-        if feet_air_time[i, 1] > 0.05 and feet_air_time[i, 1] < 0.5:
-            acc += 1.0
-        return acc
-
-    @_dev
     def terminated_i(gravity, base_height, max_tilt_rad, min_base_height, i):
         gz = gravity[i, 2]
         if gz < -1.0:
@@ -284,551 +220,137 @@ if NUMBA_AVAILABLE:
             gz = 1.0
         return math.acos(gz) > max_tilt_rad or base_height[i] < min_base_height
 
-    @njit(fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
-    def _compute_reward_termination_i(
-        linvel,
-        gyro,
-        gravity,
-        dof_pos,
-        base_height,
-        commands,
-        current_actions,
-        last_actions,
-        gait_phase,
-        default_angles,
-        pose_weights,
-        upper_body_pose_weights,
-        left_foot_pos,
-        right_foot_pos,
-        left_foot_quat,
-        right_foot_quat,
-        left_contact,
-        right_contact,
-        feet_air_time,
-        scale,
-        ctrl_dt,
-        tracking_sigma,
-        base_height_target,
-        min_base_height,
-        max_tilt_rad,
-        feet_phase_swing_height,
-        feet_phase_tracking_sigma,
-        min_forward_speed_for_gait_reward,
-        close_feet_threshold,
-        reward,
-        terminated,
-        log_scratch,
-        tid,
-        i,
-    ):
-        n_action = dof_pos.shape[1]
-        r = 0.0
-
-        w = tracking_lin_vel_i(linvel, commands, tracking_sigma, i) * scale[0]
-        r += w
-        log_scratch[tid, 0] += w
-
-        w = tracking_ang_vel_i(gyro, commands, tracking_sigma, i) * scale[1]
-        r += w
-        log_scratch[tid, 1] += w
-
-        w = forward_progress_i(linvel, commands, i) * scale[2]
-        r += w
-        log_scratch[tid, 2] += w
-
-        w = under_speed_i(linvel, commands, i) * scale[3]
-        r += w
-        log_scratch[tid, 3] += w
-
-        w = lin_vel_z_i(linvel, i) * scale[4]
-        r += w
-        log_scratch[tid, 4] += w
-
-        orientation = orientation_i(gravity, i)
-        w = orientation * scale[5]
-        r += w
-        log_scratch[tid, 5] += w
-        w = orientation * scale[6]
-        r += w
-        log_scratch[tid, 6] += w
-
-        ang_vel_xy = ang_vel_xy_i(gyro, i)
-        w = ang_vel_xy * scale[7]
-        r += w
-        log_scratch[tid, 7] += w
-        w = ang_vel_xy * scale[8]
-        r += w
-        log_scratch[tid, 8] += w
-
-        action_rate = action_rate_i(current_actions, last_actions, n_action, i)
-        w = action_rate * scale[9]
-        r += w
-        log_scratch[tid, 9] += w
-        w = action_rate * scale[10]
-        r += w
-        log_scratch[tid, 10] += w
-
-        w = base_height_i(base_height, base_height_target, i) * scale[11]
-        r += w
-        log_scratch[tid, 11] += w
-
-        pose = weighted_pose_i(dof_pos, default_angles, pose_weights, n_action, i)
-        w = pose * scale[12]
-        r += w
-        log_scratch[tid, 12] += w
-        upper_body_pose = weighted_pose_i(
-            dof_pos, default_angles, upper_body_pose_weights, n_action, i
-        )
-        w = upper_body_pose * scale[13]
-        r += w
-        log_scratch[tid, 13] += w
-
-        w = close_feet_xy_i(left_foot_pos, right_foot_pos, close_feet_threshold, i) * scale[14]
-        r += w
-        log_scratch[tid, 14] += w
-
-        w = feet_ori_i(left_foot_quat, right_foot_quat, i) * scale[15]
-        r += w
-        log_scratch[tid, 15] += w
-
-        w = (
-            feet_phase_i(
-                linvel,
-                gait_phase,
-                left_foot_pos,
-                right_foot_pos,
-                feet_phase_swing_height,
-                feet_phase_tracking_sigma,
-                min_forward_speed_for_gait_reward,
-                i,
-            )
-            * scale[16]
-        )
-        r += w
-        log_scratch[tid, 16] += w
-
-        w = (
-            feet_phase_contrast_i(
-                linvel,
-                gait_phase,
-                left_foot_pos,
-                right_foot_pos,
-                feet_phase_swing_height,
-                feet_phase_tracking_sigma,
-                min_forward_speed_for_gait_reward,
-                i,
-            )
-            * scale[17]
-        )
-        r += w
-        log_scratch[tid, 17] += w
-
-        w = (
-            feet_phase_contact_i(
-                linvel,
-                gait_phase,
-                left_contact,
-                right_contact,
-                feet_phase_swing_height,
-                min_forward_speed_for_gait_reward,
-                i,
-            )
-            * scale[18]
-        )
-        r += w
-        log_scratch[tid, 18] += w
-
-        w = feet_double_stance_i(commands, left_contact, right_contact, i) * scale[19]
-        r += w
-        log_scratch[tid, 19] += w
-
-        w = feet_air_time_i(feet_air_time, i) * scale[20]
-        r += w
-        log_scratch[tid, 20] += w
-
-        w = scale[21]
-        r += w
-        log_scratch[tid, 21] += w
-
-        reward[i] = r * ctrl_dt
-        terminated[i] = terminated_i(gravity, base_height, max_tilt_rad, min_base_height, i)
-
-    @njit(parallel=True, fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
-    def _compute_reward_termination_kernel(
-        linvel,
-        gyro,
-        gravity,
-        dof_pos,
-        dof_vel,
-        base_height,
-        commands,
-        current_actions,
-        last_actions,
-        gait_phase,
-        default_angles,
-        pose_weights,
-        upper_body_pose_weights,
-        left_foot_pos,
-        right_foot_pos,
-        left_foot_quat,
-        right_foot_quat,
-        left_contact,
-        right_contact,
-        feet_air_time,
-        scale,
-        ctrl_dt,
-        tracking_sigma,
-        base_height_target,
-        min_base_height,
-        max_tilt_rad,
-        feet_phase_swing_height,
-        feet_phase_tracking_sigma,
-        min_forward_speed_for_gait_reward,
-        close_feet_threshold,
-        reward,
-        terminated,
-        log_scratch,
-    ):
-        n = reward.shape[0]
-        for i in prange(n):
-            _compute_reward_termination_i(
-                linvel,
-                gyro,
-                gravity,
-                dof_pos,
-                base_height,
-                commands,
-                current_actions,
-                last_actions,
-                gait_phase,
-                default_angles,
-                pose_weights,
-                upper_body_pose_weights,
-                left_foot_pos,
-                right_foot_pos,
-                left_foot_quat,
-                right_foot_quat,
-                left_contact,
-                right_contact,
-                feet_air_time,
-                scale,
-                ctrl_dt,
-                tracking_sigma,
-                base_height_target,
-                min_base_height,
-                max_tilt_rad,
-                feet_phase_swing_height,
-                feet_phase_tracking_sigma,
-                min_forward_speed_for_gait_reward,
-                close_feet_threshold,
-                reward,
-                terminated,
-                log_scratch,
-                get_thread_id(),
-                i,
-            )
+    @_dev
+    def weighted_pose_plan_i(dof_pos, default_angles, weights, i):
+        acc = 0.0
+        for j in range(dof_pos.shape[1]):
+            d = dof_pos[i, j] - default_angles[i, j]
+            acc += weights[i, j] * d * d
+        return acc
 
     @_dev
-    def _write_actor_obs_i(
-        gyro,
-        gravity,
-        dof_pos,
-        dof_vel,
-        current_actions,
-        commands,
-        gait_phase,
-        default_angles,
-        actor_gyro_scale,
-        actor_dof_vel_scale,
-        actor_obs,
-        n_action,
-        i,
-    ):
-        out = 0
-        actor_obs[i, out] = gyro[i, 0] * actor_gyro_scale
-        actor_obs[i, out + 1] = gyro[i, 1] * actor_gyro_scale
-        actor_obs[i, out + 2] = gyro[i, 2] * actor_gyro_scale
-        out += 3
-        actor_obs[i, out] = -gravity[i, 0]
-        actor_obs[i, out + 1] = -gravity[i, 1]
-        actor_obs[i, out + 2] = -gravity[i, 2]
-        out += 3
-        for j in range(n_action):
-            actor_obs[i, out + j] = dof_pos[i, j] - default_angles[j]
-        out += n_action
-        for j in range(n_action):
-            actor_obs[i, out + j] = dof_vel[i, j] * actor_dof_vel_scale
-        out += n_action
-        for j in range(n_action):
-            actor_obs[i, out + j] = current_actions[i, j]
-        out += n_action
-        actor_obs[i, out] = commands[i, 0]
-        actor_obs[i, out + 1] = commands[i, 1]
-        actor_obs[i, out + 2] = commands[i, 2]
-        out += 3
-        actor_obs[i, out] = gait_phase[i, 0]
-        actor_obs[i, out + 1] = gait_phase[i, 1]
+    def action_rate_plan_i(current_actions, last_actions, i):
+        return action_rate_i(current_actions, last_actions, current_actions.shape[1], i)
 
     @_dev
-    def _write_critic_obs_i(
-        linvel,
-        gyro,
-        gravity,
-        dof_pos,
-        dof_vel,
-        current_actions,
-        commands,
-        gait_phase,
-        default_angles,
-        critic_gyro_scale,
-        critic_dof_vel_scale,
-        critic_linvel_scale,
-        critic_obs,
-        n_action,
-        i,
-    ):
-        out = 0
-        critic_obs[i, out] = gyro[i, 0] * critic_gyro_scale
-        critic_obs[i, out + 1] = gyro[i, 1] * critic_gyro_scale
-        critic_obs[i, out + 2] = gyro[i, 2] * critic_gyro_scale
-        out += 3
-        critic_obs[i, out] = -gravity[i, 0]
-        critic_obs[i, out + 1] = -gravity[i, 1]
-        critic_obs[i, out + 2] = -gravity[i, 2]
-        out += 3
-        for j in range(n_action):
-            critic_obs[i, out + j] = dof_pos[i, j] - default_angles[j]
-        out += n_action
-        for j in range(n_action):
-            critic_obs[i, out + j] = dof_vel[i, j] * critic_dof_vel_scale
-        out += n_action
-        for j in range(n_action):
-            critic_obs[i, out + j] = current_actions[i, j]
-        out += n_action
-        critic_obs[i, out] = commands[i, 0]
-        critic_obs[i, out + 1] = commands[i, 1]
-        critic_obs[i, out + 2] = commands[i, 2]
-        out += 3
-        critic_obs[i, out] = gait_phase[i, 0]
-        critic_obs[i, out + 1] = gait_phase[i, 1]
-        out += 2
-        critic_obs[i, out] = linvel[i, 0] * critic_linvel_scale
-        critic_obs[i, out + 1] = linvel[i, 1] * critic_linvel_scale
-        critic_obs[i, out + 2] = linvel[i, 2] * critic_linvel_scale
+    def alive_i(i):
+        return 1.0
 
-    @njit(parallel=True, fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
-    def _compute_update_state_kernel(
-        linvel,
-        gyro,
-        gravity,
-        dof_pos,
-        dof_vel,
-        base_height,
-        commands,
-        current_actions,
-        last_actions,
-        gait_phase,
-        default_angles,
-        pose_weights,
-        upper_body_pose_weights,
-        left_foot_pos,
-        right_foot_pos,
-        left_foot_quat,
-        right_foot_quat,
-        left_contact,
-        right_contact,
-        feet_air_time,
-        scale,
-        ctrl_dt,
-        tracking_sigma,
-        base_height_target,
-        min_base_height,
-        max_tilt_rad,
-        feet_phase_swing_height,
-        feet_phase_tracking_sigma,
-        min_forward_speed_for_gait_reward,
-        close_feet_threshold,
-        actor_gyro_scale,
-        actor_dof_vel_scale,
-        critic_gyro_scale,
-        critic_dof_vel_scale,
-        critic_linvel_scale,
-        actor_obs,
-        critic_obs,
-        reward,
-        terminated,
-        log_scratch,
-    ):
-        n = reward.shape[0]
-        n_action = dof_pos.shape[1]
-        for i in prange(n):
-            tid = get_thread_id()
-            _compute_reward_termination_i(
-                linvel,
-                gyro,
-                gravity,
-                dof_pos,
-                base_height,
-                commands,
-                current_actions,
-                last_actions,
-                gait_phase,
-                default_angles,
-                pose_weights,
-                upper_body_pose_weights,
-                left_foot_pos,
-                right_foot_pos,
-                left_foot_quat,
-                right_foot_quat,
-                left_contact,
-                right_contact,
-                feet_air_time,
-                scale,
-                ctrl_dt,
-                tracking_sigma,
-                base_height_target,
-                min_base_height,
-                max_tilt_rad,
-                feet_phase_swing_height,
-                feet_phase_tracking_sigma,
-                min_forward_speed_for_gait_reward,
-                close_feet_threshold,
-                reward,
-                terminated,
-                log_scratch,
-                tid,
-                i,
-            )
-            _write_actor_obs_i(
-                gyro,
-                gravity,
-                dof_pos,
-                dof_vel,
-                current_actions,
-                commands,
-                gait_phase,
-                default_angles,
-                actor_gyro_scale,
-                actor_dof_vel_scale,
-                actor_obs,
-                n_action,
-                i,
-            )
-            _write_critic_obs_i(
-                linvel,
-                gyro,
-                gravity,
-                dof_pos,
-                dof_vel,
-                current_actions,
-                commands,
-                gait_phase,
-                default_angles,
-                critic_gyro_scale,
-                critic_dof_vel_scale,
-                critic_linvel_scale,
-                critic_obs,
-                n_action,
-                i,
-            )
+    @_dev
+    def scaled_copy_i(source, multiplier, output, offset, i):
+        for j in range(source.shape[1]):
+            output[i, offset + j] = source[i, j] * multiplier
+
+    NUMBA_REWARD_ITEMS = {
+        "tracking_lin_vel": tracking_lin_vel_i,
+        "tracking_ang_vel": tracking_ang_vel_i,
+        "forward_progress": forward_progress_i,
+        "under_speed": under_speed_i,
+        "lin_vel_z": lin_vel_z_i,
+        "orientation": orientation_i,
+        "ang_vel_xy": ang_vel_xy_i,
+        "action_rate": action_rate_plan_i,
+        "base_height": base_height_i,
+        "pose": weighted_pose_plan_i,
+        "upper_body_pose": weighted_pose_plan_i,
+        "feet_ori": feet_ori_i,
+        "feet_phase": feet_phase_i,
+        "feet_phase_contrast": feet_phase_contrast_i,
+        "feet_phase_contact": feet_phase_contact_i,
+        "feet_double_stance": feet_double_stance_i,
+        "alive": alive_i,
+    }
+    NUMBA_OBSERVATION_ITEM = scaled_copy_i
+    NUMBA_TERMINATION_ITEM = terminated_i
 
 
 class G1WalkNumbaAccelerator:
-    """Driver that keeps config-derived arrays and calls the fused kernel."""
+    """Resolved-plan Numba driver for the G1WalkFlat pilot."""
 
-    def __init__(
-        self,
-        *,
-        num_envs: int,
-        num_action: int,
-        ctrl_dt: float,
-        tracking_sigma: float,
-        base_height_target: float,
-        min_base_height: float,
-        max_tilt_deg: float,
-        feet_phase_swing_height: float,
-        feet_phase_tracking_sigma: float,
-        min_forward_speed_for_gait_reward: float,
-        close_feet_threshold: float,
-        default_angles: np.ndarray,
-        pose_weights: np.ndarray,
-        upper_body_pose_weights: np.ndarray,
-        actor_obs_width: int,
-        critic_obs_width: int,
-        walk_observation_profile: bool,
-        num_threads: int | None = None,
-    ) -> None:
-        self.num_envs = int(num_envs)
-        self.num_action = int(num_action)
-        self.ctrl_dt = float(ctrl_dt)
-        self.tracking_sigma = float(tracking_sigma)
-        self.base_height_target = float(base_height_target)
-        self.min_base_height = float(min_base_height)
-        self.max_tilt_rad = float(np.deg2rad(max_tilt_deg))
-        self.feet_phase_swing_height = float(feet_phase_swing_height)
-        self.feet_phase_tracking_sigma = float(feet_phase_tracking_sigma)
-        self.min_forward_speed_for_gait_reward = float(min_forward_speed_for_gait_reward)
-        self.close_feet_threshold = float(close_feet_threshold)
-        self.default_angles = np.asarray(default_angles, dtype=np.float64)
-        self.pose_weights = np.asarray(pose_weights, dtype=np.float64)
-        self.upper_body_pose_weights = np.asarray(upper_body_pose_weights, dtype=np.float64)
-        self.actor_obs_width = int(actor_obs_width)
-        self.critic_obs_width = int(critic_obs_width)
-        self.walk_observation_profile = bool(walk_observation_profile)
+    def __init__(self, env: Any, *, num_threads: int | None = None) -> None:
+        from unilab.envs.locomotion.g1.terms import resolve_g1_walk_term_plan
+        from unilab.term.numba import FusedOutputLayout, materialize_numba_plan
+
+        config = env._cfg.term_plan
+        if config is None:
+            raise ValueError(
+                "G1Walk Numba fused execution requires env.term_plan; disable "
+                "numba_acceleration for tasks that retain the legacy NumPy path"
+            )
+        resolved = resolve_g1_walk_term_plan(
+            num_action=env._num_action,
+            reward_cfg=env._reward_cfg,
+            observations=config.observations,
+            terminations=config.terminations,
+            walk_profile=env._uses_walk_observation_profile(),
+        )
+        inputs = {
+            name: np.zeros((env._num_envs, *spec.shape), dtype=spec.numpy_dtype)
+            for name, spec in resolved.plan.input_specs.items()
+        }
+        for name, value in (
+            ("default_angles", env.default_angles),
+            ("pose_weights", env._pose_weights),
+            ("upper_body_pose_weights", env._upper_body_pose_weights),
+        ):
+            if name in inputs:
+                np.copyto(inputs[name], np.broadcast_to(value, inputs[name].shape))
+        observations = {
+            group: np.empty((env._num_envs, width), dtype=get_global_dtype())
+            for group, width in resolved.observation_dims.items()
+        }
+        reward = np.empty((env._num_envs,), dtype=get_global_dtype())
+        terminated = np.empty((env._num_envs,), dtype=np.bool_)
+        layout = FusedOutputLayout(
+            rewards=tuple(output for _, output in resolved.reward_outputs),
+            observations=resolved.observation_outputs,
+            terminations=resolved.termination_outputs,
+        )
+        self.runtime = materialize_numba_plan(
+            resolved.plan,
+            layout,
+            num_envs=env._num_envs,
+            inputs=inputs,
+            observations=observations,
+            reward=reward,
+            terminated=terminated,
+        )
+        self.resolved = resolved
+        self.inputs = inputs
+        self._owned_inputs = inputs.copy()
+        self.obs = observations
+        self.num_envs = env._num_envs
         self.num_threads = num_threads
-        self.scale = np.zeros((len(TERM_ORDER),), dtype=np.float64)
-        self._zero_vec2 = np.zeros((self.num_envs, 2), dtype=np.float64)
-        self._zero_vec3 = np.zeros((self.num_envs, 3), dtype=np.float64)
-        self._zero_vec4 = np.zeros((self.num_envs, 4), dtype=np.float64)
-        self._zero_bool = np.zeros((self.num_envs,), dtype=np.bool_)
+        self.ctrl_dt = float(env._cfg.ctrl_dt)
+        self.first_jit_ms: float | None = None
+        self._reward_outputs = dict(resolved.reward_outputs)
+        self._plan_indices = {term.name: index for index, term in enumerate(resolved.plan.terms)}
+        self._log_scratch: np.ndarray | None = None
+
+    @property
+    def compile_info(self):
+        return self.runtime.compile_info
 
     @classmethod
     def from_env(cls, env: Any, num_threads: int | None = None) -> "G1WalkNumbaAccelerator":
         if not NUMBA_AVAILABLE:
             raise RuntimeError(
-                "G1Walk numba_acceleration=True requires numba. Install it or run through "
-                "`uv run --with numba ...`; disable numba_acceleration to use the numpy path."
+                "G1Walk numba_acceleration=True requires numba. Install it or disable "
+                "numba_acceleration to use the NumPy path."
             )
-        return cls(
-            num_envs=env.num_envs,
-            num_action=env._num_action,
-            ctrl_dt=env._cfg.ctrl_dt,
-            tracking_sigma=env._reward_cfg.tracking_sigma,
-            base_height_target=env._reward_cfg.base_height_target,
-            min_base_height=env._reward_cfg.min_base_height,
-            max_tilt_deg=env._reward_cfg.max_tilt_deg,
-            feet_phase_swing_height=env._reward_cfg.feet_phase_swing_height,
-            feet_phase_tracking_sigma=env._reward_cfg.feet_phase_tracking_sigma,
-            min_forward_speed_for_gait_reward=getattr(
-                env._reward_cfg, "min_forward_speed_for_gait_reward", 0.0
-            ),
-            close_feet_threshold=getattr(env._reward_cfg, "close_feet_threshold", 0.15),
-            default_angles=env.default_angles,
-            pose_weights=env._pose_weights,
-            upper_body_pose_weights=env._upper_body_pose_weights,
-            actor_obs_width=env.obs_groups_spec["obs"],
-            critic_obs_width=env.obs_groups_spec["critic"],
-            walk_observation_profile=env._uses_walk_observation_profile(),
-            num_threads=num_threads,
-        )
+        return cls(env, num_threads=num_threads)
 
     def _sync_scales(self, scales: Mapping[str, float]) -> None:
-        unsupported = unsupported_terms(scales)
+        unsupported = _active_terms(scales) - self._reward_outputs.keys()
         if unsupported:
             raise ValueError(
-                "G1Walk Numba accelerator does not support active reward terms "
-                f"{sorted(unsupported)}. Disable numba_acceleration or add these terms "
-                "to src/unilab/envs/locomotion/g1/joystick_numba.py."
+                f"G1Walk Numba plan does not support active reward terms {sorted(unsupported)}"
             )
-        self.scale.fill(0.0)
-        for name, value in scales.items():
-            idx = TERM_INDEX.get(name)
-            if idx is not None:
-                self.scale[idx] = float(value)
+        for reward_name, output_name in self._reward_outputs.items():
+            self.runtime.set_scale(output_name, scales.get(reward_name, 0.0))
 
-    def compute(
+    def _bind_inputs(
         self,
-        *,
         env: Any,
         info: dict[str, Any],
         linvel: np.ndarray,
@@ -836,118 +358,72 @@ class G1WalkNumbaAccelerator:
         gravity: np.ndarray,
         dof_pos: np.ndarray,
         dof_vel: np.ndarray,
-        scales: Mapping[str, float],
-        enable_log: bool,
-    ) -> G1WalkNumbaResult:
-        if not NUMBA_AVAILABLE:
-            raise RuntimeError(
-                "G1Walk Numba accelerator was constructed while numba is unavailable; "
-                "this indicates an invalid accelerator state."
-            )
-        self._sync_scales(scales)
+    ) -> None:
+        def bind(name: str, value: np.ndarray) -> None:
+            if name in self.inputs:
+                self.inputs[name] = np.asarray(value)
 
-        active = _active_terms(scales)
-        backend = env._backend
-        dtype = linvel.dtype
-        base_height = np.asarray(backend.get_base_pos()[:, 2], dtype=dtype)
-        commands = np.asarray(info["commands"], dtype=dtype)
-        current_actions = np.asarray(
-            info.get("current_actions", np.zeros((self.num_envs, self.num_action), dtype=dtype)),
-            dtype=dtype,
+        for name, value in (
+            ("linvel", linvel),
+            ("gyro", gyro),
+            ("gravity", gravity),
+            ("dof_pos", dof_pos),
+            ("dof_vel", dof_vel),
+        ):
+            bind(name, value)
+        for name in ("commands", "current_actions", "last_actions", "gait_phase"):
+            if name not in self.inputs:
+                continue
+            value = info.get(name)
+            if value is None:
+                value = self._owned_inputs[name]
+                value.fill(0)
+            bind(name, value)
+
+        if "dof_pos_diff" in self.inputs:
+            target = self._owned_inputs["dof_pos_diff"]
+            np.subtract(dof_pos, env.default_angles, out=target)
+            bind("dof_pos_diff", target)
+        noisy_dof_pos = (
+            self.inputs["dof_pos_diff"]
+            if "dof_pos_diff" in self.inputs
+            else dof_pos - env.default_angles
         )
-        last_actions = np.asarray(
-            info.get("last_actions", np.zeros((self.num_envs, self.num_action), dtype=dtype)),
-            dtype=dtype,
+        noisy_sources = (
+            ("noisy_gyro", gyro, env._cfg.noise_config.scale_gyro),
+            ("noisy_gravity", gravity, env._cfg.noise_config.scale_gravity),
+            (
+                "noisy_dof_pos",
+                noisy_dof_pos,
+                env._cfg.noise_config.scale_joint_angle,
+            ),
+            ("noisy_dof_vel", dof_vel, env._cfg.noise_config.scale_joint_vel),
         )
-        gait_phase = np.asarray(info.get("gait_phase", self._zero_vec2), dtype=dtype)
-        feet_air_time = np.asarray(info.get("feet_air_time", self._zero_vec2), dtype=dtype)
+        for name, value, scale in noisy_sources:
+            if name in self.inputs:
+                bind(name, env._obs_noise(value, scale))
 
-        if active & FOOT_POSITION_TERMS:
-            left_foot_pos = np.asarray(backend.get_sensor_data("left_foot_pos"), dtype=dtype)
-            right_foot_pos = np.asarray(backend.get_sensor_data("right_foot_pos"), dtype=dtype)
-        else:
-            left_foot_pos = right_foot_pos = self._zero_vec3
-
-        if active & FOOT_QUAT_TERMS:
-            left_foot_quat = np.asarray(backend.get_sensor_data("left_foot_quat"), dtype=dtype)
-            right_foot_quat = np.asarray(backend.get_sensor_data("right_foot_quat"), dtype=dtype)
-        else:
-            left_foot_quat = right_foot_quat = self._zero_vec4
-
-        if active & FOOT_CONTACT_TERMS:
-            left_contact = _aggregated_contact(
-                backend,
-                (
-                    "left_foot_contact_0",
-                    "left_foot_contact_1",
-                    "left_foot_contact_2",
-                    "left_foot_contact_3",
-                ),
+        if "base_height" in self.inputs:
+            bind("base_height", env._backend.get_base_pos()[:, 2])
+        for name in ("left_foot_pos", "right_foot_pos", "left_foot_quat", "right_foot_quat"):
+            if name in self.inputs:
+                bind(name, env._backend.get_sensor_data(name))
+        if "left_contact" in self.inputs or "right_contact" in self.inputs:
+            from unilab.envs.locomotion.g1.joystick import (
+                LEFT_FOOT_CONTACT_SENSORS,
+                RIGHT_FOOT_CONTACT_SENSORS,
+                compute_aggregated_foot_contact,
             )
-            right_contact = _aggregated_contact(
-                backend,
-                (
-                    "right_foot_contact_0",
-                    "right_foot_contact_1",
-                    "right_foot_contact_2",
-                    "right_foot_contact_3",
-                ),
+
+            bind(
+                "left_contact",
+                compute_aggregated_foot_contact(env._backend, LEFT_FOOT_CONTACT_SENSORS),
             )
-        else:
-            left_contact = right_contact = self._zero_bool
-
-        if self.num_threads is not None:
-            set_num_threads(self.num_threads)
-        nthreads = get_num_threads()
-        reward = np.empty((linvel.shape[0],), dtype=dtype)
-        terminated = np.empty((linvel.shape[0],), dtype=np.bool_)
-        log_scratch = np.zeros((nthreads, len(TERM_ORDER)), dtype=np.float64)
-
-        _compute_reward_termination_kernel(
-            linvel,
-            gyro,
-            gravity,
-            dof_pos,
-            dof_vel,
-            base_height,
-            commands,
-            current_actions,
-            last_actions,
-            gait_phase,
-            self.default_angles,
-            self.pose_weights,
-            self.upper_body_pose_weights,
-            left_foot_pos,
-            right_foot_pos,
-            left_foot_quat,
-            right_foot_quat,
-            left_contact,
-            right_contact,
-            feet_air_time,
-            self.scale,
-            self.ctrl_dt,
-            self.tracking_sigma,
-            self.base_height_target,
-            self.min_base_height,
-            self.max_tilt_rad,
-            self.feet_phase_swing_height,
-            self.feet_phase_tracking_sigma,
-            self.min_forward_speed_for_gait_reward,
-            self.close_feet_threshold,
-            reward,
-            terminated,
-            log_scratch,
-        )
-
-        step_count = info.get("steps", np.zeros((linvel.shape[0],), dtype=np.uint32))
-        should_log = enable_log and int(step_count[0]) % 4 == 0
-        log = {} if should_log else info.get("log", {})
-        if should_log:
-            term_sums = log_scratch.sum(axis=0)
-            for idx, name in enumerate(TERM_ORDER):
-                if self.scale[idx] != 0.0:
-                    log[f"reward/{name}"] = float(term_sums[idx] / linvel.shape[0])
-        return G1WalkNumbaResult(reward=reward, terminated=terminated, log=log)
+            bind(
+                "right_contact",
+                compute_aggregated_foot_contact(env._backend, RIGHT_FOOT_CONTACT_SENSORS),
+            )
+        self.runtime.bind_inputs(self.inputs)
 
     def compute_update_state(
         self,
@@ -963,146 +439,43 @@ class G1WalkNumbaAccelerator:
         enable_log: bool,
         noise_level: float,
     ) -> G1WalkNumbaUpdateStateResult:
-        if not NUMBA_AVAILABLE:
-            raise RuntimeError(
-                "G1Walk Numba accelerator was constructed while numba is unavailable; "
-                "this indicates an invalid accelerator state."
-            )
-        if float(noise_level) > 0.0:
-            raise RuntimeError(
-                "G1Walk numba_acceleration=True does not support observation noise yet. "
-                "Set env.noise_config.level=0.0 or disable numba_acceleration."
-            )
-        self._sync_scales(scales)
-
-        n = linvel.shape[0]
-        if n != self.num_envs:
+        del noise_level  # RNG and noise application remain owned by the task input binder.
+        if linvel.shape[0] != self.num_envs:
             raise ValueError(
                 "G1Walk Numba update_state only supports full-batch updates; "
-                f"got {n} rows for configured num_envs={self.num_envs}."
+                f"got {linvel.shape[0]} rows for configured num_envs={self.num_envs}."
             )
-
-        active = _active_terms(scales)
-        backend = env._backend
-        dtype = linvel.dtype
-        base_height = np.asarray(backend.get_base_pos()[:, 2], dtype=dtype)
-        commands = np.asarray(info["commands"], dtype=dtype)
-        current_actions = np.asarray(
-            info.get("current_actions", np.zeros((self.num_envs, self.num_action), dtype=dtype)),
-            dtype=dtype,
-        )
-        last_actions = np.asarray(
-            info.get("last_actions", np.zeros((self.num_envs, self.num_action), dtype=dtype)),
-            dtype=dtype,
-        )
-        gait_phase = np.asarray(info.get("gait_phase", self._zero_vec2), dtype=dtype)
-        feet_air_time = np.asarray(info.get("feet_air_time", self._zero_vec2), dtype=dtype)
-
-        if active & FOOT_POSITION_TERMS:
-            left_foot_pos = np.asarray(backend.get_sensor_data("left_foot_pos"), dtype=dtype)
-            right_foot_pos = np.asarray(backend.get_sensor_data("right_foot_pos"), dtype=dtype)
-        else:
-            left_foot_pos = right_foot_pos = self._zero_vec3.astype(dtype, copy=False)
-
-        if active & FOOT_QUAT_TERMS:
-            left_foot_quat = np.asarray(backend.get_sensor_data("left_foot_quat"), dtype=dtype)
-            right_foot_quat = np.asarray(backend.get_sensor_data("right_foot_quat"), dtype=dtype)
-        else:
-            left_foot_quat = right_foot_quat = self._zero_vec4.astype(dtype, copy=False)
-
-        if active & FOOT_CONTACT_TERMS:
-            left_contact = _aggregated_contact(
-                backend,
-                (
-                    "left_foot_contact_0",
-                    "left_foot_contact_1",
-                    "left_foot_contact_2",
-                    "left_foot_contact_3",
-                ),
-            )
-            right_contact = _aggregated_contact(
-                backend,
-                (
-                    "right_foot_contact_0",
-                    "right_foot_contact_1",
-                    "right_foot_contact_2",
-                    "right_foot_contact_3",
-                ),
-            )
-        else:
-            left_contact = right_contact = self._zero_bool
-
+        self._sync_scales(scales)
+        self._bind_inputs(env, info, linvel, gyro, gravity, dof_pos, dof_vel)
         if self.num_threads is not None:
             set_num_threads(self.num_threads)
         nthreads = get_num_threads()
-        actor_obs = np.empty((n, self.actor_obs_width), dtype=dtype)
-        critic_obs = np.empty((n, self.critic_obs_width), dtype=dtype)
-        reward = np.empty((n,), dtype=dtype)
-        terminated = np.empty((n,), dtype=np.bool_)
-        log_scratch = np.zeros((nthreads, len(TERM_ORDER)), dtype=np.float64)
+        if self._log_scratch is None or self._log_scratch.shape[0] != nthreads:
+            self._log_scratch = np.empty((nthreads, len(self.resolved.plan.terms)), np.float64)
+        self._log_scratch.fill(0.0)
+        started = time.perf_counter()
+        self.runtime.execute(reward_multiplier=self.ctrl_dt, log_scratch=self._log_scratch)
+        if self.first_jit_ms is None:
+            self.first_jit_ms = (time.perf_counter() - started) * 1e3
 
-        actor_gyro_scale = 0.25 if self.walk_observation_profile else 1.0
-        actor_dof_vel_scale = 0.05 if self.walk_observation_profile else 1.0
-        critic_gyro_scale = 0.25 if self.walk_observation_profile else 1.0
-        critic_dof_vel_scale = 0.05 if self.walk_observation_profile else 1.0
-        critic_linvel_scale = 2.0 if self.walk_observation_profile else 1.0
-
-        _compute_update_state_kernel(
-            linvel,
-            gyro,
-            gravity,
-            dof_pos,
-            dof_vel,
-            base_height,
-            commands,
-            current_actions,
-            last_actions,
-            gait_phase,
-            self.default_angles,
-            self.pose_weights,
-            self.upper_body_pose_weights,
-            left_foot_pos,
-            right_foot_pos,
-            left_foot_quat,
-            right_foot_quat,
-            left_contact,
-            right_contact,
-            feet_air_time,
-            self.scale,
-            self.ctrl_dt,
-            self.tracking_sigma,
-            self.base_height_target,
-            self.min_base_height,
-            self.max_tilt_rad,
-            self.feet_phase_swing_height,
-            self.feet_phase_tracking_sigma,
-            self.min_forward_speed_for_gait_reward,
-            self.close_feet_threshold,
-            actor_gyro_scale,
-            actor_dof_vel_scale,
-            critic_gyro_scale,
-            critic_dof_vel_scale,
-            critic_linvel_scale,
-            actor_obs,
-            critic_obs,
-            reward,
-            terminated,
-            log_scratch,
-        )
-
-        step_count = info.get("steps")
+        steps = info.get("steps")
         should_log = enable_log and (
-            int(step_count[0]) % 4 == 0 if isinstance(step_count, np.ndarray) else True
+            int(steps[0]) % 4 == 0 if isinstance(steps, np.ndarray) else True
         )
         log = {} if should_log else info.get("log", {})
         if should_log:
-            term_sums = log_scratch.sum(axis=0)
-            for idx, name in enumerate(TERM_ORDER):
-                if self.scale[idx] != 0.0:
-                    log[f"reward/{name}"] = float(term_sums[idx] / n)
+            sums = self._log_scratch.sum(axis=0)
+            for reward_name, output_name in self._reward_outputs.items():
+                index = self._plan_indices[output_name]
+                if self.runtime.scales[index] != 0.0:
+                    log[f"reward/{reward_name}"] = float(sums[index] / self.num_envs)
         return G1WalkNumbaUpdateStateResult(
-            obs={"obs": actor_obs, "critic": critic_obs},
-            reward=reward,
-            terminated=terminated,
+            obs=self.obs,
+            reward=self.runtime.reward,
+            terminated=self.runtime.terminated,
             log=log,
         )
+
+    def compute(self, **kwargs: Any) -> G1WalkNumbaResult:
+        out = self.compute_update_state(noise_level=0.0, **kwargs)
+        return G1WalkNumbaResult(out.reward, out.terminated, out.log)

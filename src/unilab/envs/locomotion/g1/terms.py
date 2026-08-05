@@ -284,6 +284,8 @@ class G1WalkResolvedTermPlan:
 
 
 def _build_registry(num_action: int) -> TermRegistry:
+    from . import joystick_numba
+
     registry = TermRegistry()
     shapes = {
         "linvel": (3,),
@@ -372,6 +374,7 @@ def _build_registry(num_action: int) -> TermRegistry:
                 TensorSpec((), F32),
                 inputs=inputs(*input_names),
                 parameters=tuple(float_param(p) for p in parameter_names),
+                numba_item_fn=joystick_numba.NUMBA_REWARD_ITEMS.get(name),
             )
         )
 
@@ -384,6 +387,7 @@ def _build_registry(num_action: int) -> TermRegistry:
                 TensorSpec((num_action if width == -1 else width,), F32),
                 inputs=inputs(source),
                 parameters=(float_param("multiplier"),),
+                numba_item_fn=joystick_numba.NUMBA_OBSERVATION_ITEM,
             )
         )
     registry.register(
@@ -394,6 +398,7 @@ def _build_registry(num_action: int) -> TermRegistry:
             TensorSpec((), np.bool_),
             inputs=inputs("gravity", "base_height"),
             parameters=(float_param("max_tilt_rad"), float_param("min_base_height")),
+            numba_item_fn=joystick_numba.NUMBA_TERMINATION_ITEM,
         )
     )
     return registry
