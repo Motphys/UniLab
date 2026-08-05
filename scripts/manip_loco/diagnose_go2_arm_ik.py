@@ -98,8 +98,7 @@ def _state_qpos_qvel(backend: Any) -> tuple[np.ndarray, np.ndarray]:
 def _root_qpos_dim(backend: Any) -> int:
     """Floating-base qpos dimension implied by the public base state contract."""
     return int(
-        np.asarray(backend.get_base_pos()).shape[1]
-        + np.asarray(backend.get_base_quat()).shape[1]
+        np.asarray(backend.get_base_pos()).shape[1] + np.asarray(backend.get_base_quat()).shape[1]
     )
 
 

@@ -311,9 +311,7 @@ def test_missing_and_empty_runtime_roots_fail_closed(tmp_path: Path) -> None:
         "    from unilab.training import create_env\n",
     ),
 )
-def test_physics_layer_forbidden_imports_fail_closed(
-    tmp_path: Path, forbidden_import: str
-) -> None:
+def test_physics_layer_forbidden_imports_fail_closed(tmp_path: Path, forbidden_import: str) -> None:
     root = _fixture_repo(
         tmp_path,
         {"src/unilab/base/backend/mujoco/backend.py": forbidden_import},
@@ -369,9 +367,7 @@ def test_physics_layer_type_checking_only_import_at_runtime_fails_closed(
     root = _fixture_repo(
         tmp_path,
         {
-            "src/unilab/base/backend/__init__.py": (
-                "from unilab.base.base import EnvCfg\n"
-            ),
+            "src/unilab/base/backend/__init__.py": ("from unilab.base.base import EnvCfg\n"),
         },
     )
 
@@ -379,8 +375,7 @@ def test_physics_layer_type_checking_only_import_at_runtime_fails_closed(
 
     assert "physics-layer-forbidden-import" in {violation.code for violation in report.violations}
     assert any(
-        violation.path == "src/unilab/base/backend/__init__.py"
-        for violation in report.violations
+        violation.path == "src/unilab/base/backend/__init__.py" for violation in report.violations
     )
 
 
@@ -440,8 +435,7 @@ def test_runtime_layers_keep_strict_probe_rules(tmp_path: Path) -> None:
                 "    return getattr(backend, 'scene_visual_model_file', None)\n"
             ),
             "src/unilab/training/run.py": (
-                "def diag(env):\n"
-                "    return hasattr(env._backend, 'allowed')\n"
+                "def diag(env):\n    return hasattr(env._backend, 'allowed')\n"
             ),
         },
     )
