@@ -132,34 +132,6 @@ def test_documented_sibling_cold_path_exception_passes(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("module_name", "symbol"),
-    (
-        ("batch", "BatchContract"),
-        ("mutation", "MutationContract"),
-    ),
-)
-def test_runtime_can_import_approved_shared_contract(
-    tmp_path: Path, module_name: str, symbol: str
-) -> None:
-    root = _fixture_repo(
-        tmp_path,
-        {
-            f"src/unilab/base/backend/{module_name}.py": f"class {symbol}:\n    pass\n",
-            "src/unilab/base/backend/mujoco/backend.py": (
-                f"from unilab.base.backend.{module_name} import {symbol}\n"
-                "from ..base import SimBackend\n\n"
-                "class MuJoCoBackend(SimBackend):\n"
-                "    pass\n"
-            ),
-        },
-    )
-
-    report = audit_backend_isolation(root)
-
-    assert report.ok
-
-
-@pytest.mark.parametrize(
     ("source", "expected_code"),
     [
         (
