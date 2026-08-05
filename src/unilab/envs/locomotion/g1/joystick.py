@@ -27,6 +27,15 @@ from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
+from unilab.envs.locomotion.g1.terms import (
+    DEFAULT_OBSERVATION_TERMS,
+    DEFAULT_TERMINATION_TERMS,
+    compute_feet_phase_contact_targets,
+    compute_feet_phase_height_targets,
+    compute_forward_command_mask,
+    compute_forward_speed_gate,
+    resolve_g1_walk_term_plan,
+)
 
 
 @dataclass
@@ -75,31 +84,6 @@ def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
     return np.asarray(weights, dtype=get_global_dtype())
 
 
-def compute_feet_phase_height_targets(
-    gait_phase: np.ndarray, swing_height: float
-) -> tuple[np.ndarray, np.ndarray]:
-    def cubic_bezier_height(phi: np.ndarray, swing_height: float) -> np.ndarray:
-        phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
-        x = (phi_normalized + np.pi) / (2 * np.pi)
-
-        def cubic_bezier_interpolation(
-            y_start: np.ndarray, y_end: np.ndarray, t: np.ndarray
-        ) -> np.ndarray:
-            y_diff = y_end - y_start
-            bezier = t**3 + 3 * (t**2 * (1 - t))
-            return np.asarray(y_start + y_diff * bezier, dtype=get_global_dtype())
-
-        stance = cubic_bezier_interpolation(np.zeros_like(x), np.full_like(x, swing_height), 2 * x)
-        swing = cubic_bezier_interpolation(
-            np.full_like(x, swing_height), np.zeros_like(x), 2 * x - 1
-        )
-        return np.where(x <= 0.5, stance, swing)
-
-    left_target = cubic_bezier_height(gait_phase[:, 0], swing_height)
-    right_target = cubic_bezier_height(gait_phase[:, 1], swing_height)
-    return left_target, right_target
-
-
 LEFT_FOOT_CONTACT_SENSORS = [f"left_foot_contact_{i}" for i in range(4)]
 RIGHT_FOOT_CONTACT_SENSORS = [f"right_foot_contact_{i}" for i in range(4)]
 
@@ -116,23 +100,6 @@ def _scalarize_sensor_values(sensor_values: np.ndarray) -> np.ndarray:
 def compute_aggregated_foot_contact(backend: Any, sensor_names: list[str]) -> np.ndarray:
     contacts = [_scalarize_sensor_values(backend.get_sensor_data(name)) for name in sensor_names]
     return np.asarray(np.any(np.stack(contacts, axis=1) > 0.5, axis=1), dtype=np.bool_)
-
-
-def compute_feet_phase_contact_targets(
-    gait_phase: np.ndarray, swing_height: float
-) -> tuple[np.ndarray, np.ndarray]:
-    left_target, right_target = compute_feet_phase_height_targets(gait_phase, swing_height)
-    contact_height_threshold = swing_height * 0.5
-    return left_target <= contact_height_threshold, right_target <= contact_height_threshold
-
-
-def compute_forward_speed_gate(linvel: np.ndarray, min_forward_speed: float) -> np.ndarray:
-    forward_speed = np.maximum(linvel[:, 0], 0.0)
-    return np.asarray(forward_speed >= min_forward_speed, dtype=get_global_dtype())
-
-
-def compute_forward_command_mask(commands: np.ndarray) -> np.ndarray:
-    return np.asarray(np.maximum(commands[:, 0], 0.0) > 1.0e-6, dtype=get_global_dtype())
 
 
 @dataclass
@@ -199,6 +166,16 @@ class CurriculumConfig:
 
 
 @dataclass
+class G1WalkTermPlanConfig:
+    observations: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            name: list(terms) for name, terms in DEFAULT_OBSERVATION_TERMS.items()
+        }
+    )
+    terminations: list[str] = field(default_factory=lambda: list(DEFAULT_TERMINATION_TERMS))
+
+
+@dataclass
 class G1WalkEnvCfg(G1BaseCfg):
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
@@ -215,6 +192,7 @@ class G1WalkEnvCfg(G1BaseCfg):
     curriculum: CurriculumConfig = field(default_factory=CurriculumConfig)
     numba_acceleration: bool = False
     numba_num_threads: int | None = None
+    term_plan: G1WalkTermPlanConfig | None = None
 
 
 class G1WalkDomainRandomizationProvider(LocomotionDRProvider):
@@ -324,6 +302,10 @@ class G1WalkEnv(G1BaseEnv):
             )
 
         self._init_reward_functions()
+        self._resolved_terms: Any = None
+        self._term_runtime: Any = None
+        if cfg.term_plan is not None and not cfg.numba_acceleration:
+            self._init_term_plan(cfg.term_plan)
         self._numba_accelerator = None
         if cfg.numba_acceleration:
             from unilab.envs.locomotion.g1.joystick_numba import G1WalkNumbaAccelerator
@@ -347,8 +329,52 @@ class G1WalkEnv(G1BaseEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
+        if getattr(self, "_resolved_terms", None) is not None:
+            return dict(self._resolved_terms.observation_dims)
         # gyro(3) + gravity(3) + diff(29) + dof_vel(29) + action(29) + cmd(3) + phase(2) = 98
         return {"obs": 98, "critic": 101}
+
+    def _init_term_plan(self, config: G1WalkTermPlanConfig) -> None:
+        resolved = resolve_g1_walk_term_plan(
+            num_action=self._num_action,
+            reward_cfg=self._reward_cfg,
+            observations=config.observations,
+            terminations=config.terminations,
+            walk_profile=self._uses_walk_observation_profile(),
+        )
+        inputs = {
+            name: np.zeros((self._num_envs, *spec.shape), dtype=spec.numpy_dtype)
+            for name, spec in resolved.plan.input_specs.items()
+        }
+        for name, value in (
+            ("default_angles", self.default_angles),
+            ("pose_weights", self._pose_weights),
+            ("upper_body_pose_weights", self._upper_body_pose_weights),
+        ):
+            if name in inputs:
+                np.copyto(inputs[name], np.broadcast_to(value, inputs[name].shape))
+        runtime = resolved.plan.materialize(num_envs=self._num_envs, inputs=inputs)
+        obs = {
+            group: np.empty((self._num_envs, width), dtype=get_global_dtype())
+            for group, width in resolved.observation_dims.items()
+        }
+        self._resolved_terms = resolved
+        self._term_inputs = inputs
+        self._term_runtime = runtime
+        self._term_obs = obs
+        self._term_reward = np.empty((self._num_envs,), dtype=get_global_dtype())
+        self._term_terminated = np.empty((self._num_envs,), dtype=np.bool_)
+        self._sync_term_reward_scales()
+
+    def _sync_term_reward_scales(self) -> None:
+        assert self._resolved_terms is not None and self._term_runtime is not None
+        active = []
+        for reward_name, output_name in self._resolved_terms.reward_outputs:
+            scale = self._reward_cfg.scales[reward_name]
+            self._term_runtime.set_scale(output_name, scale)
+            if scale != 0.0:
+                active.append((reward_name, output_name))
+        self._active_term_rewards = tuple(active)
 
     def _init_reward_functions(self):
         self._reward_fns: dict[str, Any] = {
@@ -404,14 +430,19 @@ class G1WalkEnv(G1BaseEnv):
             obs = accel_result.obs
             state.info["log"] = accel_result.log
         else:
-            max_tilt_rad = np.deg2rad(self._reward_cfg.max_tilt_deg)
-            tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
-            terminated = np.logical_or(
-                tilt > max_tilt_rad,
-                self._terrain_relative_base_height() < self._reward_cfg.min_base_height,
-            )
-            reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
-            obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
+            if self._term_runtime is not None:
+                obs, reward, terminated = self._compute_term_state(
+                    state.info, linvel, gyro, gravity, dof_pos, dof_vel
+                )
+            else:
+                max_tilt_rad = np.deg2rad(self._reward_cfg.max_tilt_deg)
+                tilt = np.arccos(np.clip(gravity[:, 2], -1, 1))
+                terminated = np.logical_or(
+                    tilt > max_tilt_rad,
+                    self._terrain_relative_base_height() < self._reward_cfg.min_base_height,
+                )
+                reward = self._compute_reward(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
+                obs = self._compute_obs(state.info, linvel, gyro, gravity, dof_pos, dof_vel)
 
         state = state.replace(obs=obs, reward=reward, terminated=terminated)
 
@@ -423,6 +454,8 @@ class G1WalkEnv(G1BaseEnv):
         episode_lengths = state.info["steps"][done_indices] + 1
         self._episode_tracker.update(episode_lengths)
         self._penalty_curriculum.update(self._episode_tracker.average_length)
+        if getattr(self, "_term_runtime", None) is not None:
+            self._sync_term_reward_scales()
 
         if "log" not in state.info:
             state.info["log"] = {}
@@ -434,7 +467,152 @@ class G1WalkEnv(G1BaseEnv):
         )
         return state
 
+    @staticmethod
+    def _copy_term_input(inputs: dict[str, np.ndarray], name: str, value: np.ndarray) -> None:
+        if name in inputs:
+            np.copyto(inputs[name], value, casting="same_kind")
+
+    def _populate_term_inputs(
+        self,
+        inputs: dict[str, np.ndarray],
+        info: dict,
+        linvel: np.ndarray,
+        gyro: np.ndarray,
+        gravity: np.ndarray,
+        dof_pos: np.ndarray,
+        dof_vel: np.ndarray,
+    ) -> None:
+        copy = self._copy_term_input
+        for name, value in (
+            ("linvel", linvel),
+            ("gyro", gyro),
+            ("gravity", gravity),
+            ("dof_pos", dof_pos),
+            ("dof_vel", dof_vel),
+        ):
+            copy(inputs, name, value)
+
+        count = linvel.shape[0]
+        for name, width in (
+            ("commands", 3),
+            ("current_actions", self._num_action),
+            ("last_actions", self._num_action),
+            ("gait_phase", 2),
+        ):
+            if name in inputs:
+                value = info.get(name)
+                if value is None:
+                    inputs[name].fill(0)
+                else:
+                    copy(inputs, name, np.asarray(value).reshape(count, width))
+
+        if "dof_pos_diff" in inputs:
+            np.subtract(dof_pos, self.default_angles, out=inputs["dof_pos_diff"])
+        noisy_sources = (
+            ("noisy_gyro", gyro, self._cfg.noise_config.scale_gyro),
+            ("noisy_gravity", gravity, self._cfg.noise_config.scale_gravity),
+            (
+                "noisy_dof_pos",
+                dof_pos - self.default_angles,
+                self._cfg.noise_config.scale_joint_angle,
+            ),
+            ("noisy_dof_vel", dof_vel, self._cfg.noise_config.scale_joint_vel),
+        )
+        for name, value, scale in noisy_sources:
+            if name not in inputs:
+                continue
+            copy(inputs, name, value)
+            noisy = self._obs_noise(inputs[name], scale)
+            if noisy is not inputs[name]:
+                copy(inputs, name, noisy)
+
+        if "base_height" in inputs:
+            copy(inputs, "base_height", self._backend.get_base_pos()[:, 2])
+        for name in ("left_foot_pos", "right_foot_pos", "left_foot_quat", "right_foot_quat"):
+            if name in inputs:
+                copy(inputs, name, self._backend.get_sensor_data(name))
+        if "left_contact" in inputs or "right_contact" in inputs:
+            copy(
+                inputs,
+                "left_contact",
+                compute_aggregated_foot_contact(self._backend, LEFT_FOOT_CONTACT_SENSORS),
+            )
+            copy(
+                inputs,
+                "right_contact",
+                compute_aggregated_foot_contact(self._backend, RIGHT_FOOT_CONTACT_SENSORS),
+            )
+
+    def _assemble_term_observations(
+        self, outputs: Any, target: dict[str, np.ndarray]
+    ) -> dict[str, np.ndarray]:
+        assert self._resolved_terms is not None
+        for group, names in self._resolved_terms.observation_outputs.items():
+            start = 0
+            for name in names:
+                width = outputs[name].shape[1]
+                np.copyto(target[group][:, start : start + width], outputs[name])
+                start += width
+        return target
+
+    def _compute_term_state(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
+    ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+        assert self._resolved_terms is not None and self._term_runtime is not None
+        self._populate_term_inputs(
+            self._term_inputs,
+            info,
+            linvel,
+            gyro,
+            gravity,
+            dof_pos,
+            dof_vel,
+        )
+        outputs = self._term_runtime.execute()
+        self._assemble_term_observations(outputs, self._term_obs)
+        self._term_reward.fill(0)
+        for _, name in self._resolved_terms.reward_outputs:
+            np.add(self._term_reward, outputs[name], out=self._term_reward)
+        np.multiply(self._term_reward, self._cfg.ctrl_dt, out=self._term_reward)
+        self._term_terminated.fill(False)
+        for name in self._resolved_terms.termination_outputs:
+            np.logical_or(self._term_terminated, outputs[name], out=self._term_terminated)
+
+        steps = info.get("steps", np.zeros((self._num_envs,), dtype=np.uint32))
+        should_log = self._enable_reward_log and int(steps[0]) % 4 == 0
+        log = {} if should_log else info.get("log", {})
+        if should_log:
+            for reward_name, name in self._active_term_rewards:
+                log[f"reward/{reward_name}"] = float(np.mean(outputs[name]))
+        info["log"] = log
+        return self._term_obs, self._term_reward, self._term_terminated
+
     def _compute_obs(
+        self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
+    ) -> dict[str, np.ndarray]:
+        legacy = G1WalkEnv._compute_legacy_obs(self, info, linvel, gyro, gravity, dof_pos, dof_vel)
+        if getattr(self, "_resolved_terms", None) is None:
+            return legacy
+        actor_layout = self._actor_symmetry_obs_layout()
+        layouts = {"obs": actor_layout, "critic": (*actor_layout, ("linvel", 3))}
+        selected = {}
+        for group, layout in layouts.items():
+            start = 0
+            slices = {}
+            for label, width in layout:
+                slices[label] = slice(start, start + width)
+                start += width
+            selected[group] = np.concatenate(
+                [
+                    legacy[group][:, slices[label]]
+                    for label in self._resolved_terms.observation_labels[group]
+                ],
+                axis=1,
+                dtype=get_global_dtype(),
+            )
+        return selected
+
+    def _compute_legacy_obs(
         self, info: dict, linvel, gyro, gravity, dof_pos, dof_vel
     ) -> dict[str, np.ndarray]:
         noise_cfg = self._cfg.noise_config
@@ -527,6 +705,16 @@ class G1WalkEnv(G1BaseEnv):
         )
 
     def get_symmetry_obs_layouts(self) -> dict[str, SymmetryObsLayout]:
+        if getattr(self, "_resolved_terms", None) is not None:
+            return {
+                group: tuple(
+                    (label, self._resolved_terms.plan.output_specs[name].shape[0])
+                    for label, name in zip(
+                        self._resolved_terms.observation_labels[group], names, strict=True
+                    )
+                )
+                for group, names in self._resolved_terms.observation_outputs.items()
+            }
         actor_layout = self._actor_symmetry_obs_layout()
         return {
             "obs": actor_layout,
@@ -710,6 +898,7 @@ class G1WalkRewardConfig(G1RewardConfig):
 @dataclass
 class G1WalkFlatCfg(G1WalkEnvCfg):
     reward_config: G1WalkRewardConfig | None = None
+    term_plan: G1WalkTermPlanConfig | None = field(default_factory=G1WalkTermPlanConfig)
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
@@ -722,6 +911,7 @@ class G1WalkFlatCfg(G1WalkEnvCfg):
 @registry.envcfg("G1WalkRough")
 @dataclass
 class G1WalkRoughCfg(G1WalkFlatCfg):
+    term_plan: G1WalkTermPlanConfig | None = None
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_rough.xml")
@@ -746,6 +936,7 @@ class G1Walk23DofEnv(G1WalkEnv):
 @registry.envcfg("G1Walk23DofFlat")
 @dataclass
 class G1Walk23DofFlatCfg(G1WalkFlatCfg):
+    term_plan: G1WalkTermPlanConfig | None = None
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat_23dof.xml")
