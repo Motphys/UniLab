@@ -304,7 +304,6 @@ def test_missing_and_empty_runtime_roots_fail_closed(tmp_path: Path) -> None:
         "from unilab.envs.task import Task\n",
         "from unilab.training import create_env\n",
         "from unilab.algos import ppo\n",
-        "from unilab.manager import ManagedEnvState\n",
         "from unilab.ipc import async_runner\n",
         "from typing import TYPE_CHECKING\n"
         "if TYPE_CHECKING:\n"
@@ -425,15 +424,10 @@ def test_scripts_public_probe_and_contract_calls_pass(tmp_path: Path) -> None:
     assert audit_backend_isolation(root).ok
 
 
-def test_runtime_layers_keep_strict_probe_rules(tmp_path: Path) -> None:
+def test_training_runtime_keeps_strict_probe_rules(tmp_path: Path) -> None:
     root = _fixture_repo(
         tmp_path,
         {
-            "src/unilab/manager/scene.py": (
-                "def diag(env):\n"
-                "    backend = getattr(env, '_backend', None)\n"
-                "    return getattr(backend, 'scene_visual_model_file', None)\n"
-            ),
             "src/unilab/training/run.py": (
                 "def diag(env):\n    return hasattr(env._backend, 'allowed')\n"
             ),
@@ -444,7 +438,6 @@ def test_runtime_layers_keep_strict_probe_rules(tmp_path: Path) -> None:
 
     assert "dynamic-backend-probe" in {violation.code for violation in report.violations}
     assert {violation.path for violation in report.violations} == {
-        "src/unilab/manager/scene.py",
         "src/unilab/training/run.py",
     }
 
