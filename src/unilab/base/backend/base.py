@@ -13,19 +13,6 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 
-from .batch import (
-    BackendIORequirements,
-    BackendMutationBatch,
-    BackendReadResult,
-    BackendResetResult,
-    BackendStepResult,
-    BoundBackendPlan,
-    ControlBatch,
-    ExecutionProfile,
-    RowSelection,
-    StateBatchPhase,
-)
-
 PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
 
 
@@ -274,56 +261,6 @@ class SimBackend(abc.ABC):
     # ------------------------------------------------------------------ #
     # Simulation control                                                   #
     # ------------------------------------------------------------------ #
-
-    def bind_task_io(self, requirements: BackendIORequirements) -> BoundBackendPlan:
-        """Bind managed task state/control requirements on the cold path."""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support typed backend batches"
-        )
-
-    def step_batch(
-        self,
-        plan: BoundBackendPlan,
-        control_batch: ControlBatch,
-        *,
-        mutation_batch: BackendMutationBatch | None = None,
-        nsteps: int = 1,
-    ) -> BackendStepResult:
-        """Advance physics through a bound typed batch plan."""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support typed backend batches"
-        )
-
-    def read_state_batch(
-        self,
-        plan: BoundBackendPlan,
-        rows: RowSelection,
-        *,
-        phase: StateBatchPhase = StateBatchPhase.CURRENT,
-    ) -> BackendReadResult:
-        """Materialize one borrowed state batch from a bound backend plan."""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support typed backend batches"
-        )
-
-    def reset_batch(
-        self,
-        plan: BoundBackendPlan,
-        rows: RowSelection,
-        *,
-        mutation_batch: BackendMutationBatch | None = None,
-    ) -> BackendResetResult:
-        """Reset selected rows through a bound typed batch plan.
-
-        ``mutation_batch=None`` is part of the shared backend ABI because a
-        concrete reset contract may support an identity reset. Backends whose
-        compiled task contract requires reset values must reject ``None`` at
-        the earliest owner boundary where that requirement is known, and must
-        still fail closed here if no earlier binding boundary has that data.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support typed backend batches"
-        )
 
     @abc.abstractmethod
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:

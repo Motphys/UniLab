@@ -12,9 +12,7 @@ _RUNTIME_FILENAMES = frozenset({"backend.py", "batch.py"})
 _SHARED_RUNTIME_MODULES = frozenset(
     {
         "base",
-        "batch",
         "motrix_camera",
-        "mutation",
         "playback_common",
     }
 )

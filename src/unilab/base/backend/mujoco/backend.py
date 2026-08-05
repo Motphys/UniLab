@@ -4,7 +4,7 @@ import time
 import weakref
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from multiprocessing import cpu_count, current_process, get_context
 from typing import Any, Optional, cast
 
@@ -41,27 +41,6 @@ from ..base import (
     SimBackend,
     normalize_play_render_mode,
 )
-from ..batch import (
-    BackendBatchContractError,
-    BackendBatchDiagnostics,
-    BackendIORequirements,
-    BackendMutationBatch,
-    BackendReadResult,
-    BackendStepResult,
-    BackendTiming,
-    BoundBackendPlan,
-    BufferContract,
-    BufferLayout,
-    BufferLifetime,
-    BufferMutability,
-    BufferOwner,
-    BufferPlacement,
-    ControlBatch,
-    ExecutionProfile,
-    RowSelection,
-    StateBatchPhase,
-)
-from .batch import _bind_mujoco_host_batch, _MuJoCoHostBatchPlan
 from .playback import run_mujoco_playback
 
 
@@ -348,9 +327,6 @@ class MuJoCoBackend(SimBackend):
         self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
         self._model_assignments = np.zeros((num_envs,), dtype=np.int32)
         self._pool: BatchEnvPool | None = None
-        self._batch_instance_id = f"mujoco:{id(self):x}"
-        self._host_batch_plans: dict[str, _MuJoCoHostBatchPlan] = {}
-
         # State indices.
         self.nq = self._model.nq
         self.nv = self._model.nv
@@ -838,132 +814,7 @@ class MuJoCoBackend(SimBackend):
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
 
-    def bind_task_io(self, requirements: BackendIORequirements) -> BoundBackendPlan:
-        if self._pool is None:
-            raise BackendBatchContractError(
-                "MuJoCo typed batch binding requires a materialized backend pool"
-            )
-        bound = _bind_mujoco_host_batch(
-            self,
-            requirements,
-            backend_instance_id=self._batch_instance_id,
-        )
-        existing = self._host_batch_plans.get(bound.public_plan.fingerprint)
-        if existing is not None:
-            existing.public_plan.require_compatible(bound.public_plan)
-            return existing.public_plan
-        self._host_batch_plans[bound.public_plan.fingerprint] = bound
-        return bound.public_plan
-
-    def _require_host_batch_plan(self, plan: BoundBackendPlan) -> _MuJoCoHostBatchPlan:
-        plan.require_owner(
-            backend_type=self.backend_type,
-            backend_instance_id=self._batch_instance_id,
-        )
-        try:
-            bound = self._host_batch_plans[plan.fingerprint]
-        except KeyError as exc:
-            raise BackendBatchContractError(
-                "MuJoCo batch plan was not bound by this backend instance"
-            ) from exc
-        bound.public_plan.require_compatible(plan)
-        return bound
-
-    def _invalidate_host_batch_state(self) -> None:
-        for bound in self._host_batch_plans.values():
-            bound.lease.invalidate()
-
-    def read_state_batch(
-        self,
-        plan: BoundBackendPlan,
-        rows: RowSelection,
-        *,
-        phase: StateBatchPhase = StateBatchPhase.CURRENT,
-    ) -> BackendReadResult:
-        bound = self._require_host_batch_plan(plan)
-        if rows.universe_size != self._num_envs:
-            raise BackendBatchContractError("MuJoCo row universe does not match backend num_envs")
-        return bound.materialize(rows, phase)
-
-    def step_batch(
-        self,
-        plan: BoundBackendPlan,
-        control_batch: ControlBatch,
-        *,
-        mutation_batch: BackendMutationBatch | None = None,
-        nsteps: int = 1,
-    ) -> BackendStepResult:
-        bound = self._require_host_batch_plan(plan)
-        if self._pre_step_control_fn is not None:
-            raise BackendBatchContractError(
-                "MuJoCo managed host batches do not support pre-step control callbacks"
-            )
-        plan.require_compatible(control_batch.plan)
-        if np.any(self._pending_xfrc_applied):
-            raise BackendBatchContractError(
-                "MuJoCo managed host batches reject out-of-band external wrench state"
-            )
-        if not control_batch.rows.is_all:
-            raise BackendBatchContractError("MuJoCo physics steps require controls for all rows")
-        if nsteps != plan.control.physics_substeps_per_control:
-            raise BackendBatchContractError(
-                "MuJoCo nsteps does not match the bound control cadence"
-            )
-        control = control_batch.buffer.handle
-        if not isinstance(control, np.ndarray):
-            raise BackendBatchContractError("MuJoCo host control handle must be a numpy array")
-        if control.dtype.name != plan.control.buffer.dtype:
-            raise BackendBatchContractError("MuJoCo control handle dtype does not match the plan")
-        if control.shape != (self._num_envs, *plan.control.buffer.row_shape):
-            raise BackendBatchContractError("MuJoCo control handle shape does not match the plan")
-        if not control.flags.c_contiguous:
-            raise BackendBatchContractError("MuJoCo host control must be C-contiguous")
-
-        if mutation_batch is not None:
-            raise BackendBatchContractError("MuJoCo typed batches do not support mutation batches")
-
-        self._invalidate_host_batch_state()
-        t0 = time.perf_counter()
-        control_trajectory = bound.stage_control(control)
-        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
-
-        t0 = time.perf_counter()
-        state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
-            self._physics_state,
-            nstep=nsteps,
-            control=control_trajectory,
-            control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
-            chunk_size=self._chunk_size,
-            return_sensor=True,
-            post_step_forward_sensor=self._post_step_forward_sensor,
-        )
-        np.copyto(self._physics_state, state_np, casting="unsafe")
-        physics_ms = (time.perf_counter() - t0) * 1000.0
-
-        t0 = time.perf_counter()
-        np.copyto(self._sensor_data, sensor_np, casting="unsafe")
-        refresh_cache_ms = (time.perf_counter() - t0) * 1000.0
-
-        read_result = bound.materialize(RowSelection.all(self._num_envs), StateBatchPhase.TERMINAL)
-        diagnostics = BackendBatchDiagnostics(
-            counters=replace(
-                read_result.diagnostics.counters,
-                allocations=bound.step_allocations,
-            ),
-            timings=(
-                BackendTiming("set_ctrl_ms", set_ctrl_ms),
-                BackendTiming("physics_ms", physics_ms),
-                BackendTiming("refresh_cache_ms", refresh_cache_ms),
-                *read_result.diagnostics.timings,
-            ),
-        )
-        return BackendStepResult(
-            terminal_state=read_result.state,
-            diagnostics=diagnostics,
-        )
-
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
-        self._invalidate_host_batch_state()
         if self._pre_step_control_fn is not None:
             return self._step_with_pre_step_control(ctrl, nsteps)
 
@@ -1080,8 +931,6 @@ class MuJoCoBackend(SimBackend):
         }
         if len(env_indices) == 0:
             return {"timing": timing}
-
-        self._invalidate_host_batch_state()
 
         outer_t0 = time.perf_counter()
 
