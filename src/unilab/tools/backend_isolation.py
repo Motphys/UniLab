@@ -718,9 +718,7 @@ def audit_backend_isolation(
         runtime_modules.append(module_name)
         # Relative imports inside __init__.py resolve against the package
         # itself, so resolve them against a synthetic child module name.
-        resolution_name = (
-            f"{module_name}.__init__" if path.stem == "__init__" else module_name
-        )
+        resolution_name = f"{module_name}.__init__" if path.stem == "__init__" else module_name
         tree = _parse_source(path, root=root, violations=violations)
         if tree is not None:
             violations.extend(
