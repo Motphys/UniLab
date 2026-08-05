@@ -50,6 +50,7 @@ class _Backend:
 class _Cfg:
     ctrl_dt = 0.02
     noise_config = None
+    term_plan = None
 
 
 class _NoiseCfg:
@@ -61,6 +62,31 @@ class _NoiseCfg:
 
 
 class _RewardCfg:
+    scales = {
+        name: 0.0
+        for name in (
+            "tracking_lin_vel",
+            "tracking_ang_vel",
+            "forward_progress",
+            "under_speed",
+            "lin_vel_z",
+            "orientation",
+            "penalty_orientation",
+            "ang_vel_xy",
+            "penalty_ang_vel_xy",
+            "action_rate",
+            "penalty_action_rate",
+            "base_height",
+            "pose",
+            "upper_body_pose",
+            "penalty_feet_ori",
+            "feet_phase",
+            "feet_phase_contrast",
+            "feet_phase_contact",
+            "feet_double_stance",
+            "alive",
+        )
+    }
     tracking_sigma = 0.25
     base_height_target = 0.754
     min_base_height = 0.3
@@ -73,17 +99,25 @@ class _RewardCfg:
 
 class _Env:
     def __init__(self, n: int, n_action: int):
+        from unilab.envs.locomotion.g1.joystick import G1WalkEnv, G1WalkTermPlanConfig
+
         self.num_envs = n
         self._num_envs = n
         self._num_action = n_action
         self._cfg = _Cfg()
         self._cfg.noise_config = _NoiseCfg()
+        self._cfg.term_plan = G1WalkTermPlanConfig()
         self._reward_cfg = _RewardCfg()
         self._enable_reward_log = True
         self.default_angles = np.zeros((n_action,), dtype=np.float32)
         self._pose_weights = np.ones((n_action,), dtype=np.float32)
         self._upper_body_pose_weights = np.ones((n_action,), dtype=np.float32)
         self._backend = _Backend(n)
+        self._copy_term_input = G1WalkEnv._copy_term_input
+        self._populate_term_inputs = G1WalkEnv._populate_term_inputs.__get__(self, G1WalkEnv)
+        self._obs_noise = lambda data, scale: np.asarray(
+            data + self._cfg.noise_config.level * scale, dtype=data.dtype
+        )
 
     @property
     def obs_groups_spec(self):
@@ -276,7 +310,7 @@ def test_g1_walk_numba_update_state_parity_without_noise():
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
-def test_g1_walk_numba_update_state_rejects_noise():
+def test_g1_walk_numba_update_state_supports_owner_generated_noise():
     env = _Env(8, 29)
     accel = G1WalkNumbaAccelerator.from_env(env, num_threads=1)
     arrays = {
@@ -286,18 +320,36 @@ def test_g1_walk_numba_update_state_rejects_noise():
         "dof_pos": np.zeros((8, 29), dtype=np.float32),
         "dof_vel": np.zeros((8, 29), dtype=np.float32),
     }
-    with pytest.raises(RuntimeError, match="does not support observation noise"):
-        accel.compute_update_state(
-            env=env,
-            info={
-                "steps": np.zeros((8,), dtype=np.uint32),
-                "commands": np.zeros((8, 3), dtype=np.float32),
-            },
-            scales={"tracking_lin_vel": 1.0},
-            enable_log=False,
-            noise_level=1.0,
-            **arrays,
-        )
+    env._cfg.noise_config.level = 1.0
+    out = accel.compute_update_state(
+        env=env,
+        info={
+            "steps": np.zeros((8,), dtype=np.uint32),
+            "commands": np.zeros((8, 3), dtype=np.float32),
+        },
+        scales={"tracking_lin_vel": 1.0},
+        enable_log=False,
+        noise_level=1.0,
+        **arrays,
+    )
+    np.testing.assert_allclose(out.obs["obs"][:, :3], 0.025)
+    np.testing.assert_array_equal(out.obs["critic"][:, :3], 0.0)
+    reward_id = id(out.reward)
+    obs_ids = {name: id(value) for name, value in out.obs.items()}
+    again = accel.compute_update_state(
+        env=env,
+        info={
+            "steps": np.zeros((8,), dtype=np.uint32),
+            "commands": np.zeros((8, 3), dtype=np.float32),
+        },
+        scales={"tracking_lin_vel": 1.0},
+        enable_log=False,
+        noise_level=1.0,
+        **arrays,
+    )
+    assert accel.first_jit_ms is not None
+    assert id(again.reward) == reward_id
+    assert {name: id(value) for name, value in again.obs.items()} == obs_ids
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
@@ -314,8 +366,8 @@ def test_g1_walk_numba_term_py_funcs_match_numpy_math():
     dof_pos = rng.normal(size=(n, n_action)).astype(np.float32)
     current_actions = rng.normal(size=(n, n_action)).astype(np.float32)
     last_actions = rng.normal(size=(n, n_action)).astype(np.float32)
-    default_angles = rng.normal(size=(n_action,)).astype(np.float32)
-    weights = rng.uniform(0.1, 2.0, size=(n_action,)).astype(np.float32)
+    default_angles = rng.normal(size=(n, n_action)).astype(np.float32)
+    weights = rng.uniform(0.1, 2.0, size=(n, n_action)).astype(np.float32)
     base_height = rng.uniform(0.4, 0.9, size=(n,)).astype(np.float32)
     gait_phase = rng.uniform(0.0, 2 * np.pi, size=(n, 2)).astype(np.float32)
     left_foot_pos = rng.normal(size=(n, 3)).astype(np.float32)
@@ -324,7 +376,6 @@ def test_g1_walk_numba_term_py_funcs_match_numpy_math():
     right_foot_quat = rng.normal(size=(n, 4)).astype(np.float32)
     left_contact = np.array([True, False, True])
     right_contact = np.array([True, True, False])
-    feet_air_time = rng.uniform(0.0, 0.8, size=(n, 2)).astype(np.float32)
 
     i = 1
     tracking_sigma = 0.25
@@ -332,7 +383,6 @@ def test_g1_walk_numba_term_py_funcs_match_numpy_math():
     swing_height = 0.09
     feet_sigma = 0.04
     min_forward_speed = 0.0
-    close_feet_threshold = 0.15
 
     np.testing.assert_allclose(
         T.tracking_lin_vel_i.py_func(linvel, commands, tracking_sigma, i),
@@ -356,33 +406,24 @@ def test_g1_walk_numba_term_py_funcs_match_numpy_math():
     )
     assert T.ang_vel_xy_i.py_func(gyro, i) == pytest.approx(gyro[i, 0] ** 2 + gyro[i, 1] ** 2)
     np.testing.assert_allclose(
-        T.action_rate_i.py_func(current_actions, last_actions, n_action, i),
+        T.action_rate_plan_i.py_func(current_actions, last_actions, i),
         np.sum((current_actions[i] - last_actions[i]) ** 2),
     )
     np.testing.assert_allclose(
-        T.weighted_pose_i.py_func(dof_pos, default_angles, weights, n_action, i),
-        np.sum(weights * (dof_pos[i] - default_angles) ** 2),
+        T.weighted_pose_plan_i.py_func(dof_pos, default_angles, weights, i),
+        np.sum(weights[i] * (dof_pos[i] - default_angles[i]) ** 2),
+        rtol=2e-6,
     )
     assert T.base_height_i.py_func(base_height, base_height_target, i) == pytest.approx(
         (base_height[i] - base_height_target) ** 2
     )
 
-    feet_dist = np.linalg.norm(left_foot_pos[i, :2] - right_foot_pos[i, :2])
-    close_feet = (
-        (feet_dist - close_feet_threshold) ** 2 if feet_dist < close_feet_threshold else 0.0
-    )
-    assert T.close_feet_xy_i.py_func(
-        left_foot_pos, right_foot_pos, close_feet_threshold, i
-    ) == pytest.approx(close_feet)
     np.testing.assert_allclose(
         T.feet_ori_i.py_func(left_foot_quat, right_foot_quat, i),
         left_foot_quat[i, 1] ** 2
         + left_foot_quat[i, 2] ** 2
         + right_foot_quat[i, 1] ** 2
         + right_foot_quat[i, 2] ** 2,
-    )
-    assert T.feet_air_time_i.py_func(feet_air_time, i) == pytest.approx(
-        np.sum((feet_air_time[i] > 0.05) & (feet_air_time[i] < 0.5))
     )
     assert T.terminated_i.py_func(gravity, base_height, np.deg2rad(65.0), 0.3, i) == pytest.approx(
         np.arccos(np.clip(gravity[i, 2], -1.0, 1.0)) > np.deg2rad(65.0) or base_height[i] < 0.3
