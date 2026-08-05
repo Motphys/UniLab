@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
 
-from .base import SimBackend
+from .base import BackendTerrainSpawnData, SimBackend
 
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
@@ -18,6 +19,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "chunk_size": cfg.chunk_size,
         "adaptive_chunk_size": cfg.adaptive_chunk_size,
         "bench_nsteps": cfg.sim_substeps,
+        "mjwarp_nconmax": cfg.mjwarp_nconmax,
+        "mjwarp_njmax": cfg.mjwarp_njmax,
     }
 
 
@@ -54,6 +57,19 @@ def _load_motrix_backend() -> tuple[Any, bool]:
     return MotrixBackend, bool(MOTRIX_AVAILABLE)
 
 
+def _load_mjwarp_backend() -> Any:
+    """Load the independent optional mujoco-warp backend on demand."""
+    from .mjwarp.backend import MjwarpBackend
+
+    return MjwarpBackend
+
+
+def _mjwarp_available() -> bool:
+    from .mjwarp.dependencies import mjwarp_dependencies_available
+
+    return mjwarp_dependencies_available()
+
+
 def _load_motrix_scene_export(name: str) -> Any:
     from .motrix import scene
 
@@ -82,7 +98,8 @@ def create_backend(
     """Create a simulation backend.
 
     Args:
-        backend_type: ``"mujoco"``, ``"motrix"``, or ``"drake"``.
+        backend_type: ``"mujoco"``, ``"mjwarp"``, ``"motrix"``, or
+            ``"drake"``.
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
@@ -101,6 +118,8 @@ def create_backend(
     chunk_size = kwargs.pop("chunk_size", None)
     adaptive_chunk_size = kwargs.pop("adaptive_chunk_size", False)
     bench_nsteps = kwargs.pop("bench_nsteps", 1)
+    mjwarp_nconmax = kwargs.pop("mjwarp_nconmax", None)
+    mjwarp_njmax = kwargs.pop("mjwarp_njmax", None)
     drake_backend_mode = kwargs.pop("drake_backend_mode", "batch")
     drake_nthread = kwargs.pop("drake_nthread", None)
     if backend_type == "mujoco":
@@ -113,6 +132,35 @@ def create_backend(
         kwargs["adaptive_chunk_size"] = adaptive_chunk_size
         kwargs["bench_nsteps"] = bench_nsteps
         return cast(SimBackend, MuJoCoBackend(scene, num_envs, sim_dt, **kwargs))
+    if backend_type == "mjwarp":
+        MjwarpBackend = _load_mjwarp_backend()
+        if position_actuator_gains is not None:
+            raise ValueError(
+                "mjwarp does not accept position_actuator_gains in the host compatibility "
+                "profile; configure the model on the cold path instead."
+            )
+        ignored_non_defaults = {
+            key: value
+            for key, value, default in (
+                ("post_step_forward_sensor", post_step_forward_sensor, None),
+                ("chunk_size", chunk_size, None),
+                ("adaptive_chunk_size", adaptive_chunk_size, False),
+                ("bench_nsteps", bench_nsteps, 1),
+            )
+            if value != default
+        }
+        if ignored_non_defaults:
+            rendered = ", ".join(f"{key}={value!r}" for key, value in ignored_non_defaults.items())
+            warnings.warn(
+                "mjwarp ignores non-default MuJoCo-only backend options: " + rendered,
+                UserWarning,
+                stacklevel=2,
+            )
+        # These generic EnvCfg fields are routed only to the MuJoCo pool.
+        del post_step_forward_sensor, chunk_size, adaptive_chunk_size, bench_nsteps
+        kwargs["nconmax"] = mjwarp_nconmax
+        kwargs["njmax"] = mjwarp_njmax
+        return cast(SimBackend, MjwarpBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "motrix":
         MotrixBackend, motrix_available = _load_motrix_backend()
         if not motrix_available:
@@ -142,6 +190,10 @@ def __getattr__(name: str):
         return _load_motrix_backend()[0]
     if name == "MOTRIX_AVAILABLE":
         return _load_motrix_backend()[1]
+    if name == "MjwarpBackend":
+        return _load_mjwarp_backend()
+    if name == "MJWARP_AVAILABLE":
+        return _mjwarp_available()
     if name == "DrakeBackend":
         return _load_drake_backend()
     if name == "DRAKE_AVAILABLE":
@@ -158,9 +210,11 @@ def __getattr__(name: str):
 __all__ = [
     "SimBackend",
     "MuJoCoBackend",
+    "MjwarpBackend",
     "MotrixBackend",
     "DrakeBackend",
     "DRAKE_AVAILABLE",
+    "MJWARP_AVAILABLE",
     "add_sensor",
     "create_discardvisual_xml",
     "create_backend",

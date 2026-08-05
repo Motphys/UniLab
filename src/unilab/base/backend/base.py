@@ -33,6 +33,14 @@ class BackendHeightScanner(abc.ABC):
         """Return sampled values with shape ``(num_envs, num_points)``."""
 
 
+@dataclass(frozen=True)
+class BackendTerrainSpawnData:
+    """Cold-path terrain spawn metadata owned by the backend."""
+
+    origins: np.ndarray
+    surface_sampler: object | None = None
+
+
 PLAY_RENDER_MODES = frozenset({"auto", "interactive", "record", "none"})
 
 
@@ -51,7 +59,7 @@ def normalize_play_render_mode(play_render_mode: str | None) -> str:
     mode = "auto" if play_render_mode is None else str(play_render_mode).strip().lower()
     if mode not in PLAY_RENDER_MODES:
         joined = ", ".join(sorted(PLAY_RENDER_MODES))
-        raise ValueError(f"training.play_render_mode must be one of: {joined}; got {mode!r}.")
+        raise ValueError(f"play render mode must be one of: {joined}; got {mode!r}.")
     return mode
 
 
@@ -98,6 +106,18 @@ class SimBackend(abc.ABC):
             Array with shape ``(num_actuators, 2)`` and columns ``[low, high]``.
         """
 
+    def get_actuator_names(self) -> tuple[str, ...]:
+        """Return actuator names in control-vector order on the cold path."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose actuator names")
+
+    def get_scene_model_file(self) -> str | None:
+        """Return the materialized scene path for diagnostics, when available."""
+        return None
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        """Return cold-path terrain spawn metadata, when the scene provides it."""
+        return None
+
     @abc.abstractmethod
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         """Return the full qpos for a named keyframe, including the floating base.
@@ -138,6 +158,17 @@ class SimBackend(abc.ABC):
     def get_body_id(self, name: str) -> int:
         """Resolve one body/link name through the backend contract."""
         return int(self.get_body_ids([name])[0])
+
+    def get_sensor_ids(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve sensor names to backend IDs on the cold path.
+
+        Managed task compilation uses this metadata query to lower semantic
+        ``EntityKind.SENSOR`` selectors once. It must not be used from a
+        step/reset hot path; backends that do not expose stable sensor IDs
+        fail closed rather than leaking a private model object.
+        """
+
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose sensor ids")
 
     def get_geom_id(self, name: str) -> int:
         """Resolve one geom name through the backend contract."""
@@ -201,7 +232,7 @@ class SimBackend(abc.ABC):
         raise NotImplementedError(f"{self.__class__.__name__} does not expose dof armature")
 
     def get_motion_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        """Resolve MuJoCo-style body IDs used by motion datasets."""
+        """Resolve backend-native body IDs used by motion datasets."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose motion body ids")
 
     def cleanup_scene_assets(self) -> None:
@@ -308,24 +339,6 @@ class SimBackend(abc.ABC):
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         """Apply a scheduled interval randomization plan."""
 
-    def apply_body_linear_velocity_delta(
-        self,
-        body_ids: np.ndarray,
-        velocity_delta: np.ndarray,
-    ) -> None:
-        """Apply a world-frame linear-velocity delta to specific bodies.
-
-        Args:
-            body_ids: Body ids whose linear velocities should be perturbed.
-            velocity_delta: Velocity delta with shape ``(num_envs, len(body_ids), 3)``.
-
-        Returns:
-            None. Backends that support this mutate their pending simulation state.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support interval body velocity perturbation"
-        )
-
     def apply_body_force(
         self,
         body_ids: np.ndarray,
@@ -376,7 +389,17 @@ class SimBackend(abc.ABC):
         camera_kwargs: dict[str, Any] | None = None,
         extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
-        """Execute backend-owned playback for an env wrapper."""
+        """Execute backend-owned playback for an env wrapper.
+
+        Known boundary: ``env`` is the owning env wrapper, not a physics-layer
+        concept. Current playback implementations read env-level configuration
+        (e.g. ``cfg.scene``, ``cfg.ctrl_dt``, ``cfg.render_spacing``) and
+        env-owned playback helpers (``get_playback_model``,
+        ``get_physics_state_snapshot``) that have no backend-native equivalent
+        yet. The parameter stays on this contract until playback asset/config
+        resolution moves onto backend-owned metadata; backends must only use
+        it on the cold playback path.
+        """
         raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
 
     def init_renderer(

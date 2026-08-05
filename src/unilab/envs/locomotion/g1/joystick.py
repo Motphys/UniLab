@@ -37,6 +37,12 @@ class G1DomainRandConfig(DomainRandConfig):
     randomize_kd: bool = True
     kd_multiplier_range: list[float] = field(default_factory=lambda: [0.9, 1.1])
 
+    randomize_body_gravity_compensation: bool = False
+    body_gravity_compensation_range: list[float] = field(default_factory=lambda: [-0.1, 0.3])
+    body_gravity_compensation_bodies: list[str] = field(
+        default_factory=lambda: ["pelvis", "torso_link"]
+    )
+
 
 @dataclass
 class InitState:
@@ -199,7 +205,7 @@ class G1WalkEnvCfg(G1BaseCfg):
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float | None = 20.0
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: G1RewardConfig | None = None
@@ -212,12 +218,24 @@ class G1WalkEnvCfg(G1BaseCfg):
 
 
 class G1WalkDomainRandomizationProvider(LocomotionDRProvider):
-    def __init__(self, *, base_kp: np.ndarray | None = None, base_kd: np.ndarray | None = None):
+    def __init__(
+        self,
+        *,
+        base_kp: np.ndarray | None = None,
+        base_kd: np.ndarray | None = None,
+        base_dof_armature: np.ndarray | None = None,
+    ):
         self._base_kp = base_kp
         self._base_kd = base_kd
+        self._base_dof_armature = base_dof_armature
 
     def _get_base_actuator_gains(self, env: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
         return self._base_kp, self._base_kd
+
+    def _get_reset_randomization_baselines(
+        self, env: Any
+    ) -> tuple[np.ndarray | None, np.ndarray | None, int | None, np.ndarray | None]:
+        return None, None, None, self._base_dof_armature
 
     def _get_qvel_limit(self, env: Any) -> float:
         return float(env.cfg.reset_base_qvel_limit)
@@ -313,11 +331,18 @@ class G1WalkEnv(G1BaseEnv):
             self._numba_accelerator = G1WalkNumbaAccelerator.from_env(
                 self, num_threads=cfg.numba_num_threads
             )
+        base_kp: np.ndarray | None = None
+        base_kd: np.ndarray | None = None
         if cfg.domain_rand.randomize_kp or cfg.domain_rand.randomize_kd:
             base_kp, base_kd = backend.get_actuator_gains()
-            dr_provider = G1WalkDomainRandomizationProvider(base_kp=base_kp, base_kd=base_kd)
-        else:
-            dr_provider = G1WalkDomainRandomizationProvider()
+        base_dof_armature = (
+            backend.get_dof_armature() if cfg.domain_rand.randomize_dof_armature else None
+        )
+        dr_provider = G1WalkDomainRandomizationProvider(
+            base_kp=base_kp,
+            base_kd=base_kd,
+            base_dof_armature=base_dof_armature,
+        )
         self._init_domain_randomization(dr_provider)
 
     @property
@@ -509,12 +534,14 @@ class G1WalkEnv(G1BaseEnv):
         }
 
     def build_symmetry_augmentation(self, *, device: str):
-        if self._backend.backend_type != "mujoco":
+        try:
+            actuator_names = self._backend.get_actuator_names()
+        except NotImplementedError:
             return None
         from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
 
         return G1SymmetryAugmentation(
-            self._backend.model,
+            actuator_names,
             self.get_symmetry_obs_layouts(),
             device=device,
         )
@@ -703,6 +730,7 @@ class G1WalkRoughCfg(G1WalkFlatCfg):
 
 
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mujoco")
+registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="mjwarp")
 registry.register_env("G1WalkFlat", G1WalkEnv, sim_backend="motrix")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="mujoco")
 registry.register_env("G1WalkRough", G1WalkEnv, sim_backend="motrix")

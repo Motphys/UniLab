@@ -34,6 +34,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -360,6 +361,14 @@ class MotrixBackend(SimBackend):
         arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
         result: np.ndarray = arr.T.copy()
         return result
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        if self.terrain_origins is None:
+            return None
+        return BackendTerrainSpawnData(
+            origins=self.terrain_origins,
+            surface_sampler=self.terrain_surface_sampler,
+        )
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:
@@ -817,7 +826,21 @@ class MotrixBackend(SimBackend):
         if plan.body_linear_velocity_delta is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-velocity perturbation requires body_ids")
-            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+            self._apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+
+    def _apply_body_linear_velocity_delta(
+        self,
+        body_ids: np.ndarray,
+        velocity_delta: np.ndarray,
+    ) -> None:
+        """Apply a world-frame linear-velocity delta to specific bodies.
+
+        Backend-internal hook for ``apply_interval_randomization``; it is not
+        part of the public ``SimBackend`` surface.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body velocity perturbation"
+        )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(

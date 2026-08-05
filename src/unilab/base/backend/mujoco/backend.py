@@ -37,6 +37,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -326,7 +327,6 @@ class MuJoCoBackend(SimBackend):
         self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
         self._model_assignments = np.zeros((num_envs,), dtype=np.int32)
         self._pool: BatchEnvPool | None = None
-
         # State indices.
         self.nq = self._model.nq
         self.nv = self._model.nv
@@ -643,6 +643,24 @@ class MuJoCoBackend(SimBackend):
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return np.array(self._model.actuator_ctrlrange, dtype=self._np_dtype)
 
+    def get_actuator_names(self) -> tuple[str, ...]:
+        return tuple(
+            mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+            or f"#{actuator_id}"
+            for actuator_id in range(int(self._model.nu))
+        )
+
+    def get_scene_model_file(self) -> str | None:
+        return str(self.scene_model_file) if self.scene_model_file else None
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        if self.terrain_origins is None:
+            return None
+        return BackendTerrainSpawnData(
+            origins=self.terrain_origins,
+            surface_sampler=self.terrain_surface_sampler,
+        )
+
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
         if key_id < 0:
@@ -663,6 +681,17 @@ class MuJoCoBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in MuJoCo model")
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
+
+    def get_sensor_ids(self, names: "Sequence[str]") -> np.ndarray:
+        """Resolve exact MuJoCo sensor names on the cold metadata path."""
+
+        ids: list[int] = []
+        for name in names:
+            sensor_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SENSOR, name)
+            if sensor_id < 0:
+                raise ValueError(f"Sensor {name!r} not found in MuJoCo model")
+            ids.append(sensor_id)
+        return np.asarray(ids, dtype=np.int32)
 
     def get_geom_id(self, name: str) -> int:
         geom_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)
@@ -760,11 +789,15 @@ class MuJoCoBackend(SimBackend):
 
     def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
         indices: list[int] = []
+        single_dof_types = {
+            int(mujoco.mjtJoint.mjJNT_HINGE),
+            int(mujoco.mjtJoint.mjJNT_SLIDE),
+        }
         for name in names:
             jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
             if jid < 0:
                 raise ValueError(f"Joint '{name}' not found in MuJoCo model")
-            if int(self._model.jnt_type[jid]) == int(mujoco.mjtJoint.mjJNT_FREE):
+            if int(self._model.jnt_type[jid]) not in single_dof_types:
                 raise ValueError(f"Joint '{name}' is not a single-DoF joint")
             indices.append(int(self._model.jnt_qposadr[jid]) - self._root_qpos_dim)
         return np.array(indices, dtype=np.int32)
@@ -995,7 +1028,21 @@ class MuJoCoBackend(SimBackend):
         if plan.body_linear_velocity_delta is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-velocity perturbation requires body_ids")
-            self.apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+            self._apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+
+    def _apply_body_linear_velocity_delta(
+        self,
+        body_ids: np.ndarray,
+        velocity_delta: np.ndarray,
+    ) -> None:
+        """Apply a world-frame linear-velocity delta to specific bodies.
+
+        Backend-internal hook for ``apply_interval_randomization``; it is not
+        part of the public ``SimBackend`` surface.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support interval body velocity perturbation"
+        )
 
     def push_robots(self, force_range: Sequence[float] | np.ndarray) -> None:
         self._pending_xfrc_applied.fill(0.0)

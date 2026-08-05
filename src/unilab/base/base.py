@@ -40,6 +40,11 @@ class EnvCfg:
     post_step_forward_sensor: bool = False
     adaptive_chunk_size: bool = True
     chunk_size: Optional[int] = None
+    # ``mjwarp`` owns contact/constraint storage independently from MuJoCo.
+    # Keep its capacity knobs explicit in the task owner configuration so a
+    # device profile never relies on an implicit backend-wide allocation size.
+    mjwarp_nconmax: Optional[int] = None
+    mjwarp_njmax: Optional[int] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -63,6 +68,14 @@ class EnvCfg:
         """
         if self.sim_dt > self.ctrl_dt:
             raise ValueError("sim_dt must be less than or equal to ctrl_dt")
+        for name, value in (
+            ("mjwarp_nconmax", self.mjwarp_nconmax),
+            ("mjwarp_njmax", self.mjwarp_njmax),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            ):
+                raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
 
 
 class ABEnv(abc.ABC):
