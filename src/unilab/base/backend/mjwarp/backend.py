@@ -717,8 +717,8 @@ class MjwarpBackend(SimBackend):
 
     def _unsupported_body_kinematics(self, operation: str) -> None:
         raise NotImplementedError(
-            f"mjwarp host_numpy profile does not expose {operation}; bind it through a typed "
-            "state plan after its frame and cache contract are implemented."
+            f"mjwarp host_numpy profile does not expose {operation}; the G1 host adapter "
+            "supports only base, dof, and configured sensor cache reads."
         )
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:

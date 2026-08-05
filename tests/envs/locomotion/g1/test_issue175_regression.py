@@ -69,6 +69,16 @@ _G1_OWNER_CASES = [
         "curriculum_enabled": True,
     },
     {
+        "id": "ppo_mjwarp",
+        "config_group": "ppo",
+        "overrides": ["task=g1_walk_flat/mjwarp"],
+        "task_name": "G1WalkFlat",
+        "backend": "mjwarp",
+        "profile": "legacy",
+        "action_scale": 0.25,
+        "curriculum_enabled": False,
+    },
+    {
         "id": "sac_mjwarp",
         "config_group": "offpolicy",
         "overrides": ["algo=sac", "task=sac/g1_walk_flat/mjwarp"],
