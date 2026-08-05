@@ -38,7 +38,6 @@ _PHYSICS_FORBIDDEN_IMPORT_PREFIXES = (
     "unilab.envs",
     "unilab.training",
     "unilab.algos",
-    "unilab.manager",
     "unilab.ipc",
 )
 # Documented unilab-internal dependencies of the physics layer.  Every entry
@@ -492,7 +491,7 @@ class _BackendContractUseVisitor(ast.NodeVisitor):
         self._root = root
         self._path = path
         self._public_members = public_members
-        # Runtime layers (envs/dr/manager/training/np_env) forbid all
+        # Runtime layers (envs/dr/training/np_env) forbid all
         # getattr/hasattr capability probing on backend expressions.  Cold-path
         # scripts may probe public names with a graceful fallback; private or
         # dynamic probe targets stay forbidden there too.  Direct access to
@@ -603,7 +602,6 @@ def _contract_source_paths(root: Path) -> tuple[Path, ...]:
     roots = (
         source_root / "envs",
         source_root / "dr",
-        source_root / "manager",
         source_root / "training",
         root / "scripts",
     )
