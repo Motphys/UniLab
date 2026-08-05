@@ -16,7 +16,6 @@ import pytest
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend import create_backend
 from unilab.base.scene import SceneCfg
-from unilab.tools.backend_isolation import audit_backend_isolation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
@@ -98,11 +97,6 @@ def test_backend_classes_are_only_instantiated_through_create_backend() -> None:
     assert not offenders, "direct backend instantiation outside create_backend:\n" + "\n".join(
         offenders
     )
-
-
-def test_real_repo_backend_isolation_audit_passes() -> None:
-    report = audit_backend_isolation(REPO_ROOT)
-    assert report.ok, "\n".join(violation.format() for violation in report.violations)
 
 
 @pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)

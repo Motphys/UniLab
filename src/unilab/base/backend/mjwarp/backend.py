@@ -119,10 +119,6 @@ class MjwarpBackend(SimBackend):
         self._sensor_slots = self._bind_sensor_slots()
         self._keyframe_qpos = self._bind_keyframes()
         self._body_ids = self._bind_names(deps.mujoco.mjtObj.mjOBJ_BODY, self._nbody)
-        self._sensor_ids = self._bind_names(
-            deps.mujoco.mjtObj.mjOBJ_SENSOR,
-            int(self._cpu_model.nsensor),
-        )
         self._joint_ids = self._bind_names(
             deps.mujoco.mjtObj.mjOBJ_JOINT,
             int(self._cpu_model.njnt),
@@ -319,17 +315,6 @@ class MjwarpBackend(SimBackend):
                 resolved.append(self._body_ids[str(name)])
             except KeyError as exc:
                 raise ValueError(f"Body {name!r} not found in mjwarp model") from exc
-        return np.asarray(resolved, dtype=np.int32)
-
-    def get_sensor_ids(self, names: Sequence[str]) -> np.ndarray:
-        """Resolve exact sensor names from constructor-bound CPU metadata."""
-
-        resolved: list[int] = []
-        for name in names:
-            try:
-                resolved.append(self._sensor_ids[str(name)])
-            except KeyError as exc:
-                raise ValueError(f"Sensor {name!r} not found in mjwarp model") from exc
         return np.asarray(resolved, dtype=np.int32)
 
     def get_geom_id(self, name: str) -> int:

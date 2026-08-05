@@ -108,12 +108,10 @@ class Go1WalkTask(Go1BaseEnv):
             drake_backend_mode=cfg.drake_backend_mode,
             drake_nthread=cfg.drake_nthread,
         )
-        terrain_spawn_data = backend.get_terrain_spawn_data()
-        self._terrain_surface_sampler = (
-            terrain_spawn_data.surface_sampler if terrain_spawn_data is not None else None
-        )
-        if terrain_spawn_data is not None:
-            self._scene_terrain_origins = terrain_spawn_data.origins
+        self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
+        terrain_origins = getattr(backend, "terrain_origins", None)
+        if terrain_origins is not None:
+            self._scene_terrain_origins = terrain_origins
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config

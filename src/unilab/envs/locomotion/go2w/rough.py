@@ -208,15 +208,15 @@ class Go2WJoystickRoughEnv(Go2WJoystickEnv):
 
     def __init__(self, cfg: Go2WJoystickRoughCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
-        terrain_spawn_data = self._backend.get_terrain_spawn_data()
+        terrain_origins = getattr(self._backend, "terrain_origins", None)
         terrain_generator = cfg.scene.terrain.generator if cfg.scene.terrain is not None else None
-        if terrain_spawn_data is not None and terrain_generator is not None:
+        if terrain_origins is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,
-                terrain_spawn_data.origins,
+                terrain_origins,
                 cell_size=float(terrain_generator.size[0]),
                 cfg=cfg.terrain_curriculum,
-                terrain_surface_sampler=terrain_spawn_data.surface_sampler,
+                terrain_surface_sampler=getattr(self._backend, "terrain_surface_sampler", None),
             )
         self._dr_manager = DomainRandomizationManager(
             self, Go2WJoystickRoughDomainRandomizationProvider()

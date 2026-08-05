@@ -71,35 +71,10 @@ def _make_env(args: argparse.Namespace):
 
 
 def _state_qpos_qvel(backend: Any) -> tuple[np.ndarray, np.ndarray]:
-    """Reconstruct full qpos/qvel through the public backend state contract.
-
-    Go2 has a floating base, so qpos is [base pos (3), base quat wxyz (4),
-    joint positions] and qvel is [base linear velocity (3), base angular
-    velocity (3), joint velocities]; joint ``i`` sits at
-    ``root_qpos_dim + i`` in qpos.
-    """
-    qpos = np.concatenate(
-        [
-            np.asarray(backend.get_base_pos()[0], dtype=np.float64),
-            np.asarray(backend.get_base_quat()[0], dtype=np.float64),
-            np.asarray(backend.get_dof_pos()[0], dtype=np.float64),
-        ]
-    )
-    qvel = np.concatenate(
-        [
-            np.asarray(backend.get_base_lin_vel()[0], dtype=np.float64),
-            np.asarray(backend.get_base_ang_vel()[0], dtype=np.float64),
-            np.asarray(backend.get_dof_vel()[0], dtype=np.float64),
-        ]
-    )
+    state = np.asarray(backend.get_physics_state()[0], dtype=np.float64)
+    qpos = state[backend._idx_qpos : backend._idx_qpos + backend.nq].copy()
+    qvel = state[backend._idx_qvel : backend._idx_qvel + backend.nv].copy()
     return qpos, qvel
-
-
-def _root_qpos_dim(backend: Any) -> int:
-    """Floating-base qpos dimension implied by the public base state contract."""
-    return int(
-        np.asarray(backend.get_base_pos()).shape[1] + np.asarray(backend.get_base_quat()).shape[1]
-    )
 
 
 def _restore_state(env: Any, qpos: np.ndarray, qvel: np.ndarray) -> None:
@@ -114,7 +89,7 @@ def _force_go2_home(env: Any, home_qpos: np.ndarray) -> None:
     """Clamp floating base and leg joints to home while preserving arm state."""
     backend = env._backend
     qpos, qvel = _state_qpos_qvel(backend)
-    first_arm_qpos = _root_qpos_dim(backend) + int(env.arm_dof_pos_indices[0])
+    first_arm_qpos = backend._root_qpos_dim + int(env.arm_dof_pos_indices[0])
     first_arm_qvel = int(env.arm_jacobian_dof_indices[0])
     qpos[:first_arm_qpos] = home_qpos[:first_arm_qpos]
     qvel[:first_arm_qvel] = 0.0
@@ -141,7 +116,7 @@ def run_jacobian_fd_check(env: Any, eps: float) -> dict[str, Any]:
 
     for col, qpos_idx_rel in enumerate(env.arm_dof_pos_indices):
         qpos = qpos0.copy()
-        qpos[_root_qpos_dim(backend) + qpos_idx_rel] += eps
+        qpos[backend._root_qpos_dim + qpos_idx_rel] += eps
         _restore_state(env, qpos, qvel0)
         ee_pos = env.get_ee_local_pose()[0].copy()[0]
         fd[:, col] = (ee_pos - ee0) / eps

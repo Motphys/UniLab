@@ -33,14 +33,6 @@ class BackendHeightScanner(abc.ABC):
         """Return sampled values with shape ``(num_envs, num_points)``."""
 
 
-@dataclass(frozen=True)
-class BackendTerrainSpawnData:
-    """Cold-path terrain spawn metadata owned by the backend."""
-
-    origins: np.ndarray
-    surface_sampler: object | None = None
-
-
 PLAY_RENDER_MODES = frozenset({"auto", "interactive", "record", "none"})
 
 
@@ -114,10 +106,6 @@ class SimBackend(abc.ABC):
         """Return the materialized scene path for diagnostics, when available."""
         return None
 
-    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
-        """Return cold-path terrain spawn metadata, when the scene provides it."""
-        return None
-
     @abc.abstractmethod
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         """Return the full qpos for a named keyframe, including the floating base.
@@ -158,17 +146,6 @@ class SimBackend(abc.ABC):
     def get_body_id(self, name: str) -> int:
         """Resolve one body/link name through the backend contract."""
         return int(self.get_body_ids([name])[0])
-
-    def get_sensor_ids(self, names: Sequence[str]) -> np.ndarray:
-        """Resolve sensor names to backend IDs on the cold path.
-
-        Managed task compilation uses this metadata query to lower semantic
-        ``EntityKind.SENSOR`` selectors once. It must not be used from a
-        step/reset hot path; backends that do not expose stable sensor IDs
-        fail closed rather than leaking a private model object.
-        """
-
-        raise NotImplementedError(f"{self.__class__.__name__} does not expose sensor ids")
 
     def get_geom_id(self, name: str) -> int:
         """Resolve one geom name through the backend contract."""

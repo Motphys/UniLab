@@ -37,7 +37,6 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
-    BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -653,14 +652,6 @@ class MuJoCoBackend(SimBackend):
     def get_scene_model_file(self) -> str | None:
         return str(self.scene_model_file) if self.scene_model_file else None
 
-    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
-        if self.terrain_origins is None:
-            return None
-        return BackendTerrainSpawnData(
-            origins=self.terrain_origins,
-            surface_sampler=self.terrain_surface_sampler,
-        )
-
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
         if key_id < 0:
@@ -681,17 +672,6 @@ class MuJoCoBackend(SimBackend):
                 raise ValueError(f"Body '{name}' not found in MuJoCo model")
             ids.append(bid)
         return np.array(ids, dtype=np.int32)
-
-    def get_sensor_ids(self, names: "Sequence[str]") -> np.ndarray:
-        """Resolve exact MuJoCo sensor names on the cold metadata path."""
-
-        ids: list[int] = []
-        for name in names:
-            sensor_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SENSOR, name)
-            if sensor_id < 0:
-                raise ValueError(f"Sensor {name!r} not found in MuJoCo model")
-            ids.append(sensor_id)
-        return np.asarray(ids, dtype=np.int32)
 
     def get_geom_id(self, name: str) -> int:
         geom_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, name)

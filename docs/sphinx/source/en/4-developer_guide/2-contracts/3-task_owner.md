@@ -38,4 +38,4 @@ contract is recorded in
 - Off-policy task/algo guard: `src/unilab/training/common.py`
 - Config tests: `tests/config/test_config_system.py`,
   `tests/scripts/test_train_script_configs.py`,
-  `tests/envs/locomotion/g1/test_issue175_regression.py`
+  `tests/envs/locomotion/g1/test_g1_owner_contract.py`

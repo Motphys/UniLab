@@ -74,14 +74,14 @@ def _serial_site_jacobian(
     backend: Any, site_id: int, dof_indices: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     dof_indices = np.asarray(dof_indices, dtype=np.int32).reshape(-1)
-    num_envs = int(backend.num_envs)
+    num_envs = int(backend._num_envs)
     jacp_out = np.zeros((num_envs, 3, len(dof_indices)), dtype=np.float64)
     jacr_out = np.zeros((num_envs, 3, len(dof_indices)), dtype=np.float64)
-    state_snapshot = np.asarray(backend.get_physics_state(), dtype=np.float64).copy()
+    state_snapshot = np.asarray(backend._physics_state, dtype=np.float64).copy()
 
     for env_idx in range(num_envs):
-        # Public contract: per-env model variant used by playback.
-        model = backend.get_playback_model(env_idx)
+        variant_idx = int(backend._model_assignments[env_idx])
+        model = backend._model_variants[variant_idx]
         data = mujoco.MjData(model)
         mujoco.mj_setState(
             model,
@@ -112,6 +112,7 @@ def _print_stats(tag: str, ms_values: Sequence[float]) -> None:
 @dataclass
 class BenchResult:
     num_envs: int
+    backend_threads: int
     correctness_ok: bool
     parallel_median_ms: float
     parallel_p95_ms: float
@@ -124,15 +125,15 @@ class BenchResult:
 
 def _format_markdown_table(results: Sequence[BenchResult]) -> str:
     lines = [
-        "| num_envs | correctness | par_median_ms | par_p95_ms | ser_median_ms | ser_p95_ms | speedup(serial/par) | step_median_ms | jacobian_step_ratio_pct |",
-        "|---:|:---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| num_envs | backend_threads | correctness | par_median_ms | par_p95_ms | ser_median_ms | ser_p95_ms | speedup(serial/par) | step_median_ms | jacobian_step_ratio_pct |",
+        "|---:|---:|:---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in results:
         step_med = "-" if r.step_median_ms is None else f"{r.step_median_ms:.3f}"
         jac_ratio = "-" if r.jacobian_step_ratio_pct is None else f"{r.jacobian_step_ratio_pct:.2f}"
         lines.append(
             "| "
-            f"{r.num_envs} | {'PASS' if r.correctness_ok else 'FAIL'} | "
+            f"{r.num_envs} | {r.backend_threads} | {'PASS' if r.correctness_ok else 'FAIL'} | "
             f"{r.parallel_median_ms:.3f} | {r.parallel_p95_ms:.3f} | "
             f"{r.serial_median_ms:.3f} | {r.serial_p95_ms:.3f} | "
             f"{r.speedup:.3f}x | {step_med} | {jac_ratio} |"
@@ -215,6 +216,7 @@ def _run_one_case(
 
         return BenchResult(
             num_envs=num_envs,
+            backend_threads=int(getattr(backend, "_n_threads", -1)),
             correctness_ok=True,
             parallel_median_ms=par_median,
             parallel_p95_ms=_pct(par_ms, 95),
@@ -301,6 +303,7 @@ def main(cfg: DictConfig) -> None:
         results.append(result)
         print(
             "result: "
+            f"threads={result.backend_threads}, "
             f"par_median={result.parallel_median_ms:.3f} ms, "
             f"ser_median={result.serial_median_ms:.3f} ms, "
             f"speedup={result.speedup:.3f}x"
