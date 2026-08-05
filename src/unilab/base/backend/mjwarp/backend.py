@@ -37,21 +37,6 @@ from unilab.base.backend.batch import (
     RowSelection,
     StateBatchPhase,
 )
-from unilab.base.backend.mutation import (
-    BoundMutationPlan,
-    MutationCapabilityManifest,
-    MutationContractError,
-    MutationEntityKind,
-    MutationFieldKind,
-    MutationSelectorMode,
-    MutationSpec,
-    MutationTargetKind,
-    MutationTargetSpec,
-    TypedBackendMutationBatch,
-)
-from unilab.base.backend.mutation import (
-    bind_mutation_plan as bind_typed_mutation_plan,
-)
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
     DomainRandomizationCapabilities,
@@ -67,7 +52,6 @@ from .batch import (
 )
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
-from .mutation import MjwarpHostMutationPlan, mjwarp_host_mutation_capabilities
 from .playback import run_mjwarp_playback, validate_mjwarp_visual_model
 
 
@@ -75,11 +59,10 @@ class MjwarpBackend(SimBackend):
     """Independent CUDA backend exposed through the host NumPy profile.
 
     State and control cross the host/device boundary only at explicit
-    step/reset barriers with bounded, statically declared transfers.  Typed
-    Model mutation, interval DR, native rendering, and host-substep-controller
+    step/reset barriers with bounded, statically declared transfers.  Interval
+    DR, native rendering, and host-substep-controller
     combinations remain fail-closed. Detached host snapshots support finite
-    MuJoCo-based offline recording. The typed reset surface is limited to
-    selected-row floating-root and hinge state used by the manager pilot.
+    MuJoCo-based offline recording.
     """
 
     def __init__(
@@ -206,7 +189,6 @@ class MjwarpBackend(SimBackend):
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
         self._batch_instance_id = f"mjwarp:{id(self):x}"
         self._host_batch_plans: dict[str, MjwarpHostBatchPlan] = {}
-        self._host_mutation_plans: dict[str, MjwarpHostMutationPlan] = {}
 
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
@@ -510,133 +492,7 @@ class MjwarpBackend(SimBackend):
             existing_host.public_plan.require_compatible(host_bound.public_plan)
             return existing_host.public_plan
         self._host_batch_plans[host_bound.public_plan.fingerprint] = host_bound
-        for mutation_plan in self._host_mutation_plans.values():
-            mutation_plan.register_batch_plan(host_bound.public_plan)
         return host_bound.public_plan
-
-    def _resolve_typed_mutation_selector(self, spec: MutationTargetSpec) -> tuple[int, ...]:
-        selector = spec.selector_spec
-        if selector is None:
-            raise MutationContractError("mjwarp typed mutation selector must be explicit")
-        if spec.target_kind is not MutationTargetKind.SIMULATION_STATE:
-            raise MutationContractError("mjwarp typed mutation only supports simulation state")
-        if spec.entity_kind is MutationEntityKind.BODY:
-            name = selector.require_exact_singleton(context="mjwarp typed root reset")
-            expected_fields = {
-                "state.root.position": MutationFieldKind.POSITION,
-                "state.root.orientation": MutationFieldKind.ORIENTATION,
-                "state.root.linear_velocity": MutationFieldKind.LINEAR_VELOCITY,
-                "state.root.angular_velocity": MutationFieldKind.ANGULAR_VELOCITY,
-            }
-            if expected_fields.get(spec.target_key) is not spec.field_kind:
-                raise MutationContractError(
-                    "mjwarp typed body reset only supports floating-root state targets"
-                )
-            if self._base_body_id is None or (self._root_qpos_dim, self._root_qvel_dim) != (7, 6):
-                raise MutationContractError(
-                    "mjwarp typed root reset requires a named first free-joint base body"
-                )
-            if self._body_ids.get(name) != self._base_body_id:
-                raise MutationContractError(
-                    f"mjwarp typed root selector {name!r} must resolve the base body"
-                )
-            return (self._base_body_id,)
-        if spec.entity_kind is not MutationEntityKind.DOF:
-            raise MutationContractError(
-                "mjwarp typed reset selector must name a floating root body or hinge DoF"
-            )
-        expected_fields = {
-            "state.dof.position": MutationFieldKind.POSITION,
-            "state.dof.angular_velocity": MutationFieldKind.ANGULAR_VELOCITY,
-        }
-        if expected_fields.get(spec.target_key) is not spec.field_kind:
-            raise MutationContractError("mjwarp typed DoF reset has an unsupported field kind")
-        if selector.mode is not MutationSelectorMode.EXACT:
-            raise MutationContractError("mjwarp typed DoF reset requires exact selectors")
-        coordinates: list[int] = []
-        for name in selector.expressions:
-            joint_id = self._mujoco.mj_name2id(
-                self._cpu_model,
-                self._mujoco.mjtObj.mjOBJ_JOINT,
-                name,
-            )
-            if joint_id < 0 or int(self._cpu_model.jnt_type[joint_id]) != int(
-                self._mujoco.mjtJoint.mjJNT_HINGE
-            ):
-                raise MutationContractError(
-                    f"mjwarp typed reset selector {name!r} must resolve one hinge joint"
-                )
-            if spec.field_kind is MutationFieldKind.POSITION:
-                coordinate = int(self._cpu_model.jnt_qposadr[joint_id]) - self._root_qpos_dim
-                count = self._num_dof_pos
-            else:
-                coordinate = int(self._cpu_model.jnt_dofadr[joint_id]) - self._root_qvel_dim
-                count = self._num_dof_vel
-            if coordinate < 0 or coordinate >= count:
-                raise MutationContractError("mjwarp typed reset coordinate is out of range")
-            coordinates.append(coordinate)
-        if len(set(coordinates)) != len(coordinates):
-            raise MutationContractError("mjwarp typed DoF reset resolved duplicate coordinates")
-        return tuple(coordinates)
-
-    def get_mutation_capability_manifest(
-        self,
-        execution_profile: ExecutionProfile,
-    ) -> MutationCapabilityManifest:
-        if execution_profile is not ExecutionProfile.HOST_NUMPY:
-            raise MutationContractError("mjwarp mutations only support the host_numpy profile")
-        return MutationCapabilityManifest(
-            backend_type=self.backend_type,
-            execution_profile=execution_profile,
-            capabilities=mjwarp_host_mutation_capabilities(self),
-        )
-
-    def bind_mutation_plan(self, specs: tuple[MutationSpec, ...]) -> BoundMutationPlan:
-        manifest = self.get_mutation_capability_manifest(ExecutionProfile.HOST_NUMPY)
-        bound = bind_typed_mutation_plan(
-            backend_type=self.backend_type,
-            backend_instance_id=self._batch_instance_id,
-            num_envs=self._num_envs,
-            specs=specs,
-            capabilities=manifest.capabilities,
-            resolve_selector=self._resolve_typed_mutation_selector,
-            capability_manifest=manifest,
-        )
-        existing = self._host_mutation_plans.get(bound.fingerprint)
-        if existing is not None:
-            existing.public_plan.require_compatible(bound)
-            return existing.public_plan
-        runtime_plan = MjwarpHostMutationPlan(
-            public_plan=bound,
-            nq=self._nq,
-            nv=self._nv,
-            state_dtype=np.dtype(self._qpos_cache.dtype).name,
-            root_qpos_dim=self._root_qpos_dim,
-            root_qvel_dim=self._root_qvel_dim,
-        )
-        for batch_plan in self._host_batch_plans.values():
-            runtime_plan.register_batch_plan(batch_plan.public_plan)
-        self._host_mutation_plans[bound.fingerprint] = runtime_plan
-        return bound
-
-    def _require_host_mutation_plan(
-        self,
-        mutation_batch: TypedBackendMutationBatch,
-        plan: BoundBackendPlan,
-    ) -> MjwarpHostMutationPlan:
-        mutation_batch.plan.require_owner(
-            backend_type=self.backend_type,
-            backend_instance_id=self._batch_instance_id,
-        )
-        try:
-            runtime_plan = self._host_mutation_plans[mutation_batch.plan_fingerprint]
-        except KeyError as exc:
-            raise BackendBatchContractError(
-                "mjwarp typed mutation plan was not bound by this backend instance"
-            ) from exc
-        runtime_plan.public_plan.require_compatible(mutation_batch.plan)
-        runtime_plan.require_registered_batch_plan(plan)
-        return runtime_plan
 
     def _require_host_batch_plan(self, plan: BoundBackendPlan) -> MjwarpHostBatchPlan:
         if not isinstance(plan, BoundBackendPlan):
@@ -706,7 +562,7 @@ class MjwarpBackend(SimBackend):
         qpos: np.ndarray,
         qvel: np.ndarray,
     ) -> dict[str, float]:
-        """Commit one explicit typed/legacy reset barrier from host staging.
+        """Commit one explicit reset barrier from host staging.
 
         Callers validate and own the staging source.  This helper intentionally
         has no legacy API dependency, so ``reset_batch`` never delegates to
@@ -811,40 +667,24 @@ class MjwarpBackend(SimBackend):
         *,
         mutation_batch: BackendMutationBatch | None = None,
     ) -> BackendResetResult:
-        """Reset selected rows through identity or cold-bound typed state values."""
+        """Reset selected rows to the model defaults."""
         bound = self._require_host_batch_plan(plan)
         if not isinstance(rows, RowSelection):
             raise BackendBatchContractError("mjwarp rows must be a RowSelection")
         if rows.universe_size != self._num_envs:
             raise BackendBatchContractError("mjwarp row universe does not match backend num_envs")
-        if mutation_batch is None:
-            row_ids = (
-                np.arange(self._num_envs, dtype=np.intp)
-                if rows.is_all
-                else np.asarray(rows.indices, dtype=np.intp)
-            )
-            self._qpos_cache[row_ids] = np.asarray(self._cpu_model.qpos0, dtype=np.float32)
-            self._qvel_cache[row_ids] = 0.0
-            qpos, qvel = self._qpos_cache, self._qvel_cache
-        else:
-            if not isinstance(mutation_batch, TypedBackendMutationBatch):
-                raise BackendBatchContractError(
-                    "mjwarp identity reset requires mutation_batch=None; typed reset requires "
-                    "a TypedBackendMutationBatch"
-                )
-            if mutation_batch.rows != rows:
-                raise BackendBatchContractError(
-                    "mjwarp typed reset rows must match the mutation envelope"
-                )
-            mutation_plan = self._require_host_mutation_plan(mutation_batch, plan)
-            qpos, qvel, row_ids = mutation_plan.stage_reset_state(
-                mutation_batch,
-                self._qpos_cache,
-                self._qvel_cache,
-            )
+        if mutation_batch is not None:
+            raise BackendBatchContractError("mjwarp identity reset does not support mutations")
+        row_ids = (
+            np.arange(self._num_envs, dtype=np.intp)
+            if rows.is_all
+            else np.asarray(rows.indices, dtype=np.intp)
+        )
+        self._qpos_cache[row_ids] = np.asarray(self._cpu_model.qpos0, dtype=np.float32)
+        self._qvel_cache[row_ids] = 0.0
 
         self._invalidate_host_batch_state()
-        timings = self._execute_host_reset(row_ids, qpos, qvel)
+        timings = self._execute_host_reset(row_ids, self._qpos_cache, self._qvel_cache)
         read_result = bound.materialize(rows, StateBatchPhase.RESET)
         diagnostics = BackendBatchDiagnostics(
             counters=_worst_reset_counters(self),
