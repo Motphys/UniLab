@@ -19,7 +19,6 @@ orphan: true
 | [ADR-0003 Task Owner And Config Compose Contract](ADR-0003-task-owner-and-config-compose-contract.md) | Config owner | Accepted |
 | [ADR-0004 Registry Bootstrap Contract](ADR-0004-registry-bootstrap-contract.md) | Registry bootstrap | Accepted |
 | [ADR-0005 Unified Obs Critic Env And IPC Contract](ADR-0005-unified-obs-critic-env-and-ipc-contract.md) | Observation / IPC | Accepted |
-| [ADR-0006 Structured Term Plan And NumPy Tier 1 Boundary](ADR-0006-structured-term-plan.md) | Term registry / execution | Accepted |
 
 ## ADR Governance
 
