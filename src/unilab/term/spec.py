@@ -156,10 +156,8 @@ NumbaItemFn: TypeAlias = Callable[..., None]
 class TermDefinition:
     """Trusted implementation plus cold-path requirements.
 
-    A fused Numba item receives inputs, parameters, workspace, and the row index
-    in declaration order. Reward/termination items return a scalar; observation
-    items additionally receive the destination buffer and column offset. It is
-    metadata in Tier 1.
+    A future Numba item callable receives inputs, parameters, output, workspace,
+    and row index in declaration order. It is metadata in Tier 1.
     """
 
     key: str

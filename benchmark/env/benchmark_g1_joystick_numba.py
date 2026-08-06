@@ -50,7 +50,6 @@ from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.joystick import (
     G1RewardConfig,
     G1WalkEnv,
-    G1WalkTermPlanConfig,
     build_upper_body_pose_weights,
 )
 from unilab.envs.locomotion.g1.joystick_numba import G1WalkNumbaAccelerator
@@ -132,11 +131,13 @@ FULL_SUPPORTED_SCALES = {
     "base_height": -500.0,
     "pose": -0.5,
     "upper_body_pose": -0.1,
+    "penalty_close_feet_xy": -2.0,
     "penalty_feet_ori": -20.0,
     "feet_phase": 5.0,
     "feet_phase_contrast": 1.0,
     "feet_phase_contact": 1.0,
     "feet_double_stance": -0.2,
+    "feet_air_time": 0.5,
     "alive": 10.0,
 }
 
@@ -219,7 +220,6 @@ class _NoiseCfg:
 class _Cfg:
     ctrl_dt = 0.02
     noise_config = _NoiseCfg()
-    term_plan = G1WalkTermPlanConfig()
 
 
 def make_profile_specs() -> dict[str, ProfileSpec]:
