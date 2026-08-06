@@ -16,7 +16,6 @@ from unilab.base.scene import SceneCfg
 from unilab.envs.locomotion.g1.base import G1BaseCfg
 
 from .rewards import RewardConfig
-from .terms import DEFAULT_OBSERVATIONS, DEFAULT_TERMINATIONS, PREAMBLE_KEY
 
 
 @dataclass
@@ -41,15 +40,6 @@ class VelocityRandomization:
     roll: tuple[float, float] = (-0.52, 0.52)
     pitch: tuple[float, float] = (-0.52, 0.52)
     yaw: tuple[float, float] = (-0.78, 0.78)
-
-
-@dataclass
-class MotionTermPlanConfig:
-    preambles: list[str] = field(default_factory=lambda: [PREAMBLE_KEY])
-    observations: dict[str, list[str]] = field(
-        default_factory=lambda: {name: list(terms) for name, terms in DEFAULT_OBSERVATIONS.items()}
-    )
-    terminations: list[str] = field(default_factory=lambda: list(DEFAULT_TERMINATIONS))
 
 
 @dataclass
@@ -171,7 +161,6 @@ class MotionTrackingCfg(G1BaseCfg):
     terminate_on_undesired_contacts: bool = False
     numba_acceleration: bool = False
     numba_num_threads: int | None = None
-    term_plan: MotionTermPlanConfig | None = None
 
 
 @dataclass

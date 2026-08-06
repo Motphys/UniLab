@@ -26,7 +26,6 @@ from .motion_loader import MotionData, MotionLoader, MotionSampler
 from .reset import build_motion_reference_state
 from .rewards import RewardContext, build_reward_functions, compute_reward
 from .terminations import compute_terminations
-from .terms import MotionResolvedTermPlan, resolve_motion_term_plan
 from .transforms import update_relative_transforms
 
 
@@ -172,10 +171,6 @@ class MotionTrackingEnv(G1BaseEnv):
             for name, reward_fn in self._reward_fns.items()
             if self._reward_term_is_active(name)
         }
-        self._resolved_terms: MotionResolvedTermPlan | None = None
-        self._term_runtime: Any = None
-        if cfg.term_plan is not None and not cfg.numba_acceleration:
-            self._init_term_plan(cfg.term_plan)
         self._numba_accelerator = None
         if cfg.numba_acceleration:
             from unilab.envs.motion_tracking.common.numba import MotionTrackingNumbaAccelerator
@@ -284,57 +279,7 @@ class MotionTrackingEnv(G1BaseEnv):
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
-        resolved = getattr(self, "_resolved_terms", None)
-        if resolved is not None:
-            return dict(resolved.observation_dims)
         return observations.obs_groups_spec(self)
-
-    def _init_term_plan(self, config: Any) -> None:
-        dtype = np.dtype(get_global_dtype())
-        resolved = resolve_motion_term_plan(
-            cfg=self,
-            n_action=self._num_action,
-            n_body=self._n_motion_bodies,
-            anchor_body_idx=self.anchor_body_idx,
-            ee_indices=self.ee_body_indices,
-            undesired_indices=self.undesired_contact_body_indices,
-            config=config,
-            dtype=dtype,
-        )
-        inputs = {
-            name: np.zeros((self._num_envs, *spec.shape), dtype=spec.numpy_dtype)
-            for name, spec in resolved.plan.input_specs.items()
-        }
-        for name, value in (("joint_lower", self._joint_lower), ("joint_upper", self._joint_upper)):
-            if name in inputs and value is not None:
-                np.copyto(inputs[name], value)
-        runtime = resolved.plan.materialize(num_envs=self._num_envs, inputs=inputs)
-        self._resolved_terms = resolved
-        self._term_inputs = inputs
-        self._term_runtime = runtime
-        self._term_obs = {
-            group: np.empty((self._num_envs, width), dtype=dtype)
-            for group, width in resolved.observation_dims.items()
-        }
-        self._term_reward = np.empty((self._num_envs,), dtype=dtype)
-        self._term_terminated = np.empty((self._num_envs,), dtype=np.bool_)
-        self.body_pos_relative_w = runtime.workspace["ref_body_pos_w"]
-        self.body_quat_relative_w = runtime.workspace["ref_body_quat_w"]
-        runtime.execute()  # Bind active owner reward adapters on the cold path.
-        self._sync_term_reward_scales()
-
-    def _sync_term_reward_scales(self) -> None:
-        assert self._resolved_terms is not None and self._term_runtime is not None
-        active = []
-        for reward_name, output_name in self._resolved_terms.reward_outputs:
-            configured = self._cfg.reward_config.scales[reward_name]
-            scale = (
-                configured if self._resolved_terms.reward_available.get(reward_name, True) else 0.0
-            )
-            self._term_runtime.set_scale(output_name, scale)
-            if configured != 0.0:
-                active.append((reward_name, output_name))
-        self._active_term_rewards = tuple(active)
 
     def _actor_obs_dim(self, n: int) -> int:
         return observations.actor_obs_dim(n)
@@ -431,44 +376,37 @@ class MotionTrackingEnv(G1BaseEnv):
             obs = numba_result.obs
             state.info["log"] = numba_result.log
         else:
-            if getattr(self, "_term_runtime", None) is not None:
-                obs, reward, terminated = self._compute_term_state(
-                    state.info,
-                    motion_data,
-                    linvel,
-                    gyro,
-                    dof_pos,
-                    dof_vel,
-                    robot_body_pos_w,
-                    robot_body_quat_w,
-                    robot_body_lin_vel_w,
-                    robot_body_ang_vel_w,
-                )
-            else:
-                self._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
-                terminated = self._compute_terminations(
-                    motion_data, robot_body_pos_w, robot_body_quat_w
-                )
-                reward = self._compute_reward(
-                    state.info,
-                    motion_data,
-                    robot_body_pos_w,
-                    robot_body_quat_w,
-                    robot_body_lin_vel_w,
-                    robot_body_ang_vel_w,
-                    dof_pos,
-                    dof_vel,
-                )
-                obs = self._compute_obs(
-                    state.info,
-                    motion_data,
-                    linvel,
-                    gyro,
-                    dof_pos,
-                    dof_vel,
-                    robot_body_pos_w,
-                    robot_body_quat_w,
-                )
+            # Compute relative body transforms (for observations and rewards)
+            self._update_relative_transforms(motion_data, robot_body_pos_w, robot_body_quat_w)
+
+            # Compute terminations
+            terminated = self._compute_terminations(
+                motion_data, robot_body_pos_w, robot_body_quat_w
+            )
+
+            # Compute reward
+            reward = self._compute_reward(
+                state.info,
+                motion_data,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                robot_body_lin_vel_w,
+                robot_body_ang_vel_w,
+                dof_pos,
+                dof_vel,
+            )
+
+            # Compute observations
+            obs = self._compute_obs(
+                state.info,
+                motion_data,
+                linvel,
+                gyro,
+                dof_pos,
+                dof_vel,
+                robot_body_pos_w,
+                robot_body_quat_w,
+            )
 
         # Update failure statistics for adaptive sampling
         self.motion_sampler.update_failure_stats(terminated)
@@ -545,7 +483,7 @@ class MotionTrackingEnv(G1BaseEnv):
         robot_body_quat_w: np.ndarray,
     ) -> dict[str, np.ndarray]:
         """Compute observations as dict with actor and critic groups."""
-        result = observations.compute_obs(
+        return observations.compute_obs(
             self,
             info,
             motion_data,
@@ -556,164 +494,6 @@ class MotionTrackingEnv(G1BaseEnv):
             robot_body_pos_w,
             robot_body_quat_w,
         )
-        resolved = getattr(self, "_resolved_terms", None)
-        if resolved is None:
-            return result
-        n = dof_pos.shape[1]
-        layouts = {
-            "obs": (
-                ("command", 2 * n),
-                ("anchor_pos", 3),
-                ("anchor_ori", 6),
-                ("linvel", 3),
-                ("gyro", 3),
-                ("joint_pos", n),
-                ("dof_vel", n),
-                ("actions", n),
-            ),
-            "critic": (
-                ("command", 2 * n),
-                ("anchor_pos", 3),
-                ("anchor_ori", 6),
-                ("linvel", 3),
-                ("gyro", 3),
-                ("joint_pos", n),
-                ("dof_vel", n),
-                ("actions", n),
-                ("body_pos", self._n_motion_bodies * 3),
-                ("body_ori", self._n_motion_bodies * 6),
-            ),
-        }
-        selected = {}
-        for group, layout in layouts.items():
-            start, slices = 0, {}
-            for label, width in layout:
-                slices[label] = slice(start, start + width)
-                start += width
-            selected[group] = np.concatenate(
-                [result[group][:, slices[label]] for label in resolved.observation_labels[group]],
-                axis=1,
-                dtype=get_global_dtype(),
-            )
-        return selected
-
-    @staticmethod
-    def _copy_term_input(inputs: dict[str, np.ndarray], name: str, value: np.ndarray) -> None:
-        if name in inputs:
-            np.copyto(inputs[name], value, casting="same_kind")
-
-    def _populate_term_inputs(
-        self,
-        info: dict,
-        motion_data: Any,
-        linvel: np.ndarray,
-        gyro: np.ndarray,
-        dof_pos: np.ndarray,
-        dof_vel: np.ndarray,
-        robot_body_pos_w: np.ndarray,
-        robot_body_quat_w: np.ndarray,
-        robot_body_lin_vel_w: np.ndarray,
-        robot_body_ang_vel_w: np.ndarray,
-    ) -> None:
-        inputs, copy = self._term_inputs, self._copy_term_input
-        for name, value in (
-            ("motion_body_pos_w", motion_data.body_pos_w),
-            ("motion_body_quat_w", motion_data.body_quat_w),
-            ("motion_body_lin_vel_w", motion_data.body_lin_vel_w),
-            ("motion_body_ang_vel_w", motion_data.body_ang_vel_w),
-            ("motion_joint_pos", motion_data.joint_pos),
-            ("motion_joint_vel", motion_data.joint_vel),
-            ("robot_body_pos_w", robot_body_pos_w),
-            ("robot_body_quat_w", robot_body_quat_w),
-            ("robot_body_lin_vel_w", robot_body_lin_vel_w),
-            ("robot_body_ang_vel_w", robot_body_ang_vel_w),
-            ("dof_pos", dof_pos),
-            ("dof_vel", dof_vel),
-            ("linvel", linvel),
-            ("gyro", gyro),
-        ):
-            copy(inputs, name, value)
-        zero = self._zero_actions
-        current = info.get("current_actions")
-        current = current if isinstance(current, np.ndarray) else zero
-        previous = info.get("last_actions")
-        previous = previous if isinstance(previous, np.ndarray) else zero
-        for name, value in (
-            ("current_actions", current),
-            ("last_actions", previous),
-            ("obs_actions", current),
-        ):
-            copy(inputs, name, value)
-        effective_default = self._effective_default_angles()
-        copy(inputs, "effective_default_angles", effective_default)
-
-        noise = self._cfg.noise_config
-        for name, value, scale in (
-            ("noisy_linvel", linvel, noise.scale_linvel),
-            ("noisy_gyro", gyro, noise.scale_gyro),
-        ):
-            if name in inputs:
-                copy(inputs, name, self._obs_noise(value, scale))
-        if "noisy_joint_pos_rel" in inputs:
-            np.subtract(dof_pos, effective_default, out=inputs["noisy_joint_pos_rel"])
-            copy(
-                inputs,
-                "noisy_joint_pos_rel",
-                self._obs_noise(inputs["noisy_joint_pos_rel"], noise.scale_joint_angle),
-            )
-        copy(inputs, "noisy_dof_vel", self._obs_noise(dof_vel, noise.scale_joint_vel))
-
-    def _compute_term_state(
-        self,
-        info: dict,
-        motion_data: Any,
-        linvel: np.ndarray,
-        gyro: np.ndarray,
-        dof_pos: np.ndarray,
-        dof_vel: np.ndarray,
-        robot_body_pos_w: np.ndarray,
-        robot_body_quat_w: np.ndarray,
-        robot_body_lin_vel_w: np.ndarray,
-        robot_body_ang_vel_w: np.ndarray,
-    ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
-        assert self._resolved_terms is not None and self._term_runtime is not None
-        self._populate_term_inputs(
-            info,
-            motion_data,
-            linvel,
-            gyro,
-            dof_pos,
-            dof_vel,
-            robot_body_pos_w,
-            robot_body_quat_w,
-            robot_body_lin_vel_w,
-            robot_body_ang_vel_w,
-        )
-        outputs = self._term_runtime.execute()
-        for group, names in self._resolved_terms.observation_outputs.items():
-            start = 0
-            for name in names:
-                width = outputs[name].shape[1]
-                np.copyto(self._term_obs[group][:, start : start + width], outputs[name])
-                start += width
-        self._term_reward.fill(0.0)
-        for _, name in self._resolved_terms.reward_outputs:
-            np.add(self._term_reward, outputs[name], out=self._term_reward)
-        self._term_reward *= self._cfg.ctrl_dt
-        self._term_terminated.fill(False)
-        for name in self._resolved_terms.termination_outputs:
-            np.logical_or(self._term_terminated, outputs[name], out=self._term_terminated)
-
-        steps = info.get("steps")
-        should_log = self._enable_reward_log and (
-            int(steps[0]) % 4 == 0 if isinstance(steps, np.ndarray) else True
-        )
-        log = {} if should_log else info.get("log", {})
-        if should_log:
-            for reward_name, name in self._active_term_rewards:
-                log[f"reward/{reward_name}"] = float(np.mean(outputs[name]))
-        info["log"] = log
-        return self._term_obs, self._term_reward, self._term_terminated
 
     def _compute_reward(
         self,

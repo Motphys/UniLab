@@ -14,12 +14,6 @@ algo:
     entropy_coef: 0.005
 env:
   numba_acceleration: false
-  term_plan:
-    preambles: [motion.tracking.preamble.transforms.v1]
-    observations:
-      obs: [motion.tracking.observation.actor_command.v1, motion.tracking.observation.actor_anchor_pos.v1, motion.tracking.observation.actor_anchor_ori.v1, motion.tracking.observation.actor_linvel.v1, motion.tracking.observation.actor_gyro.v1, motion.tracking.observation.actor_joint_pos.v1, motion.tracking.observation.actor_dof_vel.v1, motion.tracking.observation.actor_actions.v1]
-      critic: [motion.tracking.observation.critic_command.v1, motion.tracking.observation.critic_anchor_pos.v1, motion.tracking.observation.critic_anchor_ori.v1, motion.tracking.observation.critic_linvel.v1, motion.tracking.observation.critic_gyro.v1, motion.tracking.observation.critic_joint_pos.v1, motion.tracking.observation.critic_dof_vel.v1, motion.tracking.observation.critic_actions.v1, motion.tracking.observation.critic_body_pos.v1, motion.tracking.observation.critic_body_ori.v1]
-    terminations: [motion.tracking.termination.failures.v1]
 reward:
   scales:
     motion_global_root_pos: 0.5

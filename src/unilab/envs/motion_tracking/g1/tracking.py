@@ -18,7 +18,6 @@ from unilab.base.scene import SceneCfg
 from ..common.config import (
     Domain_Rand,
     DomainRand,
-    MotionTermPlanConfig,
     MotionTrackingCfg,
     MotionTrackingDeployEnvCfg,
     PoseRandomization,
@@ -42,7 +41,7 @@ _build_motion_reference_state = build_motion_reference_state
 class G1MotionTrackingEnvCfg(MotionTrackingCfg):
     """Registered configuration for G1 motion tracking."""
 
-    term_plan: MotionTermPlanConfig | None = field(default_factory=MotionTermPlanConfig)
+    pass
 
 
 @registry.envcfg("G1MotionTrackingDeploy")
