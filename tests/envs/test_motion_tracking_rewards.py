@@ -14,7 +14,6 @@ import numpy as np
 from unilab.envs.motion_tracking.common import numba as numba_mod
 from unilab.envs.motion_tracking.common import rewards
 from unilab.envs.motion_tracking.common.rewards import RewardConfig, RewardContext
-from unilab.envs.motion_tracking.common.terms import REWARD_KEYS
 
 
 def _make_ctx(*, scales: dict[str, float] | None = None) -> RewardContext:
@@ -86,11 +85,8 @@ def _make_ctx(*, scales: dict[str, float] | None = None) -> RewardContext:
     )
 
 
-def test_build_reward_functions_matches_registered_reward_terms():
-    expected = set(rewards.build_reward_functions())
-    assert expected == set(REWARD_KEYS)
-    if numba_mod.NUMBA_AVAILABLE:
-        assert expected == set(numba_mod.NUMBA_REWARD_ITEMS)
+def test_build_reward_functions_matches_numba_term_order():
+    assert set(rewards.build_reward_functions()) == set(numba_mod.TERM_ORDER)
 
 
 def test_motion_joint_pos_term_matches_hand_computed():

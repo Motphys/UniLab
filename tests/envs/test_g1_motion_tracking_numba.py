@@ -37,7 +37,7 @@ def test_numba_accelerator_rejects_unsupported_active_reward_terms():
     env = _make_env(8, include_undesired=False)
     env._cfg.reward_config.scales = {"motion_body_pos": 1.0, "custom": 1.0}
     if NUMBA_AVAILABLE:
-        with pytest.raises(ValueError, match="unknown nonzero reward term"):
+        with pytest.raises(ValueError, match="does not support active reward terms"):
             MotionTrackingNumbaAccelerator.from_env(env)
 
 
@@ -110,7 +110,6 @@ def test_motion_term_plan_matches_legacy_numpy_and_reuses_workspace():
 def test_g1_motion_tracking_numba_reward_termination_parity():
     n = 512
     env = _make_env(n, include_undesired=True)
-    _prepare_observation_buffers(env, n)
     motion_data, robot_state, info = _make_batch(n, seed=0)
     (
         robot_body_pos_w,
@@ -136,15 +135,15 @@ def test_g1_motion_tracking_numba_reward_termination_parity():
     log_np = dict(info["log"])
 
     accel = MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
-    out = accel.compute_update_state(
+    out = accel.compute(
         info={
             "steps": np.zeros((n,), dtype=np.uint32),
             "current_actions": info["current_actions"],
             "last_actions": info["last_actions"],
         },
         motion_data=motion_data,
-        linvel=np.zeros((n, 3), dtype=np.float32),
-        gyro=np.zeros((n, 3), dtype=np.float32),
+        ref_body_pos_w=env.body_pos_relative_w,
+        ref_body_quat_w=env.body_quat_relative_w,
         robot_body_pos_w=robot_body_pos_w,
         robot_body_quat_w=robot_body_quat_w,
         robot_body_lin_vel_w=robot_body_lin_vel_w,
@@ -217,64 +216,24 @@ def test_g1_motion_tracking_numba_update_state_parity_without_noise():
         robot_body_quat_w=robot_body_quat_w,
         robot_body_lin_vel_w=robot_body_lin_vel_w,
         robot_body_ang_vel_w=robot_body_ang_vel_w,
+        ref_body_pos_w=env.body_pos_relative_w,
+        ref_body_quat_w=env.body_quat_relative_w,
+        motion_anchor_pos_b=env._motion_anchor_pos_b,
+        motion_anchor_ori_b=env._motion_anchor_ori_b,
+        joint_pos_rel=env._joint_pos_rel,
         scales=env._cfg.reward_config.scales,
         enable_log=True,
+        noise_level=0.0,
+        noise_scale_linvel=0.0,
+        noise_scale_gyro=0.0,
+        noise_scale_joint_angle=0.0,
+        noise_scale_joint_vel=0.0,
     )
 
     np.testing.assert_allclose(out.reward, reward_np, rtol=1e-4, atol=1e-5)
     np.testing.assert_array_equal(out.terminated, terminated_np)
     np.testing.assert_allclose(out.obs["obs"], obs_np["obs"], rtol=1e-5, atol=1e-5)
     np.testing.assert_allclose(out.obs["critic"], obs_np["critic"], rtol=1e-5, atol=1e-5)
-
-
-@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
-def test_g1_motion_tracking_numba_uses_owner_noise_and_reuses_outputs(monkeypatch):
-    n = 8
-    env = _make_env(n, include_undesired=True)
-    _prepare_observation_buffers(env, n)
-    env._cfg.noise_config.level = 1.0
-    monkeypatch.setattr(
-        env,
-        "_obs_noise",
-        lambda data, scale: np.asarray(data + 0.025, dtype=np.float32),
-    )
-    motion_data, robot_state, info = _make_batch(n, seed=23)
-    body_pos, body_quat, body_linvel, body_angvel, dof_pos, dof_vel = robot_state
-    linvel = np.zeros((n, 3), dtype=np.float32)
-    gyro = np.zeros((n, 3), dtype=np.float32)
-    accel = MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
-
-    def compute():
-        return accel.compute_update_state(
-            info=info,
-            motion_data=motion_data,
-            linvel=linvel,
-            gyro=gyro,
-            dof_pos=dof_pos,
-            dof_vel=dof_vel,
-            robot_body_pos_w=body_pos,
-            robot_body_quat_w=body_quat,
-            robot_body_lin_vel_w=body_linvel,
-            robot_body_ang_vel_w=body_angvel,
-            scales=env._cfg.reward_config.scales,
-            enable_log=False,
-        )
-
-    out = compute()
-    sensor_offset = env._num_action * 2 + 3 + 6
-    np.testing.assert_allclose(
-        out.obs["obs"][:, sensor_offset : sensor_offset + 3],
-        out.obs["critic"][:, sensor_offset : sensor_offset + 3] + 0.025,
-    )
-    output_ids = tuple(id(value) for value in (*out.obs.values(), out.reward, out.terminated))
-
-    repeated = compute()
-
-    assert accel.first_jit_ms is not None
-    assert (
-        tuple(id(value) for value in (*repeated.obs.values(), repeated.reward, repeated.terminated))
-        == output_ids
-    )
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
@@ -351,7 +310,6 @@ class _Cfg:
     ee_body_names: tuple[str, ...] = G1MotionTrackingCfg.ee_body_names
     undesired_contact_z_threshold: float = G1MotionTrackingCfg.undesired_contact_z_threshold
     terminate_on_undesired_contacts: bool = False
-    term_plan: MotionTermPlanConfig = field(default_factory=MotionTermPlanConfig)
 
 
 @dataclass
@@ -464,22 +422,12 @@ def _make_batch(n: int, seed: int):
     target_joint_vel = rng.uniform(-2.0, 2.0, (n, na)).astype(np.float32)
 
     motion_data = _MotionData(
-        body_pos_w=np.ascontiguousarray(
-            target_pos + 0.03 * rng.standard_normal((n, nb, 3)), dtype=np.float32
-        ),
+        body_pos_w=np.ascontiguousarray(target_pos + 0.03 * rng.standard_normal((n, nb, 3))),
         body_quat_w=np.ascontiguousarray(_perturb_quats(rng, target_quat, 0.02)),
-        body_lin_vel_w=np.ascontiguousarray(
-            target_lin_vel + 0.1 * rng.standard_normal((n, nb, 3)), dtype=np.float32
-        ),
-        body_ang_vel_w=np.ascontiguousarray(
-            target_ang_vel + 0.1 * rng.standard_normal((n, nb, 3)), dtype=np.float32
-        ),
-        joint_pos=np.ascontiguousarray(
-            target_joint_pos + 0.03 * rng.standard_normal((n, na)), dtype=np.float32
-        ),
-        joint_vel=np.ascontiguousarray(
-            target_joint_vel + 0.05 * rng.standard_normal((n, na)), dtype=np.float32
-        ),
+        body_lin_vel_w=np.ascontiguousarray(target_lin_vel + 0.1 * rng.standard_normal((n, nb, 3))),
+        body_ang_vel_w=np.ascontiguousarray(target_ang_vel + 0.1 * rng.standard_normal((n, nb, 3))),
+        joint_pos=np.ascontiguousarray(target_joint_pos + 0.03 * rng.standard_normal((n, na))),
+        joint_vel=np.ascontiguousarray(target_joint_vel + 0.05 * rng.standard_normal((n, na))),
     )
     robot_body_pos_w = np.ascontiguousarray(
         target_pos + 0.05 * rng.standard_normal((n, nb, 3)), dtype=np.float32

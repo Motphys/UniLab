@@ -206,7 +206,6 @@ def _termination(ctx: NumpyTermContext) -> None:
 @dataclass(frozen=True)
 class MotionResolvedTermPlan:
     plan: ResolvedTermPlan
-    preamble_outputs: tuple[str, ...]
     reward_outputs: tuple[tuple[str, str], ...]
     reward_available: Mapping[str, bool]
     observation_outputs: Mapping[str, tuple[str, ...]]
@@ -222,8 +221,6 @@ class MotionResolvedTermPlan:
 
 
 def _build_registry(*, n_action: int, n_body: int, n_indexed: int, dtype: np.dtype) -> TermRegistry:
-    from . import numba as motion_numba
-
     registry = TermRegistry()
     # fmt: off
     shapes = {
@@ -261,10 +258,9 @@ def _build_registry(*, n_action: int, n_body: int, n_indexed: int, dtype: np.dty
 
     def register(key: str, kind: TermKind, fn: Any, output: TensorSpec,
                  inputs: tuple[str, ...] = (), workspace: tuple[str, ...] = (),
-                 parameters: tuple[ParameterSpec, ...] = (), numba_item_fn: Any = None) -> None:
+                 parameters: tuple[ParameterSpec, ...] = ()) -> None:
         registry.register(TermDefinition(key, kind, fn, output, inputs=ins(*inputs),
-                                         workspace=work(*workspace), parameters=parameters,
-                                         numba_item_fn=numba_item_fn))
+                                         workspace=work(*workspace), parameters=parameters))
 
     scalar = TensorSpec((), dtype)
 
@@ -287,7 +283,7 @@ def _build_registry(*, n_action: int, n_body: int, n_indexed: int, dtype: np.dty
         "motion_command", "joint_pos_rel", "robot_body_pos_b", "robot_body_ori_b",
     )
     register(PREAMBLE_KEY, TermKind.OBSERVATION, _preamble, scalar, preamble_inputs,
-             preamble_work, (int_param("anchor_body_idx"),), motion_numba.NUMBA_PREAMBLE_ITEM)
+             preamble_work, (int_param("anchor_body_idx"),))
 
     # (function, inputs, workspace, parameters); kept compact so the paired
     # authoring surface is auditable as one table.
@@ -306,15 +302,13 @@ def _build_registry(*, n_action: int, n_body: int, n_indexed: int, dtype: np.dty
         "undesired_contacts": (rewards.undesired_contacts, ("robot_body_pos_w",), ("indexed_mask", "env_error"), (int_param("indices", True), float_param("threshold"))),
     }
     for name, (fn, inputs, workspace, params) in reward_defs.items():
-        register(REWARD_KEYS[name], TermKind.REWARD, _RewardAdapter(fn), scalar, inputs, workspace,
-                 params, motion_numba.NUMBA_REWARD_ITEMS.get(name))
+        register(REWARD_KEYS[name], TermKind.REWARD, _RewardAdapter(fn), scalar, inputs, workspace, params)
 
     for key, (group, _label, source, width, is_workspace) in _OBS_META.items():
         resolved_width = {-1: n_action, -2: 2 * n_action, -3: 3 * n_body, -6: 6 * n_body}.get(width, width)
         register(key, TermKind.OBSERVATION, _copy, TensorSpec((resolved_width,), dtype),
                  workspace=(source,) if is_workspace else (),
-                 inputs=() if is_workspace else (source,),
-                 numba_item_fn=motion_numba.NUMBA_OBSERVATION_ITEM)
+                 inputs=() if is_workspace else (source,))
 
     termination_params = (
         int_param("anchor_body_idx"), float_param("anchor_pos_z_threshold"),
@@ -324,8 +318,7 @@ def _build_registry(*, n_action: int, n_body: int, n_indexed: int, dtype: np.dty
     )
     register(DEFAULT_TERMINATIONS[0], TermKind.TERMINATION, _termination, TensorSpec((), np.bool_),
              ("motion_body_pos_w", "motion_body_quat_w", "robot_body_pos_w", "robot_body_quat_w"),
-             ("ref_body_pos_w", "env_error", "indexed_error", "indexed_mask"), termination_params,
-             motion_numba.NUMBA_TERMINATION_ITEM)
+             ("ref_body_pos_w", "env_error", "indexed_error", "indexed_mask"), termination_params)
     return registry
 
 
@@ -347,17 +340,14 @@ def resolve_motion_term_plan(
     n_indexed = max(1, len(ee_indices), len(undesired_indices))
     registry = _build_registry(n_action=n_action, n_body=n_body, n_indexed=n_indexed, dtype=dtype)
     configs: list[TermConfig] = []
-    preamble_outputs = []
     for index, key in enumerate(config.preambles):
-        name = f"preamble.term{index}"
         configs.append(
             TermConfig(
-                name,
+                f"preamble.term{index}",
                 key,
                 parameters={"anchor_body_idx": anchor_body_idx} if key == PREAMBLE_KEY else {},
             )
         )
-        preamble_outputs.append(name)
 
     # fmt: off
     std_names = {
@@ -447,7 +437,6 @@ def resolve_motion_term_plan(
 
     return MotionResolvedTermPlan(
         plan=resolve_term_plan(registry, configs),
-        preamble_outputs=tuple(preamble_outputs),
         reward_outputs=tuple(reward_outputs),
         reward_available=MappingProxyType(available),
         observation_outputs=MappingProxyType(observation_outputs),

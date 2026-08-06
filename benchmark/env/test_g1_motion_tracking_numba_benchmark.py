@@ -21,9 +21,7 @@ def test_g1_motion_tracking_numba_benchmark_builds_records_and_matches_numpy() -
     assert any(record.path == "numba_accelerator" and record.threads == 1 for record in records)
     assert component.profile == "sac_default"
     assert component.speedup_vs_numpy > 0.0
-    assert component.numpy_plan_state_ms > 0.0
-    assert component.numba_plan_state_ms > 0.0
-    assert component.numpy_total_ms > 0.0
+    assert component.numpy_total_ms >= component.numpy_reward_termination_ms
     assert all(
         record.parallel_speedup_vs_numba_1t is not None
         for record in records
@@ -69,8 +67,8 @@ def test_g1_motion_tracking_numba_benchmark_formats_component_records() -> None:
         num_envs=1024,
         numba_threads=8,
         relative_transform_ms=0.5,
-        numpy_plan_state_ms=1.0,
-        numba_plan_state_ms=0.25,
+        numpy_reward_termination_ms=1.0,
+        numba_reward_termination_ms=0.25,
         numpy_update_state_ms=3.0,
         numba_update_state_ms=1.5,
         numpy_total_ms=1.5,
@@ -82,9 +80,7 @@ def test_g1_motion_tracking_numba_benchmark_formats_component_records() -> None:
     table = bench._format_component_table([record])
 
     assert payload["relative_transform_ms"] == 0.5
-    assert payload["numba_plan_state_ms"] == 0.25
     assert "rel ms" in table
-    assert "numba plan-state ms" in table
     assert "numpy update_state ms" in table
     assert "2.00x" in table
 

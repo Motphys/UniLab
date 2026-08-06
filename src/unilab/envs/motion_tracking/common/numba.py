@@ -9,33 +9,52 @@ accelerator is not.
 from __future__ import annotations
 
 import math
-import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 import numpy as np
 
-from unilab.dtype_config import get_global_dtype
 from unilab.utils.numba_geometry import (
     quat_angle_sq_at,
     quat_gravity_z_at,
+    write_body_pos_relative_to_anchor_at,
+    write_body_quat_relative_6d_to_anchor_at,
     write_relative_anchor_transform_at,
     write_yaw_aligned_body_transforms_at,
 )
 
 try:  # pragma: no cover - exercised in environments with numba installed
-    from numba import get_num_threads, njit, set_num_threads
+    from numba import get_num_threads, get_thread_id, njit, prange, set_num_threads
 
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - default test env may not install numba
-    get_num_threads = njit = set_num_threads = None  # type: ignore[assignment]
+    get_num_threads = get_thread_id = njit = prange = set_num_threads = None  # type: ignore[assignment]
     NUMBA_AVAILABLE = False
 
 
-NUMBA_PREAMBLE_ITEM = None
-NUMBA_REWARD_ITEMS: dict[str, Any] = {}
-NUMBA_OBSERVATION_ITEM = None
-NUMBA_TERMINATION_ITEM = None
+TERM_ORDER: tuple[str, ...] = (
+    "motion_global_root_pos",
+    "motion_global_root_ori",
+    "motion_body_pos",
+    "motion_body_ori",
+    "motion_body_lin_vel",
+    "motion_body_ang_vel",
+    "motion_ee_body_pos_z",
+    "motion_joint_pos",
+    "motion_joint_vel",
+    "action_rate_l2",
+    "joint_limit",
+    "undesired_contacts",
+)
+TERM_INDEX = {name: i for i, name in enumerate(TERM_ORDER)}
+SUPPORTED_TERMS = frozenset(TERM_ORDER)
+
+
+@dataclass(frozen=True)
+class G1MotionTrackingNumbaResult:
+    reward: np.ndarray
+    terminated: np.ndarray
+    log: dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -52,9 +71,7 @@ def _active_terms(scales: Mapping[str, float]) -> frozenset[str]:
 
 def unsupported_terms(scales: Mapping[str, float]) -> frozenset[str]:
     """Return nonzero reward terms this task-specific kernel cannot compute."""
-    from unilab.envs.motion_tracking.common.terms import REWARD_KEYS
-
-    return _active_terms(scales) - REWARD_KEYS.keys()
+    return _active_terms(scales) - SUPPORTED_TERMS
 
 
 def is_available(scales: Mapping[str, float]) -> bool:
@@ -203,6 +220,142 @@ if NUMBA_AVAILABLE:
                     return True
         return False
 
+    @njit(parallel=True, fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
+    def _compute_reward_termination_kernel(
+        motion_body_pos_w,
+        motion_body_quat_w,
+        motion_body_lin_vel_w,
+        motion_body_ang_vel_w,
+        motion_joint_pos,
+        motion_joint_vel,
+        ref_body_pos_w,
+        ref_body_quat_w,
+        robot_body_pos_w,
+        robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        dof_pos,
+        dof_vel,
+        current_actions,
+        last_actions,
+        joint_lower,
+        joint_upper,
+        scale,
+        std,
+        anchor,
+        ee_indices,
+        undesired_indices,
+        ctrl_dt,
+        anchor_pos_z_threshold,
+        anchor_ori_threshold,
+        ee_body_pos_z_threshold,
+        undesired_contact_z_threshold,
+        terminate_on_undesired_contacts,
+        has_joint_limits,
+        reward,
+        terminated,
+        log_scratch,
+    ):
+        n = reward.shape[0]
+        n_body = robot_body_pos_w.shape[1]
+        n_action = dof_pos.shape[1]
+        for i in prange(n):
+            tid = get_thread_id()
+            total = 0.0
+
+            w = (
+                motion_global_root_pos_i(motion_body_pos_w, robot_body_pos_w, anchor, std[0], i)
+                * scale[0]
+            )
+            total += w
+            log_scratch[tid, 0] += w
+
+            w = (
+                motion_global_root_ori_i(motion_body_quat_w, robot_body_quat_w, anchor, std[1], i)
+                * scale[1]
+            )
+            total += w
+            log_scratch[tid, 1] += w
+
+            w = motion_body_pos_i(ref_body_pos_w, robot_body_pos_w, n_body, std[2], i) * scale[2]
+            total += w
+            log_scratch[tid, 2] += w
+
+            w = motion_body_ori_i(ref_body_quat_w, robot_body_quat_w, n_body, std[3], i) * scale[3]
+            total += w
+            log_scratch[tid, 3] += w
+
+            w = (
+                motion_body_lin_vel_i(
+                    motion_body_lin_vel_w, robot_body_lin_vel_w, n_body, std[4], i
+                )
+                * scale[4]
+            )
+            total += w
+            log_scratch[tid, 4] += w
+
+            w = (
+                motion_body_ang_vel_i(
+                    motion_body_ang_vel_w, robot_body_ang_vel_w, n_body, std[5], i
+                )
+                * scale[5]
+            )
+            total += w
+            log_scratch[tid, 5] += w
+
+            w = (
+                motion_ee_body_pos_z_i(ref_body_pos_w, robot_body_pos_w, ee_indices, std[6], i)
+                * scale[6]
+            )
+            total += w
+            log_scratch[tid, 6] += w
+
+            w = motion_joint_pos_i(motion_joint_pos, dof_pos, n_action, std[7], i) * scale[7]
+            total += w
+            log_scratch[tid, 7] += w
+
+            w = motion_joint_vel_i(motion_joint_vel, dof_vel, n_action, std[8], i) * scale[8]
+            total += w
+            log_scratch[tid, 8] += w
+
+            w = action_rate_l2_i(current_actions, last_actions, n_action, i) * scale[9]
+            total += w
+            log_scratch[tid, 9] += w
+
+            w = (
+                joint_limit_i(dof_pos, joint_lower, joint_upper, n_action, has_joint_limits, i)
+                * scale[10]
+            )
+            total += w
+            log_scratch[tid, 10] += w
+
+            w = (
+                undesired_contacts_i(
+                    robot_body_pos_w, undesired_indices, undesired_contact_z_threshold, i
+                )
+                * scale[11]
+            )
+            total += w
+            log_scratch[tid, 11] += w
+
+            reward[i] = total * ctrl_dt
+            terminated[i] = terminated_i(
+                motion_body_pos_w,
+                motion_body_quat_w,
+                ref_body_pos_w,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                anchor,
+                ee_indices,
+                undesired_indices,
+                anchor_pos_z_threshold,
+                anchor_ori_threshold,
+                ee_body_pos_z_threshold,
+                undesired_contact_z_threshold,
+                terminate_on_undesired_contacts,
+                i,
+            )
+
     @_dev
     def _write_reference_transforms_i(
         motion_body_pos_w,
@@ -249,428 +402,733 @@ if NUMBA_AVAILABLE:
             i,
         )
 
-
-if NUMBA_AVAILABLE:
-
-    @_dev
-    def _write_body_workspace_i(
-        body_pos_w,
-        body_quat_w,
-        anchor,
-        body_pos_b,
-        body_ori_b,
-        i,
-    ):
-        anchor_px = body_pos_w[i, anchor, 0]
-        anchor_py = body_pos_w[i, anchor, 1]
-        anchor_pz = body_pos_w[i, anchor, 2]
-        aw = body_quat_w[i, anchor, 0]
-        ax = body_quat_w[i, anchor, 1]
-        ay = body_quat_w[i, anchor, 2]
-        az = body_quat_w[i, anchor, 3]
-        for body in range(body_pos_w.shape[1]):
-            vx = body_pos_w[i, body, 0] - anchor_px
-            vy = body_pos_w[i, body, 1] - anchor_py
-            vz = body_pos_w[i, body, 2] - anchor_pz
-            ix, iy, iz = -ax, -ay, -az
-            tx = 2.0 * (iy * vz - iz * vy)
-            ty = 2.0 * (iz * vx - ix * vz)
-            tz = 2.0 * (ix * vy - iy * vx)
-            body_pos_b[i, body, 0] = vx + aw * tx + iy * tz - iz * ty
-            body_pos_b[i, body, 1] = vy + aw * ty + iz * tx - ix * tz
-            body_pos_b[i, body, 2] = vz + aw * tz + ix * ty - iy * tx
-
-            bw = body_quat_w[i, body, 0]
-            bx = body_quat_w[i, body, 1]
-            by = body_quat_w[i, body, 2]
-            bz = body_quat_w[i, body, 3]
-            rw = aw * bw + ax * bx + ay * by + az * bz
-            rx = aw * bx - ax * bw - ay * bz + az * by
-            ry = aw * by + ax * bz - ay * bw - az * bx
-            rz = aw * bz - ax * by + ay * bx - az * bw
-            body_ori_b[i, body, 0] = 1.0 - 2.0 * (ry * ry + rz * rz)
-            body_ori_b[i, body, 1] = 2.0 * (rx * ry - rw * rz)
-            body_ori_b[i, body, 2] = 2.0 * (rx * ry + rw * rz)
-            body_ori_b[i, body, 3] = 1.0 - 2.0 * (rx * rx + rz * rz)
-            body_ori_b[i, body, 4] = 2.0 * (rx * rz - rw * ry)
-            body_ori_b[i, body, 5] = 2.0 * (ry * rz + rw * rx)
-
-    @_dev
-    def _plan_preamble_i(
+    @njit(fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
+    def _compute_reward_termination_i(
         motion_body_pos_w,
         motion_body_quat_w,
+        motion_body_lin_vel_w,
+        motion_body_ang_vel_w,
+        motion_joint_pos,
+        motion_joint_vel,
+        ref_body_pos_w,
+        ref_body_quat_w,
+        robot_body_pos_w,
+        robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        dof_pos,
+        dof_vel,
+        current_actions,
+        last_actions,
+        joint_lower,
+        joint_upper,
+        scale,
+        std,
+        anchor,
+        ee_indices,
+        undesired_indices,
+        n_body,
+        n_action,
+        ctrl_dt,
+        anchor_pos_z_threshold,
+        anchor_ori_threshold,
+        ee_body_pos_z_threshold,
+        undesired_contact_z_threshold,
+        terminate_on_undesired_contacts,
+        has_joint_limits,
+        log_scratch,
+        reward,
+        terminated,
+        tid,
+        i,
+    ):
+        total = 0.0
+
+        w = (
+            motion_global_root_pos_i(motion_body_pos_w, robot_body_pos_w, anchor, std[0], i)
+            * scale[0]
+        )
+        total += w
+        log_scratch[tid, 0] += w
+
+        w = (
+            motion_global_root_ori_i(motion_body_quat_w, robot_body_quat_w, anchor, std[1], i)
+            * scale[1]
+        )
+        total += w
+        log_scratch[tid, 1] += w
+
+        w = motion_body_pos_i(ref_body_pos_w, robot_body_pos_w, n_body, std[2], i) * scale[2]
+        total += w
+        log_scratch[tid, 2] += w
+
+        w = motion_body_ori_i(ref_body_quat_w, robot_body_quat_w, n_body, std[3], i) * scale[3]
+        total += w
+        log_scratch[tid, 3] += w
+
+        w = (
+            motion_body_lin_vel_i(motion_body_lin_vel_w, robot_body_lin_vel_w, n_body, std[4], i)
+            * scale[4]
+        )
+        total += w
+        log_scratch[tid, 4] += w
+
+        w = (
+            motion_body_ang_vel_i(motion_body_ang_vel_w, robot_body_ang_vel_w, n_body, std[5], i)
+            * scale[5]
+        )
+        total += w
+        log_scratch[tid, 5] += w
+
+        w = (
+            motion_ee_body_pos_z_i(ref_body_pos_w, robot_body_pos_w, ee_indices, std[6], i)
+            * scale[6]
+        )
+        total += w
+        log_scratch[tid, 6] += w
+
+        w = motion_joint_pos_i(motion_joint_pos, dof_pos, n_action, std[7], i) * scale[7]
+        total += w
+        log_scratch[tid, 7] += w
+
+        w = motion_joint_vel_i(motion_joint_vel, dof_vel, n_action, std[8], i) * scale[8]
+        total += w
+        log_scratch[tid, 8] += w
+
+        w = action_rate_l2_i(current_actions, last_actions, n_action, i) * scale[9]
+        total += w
+        log_scratch[tid, 9] += w
+
+        w = (
+            joint_limit_i(dof_pos, joint_lower, joint_upper, n_action, has_joint_limits, i)
+            * scale[10]
+        )
+        total += w
+        log_scratch[tid, 10] += w
+
+        w = (
+            undesired_contacts_i(
+                robot_body_pos_w, undesired_indices, undesired_contact_z_threshold, i
+            )
+            * scale[11]
+        )
+        total += w
+        log_scratch[tid, 11] += w
+
+        reward[i] = total * ctrl_dt
+        terminated[i] = terminated_i(
+            motion_body_pos_w,
+            motion_body_quat_w,
+            ref_body_pos_w,
+            robot_body_pos_w,
+            robot_body_quat_w,
+            anchor,
+            ee_indices,
+            undesired_indices,
+            anchor_pos_z_threshold,
+            anchor_ori_threshold,
+            ee_body_pos_z_threshold,
+            undesired_contact_z_threshold,
+            terminate_on_undesired_contacts,
+            i,
+        )
+
+    @_dev
+    def _write_joint_pos_rel_i(
+        dof_pos,
+        default_angles,
+        default_dof_pos_bias,
+        has_default_dof_pos_bias,
+        joint_pos_rel,
+        n_action,
+        i,
+    ):
+        for j in range(n_action):
+            default = default_angles[j]
+            if has_default_dof_pos_bias:
+                default += default_dof_pos_bias[i, j]
+            joint_pos_rel[i, j] = dof_pos[i, j] - default
+
+    @_dev
+    def _write_actor_obs_i(
+        motion_joint_pos,
+        motion_joint_vel,
+        motion_anchor_pos_b,
+        motion_anchor_ori_b,
+        linvel,
+        gyro,
+        dof_vel,
+        current_actions,
+        joint_pos_rel,
+        actor_noise_linvel,
+        actor_noise_gyro,
+        actor_noise_joint_pos,
+        actor_noise_dof_vel,
+        actor_obs,
+        is_deploy_actor,
+        n_action,
+        i,
+    ):
+        out = 0
+        for j in range(n_action):
+            actor_obs[i, out + j] = motion_joint_pos[i, j]
+        out += n_action
+        for j in range(n_action):
+            actor_obs[i, out + j] = motion_joint_vel[i, j]
+        out += n_action
+        if not is_deploy_actor:
+            actor_obs[i, out] = motion_anchor_pos_b[i, 0]
+            actor_obs[i, out + 1] = motion_anchor_pos_b[i, 1]
+            actor_obs[i, out + 2] = motion_anchor_pos_b[i, 2]
+            out += 3
+        for k in range(6):
+            actor_obs[i, out + k] = motion_anchor_ori_b[i, k]
+        out += 6
+        if not is_deploy_actor:
+            actor_obs[i, out] = linvel[i, 0] + actor_noise_linvel[i, 0]
+            actor_obs[i, out + 1] = linvel[i, 1] + actor_noise_linvel[i, 1]
+            actor_obs[i, out + 2] = linvel[i, 2] + actor_noise_linvel[i, 2]
+            out += 3
+        actor_obs[i, out] = gyro[i, 0] + actor_noise_gyro[i, 0]
+        actor_obs[i, out + 1] = gyro[i, 1] + actor_noise_gyro[i, 1]
+        actor_obs[i, out + 2] = gyro[i, 2] + actor_noise_gyro[i, 2]
+        out += 3
+        for j in range(n_action):
+            actor_obs[i, out + j] = joint_pos_rel[i, j] + actor_noise_joint_pos[i, j]
+        out += n_action
+        for j in range(n_action):
+            actor_obs[i, out + j] = dof_vel[i, j] + actor_noise_dof_vel[i, j]
+        out += n_action
+        for j in range(n_action):
+            actor_obs[i, out + j] = current_actions[i, j]
+
+    @_dev
+    def _write_critic_base_obs_i(
+        motion_joint_pos,
+        motion_joint_vel,
+        motion_anchor_pos_b,
+        motion_anchor_ori_b,
+        linvel,
+        gyro,
+        dof_vel,
+        current_actions,
+        joint_pos_rel,
+        critic_obs,
+        n_action,
+        i,
+    ):
+        out = 0
+        for j in range(n_action):
+            critic_obs[i, out + j] = motion_joint_pos[i, j]
+        out += n_action
+        for j in range(n_action):
+            critic_obs[i, out + j] = motion_joint_vel[i, j]
+        out += n_action
+        critic_obs[i, out] = motion_anchor_pos_b[i, 0]
+        critic_obs[i, out + 1] = motion_anchor_pos_b[i, 1]
+        critic_obs[i, out + 2] = motion_anchor_pos_b[i, 2]
+        out += 3
+        for k in range(6):
+            critic_obs[i, out + k] = motion_anchor_ori_b[i, k]
+        out += 6
+        critic_obs[i, out] = linvel[i, 0]
+        critic_obs[i, out + 1] = linvel[i, 1]
+        critic_obs[i, out + 2] = linvel[i, 2]
+        out += 3
+        critic_obs[i, out] = gyro[i, 0]
+        critic_obs[i, out + 1] = gyro[i, 1]
+        critic_obs[i, out + 2] = gyro[i, 2]
+        out += 3
+        for j in range(n_action):
+            critic_obs[i, out + j] = joint_pos_rel[i, j]
+        out += n_action
+        for j in range(n_action):
+            critic_obs[i, out + j] = dof_vel[i, j]
+        out += n_action
+        for j in range(n_action):
+            critic_obs[i, out + j] = current_actions[i, j]
+
+    @_dev
+    def _write_critic_body_pos_i(
+        robot_body_pos_w,
+        robot_body_quat_w,
+        critic_obs,
+        anchor,
+        n_body,
+        out,
+        i,
+    ):
+        write_body_pos_relative_to_anchor_at(
+            robot_body_pos_w,
+            robot_body_quat_w,
+            anchor,
+            n_body,
+            critic_obs,
+            i,
+            out,
+        )
+
+    @_dev
+    def _write_critic_body_ori_i(
+        robot_body_quat_w,
+        critic_obs,
+        anchor,
+        n_body,
+        out,
+        i,
+    ):
+        write_body_quat_relative_6d_to_anchor_at(
+            robot_body_quat_w,
+            anchor,
+            n_body,
+            critic_obs,
+            i,
+            out,
+        )
+
+    @_dev
+    def _write_critic_linvel_tail_i(linvel, critic_obs, out, i):
+        if critic_obs.shape[1] > out:
+            critic_obs[i, out] = linvel[i, 0]
+            critic_obs[i, out + 1] = linvel[i, 1]
+            critic_obs[i, out + 2] = linvel[i, 2]
+
+    @_dev
+    def _write_critic_obs_i(
+        motion_joint_pos,
+        motion_joint_vel,
+        motion_anchor_pos_b,
+        motion_anchor_ori_b,
+        linvel,
+        gyro,
+        dof_vel,
+        current_actions,
+        joint_pos_rel,
+        robot_body_pos_w,
+        robot_body_quat_w,
+        critic_obs,
+        anchor,
+        n_body,
+        n_action,
+        i,
+    ):
+        _write_critic_base_obs_i(
+            motion_joint_pos,
+            motion_joint_vel,
+            motion_anchor_pos_b,
+            motion_anchor_ori_b,
+            linvel,
+            gyro,
+            dof_vel,
+            current_actions,
+            joint_pos_rel,
+            critic_obs,
+            n_action,
+            i,
+        )
+        body_pos_offset = n_action * 5 + 15
+        body_ori_offset = body_pos_offset + n_body * 3
+        tail_offset = body_ori_offset + n_body * 6
+        _write_critic_body_pos_i(
+            robot_body_pos_w,
+            robot_body_quat_w,
+            critic_obs,
+            anchor,
+            n_body,
+            body_pos_offset,
+            i,
+        )
+        _write_critic_body_ori_i(
+            robot_body_quat_w,
+            critic_obs,
+            anchor,
+            n_body,
+            body_ori_offset,
+            i,
+        )
+        _write_critic_linvel_tail_i(linvel, critic_obs, tail_offset, i)
+
+    @njit(parallel=True, fastmath=True, cache=True, nogil=True)  # type: ignore[misc]
+    def _compute_update_state_kernel(
+        motion_body_pos_w,
+        motion_body_quat_w,
+        motion_body_lin_vel_w,
+        motion_body_ang_vel_w,
         motion_joint_pos,
         motion_joint_vel,
         robot_body_pos_w,
         robot_body_quat_w,
+        robot_body_lin_vel_w,
+        robot_body_ang_vel_w,
+        linvel,
+        gyro,
         dof_pos,
-        effective_default_angles,
+        dof_vel,
+        default_angles,
+        default_dof_pos_bias,
+        current_actions,
+        last_actions,
+        joint_lower,
+        joint_upper,
+        scale,
+        std,
         anchor,
-        delta_pos_w,
-        delta_ori_w,
-        body_vec_error,
-        env_error,
-        term_scratch,
+        ee_indices,
+        undesired_indices,
+        ctrl_dt,
+        anchor_pos_z_threshold,
+        anchor_ori_threshold,
+        ee_body_pos_z_threshold,
+        undesired_contact_z_threshold,
+        terminate_on_undesired_contacts,
+        has_joint_limits,
+        has_default_dof_pos_bias,
+        is_deploy_actor,
+        actor_noise_linvel,
+        actor_noise_gyro,
+        actor_noise_joint_pos,
+        actor_noise_dof_vel,
         ref_body_pos_w,
         ref_body_quat_w,
         motion_anchor_pos_b,
         motion_anchor_ori_b,
-        motion_command,
         joint_pos_rel,
-        robot_body_pos_b,
-        robot_body_ori_b,
-        i,
+        actor_obs,
+        critic_obs,
+        reward,
+        terminated,
+        log_scratch,
     ):
-        anchor_idx = int(anchor)
+        n = reward.shape[0]
         n_body = robot_body_pos_w.shape[1]
-        _write_reference_transforms_i(
-            motion_body_pos_w,
-            motion_body_quat_w,
-            robot_body_pos_w,
-            robot_body_quat_w,
-            anchor_idx,
-            n_body,
-            ref_body_pos_w,
-            ref_body_quat_w,
-            i,
-        )
-        _write_motion_anchor_i(
-            motion_body_pos_w,
-            motion_body_quat_w,
-            robot_body_pos_w,
-            robot_body_quat_w,
-            anchor_idx,
-            motion_anchor_pos_b,
-            motion_anchor_ori_b,
-            i,
-        )
-        for j in range(dof_pos.shape[1]):
-            motion_command[i, j] = motion_joint_pos[i, j]
-            motion_command[i, dof_pos.shape[1] + j] = motion_joint_vel[i, j]
-            joint_pos_rel[i, j] = dof_pos[i, j] - effective_default_angles[i, j]
-        _write_body_workspace_i(
-            robot_body_pos_w,
-            robot_body_quat_w,
-            anchor_idx,
-            robot_body_pos_b,
-            robot_body_ori_b,
-            i,
-        )
+        n_action = dof_pos.shape[1]
 
-    @_dev
-    def _root_pos_plan_i(motion_pos, robot_pos, anchor, std, env_error, i):
-        return motion_global_root_pos_i(motion_pos, robot_pos, int(anchor), std, i)
-
-    @_dev
-    def _root_ori_plan_i(motion_quat, robot_quat, anchor, std, env_error, i):
-        return motion_global_root_ori_i(motion_quat, robot_quat, int(anchor), std, i)
-
-    @_dev
-    def _body_pos_plan_i(robot_pos, std, ref_pos, body_error, env_error, i):
-        return motion_body_pos_i(ref_pos, robot_pos, robot_pos.shape[1], std, i)
-
-    @_dev
-    def _body_ori_plan_i(robot_quat, std, ref_quat, quat_w, quat_x, env_error, i):
-        return motion_body_ori_i(ref_quat, robot_quat, robot_quat.shape[1], std, i)
-
-    @_dev
-    def _body_lin_vel_plan_i(motion_vel, robot_vel, std, body_error, env_error, i):
-        return motion_body_lin_vel_i(motion_vel, robot_vel, robot_vel.shape[1], std, i)
-
-    @_dev
-    def _body_ang_vel_plan_i(motion_vel, robot_vel, std, body_error, env_error, i):
-        return motion_body_ang_vel_i(motion_vel, robot_vel, robot_vel.shape[1], std, i)
-
-    @_dev
-    def _ee_pos_plan_i(robot_pos, indices, std, ref_pos, indexed_error, env_error, i):
-        return motion_ee_body_pos_z_i(ref_pos, robot_pos, indices, std, i)
-
-    @_dev
-    def _joint_pos_plan_i(motion_pos, dof_pos, std, joint_error, env_error, i):
-        return motion_joint_pos_i(motion_pos, dof_pos, dof_pos.shape[1], std, i)
-
-    @_dev
-    def _joint_vel_plan_i(motion_vel, dof_vel, std, joint_error, env_error, i):
-        return motion_joint_vel_i(motion_vel, dof_vel, dof_vel.shape[1], std, i)
-
-    @_dev
-    def _action_rate_plan_i(current, previous, joint_error, env_error, i):
-        return action_rate_l2_i(current, previous, current.shape[1], i)
-
-    @_dev
-    def _joint_limit_plan_i(lower, upper, dof_pos, joint_error, joint_upper, i):
-        acc = 0.0
-        for j in range(dof_pos.shape[1]):
-            low = lower[i, j] - dof_pos[i, j]
-            high = dof_pos[i, j] - upper[i, j]
-            violation = (low if low > 0.0 else 0.0) + (high if high > 0.0 else 0.0)
-            acc += violation * violation
-        return acc
-
-    @_dev
-    def _undesired_plan_i(robot_pos, indices, threshold, indexed_mask, env_error, i):
-        return undesired_contacts_i(robot_pos, indices, threshold, i)
-
-    @_dev
-    def _termination_plan_i(
-        motion_pos,
-        motion_quat,
-        robot_pos,
-        robot_quat,
-        anchor,
-        anchor_pos_threshold,
-        check_anchor_ori,
-        anchor_ori_threshold,
-        ee_indices,
-        ee_threshold,
-        contact_indices,
-        contact_threshold,
-        ref_pos,
-        env_error,
-        indexed_error,
-        indexed_mask,
-        i,
-    ):
-        anchor_idx = int(anchor)
-        if abs(motion_pos[i, anchor_idx, 2] - robot_pos[i, anchor_idx, 2]) > anchor_pos_threshold:
-            return True
-        if check_anchor_ori != 0.0:
-            motion_gravity_z = quat_gravity_z_at(motion_quat, anchor_idx, i)
-            robot_gravity_z = quat_gravity_z_at(robot_quat, anchor_idx, i)
-            if abs(motion_gravity_z - robot_gravity_z) > anchor_ori_threshold:
-                return True
-        for index in range(ee_indices.shape[0]):
-            body_idx = ee_indices[index]
-            if abs(ref_pos[i, body_idx, 2] - robot_pos[i, body_idx, 2]) > ee_threshold:
-                return True
-        for index in range(contact_indices.shape[0]):
-            if robot_pos[i, contact_indices[index], 2] < contact_threshold:
-                return True
-        return False
-
-    @_dev
-    def _copy_plan_i(source, output, offset, i):
-        if source.ctypes.data == output.ctypes.data + offset * output.itemsize:
-            return
-        width = source.size // source.shape[0]
-        for j in range(width):
-            output[i, offset + j] = source.flat[i * width + j]
-
-    NUMBA_PREAMBLE_ITEM = _plan_preamble_i
-    NUMBA_REWARD_ITEMS = {
-        "motion_global_root_pos": _root_pos_plan_i,
-        "motion_global_root_ori": _root_ori_plan_i,
-        "motion_body_pos": _body_pos_plan_i,
-        "motion_body_ori": _body_ori_plan_i,
-        "motion_body_lin_vel": _body_lin_vel_plan_i,
-        "motion_body_ang_vel": _body_ang_vel_plan_i,
-        "motion_ee_body_pos_z": _ee_pos_plan_i,
-        "motion_joint_pos": _joint_pos_plan_i,
-        "motion_joint_vel": _joint_vel_plan_i,
-        "action_rate_l2": _action_rate_plan_i,
-        "joint_limit": _joint_limit_plan_i,
-        "undesired_contacts": _undesired_plan_i,
-    }
-    NUMBA_OBSERVATION_ITEM = _copy_plan_i
-    NUMBA_TERMINATION_ITEM = _termination_plan_i
+        for i in prange(n):
+            _write_reference_transforms_i(
+                motion_body_pos_w,
+                motion_body_quat_w,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                anchor,
+                n_body,
+                ref_body_pos_w,
+                ref_body_quat_w,
+                i,
+            )
+            _write_motion_anchor_i(
+                motion_body_pos_w,
+                motion_body_quat_w,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                anchor,
+                motion_anchor_pos_b,
+                motion_anchor_ori_b,
+                i,
+            )
+            _compute_reward_termination_i(
+                motion_body_pos_w,
+                motion_body_quat_w,
+                motion_body_lin_vel_w,
+                motion_body_ang_vel_w,
+                motion_joint_pos,
+                motion_joint_vel,
+                ref_body_pos_w,
+                ref_body_quat_w,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                robot_body_lin_vel_w,
+                robot_body_ang_vel_w,
+                dof_pos,
+                dof_vel,
+                current_actions,
+                last_actions,
+                joint_lower,
+                joint_upper,
+                scale,
+                std,
+                anchor,
+                ee_indices,
+                undesired_indices,
+                n_body,
+                n_action,
+                ctrl_dt,
+                anchor_pos_z_threshold,
+                anchor_ori_threshold,
+                ee_body_pos_z_threshold,
+                undesired_contact_z_threshold,
+                terminate_on_undesired_contacts,
+                has_joint_limits,
+                log_scratch,
+                reward,
+                terminated,
+                get_thread_id(),
+                i,
+            )
+            _write_joint_pos_rel_i(
+                dof_pos,
+                default_angles,
+                default_dof_pos_bias,
+                has_default_dof_pos_bias,
+                joint_pos_rel,
+                n_action,
+                i,
+            )
+            _write_actor_obs_i(
+                motion_joint_pos,
+                motion_joint_vel,
+                motion_anchor_pos_b,
+                motion_anchor_ori_b,
+                linvel,
+                gyro,
+                dof_vel,
+                current_actions,
+                joint_pos_rel,
+                actor_noise_linvel,
+                actor_noise_gyro,
+                actor_noise_joint_pos,
+                actor_noise_dof_vel,
+                actor_obs,
+                is_deploy_actor,
+                n_action,
+                i,
+            )
+            _write_critic_obs_i(
+                motion_joint_pos,
+                motion_joint_vel,
+                motion_anchor_pos_b,
+                motion_anchor_ori_b,
+                linvel,
+                gyro,
+                dof_vel,
+                current_actions,
+                joint_pos_rel,
+                robot_body_pos_w,
+                robot_body_quat_w,
+                critic_obs,
+                anchor,
+                n_body,
+                n_action,
+                i,
+            )
 
 
 class MotionTrackingNumbaAccelerator:
-    """Resolved-plan Numba driver for the G1 motion-tracking pilot."""
+    """Driver that keeps config-derived arrays and calls the fused kernel."""
 
-    def __init__(self, env: Any, *, num_threads: int | None = None) -> None:
-        from unilab.envs.motion_tracking.common.terms import resolve_motion_term_plan
-        from unilab.term.numba import FusedOutputLayout, materialize_numba_plan
-
-        config = env._cfg.term_plan
-        if config is None:
-            raise ValueError(
-                "MotionTracking fused Numba execution requires env.term_plan; disable "
-                "numba_acceleration for profiles that retain the legacy NumPy path"
-            )
-        dtype = np.dtype(get_global_dtype())
-        resolved = resolve_motion_term_plan(
-            cfg=env,
-            n_action=env._num_action,
-            n_body=env._n_motion_bodies,
-            anchor_body_idx=env.anchor_body_idx,
-            ee_indices=env.ee_body_indices,
-            undesired_indices=env.undesired_contact_body_indices,
-            config=config,
-            dtype=dtype,
+    def __init__(
+        self,
+        *,
+        num_envs: int,
+        num_action: int,
+        ctrl_dt: float,
+        reward_config: Any,
+        anchor_body_idx: int,
+        ee_body_indices: np.ndarray,
+        undesired_contact_body_indices: np.ndarray,
+        joint_lower: np.ndarray | None,
+        joint_upper: np.ndarray | None,
+        default_angles: np.ndarray,
+        actor_obs_width: int,
+        critic_obs_width: int,
+        is_deploy_actor: bool,
+        anchor_pos_z_threshold: float,
+        anchor_ori_threshold: float,
+        ee_body_pos_z_threshold: float,
+        undesired_contact_z_threshold: float,
+        terminate_on_undesired_contacts: bool,
+        num_threads: int | None = None,
+    ) -> None:
+        self.num_envs = int(num_envs)
+        self.num_action = int(num_action)
+        self.ctrl_dt = float(ctrl_dt)
+        self.anchor_body_idx = int(anchor_body_idx)
+        self.ee_body_indices = np.asarray(ee_body_indices, dtype=np.int32)
+        self.undesired_contact_body_indices = np.asarray(
+            undesired_contact_body_indices, dtype=np.int32
         )
-        inputs = {
-            name: np.zeros((env._num_envs, *spec.shape), dtype=spec.numpy_dtype)
-            for name, spec in resolved.plan.input_specs.items()
-        }
-        for name, value in (
-            ("joint_lower", env._joint_lower),
-            ("joint_upper", env._joint_upper),
-            ("effective_default_angles", env.default_angles),
-        ):
-            if name in inputs and value is not None:
-                np.copyto(inputs[name], np.broadcast_to(value, inputs[name].shape))
-        observations = {
-            group: np.empty((env._num_envs, width), dtype=dtype)
-            for group, width in resolved.observation_dims.items()
-        }
-        layout = FusedOutputLayout(
-            preambles=resolved.preamble_outputs,
-            rewards=tuple(output for _, output in resolved.reward_outputs),
-            observations=resolved.observation_outputs,
-            terminations=resolved.termination_outputs,
-        )
-        self.runtime = materialize_numba_plan(
-            resolved.plan,
-            layout,
-            num_envs=env._num_envs,
-            inputs=inputs,
-            observations=observations,
-            reward=np.empty((env._num_envs,), dtype=dtype),
-            terminated=np.empty((env._num_envs,), dtype=np.bool_),
-        )
-        self.env = env
-        self.resolved = resolved
-        self.inputs = inputs
-        self._owned_inputs = inputs.copy()
-        self.obs = observations
-        self.num_envs = env._num_envs
+        self.anchor_pos_z_threshold = float(anchor_pos_z_threshold)
+        self.anchor_ori_threshold = float(anchor_ori_threshold)
+        self.ee_body_pos_z_threshold = float(ee_body_pos_z_threshold)
+        self.undesired_contact_z_threshold = float(undesired_contact_z_threshold)
+        self.terminate_on_undesired_contacts = bool(terminate_on_undesired_contacts)
+        self.default_angles = np.asarray(default_angles, dtype=np.float64)
+        self.actor_obs_width = int(actor_obs_width)
+        self.critic_obs_width = int(critic_obs_width)
+        self.is_deploy_actor = bool(is_deploy_actor)
         self.num_threads = num_threads
-        self.ctrl_dt = float(env._cfg.ctrl_dt)
-        self.first_jit_ms: float | None = None
-        self._reward_outputs = dict(resolved.reward_outputs)
-        self._scale_snapshot: tuple[float, ...] | None = None
-        self._plan_indices = {term.name: index for index, term in enumerate(resolved.plan.terms)}
-        self._log_scratch: np.ndarray | None = None
-        claimed_workspace = set()
-        for group, names in resolved.observation_outputs.items():
-            offset = 0
-            for term_name in names:
-                term = resolved.plan.terms[self._plan_indices[term_name]]
-                width = resolved.plan.output_specs[term_name].shape[0]
-                if len(term.definition.workspace) == 1:
-                    source = term.definition.workspace[0].name
-                    spec = resolved.plan.workspace_specs[source]
-                    if source not in claimed_workspace:
-                        output = observations[group]
-                        inner_strides = []
-                        stride = output.itemsize
-                        for dimension in reversed(spec.shape):
-                            inner_strides.append(stride)
-                            stride *= dimension
-                        view = np.ndarray(
-                            (env._num_envs, *spec.shape),
-                            dtype=spec.numpy_dtype,
-                            buffer=output,
-                            offset=offset * output.itemsize,
-                            strides=(output.strides[0], *reversed(inner_strides)),
-                        )
-                        self.runtime.bind_workspace(source, view)
-                        claimed_workspace.add(source)
-                offset += width
-        workspace = self.runtime.workspace
-        env.body_pos_relative_w = workspace["ref_body_pos_w"]
-        env.body_quat_relative_w = workspace["ref_body_quat_w"]
-        env._motion_anchor_pos_b = workspace["motion_anchor_pos_b"]
-        env._motion_anchor_ori_b = workspace["motion_anchor_ori_b"]
-        env._motion_command = workspace["motion_command"]
-        env._joint_pos_rel = workspace["joint_pos_rel"]
-
-    @property
-    def compile_info(self):
-        return self.runtime.compile_info
+        self.has_joint_limits = joint_lower is not None and joint_upper is not None
+        if self.has_joint_limits:
+            self.joint_lower = np.asarray(joint_lower, dtype=np.float64)
+            self.joint_upper = np.asarray(joint_upper, dtype=np.float64)
+        else:
+            self.joint_lower = np.zeros((self.num_action,), dtype=np.float64)
+            self.joint_upper = np.zeros((self.num_action,), dtype=np.float64)
+        self.scale = np.zeros((len(TERM_ORDER),), dtype=np.float64)
+        self.std = self._build_std_vector(reward_config)
+        self._zero_actions = np.zeros((self.num_envs, self.num_action), dtype=np.float64)
+        self._zero_default_dof_pos_bias = np.zeros(
+            (self.num_envs, self.num_action), dtype=np.float64
+        )
+        self._zero_linvel_noise = np.zeros((self.num_envs, 3), dtype=np.float64)
+        self._zero_gyro_noise = np.zeros((self.num_envs, 3), dtype=np.float64)
+        self._zero_joint_noise = np.zeros((self.num_envs, self.num_action), dtype=np.float64)
 
     @classmethod
     def from_env(cls, env: Any, num_threads: int | None = None) -> "MotionTrackingNumbaAccelerator":
         if not NUMBA_AVAILABLE:
             raise RuntimeError(
-                "MotionTracking numba_acceleration=True requires numba. Install it or "
-                "disable numba_acceleration to use the NumPy path."
+                "MotionTracking numba_acceleration=True requires numba. Install it or run "
+                "through `uv run --with numba ...`; disable numba_acceleration to use the "
+                "numpy path."
             )
-        return cls(env, num_threads=num_threads)
-
-    def _sync_scales(self, scales: Mapping[str, float]) -> None:
-        unsupported = _active_terms(scales) - self._reward_outputs.keys()
+        unsupported = unsupported_terms(env._cfg.reward_config.scales)
         if unsupported:
             raise ValueError(
-                f"MotionTracking Numba plan does not support active reward terms {sorted(unsupported)}"
+                "MotionTracking Numba accelerator does not support active reward terms "
+                f"{sorted(unsupported)}. Disable numba_acceleration or add these terms to "
+                "src/unilab/envs/motion_tracking/common/numba.py."
             )
-        snapshot = tuple(float(scales.get(name, 0.0)) for name in self._reward_outputs)
-        if snapshot == self._scale_snapshot:
-            return
-        for reward_name, output_name in self._reward_outputs.items():
-            configured = scales.get(reward_name, 0.0)
-            scale = configured if self.resolved.reward_available.get(reward_name, True) else 0.0
-            self.runtime.set_scale(output_name, scale)
-        self._scale_snapshot = snapshot
+        default_angles = getattr(env, "default_angles", None)
+        if default_angles is None:
+            default_angles = np.zeros((env._num_action,), dtype=np.float64)
+        actor_obs_width = getattr(env, "_actor_obs_width", env._num_action * 5 + 15)
+        critic_obs_width = (
+            env.obs_groups_spec["critic"]
+            if hasattr(env, "obs_groups_spec")
+            else (env._num_action * 5 + 15 + len(env._cfg.body_names) * 9)
+        )
+        return cls(
+            num_envs=env.num_envs,
+            num_action=env._num_action,
+            ctrl_dt=env._cfg.ctrl_dt,
+            reward_config=env._cfg.reward_config,
+            anchor_body_idx=env.anchor_body_idx,
+            ee_body_indices=env.ee_body_indices,
+            undesired_contact_body_indices=env.undesired_contact_body_indices,
+            joint_lower=env._joint_lower,
+            joint_upper=env._joint_upper,
+            default_angles=default_angles,
+            actor_obs_width=actor_obs_width,
+            critic_obs_width=critic_obs_width,
+            is_deploy_actor=actor_obs_width == env._num_action * 5 + 9,
+            anchor_pos_z_threshold=env._cfg.anchor_pos_z_threshold,
+            anchor_ori_threshold=env._cfg.anchor_ori_threshold,
+            ee_body_pos_z_threshold=env._cfg.ee_body_pos_z_threshold,
+            undesired_contact_z_threshold=env._cfg.undesired_contact_z_threshold,
+            terminate_on_undesired_contacts=env._cfg.terminate_on_undesired_contacts,
+            num_threads=num_threads,
+        )
 
-    def _bind_inputs(
+    def _build_std_vector(self, reward_config: Any) -> np.ndarray:
+        per_term = {
+            "motion_global_root_pos": reward_config.std_root_pos,
+            "motion_global_root_ori": reward_config.std_root_ori,
+            "motion_body_pos": reward_config.std_body_pos,
+            "motion_body_ori": reward_config.std_body_ori,
+            "motion_body_lin_vel": reward_config.std_body_lin_vel,
+            "motion_body_ang_vel": reward_config.std_body_ang_vel,
+            "motion_ee_body_pos_z": reward_config.std_body_pos,
+            "motion_joint_pos": reward_config.std_joint_pos,
+            "motion_joint_vel": reward_config.std_joint_vel,
+            "action_rate_l2": 0.0,
+            "joint_limit": 0.0,
+            "undesired_contacts": 0.0,
+        }
+        return np.array([per_term[name] for name in TERM_ORDER], dtype=np.float64)
+
+    def _sync_scales(self, scales: Mapping[str, float]) -> None:
+        unsupported = unsupported_terms(scales)
+        if unsupported:
+            raise ValueError(
+                "MotionTracking Numba accelerator does not support active reward terms "
+                f"{sorted(unsupported)}. Disable numba_acceleration or add these terms to "
+                "src/unilab/envs/motion_tracking/common/numba.py."
+            )
+        self.scale.fill(0.0)
+        for name, value in scales.items():
+            idx = TERM_INDEX.get(name)
+            if idx is not None:
+                self.scale[idx] = float(value)
+
+    def compute(
         self,
         *,
         info: dict[str, Any],
         motion_data: Any,
-        linvel: np.ndarray,
-        gyro: np.ndarray,
-        dof_pos: np.ndarray,
-        dof_vel: np.ndarray,
+        ref_body_pos_w: np.ndarray,
+        ref_body_quat_w: np.ndarray,
         robot_body_pos_w: np.ndarray,
         robot_body_quat_w: np.ndarray,
         robot_body_lin_vel_w: np.ndarray,
         robot_body_ang_vel_w: np.ndarray,
-    ) -> None:
-        def bind(name: str, value: np.ndarray) -> None:
-            if name in self.inputs:
-                self.inputs[name] = np.asarray(value)
-
-        for name, value in (
-            ("motion_body_pos_w", motion_data.body_pos_w),
-            ("motion_body_quat_w", motion_data.body_quat_w),
-            ("motion_body_lin_vel_w", motion_data.body_lin_vel_w),
-            ("motion_body_ang_vel_w", motion_data.body_ang_vel_w),
-            ("motion_joint_pos", motion_data.joint_pos),
-            ("motion_joint_vel", motion_data.joint_vel),
-            ("robot_body_pos_w", robot_body_pos_w),
-            ("robot_body_quat_w", robot_body_quat_w),
-            ("robot_body_lin_vel_w", robot_body_lin_vel_w),
-            ("robot_body_ang_vel_w", robot_body_ang_vel_w),
-            ("dof_pos", dof_pos),
-            ("dof_vel", dof_vel),
-            ("linvel", linvel),
-            ("gyro", gyro),
-        ):
-            bind(name, value)
-        zero = self.env._zero_actions
-        current = info.get("current_actions")
-        current = current if isinstance(current, np.ndarray) else zero
-        previous = info.get("last_actions")
-        previous = previous if isinstance(previous, np.ndarray) else zero
-        bind("current_actions", current)
-        bind("last_actions", previous)
-        bind("obs_actions", current)
-
-        effective = self._owned_inputs["effective_default_angles"]
-        bias = info.get("default_dof_pos_bias")
-        if isinstance(bias, np.ndarray):
-            np.add(self.env.default_angles, bias, out=effective)
-        else:
-            np.copyto(effective, np.broadcast_to(self.env.default_angles, effective.shape))
-        bind("effective_default_angles", effective)
-
-        noise = self.env._cfg.noise_config
-        if "noisy_linvel" in self.inputs:
-            bind("noisy_linvel", self.env._obs_noise(linvel, noise.scale_linvel))
-        if "noisy_gyro" in self.inputs:
-            bind("noisy_gyro", self.env._obs_noise(gyro, noise.scale_gyro))
-        if "noisy_joint_pos_rel" in self.inputs:
-            noisy_joint = self._owned_inputs["noisy_joint_pos_rel"]
-            np.subtract(dof_pos, effective, out=noisy_joint)
-            bind(
-                "noisy_joint_pos_rel",
-                self.env._obs_noise(noisy_joint, noise.scale_joint_angle),
+        dof_pos: np.ndarray,
+        dof_vel: np.ndarray,
+        scales: Mapping[str, float],
+        enable_log: bool,
+    ) -> G1MotionTrackingNumbaResult:
+        if not NUMBA_AVAILABLE:
+            raise RuntimeError(
+                "G1MotionTracking Numba accelerator was constructed while numba is "
+                "unavailable; this indicates an invalid accelerator state."
             )
-        if "noisy_dof_vel" in self.inputs:
-            bind("noisy_dof_vel", self.env._obs_noise(dof_vel, noise.scale_joint_vel))
-        self.runtime.bind_inputs(self.inputs)
+        self._sync_scales(scales)
+        if self.num_threads is not None:
+            set_num_threads(self.num_threads)
+
+        dtype = dof_pos.dtype
+        current_actions = np.asarray(info.get("current_actions", self._zero_actions), dtype=dtype)
+        last_actions = np.asarray(info.get("last_actions", self._zero_actions), dtype=dtype)
+        reward = np.empty((dof_pos.shape[0],), dtype=dtype)
+        terminated = np.empty((dof_pos.shape[0],), dtype=np.bool_)
+        log_scratch = np.zeros((get_num_threads(), len(TERM_ORDER)), dtype=np.float64)
+
+        _compute_reward_termination_kernel(
+            motion_data.body_pos_w,
+            motion_data.body_quat_w,
+            motion_data.body_lin_vel_w,
+            motion_data.body_ang_vel_w,
+            motion_data.joint_pos,
+            motion_data.joint_vel,
+            ref_body_pos_w,
+            ref_body_quat_w,
+            robot_body_pos_w,
+            robot_body_quat_w,
+            robot_body_lin_vel_w,
+            robot_body_ang_vel_w,
+            dof_pos,
+            dof_vel,
+            current_actions,
+            last_actions,
+            self.joint_lower,
+            self.joint_upper,
+            self.scale,
+            self.std,
+            self.anchor_body_idx,
+            self.ee_body_indices,
+            self.undesired_contact_body_indices,
+            self.ctrl_dt,
+            self.anchor_pos_z_threshold,
+            self.anchor_ori_threshold,
+            self.ee_body_pos_z_threshold,
+            self.undesired_contact_z_threshold,
+            self.terminate_on_undesired_contacts,
+            self.has_joint_limits,
+            reward,
+            terminated,
+            log_scratch,
+        )
+
+        step_count = info.get("steps")
+        should_log = enable_log and (
+            int(step_count[0]) % 4 == 0 if isinstance(step_count, np.ndarray) else True
+        )
+        log = {} if should_log else info.get("log", {})
+        if should_log:
+            term_sums = log_scratch.sum(axis=0)
+            for idx, name in enumerate(TERM_ORDER):
+                if self.scale[idx] != 0.0:
+                    log[f"reward/{name}"] = float(term_sums[idx] / dof_pos.shape[0])
+        return G1MotionTrackingNumbaResult(reward=reward, terminated=terminated, log=log)
 
     def compute_update_state(
         self,
@@ -685,52 +1143,131 @@ class MotionTrackingNumbaAccelerator:
         robot_body_quat_w: np.ndarray,
         robot_body_lin_vel_w: np.ndarray,
         robot_body_ang_vel_w: np.ndarray,
+        ref_body_pos_w: np.ndarray,
+        ref_body_quat_w: np.ndarray,
+        motion_anchor_pos_b: np.ndarray,
+        motion_anchor_ori_b: np.ndarray,
+        joint_pos_rel: np.ndarray,
         scales: Mapping[str, float],
         enable_log: bool,
+        noise_level: float,
+        noise_scale_linvel: float,
+        noise_scale_gyro: float,
+        noise_scale_joint_angle: float,
+        noise_scale_joint_vel: float,
     ) -> G1MotionTrackingNumbaUpdateStateResult:
-        if dof_pos.shape[0] != self.num_envs:
-            raise ValueError(
-                "G1MotionTracking Numba update_state only supports full-batch updates; "
-                f"got {dof_pos.shape[0]} rows for configured num_envs={self.num_envs}."
+        if not NUMBA_AVAILABLE:
+            raise RuntimeError(
+                "G1MotionTracking Numba accelerator was constructed while numba is "
+                "unavailable; this indicates an invalid accelerator state."
             )
         self._sync_scales(scales)
-        self._bind_inputs(
-            info=info,
-            motion_data=motion_data,
-            linvel=linvel,
-            gyro=gyro,
-            dof_pos=dof_pos,
-            dof_vel=dof_vel,
-            robot_body_pos_w=robot_body_pos_w,
-            robot_body_quat_w=robot_body_quat_w,
-            robot_body_lin_vel_w=robot_body_lin_vel_w,
-            robot_body_ang_vel_w=robot_body_ang_vel_w,
-        )
         if self.num_threads is not None:
             set_num_threads(self.num_threads)
-        nthreads = get_num_threads()
-        if self._log_scratch is None or self._log_scratch.shape[0] != nthreads:
-            self._log_scratch = np.empty((nthreads, len(self.resolved.plan.terms)), np.float64)
-        self._log_scratch.fill(0.0)
-        started = time.perf_counter()
-        self.runtime.execute(reward_multiplier=self.ctrl_dt, log_scratch=self._log_scratch)
-        if self.first_jit_ms is None:
-            self.first_jit_ms = (time.perf_counter() - started) * 1e3
 
-        steps = info.get("steps")
+        dtype = dof_pos.dtype
+        n = dof_pos.shape[0]
+        if n != self.num_envs:
+            raise ValueError(
+                "G1MotionTracking Numba update_state only supports full-batch updates; "
+                f"got {n} rows for configured num_envs={self.num_envs}."
+            )
+
+        current_actions = np.asarray(info.get("current_actions", self._zero_actions), dtype=dtype)
+        last_actions = np.asarray(info.get("last_actions", self._zero_actions), dtype=dtype)
+        default_dof_pos_bias = info.get("default_dof_pos_bias")
+        has_default_dof_pos_bias = isinstance(default_dof_pos_bias, np.ndarray)
+        if has_default_dof_pos_bias:
+            default_dof_pos_bias_arr = np.asarray(default_dof_pos_bias, dtype=dtype)
+        else:
+            default_dof_pos_bias_arr = self._zero_default_dof_pos_bias.astype(dtype, copy=False)
+
+        noise_level = float(noise_level)
+        if noise_level > 0.0:
+            actor_noise_linvel = np.random.uniform(-1.0, 1.0, linvel.shape).astype(dtype)
+            actor_noise_linvel *= noise_level * float(noise_scale_linvel)
+            actor_noise_gyro = np.random.uniform(-1.0, 1.0, gyro.shape).astype(dtype)
+            actor_noise_gyro *= noise_level * float(noise_scale_gyro)
+            actor_noise_joint_pos = np.random.uniform(-1.0, 1.0, dof_pos.shape).astype(dtype)
+            actor_noise_joint_pos *= noise_level * float(noise_scale_joint_angle)
+            actor_noise_dof_vel = np.random.uniform(-1.0, 1.0, dof_vel.shape).astype(dtype)
+            actor_noise_dof_vel *= noise_level * float(noise_scale_joint_vel)
+        else:
+            actor_noise_linvel = self._zero_linvel_noise.astype(dtype, copy=False)
+            actor_noise_gyro = self._zero_gyro_noise.astype(dtype, copy=False)
+            actor_noise_joint_pos = self._zero_joint_noise.astype(dtype, copy=False)
+            actor_noise_dof_vel = self._zero_joint_noise.astype(dtype, copy=False)
+
+        actor_obs = np.empty((n, self.actor_obs_width), dtype=dtype)
+        critic_obs = np.empty((n, self.critic_obs_width), dtype=dtype)
+        reward = np.empty((n,), dtype=dtype)
+        terminated = np.empty((n,), dtype=np.bool_)
+        log_scratch = np.zeros((get_num_threads(), len(TERM_ORDER)), dtype=np.float64)
+
+        _compute_update_state_kernel(
+            motion_data.body_pos_w,
+            motion_data.body_quat_w,
+            motion_data.body_lin_vel_w,
+            motion_data.body_ang_vel_w,
+            motion_data.joint_pos,
+            motion_data.joint_vel,
+            robot_body_pos_w,
+            robot_body_quat_w,
+            robot_body_lin_vel_w,
+            robot_body_ang_vel_w,
+            linvel,
+            gyro,
+            dof_pos,
+            dof_vel,
+            self.default_angles,
+            default_dof_pos_bias_arr,
+            current_actions,
+            last_actions,
+            self.joint_lower,
+            self.joint_upper,
+            self.scale,
+            self.std,
+            self.anchor_body_idx,
+            self.ee_body_indices,
+            self.undesired_contact_body_indices,
+            self.ctrl_dt,
+            self.anchor_pos_z_threshold,
+            self.anchor_ori_threshold,
+            self.ee_body_pos_z_threshold,
+            self.undesired_contact_z_threshold,
+            self.terminate_on_undesired_contacts,
+            self.has_joint_limits,
+            has_default_dof_pos_bias,
+            self.is_deploy_actor,
+            actor_noise_linvel,
+            actor_noise_gyro,
+            actor_noise_joint_pos,
+            actor_noise_dof_vel,
+            ref_body_pos_w,
+            ref_body_quat_w,
+            motion_anchor_pos_b,
+            motion_anchor_ori_b,
+            joint_pos_rel,
+            actor_obs,
+            critic_obs,
+            reward,
+            terminated,
+            log_scratch,
+        )
+
+        step_count = info.get("steps")
         should_log = enable_log and (
-            int(steps[0]) % 4 == 0 if isinstance(steps, np.ndarray) else True
+            int(step_count[0]) % 4 == 0 if isinstance(step_count, np.ndarray) else True
         )
         log = {} if should_log else info.get("log", {})
         if should_log:
-            sums = self._log_scratch.sum(axis=0)
-            for reward_name, output_name in self._reward_outputs.items():
-                if scales.get(reward_name, 0.0) != 0.0:
-                    index = self._plan_indices[output_name]
-                    log[f"reward/{reward_name}"] = float(sums[index] / self.num_envs)
+            term_sums = log_scratch.sum(axis=0)
+            for idx, name in enumerate(TERM_ORDER):
+                if self.scale[idx] != 0.0:
+                    log[f"reward/{name}"] = float(term_sums[idx] / n)
         return G1MotionTrackingNumbaUpdateStateResult(
-            obs=self.obs,
-            reward=self.runtime.reward,
-            terminated=self.runtime.terminated,
+            obs={"obs": actor_obs, "critic": critic_obs},
+            reward=reward,
+            terminated=terminated,
             log=log,
         )
