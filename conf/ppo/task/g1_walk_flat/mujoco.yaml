@@ -16,6 +16,11 @@ algo:
     critic_hidden_dims: [512, 256, 128]
 env:
   numba_acceleration: false
+  term_plan:
+    observations:
+      obs: [g1.walk.observation.actor_gyro.v1, g1.walk.observation.actor_gravity.v1, g1.walk.observation.actor_dof_pos.v1, g1.walk.observation.actor_dof_vel.v1, g1.walk.observation.actor_actions.v1, g1.walk.observation.actor_commands.v1, g1.walk.observation.actor_gait_phase.v1]
+      critic: [g1.walk.observation.critic_gyro.v1, g1.walk.observation.critic_gravity.v1, g1.walk.observation.critic_dof_pos.v1, g1.walk.observation.critic_dof_vel.v1, g1.walk.observation.critic_actions.v1, g1.walk.observation.critic_commands.v1, g1.walk.observation.critic_gait_phase.v1, g1.walk.observation.critic_linvel.v1]
+    terminations: [g1.walk.termination.tilt_or_height.v1]
   control_config:
     action_scale: 0.25
   curriculum:

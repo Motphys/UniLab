@@ -6,6 +6,8 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from unilab.envs.motion_tracking.common import observations
+from unilab.envs.motion_tracking.common.config import MotionTermPlanConfig
 from unilab.envs.motion_tracking.common.numba import (
     NUMBA_AVAILABLE,
     MotionTrackingNumbaAccelerator,
@@ -35,8 +37,72 @@ def test_numba_accelerator_rejects_unsupported_active_reward_terms():
     env = _make_env(8, include_undesired=False)
     env._cfg.reward_config.scales = {"motion_body_pos": 1.0, "custom": 1.0}
     if NUMBA_AVAILABLE:
-        with pytest.raises(ValueError, match="does not support active reward terms"):
+        with pytest.raises(ValueError, match="unknown nonzero reward term"):
             MotionTrackingNumbaAccelerator.from_env(env)
+
+
+def test_motion_term_plan_matches_legacy_numpy_and_reuses_workspace():
+    n = 8
+    env = _make_env(n, include_undesired=True)
+    _prepare_observation_buffers(env, n)
+    env._cfg.noise_config.level = 1.0
+
+    motion_data, robot_state, info = _make_batch(n, seed=11)
+    body_pos, body_quat, body_linvel, body_angvel, dof_pos, dof_vel = robot_state
+    rng = np.random.default_rng(12)
+    linvel = rng.normal(size=(n, 3)).astype(np.float32)
+    gyro = rng.normal(size=(n, 3)).astype(np.float32)
+    env._update_relative_transforms(motion_data, body_pos, body_quat)
+    expected_termination = env._compute_terminations(motion_data, body_pos, body_quat).copy()
+    expected_reward = env._compute_reward(
+        {**info, "log": {}},
+        motion_data,
+        body_pos,
+        body_quat,
+        body_linvel,
+        body_angvel,
+        dof_pos,
+        dof_vel,
+    ).copy()
+    np.random.seed(13)
+    expected_obs = observations.compute_obs(
+        env, info, motion_data, linvel, gyro, dof_pos, dof_vel, body_pos, body_quat
+    )
+    expected_obs = {name: value.copy() for name, value in expected_obs.items()}
+
+    env._init_term_plan(MotionTermPlanConfig())
+    np.random.seed(13)
+    actual = env._compute_term_state(
+        {**info, "log": {}},
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        body_pos,
+        body_quat,
+        body_linvel,
+        body_angvel,
+    )
+    workspace_ids = tuple(id(value) for value in env._term_runtime.workspace.values())
+
+    np.testing.assert_allclose(actual[0]["obs"], expected_obs["obs"], rtol=2e-5, atol=2e-5)
+    np.testing.assert_allclose(actual[0]["critic"], expected_obs["critic"], rtol=2e-5, atol=2e-5)
+    np.testing.assert_allclose(actual[1], expected_reward, rtol=2e-5, atol=2e-5)
+    np.testing.assert_array_equal(actual[2], expected_termination)
+    env._compute_term_state(
+        {**info, "log": {}},
+        motion_data,
+        linvel,
+        gyro,
+        dof_pos,
+        dof_vel,
+        body_pos,
+        body_quat,
+        body_linvel,
+        body_angvel,
+    )
+    assert tuple(id(value) for value in env._term_runtime.workspace.values()) == workspace_ids
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
@@ -44,6 +110,7 @@ def test_numba_accelerator_rejects_unsupported_active_reward_terms():
 def test_g1_motion_tracking_numba_reward_termination_parity():
     n = 512
     env = _make_env(n, include_undesired=True)
+    _prepare_observation_buffers(env, n)
     motion_data, robot_state, info = _make_batch(n, seed=0)
     (
         robot_body_pos_w,
@@ -69,15 +136,15 @@ def test_g1_motion_tracking_numba_reward_termination_parity():
     log_np = dict(info["log"])
 
     accel = MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
-    out = accel.compute(
+    out = accel.compute_update_state(
         info={
             "steps": np.zeros((n,), dtype=np.uint32),
             "current_actions": info["current_actions"],
             "last_actions": info["last_actions"],
         },
         motion_data=motion_data,
-        ref_body_pos_w=env.body_pos_relative_w,
-        ref_body_quat_w=env.body_quat_relative_w,
+        linvel=np.zeros((n, 3), dtype=np.float32),
+        gyro=np.zeros((n, 3), dtype=np.float32),
         robot_body_pos_w=robot_body_pos_w,
         robot_body_quat_w=robot_body_quat_w,
         robot_body_lin_vel_w=robot_body_lin_vel_w,
@@ -100,17 +167,7 @@ def test_g1_motion_tracking_numba_reward_termination_parity():
 def test_g1_motion_tracking_numba_update_state_parity_without_noise():
     n = 512
     env = _make_env(n, include_undesired=True)
-    env.default_angles = np.linspace(-0.2, 0.2, env._num_action).astype(np.float32)
-    env._actor_obs_width = env._actor_obs_dim(env._num_action)
-    env._critic_base_obs_width = env._critic_base_obs_dim(env._num_action)
-    env._critic_obs_width = env._critic_base_obs_width + env._n_motion_bodies * 9
-    env._motion_anchor_pos_b = np.empty((n, 3), dtype=np.float32)
-    env._motion_anchor_ori_b = np.empty((n, 6), dtype=np.float32)
-    env._joint_pos_rel = np.empty((n, env._num_action), dtype=np.float32)
-    env._motion_command = np.empty((n, env._num_action * 2), dtype=np.float32)
-    env._zero_actions = np.zeros((n, env._num_action), dtype=np.float32)
-    env._body_vec_tmp = np.empty((n, env._n_motion_bodies, 3), dtype=np.float32)
-    env._cfg.noise_config = _NoiseCfg()
+    _prepare_observation_buffers(env, n)
 
     motion_data, robot_state, info = _make_batch(n, seed=2)
     (
@@ -160,24 +217,64 @@ def test_g1_motion_tracking_numba_update_state_parity_without_noise():
         robot_body_quat_w=robot_body_quat_w,
         robot_body_lin_vel_w=robot_body_lin_vel_w,
         robot_body_ang_vel_w=robot_body_ang_vel_w,
-        ref_body_pos_w=env.body_pos_relative_w,
-        ref_body_quat_w=env.body_quat_relative_w,
-        motion_anchor_pos_b=env._motion_anchor_pos_b,
-        motion_anchor_ori_b=env._motion_anchor_ori_b,
-        joint_pos_rel=env._joint_pos_rel,
         scales=env._cfg.reward_config.scales,
         enable_log=True,
-        noise_level=0.0,
-        noise_scale_linvel=0.0,
-        noise_scale_gyro=0.0,
-        noise_scale_joint_angle=0.0,
-        noise_scale_joint_vel=0.0,
     )
 
     np.testing.assert_allclose(out.reward, reward_np, rtol=1e-4, atol=1e-5)
     np.testing.assert_array_equal(out.terminated, terminated_np)
     np.testing.assert_allclose(out.obs["obs"], obs_np["obs"], rtol=1e-5, atol=1e-5)
     np.testing.assert_allclose(out.obs["critic"], obs_np["critic"], rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
+def test_g1_motion_tracking_numba_uses_owner_noise_and_reuses_outputs(monkeypatch):
+    n = 8
+    env = _make_env(n, include_undesired=True)
+    _prepare_observation_buffers(env, n)
+    env._cfg.noise_config.level = 1.0
+    monkeypatch.setattr(
+        env,
+        "_obs_noise",
+        lambda data, scale: np.asarray(data + 0.025, dtype=np.float32),
+    )
+    motion_data, robot_state, info = _make_batch(n, seed=23)
+    body_pos, body_quat, body_linvel, body_angvel, dof_pos, dof_vel = robot_state
+    linvel = np.zeros((n, 3), dtype=np.float32)
+    gyro = np.zeros((n, 3), dtype=np.float32)
+    accel = MotionTrackingNumbaAccelerator.from_env(env, num_threads=2)
+
+    def compute():
+        return accel.compute_update_state(
+            info=info,
+            motion_data=motion_data,
+            linvel=linvel,
+            gyro=gyro,
+            dof_pos=dof_pos,
+            dof_vel=dof_vel,
+            robot_body_pos_w=body_pos,
+            robot_body_quat_w=body_quat,
+            robot_body_lin_vel_w=body_linvel,
+            robot_body_ang_vel_w=body_angvel,
+            scales=env._cfg.reward_config.scales,
+            enable_log=False,
+        )
+
+    out = compute()
+    sensor_offset = env._num_action * 2 + 3 + 6
+    np.testing.assert_allclose(
+        out.obs["obs"][:, sensor_offset : sensor_offset + 3],
+        out.obs["critic"][:, sensor_offset : sensor_offset + 3] + 0.025,
+    )
+    output_ids = tuple(id(value) for value in (*out.obs.values(), out.reward, out.terminated))
+
+    repeated = compute()
+
+    assert accel.first_jit_ms is not None
+    assert (
+        tuple(id(value) for value in (*repeated.obs.values(), repeated.reward, repeated.terminated))
+        == output_ids
+    )
 
 
 @pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba is optional")
@@ -254,6 +351,7 @@ class _Cfg:
     ee_body_names: tuple[str, ...] = G1MotionTrackingCfg.ee_body_names
     undesired_contact_z_threshold: float = G1MotionTrackingCfg.undesired_contact_z_threshold
     terminate_on_undesired_contacts: bool = False
+    term_plan: MotionTermPlanConfig = field(default_factory=MotionTermPlanConfig)
 
 
 @dataclass
@@ -263,6 +361,20 @@ class _NoiseCfg:
     scale_gyro: float = 0.1
     scale_joint_angle: float = 0.02
     scale_joint_vel: float = 0.3
+
+
+def _prepare_observation_buffers(env: Any, n: int) -> None:
+    env.default_angles = np.linspace(-0.2, 0.2, env._num_action).astype(np.float32)
+    env._actor_obs_width = env._actor_obs_dim(env._num_action)
+    env._critic_base_obs_width = env._critic_base_obs_dim(env._num_action)
+    env._critic_obs_width = env._critic_base_obs_width + env._n_motion_bodies * 9
+    env._motion_anchor_pos_b = np.empty((n, 3), dtype=np.float32)
+    env._motion_anchor_ori_b = np.empty((n, 6), dtype=np.float32)
+    env._joint_pos_rel = np.empty((n, env._num_action), dtype=np.float32)
+    env._motion_command = np.empty((n, env._num_action * 2), dtype=np.float32)
+    env._zero_actions = np.zeros((n, env._num_action), dtype=np.float32)
+    env._body_vec_tmp = np.empty((n, env._n_motion_bodies, 3), dtype=np.float32)
+    env._cfg.noise_config = _NoiseCfg()
 
 
 def _make_env(n: int, *, include_undesired: bool) -> Any:
@@ -352,12 +464,22 @@ def _make_batch(n: int, seed: int):
     target_joint_vel = rng.uniform(-2.0, 2.0, (n, na)).astype(np.float32)
 
     motion_data = _MotionData(
-        body_pos_w=np.ascontiguousarray(target_pos + 0.03 * rng.standard_normal((n, nb, 3))),
+        body_pos_w=np.ascontiguousarray(
+            target_pos + 0.03 * rng.standard_normal((n, nb, 3)), dtype=np.float32
+        ),
         body_quat_w=np.ascontiguousarray(_perturb_quats(rng, target_quat, 0.02)),
-        body_lin_vel_w=np.ascontiguousarray(target_lin_vel + 0.1 * rng.standard_normal((n, nb, 3))),
-        body_ang_vel_w=np.ascontiguousarray(target_ang_vel + 0.1 * rng.standard_normal((n, nb, 3))),
-        joint_pos=np.ascontiguousarray(target_joint_pos + 0.03 * rng.standard_normal((n, na))),
-        joint_vel=np.ascontiguousarray(target_joint_vel + 0.05 * rng.standard_normal((n, na))),
+        body_lin_vel_w=np.ascontiguousarray(
+            target_lin_vel + 0.1 * rng.standard_normal((n, nb, 3)), dtype=np.float32
+        ),
+        body_ang_vel_w=np.ascontiguousarray(
+            target_ang_vel + 0.1 * rng.standard_normal((n, nb, 3)), dtype=np.float32
+        ),
+        joint_pos=np.ascontiguousarray(
+            target_joint_pos + 0.03 * rng.standard_normal((n, na)), dtype=np.float32
+        ),
+        joint_vel=np.ascontiguousarray(
+            target_joint_vel + 0.05 * rng.standard_normal((n, na)), dtype=np.float32
+        ),
     )
     robot_body_pos_w = np.ascontiguousarray(
         target_pos + 0.05 * rng.standard_normal((n, nb, 3)), dtype=np.float32
