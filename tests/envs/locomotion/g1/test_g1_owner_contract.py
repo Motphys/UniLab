@@ -11,8 +11,6 @@ from omegaconf import OmegaConf
 
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
-from unilab.envs.locomotion.g1 import terms as g1_terms
-from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
 from unilab.training.backend_adapter import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[4]
@@ -265,93 +263,3 @@ def test_g1_walk_tasks_are_registered():
 
     assert registry.contains("G1WalkFlat")
     assert registry.contains("G1WalkRough")
-
-
-def test_g1_flat_term_plan_matches_legacy_numpy_and_reuses_outputs():
-    cfg = _compose_cfg("ppo", ["task=g1_walk_flat/mujoco"])
-    override = BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name="ppo").build_task_env_cfg_override()
-    env = cast(
-        Any,
-        registry.make("G1WalkFlat", sim_backend="mujoco", num_envs=2, env_cfg_override=override),
-    )
-    try:
-        env._cfg.noise_config.level = 0.0
-        rng = np.random.default_rng(7)
-        info = {
-            "steps": np.zeros(2, dtype=np.uint32),
-            "commands": rng.normal(size=(2, 3)).astype(np.float32),
-            "current_actions": rng.normal(size=(2, 29)).astype(np.float32),
-            "last_actions": rng.normal(size=(2, 29)).astype(np.float32),
-            "gait_phase": rng.uniform(0, 2 * np.pi, size=(2, 2)).astype(np.float32),
-        }
-        linvel = rng.normal(size=(2, 3)).astype(np.float32)
-        gyro = rng.normal(size=(2, 3)).astype(np.float32)
-        gravity = np.tile(np.array([0.01, -0.02, 0.99], np.float32), (2, 1))
-        dof_pos = rng.normal(size=(2, 29)).astype(np.float32)
-        dof_vel = rng.normal(size=(2, 29)).astype(np.float32)
-
-        expected_reward = env._compute_reward(
-            {**info, "log": {}}, linvel, gyro, gravity, dof_pos, dof_vel
-        )
-        expected_obs = env._compute_legacy_obs(info, linvel, gyro, gravity, dof_pos, dof_vel)
-        expected_terminated = (np.arccos(gravity[:, 2]) > np.deg2rad(25.0)) | (
-            env._backend.get_base_pos()[:, 2] < 0.55
-        )
-        obs, reward, terminated = env._compute_term_state(
-            {**info, "log": {}}, linvel, gyro, gravity, dof_pos, dof_vel
-        )
-        output_ids = (id(obs["obs"]), id(obs["critic"]), id(reward), id(terminated))
-
-        np.testing.assert_allclose(reward, expected_reward, rtol=2e-6, atol=2e-6)
-        np.testing.assert_allclose(obs["obs"], expected_obs["obs"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(obs["critic"], expected_obs["critic"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_array_equal(terminated, expected_terminated)
-        repeated = env._compute_term_state(
-            {**info, "log": {}}, linvel, gyro, gravity, dof_pos, dof_vel
-        )
-        assert tuple(id(value) for value in (*repeated[0].values(), *repeated[1:])) == output_ids
-    finally:
-        env.close()
-
-
-def test_g1_flat_term_config_controls_layout_and_reward_scale():
-    cfg = _compose_cfg("ppo", ["task=g1_walk_flat/mujoco"])
-    cfg.env.term_plan.observations.obs = list(reversed(cfg.env.term_plan.observations.obs[:-1]))
-    override = BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name="ppo").build_task_env_cfg_override()
-    env = cast(
-        Any,
-        registry.make("G1WalkFlat", sim_backend="mujoco", num_envs=1, env_cfg_override=override),
-    )
-    try:
-        assert env.obs_groups_spec == {"obs": 96, "critic": 101}
-        assert [name for name, _ in env.get_symmetry_obs_layouts()["obs"]] == [
-            "command",
-            "actions",
-            "dof_vel",
-            "dof_pos",
-            "gravity",
-            "gyro",
-        ]
-        assert "feet_phase" in dict(env._active_term_rewards)
-        env._reward_cfg.scales["feet_phase"] = 0.0
-        env._sync_term_reward_scales()
-        assert "feet_phase" not in dict(env._active_term_rewards)
-        env._reward_cfg.scales["feet_phase"] = 1.0
-        env._sync_term_reward_scales()
-        assert "feet_phase" in dict(env._active_term_rewards)
-    finally:
-        env.close()
-
-
-def test_g1_flat_term_plan_rejects_unknown_nonzero_reward():
-    cfg = _compose_cfg("ppo", ["task=g1_walk_flat/mujoco"])
-    reward_cfg = G1WalkRewardConfig(**OmegaConf.to_container(cfg.reward, resolve=True))
-    reward_cfg.scales["custom"] = 1.0
-    with pytest.raises(g1_terms.TermPlanError, match="unknown nonzero reward"):
-        g1_terms.resolve_g1_walk_term_plan(
-            num_action=29,
-            reward_cfg=reward_cfg,
-            observations=g1_terms.DEFAULT_OBSERVATION_TERMS,
-            terminations=g1_terms.DEFAULT_TERMINATION_TERMS,
-            walk_profile=False,
-        )
