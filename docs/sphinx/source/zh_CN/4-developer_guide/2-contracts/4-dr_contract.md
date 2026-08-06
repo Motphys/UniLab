@@ -71,7 +71,7 @@ refresh 行为由 backend 固定：`body_mass`、`body_ipos`、`body_iquat`、
   materialization 表达（见 `src/unilab/dr/types.py` 中的 `GeomSizeOverride` /
   `ModelVariantSpec`），不走 reset 随机化。
 - `gravity` 的 reset 随机化需要包含它的 `mujoco-uni-runtime` 构建。本仓库依赖
-  官方 `mujoco` 包（`>=3.5,<3.11`）加 `mujoco-uni-runtime`，其 `SUPPORTED_FIELDS`
+  官方 `mujoco` 包（`>=3.5`，默认版本由 `uv.lock` 钉住）加 `mujoco-uni-runtime`，其 `SUPPORTED_FIELDS`
   包含 `gravity`；更旧的 batch-env 包（例如 `mujoco-uni==3.6.0.post6`）则没有。
 
 ## 电机控制扩展

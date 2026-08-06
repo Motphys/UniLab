@@ -1,7 +1,7 @@
 # MuJoCo 后端
 
 MuJoCo 是已提交 owner 配置中的默认后端路径。其 Python 依赖为官方
-`mujoco` 包（`>=3.5,<3.11`）加 `mujoco-uni-runtime`（见 `pyproject.toml`），适配层位于
+`mujoco` 包（`>=3.5`，默认版本由已提交的 `uv.lock` 钉住）加 `mujoco-uni-runtime`（见 `pyproject.toml`），适配层位于
 `src/unilab/base/backend/mujoco/` 下。
 
 ## 何时使用
@@ -25,8 +25,9 @@ MuJoCo 在 `src/unilab/base/backend/mujoco/backend.py` 中声明对物理状态�
 
 ## 切换 MuJoCo 版本
 
-mujoco extra 支持 `>=3.5,<3.11` 窗口内的任意求解器版本。全新安装默认使用
-已提交的 `uv.lock` 中钉住的版本（当前为 **3.8.0**）。
+pyproject 只约束 `mujoco>=3.5`；默认求解器版本由已提交的 `uv.lock` 钉住，
+uv 的 prefer-locked 语义保证普通 relock 不会漂移。目前验证过的窗口是
+`>=3.5,<3.11`，切换版本请在该窗口内进行。
 `mujoco-uni-runtime` 的原生扩展针对本环境中的 `mujoco` 编译，且拒绝在其它版本下加载，
 因此切换版本 = 重钉 `mujoco` + 重编扩展：
 

@@ -16,7 +16,7 @@ from typing import Sequence
 from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "mlx_ppo", "appo", "sac", "td3", "flashsac")
-SUPPORTED_SIMS = ("mujoco", "motrix")
+SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
@@ -105,6 +105,10 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
     if sim == "mujoco" and find_spec("mujoco") is None:
         raise SystemExit(
             "sim=mujoco requires the MuJoCo extra. Install it with `uv sync --extra mujoco`."
+        )
+    if sim == "mjwarp" and (find_spec("mujoco_warp") is None or find_spec("warp") is None):
+        raise SystemExit(
+            "sim=mjwarp requires the mjwarp extra. Install it with `uv sync --extra mjwarp`."
         )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(

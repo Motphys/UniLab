@@ -317,6 +317,9 @@ class DrakeBackend(SimBackend):
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return self._ctrl_limits.copy()
 
+    def get_scene_model_file(self) -> str | None:
+        return self._scene_model_file
+
     def get_joint_range(self) -> np.ndarray | None:
         return self._joint_ranges.copy()
 
