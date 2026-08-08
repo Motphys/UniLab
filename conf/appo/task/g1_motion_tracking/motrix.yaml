@@ -8,7 +8,6 @@ algo:
   max_iterations: 5000
   save_interval: 500
 env:
-  numba_acceleration: false
 reward:
   scales:
     motion_global_root_pos: 0.5

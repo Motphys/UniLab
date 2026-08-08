@@ -2,7 +2,7 @@
 
 Fills the environment's ``body_pos_relative_w`` / ``body_quat_relative_w``
 reference buffers each step. The op order and in-place ``out=`` usage are
-load-bearing for numba parity and must not change.
+load-bearing for stable observation and reward semantics.
 """
 
 from __future__ import annotations

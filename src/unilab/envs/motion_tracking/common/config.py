@@ -159,8 +159,6 @@ class MotionTrackingCfg(G1BaseCfg):
     )
     undesired_contact_z_threshold: float = 0.05
     terminate_on_undesired_contacts: bool = False
-    numba_acceleration: bool = False
-    numba_num_threads: int | None = None
 
 
 @dataclass

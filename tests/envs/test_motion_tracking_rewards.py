@@ -1,8 +1,7 @@
 """Guard tests for the extracted motion-tracking reward module.
 
 These lock the ``common.rewards`` term functions and dispatch against
-hand-computed values on a small synthetic ``RewardContext`` and guard against
-numpy/numba reward-term drift.
+hand-computed values on a small synthetic ``RewardContext``.
 """
 
 from __future__ import annotations
@@ -11,7 +10,6 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from unilab.envs.motion_tracking.common import numba as numba_mod
 from unilab.envs.motion_tracking.common import rewards
 from unilab.envs.motion_tracking.common.rewards import RewardConfig, RewardContext
 
@@ -85,8 +83,21 @@ def _make_ctx(*, scales: dict[str, float] | None = None) -> RewardContext:
     )
 
 
-def test_build_reward_functions_matches_numba_term_order():
-    assert set(rewards.build_reward_functions()) == set(numba_mod.TERM_ORDER)
+def test_build_reward_functions_contains_all_canonical_terms():
+    assert set(rewards.build_reward_functions()) == {
+        "motion_global_root_pos",
+        "motion_global_root_ori",
+        "motion_body_pos",
+        "motion_body_ori",
+        "motion_body_lin_vel",
+        "motion_body_ang_vel",
+        "motion_ee_body_pos_z",
+        "motion_joint_pos",
+        "motion_joint_vel",
+        "action_rate_l2",
+        "joint_limit",
+        "undesired_contacts",
+    }
 
 
 def test_motion_joint_pos_term_matches_hand_computed():

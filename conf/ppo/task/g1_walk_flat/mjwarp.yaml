@@ -17,7 +17,6 @@ algo:
     actor_hidden_dims: [512, 256, 128]
     critic_hidden_dims: [512, 256, 128]
 env:
-  numba_acceleration: false
   mjwarp_nconmax: 128
   mjwarp_njmax: 256
   domain_rand:
