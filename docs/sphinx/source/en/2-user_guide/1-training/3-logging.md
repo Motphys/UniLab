@@ -81,23 +81,20 @@ instead of being compared only against wait metrics.
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce trainable data; in multi-GPU sync collection this also includes waiting for the rank batch to become ready before the initial barrier |
+| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce trainable data |
 | Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Single-GPU/double-buffer prefetch miss waiting for a replay pack / H2D batch to become ready; ~0 on a prefetch hit |
 | Replay Sample | `timing/learner_replay_sample_ms` | Learner-side replay sampling / ready-batch materialization after the wait is over |
-| Rank Barrier | `timing/learner_rank_barrier_ms` | Multi-GPU `dist.barrier()` (initial + final) total |
 | Sync Coordination | `timing/learner_sync_coordination_ms` | Synchronous-collection handshake; 0 when not in sync collection |
 | H2D Copy | `timing/learner_incremental_h2d_ms` | Host-to-device batch copy |
-| Train | `timing/learner_train_ms` | Pure SGD compute, excluding param sync and barrier |
-| Param Sync | `timing/learner_param_sync_ms` | Multi-GPU local-SGD parameter averaging |
+| Train | `timing/learner_train_ms` | Pure SGD compute |
 | Weight Sync | `timing/learner_weight_sync_ms` | Publishing new weights to the collector |
 | Iter Wall | `perf/iter_ms` | Whole-iteration wall time, not the sum of the components |
 
 The terminal shows every learner row as right-aligned `ms` plus `% of Iter Wall`.
-Distributed-only rows are hidden on single GPU unless they are non-zero. Backend
-logs include `perf/learner_train_pct`, `perf/learner_accounted_pct`,
+Backend logs include `perf/learner_train_pct`, `perf/learner_accounted_pct`,
 `perf/learner_other_pct` and `timing/learner_other_ms`; the latter two are residual
 diagnostics and are not shown as terminal rows. `perf/learner_pipeline_ms` = H2D +
-Train + Param Sync + Weight Sync. The former `timing/learner_wait_ms` was renamed to
+Train + Weight Sync. The former `timing/learner_wait_ms` was renamed to
 `timing/learner_collector_wait_ms`.
 
 The collector process reports per-phase timings in the terminal Collector column and
@@ -159,7 +156,5 @@ gantt
 > The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Sync marks the end of the iteration when fresh weights are published to the collector.
 
 All off-policy terminal views use the same value formatting. Replay Batch Wait is
-shown only when a single-GPU/double-buffer prefetch miss is non-zero; multi-GPU
-synchronized batch readiness is folded into Collector Wait before the initial rank
-barrier. Rank Barrier and Param Sync are shown only on multi-GPU paths or when
-non-zero. Sync Coordination is shown only with synchronous collection.
+shown only when a single-device/double-buffer prefetch miss is non-zero. Sync
+Coordination is shown only with synchronous collection.
