@@ -1,7 +1,7 @@
 """Stage 3: NaN guard wiring verification (mock-based assertions).
 
 Validates that nan_guard_cfg actually flows through the collector_kwargs
-of the production runners (DoubleBuffer / APPO / OffPolicy), not just
+of the production runners (device replay / APPO), not just
 present in source as a substring.
 
 This script constructs each runner with a NanGuardCfg, mocks dependencies,
@@ -65,7 +65,6 @@ class _FakeReplayBuffer:
         del kwargs
         self.size = torch.zeros(1, dtype=torch.int64)
         self.ptr = torch.zeros(1, dtype=torch.int64)
-        self._storage = torch.zeros(16, 16)
 
     def close(self):
         pass
@@ -191,7 +190,8 @@ def _check_double_buffer_runner_wires_nan_guard():
     with (
         patch.object(db_mod, "ReplayBuffer", _FakeReplayBuffer),
         patch.object(db_mod, "SharedWeightSync", _FakeWeightSync),
-        patch.object(db_mod, "CPUPinnedDoubleBufferReplayPipeline", _FakePipeline),
+        patch.object(db_mod, "GPUResidentReplayPipeline", _FakePipeline),
+        patch.object(db_mod, "require_offpolicy_replay_device", lambda value: value),
         patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)),
         patch.object(db_mod.torch, "save", lambda *args, **kwargs: None),
         patch.object(db_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()),
@@ -211,7 +211,7 @@ def _check_double_buffer_runner_wires_nan_guard():
             policy_frequency=1,
             sync_collection=False,
             env_steps_per_sync=1,
-            device="cpu",
+            device="cuda",
             nan_guard_cfg=nan_guard_cfg,
         )
 
@@ -261,56 +261,6 @@ def _check_appo_runner_wires_nan_guard():
             collector_device="cpu",
             num_envs=2,
             steps_per_env=4,
-            nan_guard_cfg=nan_guard_cfg,
-        )
-
-        captured = {}
-
-        def capture_start_collector(*, target_fn, kwargs):
-            del target_fn
-            captured.update(kwargs)
-
-        with patch.object(runner, "_start_collector", capture_start_collector):
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                runner.learn(max_iterations=0, save_interval=0, log_dir=tmp_dir)
-
-        if "nan_guard_cfg" not in captured:
-            return False
-        if captured["nan_guard_cfg"] is not nan_guard_cfg:
-            return False
-        if captured["nan_guard_cfg"].enabled is not True:
-            return False
-        return True
-
-
-def _check_offpolicy_runner_wires_nan_guard():
-    """Verify OffPolicyRunner passes nan_guard_cfg to collector (defensive check)."""
-    import unilab.algos.torch.offpolicy.runner as runner_mod
-
-    with (
-        patch.object(runner_mod, "ReplayBuffer", _FakeReplayBuffer),
-        patch.object(runner_mod, "SharedWeightSync", _FakeWeightSync),
-        patch.object(runner_mod, "OffPolicyLogger", _FakeLogger),
-        patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)),
-        patch.object(runner_mod.torch, "save", lambda *args, **kwargs: None),
-        patch.object(runner_mod._SPAWN_CTX, "Queue", lambda maxsize=0: queue.Queue()),
-        patch.object(runner_mod.time, "sleep", lambda seconds: None),
-    ):
-        learner = _FakeLearner()
-        nan_guard_cfg = NanGuardCfg(enabled=True)
-        runner = runner_mod.OffPolicyRunner(
-            learner=learner,
-            env_name="DummyEnv",
-            algo_type="sac",
-            num_envs=2,
-            replay_buffer_n=8,
-            batch_size=8,
-            learning_starts=6,
-            updates_per_step=1,
-            policy_frequency=1,
-            sync_collection=False,
-            env_steps_per_sync=1,
-            device="cpu",
             nan_guard_cfg=nan_guard_cfg,
         )
 
@@ -392,7 +342,6 @@ def main():
             _check_double_buffer_runner_wires_nan_guard,
         ),
         ("APPORunner (APPO prod path)", _check_appo_runner_wires_nan_guard),
-        ("OffPolicyRunner (defensive)", _check_offpolicy_runner_wires_nan_guard),
     ]
 
     all_ok = True

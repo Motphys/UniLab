@@ -130,10 +130,12 @@ tests/
   变量注入 `tests._test_registry`，`unilab.base.registry.ensure_registries`
   在子进程内读到后再次完成注册。新增测试 env 时，把模块加进
   `tests/_test_registry/__init__.py` 的 `__unilab_registry_modules__`。
-- **共享内存预算**。off-policy 整链路测试会按算法默认 `num_envs` /
-  `replay_buffer_n` 在 `/dev/shm` 上申请共享内存。如果运行时看到形如
+- **Replay 内存预算**。off-policy host shared memory 只包含固定深度 ingress，随
+  `num_envs` 与 transition width 增长，不随 `replay_buffer_n` 增长。完整 ring 按
+  `replay_buffer_n` 驻留在 CUDA/MPS learner device。如果运行时看到形如
   `MemoryError: estimated shared-memory allocation … exceeds /dev/shm
-  available …`，说明本机共享内存额度不够撑默认参数，并非测试或代码缺陷。
+  available …`，说明本机 shared memory 不够容纳默认 ingress。device ring 分配失败
+  会另行报告所需与可用的 accelerator budget。
 
 ## CI 工作流
 

@@ -130,269 +130,6 @@ def compute_collector_active_steps_per_sec(
     return int(num_envs) / (active_ms / 1000.0)
 
 
-def _sample_replay_pack_indices(
-    *,
-    snapshot_size: int,
-    sample_count: int,
-    generator: torch.Generator,
-    exclude_start: int | None = None,
-    exclude_count: int = 0,
-    exclude_ranges: list[tuple[int, int]] | None = None,
-) -> torch.Tensor:
-    snapshot_size = int(snapshot_size)
-    sample_count = int(sample_count)
-    if snapshot_size <= 0:
-        raise RuntimeError("Cannot sample an empty replay snapshot")
-    exclude_count = max(int(exclude_count), 0)
-    if exclude_ranges is None and (exclude_start is None or exclude_count <= 0):
-        return torch.randint(0, snapshot_size, (sample_count,), generator=generator)
-
-    if exclude_ranges is None:
-        assert exclude_start is not None
-        exclude_count = min(exclude_count, snapshot_size)
-        start = int(exclude_start) % snapshot_size
-        end = (start + exclude_count) % snapshot_size
-        if start < end:
-            exclude_ranges = [(start, end)]
-        else:
-            exclude_ranges = [(0, end), (start, snapshot_size)]
-
-    normalized_ranges: list[tuple[int, int]] = []
-    for lo, hi in sorted(exclude_ranges):
-        lo = max(0, int(lo))
-        hi = min(snapshot_size, int(hi))
-        if hi <= lo:
-            continue
-        if normalized_ranges and lo <= normalized_ranges[-1][1]:
-            normalized_ranges[-1] = (normalized_ranges[-1][0], max(normalized_ranges[-1][1], hi))
-        else:
-            normalized_ranges.append((lo, hi))
-
-    if not normalized_ranges:
-        return torch.randint(0, snapshot_size, (sample_count,), generator=generator)
-
-    excluded = sum(hi - lo for lo, hi in normalized_ranges)
-    available = snapshot_size - excluded
-    if available <= 0:
-        raise RuntimeError(
-            "Cannot sample replay snapshot because the excluded write window covers it"
-        )
-
-    allowed_ranges = []
-    cursor = 0
-    for lo, hi in normalized_ranges:
-        if cursor < lo:
-            allowed_ranges.append((cursor, lo))
-        cursor = hi
-    if cursor < snapshot_size:
-        allowed_ranges.append((cursor, snapshot_size))
-
-    if len(allowed_ranges) == 1:
-        lo, hi = allowed_ranges[0]
-        return torch.randint(lo, hi, (sample_count,), generator=generator)
-
-    raw = torch.randint(0, available, (sample_count,), generator=generator)
-    indices = torch.empty_like(raw)
-    offset = 0
-    for lo, hi in allowed_ranges:
-        length = hi - lo
-        mask = (raw >= offset) & (raw < offset + length)
-        indices[mask] = lo + (raw[mask] - offset)
-        offset += length
-    return indices
-
-
-def _replay_write_exclude_ranges(
-    *,
-    snapshot_ptr: int,
-    snapshot_size: int,
-    capacity: int,
-    write_count: int,
-) -> list[tuple[int, int]]:
-    snapshot_size = int(snapshot_size)
-    capacity = int(capacity)
-    write_count = max(int(write_count), 0)
-    if snapshot_size <= 0 or capacity <= 0 or write_count <= 0:
-        return []
-    snapshot_size = min(snapshot_size, capacity)
-    if write_count >= capacity:
-        return [(0, snapshot_size)]
-
-    ranges = []
-    write_start = int(snapshot_ptr) % capacity
-    remaining = write_count
-    while remaining > 0:
-        span = min(remaining, capacity - write_start)
-        lo = max(write_start, 0)
-        hi = min(write_start + span, snapshot_size)
-        if hi > lo:
-            ranges.append((lo, hi))
-        remaining -= span
-        write_start = 0
-    return ranges
-
-
-def _collector_pack_shared_batch(
-    replay_buffer,
-    request: dict,
-    shared_slots,
-    critic_graph_shared_slots=None,
-) -> dict:
-    tick_id = int(request["tick_id"])
-    if request.get("sample_snapshot_mode") == "request":
-        snapshot_ptr = int(request["snapshot_ptr"])
-        snapshot_size = int(request["snapshot_size"])
-    else:
-        snapshot_ptr = int(replay_buffer.ptr[0])
-        snapshot_size = int(replay_buffer.size[0])
-    sample_seed = int(request["sample_seed"])
-    sample_count = int(request["sample_count"])
-    shared_slot = int(request["shared_slot"])
-    target_gpu_slot = int(request["target_gpu_slot"])
-    learner_hot_gpu_slot = int(request["learner_hot_gpu_slot"])
-    if target_gpu_slot == learner_hot_gpu_slot:
-        raise RuntimeError(
-            "collector_thread pack target_gpu_slot must differ from learner_hot_gpu_slot"
-        )
-    pack_begin_ns = time.perf_counter_ns()
-    gen = torch.Generator(device="cpu")
-    gen.manual_seed(sample_seed)
-    exclude_count = int(request.get("exclude_write_count", 0))
-    exclude_ranges = _replay_write_exclude_ranges(
-        snapshot_ptr=snapshot_ptr,
-        snapshot_size=snapshot_size,
-        capacity=int(replay_buffer.capacity),
-        write_count=exclude_count,
-    )
-    indices = _sample_replay_pack_indices(
-        snapshot_size=snapshot_size,
-        sample_count=sample_count,
-        generator=gen,
-        exclude_ranges=exclude_ranges,
-    )
-    if shared_slots is None:
-        raise RuntimeError("collector replay pack request is missing shared slots")
-    dst = shared_slots[shared_slot]
-    pack_layout = str(request.get("pack_layout", "packed"))
-    if pack_layout == "sac_graph":
-        sampled = torch.index_select(replay_buffer._storage, 0, indices)
-        replay_buffer.pack_sac_graph_source(sampled, out=dst)
-    else:
-        torch.index_select(replay_buffer._storage, 0, indices, out=dst)
-    if bool(request.get("use_critic_graph_packed_source", False)):
-        if critic_graph_shared_slots is None:
-            raise RuntimeError("collector replay pack request is missing critic graph slots")
-        replay_buffer.pack_critic_graph_source(
-            dst,
-            out=critic_graph_shared_slots[shared_slot],
-        )
-    pack_end_ns = time.perf_counter_ns()
-    return {
-        "tick_id": tick_id,
-        "snapshot_ptr": snapshot_ptr,
-        "snapshot_size": snapshot_size,
-        "sample_seed": sample_seed,
-        "sample_count": sample_count,
-        "shared_slot": shared_slot,
-        "target_gpu_slot": target_gpu_slot,
-        "learner_hot_gpu_slot": learner_hot_gpu_slot,
-        "pack_layout": pack_layout,
-        "pack_executor": "collector_thread",
-        "pack_begin_ns": pack_begin_ns,
-        "pack_end_ns": pack_end_ns,
-    }
-
-
-def _service_collector_pack_requests(
-    replay_buffer,
-    request_queue,
-    ready_queue,
-    shared_slots,
-    critic_graph_shared_slots=None,
-    trace_recorder=None,
-    *,
-    block_timeout: float = 0.0,
-    pending_request: dict | None = None,
-) -> tuple[bool, dict | None]:
-    if request_queue is None or ready_queue is None or shared_slots is None:
-        return False, pending_request
-    request = pending_request
-    if request is None:
-        try:
-            request = (
-                request_queue.get(timeout=block_timeout)
-                if block_timeout > 0
-                else request_queue.get_nowait()
-            )
-        except queue.Empty:
-            return False, None
-    if request is None:
-        return False, None
-    min_snapshot_ptr = int(request.get("min_snapshot_ptr", 0))
-    if int(replay_buffer.ptr[0]) < min_snapshot_ptr:
-        return False, request
-    ready = _collector_pack_shared_batch(
-        replay_buffer,
-        request,
-        shared_slots,
-        critic_graph_shared_slots,
-    )
-    if trace_recorder:
-        trace_recorder.add_slice(
-            "collector/cpu_pack_sample_batch",
-            category="collector",
-            start_ns=int(ready["pack_begin_ns"]),
-            end_ns=int(ready["pack_end_ns"]),
-            args={
-                "tick_id": int(ready["tick_id"]),
-                "sample_count": int(ready["sample_count"]),
-                "shared_slot": int(ready["shared_slot"]),
-                "target_gpu_slot": int(ready["target_gpu_slot"]),
-                "learner_hot_gpu_slot": int(ready["learner_hot_gpu_slot"]),
-                "pack_layout": "packed",
-                "pack_executor": "collector_thread",
-                "shared_memory": True,
-                "pinned_memory": False,
-                "sample_snapshot_mode": request.get("sample_snapshot_mode", "service"),
-                "exclude_write_count": int(request.get("exclude_write_count", 0)),
-            },
-        )
-    ready_queue.put(ready)
-    return True, None
-
-
-def _drain_collector_pack_requests(
-    replay_buffer,
-    request_queue,
-    ready_queue,
-    shared_slots,
-    critic_graph_shared_slots=None,
-    trace_recorder=None,
-    *,
-    pending_request: dict | None = None,
-    max_requests: int = 0,
-) -> dict | None:
-    """Service currently available replay pack requests without blocking env progress."""
-    serviced_count = 0
-    pending = pending_request
-    while True:
-        if max_requests > 0 and serviced_count >= max_requests:
-            return pending
-        serviced, pending = _service_collector_pack_requests(
-            replay_buffer,
-            request_queue,
-            ready_queue,
-            shared_slots,
-            critic_graph_shared_slots,
-            trace_recorder,
-            block_timeout=0.0,
-            pending_request=pending,
-        )
-        if not serviced:
-            return pending
-        serviced_count += 1
-
-
 def off_policy_collector_fn(
     stop_event,
     env_name: str,
@@ -420,10 +157,6 @@ def off_policy_collector_fn(
     seed: int | None = None,
     trace_enabled: bool = False,
     trace_thread_time: bool = False,
-    collector_pack_request_queue=None,
-    collector_pack_ready_queue=None,
-    collector_pack_shared_slots=None,
-    collector_pack_critic_graph_shared_slots=None,
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
@@ -463,10 +196,6 @@ def off_policy_collector_fn(
         seed=seed,
         trace_enabled=trace_enabled,
         trace_thread_time=trace_thread_time,
-        collector_pack_request_queue=collector_pack_request_queue,
-        collector_pack_ready_queue=collector_pack_ready_queue,
-        collector_pack_shared_slots=collector_pack_shared_slots,
-        collector_pack_critic_graph_shared_slots=collector_pack_critic_graph_shared_slots,
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
         collector_infer_device_raw=collector_infer_device_raw,
@@ -501,10 +230,6 @@ def _run_collector(
     seed,
     trace_enabled,
     trace_thread_time,
-    collector_pack_request_queue,
-    collector_pack_ready_queue,
-    collector_pack_shared_slots,
-    collector_pack_critic_graph_shared_slots=None,
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
@@ -606,7 +331,6 @@ def _run_collector(
 
     # Track env.step calls collected since the last learner phase.
     env_steps_since_sync = 0
-    pending_collector_pack_request = None
     # Collection loop
     try:
         while not stop_event.is_set():
@@ -756,16 +480,6 @@ def _run_collector(
                     end_ns=_time.perf_counter_ns(),
                 )
             phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
-            pending_collector_pack_request = _drain_collector_pack_requests(
-                replay_buffer,
-                collector_pack_request_queue,
-                collector_pack_ready_queue,
-                collector_pack_shared_slots,
-                collector_pack_critic_graph_shared_slots,
-                trace_recorder,
-                pending_request=pending_collector_pack_request,
-            )
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
 
             # Track episode rewards - vectorized
             current_ep_rewards += rewards_np
@@ -808,34 +522,10 @@ def _run_collector(
                     )
                     _wait_ns = _time.perf_counter_ns()
                     while not stop_event.is_set():
-                        pending_collector_pack_request = _drain_collector_pack_requests(
-                            replay_buffer,
-                            collector_pack_request_queue,
-                            collector_pack_ready_queue,
-                            collector_pack_shared_slots,
-                            collector_pack_critic_graph_shared_slots,
-                            trace_recorder,
-                            pending_request=pending_collector_pack_request,
-                        )
-                        phase_start_ns = _record_phase_ms(
-                            cycle_timing_ms, "replay_ms", phase_start_ns
-                        )
                         try:
                             trainer_done_queue.get(timeout=0.001)
                             phase_start_ns = _record_phase_ms(
                                 cycle_timing_ms, "sync_coordination_ms", phase_start_ns
-                            )
-                            pending_collector_pack_request = _drain_collector_pack_requests(
-                                replay_buffer,
-                                collector_pack_request_queue,
-                                collector_pack_ready_queue,
-                                collector_pack_shared_slots,
-                                collector_pack_critic_graph_shared_slots,
-                                trace_recorder,
-                                pending_request=pending_collector_pack_request,
-                            )
-                            phase_start_ns = _record_phase_ms(
-                                cycle_timing_ms, "replay_ms", phase_start_ns
                             )
                             break
                         except queue.Empty:

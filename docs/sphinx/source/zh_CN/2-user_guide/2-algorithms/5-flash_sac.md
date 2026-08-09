@@ -28,6 +28,8 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
-FlashSAC 每个训练进程只使用一个 learner device，并要求同步采集。
+FlashSAC 要求同步采集，并与 SAC、TD3 共用唯一 replay 路径：有界 host ingress 加
+一个驻留在 CUDA 或 Apple MPS learner device 上的完整 replay ring。CPU 与 XPU
+training 不受支持。
 
 日志根目录为 `logs/flash_sac/<task>/`。

@@ -7,27 +7,20 @@ config is `conf/offpolicy/config.yaml`, and the SAC algorithm defaults live in
 
 ## Runtime Model
 
-The off-policy runner decouples CPU simulation from GPU learning through shared
-memory: a collector subprocess fills a CPU-resident replay buffer while the
-learner trains on the GPU.
-
-CUDA and Apple MPS runs may select
-`training.replay_pipeline=gpu_resident`. In this single-device path, the full
-replay ring is authoritative on the learner device. The collector publishes
-packed transitions through two bounded shared-memory ingress slots, so host
-replay allocation does not grow with replay capacity; `ptr` and `size` advance
-only after a slot's device copy completes. The default remains
-`cpu_pinned_double_buffer`. CUDA commits on a side stream, while MPS device work
-is submitted only by the learner thread to avoid background Metal submission.
-Each SAC training process uses one learner device.
+The off-policy runner decouples CPU simulation from accelerator learning through
+bounded shared memory. A collector subprocess publishes packed transitions
+through two ingress slots, while the complete replay ring is authoritative on
+one CUDA or Apple MPS learner device. Host replay allocation therefore does not
+grow with replay capacity; `ptr` and `size` advance only after a slot's device
+copy completes. CUDA commits on a side stream, while MPS device work is
+submitted only by the learner thread to avoid background Metal submission.
+CPU and XPU training are unsupported; there is no alternate replay pipeline.
 
 ## Quick Start
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
-uv run train --algo sac --task g1_walk_flat --sim mujoco \
-  training.replay_pipeline=gpu_resident
 ```
 
 ## Key Fields
@@ -42,7 +35,7 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.max_iterations=500`
 - `training.use_amp=true` in the shared off-policy config
 
-SAC and TD3 can run the off-policy double-buffer path with
+SAC and TD3 can run the off-policy device replay path with
 `training.no_sync_collection=true`. FlashSAC-B requires synchronized collection.
 
 ```bash

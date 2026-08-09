@@ -25,8 +25,9 @@ CPU physics env loop -> shared IPC buffer -> learner
 ```
 
 - APPO 使用 `APPORunner`、`RolloutRingBuffer` 与 `SharedWeightSync`。
-- SAC、TD3 与 FlashSAC 使用 off-policy runner，配合 `ReplayBuffer` 与
-  `SharedWeightSync`。
+- SAC、TD3 与 FlashSAC 只使用一条 off-policy execution path：`ReplayBuffer`
+  提供有界 host ingress，完整 ring 驻留在一个 CUDA/MPS learner device，
+  `SharedWeightSync` 负责发布 actor 权重。
 - `src/unilab/ipc/async_runner.py` 中的 `AsyncRunner` 负责 collector 进程启动、
   停止信号以及共享资源清理。
 
@@ -41,7 +42,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 - PPO 入口：`scripts/train_rsl_rl.py`、`scripts/train_mlx_ppo.py`
 - APPO runner：`src/unilab/algos/torch/appo/runner.py`
-- Off-policy runner：`src/unilab/algos/torch/offpolicy/runner.py`
+- Off-policy runner：`src/unilab/algos/torch/offpolicy/double_buffer_runner.py`
 - IPC 原语：`src/unilab/ipc/async_runner.py`、
   `src/unilab/ipc/rollout_ring_buffer.py`、`src/unilab/ipc/replay_buffer.py`、
   `src/unilab/ipc/weight_sync.py`

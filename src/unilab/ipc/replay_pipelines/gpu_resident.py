@@ -1,10 +1,9 @@
-"""GPU-resident replay pipeline for one CUDA or MPS learner.
+"""Device-authoritative replay pipeline for one CUDA or MPS learner.
 
 Single-device training consumes fixed-depth packed ingress slots and keeps the
 full replay ring authoritative on device. CUDA uses a learner-side daemon and
 side stream. MPS has no public stream API, so existing learner-thread calls
-submit copies and device-side sampling. The legacy CPU-ring mirror remains only
-for the multi-GPU migration path.
+submit copies and device-side sampling.
 
 Consistency model:
 
@@ -29,6 +28,25 @@ import torch
 from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.replay_pipelines.base import ReplayTickMetadata
 from unilab.ipc.replay_pipelines.transfer import build_replay_transfer_backend
+
+
+def require_offpolicy_replay_device(device: str | None) -> str:
+    """Reject devices that cannot own the single-device replay ring."""
+    if device is None:
+        from unilab.utils.device import get_default_device
+
+        device = get_default_device()
+    resolved = str(device)
+    try:
+        device_type = torch.device(resolved).type
+    except (RuntimeError, TypeError) as exc:
+        raise ValueError(f"Invalid off-policy learner device {resolved!r}") from exc
+    if device_type not in {"cuda", "mps"}:
+        raise ValueError(
+            "Off-policy training requires a CUDA or MPS learner device for "
+            f"device-authoritative replay; got {device_type!r}"
+        )
+    return resolved
 
 
 def _ring_spans(start: int, end: int, capacity: int) -> List[Tuple[int, int]]:
@@ -78,7 +96,7 @@ def _validate_device_memory_budget(
     if required_bytes <= usable_bytes:
         return
     raise RuntimeError(
-        f"GPU-resident replay mirror does not fit on {device.type}: "
+        f"Device-authoritative replay does not fit on {device.type}: "
         f"requires {required_bytes / 2**30:.2f} GiB "
         f"(storage {storage_bytes / 2**30:.2f} + batch slots {batch_bytes / 2**30:.2f}), "
         f"device available budget {available_bytes / 2**30:.2f} GiB / "
@@ -106,18 +124,16 @@ class GPUResidentReplayPipeline:
         use_critic_graph_packed_source: bool = False,
     ) -> None:
         self._replay_buffer = replay_buffer
-        self._device = torch.device(device)
         if pack_layout not in {"packed", "sac_graph"}:
             raise ValueError("GPUResidentReplayPipeline pack_layout must be packed or sac_graph")
+        self._device = torch.device(require_offpolicy_replay_device(device))
         if self._device.type not in {"cuda", "mps"}:
             raise ValueError(
                 "GPUResidentReplayPipeline requires a CUDA or MPS device; "
-                f"got {self._device.type!r} (use cpu_pinned_double_buffer instead)"
+                f"got {self._device.type!r}"
             )
         if self._device.type == "mps" and not torch.backends.mps.is_available():
             raise ValueError("GPUResidentReplayPipeline requires an available MPS device")
-        if not getattr(replay_buffer, "_packed_cpu_storage", False):
-            raise ValueError("GPUResidentReplayPipeline requires packed CPU replay storage")
         self._main_thread_submission = self._device.type == "mps"
         self._learner_thread_id = threading.get_ident()
         self._pack_layout = pack_layout
@@ -128,7 +144,6 @@ class GPUResidentReplayPipeline:
         self._base_seed = int(base_seed)
         self._trace_recorder = trace_recorder
         self._capacity = int(replay_buffer.capacity)
-        self._device_authoritative = bool(replay_buffer.device_authoritative)
         self._storage_width = int(replay_buffer.storage_width)
         self._packed_width = (
             int(replay_buffer.sac_graph_packed_width())
@@ -166,9 +181,7 @@ class GPUResidentReplayPipeline:
         )
         self._device_family = self._transfer_backend.device_family
         self._host_pinned = False
-        host_slots = (
-            replay_buffer._ingress_slots if self._device_authoritative else [replay_buffer._storage]
-        )
+        host_slots = replay_buffer._ingress_slots
         try:
             self._transfer_backend.register_host_slots(host_slots)
             self._host_pinned = bool(self._transfer_backend.host_pinned)
@@ -213,11 +226,10 @@ class GPUResidentReplayPipeline:
             self._slot_events: list[Any] = [torch.cuda.Event() for _ in range(2)]
         else:
             self._slot_events = [torch.mps.Event() for _ in range(2)]
-        self._span_events: deque[tuple[int, Any, int | None, int, int]] = deque()
+        self._span_events: deque[tuple[int, Any, int, int, int]] = deque()
         self._submission_lock = threading.Lock()
         self._submitted_ptr = 0
         self._visible_ptr = 0
-        self._wrap_skip_warned = False
 
         self._hot = 0
         self._cold = 1
@@ -243,12 +255,8 @@ class GPUResidentReplayPipeline:
     @property
     def h2d_submitter(self) -> str:
         if self._main_thread_submission:
-            return (
-                "gpu_resident_ingress_main_thread"
-                if self._device_authoritative
-                else "gpu_resident_mirror_main_thread"
-            )
-        return "gpu_resident_ingress" if self._device_authoritative else "gpu_resident_mirror"
+            return "gpu_resident_ingress_main_thread"
+        return "gpu_resident_ingress"
 
     @property
     def transfer_manifest(self) -> dict[str, object]:
@@ -257,7 +265,7 @@ class GPUResidentReplayPipeline:
             "device": str(self._device),
             "device_family": self._device_family,
             "pipeline": "gpu_resident",
-            "storage_owner": "device" if self._device_authoritative else "cpu_mirror",
+            "storage_owner": "device",
             "host_memory_kind": (
                 self._transfer_backend.host_memory_kind if self._host_pinned else "pageable_shared"
             ),
@@ -266,9 +274,7 @@ class GPUResidentReplayPipeline:
             "storage_width": self._storage_width,
             "storage_bytes": int(self._gpu_storage.numel() * self._gpu_storage.element_size()),
             "host_storage_bytes": self._replay_buffer.host_storage_bytes,
-            "ingress_depth": (
-                self._replay_buffer._ingress_depth if self._device_authoritative else None
-            ),
+            "ingress_depth": self._replay_buffer._ingress_depth,
             "h2d_submitter": self.h2d_submitter,
             "device_submission_thread": "learner" if self._main_thread_submission else "daemon",
             "ring_depth": 2,
@@ -368,14 +374,9 @@ class GPUResidentReplayPipeline:
             if self._closed:
                 return
             try:
-                if self._device_authoritative:
-                    did_work = self._drain_completed_spans()
-                    did_work |= self._service_pending_prepare()
-                    did_work |= self._submit_new_spans()
-                else:
-                    did_work = self._submit_new_spans()
-                    did_work |= self._drain_completed_spans()
-                    did_work |= self._service_pending_prepare()
+                did_work = self._drain_completed_spans()
+                did_work |= self._service_pending_prepare()
+                did_work |= self._submit_new_spans()
             except BaseException as exc:
                 with self._prepare_condition:
                     self._prepare_error = exc
@@ -388,46 +389,24 @@ class GPUResidentReplayPipeline:
         if self._main_thread_submission:
             self._assert_mps_learner_thread()
         with self._submission_lock:
-            if self._device_authoritative:
-                submitted = False
-                while True:
-                    ingress = self._replay_buffer.take_published_ingress()
-                    if ingress is None:
-                        return submitted
-                    slot, start, count, source = ingress
-                    if start != self._submitted_ptr:
-                        raise RuntimeError(
-                            "Bounded replay ingress publication is not contiguous: "
-                            f"submitted ptr {self._submitted_ptr}, slot start {start}"
-                        )
-                    self._submit_span_copy(
-                        start=start,
-                        end=start + count,
-                        source=source,
-                        ingress_slot=slot,
+            submitted = False
+            while True:
+                ingress = self._replay_buffer.take_published_ingress()
+                if ingress is None:
+                    return submitted
+                slot, start, count, source = ingress
+                if start != self._submitted_ptr:
+                    raise RuntimeError(
+                        "Bounded replay ingress publication is not contiguous: "
+                        f"submitted ptr {self._submitted_ptr}, slot start {start}"
                     )
-                    submitted = True
-
-            ptr = int(self._replay_buffer.ptr[0])
-            if ptr <= self._submitted_ptr:
-                return False
-            if ptr - self._submitted_ptr > self._capacity:
-                skipped = ptr - self._capacity
-                if not self._wrap_skip_warned:
-                    print(
-                        "[GPUResidentReplay] mirror fell behind by more than one "
-                        f"capacity; skipping to absolute row {skipped}",
-                        flush=True,
-                    )
-                    self._wrap_skip_warned = True
-                self._submitted_ptr = skipped
-            self._submit_span_copy(
-                start=self._submitted_ptr,
-                end=ptr,
-                source=self._replay_buffer._storage,
-                ingress_slot=None,
-            )
-            return True
+                self._submit_span_copy(
+                    start=start,
+                    end=start + count,
+                    source=source,
+                    ingress_slot=slot,
+                )
+                submitted = True
 
     def _submit_span_copy(
         self,
@@ -435,7 +414,7 @@ class GPUResidentReplayPipeline:
         start: int,
         end: int,
         source: torch.Tensor,
-        ingress_slot: int | None,
+        ingress_slot: int,
     ) -> None:
         h2d_begin_ns = time.perf_counter_ns()
         start_event = None
@@ -445,11 +424,7 @@ class GPUResidentReplayPipeline:
         def copy_spans(*, non_blocking: bool) -> None:
             source_offset = 0
             for offset, length in _ring_spans(start, end, self._capacity):
-                source_span = (
-                    source[source_offset : source_offset + length]
-                    if ingress_slot is not None
-                    else source[offset : offset + length]
-                )
+                source_span = source[source_offset : source_offset + length]
                 self._gpu_storage[offset : offset + length].copy_(
                     source_span,
                     non_blocking=non_blocking,
@@ -489,7 +464,7 @@ class GPUResidentReplayPipeline:
                     "ingress_slot": ingress_slot,
                     "pinned_memory": self._host_pinned,
                     "pipeline": "gpu_resident",
-                    "storage_owner": "device" if self._device_authoritative else "cpu_mirror",
+                    "storage_owner": "device",
                 },
             )
 
@@ -501,26 +476,25 @@ class GPUResidentReplayPipeline:
         drained = False
         while self._span_events and self._span_events[0][1].query():
             end, _, ingress_slot, start, count = self._span_events.popleft()
-            if ingress_slot is not None:
-                commit_ns = time.perf_counter_ns()
-                self._replay_buffer.commit_ingress(
-                    slot=ingress_slot,
-                    start=start,
-                    count=count,
+            commit_ns = time.perf_counter_ns()
+            self._replay_buffer.commit_ingress(
+                slot=ingress_slot,
+                start=start,
+                count=count,
+            )
+            if self._trace_recorder is not None:
+                self._trace_recorder.add_slice(
+                    "replay_pipeline/ingress_commit",
+                    category="replay_pipeline",
+                    start_ns=commit_ns,
+                    end_ns=time.perf_counter_ns(),
+                    args={
+                        "ingress_slot": ingress_slot,
+                        "committed_ptr": end,
+                        "rows": count,
+                        "pipeline": "gpu_resident",
+                    },
                 )
-                if self._trace_recorder is not None:
-                    self._trace_recorder.add_slice(
-                        "replay_pipeline/ingress_commit",
-                        category="replay_pipeline",
-                        start_ns=commit_ns,
-                        end_ns=time.perf_counter_ns(),
-                        args={
-                            "ingress_slot": ingress_slot,
-                            "committed_ptr": end,
-                            "rows": count,
-                            "pipeline": "gpu_resident",
-                        },
-                    )
             self._visible_ptr = end
             drained = True
         if drained:
@@ -552,10 +526,9 @@ class GPUResidentReplayPipeline:
     def _service_pending_prepare(self) -> bool:
         if self._main_thread_submission:
             self._assert_mps_learner_thread()
-        if self._device_authoritative:
-            with self._submission_lock:
-                if self._span_events:
-                    return False
+        with self._submission_lock:
+            if self._span_events:
+                return False
         with self._prepare_condition:
             if self._prepare_state != "preparing" or self._prepare_tick_id is None:
                 return False
@@ -667,16 +640,6 @@ class GPUResidentReplayPipeline:
         start_ptr: int,
     ) -> tuple[int, dict[str, torch.Tensor]]:
         """Return a stable ordered field snapshot through the committed pointer."""
-        if not self._device_authoritative:
-            end_ptr = int(self._replay_buffer.ptr[0])
-            count = min(max(end_ptr - start_ptr, 0), self._capacity)
-            field_start = end_ptr - count
-            return end_ptr, self._replay_buffer.read_recent_fields(
-                field_names,
-                field_start,
-                count,
-            )
-
         published_snapshot = self._replay_buffer.published_ptr
         while self._submitted_ptr < published_snapshot:
             if not self._submit_new_spans():

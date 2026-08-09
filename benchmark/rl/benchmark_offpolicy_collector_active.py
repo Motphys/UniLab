@@ -623,6 +623,7 @@ def _run_active_window_case(
         action_dim=case.action_dim,
         critic_dim=case.critic_dim,
         device="cpu",
+        ingress_slot_rows=case.num_envs,
     )
 
     actions_np = np.zeros((case.num_envs, case.action_dim), dtype=np.float32)
@@ -768,6 +769,11 @@ def _run_active_window_case(
                     else None
                 ),
             )
+            ingress = replay_buffer.take_published_ingress()
+            if ingress is None:
+                raise RuntimeError("collector benchmark did not publish its replay ingress")
+            slot, start, count, _ = ingress
+            replay_buffer.commit_ingress(slot=slot, start=start, count=count)
             replay_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
 
             phase_start_ns = time.perf_counter_ns()

@@ -30,7 +30,8 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
-FlashSAC runs on one learner device per training process and requires
-synchronized collection.
+FlashSAC requires synchronized collection and the same sole replay path as SAC
+and TD3: bounded host ingress plus one complete replay ring on a CUDA or Apple
+MPS learner device. CPU and XPU training are unsupported.
 
 The log root is `logs/flash_sac/<task>/`.

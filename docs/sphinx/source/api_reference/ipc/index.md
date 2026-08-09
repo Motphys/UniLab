@@ -9,8 +9,8 @@ here is a building block of the **async runner** that powers APPO / FastSAC
 | `async_runner` | The high-level orchestration loop |
 | `shared_buffer` | NumPy-backed shared-memory ring/buffer |
 | `rollout_ring_buffer` | Rollout window used by on-policy collectors |
-| `replay_buffer` | Off-policy replay backed by shared memory |
-| `replay_pipelines.*` | Host-to-device staging (CPU-pinned double buffer, native h2d) |
+| `replay_buffer` | Bounded shared ingress for off-policy transitions |
+| `replay_pipelines.*` | Authoritative CUDA/MPS replay ring, device gather, and native H2D |
 | `shared_obs_stats` | Running mean/std shared across workers |
 | `weight_sync` | Push learner weights back to workers |
 

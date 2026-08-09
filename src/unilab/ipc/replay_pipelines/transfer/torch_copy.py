@@ -11,7 +11,7 @@ from unilab.ipc.replay_pipelines.base import ReplayTickMetadata
 
 
 class TorchCopyReplayTransferBackend:
-    """Portable transfer backend for CPU, MPS, and other torch devices."""
+    """Learner-thread transfer backend for MPS."""
 
     h2d_submitter = "torch_copy"
     host_memory_kind = "pageable_shared"
@@ -25,13 +25,14 @@ class TorchCopyReplayTransferBackend:
         self.device_family = device.type
         self._ring_depth = int(ring_depth)
         self._ready_events = [threading.Event() for _ in range(self._ring_depth)]
-        self._defer_copy_to_wait = device.type == "mps"
+        if device.type != "mps":
+            raise ValueError(f"Torch-copy replay transfer requires MPS, got {device.type!r}")
+        self._defer_copy_to_wait = True
         self._pending_copies: list[tuple[torch.Tensor, torch.Tensor] | None] = [
             None for _ in range(self._ring_depth)
         ]
         self.last_wait_copy_time_s = 0.0
-        if self._defer_copy_to_wait:
-            self.h2d_submitter = "torch_copy_main_thread"
+        self.h2d_submitter = "torch_copy_main_thread"
 
     def register_host_slots(self, slots: list[torch.Tensor]) -> None:
         del slots
@@ -106,14 +107,4 @@ class TorchCopyReplayTransferBackend:
         return None
 
     def _synchronize_device(self) -> None:
-        if self.device.type == "mps" and hasattr(torch, "mps"):
-            torch.mps.synchronize()
-            return
-        if self.device.type == "xpu" and hasattr(torch, "xpu"):
-            xpu = torch.xpu
-            synchronize = getattr(xpu, "synchronize", None)
-            if synchronize is not None:
-                try:
-                    synchronize(self.device)
-                except TypeError:
-                    synchronize()
+        torch.mps.synchronize()
