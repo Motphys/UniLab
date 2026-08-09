@@ -27,7 +27,7 @@ from unilab.algos.torch.offpolicy.thread_budget import (
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
-from unilab.ipc.replay_buffer import ReplayBuffer
+from unilab.ipc.replay_buffer import DEFAULT_REPLAY_INGRESS_DEPTH, ReplayBuffer
 from unilab.ipc.replay_pipelines.base import ReplayPipeline
 from unilab.ipc.replay_pipelines.cpu_pinned_double_buffer import (
     CPUPinnedDoubleBufferReplayPipeline,
@@ -219,6 +219,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             if use_critic_graph_packed_source
             else 0
         )
+        use_gpu_resident_pipeline = self.replay_pipeline_impl == "gpu_resident"
         mem_est = estimate_offpolicy_bytes(
             num_envs=self.num_envs,
             replay_buffer_n=self.replay_buffer_n,
@@ -228,12 +229,22 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             batch_size=self.batch_size,
             updates_per_step=self.updates_per_step,
             critic_graph_staging_width=critic_graph_staging_width,
+            replay_pipeline=self.replay_pipeline_impl,
+            ingress_depth=DEFAULT_REPLAY_INGRESS_DEPTH,
         )
         warn_if_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
         raise_if_shared_memory_over_budget(mem_est, label=f"Off-policy ({self.algo_type})")
 
         # --- replay buffer (packed CPU shared storage) ---
         buffer_capacity = self.replay_buffer_n * self.num_envs
+        replay_storage_kwargs = (
+            {
+                "ingress_slot_rows": self.num_envs,
+                "ingress_depth": DEFAULT_REPLAY_INGRESS_DEPTH,
+            }
+            if use_gpu_resident_pipeline
+            else {}
+        )
         replay_buffer = ReplayBuffer(
             capacity=buffer_capacity,
             obs_dim=self.obs_dim,
@@ -242,6 +253,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             defer_gpu=True,
             critic_dim=self.critic_obs_dim,
             packed_cpu_storage=self.replay_pack_layout == "packed",
+            **replay_storage_kwargs,
         )
         self._shared_resources.append(replay_buffer)
         replay_buffer.trace_recorder = trace_recorder
@@ -250,7 +262,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
         # --- replay pipeline (double buffer) ---
         sample_count = self.batch_size * self.updates_per_step
-        use_gpu_resident_pipeline = self.replay_pipeline_impl == "gpu_resident"
         collector_pack_request_queue = None
         collector_pack_ready_queue = None
         collector_pack_shared_slots = None
@@ -456,6 +467,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         try:
                             collection_ready_queue.get(timeout=1.0)
                         except queue.Empty:
+                            replay_pipeline.progress(wait=True)
                             if not self._check_collector_alive():
                                 self._drain_metrics(
                                     metrics_queue,
@@ -481,6 +493,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             logger,
                             trace_recorder,
                         )
+                        replay_pipeline.progress(wait=True)
                         cur_size = int(replay_buffer.size[0])
                         if replay_buffer_ready_for_learning(
                             cur_size,
@@ -504,12 +517,15 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             sync_coordination_time += _coord_d
                             collector_wait_overhead += _coord_d
                 else:
-                    while not replay_buffer_ready_for_learning(
-                        int(replay_buffer.size[0]),
-                        batch_size=self.batch_size,
-                        learning_starts=self.learning_starts,
-                        num_envs=self.num_envs,
-                    ):
+                    while True:
+                        replay_pipeline.progress(wait=True)
+                        if replay_buffer_ready_for_learning(
+                            int(replay_buffer.size[0]),
+                            batch_size=self.batch_size,
+                            learning_starts=self.learning_starts,
+                            num_envs=self.num_envs,
+                        ):
+                            break
                         if not self._check_collector_alive():
                             self._drain_metrics(
                                 metrics_queue,
@@ -565,6 +581,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     replay_buffer,
                     reward_stats_ptr,
                     int(replay_buffer.ptr[0]),
+                    replay_source=replay_pipeline,
                 )
                 if trace_recorder:
                     trace_recorder.add_slice(
@@ -707,6 +724,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
                         _target_ns = time.perf_counter_ns()
                         learner.soft_update_target()
+                        replay_pipeline.progress()
                         if trace_recorder:
                             trace_recorder.add_slice(
                                 "learner/soft_update_target",

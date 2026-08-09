@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import threading
 
 import numpy as np
 import pytest
@@ -220,6 +221,118 @@ def test_add_writes_packed_columns_without_cat(monkeypatch: pytest.MonkeyPatch):
     torch.testing.assert_close(buf._storage[:4, buf._obs_sl], obs)
     torch.testing.assert_close(buf._storage[:4, buf._act_sl], act)
     torch.testing.assert_close(buf._storage[:4, buf._critic_sl], critic)
+
+
+def test_bounded_ingress_host_allocation_is_capacity_independent_and_committed_late():
+    buffers = [
+        ReplayBuffer(
+            capacity=capacity,
+            obs_dim=_OBS_DIM,
+            action_dim=_ACTION_DIM,
+            device="cuda",
+            ingress_slot_rows=4,
+        )
+        for capacity in (32, 3200)
+    ]
+    small, large = buffers
+    assert small.host_storage_bytes == large.host_storage_bytes
+    assert not hasattr(small, "_storage")
+
+    obs, act, rew, nobs, done, trunc = _random_batch(4)
+    small.add(obs, act, rew, nobs, done, trunc)
+    assert small.published_ptr == 4
+    assert int(small.ptr[0]) == 0
+    assert int(small.size[0]) == 0
+
+    ingress = small.take_published_ingress()
+    assert ingress is not None
+    slot, start, count, packed = ingress
+    torch.testing.assert_close(packed[:, small._obs_sl], obs)
+    small.commit_ingress(slot=slot, start=start, count=count)
+    assert int(small.ptr[0]) == 4
+    assert int(small.size[0]) == 4
+    for buffer in buffers:
+        buffer.close()
+
+
+def test_bounded_ingress_patches_terminal_rows_before_publication():
+    buf = ReplayBuffer(
+        capacity=16,
+        obs_dim=_OBS_DIM,
+        action_dim=_ACTION_DIM,
+        critic_dim=3,
+        device="cuda",
+        ingress_slot_rows=4,
+    )
+    terminal_mask = torch.tensor([False, True, False, True])
+    terminal_obs = torch.full((4, _OBS_DIM), 17.0)
+    terminal_critic = torch.full((4, 3), 23.0)
+    obs, act, rew, nobs, done, trunc = _random_batch(4)
+    critic = torch.zeros(4, 3)
+    next_critic = torch.ones(4, 3)
+
+    buf.add(
+        obs,
+        act,
+        rew,
+        nobs,
+        done,
+        trunc,
+        terminal_mask=terminal_mask,
+        terminal_next_obs=terminal_obs,
+        critic=critic,
+        next_critic=next_critic,
+        terminal_next_critic=terminal_critic,
+    )
+
+    ingress = buf.take_published_ingress()
+    assert ingress is not None
+    slot, start, count, packed = ingress
+    torch.testing.assert_close(packed[terminal_mask, buf._nobs_sl], terminal_obs[terminal_mask])
+    torch.testing.assert_close(
+        packed[terminal_mask, buf._ncritic_sl], terminal_critic[terminal_mask]
+    )
+    buf.commit_ingress(slot=slot, start=start, count=count)
+    buf.close()
+
+
+def test_bounded_ingress_backpressures_until_completed_slot_is_released():
+    buf = ReplayBuffer(
+        capacity=16,
+        obs_dim=_OBS_DIM,
+        action_dim=_ACTION_DIM,
+        device="cuda",
+        ingress_slot_rows=4,
+        ingress_depth=1,
+    )
+    first = _random_batch(4)
+    second = _random_batch(4)
+    buf.add(*first)
+    add_started = threading.Event()
+    add_finished = threading.Event()
+
+    def add_second() -> None:
+        add_started.set()
+        buf.add(*second)
+        add_finished.set()
+
+    thread = threading.Thread(target=add_second)
+    thread.start()
+    assert add_started.wait(timeout=1.0)
+    assert not add_finished.wait(timeout=0.05)
+
+    ingress = buf.take_published_ingress()
+    assert ingress is not None
+    slot, start, count, _ = ingress
+    buf.commit_ingress(slot=slot, start=start, count=count)
+    assert add_finished.wait(timeout=1.0)
+    thread.join(timeout=1.0)
+
+    ingress = buf.take_published_ingress()
+    assert ingress is not None
+    slot, start, count, _ = ingress
+    buf.commit_ingress(slot=slot, start=start, count=count)
+    buf.close()
 
 
 # ---------------------------------------------------------------------------

@@ -10,10 +10,13 @@ off-policy runner 通过 shared memory 把 CPU 仿真与 GPU 学习解耦：coll
 填充驻留在 CPU 上的 replay buffer，learner 在 GPU 上训练。
 
 单 GPU CUDA 或 Apple MPS 训练可选择
-`training.replay_pipeline=gpu_resident`：CPU replay buffer 仍是权威数据源，learner
-另外维护完整的 device mirror 并在 device 上随机采样。该模式会额外占用一份完整
-replay 的 device 内存；默认仍是 `cpu_pinned_double_buffer`。MPS 路径由 learner
-线程提交 mirror copy 和采样，不使用后台 Metal command submission。
+`training.replay_pipeline=gpu_resident`：这条单 device 路径只在 learner device 上
+保留完整 replay ring。collector 通过两个固定深度的 shared-memory packed ingress
+slot 发布 transition，因此 host replay 分配不随 replay capacity 增长；slot 的 device
+copy 完成后才推进 `ptr` 与 `size`。默认仍是 `cpu_pinned_double_buffer`。CUDA 通过
+side stream 提交和 commit，MPS 的 device work 只由 learner 线程提交，不使用后台
+Metal submission。多 GPU `gpu_resident` 的迁移属于后续工作，目前仍保留原有的
+CPU-authoritative mirror 路径。
 
 默认 FastSAC learner 也是当前已验证的 replay-buffer 多 GPU SAC 实现。多卡模式通过
 `training.num_gpus > 1` 打开，host 侧并行打包并分发 batch，多张 GPU 上的 learner

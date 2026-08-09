@@ -44,6 +44,27 @@ def test_offpolicy_memory_budget_includes_opt_in_critic_graph_staging() -> None:
     assert "Critic graph staging" in str(estimate["breakdown"])
 
 
+def test_gpu_resident_host_budget_is_independent_of_replay_capacity() -> None:
+    estimates = [
+        estimate_offpolicy_bytes(
+            num_envs=10,
+            replay_buffer_n=replay_buffer_n,
+            obs_dim=2,
+            action_dim=1,
+            critic_dim=3,
+            batch_size=5,
+            updates_per_step=2,
+            replay_pipeline="gpu_resident",
+            ingress_depth=2,
+        )
+        for replay_buffer_n in (4, 4000)
+    ]
+
+    assert estimates[0]["replay_buffer"] == 0
+    assert estimates[0]["bounded_ingress_slots"] > 0
+    assert estimates[0]["total"] == estimates[1]["total"]
+
+
 def test_shared_memory_budget_unknown_available_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shutil, "disk_usage", lambda path: (_ for _ in ()).throw(OSError()))
     estimate = {"total": 1024, "breakdown": "test"}

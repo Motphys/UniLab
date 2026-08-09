@@ -399,6 +399,25 @@ class CPUPinnedDoubleBufferReplayPipeline:
 
     # -- public API -----------------------------------------------------------
 
+    def progress(self, *, wait: bool = False) -> bool:
+        del wait
+        return False
+
+    def read_committed_fields(
+        self,
+        field_names: tuple[str, ...],
+        *,
+        start_ptr: int,
+    ) -> tuple[int, dict[str, torch.Tensor]]:
+        end_ptr = int(self._replay_buffer.ptr[0])
+        count = min(max(end_ptr - start_ptr, 0), int(self._replay_buffer.capacity))
+        field_start = end_ptr - count
+        return end_ptr, self._replay_buffer.read_recent_fields(
+            field_names,
+            field_start,
+            count,
+        )
+
     def _validate_sample_count(self, sample_count: int) -> None:
         if int(sample_count) != int(self._sample_count):
             raise ValueError("sample_count must match the value used to allocate the double buffer")
