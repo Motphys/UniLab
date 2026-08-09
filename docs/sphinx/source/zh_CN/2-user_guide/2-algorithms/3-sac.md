@@ -15,14 +15,7 @@ off-policy runner 通过 shared memory 把 CPU 仿真与 GPU 学习解耦：coll
 slot 发布 transition，因此 host replay 分配不随 replay capacity 增长；slot 的 device
 copy 完成后才推进 `ptr` 与 `size`。默认仍是 `cpu_pinned_double_buffer`。CUDA 通过
 side stream 提交和 commit，MPS 的 device work 只由 learner 线程提交，不使用后台
-Metal submission。多 GPU `gpu_resident` 的迁移属于后续工作，目前仍保留原有的
-CPU-authoritative mirror 路径。
-
-默认 FastSAC learner 也是当前已验证的 replay-buffer 多 GPU SAC 实现。多卡模式通过
-`training.num_gpus > 1` 打开，host 侧并行打包并分发 batch，多张 GPU 上的 learner
-默认使用 `training.multi_gpu_sync_mode=local_sgd` 做 delayed-sync 参数平均。custom
-SAC runtime 必须显式声明 distributed learner contract 后才能使用这条路径。完整命令、
-严格同步回退和限制见 {doc}`../1-training/4-multi_gpu`。
+Metal submission。每个 SAC 训练进程只使用一个 learner device。
 
 ## 快速开始
 
@@ -33,14 +26,6 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.replay_pipeline=gpu_resident
 ```
 
-两卡 MuJoCo 训练示例：
-
-```bash
-CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoco \
-  training.num_gpus=2 \
-  algo.use_symmetry=false
-```
-
 ## 关键字段
 
 对于 off-policy 回放路径（`scripts/train_offpolicy.py` / CLI `--algo sac`），设置
@@ -49,16 +34,12 @@ CUDA_VISIBLE_DEVICES=0,7 uv run train --algo sac --task g1_walk_flat --sim mujoc
 
 - `algo.algo_log_name=fast_sac`
 - `algo.num_envs=4096`
-- `algo.batch_size=8192` 是每个 learner rank 每次 update 的 batch；多卡时全局
-  update batch 为 `algo.batch_size * training.num_gpus`。
+- `algo.batch_size=8192` 是 learner 每次 update 的 batch。
 - `algo.max_iterations=500`
 - 共享 off-policy 配置中的 `training.use_amp=true`
-- 多 GPU SAC 使用 `training.num_gpus=<N>`；当前不支持 `algo.use_symmetry=true`。
-- 多 GPU SAC 默认 `training.multi_gpu_sync_mode=local_sgd`，
-  `training.multi_gpu_sync_interval=1`。
 
-单 GPU SAC 与 TD3 可以在 off-policy double-buffer 路径下使用
-`training.no_sync_collection=true`。多 GPU SAC 与 FlashSAC-B 仍要求同步采集。
+SAC 与 TD3 可以在 off-policy double-buffer 路径下使用
+`training.no_sync_collection=true`。FlashSAC-B 要求同步采集。
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \

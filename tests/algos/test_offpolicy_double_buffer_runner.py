@@ -8,9 +8,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from hydra.errors import ConfigCompositionException
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _CONF_DIR = Path(__file__).parent.parent.parent / "conf"
@@ -99,18 +99,17 @@ def test_invalid_replay_pipeline_rejected():
         _offpolicy().build_runner("sac", cfg)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="multi-GPU runner requires CUDA")
-def test_gpu_resident_replay_pipeline_accepted_for_multi_gpu():
-    cfg = _offpolicy_cfg(
-        [
-            "training.replay_pipeline=gpu_resident",
-            "training.num_gpus=2",
-            "algo.use_symmetry=false",
-        ]
-    )
-    runner = _offpolicy().build_runner("sac", cfg)
-    assert runner.__class__.__name__ == "MultiGPUOffPolicyRunner"
-    assert runner.replay_pipeline_impl == "gpu_resident"
+@pytest.mark.parametrize(
+    "override",
+    [
+        "training.num_gpus=2",
+        "training.multi_gpu_sync_mode=sync_sgd",
+        "training.multi_gpu_sync_interval=2",
+    ],
+)
+def test_removed_offpolicy_multi_gpu_options_fail_hydra_compose(override: str):
+    with pytest.raises(ConfigCompositionException, match="Could not override"):
+        _offpolicy_cfg([override])
 
 
 # ---------------------------------------------------------------------------
@@ -171,123 +170,6 @@ def test_td3_async_collection_passes_sync_collection_false(
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "td3"
     assert runner.kwargs["sync_collection"] is False
-
-
-def test_sac_multi_gpu_passes_obs_normalization_to_learner_and_runner(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import gymnasium as gym
-
-    mod = _offpolicy()
-    cfg = _offpolicy_cfg(
-        [
-            "algo=sac",
-            "training.num_gpus=2",
-            "training.device=cuda",
-            "algo.obs_normalization=true",
-            "algo.use_symmetry=false",
-        ]
-    )
-
-    class _FakeEnv:
-        obs_groups_spec = {"obs": 4, "critic": 6}
-        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
-
-        def build_symmetry_augmentation(self, device=None):
-            return None
-
-        def close(self):
-            pass
-
-    class _FakeLearner:
-        supports_multi_gpu = True
-        supports_multi_gpu_symmetry = False
-        supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
-
-        class actor:
-            @staticmethod
-            def state_dict():
-                return {"w": MagicMock(shape=(4,))}
-
-        update_count = 0
-
-        def __init__(self, *args, **kwargs):
-            del args
-            self.kwargs = kwargs
-
-        def sync_initial_parameters(self, src=0):
-            del src
-
-        def average_distributed_parameters(self):
-            pass
-
-    class _FakeRunner:
-        def __init__(self, *args, **kwargs):
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
-    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
-
-    import unilab.algos.torch.fast_sac.learner as learner_mod
-
-    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
-
-    import unilab.algos.torch.offpolicy.multi_gpu_runner as mg_mod
-
-    monkeypatch.setattr(mg_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
-
-    runner = mod.build_runner("sac", cfg)
-
-    assert isinstance(runner, _FakeRunner)
-    assert runner.kwargs["obs_normalization"] is True
-    assert runner.kwargs["learner"].kwargs["obs_normalization"] is True
-    assert runner.kwargs["learner_kwargs"]["obs_normalization"] is True
-
-
-def test_sac_multi_gpu_async_collection_rejected(monkeypatch: pytest.MonkeyPatch):
-    import gymnasium as gym
-
-    mod = _offpolicy()
-    cfg = _offpolicy_cfg(
-        [
-            "algo=sac",
-            "training.num_gpus=2",
-            "training.device=cuda",
-            "training.no_sync_collection=true",
-            "algo.use_symmetry=false",
-        ]
-    )
-
-    class _FakeEnv:
-        obs_groups_spec = {"obs": 4, "critic": 6}
-        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
-
-        def build_symmetry_augmentation(self, device=None):
-            return None
-
-        def close(self):
-            pass
-
-    class _FakeLearner:
-        class actor:
-            @staticmethod
-            def state_dict():
-                return {"w": MagicMock(shape=(4,))}
-
-        update_count = 0
-
-        def __init__(self, *args, **kwargs):
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
-    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: _FakeEnv())
-
-    import unilab.algos.torch.fast_sac.learner as learner_mod
-
-    monkeypatch.setattr(learner_mod, "FastSACLearner", _FakeLearner)
-
-    with pytest.raises(ValueError, match="requires synchronized collection"):
-        mod.build_runner("sac", cfg)
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])
@@ -791,93 +673,6 @@ def test_flashsac_double_buffer_portable_devices_allowed(
 
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["device"] == device
-
-
-def test_flashsac_double_buffer_multi_gpu_dispatches_to_multi_gpu_runner(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    import gymnasium as gym
-
-    import unilab.algos.torch.flash_sac.double_buffer as flash_db_mod
-    import unilab.algos.torch.offpolicy.multi_gpu_runner as mg_mod
-
-    cfg = _offpolicy_cfg(
-        [
-            "algo=flashsac",
-            "training.device=cuda",
-            "training.num_gpus=2",
-            "training.multi_gpu_sync_mode=sync_sgd",
-            "training.multi_gpu_sync_interval=3",
-            "algo.obs_normalization=true",
-        ]
-    )
-
-    class _FakeEnv:
-        obs_groups_spec = {"obs": 4, "critic": 6}
-        action_space = gym.spaces.Box(-1.0, 1.0, shape=(2,))
-
-        def close(self):
-            pass
-
-    class _FakeLearner:
-        supports_multi_gpu = True
-        supports_multi_gpu_symmetry = False
-        supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
-
-        class actor:
-            @staticmethod
-            def state_dict():
-                return {"w": MagicMock(shape=(4,))}
-
-        update_count = 0
-
-        def __init__(self, *args, **kwargs):
-            del args
-            self.kwargs = kwargs
-
-        def sync_initial_parameters(self, src=0):
-            del src
-
-        def average_distributed_parameters(self):
-            pass
-
-    class _FakeRunner:
-        def __init__(self, *args, **kwargs):
-            del args
-            self.kwargs = kwargs
-
-    monkeypatch.setattr(flash_db_mod, "ensure_registries", lambda: None)
-    monkeypatch.setattr(flash_db_mod, "create_env", lambda *args, **kwargs: _FakeEnv())
-    monkeypatch.setattr(flash_db_mod, "FlashSACLearner", _FakeLearner)
-    monkeypatch.setattr(mg_mod, "MultiGPUOffPolicyRunner", _FakeRunner)
-
-    runner = _offpolicy().build_runner("flashsac", cfg)
-
-    assert isinstance(runner, _FakeRunner)
-    assert runner.kwargs["algo_type"] == "flashsac"
-    assert runner.kwargs["num_gpus"] == 2
-    assert runner.kwargs["multi_gpu_sync_mode"] == "sync_sgd"
-    assert runner.kwargs["multi_gpu_sync_interval"] == 3
-    assert runner.kwargs["obs_normalization"] is True
-    assert runner.kwargs["learner"].kwargs["obs_normalization"] is True
-    assert runner.kwargs["learner_kwargs"]["obs_normalization"] is True
-    assert runner.kwargs["actor_kwargs"] == {
-        "actor_num_blocks": 2,
-        "actor_noise_zeta_mu": 2.0,
-        "actor_noise_zeta_max": 16,
-    }
-
-
-def test_flashsac_double_buffer_multi_gpu_requires_cuda_device():
-    cfg = _offpolicy_cfg(
-        [
-            "algo=flashsac",
-            "training.device=cpu",
-            "training.num_gpus=2",
-        ]
-    )
-    with pytest.raises(ValueError, match="requires a CUDA device"):
-        _offpolicy().build_runner("flashsac", cfg)
 
 
 def test_flashsac_double_buffer_async_collection_rejected():

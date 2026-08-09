@@ -6,7 +6,6 @@ actor policy. Runs in a subprocess; writes to ReplayBuffer.
 
 import queue
 import sys
-import threading
 import time
 from typing import Any, cast
 
@@ -131,14 +130,6 @@ def compute_collector_active_steps_per_sec(
     return int(num_envs) / (active_ms / 1000.0)
 
 
-def _ranked_entry(collection, rank: int, world_size: int = 1):
-    if collection is None:
-        return None
-    if int(world_size) <= 1:
-        return collection
-    return collection[rank]
-
-
 def _sample_replay_pack_indices(
     *,
     snapshot_size: int,
@@ -248,8 +239,6 @@ def _collector_pack_shared_batch(
     critic_graph_shared_slots=None,
 ) -> dict:
     tick_id = int(request["tick_id"])
-    rank = int(request.get("rank", 0))
-    world_size = int(request.get("world_size", 1))
     if request.get("sample_snapshot_mode") == "request":
         snapshot_ptr = int(request["snapshot_ptr"])
         snapshot_size = int(request["snapshot_size"])
@@ -281,10 +270,9 @@ def _collector_pack_shared_batch(
         generator=gen,
         exclude_ranges=exclude_ranges,
     )
-    rank_shared_slots = _ranked_entry(shared_slots, rank, world_size)
-    if rank_shared_slots is None:
+    if shared_slots is None:
         raise RuntimeError("collector replay pack request is missing shared slots")
-    dst = rank_shared_slots[shared_slot]
+    dst = shared_slots[shared_slot]
     pack_layout = str(request.get("pack_layout", "packed"))
     if pack_layout == "sac_graph":
         sampled = torch.index_select(replay_buffer._storage, 0, indices)
@@ -292,18 +280,15 @@ def _collector_pack_shared_batch(
     else:
         torch.index_select(replay_buffer._storage, 0, indices, out=dst)
     if bool(request.get("use_critic_graph_packed_source", False)):
-        rank_critic_slots = _ranked_entry(critic_graph_shared_slots, rank, world_size)
-        if rank_critic_slots is None:
+        if critic_graph_shared_slots is None:
             raise RuntimeError("collector replay pack request is missing critic graph slots")
         replay_buffer.pack_critic_graph_source(
             dst,
-            out=rank_critic_slots[shared_slot],
+            out=critic_graph_shared_slots[shared_slot],
         )
     pack_end_ns = time.perf_counter_ns()
     return {
         "tick_id": tick_id,
-        "rank": rank,
-        "world_size": world_size,
         "snapshot_ptr": snapshot_ptr,
         "snapshot_size": snapshot_size,
         "sample_seed": sample_seed,
@@ -372,14 +357,7 @@ def _service_collector_pack_requests(
                 "exclude_write_count": int(request.get("exclude_write_count", 0)),
             },
         )
-    target_ready_queue = _ranked_entry(
-        ready_queue,
-        int(ready.get("rank", 0)),
-        int(ready.get("world_size", 1)),
-    )
-    if target_ready_queue is None:
-        raise RuntimeError("collector replay pack request is missing a ready queue")
-    target_ready_queue.put(ready)
+    ready_queue.put(ready)
     return True, None
 
 
@@ -413,85 +391,6 @@ def _drain_collector_pack_requests(
         if not serviced:
             return pending
         serviced_count += 1
-
-
-class _CollectorPackService:
-    """Background replay pack service for multi-rank off-policy learners."""
-
-    def __init__(
-        self,
-        replay_buffer,
-        request_queue,
-        ready_queue,
-        shared_slots,
-        critic_graph_shared_slots=None,
-        trace_recorder=None,
-        *,
-        stop_event=None,
-    ) -> None:
-        self._replay_buffer = replay_buffer
-        self._request_queue = request_queue
-        self._ready_queue = ready_queue
-        self._shared_slots = shared_slots
-        self._critic_graph_shared_slots = critic_graph_shared_slots
-        self._trace_recorder = trace_recorder
-        self._stop_event = stop_event
-        self._threads: list[threading.Thread] = []
-        self._started = False
-
-    @staticmethod
-    def should_start(
-        request_queue, ready_queue, shared_slots, critic_graph_shared_slots=None
-    ) -> bool:
-        del critic_graph_shared_slots
-        return (
-            isinstance(request_queue, list)
-            and isinstance(ready_queue, list)
-            and isinstance(shared_slots, list)
-            and len(request_queue) > 1
-        )
-
-    def start(self) -> None:
-        if self._started:
-            return
-        self._started = True
-        world_size = len(self._request_queue)
-        for rank in range(world_size):
-            thread = threading.Thread(
-                target=self._rank_worker,
-                args=(rank, world_size),
-                name=f"collector_replay_pack_rank{rank}",
-                daemon=True,
-            )
-            thread.start()
-            self._threads.append(thread)
-
-    def _rank_worker(self, rank: int, world_size: int) -> None:
-        request_queue = self._request_queue[rank]
-        ready_queue = self._ready_queue
-        shared_slots = self._shared_slots
-        critic_graph_shared_slots = self._critic_graph_shared_slots
-        pending_request = None
-        while True:
-            if self._stop_event is not None and self._stop_event.is_set():
-                return
-            serviced, pending_request = _service_collector_pack_requests(
-                self._replay_buffer,
-                request_queue,
-                ready_queue,
-                shared_slots,
-                critic_graph_shared_slots,
-                self._trace_recorder,
-                block_timeout=0.001,
-                pending_request=pending_request,
-            )
-            if not serviced and pending_request is not None:
-                time.sleep(0.0005)
-
-    def close(self) -> None:
-        for thread in self._threads:
-            thread.join(timeout=1.0)
-        self._threads.clear()
 
 
 def off_policy_collector_fn(
@@ -708,24 +607,6 @@ def _run_collector(
     # Track env.step calls collected since the last learner phase.
     env_steps_since_sync = 0
     pending_collector_pack_request = None
-    collector_pack_service = None
-    if _CollectorPackService.should_start(
-        collector_pack_request_queue,
-        collector_pack_ready_queue,
-        collector_pack_shared_slots,
-        collector_pack_critic_graph_shared_slots,
-    ):
-        collector_pack_service = _CollectorPackService(
-            replay_buffer,
-            collector_pack_request_queue,
-            collector_pack_ready_queue,
-            collector_pack_shared_slots,
-            collector_pack_critic_graph_shared_slots,
-            trace_recorder,
-            stop_event=stop_event,
-        )
-        collector_pack_service.start()
-
     # Collection loop
     try:
         while not stop_event.is_set():
@@ -875,16 +756,15 @@ def _run_collector(
                     end_ns=_time.perf_counter_ns(),
                 )
             phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
-            if collector_pack_service is None:
-                pending_collector_pack_request = _drain_collector_pack_requests(
-                    replay_buffer,
-                    collector_pack_request_queue,
-                    collector_pack_ready_queue,
-                    collector_pack_shared_slots,
-                    collector_pack_critic_graph_shared_slots,
-                    trace_recorder,
-                    pending_request=pending_collector_pack_request,
-                )
+            pending_collector_pack_request = _drain_collector_pack_requests(
+                replay_buffer,
+                collector_pack_request_queue,
+                collector_pack_ready_queue,
+                collector_pack_shared_slots,
+                collector_pack_critic_graph_shared_slots,
+                trace_recorder,
+                pending_request=pending_collector_pack_request,
+            )
             phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
 
             # Track episode rewards - vectorized
@@ -928,7 +808,23 @@ def _run_collector(
                     )
                     _wait_ns = _time.perf_counter_ns()
                     while not stop_event.is_set():
-                        if collector_pack_service is None:
+                        pending_collector_pack_request = _drain_collector_pack_requests(
+                            replay_buffer,
+                            collector_pack_request_queue,
+                            collector_pack_ready_queue,
+                            collector_pack_shared_slots,
+                            collector_pack_critic_graph_shared_slots,
+                            trace_recorder,
+                            pending_request=pending_collector_pack_request,
+                        )
+                        phase_start_ns = _record_phase_ms(
+                            cycle_timing_ms, "replay_ms", phase_start_ns
+                        )
+                        try:
+                            trainer_done_queue.get(timeout=0.001)
+                            phase_start_ns = _record_phase_ms(
+                                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                            )
                             pending_collector_pack_request = _drain_collector_pack_requests(
                                 replay_buffer,
                                 collector_pack_request_queue,
@@ -941,24 +837,6 @@ def _run_collector(
                             phase_start_ns = _record_phase_ms(
                                 cycle_timing_ms, "replay_ms", phase_start_ns
                             )
-                        try:
-                            trainer_done_queue.get(timeout=0.001)
-                            phase_start_ns = _record_phase_ms(
-                                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
-                            )
-                            if collector_pack_service is None:
-                                pending_collector_pack_request = _drain_collector_pack_requests(
-                                    replay_buffer,
-                                    collector_pack_request_queue,
-                                    collector_pack_ready_queue,
-                                    collector_pack_shared_slots,
-                                    collector_pack_critic_graph_shared_slots,
-                                    trace_recorder,
-                                    pending_request=pending_collector_pack_request,
-                                )
-                                phase_start_ns = _record_phase_ms(
-                                    cycle_timing_ms, "replay_ms", phase_start_ns
-                                )
                             break
                         except queue.Empty:
                             phase_start_ns = _record_phase_ms(
@@ -1061,8 +939,6 @@ def _run_collector(
                 _record_timing_ms(timing_accum_ms, timing_counts, key, value)
 
     finally:
-        if collector_pack_service is not None:
-            collector_pack_service.close()
         if metrics_queue is not None and trace_recorder:
             try:
                 metrics_queue.put_nowait({"trace_events": trace_recorder.drain_events()})

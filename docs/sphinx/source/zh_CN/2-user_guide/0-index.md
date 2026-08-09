@@ -9,7 +9,7 @@
 :::{grid-item-card} 训练
 :link: 1-training/0-index
 :link-type: doc
-CLI 路由、Hydra owner YAML、日志、检查点、Docker 以及多 GPU 说明。
+CLI 路由、Hydra owner YAML、日志、检查点与 Docker。
 :::
 
 :::{grid-item-card} 算法

@@ -56,11 +56,8 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     return summary
 
 
-def build_run_dir_name(timestamp: str, sim_backend: str, num_gpus: int = 1) -> str:
-    suffix = f"{timestamp}_{sim_backend}"
-    if int(num_gpus) > 1:
-        suffix += f"_{int(num_gpus)}xGPU"
-    return suffix
+def build_run_dir_name(timestamp: str, sim_backend: str) -> str:
+    return f"{timestamp}_{sim_backend}"
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -190,9 +187,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "expected 'cpu_pinned_double_buffer' or 'gpu_resident'"
         )
     verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
-    num_gpus = int(getattr(cfg.training, "num_gpus", 1))
-    multi_gpu_sync_mode = str(getattr(cfg.training, "multi_gpu_sync_mode", "local_sgd"))
-    multi_gpu_sync_interval = int(getattr(cfg.training, "multi_gpu_sync_interval", 1))
     collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
 
     sync_collection = not bool(cfg.training.no_sync_collection)
@@ -306,60 +300,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
             **_learner_extra_kwargs,
         }
 
-        if num_gpus > 1:
-            from unilab.algos.torch.offpolicy.distributed import (
-                validate_distributed_learner_capability,
-            )
-            from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
-
-            if not str(_device).startswith("cuda"):
-                raise ValueError(f"{_algo_type} multi-GPU training requires a CUDA device")
-            if not sync_collection:
-                raise ValueError("Multi-GPU off-policy replay requires synchronized collection")
-            validate_distributed_learner_capability(
-                algo_type=_algo_type,
-                learner_cls=_learner_cls,
-                learner_kwargs=_learner_kwargs,
-                num_gpus=num_gpus,
-                sync_mode=multi_gpu_sync_mode,
-            )
-            _learner = _learner_cls(device=_device, **_learner_kwargs)
-            return MultiGPUOffPolicyRunner(
-                learner=_learner,
-                env_name=cfg.training.task_name,
-                algo_type=_algo_type,
-                learner_cls=_learner_cls,
-                learner_kwargs=_learner_kwargs,
-                num_gpus=num_gpus,
-                distributed_backend="nccl",
-                multi_gpu_sync_mode=multi_gpu_sync_mode,
-                multi_gpu_sync_interval=multi_gpu_sync_interval,
-                replay_pipeline=replay_pipeline,
-                num_envs=cfg.algo.num_envs,
-                replay_buffer_n=cfg.algo.replay_buffer_n,
-                batch_size=_batch_size,
-                learning_starts=cfg.algo.learning_starts,
-                updates_per_step=cfg.algo.updates_per_step,
-                policy_frequency=cfg.algo.policy_frequency,
-                sync_collection=sync_collection,
-                env_steps_per_sync=cfg.training.env_steps_per_sync,
-                device=_device,
-                actor_hidden_dim=cfg.algo.actor_hidden_dim,
-                use_layer_norm=cfg.algo.use_layer_norm,
-                obs_normalization=cfg.algo.obs_normalization,
-                sim_backend=cfg.training.sim_backend,
-                env_cfg_override=env_cfg_override,
-                actor_kwargs=_actor_kwargs,
-                trace_enabled=cfg.training.trace_enabled,
-                trace_output_dir=cfg.training.trace_output_dir,
-                trace_thread_time=cfg.training.trace_thread_time,
-                trace_cuda_events=cfg.training.trace_cuda_events,
-                seed=cfg.algo.seed,
-                nan_guard_cfg=_nan_guard_cfg,
-                collector_infer_device=collector_infer_device,
-                torch_thread_runtime=torch_thread_runtime,
-            )
-
         _learner = _learner_cls(device=_device, **_learner_kwargs)
         return DoubleBufferOffPolicyRunner(
             learner=_learner,
@@ -396,21 +336,11 @@ def build_runner(algo_name: str, cfg: DictConfig):
     if algo_name == "td3":
         from unilab.algos.torch.common.device import get_env_dims
         from unilab.algos.torch.fast_td3.learner import FastTD3Learner
-        from unilab.algos.torch.offpolicy.distributed import (
-            validate_distributed_learner_capability,
-        )
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
             DoubleBufferOffPolicyRunner,
         )
         from unilab.utils.device import get_default_device
 
-        validate_distributed_learner_capability(
-            learner_cls=FastTD3Learner,
-            algo_type="td3",
-            learner_kwargs={},
-            num_gpus=num_gpus,
-            sync_mode=multi_gpu_sync_mode,
-        )
         _device = cfg.training.device or get_default_device()
         _obs_dim, _action_dim, _critic_dim = get_env_dims(
             cfg.training.task_name,
@@ -779,11 +709,7 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir_name = build_run_dir_name(
-            timestamp,
-            str(cfg.training.sim_backend),
-            int(getattr(cfg.training, "num_gpus", 1)),
-        )
+        run_dir_name = build_run_dir_name(timestamp, str(cfg.training.sim_backend))
         log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
