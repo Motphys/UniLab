@@ -12,11 +12,15 @@ memory: a collector subprocess fills a CPU-resident replay buffer while the
 learner trains on the GPU.
 
 Single-GPU CUDA and Apple MPS runs may select
-`training.replay_pipeline=gpu_resident`. The CPU replay remains authoritative,
-while the learner maintains a full device mirror and samples on the device.
-This consumes one additional full replay allocation on the device; the default
-remains `cpu_pinned_double_buffer`. On MPS, the learner thread submits mirror
-copies and gathers, avoiding background Metal command submission.
+`training.replay_pipeline=gpu_resident`. In this single-device path, the full
+replay ring is authoritative on the learner device. The collector publishes
+packed transitions through two bounded shared-memory ingress slots, so host
+replay allocation does not grow with replay capacity; `ptr` and `size` advance
+only after a slot's device copy completes. The default remains
+`cpu_pinned_double_buffer`. CUDA commits on a side stream, while MPS device work
+is submitted only by the learner thread to avoid background Metal submission.
+The multi-GPU `gpu_resident` migration is separate and still uses its existing
+CPU-authoritative mirror path.
 
 The default FastSAC learner is also the currently validated replay-buffer
 multi-GPU SAC implementation. Enable it with `training.num_gpus > 1`; the host

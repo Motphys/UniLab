@@ -21,6 +21,13 @@ class ReplayTickMetadata:
 
 @runtime_checkable
 class ReplayPipeline(Protocol):
+    def progress(self, *, wait: bool = False) -> bool: ...
+    def read_committed_fields(
+        self,
+        field_names: tuple[str, ...],
+        *,
+        start_ptr: int,
+    ) -> tuple[int, dict[str, torch.Tensor]]: ...
     def start_prepare(
         self,
         tick_id: int,

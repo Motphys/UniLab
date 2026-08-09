@@ -1,20 +1,25 @@
-"""Packed shared-memory replay buffer for off-policy RL."""
+"""Packed replay storage and bounded collector ingress for off-policy RL."""
 
+import multiprocessing as mp
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import torch
 
 from unilab.ipc.shared_buffer import SharedBufferBase
 
+DEFAULT_REPLAY_INGRESS_DEPTH = 2
+
 
 class ReplayBuffer(SharedBufferBase):
-    """Shared replay buffer backed by authoritative packed CPU storage.
+    """Packed replay owner for CPU-authoritative and device-authoritative modes.
 
-    Device transfer is owned by replay pipeline transfer backends.  The
-    fallback sample() path copies a sampled packed batch to ``self.device`` and
-    keeps no per-device replay cache.
+    The default mode owns a full shared-memory CPU ring. Device-authoritative
+    replay instead owns only fixed-depth shared ingress slots; its replay
+    pipeline commits ``ptr`` and ``size`` after the device copy completes.
     """
+
+    DEFAULT_INGRESS_DEPTH = DEFAULT_REPLAY_INGRESS_DEPTH
 
     def __init__(
         self,
@@ -25,6 +30,8 @@ class ReplayBuffer(SharedBufferBase):
         defer_gpu: bool = False,
         critic_dim: int = 0,
         packed_cpu_storage: bool = False,
+        ingress_slot_rows: int | None = None,
+        ingress_depth: int = DEFAULT_INGRESS_DEPTH,
     ):
         super().__init__(capacity, device, defer_gpu=defer_gpu)
         del packed_cpu_storage
@@ -36,15 +43,22 @@ class ReplayBuffer(SharedBufferBase):
         self.trace_recorder: Any | None = None
         self.trace_thread_time = False
         self.trace_cuda_events = True
+        self._stop_event: Any | None = None
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
-        self._init_packed_storage(capacity, obs_dim, action_dim, critic_dim)
+        self._init_packed_layout(obs_dim, action_dim, critic_dim)
+        self._device_authoritative = ingress_slot_rows is not None
+        self._ingress_slots: list[torch.Tensor] = []
+        if ingress_slot_rows is not None:
+            self._init_bounded_ingress(
+                slot_rows=ingress_slot_rows,
+                depth=int(ingress_depth),
+            )
+        else:
+            self._storage = torch.zeros(capacity, self._storage_width).share_memory_()
 
-    def _init_packed_storage(
-        self, capacity: int, obs_dim: int, action_dim: int, critic_dim: int
-    ) -> None:
-        total_dim = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
-        self._storage = torch.zeros(capacity, total_dim).share_memory_()
+    def _init_packed_layout(self, obs_dim: int, action_dim: int, critic_dim: int) -> None:
+        self._storage_width = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
 
         c = 0
         self._obs_sl = slice(c, c + obs_dim)
@@ -66,6 +80,88 @@ class ReplayBuffer(SharedBufferBase):
             self._ncritic_sl = slice(c, c + critic_dim)
             c += critic_dim
 
+    def _init_bounded_ingress(self, *, slot_rows: int, depth: int) -> None:
+        if slot_rows <= 0:
+            raise ValueError("ingress_slot_rows must be positive")
+        if slot_rows > self.capacity:
+            raise ValueError("ingress_slot_rows cannot exceed replay capacity")
+        if depth <= 0:
+            raise ValueError("ingress_depth must be positive")
+        self._ingress_slot_rows = slot_rows
+        self._ingress_depth = depth
+        self._ingress_slots = [
+            torch.empty((slot_rows, self._storage_width), dtype=torch.float32).share_memory_()
+            for _ in range(depth)
+        ]
+        self._ingress_starts = torch.zeros(depth, dtype=torch.int64).share_memory_()
+        self._ingress_counts = torch.zeros(depth, dtype=torch.int64).share_memory_()
+        self._published_ptr = torch.zeros(1, dtype=torch.int64).share_memory_()
+        self._ingress_publish_seq = torch.zeros(1, dtype=torch.int64).share_memory_()
+        self._ingress_closed = torch.zeros(1, dtype=torch.bool).share_memory_()
+        spawn_context = mp.get_context("spawn")
+        self._ingress_free = spawn_context.Semaphore(depth)
+        self._ingress_ready = spawn_context.Semaphore(0)
+        self._ingress_consume_seq = 0
+        self._ingress_release_seq = 0
+
+    @property
+    def device_authoritative(self) -> bool:
+        return self._device_authoritative
+
+    @property
+    def storage_width(self) -> int:
+        return self._storage_width
+
+    @property
+    def host_storage_bytes(self) -> int:
+        if self._device_authoritative:
+            return sum(slot.numel() * slot.element_size() for slot in self._ingress_slots)
+        return int(self._storage.numel() * self._storage.element_size())
+
+    @property
+    def published_ptr(self) -> int:
+        if self._device_authoritative:
+            return int(self._published_ptr[0])
+        return int(self.ptr[0])
+
+    def attach_stop_event(self, stop_event: Any) -> None:
+        self._stop_event = stop_event
+
+    def take_published_ingress(self) -> tuple[int, int, int, torch.Tensor] | None:
+        if not self._device_authoritative:
+            raise RuntimeError("Full CPU replay does not expose bounded ingress slots")
+        if not self._ingress_ready.acquire(block=False):
+            return None
+        slot = self._ingress_consume_seq % self._ingress_depth
+        self._ingress_consume_seq += 1
+        start = int(self._ingress_starts[slot])
+        count = int(self._ingress_counts[slot])
+        return slot, start, count, self._ingress_slots[slot][:count]
+
+    def commit_ingress(self, *, slot: int, start: int, count: int) -> None:
+        if not self._device_authoritative:
+            raise RuntimeError("Full CPU replay has no bounded ingress commit")
+        expected_slot = self._ingress_release_seq % self._ingress_depth
+        if slot != expected_slot:
+            raise RuntimeError(
+                f"Ingress slots must commit in publication order: expected {expected_slot}, got {slot}"
+            )
+        if start != int(self.ptr[0]):
+            raise RuntimeError(
+                f"Ingress commit is not contiguous: committed ptr {int(self.ptr[0])}, start {start}"
+            )
+        self.ptr[0] = start + count
+        self.size[0] = min(start + count, self.capacity)
+        self._ingress_release_seq += 1
+        self._ingress_free.release()
+
+    def close(self) -> None:
+        if not self._device_authoritative:
+            return
+        self._ingress_closed[0] = True
+        for _ in range(self._ingress_depth):
+            self._ingress_free.release()
+
     def critic_graph_packed_width(self) -> int:
         """Return graph-order packed width for FastSAC critic graph inputs."""
         if self._critic_dim <= 0:
@@ -76,7 +172,7 @@ class ReplayBuffer(SharedBufferBase):
         """Return graph-union packed width for one-H2D FastSAC graph staging."""
         if self._critic_dim <= 0:
             raise RuntimeError("sac_graph_packed_source requires critic replay storage")
-        return int(self._storage.shape[1])
+        return self._storage_width
 
     def pack_critic_graph_source(
         self,
@@ -144,12 +240,13 @@ class ReplayBuffer(SharedBufferBase):
     def __getstate__(self) -> dict:
         """Custom pickle support.
 
-        The collector subprocess only calls add(), which writes to the CPU
-        shared-memory tensor.  The original object in the learner process is
-        unaffected.
+        The collector subprocess only calls ``add()``. Trace and stop-event
+        handles are process-local; replay storage, ingress metadata, and
+        semaphores remain shared.
         """
         state = self.__dict__.copy()
         state["trace_recorder"] = None
+        state["_stop_event"] = None
         return state
 
     def add(
@@ -174,6 +271,22 @@ class ReplayBuffer(SharedBufferBase):
         """
         _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
         n = obs.shape[0]
+        if self._device_authoritative:
+            self._add_to_ingress(
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                dones,
+                truncated,
+                terminal_mask,
+                terminal_next_obs,
+                critic,
+                next_critic,
+                terminal_next_critic,
+                trace_start_ns=_trace_ns,
+            )
+            return
         idx = int(self.ptr[0]) % self.capacity
         has_critic = self._critic_dim > 0 and critic is not None
         if self._critic_dim > 0 and (critic is None or next_critic is None):
@@ -254,6 +367,97 @@ class ReplayBuffer(SharedBufferBase):
                 args={"batch_size": int(n), "device": self.device},
             )
 
+    def _add_to_ingress(
+        self,
+        obs,
+        actions,
+        rewards,
+        next_obs,
+        dones,
+        truncated,
+        terminal_mask,
+        terminal_next_obs,
+        critic,
+        next_critic,
+        terminal_next_critic,
+        *,
+        trace_start_ns: int,
+    ) -> None:
+        count = int(obs.shape[0])
+        if count > self._ingress_slot_rows:
+            raise ValueError(
+                f"Transition batch has {count} rows but bounded ingress slots hold "
+                f"{self._ingress_slot_rows}"
+            )
+        has_critic = self._critic_dim > 0 and critic is not None
+        if self._critic_dim > 0 and (critic is None or next_critic is None):
+            raise ValueError("ReplayBuffer with critic_dim > 0 requires critic and next_critic")
+
+        wait_start_ns = time.perf_counter_ns()
+        while not self._ingress_free.acquire(timeout=0.05):
+            if bool(self._ingress_closed[0]):
+                return
+            if self._stop_event is not None and self._stop_event.is_set():
+                return
+        wait_end_ns = time.perf_counter_ns()
+        if bool(self._ingress_closed[0]):
+            return
+
+        sequence = int(self._ingress_publish_seq[0])
+        slot = sequence % self._ingress_depth
+        target = self._ingress_slots[slot][:count]
+        try:
+            self._write_transition_rows(
+                target,
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                dones,
+                truncated,
+                critic,
+                next_critic,
+                has_critic=has_critic,
+            )
+            self._patch_terminal_next_observations(
+                target[:, self._nobs_sl],
+                terminal_mask,
+                terminal_next_obs,
+                target[:, self._ncritic_sl] if has_critic else None,
+                terminal_next_critic,
+            )
+            start = int(self._published_ptr[0])
+            self._ingress_starts[slot] = start
+            self._ingress_counts[slot] = count
+            self._published_ptr[0] = start + count
+            self._ingress_publish_seq[0] = sequence + 1
+            self._ingress_ready.release()
+        except BaseException:
+            self._ingress_free.release()
+            raise
+
+        if self.trace_recorder is not None:
+            end_ns = time.perf_counter_ns()
+            self.trace_recorder.add_slice(
+                "replay/ingress_backpressure",
+                category="replay",
+                start_ns=wait_start_ns,
+                end_ns=wait_end_ns,
+                args={"batch_size": count, "slot": slot, "depth": self._ingress_depth},
+            )
+            self.trace_recorder.add_slice(
+                "replay/add",
+                category="replay",
+                start_ns=trace_start_ns,
+                end_ns=end_ns,
+                args={
+                    "batch_size": count,
+                    "device": self.device,
+                    "ingress_slot": slot,
+                    "published_ptr": start + count,
+                },
+            )
+
     def _write_transition_rows(
         self,
         target,
@@ -302,6 +506,8 @@ class ReplayBuffer(SharedBufferBase):
 
     def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
         """Sample batch (called by learner)."""
+        if self._device_authoritative:
+            raise RuntimeError("Device-authoritative replay must be sampled through its pipeline")
         self.last_incremental_h2d_time_s = 0.0
         _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
         size = int(self.size[0])
@@ -337,3 +543,40 @@ class ReplayBuffer(SharedBufferBase):
                 args={"batch_size": int(batch_size), "device": self.device},
             )
         return batch
+
+    def field_view(self, packed: torch.Tensor, field_name: str) -> torch.Tensor:
+        field = {
+            "obs": self._obs_sl,
+            "next_obs": self._nobs_sl,
+            "actions": self._act_sl,
+            "rewards": self._rew_col,
+            "dones": self._done_col,
+            "truncated": self._trunc_col,
+            "critic": getattr(self, "_critic_sl", None),
+            "next_critic": getattr(self, "_ncritic_sl", None),
+        }.get(field_name)
+        if field is None:
+            raise KeyError(f"Replay field {field_name!r} is unavailable")
+        return packed[:, field]
+
+    def read_recent_fields(
+        self,
+        field_names: Iterable[str],
+        start_ptr: int,
+        count: int,
+    ) -> dict[str, torch.Tensor]:
+        if self._device_authoritative:
+            raise RuntimeError("Device-authoritative fields are owned by the replay pipeline")
+        index = start_ptr % self.capacity
+        fields: dict[str, torch.Tensor] = {}
+        for field_name in field_names:
+            source = self.field_view(self._storage, field_name)
+            if index + count <= self.capacity:
+                fields[field_name] = source[index : index + count].clone()
+                continue
+            split = self.capacity - index
+            fields[field_name] = torch.cat(
+                [source[index:], source[: count - split]],
+                dim=0,
+            ).clone()
+        return fields

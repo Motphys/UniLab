@@ -123,11 +123,19 @@ def update_reward_stats_from_replay(
     start_ptr: int,
     end_ptr: int,
     num_envs: int,
+    replay_source: Any | None = None,
 ) -> int:
     if not hasattr(learner, "update_reward_stats"):
         return end_ptr
     if getattr(learner, "reward_normalizer", None) is None:
         return end_ptr
+
+    committed_fields: dict[str, torch.Tensor] | None = None
+    if replay_source is not None:
+        end_ptr, committed_fields = replay_source.read_committed_fields(
+            ("rewards", "dones"),
+            start_ptr=start_ptr,
+        )
 
     count = end_ptr - start_ptr
     if count <= 0:
@@ -141,8 +149,12 @@ def update_reward_stats_from_replay(
     if count <= 0:
         return end_ptr
 
-    rewards = read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
-    dones = read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
+    if committed_fields is None:
+        rewards = read_recent_replay_field(replay_buffer, "rewards", start_ptr, count)
+        dones = read_recent_replay_field(replay_buffer, "dones", start_ptr, count)
+    else:
+        rewards = committed_fields["rewards"][-count:]
+        dones = committed_fields["dones"][-count:]
     num_steps = count // num_envs
     learner.update_reward_stats(
         rewards.view(num_steps, num_envs),
@@ -253,13 +265,20 @@ class OffPolicyRunner(AsyncRunner):
     ) -> torch.Tensor:
         return read_recent_replay_field(replay_buffer, field_name, start_ptr, count)
 
-    def _update_reward_stats_from_replay(self, replay_buffer, start_ptr: int, end_ptr: int) -> int:
+    def _update_reward_stats_from_replay(
+        self,
+        replay_buffer,
+        start_ptr: int,
+        end_ptr: int,
+        replay_source: Any | None = None,
+    ) -> int:
         return update_reward_stats_from_replay(
             self.learner,
             replay_buffer,
             start_ptr=start_ptr,
             end_ptr=end_ptr,
             num_envs=self.num_envs,
+            replay_source=replay_source,
         )
 
     def learn(

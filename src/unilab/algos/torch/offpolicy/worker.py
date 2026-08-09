@@ -671,6 +671,7 @@ def _run_collector(
     actor.eval()
     replay_buffer.trace_recorder = trace_recorder
     replay_buffer.trace_thread_time = trace_thread_time
+    replay_buffer.attach_stop_event(stop_event)
 
     # Load initial weights
     sd = dict(actor.state_dict())

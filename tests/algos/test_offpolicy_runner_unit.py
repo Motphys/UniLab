@@ -17,6 +17,7 @@ from unilab.algos.torch.offpolicy.runner import (
     build_offpolicy_sample_info,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
+    update_reward_stats_from_replay,
 )
 from unilab.ipc.replay_buffer import ReplayBuffer
 
@@ -362,6 +363,45 @@ def test_compute_train_start_threshold(
     batch_size: int, learning_starts: int, num_envs: int, expected: int
 ) -> None:
     assert compute_train_start_threshold(batch_size, learning_starts, num_envs) == expected
+
+
+def test_reward_stats_use_pipeline_committed_metadata() -> None:
+    class _Learner:
+        reward_normalizer = object()
+
+        def __init__(self) -> None:
+            self.rewards = None
+            self.dones = None
+
+        def update_reward_stats(self, rewards: torch.Tensor, dones: torch.Tensor) -> None:
+            self.rewards = rewards
+            self.dones = dones
+
+    class _Replay:
+        capacity = 8
+
+    class _Pipeline:
+        def read_committed_fields(self, field_names, *, start_ptr):
+            assert field_names == ("rewards", "dones")
+            assert start_ptr == 0
+            return 8, {
+                "rewards": torch.arange(8, dtype=torch.float32),
+                "dones": torch.tensor([0, 0, 1, 0, 0, 1, 0, 0], dtype=torch.float32),
+            }
+
+    learner = _Learner()
+    end_ptr = update_reward_stats_from_replay(
+        learner,
+        _Replay(),
+        start_ptr=0,
+        end_ptr=0,
+        num_envs=2,
+        replay_source=_Pipeline(),
+    )
+
+    assert end_ptr == 8
+    torch.testing.assert_close(learner.rewards, torch.arange(8, dtype=torch.float32).view(4, 2))
+    assert learner.dones.shape == (4, 2)
 
 
 @pytest.mark.parametrize(
@@ -972,6 +1012,10 @@ class _FakeDoubleBufferPipeline:
         self.trace_recorder = trace_recorder
         self.close_calls = 0
         self.ready_ticks: set[int] = set()
+
+    def progress(self, *, wait: bool = False) -> bool:
+        del wait
+        return False
 
     def start_prepare(self, tick_id: int, sample_count: int, min_snapshot_ptr=None) -> bool:
         del min_snapshot_ptr

@@ -20,25 +20,33 @@ def estimate_offpolicy_bytes(
     batch_size: int,
     updates_per_step: int,
     critic_graph_staging_width: int = 0,
+    replay_pipeline: str = "cpu_pinned_double_buffer",
+    ingress_depth: int = 2,
 ) -> dict[str, int | str]:
-    """Estimate memory for off-policy replay buffer + double-buffer slots."""
+    """Estimate host memory for off-policy replay and staging slots."""
     row_width = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
     capacity = replay_buffer_n * num_envs
-    replay_bytes = capacity * row_width * 4
-
     sample_count = batch_size * updates_per_step
-    slot_bytes = sample_count * row_width * 4 * 2
-    critic_graph_staging_bytes = sample_count * int(critic_graph_staging_width) * 4 * 2
+    device_authoritative = replay_pipeline == "gpu_resident"
+    replay_bytes = 0 if device_authoritative else capacity * row_width * 4
+    ingress_bytes = int(ingress_depth) * num_envs * row_width * 4 if device_authoritative else 0
+    slot_bytes = 0 if device_authoritative else sample_count * row_width * 4 * 2
+    critic_graph_staging_bytes = (
+        0 if device_authoritative else sample_count * int(critic_graph_staging_width) * 4 * 2
+    )
 
-    total = replay_bytes + slot_bytes + critic_graph_staging_bytes
+    total = replay_bytes + ingress_bytes + slot_bytes + critic_graph_staging_bytes
     return {
         "replay_buffer": replay_bytes,
+        "bounded_ingress_slots": ingress_bytes,
         "double_buffer_slots": slot_bytes,
         "critic_graph_staging_slots": critic_graph_staging_bytes,
         "total": total,
         "breakdown": (
             f"Replay: {replay_bytes / 1024**2:.0f} MB "
             f"({num_envs} envs × {replay_buffer_n} steps × {row_width} cols × 4B)\n"
+            f"  Bounded ingress: {ingress_bytes / 1024**2:.0f} MB "
+            f"({int(ingress_depth)} slots × {num_envs} rows × {row_width} cols × 4B)\n"
             f"  Double-buffer: {slot_bytes / 1024**2:.0f} MB "
             f"({sample_count} samples × {row_width} cols × 4B × 2 slots)\n"
             f"  Critic graph staging: {critic_graph_staging_bytes / 1024**2:.0f} MB "
