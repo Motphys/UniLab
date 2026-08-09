@@ -411,19 +411,18 @@ def test_replay_buffer_ready_for_learning(
     )
 
 
-def test_build_offpolicy_sample_info_uses_per_rank_batch_contract() -> None:
+def test_build_offpolicy_sample_info_uses_single_device_batch_contract() -> None:
     learner = _FakeLearner()
 
     assert build_offpolicy_sample_info(
         replay_batch_size_per_rank=8,
         updates_per_step=2,
         learner=learner,
-        world_size=2,
     ) == {
         "batch_size_per_rank": 8,
-        "effective_batch_size": 16,
-        "replay_samples_per_iter": 32,
-        "learner_samples_per_iter": 32,
+        "effective_batch_size": 8,
+        "replay_samples_per_iter": 16,
+        "learner_samples_per_iter": 16,
     }
 
 
@@ -685,7 +684,7 @@ def test_offpolicy_async_collector_wait_isolates_wait_components(
     assert "wait_time" not in step
     assert step["collector_wait_time"] >= 0.0
     assert step["replay_batch_wait_time"] == 0.0
-    assert step["rank_barrier_time"] == 0.0
+    assert "rank_barrier_time" not in step
     assert step["sync_coordination_time"] == 0.0
 
 
@@ -702,7 +701,6 @@ def test_offpolicy_logger_emits_four_independent_wait_components() -> None:
     logger = OffPolicyLogger(algo_name="SAC", max_iterations=10, num_envs=8, log_backend="none")
     logger._tb_writer = _FakeWriter()
     logger._wandb_run = None
-    logger._world_size = 2
 
     logger.log_step(
         iteration=1,
@@ -712,13 +710,11 @@ def test_offpolicy_logger_emits_four_independent_wait_components() -> None:
         collector_wait_time=0.30,
         replay_batch_wait_time=0.05,
         learner_replay_sample_time=0.08,
-        rank_barrier_time=0.02,
         sync_coordination_time=0.01,
         learner_incremental_h2d_time=0.10,
-        learner_param_sync_time=0.04,
         weight_sync_time=0.03,
-        iteration_time=1.83,
-        extra_info={"throughput_steps": 1000, "world_size": 2},
+        iteration_time=1.77,
+        extra_info={"throughput_steps": 1000},
     )
 
     scalars = cast("dict[str, float]", logger._tb_writer.scalars)
@@ -726,12 +722,13 @@ def test_offpolicy_logger_emits_four_independent_wait_components() -> None:
     assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(300.0)
     assert scalars["timing/learner_replay_batch_wait_ms"] == pytest.approx(50.0)
     assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(80.0)
-    assert scalars["timing/learner_rank_barrier_ms"] == pytest.approx(20.0)
+    assert "timing/learner_rank_barrier_ms" not in scalars
+    assert "timing/learner_param_sync_ms" not in scalars
     assert scalars["timing/learner_sync_coordination_ms"] == pytest.approx(10.0)
     assert scalars["timing/learner_other_ms"] == pytest.approx(0.0)
-    assert scalars["perf/learner_pipeline_ms"] == pytest.approx((0.10 + 1.2 + 0.04 + 0.03) * 1000)
-    assert scalars["perf/iter_ms"] == pytest.approx(1830.0)
-    assert scalars["perf/learner_train_pct"] == pytest.approx(1.2 / 1.83 * 100)
+    assert scalars["perf/learner_pipeline_ms"] == pytest.approx((0.10 + 1.2 + 0.03) * 1000)
+    assert scalars["perf/iter_ms"] == pytest.approx(1770.0)
+    assert scalars["perf/learner_train_pct"] == pytest.approx(1.2 / 1.77 * 100)
     assert scalars["perf/learner_accounted_pct"] == pytest.approx(100.0)
     assert scalars["perf/learner_other_pct"] == pytest.approx(0.0)
 

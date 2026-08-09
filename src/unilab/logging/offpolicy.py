@@ -125,17 +125,12 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._collector_wait_time: float = 0.0
         self._replay_batch_wait_time: float = 0.0
         self._learner_replay_sample_time: float = 0.0
-        self._rank_barrier_time: float = 0.0
         self._sync_coordination_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
-        self._learner_param_sync_time: float = 0.0
         self._weight_sync_time: float = 0.0
         self._iteration_time: float | None = None
         self._throughput_steps: int = 0
         self._collector_active_steps_per_sec: float | None = None
-        self._world_size: int = 1
-        self._multi_gpu_sync_mode: str = ""
-        self._multi_gpu_sync_interval: int = 0
         self._batch_size_per_rank: int = 0
         self._effective_batch_size: int = 0
         self._replay_samples_per_iter: int = 0
@@ -200,19 +195,13 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._learner_samples_per_iter / iter_time
 
     def _get_learner_pipeline_time(self) -> float:
-        return (
-            self._learner_incremental_h2d_time
-            + self._train_time
-            + self._learner_param_sync_time
-            + self._weight_sync_time
-        )
+        return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
 
     def _get_learner_accounted_time(self) -> float:
         return (
             self._collector_wait_time
             + self._replay_batch_wait_time
             + self._learner_replay_sample_time
-            + self._rank_barrier_time
             + self._sync_coordination_time
             + self._get_learner_pipeline_time()
         )
@@ -233,7 +222,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             self._collector_wait_time
             + self._replay_batch_wait_time
             + self._learner_replay_sample_time
-            + self._rank_barrier_time
             + self._sync_coordination_time
             + self._get_learner_pipeline_time()
         )
@@ -307,10 +295,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         collector_wait_time: float = 0.0,
         replay_batch_wait_time: float = 0.0,
         learner_replay_sample_time: float = 0.0,
-        rank_barrier_time: float = 0.0,
         sync_coordination_time: float = 0.0,
         learner_incremental_h2d_time: float = 0.0,
-        learner_param_sync_time: float = 0.0,
         weight_sync_time: float = 0.0,
         iteration_time: float | None = None,
         extra_info: dict | None = None,
@@ -321,10 +307,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._collector_wait_time = collector_wait_time
         self._replay_batch_wait_time = replay_batch_wait_time
         self._learner_replay_sample_time = learner_replay_sample_time
-        self._rank_barrier_time = rank_barrier_time
         self._sync_coordination_time = sync_coordination_time
         self._learner_incremental_h2d_time = learner_incremental_h2d_time
-        self._learner_param_sync_time = learner_param_sync_time
         self._weight_sync_time = weight_sync_time
         self._iteration_time = iteration_time
         self._has_iteration_extra_info = extra_info is not None
@@ -336,15 +320,12 @@ class OffPolicyLogger(BaseTrainingLogger):
                 if collector_active_steps_per_sec is not None
                 else None
             )
-            self._world_size = int(extra_info.get("world_size", 1))
-            self._multi_gpu_sync_mode = str(extra_info.get("multi_gpu_sync_mode", ""))
-            self._multi_gpu_sync_interval = int(extra_info.get("multi_gpu_sync_interval", 0))
             self._batch_size_per_rank = int(extra_info.get("batch_size_per_rank", 0))
             self._effective_batch_size = int(extra_info.get("effective_batch_size", 0))
             if self._effective_batch_size <= 0:
-                self._effective_batch_size = self._batch_size_per_rank * self._world_size
+                self._effective_batch_size = self._batch_size_per_rank
             if self._batch_size_per_rank <= 0 and self._effective_batch_size > 0:
-                self._batch_size_per_rank = self._effective_batch_size // max(self._world_size, 1)
+                self._batch_size_per_rank = self._effective_batch_size
             self._replay_samples_per_iter = int(extra_info.get("replay_samples_per_iter", 0))
             self._learner_samples_per_iter = int(extra_info.get("learner_samples_per_iter", 0))
             if self._replay_samples_per_iter <= 0:
@@ -352,9 +333,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         else:
             self._throughput_steps = 0
             self._collector_active_steps_per_sec = None
-            self._world_size = 1
-            self._multi_gpu_sync_mode = ""
-            self._multi_gpu_sync_interval = 0
             self._batch_size_per_rank = 0
             self._effective_batch_size = 0
             self._replay_samples_per_iter = 0
@@ -426,11 +404,6 @@ class OffPolicyLogger(BaseTrainingLogger):
                 global_step,
             )
             writer.add_scalar(
-                "timing/learner_rank_barrier_ms",
-                self._rank_barrier_time * 1000,
-                global_step,
-            )
-            writer.add_scalar(
                 "timing/learner_sync_coordination_ms",
                 self._sync_coordination_time * 1000,
                 global_step,
@@ -441,12 +414,6 @@ class OffPolicyLogger(BaseTrainingLogger):
                 global_step,
             )
             writer.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
-            if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-                writer.add_scalar(
-                    "timing/learner_param_sync_ms",
-                    self._learner_param_sync_time * 1000,
-                    global_step,
-                )
             writer.add_scalar(
                 "timing/learner_weight_sync_ms",
                 self._weight_sync_time * 1000,
@@ -514,14 +481,11 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["timing/learner_collector_wait_ms"] = self._collector_wait_time * 1000
             log_dict["timing/learner_replay_batch_wait_ms"] = self._replay_batch_wait_time * 1000
             log_dict["timing/learner_replay_sample_ms"] = self._learner_replay_sample_time * 1000
-            log_dict["timing/learner_rank_barrier_ms"] = self._rank_barrier_time * 1000
             log_dict["timing/learner_sync_coordination_ms"] = self._sync_coordination_time * 1000
             log_dict["timing/learner_incremental_h2d_ms"] = (
                 self._learner_incremental_h2d_time * 1000
             )
             log_dict["timing/learner_train_ms"] = train_time * 1000
-            if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-                log_dict["timing/learner_param_sync_ms"] = self._learner_param_sync_time * 1000
             log_dict["timing/learner_weight_sync_ms"] = self._weight_sync_time * 1000
             log_dict["timing/learner_other_ms"] = learner_other_time * 1000
             for key, value in self._collector_timing.items():
@@ -640,9 +604,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         if self._replay_batch_wait_time > 0.0:
             learner_items.append(("Replay Batch Wait", _fmt_phase(self._replay_batch_wait_time)))
         learner_items.append(("Replay Sample", _fmt_phase(self._learner_replay_sample_time)))
-        if self._world_size > 1 or self._rank_barrier_time > 0.0:
-            learner_items.append(("Rank Barrier", _fmt_phase(self._rank_barrier_time)))
-        if self._world_size > 1 or self._sync_coordination_time > 0.0:
+        if self._sync_coordination_time > 0.0:
             learner_items.append(("Sync Coordination", _fmt_phase(self._sync_coordination_time)))
         learner_items.extend(
             [
@@ -650,8 +612,6 @@ class OffPolicyLogger(BaseTrainingLogger):
                 ("Train", _fmt_phase(self._train_time, color="green")),
             ]
         )
-        if self._world_size > 1 or self._learner_param_sync_time > 0.0:
-            learner_items.append(("Param Sync", _fmt_phase(self._learner_param_sync_time)))
         learner_items.append(("Weight Sync", _fmt_phase(self._weight_sync_time)))
         learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:>7.1f}ms  100%"))
         sorted_collector_timing = sorted(
@@ -689,12 +649,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             ]
         )
         system_items.append(("Envs", f"{self.num_envs:,}"))
-        if self._world_size > 1:
-            system_items.append(("GPUs", f"{self._world_size:,}"))
-            if self._multi_gpu_sync_mode:
-                system_items.append(("Sync Mode", self._multi_gpu_sync_mode))
-            if self._multi_gpu_sync_interval > 0:
-                system_items.append(("Sync Interval", f"{self._multi_gpu_sync_interval:,}"))
         if self._batch_size_per_rank > 0:
             system_items.append(("Batch/Rank", f"{self._batch_size_per_rank:,}"))
         if (

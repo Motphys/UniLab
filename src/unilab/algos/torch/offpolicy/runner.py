@@ -59,24 +59,22 @@ def build_offpolicy_sample_info(
     replay_batch_size_per_rank: int,
     updates_per_step: int,
     learner: Any,
-    world_size: int = 1,
 ) -> dict[str, int]:
     """Describe replay rows and effective learner samples for logging.
 
-    ``algo.batch_size`` is defined as a per-rank learner batch per update. When
+    ``algo.batch_size`` is the learner batch per update. When
     symmetry is enabled, the runner samples fewer replay rows and the learner
-    expands them back to the configured per-rank batch.
+    expands them back to the configured batch.
     """
-    world_size = max(int(world_size), 1)
     updates_per_step = max(int(updates_per_step), 0)
     replay_batch_size_per_rank = max(int(replay_batch_size_per_rank), 0)
     batch_multiplier = get_learner_batch_multiplier(learner)
     batch_size_per_rank = replay_batch_size_per_rank * batch_multiplier
     return {
         "batch_size_per_rank": batch_size_per_rank,
-        "effective_batch_size": batch_size_per_rank * world_size,
-        "replay_samples_per_iter": replay_batch_size_per_rank * updates_per_step * world_size,
-        "learner_samples_per_iter": batch_size_per_rank * updates_per_step * world_size,
+        "effective_batch_size": batch_size_per_rank,
+        "replay_samples_per_iter": replay_batch_size_per_rank * updates_per_step,
+        "learner_samples_per_iter": batch_size_per_rank * updates_per_step,
     }
 
 
@@ -700,7 +698,6 @@ class OffPolicyRunner(AsyncRunner):
                 collector_wait_time=collector_wait_time,
                 replay_batch_wait_time=0.0,
                 learner_replay_sample_time=learner_replay_sample_time,
-                rank_barrier_time=0.0,
                 sync_coordination_time=sync_coordination_time,
                 learner_incremental_h2d_time=learner_incremental_h2d_time,
                 weight_sync_time=weight_sync_time,

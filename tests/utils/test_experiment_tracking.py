@@ -173,9 +173,9 @@ def test_onpolicy_logger_uses_offpolicy_terminal_layout():
     logger.close()
 
 
-def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distributed_context():
+def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_context():
     logger = OffPolicyLogger(
-        algo_name="FastSAC_x2GPU",
+        algo_name="FastSAC",
         env_name="G1WalkFlat",
         max_iterations=10,
         num_envs=4,
@@ -192,11 +192,8 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
         iteration_time=1.6,
         extra_info={
             "throughput_steps": 8,
-            "world_size": 2,
-            "multi_gpu_sync_mode": "local_sgd",
-            "multi_gpu_sync_interval": 1,
             "batch_size_per_rank": 8,
-            "effective_batch_size": 16,
+            "effective_batch_size": 8,
             "replay_samples_per_iter": 64,
             "learner_samples_per_iter": 64,
         },
@@ -210,16 +207,16 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_and_distribu
     assert "H2D Copy" in output
     assert "Replay Batch Wait" not in output
     assert "Replay Sample" in output
-    assert "Param Sync" in output
+    assert "Rank Barrier" not in output
+    assert "Param Sync" not in output
     assert "Iter Wall" in output
     assert "Unaccounted" not in output
     assert "Other Loop" not in output
-    assert "GPUs" in output
-    assert "Sync Mode" in output
-    assert "local_sgd" in output
-    assert "Sync Interval" in output
+    assert "GPUs" not in output
+    assert "Sync Mode" not in output
+    assert "Sync Interval" not in output
     assert "Batch/Rank" in output
-    assert "Batch/Update" in output
+    assert "Batch/Update" not in output
     assert "Samples/Iter" in output
     assert "Samples/s" in output
 
@@ -487,15 +484,13 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
         train_time=0.75,
         collector_wait_time=10.0,
         learner_incremental_h2d_time=0.02,
-        learner_param_sync_time=0.04,
         weight_sync_time=0.05,
         iteration_time=10.9,
         extra_info={
             "throughput_steps": 8,
             "collector_active_steps_per_sec": 1234.5,
-            "world_size": 2,
             "batch_size_per_rank": 8,
-            "effective_batch_size": 16,
+            "effective_batch_size": 8,
             "replay_samples_per_iter": 32,
             "learner_samples_per_iter": 32,
         },
@@ -509,28 +504,21 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert payload["timing/learner_incremental_h2d_ms"] == 20.0
     assert payload["timing/learner_replay_sample_ms"] == 0.0
     assert payload["timing/learner_train_ms"] == 750.0
-    assert payload["timing/learner_param_sync_ms"] == 40.0
+    assert "timing/learner_param_sync_ms" not in payload
     assert payload["timing/learner_weight_sync_ms"] == 50.0
-    assert payload["timing/learner_other_ms"] == pytest.approx(40.0)
-    assert payload["perf/learner_pipeline_ms"] == pytest.approx(860.0)
+    assert payload["timing/learner_other_ms"] == pytest.approx(80.0)
+    assert payload["perf/learner_pipeline_ms"] == pytest.approx(820.0)
     assert payload["perf/iter_ms"] == pytest.approx(10_900.0)
     assert "perf/iter_unaccounted_ms" not in payload
     assert payload["perf/learner_train_pct"] == pytest.approx(0.75 / 10.9 * 100)
-    assert payload["perf/learner_other_pct"] == pytest.approx(0.04 / 10.9 * 100)
-    assert payload["perf/learner_accounted_pct"] == pytest.approx(10.86 / 10.9 * 100)
+    assert payload["perf/learner_other_pct"] == pytest.approx(0.08 / 10.9 * 100)
+    assert payload["perf/learner_accounted_pct"] == pytest.approx(10.82 / 10.9 * 100)
     assert payload["perf/steps_per_sec"] == pytest.approx(8.0 / 10.9)
     assert payload["perf/collector_active_steps_per_sec"] == pytest.approx(1234.5)
     assert payload["perf/effective_samples_per_sec"] == pytest.approx(32.0 / 10.9)
-    for key in (
-        "axis/iteration",
-        "axis/env_steps_total",
-        "distributed/world_size",
-        "distributed/batch_size_per_rank",
-        "distributed/effective_batch_size",
-        "distributed/replay_samples_per_iter",
-        "distributed/learner_samples_per_iter",
-    ):
+    for key in ("axis/iteration", "axis/env_steps_total"):
         assert key not in payload
+    assert not any(key.startswith("distributed/") for key in payload)
     assert "perf/effective_samples_per_sec_smoothed" not in payload
     assert "perf/collect_train_ratio" not in payload
 
@@ -567,62 +555,7 @@ def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
     tb_logger.finish()
 
 
-def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_or_distributed_scalars():
-    tb_writer = _FakeTensorBoardWriter()
-    logger = OffPolicyLogger(
-        algo_name="FastSAC_x2GPU",
-        env_name="G1WalkFlat",
-        log_backend="none",
-    )
-    logger._tb_writer = tb_writer
-    logger.log_step(
-        iteration=5,
-        metrics={},
-        train_time=0.7,
-        collector_wait_time=1.0,
-        learner_incremental_h2d_time=0.05,
-        learner_param_sync_time=0.02,
-        weight_sync_time=0.1,
-        iteration_time=1.95,
-        extra_info={
-            "throughput_steps": 16,
-            "collector_active_steps_per_sec": 4321.0,
-            "world_size": 2,
-            "batch_size_per_rank": 16,
-            "effective_batch_size": 32,
-            "replay_samples_per_iter": 64,
-            "learner_samples_per_iter": 64,
-        },
-    )
-
-    scalars = {tag: value for tag, value, _ in tb_writer.scalars}
-    assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(1_000.0)
-    assert "timing/learner_replay_wait_ms" not in scalars
-    assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
-    assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(0.0)
-    assert scalars["timing/learner_param_sync_ms"] == pytest.approx(20.0)
-    assert scalars["timing/learner_other_ms"] == pytest.approx(80.0)
-    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(870.0)
-    assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
-    assert scalars["perf/learner_train_pct"] == pytest.approx(0.7 / 1.95 * 100)
-    assert scalars["perf/learner_other_pct"] == pytest.approx(0.08 / 1.95 * 100)
-    assert scalars["perf/collector_active_steps_per_sec"] == pytest.approx(4321.0)
-    assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
-    for key in (
-        "axis/iteration",
-        "axis/env_steps_total",
-        "distributed/world_size",
-        "distributed/batch_size_per_rank",
-        "distributed/effective_batch_size",
-        "distributed/replay_samples_per_iter",
-        "distributed/learner_samples_per_iter",
-    ):
-        assert key not in scalars
-    assert "perf/effective_samples_per_sec_smoothed" not in scalars
-    logger.finish()
-
-
-def test_offpolicy_logger_omits_param_sync_scalar_for_single_gpu_without_sync():
+def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_scalars():
     tb_writer = _FakeTensorBoardWriter()
     logger = OffPolicyLogger(
         algo_name="FastSAC",
@@ -634,21 +567,37 @@ def test_offpolicy_logger_omits_param_sync_scalar_for_single_gpu_without_sync():
         iteration=5,
         metrics={},
         train_time=0.7,
-        collector_wait_time=0.1,
-        learner_param_sync_time=0.0,
-        iteration_time=0.9,
+        collector_wait_time=1.0,
+        learner_incremental_h2d_time=0.05,
+        weight_sync_time=0.1,
+        iteration_time=1.95,
         extra_info={
             "throughput_steps": 16,
-            "world_size": 1,
+            "collector_active_steps_per_sec": 4321.0,
             "batch_size_per_rank": 16,
             "effective_batch_size": 16,
-            "replay_samples_per_iter": 16,
-            "learner_samples_per_iter": 16,
+            "replay_samples_per_iter": 64,
+            "learner_samples_per_iter": 64,
         },
     )
 
-    scalars = {tag for tag, _, _ in tb_writer.scalars}
+    scalars = {tag: value for tag, value, _ in tb_writer.scalars}
+    assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(1_000.0)
+    assert "timing/learner_replay_wait_ms" not in scalars
+    assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
+    assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(0.0)
     assert "timing/learner_param_sync_ms" not in scalars
+    assert scalars["timing/learner_other_ms"] == pytest.approx(100.0)
+    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(850.0)
+    assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
+    assert scalars["perf/learner_train_pct"] == pytest.approx(0.7 / 1.95 * 100)
+    assert scalars["perf/learner_other_pct"] == pytest.approx(0.1 / 1.95 * 100)
+    assert scalars["perf/collector_active_steps_per_sec"] == pytest.approx(4321.0)
+    assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
+    for key in ("axis/iteration", "axis/env_steps_total"):
+        assert key not in scalars
+    assert not any(key.startswith("distributed/") for key in scalars)
+    assert "perf/effective_samples_per_sec_smoothed" not in scalars
     logger.finish()
 
 

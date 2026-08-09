@@ -795,7 +795,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     collector_wait_time=collector_wait_time,
                     replay_batch_wait_time=replay_batch_wait_time,
                     learner_replay_sample_time=learner_replay_sample_time,
-                    rank_barrier_time=0.0,
                     sync_coordination_time=sync_coordination_time,
                     learner_incremental_h2d_time=learner_incremental_h2d_time,
                     weight_sync_time=weight_sync_time,
