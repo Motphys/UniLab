@@ -9,7 +9,7 @@ for the first time, start with {doc}`../1-getting_started/0-index`.
 :::{grid-item-card} Training
 :link: 1-training/0-index
 :link-type: doc
-CLI routes, Hydra owner YAMLs, logs, checkpoints, Docker, and multi-GPU notes.
+CLI routes, Hydra owner YAMLs, logs, checkpoints, and Docker.
 :::
 
 :::{grid-item-card} Algorithms

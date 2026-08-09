@@ -5,7 +5,6 @@ from unilab.algos.torch.offpolicy.distributed import (
     DistributedOffPolicyLearner,
     validate_distributed_learner_capability,
 )
-from unilab.algos.torch.offpolicy.multi_gpu_runner import MultiGPUOffPolicyRunner
 from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.logging import OffPolicyLogger
@@ -13,7 +12,6 @@ from unilab.logging import OffPolicyLogger
 __all__ = [
     "OffPolicyLogger",
     "OffPolicyRunner",
-    "MultiGPUOffPolicyRunner",
     "DistributedLearnerHooks",
     "DistributedOffPolicyLearner",
     "validate_distributed_learner_capability",
