@@ -166,8 +166,7 @@ def np_write_relative_anchor_transform_pos_rot6d(
     first two columns of its rotation matrix (written to ``out_rot6d`` of
     shape ``(N, 6)``). No intermediate quaternion arrays are allocated.
 
-    This is the numpy analogue of the numba kernel
-    :func:`unilab.utils.numba_geometry.write_relative_anchor_transform_at`.
+    This helper computes the relative anchor transform used by motion tracking.
     """
     aw = source_anchor_quat_w[:, 0]
     ax = source_anchor_quat_w[:, 1]

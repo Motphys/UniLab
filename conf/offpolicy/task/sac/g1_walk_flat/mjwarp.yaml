@@ -16,7 +16,6 @@ algo:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
 env:
-  numba_acceleration: false
   mjwarp_nconmax: 128
   mjwarp_njmax: 256
   render_spacing: 2.0

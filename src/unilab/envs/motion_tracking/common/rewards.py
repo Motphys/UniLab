@@ -8,10 +8,9 @@ live on env subclasses (box-object / joint-effort terms) are stored in the same
 
 ``RewardContext`` intentionally carries the environment's *preallocated scratch
 buffers* (``body_vec_error``, ``joint_error``, ... ``undesired_contact_mask``).
-These buffers are env-owned so the hot path and the optional numba kernel run
-with zero per-step allocations; the term functions write into them in place. The
-op order, constants, clip bounds, and in-place ``out=`` usage are load-bearing —
-they must stay bit-identical to preserve numeric parity with the numba path.
+These buffers are env-owned so the hot path runs with zero per-step allocations;
+the term functions write into them in place. The op order, constants, clip bounds,
+and in-place ``out=`` usage are load-bearing for stable numeric behavior.
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ class RewardContext:
     Built once per ``_compute_reward`` call. The array fields prefixed as
     buffers (``env_error``, ``reward_term``, ``weighted_reward``, ...) are the
     environment's preallocated scratch arrays; reward terms write into them in
-    place to keep the hot path allocation-free and numba-parity exact.
+    place to keep the hot path allocation-free and numerically stable.
     """
 
     # ── semantic inputs ──────────────────────────────────────────────
@@ -324,7 +323,7 @@ def joint_limit(ctx: RewardContext) -> np.ndarray:
 def build_reward_functions() -> dict[str, Callable[[RewardContext], np.ndarray]]:
     """Return the robot-agnostic reward-term dispatch table.
 
-    Keys match :data:`unilab.envs.motion_tracking.common.numba.TERM_ORDER`.
+    Keys define the canonical reward-term dispatch order.
     """
     return {
         "motion_global_root_pos": motion_global_root_pos,
@@ -354,7 +353,7 @@ def compute_reward(
     """Reduce ``scales × fns(ctx)`` into the per-env reward (in place, zero-alloc).
 
     Uses ``ctx.env_error2`` as the reward accumulator and ``ctx.weighted_reward``
-    as the per-term scratch, matching the numba kernel's op order. Logs per-term
+    as the per-term scratch. Logs per-term
     means into ``ctx.info["log"]`` every 4th step, then scales by ``ctrl_dt``.
     """
     reward = _required_array(ctx.env_error2, "env_error2")

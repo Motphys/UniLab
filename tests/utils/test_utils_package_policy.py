@@ -9,7 +9,6 @@ ALLOWED_UTILS_MODULES = {
     "device",
     "geometry",
     "nan_guard",
-    "numba_geometry",
     "rotation",
     "support_matrix",
     "tensor",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Benchmark MLP inference overhead across:
-- NumPy / Numba / JAX
+- NumPy / JAX
 - PyTorch (CPU/MPS) / PyTorch+torch.compile
 - MLX / MLX+mx.compile
 - ONNX Runtime / Core ML / ANE (Apple Neural Engine, no CPU fallback)
@@ -13,7 +13,7 @@ Run with the MLX Python environment active (e.g. conda activate mj_env then
 run this script). Do not use `conda run` so that benchmark output is visible.
 
 Fairness (公平性): Same warmup/repeat, model shape, OBS clip [-3,3]; timing includes
-device sync (MPS/JAX/MLX). Weights: numpy/numba seed 42, torch* manual_seed(42),
+device sync (MPS/JAX/MLX). Weights: numpy seed 42, torch* manual_seed(42),
 onnx/coreml/ane from torch 42, jax key 42. Input: rng(43) or equivalent per backend.
 """
 
@@ -50,7 +50,7 @@ try:
 except Exception:
     np = None
 
-# Lazy load torch/mlx so phase 1 (numpy / numba) runs without OMP conflict
+# Lazy load torch/mlx so the first phase stays lightweight
 _TORCH = None
 _MX = None
 _NN_MLX = None
@@ -79,13 +79,6 @@ def _get_mlx():
             pass
     return _MX, _NN_MLX
 
-
-try:
-    import numba
-    from numba import jit
-except Exception:
-    numba = None
-    jit = None
 
 try:
     import jax
@@ -139,8 +132,8 @@ def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
 _OBS_CLIP_LOW, _OBS_CLIP_HIGH = -3.0, 3.0
 
 # Fairness: same warmup/repeat for all; same OBS clip; timing includes device sync (MPS/JAX/MLX).
-# Weights: numpy/numba seed=42; torch* we set manual_seed(42); onnx/coreml/ane from torch seed 42; jax key 42.
-# Input: numpy/numba/onnx/coreml/ane rng(43); torch* manual_seed(43); mlx/jax fixed seed so reproducible.
+# Weights: numpy seed=42; torch* we set manual_seed(42); onnx/coreml/ane from torch seed 42; jax key 42.
+# Input: numpy/onnx/coreml/ane rng(43); torch* manual_seed(43); mlx/jax fixed seed so reproducible.
 # Same model shape everywhere: obs_dim, hidden_dims, action_dim.
 
 
@@ -199,72 +192,6 @@ def run_numpy(
     std_sec = statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0
     return MLPBenchRecord(
         backend="numpy",
-        env_num=env_num,
-        warmup=warmup,
-        repeat=repeat,
-        elapsed_sec=elapsed,
-        mean_sec=mean_sec,
-        std_sec=std_sec,
-        min_sec=min(elapsed),
-        max_sec=max(elapsed),
-        envs_per_sec=_safe_envs_per_sec(env_num, mean_sec),
-    )
-
-
-# ---------- Numba (4-layer MLP, nopython + fastmath) ----------
-if numba is not None and jit is not None:
-
-    @jit(nopython=True, fastmath=True, cache=True)
-    def _numba_mlp_fwd(
-        x: np.ndarray,
-        w0: np.ndarray,
-        b0: np.ndarray,
-        w1: np.ndarray,
-        b1: np.ndarray,
-        w2: np.ndarray,
-        b2: np.ndarray,
-        w3: np.ndarray,
-        b3: np.ndarray,
-    ) -> np.ndarray:
-        """4-layer MLP: tanh(x@w0+b0), tanh(...@w1+b1), tanh(...@w2+b2), out@w3+b3."""
-        out = np.tanh(x @ w0 + b0)
-        out = np.tanh(out @ w1 + b1)
-        out = np.tanh(out @ w2 + b2)
-        return out @ w3 + b3
-
-
-def run_numba(
-    env_num: int,
-    obs_dim: int,
-    action_dim: int,
-    hidden_dims: List[int],
-    warmup: int,
-    repeat: int,
-) -> Optional[MLPBenchRecord]:
-    if np is None or numba is None or jit is None:
-        return None
-    if len(hidden_dims) != 3:
-        return None  # Numba path only supports 4-layer MLP (obs -> h1 -> h2 -> h3 -> action)
-    weights, biases = build_numpy_mlp(obs_dim, action_dim, hidden_dims, np.float32)
-    w0, w1, w2, w3 = weights[0], weights[1], weights[2], weights[3]
-    b0, b1, b2, b3 = biases[0], biases[1], biases[2], biases[3]
-    rng = np.random.default_rng(43)
-    x = np.ascontiguousarray(
-        np.clip(
-            rng.standard_normal((env_num, obs_dim)).astype(np.float32),
-            _OBS_CLIP_LOW,
-            _OBS_CLIP_HIGH,
-        )
-    )
-
-    def fwd():
-        _ = _numba_mlp_fwd(x, w0, b0, w1, b1, w2, b2, w3, b3)
-
-    elapsed = bench_callable(fwd, lambda: None, warmup, repeat)
-    mean_sec = statistics.mean(elapsed)
-    std_sec = statistics.pstdev(elapsed) if len(elapsed) > 1 else 0.0
-    return MLPBenchRecord(
-        backend="numba",
         env_num=env_num,
         warmup=warmup,
         repeat=repeat,
@@ -946,7 +873,6 @@ def run_ane(
 def available_backends(include_lazy: bool = True) -> Dict[str, bool]:
     out = {
         "numpy": np is not None,
-        "numba": np is not None and numba is not None and jit is not None,
         "jax_jit": jax is not None and jnp is not None,
     }
     if include_lazy:
@@ -1056,7 +982,7 @@ def save_plots(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark MLP inference: numpy, numba, jax, torch (cpu/mps), torch.compile, mlx, mlx.compile, onnxruntime, coreml, ane."
+        description="Benchmark MLP inference: numpy, jax, torch (cpu/mps), torch.compile, mlx, mlx.compile, onnxruntime, coreml, ane."
     )
     parser.add_argument(
         "--sizes",
@@ -1120,10 +1046,10 @@ def main() -> None:
         hidden_dims = list(DEFAULT_HIDDEN_DIMS)
     skip_backends = {s.strip() for s in args.skip_backends.split(",") if s.strip()}
 
-    # Phase 1: numpy + numba + jax (no torch/mlx load -> no OMP conflict with Numba)
+    # Phase 1: run NumPy and JAX before loading torch/MLX.
     backends_p1 = available_backends(include_lazy=False)
-    print("Detected backends (phase 1: numpy / numba / jax):", flush=True)
-    for k in ["numpy", "numba", "jax_jit"]:
+    print("Detected backends (phase 1: numpy / jax):", flush=True)
+    for k in ["numpy", "jax_jit"]:
         print(f"  - {k}: {'yes' if backends_p1.get(k) else 'no'}", flush=True)
     print("  (torch/mlx not loaded yet)", flush=True)
     if skip_backends:
@@ -1173,12 +1099,6 @@ def main() -> None:
         (
             "numpy",
             lambda n: run_numpy(
-                n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
-            ),
-        ),
-        (
-            "numba",
-            lambda n: run_numba(
                 n, args.obs_dim, args.action_dim, hidden_dims, args.warmup, args.repeat
             ),
         ),
