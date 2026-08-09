@@ -146,12 +146,14 @@ Notes for `make test-slow`:
   `unilab.base.registry.ensure_registries` re-registers those modules inside
   the subprocess. To add a new test env, append its module to
   `__unilab_registry_modules__` in `tests/_test_registry/__init__.py`.
-- **Shared-memory budget.** Off-policy end-to-end tests allocate shared
-  memory in `/dev/shm` based on each algorithm's default `num_envs` /
-  `replay_buffer_n`. If you see an error like
+- **Replay memory budget.** Off-policy host shared memory contains only the
+  fixed-depth ingress and scales with `num_envs` and transition width, not
+  `replay_buffer_n`. The complete ring scales with `replay_buffer_n` on the
+  CUDA/MPS learner device. If you see an error like
   `MemoryError: estimated shared-memory allocation … exceeds /dev/shm
   available …`, the host's shared-memory quota cannot fit the default
-  parameters; this is an environment limit rather than a test or code bug.
+  ingress. Device-ring allocation failures report the required and available
+  accelerator budgets separately.
 
 ## CI Workflow
 

@@ -2,12 +2,13 @@
 
 from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.fast_td3.learner import FastTD3Learner
-from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 from unilab.utils.device import get_default_device
 
 
-class FastTD3Runner(OffPolicyRunner):
-    """FastTD3 runner using the shared OffPolicyRunner training loop."""
+class FastTD3Runner(DoubleBufferOffPolicyRunner):
+    """FastTD3 runner using the single device-authoritative replay path."""
 
     def __init__(
         self,
@@ -50,6 +51,7 @@ class FastTD3Runner(OffPolicyRunner):
     ):
         from unilab.training.seed import apply_training_seed
 
+        device = require_offpolicy_replay_device(device or get_default_device())
         apply_training_seed(seed, torch_runtime=True, cuda=True)
         obs_dim, action_dim, critic_obs_dim = get_env_dims(
             env_name, sim_backend, env_cfg_override=env_cfg_override
@@ -59,7 +61,7 @@ class FastTD3Runner(OffPolicyRunner):
             action_dim=action_dim,
             critic_obs_dim=critic_obs_dim,
             num_envs=num_envs,
-            device=device or get_default_device(),
+            device=device,
             gamma=gamma,
             tau=tau,
             actor_lr=actor_lr,

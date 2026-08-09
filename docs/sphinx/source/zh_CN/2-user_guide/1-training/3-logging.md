@@ -78,10 +78,10 @@ off-policy（SAC / TD3 / FlashSAC 与 APPO）把 learner loop 记录为已命名
 | 终端字段 | TensorBoard / W&B key | 含义 |
 | --- | --- | --- |
 | Collector Wait | `timing/learner_collector_wait_ms` | 等待 collector 产出可训练数据 |
-| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | 单卡 / double-buffer 预取 miss 时等待 replay pack / H2D batch 就绪；预取命中时约为 0 |
-| Replay Sample | `timing/learner_replay_sample_ms` | wait 结束后，learner 侧 replay 采样 / ready batch 物化耗时 |
+| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | device replay 预取 miss 时等待 ingress commit 与 device gather；预取命中时约为 0 |
+| Replay Sample | `timing/learner_replay_sample_ms` | wait 结束后消费已经 gather 完成的 hot device batch |
 | Sync Coordination | `timing/learner_sync_coordination_ms` | 同步采集握手耗时；非同步采集时为 0 |
-| H2D Copy | `timing/learner_incremental_h2d_ms` | host→device 批次拷贝耗时 |
+| H2D Copy | `timing/learner_incremental_h2d_ms` | bounded ingress 增量拷入 authoritative device ring 的耗时 |
 | Train | `timing/learner_train_ms` | 纯 SGD 计算耗时 |
 | Weight Sync | `timing/learner_weight_sync_ms` | 向 collector 发布新权重的耗时 |
 | Iter Wall | `perf/iter_ms` | 整圈迭代墙钟，非各分量之和 |
@@ -95,7 +95,7 @@ collector 进程在终端 Collector 列、TensorBoard `timing/collector_*` 上�
 | Weight Sync | `timing/collector_weight_sync_ms` | 拉取并加载 learner 新权重 |
 | Action Select | `timing/collector_action_select_ms` | actor 推理选动作 |
 | Env Step | `timing/collector_env_step_ms` | 环境 step |
-| Replay | `timing/collector_replay_ms` | 写 replay buffer 与采样打包 |
+| Replay | `timing/collector_replay_ms` | 将 transition 打包写入 bounded replay ingress |
 | Sync Coordination | `timing/collector_sync_coordination_ms` | 同步采集握手（通知 learner、等待 learner 完成） |
 
 `Collector/s` 表示 collector 活跃采集吞吐。SAC / TD3 使用

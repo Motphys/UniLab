@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from unilab.algos.torch.flash_sac.learner import FlashSACLearner
-from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 from unilab.utils.device import get_default_device
 
 
-class FlashSACRunner(OffPolicyRunner):
+class FlashSACRunner(DoubleBufferOffPolicyRunner):
     def __init__(
         self,
         env_name: str,
@@ -68,6 +69,7 @@ class FlashSACRunner(OffPolicyRunner):
         from unilab.base.registry import ensure_registries
         from unilab.training.seed import apply_training_seed
 
+        runtime_device = require_offpolicy_replay_device(device or get_default_device())
         ensure_registries()
         apply_training_seed(seed, torch_runtime=True, cuda=True)
         env: Any = registry.make(
@@ -79,7 +81,6 @@ class FlashSACRunner(OffPolicyRunner):
         action_dim = int(action_shape[0])
         env.close()
 
-        runtime_device = device or get_default_device()
         learner = FlashSACLearner(
             obs_dim=obs_dim,
             action_dim=action_dim,

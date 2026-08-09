@@ -1,4 +1,4 @@
-"""FlashSAC builder for the CPU-pinned double-buffer replay path."""
+"""FlashSAC builder for the device-authoritative replay path."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 
 from unilab.algos.torch.flash_sac.learner import FlashSACLearner
 from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 from unilab.training import create_env, ensure_registries
 from unilab.training.seed import apply_training_seed
 from unilab.utils.device import get_default_device
@@ -20,11 +21,9 @@ def _validate_flashsac_double_buffer_runtime(
     replay_prefetch_mode: str,
 ) -> None:
     if cfg.training.no_sync_collection:
-        raise ValueError("FlashSAC-B cpu_pinned_double_buffer requires synchronized collection")
+        raise ValueError("FlashSAC device replay requires synchronized collection")
     if replay_prefetch_mode != "one_tick":
-        raise ValueError(
-            "FlashSAC-B cpu_pinned_double_buffer requires replay_prefetch_mode='one_tick'"
-        )
+        raise ValueError("FlashSAC device replay requires replay_prefetch_mode='one_tick'")
     if cfg.algo.algo_params.n_step != 1:
         raise ValueError("FlashSAC-B initially supports n_step=1 only")
 
@@ -34,17 +33,16 @@ def build_flashsac_double_buffer_runner(
     *,
     env_cfg_override: dict[str, Any] | None,
     replay_prefetch_mode: str,
-    verbose_metrics: bool,
-    replay_pipeline: str = "cpu_pinned_double_buffer",
+    device: str | None = None,
     nan_guard_cfg: NanGuardCfg | None = None,
     torch_thread_runtime: dict[str, Any] | None = None,
 ) -> Any:
-    """Build FlashSAC with the opt-in CPU-pinned double-buffer replay pipeline."""
+    """Build FlashSAC with the bounded-ingress device replay pipeline."""
     from unilab.base.observations import get_obs_dims
 
+    device = require_offpolicy_replay_device(device or cfg.training.device or get_default_device())
     ensure_registries()
     apply_training_seed(cfg.algo.seed, torch_runtime=True, cuda=True)
-    device = cfg.training.device or get_default_device()
     collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
     _validate_flashsac_double_buffer_runtime(
         cfg,
@@ -135,8 +133,6 @@ def build_flashsac_double_buffer_runner(
         trace_thread_time=cfg.training.trace_thread_time,
         trace_cuda_events=cfg.training.trace_cuda_events,
         replay_prefetch_mode=replay_prefetch_mode,
-        verbose_metrics=verbose_metrics,
-        replay_pipeline=replay_pipeline,
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
         torch_thread_runtime=torch_thread_runtime,

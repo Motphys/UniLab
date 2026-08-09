@@ -26,8 +26,9 @@ CPU physics env loop -> shared IPC buffer -> learner
 ```
 
 - APPO uses `APPORunner`, `RolloutRingBuffer`, and `SharedWeightSync`.
-- SAC, TD3, and FlashSAC use off-policy runners with `ReplayBuffer` and
-  `SharedWeightSync`.
+- SAC, TD3, and FlashSAC use one off-policy execution path: `ReplayBuffer`
+  provides bounded host ingress, the complete ring lives on one CUDA/MPS
+  learner device, and `SharedWeightSync` publishes actor weights.
 - `AsyncRunner` in `src/unilab/ipc/async_runner.py` owns collector process
   startup, stop signaling, and shared-resource cleanup.
 
@@ -42,7 +43,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 - PPO entrypoints: `scripts/train_rsl_rl.py`, `scripts/train_mlx_ppo.py`
 - APPO runner: `src/unilab/algos/torch/appo/runner.py`
-- Off-policy runner: `src/unilab/algos/torch/offpolicy/runner.py`
+- Off-policy runner: `src/unilab/algos/torch/offpolicy/double_buffer_runner.py`
 - IPC primitives: `src/unilab/ipc/async_runner.py`,
   `src/unilab/ipc/rollout_ring_buffer.py`, `src/unilab/ipc/replay_buffer.py`,
   `src/unilab/ipc/weight_sync.py`

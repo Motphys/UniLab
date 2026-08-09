@@ -180,13 +180,10 @@ def build_runner(algo_name: str, cfg: DictConfig):
             f"Unsupported training.replay_prefetch_mode={replay_prefetch_mode!r}; "
             "expected 'one_tick'"
         )
-    replay_pipeline = str(getattr(cfg.training, "replay_pipeline", "cpu_pinned_double_buffer"))
-    if replay_pipeline not in {"cpu_pinned_double_buffer", "gpu_resident"}:
-        raise ValueError(
-            f"Unsupported training.replay_pipeline={replay_pipeline!r}; "
-            "expected 'cpu_pinned_double_buffer' or 'gpu_resident'"
-        )
-    verbose_metrics = bool(getattr(cfg.training, "verbose_metrics", False))
+    from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
+    from unilab.utils.device import get_default_device
+
+    replay_device = require_offpolicy_replay_device(cfg.training.device or get_default_device())
     collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
 
     sync_collection = not bool(cfg.training.no_sync_collection)
@@ -198,10 +195,9 @@ def build_runner(algo_name: str, cfg: DictConfig):
         )
         from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
         from unilab.base.registry import ensure_registries as _ensure
-        from unilab.utils.device import get_default_device
 
         _ensure()
-        _device = cfg.training.device or get_default_device()
+        _device = replay_device
         _rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
         _custom_runtime = resolve_custom_offpolicy_runtime(_rl_cfg)
         _env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
@@ -325,8 +321,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
-            verbose_metrics=verbose_metrics,
-            replay_pipeline=replay_pipeline,
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
             collector_infer_device=collector_infer_device,
@@ -339,9 +333,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
             DoubleBufferOffPolicyRunner,
         )
-        from unilab.utils.device import get_default_device
 
-        _device = cfg.training.device or get_default_device()
+        _device = replay_device
         _obs_dim, _action_dim, _critic_dim = get_env_dims(
             cfg.training.task_name,
             cfg.training.sim_backend,
@@ -403,8 +396,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
-            verbose_metrics=verbose_metrics,
-            replay_pipeline=replay_pipeline,
             actor_kwargs=_actor_kwargs,
             nan_guard_cfg=_nan_guard_cfg,
             collector_infer_device=collector_infer_device,
@@ -420,8 +411,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             cfg,
             env_cfg_override=env_cfg_override,
             replay_prefetch_mode=replay_prefetch_mode,
-            verbose_metrics=verbose_metrics,
-            replay_pipeline=replay_pipeline,
+            device=replay_device,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
         )

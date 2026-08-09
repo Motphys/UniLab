@@ -58,6 +58,8 @@ class _FakeEnv:
 
 
 def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.MonkeyPatch):
+    import unilab.algos.torch.fast_sac.runner as runner_module
+    import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
     from unilab.base import registry
 
@@ -66,6 +68,12 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(registry, "ensure_registries", lambda: None)
     monkeypatch.setattr(registry, "make", lambda *args, **kwargs: fake_env)
+    monkeypatch.setattr(runner_module, "require_offpolicy_replay_device", lambda value: value)
+    monkeypatch.setattr(
+        device_runner_module,
+        "require_offpolicy_replay_device",
+        lambda value: value,
+    )
 
     runner = FastSACRunner(
         env_name="FakeEnv",
@@ -87,6 +95,8 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.Mo
 
 
 def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytest.MonkeyPatch):
+    import unilab.algos.torch.fast_sac.runner as runner_module
+    import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
     from unilab.base import registry
 
@@ -99,6 +109,12 @@ def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytes
 
     monkeypatch.setattr(registry, "ensure_registries", lambda: None)
     monkeypatch.setattr(registry, "make", lambda *args, **kwargs: fake_env)
+    monkeypatch.setattr(runner_module, "require_offpolicy_replay_device", lambda value: value)
+    monkeypatch.setattr(
+        device_runner_module,
+        "require_offpolicy_replay_device",
+        lambda value: value,
+    )
 
     runner = FastSACRunner(
         env_name="FakeEnv",

@@ -2,7 +2,7 @@
 
 import multiprocessing as mp
 import time
-from typing import Any, Dict, Iterable
+from typing import Any
 
 import torch
 
@@ -12,11 +12,10 @@ DEFAULT_REPLAY_INGRESS_DEPTH = 2
 
 
 class ReplayBuffer(SharedBufferBase):
-    """Packed replay owner for CPU-authoritative and device-authoritative modes.
+    """Bounded host ingress for an authoritative device replay ring.
 
-    The default mode owns a full shared-memory CPU ring. Device-authoritative
-    replay instead owns only fixed-depth shared ingress slots; its replay
-    pipeline commits ``ptr`` and ``size`` after the device copy completes.
+    The collector publishes fixed-depth shared ingress slots. The replay
+    pipeline advances ``ptr`` and ``size`` only after the device copy commits.
     """
 
     DEFAULT_INGRESS_DEPTH = DEFAULT_REPLAY_INGRESS_DEPTH
@@ -27,19 +26,16 @@ class ReplayBuffer(SharedBufferBase):
         obs_dim: int,
         action_dim: int,
         device: str,
-        defer_gpu: bool = False,
+        *,
+        ingress_slot_rows: int,
         critic_dim: int = 0,
-        packed_cpu_storage: bool = False,
-        ingress_slot_rows: int | None = None,
         ingress_depth: int = DEFAULT_INGRESS_DEPTH,
     ):
-        super().__init__(capacity, device, defer_gpu=defer_gpu)
-        del packed_cpu_storage
+        super().__init__(capacity, device, defer_gpu=True)
         self._obs_dim = obs_dim
         self._action_dim = action_dim
         self._critic_dim = critic_dim
         self.last_incremental_h2d_time_s = 0.0
-        self._packed_cpu_storage = True
         self.trace_recorder: Any | None = None
         self.trace_thread_time = False
         self.trace_cuda_events = True
@@ -47,15 +43,11 @@ class ReplayBuffer(SharedBufferBase):
 
         self.size = torch.zeros(1, dtype=torch.int64).share_memory_()
         self._init_packed_layout(obs_dim, action_dim, critic_dim)
-        self._device_authoritative = ingress_slot_rows is not None
         self._ingress_slots: list[torch.Tensor] = []
-        if ingress_slot_rows is not None:
-            self._init_bounded_ingress(
-                slot_rows=ingress_slot_rows,
-                depth=int(ingress_depth),
-            )
-        else:
-            self._storage = torch.zeros(capacity, self._storage_width).share_memory_()
+        self._init_bounded_ingress(
+            slot_rows=ingress_slot_rows,
+            depth=int(ingress_depth),
+        )
 
     def _init_packed_layout(self, obs_dim: int, action_dim: int, critic_dim: int) -> None:
         self._storage_width = 2 * obs_dim + action_dim + 3 + 2 * critic_dim
@@ -105,31 +97,21 @@ class ReplayBuffer(SharedBufferBase):
         self._ingress_release_seq = 0
 
     @property
-    def device_authoritative(self) -> bool:
-        return self._device_authoritative
-
-    @property
     def storage_width(self) -> int:
         return self._storage_width
 
     @property
     def host_storage_bytes(self) -> int:
-        if self._device_authoritative:
-            return sum(slot.numel() * slot.element_size() for slot in self._ingress_slots)
-        return int(self._storage.numel() * self._storage.element_size())
+        return sum(slot.numel() * slot.element_size() for slot in self._ingress_slots)
 
     @property
     def published_ptr(self) -> int:
-        if self._device_authoritative:
-            return int(self._published_ptr[0])
-        return int(self.ptr[0])
+        return int(self._published_ptr[0])
 
     def attach_stop_event(self, stop_event: Any) -> None:
         self._stop_event = stop_event
 
     def take_published_ingress(self) -> tuple[int, int, int, torch.Tensor] | None:
-        if not self._device_authoritative:
-            raise RuntimeError("Full CPU replay does not expose bounded ingress slots")
         if not self._ingress_ready.acquire(block=False):
             return None
         slot = self._ingress_consume_seq % self._ingress_depth
@@ -139,8 +121,6 @@ class ReplayBuffer(SharedBufferBase):
         return slot, start, count, self._ingress_slots[slot][:count]
 
     def commit_ingress(self, *, slot: int, start: int, count: int) -> None:
-        if not self._device_authoritative:
-            raise RuntimeError("Full CPU replay has no bounded ingress commit")
         expected_slot = self._ingress_release_seq % self._ingress_depth
         if slot != expected_slot:
             raise RuntimeError(
@@ -156,8 +136,6 @@ class ReplayBuffer(SharedBufferBase):
         self._ingress_free.release()
 
     def close(self) -> None:
-        if not self._device_authoritative:
-            return
         self._ingress_closed[0] = True
         for _ in range(self._ingress_depth):
             self._ingress_free.release()
@@ -270,102 +248,20 @@ class ReplayBuffer(SharedBufferBase):
         `truncated` when computing bootstrap masks.
         """
         _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
-        n = obs.shape[0]
-        if self._device_authoritative:
-            self._add_to_ingress(
-                obs,
-                actions,
-                rewards,
-                next_obs,
-                dones,
-                truncated,
-                terminal_mask,
-                terminal_next_obs,
-                critic,
-                next_critic,
-                terminal_next_critic,
-                trace_start_ns=_trace_ns,
-            )
-            return
-        idx = int(self.ptr[0]) % self.capacity
-        has_critic = self._critic_dim > 0 and critic is not None
-        if self._critic_dim > 0 and (critic is None or next_critic is None):
-            raise ValueError("ReplayBuffer with critic_dim > 0 requires critic and next_critic")
-
-        if idx + n <= self.capacity:
-            target = self._storage[idx : idx + n]
-            self._write_transition_rows(
-                target,
-                obs,
-                actions,
-                rewards,
-                next_obs,
-                dones,
-                truncated,
-                critic,
-                next_critic,
-                has_critic=has_critic,
-            )
-            self._patch_terminal_next_observations(
-                target[:, self._nobs_sl],
-                terminal_mask,
-                terminal_next_obs,
-                target[:, self._ncritic_sl] if has_critic else None,
-                terminal_next_critic,
-            )
-        else:
-            split = self.capacity - idx
-            first = self._storage[idx:]
-            second = self._storage[: n - split]
-            self._write_transition_rows(
-                first,
-                obs[:split],
-                actions[:split],
-                rewards[:split],
-                next_obs[:split],
-                dones[:split],
-                truncated[:split],
-                critic[:split] if critic is not None else None,
-                next_critic[:split] if next_critic is not None else None,
-                has_critic=has_critic,
-            )
-            self._write_transition_rows(
-                second,
-                obs[split:],
-                actions[split:],
-                rewards[split:],
-                next_obs[split:],
-                dones[split:],
-                truncated[split:],
-                critic[split:] if critic is not None else None,
-                next_critic[split:] if next_critic is not None else None,
-                has_critic=has_critic,
-            )
-            self._patch_terminal_next_observations(
-                first[:, self._nobs_sl],
-                terminal_mask[:split] if terminal_mask is not None else None,
-                terminal_next_obs[:split] if terminal_next_obs is not None else None,
-                first[:, self._ncritic_sl] if has_critic else None,
-                terminal_next_critic[:split] if terminal_next_critic is not None else None,
-            )
-            self._patch_terminal_next_observations(
-                second[:, self._nobs_sl],
-                terminal_mask[split:] if terminal_mask is not None else None,
-                terminal_next_obs[split:] if terminal_next_obs is not None else None,
-                second[:, self._ncritic_sl] if has_critic else None,
-                terminal_next_critic[split:] if terminal_next_critic is not None else None,
-            )
-
-        self.ptr[0] += n
-        self.size[0] = min(int(self.size[0]) + n, self.capacity)
-        if self.trace_recorder is not None:
-            self.trace_recorder.add_slice(
-                "replay/add",
-                category="replay",
-                start_ns=_trace_ns,
-                end_ns=time.perf_counter_ns(),
-                args={"batch_size": int(n), "device": self.device},
-            )
+        self._add_to_ingress(
+            obs,
+            actions,
+            rewards,
+            next_obs,
+            dones,
+            truncated,
+            terminal_mask,
+            terminal_next_obs,
+            critic,
+            next_critic,
+            terminal_next_critic,
+            trace_start_ns=_trace_ns,
+        )
 
     def _add_to_ingress(
         self,
@@ -504,46 +400,6 @@ class ReplayBuffer(SharedBufferBase):
         if target_next_critic is not None and terminal_next_critic is not None:
             target_next_critic[terminal_mask] = terminal_next_critic[terminal_mask]
 
-    def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
-        """Sample batch (called by learner)."""
-        if self._device_authoritative:
-            raise RuntimeError("Device-authoritative replay must be sampled through its pipeline")
-        self.last_incremental_h2d_time_s = 0.0
-        _trace_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
-        size = int(self.size[0])
-        _indices_ns = time.perf_counter_ns() if self.trace_recorder is not None else 0
-        indices = torch.randint(0, size, (batch_size,))
-        if self.trace_recorder is not None:
-            self.trace_recorder.add_slice(
-                "replay/sample_indices",
-                category="replay",
-                start_ns=_indices_ns,
-                end_ns=time.perf_counter_ns(),
-                args={"batch_size": int(batch_size), "size": int(size)},
-            )
-
-        chunk = self._storage[indices].to(self.device)
-        batch = {
-            "obs": chunk[:, self._obs_sl],
-            "next_obs": chunk[:, self._nobs_sl],
-            "actions": chunk[:, self._act_sl],
-            "rewards": chunk[:, self._rew_col],
-            "dones": chunk[:, self._done_col],
-            "truncated": chunk[:, self._trunc_col],
-        }
-        if self._critic_dim > 0:
-            batch["critic"] = chunk[:, self._critic_sl]
-            batch["next_critic"] = chunk[:, self._ncritic_sl]
-        if self.trace_recorder is not None:
-            self.trace_recorder.add_slice(
-                "replay/sample",
-                category="replay",
-                start_ns=_trace_ns,
-                end_ns=time.perf_counter_ns(),
-                args={"batch_size": int(batch_size), "device": self.device},
-            )
-        return batch
-
     def field_view(self, packed: torch.Tensor, field_name: str) -> torch.Tensor:
         field = {
             "obs": self._obs_sl,
@@ -558,25 +414,3 @@ class ReplayBuffer(SharedBufferBase):
         if field is None:
             raise KeyError(f"Replay field {field_name!r} is unavailable")
         return packed[:, field]
-
-    def read_recent_fields(
-        self,
-        field_names: Iterable[str],
-        start_ptr: int,
-        count: int,
-    ) -> dict[str, torch.Tensor]:
-        if self._device_authoritative:
-            raise RuntimeError("Device-authoritative fields are owned by the replay pipeline")
-        index = start_ptr % self.capacity
-        fields: dict[str, torch.Tensor] = {}
-        for field_name in field_names:
-            source = self.field_view(self._storage, field_name)
-            if index + count <= self.capacity:
-                fields[field_name] = source[index : index + count].clone()
-                continue
-            split = self.capacity - index
-            fields[field_name] = torch.cat(
-                [source[index:], source[: count - split]],
-                dim=0,
-            ).clone()
-        return fields

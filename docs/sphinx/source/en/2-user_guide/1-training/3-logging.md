@@ -82,10 +82,10 @@ instead of being compared only against wait metrics.
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
 | Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce trainable data |
-| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Single-GPU/double-buffer prefetch miss waiting for a replay pack / H2D batch to become ready; ~0 on a prefetch hit |
-| Replay Sample | `timing/learner_replay_sample_ms` | Learner-side replay sampling / ready-batch materialization after the wait is over |
+| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Device-replay prefetch miss waiting for committed ingress and the device gather; ~0 on a prefetch hit |
+| Replay Sample | `timing/learner_replay_sample_ms` | Consuming the already gathered hot device batch after the wait is over |
 | Sync Coordination | `timing/learner_sync_coordination_ms` | Synchronous-collection handshake; 0 when not in sync collection |
-| H2D Copy | `timing/learner_incremental_h2d_ms` | Host-to-device batch copy |
+| H2D Copy | `timing/learner_incremental_h2d_ms` | Incremental bounded-ingress copy into the authoritative device ring |
 | Train | `timing/learner_train_ms` | Pure SGD compute |
 | Weight Sync | `timing/learner_weight_sync_ms` | Publishing new weights to the collector |
 | Iter Wall | `perf/iter_ms` | Whole-iteration wall time, not the sum of the components |
@@ -105,7 +105,7 @@ TensorBoard `timing/collector_*`. SAC / TD3:
 | Weight Sync | `timing/collector_weight_sync_ms` | Pulling and loading new learner weights |
 | Action Select | `timing/collector_action_select_ms` | Actor inference |
 | Env Step | `timing/collector_env_step_ms` | Environment step |
-| Replay | `timing/collector_replay_ms` | Replay buffer write and sample packing |
+| Replay | `timing/collector_replay_ms` | Packing transitions into the bounded replay ingress |
 | Sync Coordination | `timing/collector_sync_coordination_ms` | Synchronous-collection handshake (signal learner, wait for learner) |
 
 `Collector/s` is collector active throughput. For SAC / TD3 it uses
