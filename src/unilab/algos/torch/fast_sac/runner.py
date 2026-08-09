@@ -43,7 +43,6 @@ class FastSACRunner(OffPolicyRunner):
         use_cuda_graph_actor: bool = False,
         sim_backend: str = "mujoco",
         use_symmetry: bool = False,
-        world_size: int = 1,
         seed: int | None = None,
         trace_enabled: bool = False,
         trace_output_dir: str | None = None,
@@ -99,7 +98,6 @@ class FastSACRunner(OffPolicyRunner):
             use_cuda_graph_actor=use_cuda_graph_actor,
             use_symmetry=use_symmetry,
             symmetry_augmentation=symmetry_augmentation,
-            world_size=getattr(self, "world_size", world_size),
             critic_obs_dim=critic_obs_dim,
         )
 

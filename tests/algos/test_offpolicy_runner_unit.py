@@ -35,9 +35,6 @@ class _FakeActor:
 
 class _FakeLearner:
     last_instance: "_FakeLearner | None" = None
-    supports_multi_gpu = True
-    supports_multi_gpu_symmetry = False
-    supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
 
     def __init__(self, *args, **kwargs) -> None:
         del args
@@ -53,7 +50,6 @@ class _FakeLearner:
         self.graph_critic_read_metrics: list[bool] = []
         self.graph_actor_read_metrics: list[bool] = []
         self.target_updates = 0
-        self.average_parameter_calls = 0
         self.kwargs = dict(kwargs)
         _FakeLearner.last_instance = self
 
@@ -91,12 +87,6 @@ class _FakeLearner:
 
     def soft_update_target(self) -> None:
         self.target_updates += 1
-
-    def sync_initial_parameters(self, src: int = 0) -> None:
-        del src
-
-    def average_distributed_parameters(self) -> None:
-        self.average_parameter_calls += 1
 
     def get_state_dict(self) -> dict[str, int]:
         return {"update_count": self.update_count}

@@ -32,8 +32,6 @@ def derive_priv_info_from_critic_obs(
 class HoraSACLearner(FastSACLearner):
     """FastSAC learner variant whose actor consumes HORA privileged info."""
 
-    supports_multi_gpu = False
-
     def __init__(
         self,
         *,

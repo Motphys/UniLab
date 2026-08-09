@@ -134,24 +134,7 @@ def test_fast_sac_learner_rejects_symmetry_without_augmentation():
         )
 
 
-def test_fast_sac_learner_exposes_multi_gpu_initial_sync_contract():
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
-
-    learner = FastSACLearner(
-        obs_dim=4,
-        action_dim=2,
-        critic_obs_dim=4,
-        device="cpu",
-        world_size=1,
-    )
-
-    assert callable(getattr(learner, "sync_initial_parameters", None))
-    learner.sync_initial_parameters(src=0)
-
-
-def test_fast_sac_obs_normalization_uses_global_distributed_moments(
-    monkeypatch: pytest.MonkeyPatch,
-):
+def test_fast_sac_obs_normalization_uses_local_moments_and_round_trips():
     from unilab.algos.torch.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
@@ -166,27 +149,13 @@ def test_fast_sac_obs_normalization_uses_global_distributed_moments(
         use_layer_norm=False,
         use_autotune=False,
         obs_normalization=True,
-        world_size=2,
     )
-
-    monkeypatch.setattr(learner_module.dist, "is_available", lambda: True)
-    monkeypatch.setattr(learner_module.dist, "is_initialized", lambda: True)
-
-    def fake_all_reduce(tensor, op=None):
-        del op
-        remote_moments = torch.tensor([12.0, 16.0, 74.0, 130.0, 2.0])
-        tensor.add_(remote_moments)
-
-    monkeypatch.setattr(learner_module.dist, "all_reduce", fake_all_reduce)
 
     learner.normalize_obs(torch.tensor([[1.0, 3.0], [3.0, 5.0]]), update=True)
 
-    torch.testing.assert_close(learner.obs_normalizer.mean, torch.tensor([4.0, 6.0]))
-    torch.testing.assert_close(
-        learner.obs_normalizer.std,
-        torch.full((2,), 5.0**0.5),
-    )
-    assert int(learner.obs_normalizer.count.item()) == 4
+    torch.testing.assert_close(learner.obs_normalizer.mean, torch.tensor([2.0, 4.0]))
+    torch.testing.assert_close(learner.obs_normalizer.std, torch.ones(2))
+    assert int(learner.obs_normalizer.count.item()) == 2
 
     restored = FastSACLearner(
         obs_dim=2,
@@ -203,65 +172,6 @@ def test_fast_sac_obs_normalization_uses_global_distributed_moments(
     )
     restored.load_state_dict(learner.get_state_dict())
     torch.testing.assert_close(restored.obs_normalizer.mean, learner.obs_normalizer.mean)
-
-
-def test_fast_sac_local_sgd_skips_per_update_gradient_all_reduce(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
-
-    learner = FastSACLearner(
-        obs_dim=4,
-        critic_obs_dim=5,
-        action_dim=2,
-        device="cpu",
-        world_size=2,
-        distributed_sync_mode="local_sgd",
-    )
-    calls = 0
-
-    def fake_all_reduce(tensor, op=None):
-        del tensor, op
-        nonlocal calls
-        calls += 1
-
-    monkeypatch.setattr(learner_module.dist, "all_reduce", fake_all_reduce)
-    for param in learner.qnet.parameters():
-        param.grad = torch.ones_like(param)
-
-    learner._reduce_gradients(learner.qnet)
-
-    assert calls == 0
-
-
-def test_fast_sac_local_sgd_parameter_average_uses_single_flat_all_reduce(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
-
-    learner = FastSACLearner(
-        obs_dim=4,
-        critic_obs_dim=5,
-        action_dim=2,
-        device="cpu",
-        world_size=2,
-        distributed_sync_mode="local_sgd",
-    )
-    seen_sizes: list[int] = []
-
-    def fake_all_reduce(tensor, op=None):
-        del op
-        seen_sizes.append(tensor.numel())
-        tensor.mul_(2.0)
-
-    monkeypatch.setattr(learner_module.dist, "all_reduce", fake_all_reduce)
-    before = learner.log_alpha.detach().clone()
-
-    learner.average_distributed_parameters()
-
-    assert len(seen_sizes) == 1
-    assert seen_sizes[0] > 0
-    assert torch.allclose(learner.log_alpha, before)
 
 
 def test_fast_sac_symmetry_augmentation_emits_fine_grained_nvtx_ranges(
