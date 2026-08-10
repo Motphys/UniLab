@@ -38,7 +38,6 @@ import torch
 from tests._test_registry.dummy_flat_env import (  # noqa: E402  (side-effect import)
     DUMMY_ENV_NAME as _DUMMY_ENV_NAME,
 )
-from unilab.ipc.replay_buffer import ReplayBuffer
 from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer
 
 _DUMMY_OBS_DIM = 8
@@ -95,14 +94,6 @@ def _isolate_training_logs_for_tests(tmp_path_factory: pytest.TempPathFactory):
 @pytest.fixture
 def mp_ctx():
     return torch.multiprocessing.get_context("spawn")
-
-
-@pytest.fixture
-def tiny_replay_buffer():
-    buf = ReplayBuffer(
-        capacity=128, obs_dim=_DUMMY_OBS_DIM, action_dim=_DUMMY_ACT_DIM, device="cpu"
-    )
-    yield buf
 
 
 @pytest.fixture

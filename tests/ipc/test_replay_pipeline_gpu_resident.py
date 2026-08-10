@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import threading
 import time
 
@@ -32,6 +33,7 @@ def _make_replay(
     action_dim: int = _ACTION_DIM,
     critic_dim: int = _CRITIC_DIM,
     device: str = "cuda",
+    slot_rows: int | None = None,
 ) -> ReplayBuffer:
     return ReplayBuffer(
         capacity=capacity,
@@ -39,8 +41,20 @@ def _make_replay(
         action_dim=action_dim,
         device=device,
         critic_dim=critic_dim,
-        defer_gpu=True,
-        packed_cpu_storage=True,
+        ingress_slot_rows=capacity if slot_rows is None else slot_rows,
+    )
+
+
+def _make_bounded_replay(
+    *,
+    capacity: int = 128,
+    slot_rows: int = 16,
+    device: str = "cuda",
+) -> ReplayBuffer:
+    return _make_replay(
+        capacity=capacity,
+        device=device,
+        slot_rows=slot_rows,
     )
 
 
@@ -65,6 +79,11 @@ def _pattern_add(rb: ReplayBuffer, start_row: int, n: int) -> None:
     )
 
 
+def _pattern_add_chunks(rb: ReplayBuffer, chunk_rows: int, chunks: int) -> None:
+    for chunk in range(chunks):
+        _pattern_add(rb, chunk * chunk_rows, chunk_rows)
+
+
 def _expected_pattern(rb: ReplayBuffer, rewards: torch.Tensor) -> dict[str, torch.Tensor]:
     col = rewards.cpu().unsqueeze(1)
     out = {
@@ -83,7 +102,7 @@ def _wait_visible(pipeline: GPUResidentReplayPipeline, ptr: int, timeout: float 
     while pipeline._visible_ptr < ptr:
         if time.monotonic() > deadline:
             raise TimeoutError(
-                f"GPU replay mirror stalled: visible_ptr={pipeline._visible_ptr} < {ptr}"
+                f"Device replay stalled: visible_ptr={pipeline._visible_ptr} < {ptr}"
             )
         time.sleep(0.005)
 
@@ -131,13 +150,13 @@ class TestConstructionGuards:
         with pytest.raises(ValueError, match="pack_layout"):
             GPUResidentReplayPipeline(rb, device="cpu", sample_count=8, pack_layout="bogus")
 
-    def test_runner_rejects_invalid_replay_pipeline(self):
+    def test_runner_rejects_non_accelerator_before_base_initialization(self):
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
             DoubleBufferOffPolicyRunner,
         )
 
-        with pytest.raises(ValueError, match="replay_pipeline"):
-            DoubleBufferOffPolicyRunner(replay_pipeline="bogus")
+        with pytest.raises(ValueError, match="CUDA or MPS"):
+            DoubleBufferOffPolicyRunner(device="cpu")
 
     def test_mps_memory_budget_uses_recommended_budget(self, monkeypatch):
         monkeypatch.setattr(torch.mps, "recommended_max_memory", lambda: 1_000)
@@ -179,34 +198,111 @@ class TestGPUResidentPipeline:
     def test_allocates_gpu_storage_and_slots(self, pipeline_factory):
         rb = _make_replay(capacity=64)
         pipeline = pipeline_factory(rb, sample_count=8)
-        assert pipeline._gpu_storage.shape == (64, rb._storage.shape[1])
+        assert pipeline._gpu_storage.shape == (64, rb.storage_width)
         assert pipeline._gpu_storage.is_cuda
         assert len(pipeline._gpu_packed) == 2
         assert all(slot.is_cuda for slot in pipeline._gpu_packed)
-        assert rb._storage.is_pinned()
-        assert pipeline.h2d_submitter == "gpu_resident_mirror"
+        assert all(slot.is_pinned() for slot in rb._ingress_slots)
+        assert pipeline.h2d_submitter == "gpu_resident_ingress"
         manifest = pipeline.transfer_manifest
         assert manifest["pipeline"] == "gpu_resident"
         assert manifest["storage_rows"] == 64
         assert manifest["host_pinned"] is True
 
-    def test_mirror_syncs_rows_incrementally(self, pipeline_factory):
-        rb = _make_replay(capacity=128)
-        _pattern_add(rb, 0, 32)
-        pipeline = pipeline_factory(rb)
-        _wait_visible(pipeline, 32)
-        _pattern_add(rb, 32, 16)
-        _wait_visible(pipeline, 48)
-        torch.testing.assert_close(pipeline._gpu_storage[:48].cpu(), rb._storage[:48])
+    def test_bounded_ingress_owns_no_full_host_ring_and_commits_after_h2d(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        _pattern_add(rb, 0, 16)
+        assert not hasattr(rb, "_storage")
+        assert int(rb.ptr[0]) == 0
+        assert rb.published_ptr == 16
 
-    def test_ring_wraparound_mirror_matches_storage(self, pipeline_factory):
-        rb = _make_replay(capacity=64)
-        _pattern_add(rb, 0, 64)
-        pipeline = pipeline_factory(rb)
-        _wait_visible(pipeline, 64)
-        _pattern_add(rb, 64, 48)
-        _wait_visible(pipeline, 112)
-        torch.testing.assert_close(pipeline._gpu_storage.cpu(), rb._storage)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        _wait_visible(pipeline, 16)
+
+        assert int(rb.ptr[0]) == 16
+        assert int(rb.size[0]) == 16
+        assert pipeline._gpu_storage.shape == (64, rb.storage_width)
+        assert pipeline.transfer_manifest["storage_owner"] == "device"
+        assert pipeline.transfer_manifest["host_storage_bytes"] == rb.host_storage_bytes
+        assert pipeline.transfer_manifest["ingress_depth"] == 2
+
+    def test_bounded_ingress_ring_wrap_and_committed_field_order(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=32, slot_rows=8)
+        _pattern_add(rb, 0, 8)
+        _pattern_add(rb, 8, 8)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        _wait_visible(pipeline, 16)
+        for start in (16, 24, 32):
+            _pattern_add(rb, start, 8)
+        _wait_visible(pipeline, 40)
+
+        end_ptr, fields = pipeline.read_committed_fields(
+            ("rewards", "dones"),
+            start_ptr=0,
+        )
+
+        assert end_ptr == 40
+        torch.testing.assert_close(
+            fields["rewards"].cpu(),
+            torch.arange(8, 40, dtype=torch.float32),
+        )
+        assert (fields["dones"].cpu() == 0).all()
+
+    def test_bounded_ingress_samples_only_committed_rows(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        _pattern_add(rb, 0, 16)
+        assert not hasattr(rb, "sample")
+        pipeline = pipeline_factory(rb, sample_count=16, base_seed=41)
+
+        batch = pipeline.sample_large_batch(3, 16)
+        rewards = batch["rewards"].cpu()
+
+        assert rewards.min() >= 0
+        assert rewards.max() < 16
+        expected = _expected_pattern(rb, rewards)
+        for key, want in expected.items():
+            torch.testing.assert_close(batch[key].cpu(), want)
+
+    def test_bounded_ingress_pending_overwrite_cannot_prepare_batch(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=32, slot_rows=8)
+        _pattern_add(rb, 0, 8)
+        _pattern_add(rb, 8, 8)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        _wait_visible(pipeline, 16)
+        _pattern_add(rb, 16, 8)
+        _pattern_add(rb, 24, 8)
+        _wait_visible(pipeline, 32)
+        pipeline._closed = True
+        assert pipeline._sync_thread is not None
+        pipeline._sync_thread.join(timeout=2.0)
+        pipeline._closed = False
+
+        _pattern_add(rb, 32, 8)
+        assert pipeline._submit_new_spans() is True
+        assert int(rb.ptr[0]) == 32
+        assert pipeline.start_prepare(2, 8, min_snapshot_ptr=32) is True
+        assert pipeline._service_pending_prepare() is False
+        assert pipeline._prepared_metadata is None
+
+        pipeline.progress(wait=True)
+        assert int(rb.ptr[0]) == 40
+        assert pipeline._service_pending_prepare() is True
+
+    def test_bounded_ingress_consumes_spawned_collector_chunks(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=8)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        process = mp.get_context("spawn").Process(
+            target=_pattern_add_chunks,
+            args=(rb, 8, 5),
+        )
+
+        process.start()
+        process.join(timeout=15)
+        assert process.exitcode == 0
+        _wait_visible(pipeline, 40)
+
+        assert int(rb.ptr[0]) == 40
+        assert int(rb.size[0]) == 40
 
     def test_sampled_batch_matches_replay_rows(self, pipeline_factory):
         rb = _make_replay(capacity=128)
@@ -231,7 +327,9 @@ class TestGPUResidentPipeline:
         b1 = p1.sample_large_batch(7, 16)
         r1 = b1["rewards"].cpu().clone()
         p1.close()
-        p2 = pipeline_factory(rb, sample_count=16, base_seed=99)
+        replay_again = _make_replay(capacity=128)
+        _pattern_add(replay_again, 0, 64)
+        p2 = pipeline_factory(replay_again, sample_count=16, base_seed=99)
         b2 = p2.sample_large_batch(7, 16)
         torch.testing.assert_close(r1, b2["rewards"].cpu())
 
@@ -292,7 +390,7 @@ class TestGPUResidentPipeline:
         pipeline = pipeline_factory(rb, sample_count=16, pack_layout="sac_graph")
         batch = pipeline.sample_large_batch(1, 16)
         src = batch["sac_graph_packed_source"]
-        assert src.shape == (16, rb._storage.shape[1])
+        assert src.shape == (16, rb.storage_width)
         rewards = batch["rewards"].cpu()
         expected = _expected_pattern(rb, rewards)
         for key, want in expected.items():
@@ -328,7 +426,7 @@ class TestGPUResidentPipeline:
         pipeline.close()
         assert pipeline._sync_thread is not None
         assert not pipeline._sync_thread.is_alive()
-        assert not rb._storage.is_pinned()
+        assert not any(slot.is_pinned() for slot in rb._ingress_slots)
 
 
 @mps_only
@@ -357,7 +455,7 @@ class TestMPSGPUResidentPipeline:
 
         assert pipeline._sync_thread is None
         assert pipeline._host_pinned is False
-        assert pipeline.h2d_submitter == "gpu_resident_mirror_main_thread"
+        assert pipeline.h2d_submitter == "gpu_resident_ingress_main_thread"
         assert pipeline.transfer_manifest["device_submission_thread"] == "learner"
         assert all(value.device.type == "mps" for value in batch.values())
         rewards = batch["rewards"].cpu()
@@ -365,20 +463,21 @@ class TestMPSGPUResidentPipeline:
         for key, want in expected.items():
             torch.testing.assert_close(batch[key].cpu(), want)
 
-    def test_incremental_mirror_matches_after_ring_wrap(self, pipeline_factory):
-        rb = _make_replay(capacity=64, device="mps")
-        _pattern_add(rb, 0, 64)
+    def test_bounded_ingress_commits_and_samples_on_learner_thread(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16, device="mps")
+        _pattern_add(rb, 0, 16)
+        assert int(rb.ptr[0]) == 0
         pipeline = pipeline_factory(rb, sample_count=8)
-        pipeline.sample_large_batch(1, 8)
-        pipeline.after_tick()
 
-        _pattern_add(rb, 64, 48)
-        assert pipeline.start_prepare(2, 8) is True
-        _wait_batch_ready(pipeline, 2, 8)
-        pipeline.sample_large_batch(2, 8)
+        batch = pipeline.sample_large_batch(1, 8)
 
-        assert pipeline._visible_ptr == 112
-        torch.testing.assert_close(pipeline._gpu_storage.cpu(), rb._storage)
+        assert int(rb.ptr[0]) == 16
+        assert pipeline.transfer_manifest["storage_owner"] == "device"
+        assert pipeline.h2d_submitter == "gpu_resident_ingress_main_thread"
+        rewards = batch["rewards"].cpu()
+        expected = _expected_pattern(rb, rewards)
+        for key, want in expected.items():
+            torch.testing.assert_close(batch[key].cpu(), want)
 
     def test_deterministic_seed_produces_same_mps_batch(self, pipeline_factory):
         rb = _make_replay(capacity=128, device="mps")
@@ -387,7 +486,9 @@ class TestMPSGPUResidentPipeline:
         first_rewards = first.sample_large_batch(7, 16)["rewards"].cpu().clone()
         first.close()
 
-        second = pipeline_factory(rb, sample_count=16, base_seed=99)
+        replay_again = _make_replay(capacity=128, device="mps")
+        _pattern_add(replay_again, 0, 64)
+        second = pipeline_factory(replay_again, sample_count=16, base_seed=99)
         second_rewards = second.sample_large_batch(7, 16)["rewards"].cpu()
 
         torch.testing.assert_close(first_rewards, second_rewards)

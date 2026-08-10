@@ -2,6 +2,7 @@
 
 UniLab 中的训练以配置为先（config-first）。日常运行使用软件包 CLI，调试底层
 Hydra 组合时再使用脚本入口。
+off-policy SAC、TD3 与 FlashSAC 每个训练进程只使用一个 learner device。
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -36,12 +37,6 @@ TensorBoard、W&B、运行元数据以及 trace 选项。
 在仓库内置的 Linux NVIDIA 镜像工作流中运行 UniLab。
 :::
 
-:::{grid-item-card} 多 GPU
-:link: 4-multi_gpu
-:link-type: doc
-当前 off-policy 的多 GPU 旋钮及其配置边界。
-:::
-
 ::::
 
 ## 什么时候下沉到 `scripts/train_*.py`
@@ -66,7 +61,6 @@ TensorBoard、W&B、运行元数据以及 trace 选项。
 1-cli_reference
 2-hydra_config
 3-logging
-4-multi_gpu
 5-resume_and_checkpoints
 6-docker
 ```

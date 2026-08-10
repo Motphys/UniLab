@@ -22,9 +22,6 @@ training:
     buffer_size: 100
     max_envs_to_dump: 5
     output_dir: null
-  num_gpus: 1
-  multi_gpu_sync_mode: local_sgd
-  multi_gpu_sync_interval: 1
   use_amp: true
   play_only: false
   no_play: false
@@ -46,11 +43,6 @@ training:
   trace_cuda_events: true
   nvtx_profile_ranges: false
   replay_prefetch_mode: one_tick
-  # Replay batch source for single-GPU off-policy runners:
-  # cpu_pinned_double_buffer (collector CPU pack + batch H2D) or
-  # gpu_resident (learner-side CUDA/MPS mirror with device-side sampling).
-  replay_pipeline: cpu_pinned_double_buffer
-  verbose_metrics: false
   torch_threads:
     enabled: true
     # "auto" resolves per process role from host CPU count with conservative caps.

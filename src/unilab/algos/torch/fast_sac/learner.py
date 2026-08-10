@@ -16,7 +16,6 @@ from contextlib import contextmanager
 from typing import Any, Dict, Tuple, cast
 
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -24,17 +23,6 @@ import torch.optim as optim
 from unilab.algos.torch.common.compile import get_torch_compile_for_cuda
 from unilab.algos.torch.common.normalization import EmpiricalNormalization
 from unilab.base.augmentation import SymmetryAugmentation
-
-FAST_SAC_DISTRIBUTED_SYNC_MODES = {"sync_sgd", "local_sgd"}
-
-
-def normalize_fast_sac_distributed_sync_mode(mode: str) -> str:
-    """Return a validated distributed synchronization mode for FastSAC."""
-    normalized = str(mode).strip().lower()
-    if normalized not in FAST_SAC_DISTRIBUTED_SYNC_MODES:
-        supported = ", ".join(sorted(FAST_SAC_DISTRIBUTED_SYNC_MODES))
-        raise ValueError(f"FastSAC distributed_sync_mode must be one of: {supported}; got {mode!r}")
-    return normalized
 
 
 @contextmanager
@@ -403,10 +391,6 @@ class FastSACLearner:
     - Distributional critic (C51, num_atoms=101)
     """
 
-    supports_multi_gpu = True
-    supports_multi_gpu_symmetry = False
-    supported_multi_gpu_sync_modes = frozenset({"sync_sgd", "local_sgd"})
-
     def __init__(
         self,
         obs_dim: int,
@@ -445,8 +429,6 @@ class FastSACLearner:
         use_cuda_graph_actor_packed_staging: bool = False,
         nvtx_profile_ranges: bool = False,
         symmetry_augmentation: SymmetryAugmentation | None = None,
-        world_size: int = 1,
-        distributed_sync_mode: str = "sync_sgd",
     ):
         self.device = device
         self._device_type = torch.device(device).type
@@ -458,19 +440,13 @@ class FastSACLearner:
         self.use_compile = (
             bool(use_compile) and get_torch_compile_for_cuda(self.device, warn=True) is not None
         )
-        self.use_cuda_graph_critic = (
-            bool(use_cuda_graph_critic) and self._device_type == "cuda" and world_size <= 1
-        )
+        self.use_cuda_graph_critic = bool(use_cuda_graph_critic) and self._device_type == "cuda"
         requested_cuda_graph_critic_packed_staging = bool(use_cuda_graph_critic_packed_staging)
         requested_cuda_graph_actor_packed_staging = bool(use_cuda_graph_actor_packed_staging)
-        self.use_cuda_graph_actor = (
-            bool(use_cuda_graph_actor) and self._device_type == "cuda" and world_size <= 1
-        )
+        self.use_cuda_graph_actor = bool(use_cuda_graph_actor) and self._device_type == "cuda"
         self.nvtx_profile_ranges = bool(nvtx_profile_ranges) and self._device_type == "cuda"
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
-        self.world_size = world_size
-        self.distributed_sync_mode = normalize_fast_sac_distributed_sync_mode(distributed_sync_mode)
         self.critic_obs_dim = critic_obs_dim
 
         # Build actor (uses obs only)
@@ -653,45 +629,15 @@ class FastSACLearner:
             self._device_type, dtype=self._amp_dtype, enabled=self.use_amp
         )
 
-    def _distributed_normalization_ready(self) -> bool:
-        return self.world_size > 1 and dist.is_available() and dist.is_initialized()
-
     @torch.no_grad()
     def _update_obs_normalizer(self, obs: torch.Tensor) -> None:
         if isinstance(self.obs_normalizer, nn.Identity):
             return
         normalizer = cast(EmpiricalNormalization, self.obs_normalizer)
-        if not self._distributed_normalization_ready():
-            normalizer.update(obs)
-            return
-
-        obs_for_stats = obs.detach().to(dtype=normalizer._mean.dtype)
-        obs_dim = int(obs_for_stats.shape[-1])
-        moment_payload = torch.cat(
-            [
-                obs_for_stats.sum(dim=0),
-                obs_for_stats.square().sum(dim=0),
-                torch.tensor(
-                    [obs_for_stats.shape[0]],
-                    device=obs_for_stats.device,
-                    dtype=obs_for_stats.dtype,
-                ),
-            ]
-        )
-        dist.all_reduce(moment_payload, op=dist.ReduceOp.SUM)
-        batch_count = moment_payload[-1].clamp_min(1.0)
-        batch_mean = (moment_payload[:obs_dim] / batch_count).view_as(normalizer._mean)
-        batch_var = (
-            moment_payload[obs_dim : 2 * obs_dim] / batch_count - batch_mean.view(-1).square()
-        ).clamp_min(0.0)
-        normalizer.update_from_moments(
-            batch_mean,
-            batch_var.view_as(normalizer._var),
-            batch_count.round().to(dtype=normalizer.count.dtype),
-        )
+        normalizer.update(obs)
 
     def normalize_obs(self, obs: torch.Tensor, update: bool = False) -> torch.Tensor:
-        """Normalize actor observations using synchronized running statistics."""
+        """Normalize actor observations using running statistics."""
         if isinstance(self.obs_normalizer, nn.Identity):
             return obs
         normalizer = cast(EmpiricalNormalization, self.obs_normalizer)
@@ -699,72 +645,6 @@ class FastSACLearner:
             self._update_obs_normalizer(obs)
             return cast(torch.Tensor, normalizer(obs, update=False))
         return cast(torch.Tensor, normalizer(obs, update=False))
-
-    def _reduce_gradients(self, model: nn.Module) -> None:
-        """All-reduce gradients across all workers and divide by world_size.
-
-        Must be called after ``backward()`` and, when using AMP, after
-        ``scaler.unscale_(optimizer)`` so that gradients are in full precision.
-        """
-        if self.world_size <= 1 or self.distributed_sync_mode != "sync_sgd":
-            return
-        grads = [p.grad.view(-1) for p in model.parameters() if p.grad is not None]
-        if not grads:
-            return
-        flat = torch.cat(grads)
-        dist.all_reduce(flat, op=dist.ReduceOp.SUM)
-        flat /= self.world_size
-        offset = 0
-        for p in model.parameters():
-            if p.grad is not None:
-                n = p.grad.numel()
-                p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
-                offset += n
-
-    def _parameter_sync_tensors(self) -> list[torch.Tensor]:
-        tensors: list[torch.Tensor] = []
-        for module in (self.actor, self.qnet, self.qnet_target):
-            tensors.extend(
-                p.data for p in module.parameters() if p.requires_grad or p.is_floating_point()
-            )
-        tensors.append(self.log_alpha.data)
-        return tensors
-
-    @torch.no_grad()
-    def average_distributed_parameters(self) -> None:
-        """Average learner parameters across ranks for local-SGD synchronization.
-
-        This is intentionally separate from per-update gradient averaging. In
-        ``local_sgd`` mode each rank applies local optimizer updates, then this
-        method averages the resulting actor, critic, target critic, and entropy
-        coefficient parameters at the runner-controlled synchronization boundary.
-        Optimizer state remains rank-local by design.
-        """
-        if self.world_size <= 1:
-            return
-        tensors = self._parameter_sync_tensors()
-        if not tensors:
-            return
-        flat = torch.cat([tensor.view(-1) for tensor in tensors])
-        dist.all_reduce(flat, op=dist.ReduceOp.SUM)
-        flat /= self.world_size
-        offset = 0
-        for tensor in tensors:
-            n = tensor.numel()
-            tensor.copy_(flat[offset : offset + n].view_as(tensor))
-            offset += n
-
-    def sync_initial_parameters(self, src: int = 0) -> None:
-        """Broadcast initial learner state for distributed off-policy training."""
-        if self.world_size <= 1:
-            return
-        for module in (self.actor, self.qnet, self.qnet_target):
-            for parameter in module.parameters():
-                dist.broadcast(parameter.data, src=src)
-        dist.broadcast(self.log_alpha.data, src=src)
-        if not isinstance(self.obs_normalizer, nn.Identity):
-            for buffer in self.obs_normalizer.buffers():
-                dist.broadcast(buffer, src=src)
 
     def _get_actions_and_log_probs_for_critic(
         self,
@@ -876,7 +756,6 @@ class FastSACLearner:
         if self.scaler:
             self.scaler.scale(actor_loss).backward()
             self.scaler.unscale_(self.actor_optimizer)
-            self._reduce_gradients(self.actor)
             if self.max_grad_norm > 0:
                 actor_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.actor.parameters(), max_norm=self.max_grad_norm
@@ -887,7 +766,6 @@ class FastSACLearner:
             self.scaler.update()
         else:
             actor_loss.backward()
-            self._reduce_gradients(self.actor)
             if self.max_grad_norm > 0:
                 actor_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.actor.parameters(), max_norm=self.max_grad_norm
@@ -923,7 +801,6 @@ class FastSACLearner:
         if self.scaler:
             self.scaler.scale(qf_loss).backward()
             self.scaler.unscale_(self.q_optimizer)
-            self._reduce_gradients(self.qnet)
             if self.max_grad_norm > 0:
                 critic_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.qnet.parameters(), max_norm=self.max_grad_norm
@@ -934,7 +811,6 @@ class FastSACLearner:
             self.scaler.update()
         else:
             qf_loss.backward()
-            self._reduce_gradients(self.qnet)
             if self.max_grad_norm > 0:
                 critic_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.qnet.parameters(), max_norm=self.max_grad_norm
@@ -948,13 +824,6 @@ class FastSACLearner:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             alpha_loss = self._alpha_loss_tensor(next_log_probs)
             alpha_loss.backward()
-            if (
-                self.world_size > 1
-                and self.distributed_sync_mode == "sync_sgd"
-                and self.log_alpha.grad is not None
-            ):
-                dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
-                self.log_alpha.grad /= self.world_size
             self.alpha_optimizer.step()
 
         return (
@@ -1398,7 +1267,7 @@ class FastSACLearner:
             return self.update_critic(batch)
         if self._device_type != "cuda":
             return self.update_critic(batch)
-        if self.scaler is not None or self.world_size > 1:
+        if self.scaler is not None:
             return self.update_critic(batch)
         if self._cuda_graph_critic_shapes != self._critic_graph_input_shapes(batch):
             self._reset_critic_cuda_graph()
@@ -1427,7 +1296,7 @@ class FastSACLearner:
             return self.update_actor(batch)
         if self._device_type != "cuda":
             return self.update_actor(batch)
-        if self.scaler is not None or self.world_size > 1 or self.use_symmetry:
+        if self.scaler is not None or self.use_symmetry:
             return self.update_actor(batch)
         if self._cuda_graph_actor_shapes != self._actor_graph_input_shapes(batch):
             self._reset_actor_cuda_graph()
@@ -1511,7 +1380,6 @@ class FastSACLearner:
                 with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
                     self.scaler.scale(qf_loss).backward()
                 self.scaler.unscale_(self.q_optimizer)
-                self._reduce_gradients(self.qnet)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
                         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1525,7 +1393,6 @@ class FastSACLearner:
             else:
                 with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
                     qf_loss.backward()
-                self._reduce_gradients(self.qnet)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
                         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1548,17 +1415,6 @@ class FastSACLearner:
                 if torch.isfinite(alpha_loss):
                     with _cuda_nvtx_range("critic/alpha_backward", self.nvtx_profile_ranges):
                         alpha_loss.backward()
-                    if (
-                        self.world_size > 1
-                        and self.distributed_sync_mode == "sync_sgd"
-                        and self.log_alpha.grad is not None
-                    ):
-                        with _cuda_nvtx_range(
-                            "critic/alpha_distributed_reduce",
-                            self.nvtx_profile_ranges,
-                        ):
-                            dist.all_reduce(self.log_alpha.grad, op=dist.ReduceOp.SUM)
-                            self.log_alpha.grad /= self.world_size
                     with _cuda_nvtx_range("critic/alpha_optimizer_step", self.nvtx_profile_ranges):
                         self.alpha_optimizer.step()
 
@@ -1596,7 +1452,6 @@ class FastSACLearner:
                 with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
                     self.scaler.scale(actor_loss).backward()
                 self.scaler.unscale_(self.actor_optimizer)
-                self._reduce_gradients(self.actor)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
                         actor_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1610,7 +1465,6 @@ class FastSACLearner:
             else:
                 with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
                     actor_loss.backward()
-                self._reduce_gradients(self.actor)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
                         actor_grad_norm = torch.nn.utils.clip_grad_norm_(

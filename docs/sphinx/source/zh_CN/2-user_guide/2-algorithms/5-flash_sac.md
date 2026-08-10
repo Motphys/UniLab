@@ -28,16 +28,8 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
-FlashSAC 支持共享的 off-policy 多 GPU runner。使用方式：
-
-```bash
-uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
-  training.num_gpus=2 \
-  training.multi_gpu_sync_mode=local_sgd
-```
-
-多 GPU FlashSAC 要求 CUDA 和同步采集。learner 自己拥有分布式同步 hook：
-`sync_sgd` 下同步梯度，`local_sgd` 下平均参数和 persistent normalization buffer，
-reward normalizer 由 rank0 按 replay 写入顺序更新后广播给其它 rank。
+FlashSAC 要求同步采集，并与 SAC、TD3 共用唯一 replay 路径：有界 host ingress 加
+一个驻留在 CUDA 或 Apple MPS learner device 上的完整 replay ring。CPU 与 XPU
+training 不受支持。
 
 日志根目录为 `logs/flash_sac/<task>/`。

@@ -2,6 +2,8 @@
 
 Training in UniLab is config-first. Use the package CLI for day-to-day runs and
 the script entrypoints when debugging the underlying Hydra composition.
+Off-policy SAC, TD3, and FlashSAC runs use one learner device per training
+process.
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -36,12 +38,6 @@ How `algo.load_run`, checkpoint files, and replay commands fit together.
 Run UniLab inside the checked-in Linux NVIDIA image workflow.
 :::
 
-:::{grid-item-card} Multi-GPU
-:link: 4-multi_gpu
-:link-type: doc
-Current off-policy multi-GPU knobs and their config boundary.
-:::
-
 ::::
 
 ## When to Drop to `scripts/train_*.py`
@@ -66,7 +62,6 @@ Day-to-day runs should use the unified CLI. Reach for the low-level
 1-cli_reference
 2-hydra_config
 3-logging
-4-multi_gpu
 5-resume_and_checkpoints
 6-docker
 ```

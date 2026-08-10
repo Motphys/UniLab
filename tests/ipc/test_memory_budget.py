@@ -17,8 +17,6 @@ def test_offpolicy_memory_budget_notes_native_exclusions() -> None:
         obs_dim=98,
         action_dim=29,
         critic_dim=101,
-        batch_size=8192,
-        updates_per_step=8,
     )
 
     breakdown = str(estimate["breakdown"])
@@ -27,21 +25,23 @@ def test_offpolicy_memory_budget_notes_native_exclusions() -> None:
     assert "driver memory" in breakdown
 
 
-def test_offpolicy_memory_budget_includes_opt_in_critic_graph_staging() -> None:
-    estimate = estimate_offpolicy_bytes(
-        num_envs=10,
-        replay_buffer_n=4,
-        obs_dim=2,
-        action_dim=1,
-        critic_dim=3,
-        batch_size=5,
-        updates_per_step=2,
-        critic_graph_staging_width=9,
-    )
+def test_device_replay_host_budget_is_independent_of_replay_capacity() -> None:
+    estimates = [
+        estimate_offpolicy_bytes(
+            num_envs=10,
+            replay_buffer_n=replay_buffer_n,
+            obs_dim=2,
+            action_dim=1,
+            critic_dim=3,
+            ingress_depth=2,
+        )
+        for replay_buffer_n in (4, 4000)
+    ]
 
-    assert estimate["critic_graph_staging_slots"] == 5 * 2 * 9 * 4 * 2
-    assert int(estimate["total"]) >= int(estimate["critic_graph_staging_slots"])
-    assert "Critic graph staging" in str(estimate["breakdown"])
+    assert estimates[0]["replay_buffer"] == 0
+    assert estimates[0]["bounded_ingress_slots"] > 0
+    assert estimates[0]["total"] == estimates[1]["total"]
+    assert "authoritative on the learner device" in str(estimates[0]["breakdown"])
 
 
 def test_shared_memory_budget_unknown_available_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:

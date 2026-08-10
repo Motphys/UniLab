@@ -4,12 +4,13 @@ from typing import Any
 
 from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
-from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 from unilab.utils.device import get_default_device
 
 
-class FastSACRunner(OffPolicyRunner):
-    """FastSAC using OffPolicyRunner infrastructure."""
+class FastSACRunner(DoubleBufferOffPolicyRunner):
+    """FastSAC using the single device-authoritative replay path."""
 
     def __init__(
         self,
@@ -43,7 +44,6 @@ class FastSACRunner(OffPolicyRunner):
         use_cuda_graph_actor: bool = False,
         sim_backend: str = "mujoco",
         use_symmetry: bool = False,
-        world_size: int = 1,
         seed: int | None = None,
         trace_enabled: bool = False,
         trace_output_dir: str | None = None,
@@ -54,6 +54,7 @@ class FastSACRunner(OffPolicyRunner):
         from unilab.base.registry import ensure_registries
         from unilab.training.seed import apply_training_seed
 
+        device = require_offpolicy_replay_device(device or get_default_device())
         ensure_registries()
         apply_training_seed(seed, torch_runtime=True, cuda=True)
         env: Any = registry.make(
@@ -65,7 +66,6 @@ class FastSACRunner(OffPolicyRunner):
         act_space_shape = env.action_space.shape
         assert act_space_shape is not None
         action_dim = act_space_shape[0]
-        device = device or get_default_device()
         symmetry_augmentation = None
         if use_symmetry:
             symmetry_augmentation = env.build_symmetry_augmentation(device=device)
@@ -99,7 +99,6 @@ class FastSACRunner(OffPolicyRunner):
             use_cuda_graph_actor=use_cuda_graph_actor,
             use_symmetry=use_symmetry,
             symmetry_augmentation=symmetry_augmentation,
-            world_size=getattr(self, "world_size", world_size),
             critic_obs_dim=critic_obs_dim,
         )
 

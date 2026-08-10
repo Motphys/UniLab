@@ -24,7 +24,7 @@ def test_offpolicy_logger_defers_warmup_refresh_until_training_step(monkeypatch)
     monkeypatch.setattr(logger, "_refresh", fake_refresh)
 
     logger.log_buffer_fill(32, 64)
-    logger.log_status("Replay pipeline: cpu_pinned_double_buffer")
+    logger.log_status("Replay storage: device-authoritative bounded ingress")
 
     assert refresh_calls == []
     assert logger._buffer_size == 32
