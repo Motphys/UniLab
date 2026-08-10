@@ -140,6 +140,10 @@ class SharedWeightSync:
                 )
         return version
 
+    def create_device_applier(self, state_dict, device) -> DeviceWeightApplier:
+        """Build a DeviceWeightApplier bound to this sync's layout."""
+        return DeviceWeightApplier(self, state_dict, device)
+
     def cleanup(self) -> None:
         try:
             self._shm.close()
@@ -152,3 +156,93 @@ class SharedWeightSync:
             self._shm.close()
         except Exception:
             pass
+
+
+class DeviceWeightApplier:
+    """Device-side fast apply path for one SharedWeightSync snapshot layout.
+
+    One refresh is a single flat host snapshot copy under the lock, one flat
+    H2D copy into persistent device staging, then on-device copies into the
+    target tensors. Host/device staging and the layout are computed once and
+    reused, so steady-state refreshes do not allocate or rebuild host arrays.
+
+    The shared-memory snapshot, version and lock semantics are unchanged: the
+    host copy runs entirely under the existing lock, so a refresh never sees a
+    partially published state.
+    """
+
+    def __init__(self, weight_sync: SharedWeightSync, state_dict, device) -> None:
+        import torch
+
+        self._sync = weight_sync
+        self._device = torch.device(device)
+
+        names = weight_sync._param_names
+        shapes = weight_sync._param_shapes
+        self._dst_views = []
+        self._offsets: list[tuple[int, int]] = []
+        offset = 0
+        for name in names:
+            tensor = state_dict[name]
+            if tuple(tensor.shape) != tuple(shapes[name]):
+                raise ValueError(
+                    f"DeviceWeightApplier shape mismatch for '{name}': "
+                    f"{tuple(tensor.shape)} != {tuple(shapes[name])}"
+                )
+            n = tensor.numel()
+            self._offsets.append((offset, n))
+            self._dst_views.append(tensor.data.view(-1))
+            offset += n
+
+        total_numel = offset
+        if total_numel != weight_sync._buffer.size:
+            raise ValueError(
+                "DeviceWeightApplier layout mismatch: state_dict total numel "
+                f"{total_numel} != snapshot numel {weight_sync._buffer.size}"
+            )
+
+        self._host = torch.empty(
+            total_numel, dtype=torch.float32, pin_memory=self._device.type == "cuda"
+        )
+        self._host_np = self._host.numpy()
+        self._dev = torch.empty(total_numel, dtype=torch.float32, device=self._device)
+        # Guards reuse of the (pinned) host staging buffer: the previous async
+        # H2D must be finished before apply() overwrites the host buffer again.
+        self._h2d_done: Any | None = torch.cuda.Event() if self._device.type == "cuda" else None
+
+    def apply(self) -> int:
+        """Apply the latest published snapshot to the bound tensors; return its version."""
+        _trace_ns = time.perf_counter_ns()
+        _thread_ns = time.thread_time_ns() if self._sync.trace_thread_time else None
+        if self._h2d_done is not None:
+            self._h2d_done.synchronize()
+
+        if self._sync._lock is not None:
+            with self._sync._lock:
+                np.copyto(self._host_np, self._sync._buffer)
+                version = int(self._sync._version_arr[0])
+        else:
+            np.copyto(self._host_np, self._sync._buffer)
+            version = int(self._sync._version_arr[0])
+
+        self._dev.copy_(self._host, non_blocking=True)
+        if self._h2d_done is not None:
+            self._h2d_done.record()
+        for (offset, n), dst in zip(self._offsets, self._dst_views, strict=True):
+            dst.copy_(self._dev[offset : offset + n])
+
+        if self._sync.trace_recorder is not None:
+            self._sync.trace_recorder.add_slice(
+                "weight_sync/read_weights_into_device_actor",
+                category="weight_sync",
+                start_ns=_trace_ns,
+                end_ns=time.perf_counter_ns(),
+                args={"version": version, "device": self._device.type},
+            )
+            if _thread_ns is not None:
+                self._sync.trace_recorder.add_counter(
+                    "weight_sync/read_thread_cpu_us",
+                    (time.thread_time_ns() - _thread_ns) / 1000.0,
+                    category="weight_sync",
+                )
+        return version

@@ -297,11 +297,19 @@ def _run_collector(
     replay_buffer.trace_thread_time = trace_thread_time
     replay_buffer.attach_stop_event(stop_event)
 
-    # Load initial weights
-    sd = dict(actor.state_dict())
-    weight_sync.read_weights_into(sd)
-    actor.load_state_dict(sd)
-    local_weight_version = weight_sync.version
+    # Load initial weights. read_weights_into / the device applier copy
+    # directly into the actor's own state-dict storage, so no follow-up
+    # actor.load_state_dict(sd) is needed (it would be a redundant self-copy).
+    collector_device = torch.device(collector_infer_device)
+    weight_applier = None
+    if collector_device.type == "cuda":
+        # CUDA collectors take the flat-snapshot fast path (single H2D +
+        # on-device apply). CPU and other accelerators keep the reference path.
+        weight_applier = weight_sync.create_device_applier(actor.state_dict(), collector_device)
+        local_weight_version = weight_applier.apply()
+    else:
+        sd = dict(actor.state_dict())
+        local_weight_version = weight_sync.read_weights_into(sd)
 
     total_steps = 0
     ep_rewards = []
@@ -340,9 +348,11 @@ def _run_collector(
             # Check for weight updates
             if weight_sync.version > local_weight_version:
                 _wt_ns = _time.perf_counter_ns()
-                sd = dict(actor.state_dict())
-                local_weight_version = weight_sync.read_weights_into(sd)
-                actor.load_state_dict(sd)
+                if weight_applier is not None:
+                    local_weight_version = weight_applier.apply()
+                else:
+                    sd = dict(actor.state_dict())
+                    local_weight_version = weight_sync.read_weights_into(sd)
                 if trace_recorder:
                     trace_recorder.add_slice(
                         "collector/check_weight_update",
