@@ -35,6 +35,18 @@ from unilab.ipc.replay_pipelines.gpu_resident import (
 from unilab.logging import OffPolicyLogger, TraceRecorder
 from unilab.training.seed import derive_worker_seed
 
+# Terminal/W&B display names for the off-policy algo types. Keep these
+# user-facing (no internal "Fast*" implementation prefixes).
+_ALGO_DISPLAY_NAMES = {
+    "sac": "SAC",
+    "td3": "TD3",
+    "flashsac": "FlashSAC",
+}
+
+
+def algo_display_name(algo_type: str) -> str:
+    return _ALGO_DISPLAY_NAMES.get(algo_type, algo_type.upper())
+
 
 class _CollectorDiedError(RuntimeError):
     """Raised by _safe_put_trainer_done when collector death is detected.
@@ -257,7 +269,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
         # --- logger ---
         logger = OffPolicyLogger(
-            algo_name=f"Fast{self.algo_type.upper()}",
+            algo_name=algo_display_name(self.algo_type),
             max_iterations=max_iterations,
             num_envs=self.num_envs,
             env_name=self.env_name,
