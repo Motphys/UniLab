@@ -13,13 +13,12 @@ TAGS = {
     "iter_ms": "perf/iter_ms",
     "steps_per_sec": "perf/steps_per_sec",
     "collector_active_steps_per_sec": "perf/collector_active_steps_per_sec",
-    "collector_replay_ms": "timing/collector_replay_ms",
+    "collector_replay_write_ms": "timing/collector_replay_write_ms",
     "learner_collector_wait_ms": "timing/learner_collector_wait_ms",
     "learner_replay_batch_wait_ms": "timing/learner_replay_batch_wait_ms",
     "learner_replay_sample_ms": "timing/learner_replay_sample_ms",
-    "learner_rank_barrier_ms": "timing/learner_rank_barrier_ms",
     "learner_incremental_h2d_ms": "timing/learner_incremental_h2d_ms",
-    "learner_sync_coordination_ms": "timing/learner_sync_coordination_ms",
+    "learner_collector_release_ms": "timing/learner_collector_release_ms",
     "learner_train_ms": "timing/learner_train_ms",
 }
 

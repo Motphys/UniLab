@@ -29,11 +29,11 @@ class _DummyActor:
 def test_compute_collector_active_steps_per_sec_includes_active_phases_only() -> None:
     steps_per_sec = compute_collector_active_steps_per_sec(
         {
-            "weight_sync_ms": 1.0,
-            "action_select_ms": 2.0,
+            "weight_apply_ms": 1.0,
+            "policy_infer_ms": 2.0,
             "env_step_ms": 10.0,
-            "replay_ms": 3.0,
-            "sync_coordination_ms": 100.0,
+            "replay_write_ms": 3.0,
+            "sync_idle_ms": 100.0,
         },
         num_envs=32,
     )
@@ -63,7 +63,7 @@ def test_extract_env_step_breakdown_timing_ms_maps_env_owned_keys_only() -> None
 def test_compute_collector_active_steps_per_sec_returns_none_without_active_time() -> None:
     assert (
         compute_collector_active_steps_per_sec(
-            {"sync_coordination_ms": 100.0},
+            {"sync_idle_ms": 100.0},
             num_envs=32,
         )
         is None

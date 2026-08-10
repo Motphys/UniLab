@@ -505,7 +505,7 @@ def test_offpolicy_logger_logs_wait_and_iter_throughput(monkeypatch):
     assert payload["timing/learner_replay_sample_ms"] == 0.0
     assert payload["timing/learner_train_ms"] == 750.0
     assert "timing/learner_param_sync_ms" not in payload
-    assert payload["timing/learner_weight_sync_ms"] == 50.0
+    assert payload["timing/learner_weight_publish_ms"] == 50.0
     assert payload["timing/learner_other_ms"] == pytest.approx(80.0)
     assert payload["perf/learner_pipeline_ms"] == pytest.approx(820.0)
     assert payload["perf/iter_ms"] == pytest.approx(10_900.0)
@@ -534,11 +534,11 @@ def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
         env_name="Go2JoystickFlat",
         log_backend="wandb",
     )
-    wandb_logger.update_collector_timing({"replay_ms": 1.25})
+    wandb_logger.update_collector_timing({"replay_write_ms": 1.25})
     wandb_logger.log_step(iteration=3, metrics={}, train_time=0.1)
 
     payload, _ = fake_wandb.log_calls[-1]
-    assert payload["timing/collector_replay_ms"] == pytest.approx(1.25)
+    assert payload["timing/collector_replay_write_ms"] == pytest.approx(1.25)
     wandb_logger.finish()
 
     tb_writer = _FakeTensorBoardWriter()
@@ -548,10 +548,10 @@ def test_offpolicy_logger_logs_collector_phase_timing_to_backends(monkeypatch):
         log_backend="none",
     )
     tb_logger._tb_writer = tb_writer
-    tb_logger.update_collector_timing({"replay_ms": 2.5})
+    tb_logger.update_collector_timing({"replay_write_ms": 2.5})
     tb_logger.log_step(iteration=4, metrics={}, train_time=0.1)
 
-    assert ("timing/collector_replay_ms", 2.5, 4) in tb_writer.scalars
+    assert ("timing/collector_replay_write_ms", 2.5, 4) in tb_writer.scalars
     tb_logger.finish()
 
 
