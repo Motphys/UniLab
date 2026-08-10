@@ -8,7 +8,6 @@ keeps the lower-level scripts available for debugging Hydra composition.
 | Goal | Command Shape | Routed Script |
 | --- | --- | --- |
 | PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `scripts/train_rsl_rl.py` |
-| MLX PPO | `uv run train --algo mlx_ppo --task <task> --sim <backend>` | `scripts/train_mlx_ppo.py` |
 | APPO | `uv run train --algo appo --task <task> --sim <backend>` | `scripts/train_appo.py` |
 | SAC | `uv run train --algo sac --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
 | TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |

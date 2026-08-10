@@ -27,7 +27,6 @@ dependencies = [
     "rich",
     "tqdm",
     "typing-extensions",
-    "mlx ; sys_platform == 'darwin'",
     "lark>=1.3.1",
     "wandb",
     "notebook>=7.5.5",
@@ -165,7 +164,6 @@ venv = ".venv"
 include = ["src/unilab"]
 exclude = [
     "src/unilab/algos/torch/rsl_rl/",       # vendored third-party
-    "src/unilab/algos/mlx/",                # MLX stubs incomplete, macOS-only
     "src/unilab/algos/torch/common/ane_*",  # Apple Neural Engine, macOS-only
     "src/unilab/base/backend/",             # mujoco-uni-runtime stubs mismatch; optional backends
     "src/unilab/envs/",                     # mujoco-uni-runtime internal API, stubs mismatch

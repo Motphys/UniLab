@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import re
 from dataclasses import dataclass
 from enum import IntEnum
@@ -110,13 +109,6 @@ ENTRYPOINT_SPECS: tuple[EntrypointSpec, ...] = (
         generic_tested=True,
     ),
     EntrypointSpec(
-        entrypoint_id="ppo_mlx",
-        label="PPO (mlx)",
-        config_dir="conf/ppo/task",
-        task_glob="*/*.yaml",
-        generic_tested=False,
-    ),
-    EntrypointSpec(
         entrypoint_id="appo_torch",
         label="APPO (torch)",
         config_dir="conf/appo/task",
@@ -182,18 +174,6 @@ def _load_registry_backends() -> dict[str, set[str]]:
     }
 
 
-def _mlx_tested_task_slugs(root: Path) -> set[str]:
-    config_test_path = root / "tests" / "config" / "test_config_system.py"
-    content = config_test_path.read_text(encoding="utf-8")
-    match = re.search(r"_PPO_MLX_TASKS\s*=\s*(\{[^\n]+\})", content)
-    if match is None:
-        return set()
-    parsed = ast.literal_eval(match.group(1))
-    if not isinstance(parsed, set):
-        return set()
-    return {item for item in parsed if isinstance(item, str)}
-
-
 def _has_checked_in_benchmark_manifest(root: Path) -> bool:
     del root
     return False
@@ -222,8 +202,6 @@ def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -
             spec.entrypoint_id,
             task_slug,
         ) in _MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS
-    if spec.entrypoint_id == "ppo_mlx":
-        return task_slug in _mlx_tested_task_slugs(root)
     return spec.generic_tested
 
 
@@ -295,7 +273,6 @@ def build_support_rows(root: Path | None = None) -> list[SupportRow]:
 
 def render_support_matrix(root: Path | None = None) -> str:
     resolved_root = repo_root(root)
-    mlx_tested_tasks = sorted(_mlx_tested_task_slugs(resolved_root), key=_task_sort_key)
     benchmark_note = (
         "未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。"
     )
@@ -318,7 +295,7 @@ def render_support_matrix(root: Path | None = None) -> str:
         "owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
         "`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 "
-        "backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`；PPO (mlx) 仍为 `Configured`。"
+        "backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。"
         "mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、"
         "interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry "
         "identity，不代表对应算法、terrain、完整 DR 或 production training 支持。",
@@ -348,10 +325,6 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.",
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
-            "- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: "
-            + ", ".join(f"`{task}`" for task in mlx_tested_tasks)
-            + ".",
-            "- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.",
         ]
     )
     return "\n".join(lines)

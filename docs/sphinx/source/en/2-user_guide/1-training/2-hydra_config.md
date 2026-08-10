@@ -8,7 +8,6 @@ identity of the task, backend, reward, scene, and task-specific runtime fields.
 | Stack | Owner YAML Shape |
 | --- | --- |
 | PPO | `conf/ppo/task/<task>/<backend>.yaml` |
-| MLX PPO | `conf/ppo/task/<task>/<backend>.yaml` with `conf/ppo/config_mlx.yaml` |
 | APPO | `conf/appo/task/<task>/<backend>.yaml` |
 | SAC / TD3 / FlashSAC | `conf/offpolicy/task/<algo>/<task>/<backend>.yaml` |
 | HIM-PPO | `conf/ppo_him/task/<task>/<backend>.yaml` |

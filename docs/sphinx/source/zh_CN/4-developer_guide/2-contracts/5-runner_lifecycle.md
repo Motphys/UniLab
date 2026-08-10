@@ -17,7 +17,6 @@ runner；它们不应另起第二套 collector/learner 协议。
 
 - `scripts/train_rsl_rl.py` 使用 `RslRlVecEnvWrapper` 与 RSL-RL 的
   `OnPolicyRunner`。
-- `scripts/train_mlx_ppo.py` 使用 MLX PPO 的 trainer 路径。
 - `scripts/train_appo.py` 使用 `APPORunner`、`RolloutRingBuffer` 与
   `SharedWeightSync`。
 - `scripts/train_offpolicy.py` 使用 off-policy runner，配合 `ReplayBuffer` 与

@@ -15,7 +15,7 @@ from typing import Sequence
 
 from unilab.demo import run_demo
 
-SUPPORTED_ALGOS = ("ppo", "mlx_ppo", "appo", "sac", "td3", "flashsac")
+SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
 SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
@@ -100,8 +100,6 @@ def _check_load_run(load_run: str) -> None:
 
 
 def _check_runtime_requirements(algo: str, sim: str) -> None:
-    if algo == "mlx_ppo" and platform.system() != "Darwin":
-        raise SystemExit("mlx_ppo is only supported on macOS; use --algo ppo for torch PPO.")
     if sim == "mujoco" and find_spec("mujoco") is None:
         raise SystemExit(
             "sim=mujoco requires the MuJoCo extra. Install it with `uv sync --extra mujoco`."
@@ -192,13 +190,6 @@ def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> R
     if algo == "ppo":
         return Route(
             script_name="train_rsl_rl.py",
-            config_group="ppo",
-            owner_task=f"{task}/{owner}.yaml",
-            generated_overrides=(f"task={task_choice}",),
-        )
-    if algo == "mlx_ppo":
-        return Route(
-            script_name="train_mlx_ppo.py",
             config_group="ppo",
             owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),

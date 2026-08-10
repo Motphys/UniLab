@@ -49,7 +49,6 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 ## Pointers
 
 - PPO: `scripts/train_rsl_rl.py`
-- MLX PPO: `scripts/train_mlx_ppo.py`
 - APPO: `scripts/train_appo.py`
 - SAC / TD3: `scripts/train_offpolicy.py`
 - env contract: `src/unilab/base/np_env.py`
@@ -57,7 +56,6 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - training run helpers: `src/unilab/training/run.py`
 - visualization helpers: `src/unilab/visualization/`
 - shared numeric helpers: `src/unilab/utils/rotation.py`, `src/unilab/utils/geometry.py`
-- MLX rotation helpers: `src/unilab/algos/mlx/common/rotation.py`
 - config schema: `src/unilab/structured_configs.py`
 - async runner: `src/unilab/ipc/async_runner.py`
 - sim2sim 跨后端契约: `src/unilab/training/sim2sim.py`
@@ -97,7 +95,7 @@ gh run list --status=failure
 ### 常用组合
 ```bash
 gh api repos/unilabsim/UniLab/issues/174 --jq '.title, .body'
-git push -u origin fix/issue-174-mlx-ppo-config-alignment
+git push -u origin fix/issue-174-ppo-config-alignment
 gh pr create --title "fix: xxx" --body "Fixes #174" --base main
 ```
 

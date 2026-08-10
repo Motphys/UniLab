@@ -9,10 +9,10 @@ The async paths use a CPU simulation to accelerator learner pipeline:
 
 ```text
 CPU physics backend -> collector / IPC -> learner
-MuJoCo or Motrix      shared memory       torch or mlx
+MuJoCo or Motrix      shared memory       torch
 ```
 
-PPO and MLX PPO are synchronous single-process paths. APPO and off-policy
+PPO is a synchronous single-process path. APPO and off-policy
 algorithms use the async runner, shared buffers, and weight synchronization
 primitives under `src/unilab/ipc/` and `src/unilab/algos/`.
 
@@ -78,7 +78,6 @@ Use `make test` for the fast path and `make test-all` (`make check` plus
 ## High-Signal Files
 
 - `scripts/train_rsl_rl.py`
-- `scripts/train_mlx_ppo.py`
 - `scripts/train_appo.py`
 - `scripts/train_offpolicy.py`
 - `src/unilab/base/np_env.py`

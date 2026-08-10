@@ -9,10 +9,10 @@ UniLab 是一个 contract 驱动的机器人学习基础设施仓库。其核心
 
 ```text
 CPU physics backend -> collector / IPC -> learner
-MuJoCo or Motrix      shared memory       torch or mlx
+MuJoCo or Motrix      shared memory       torch
 ```
 
-PPO 与 MLX PPO 是同步的单进程路径。APPO 与 off-policy 算法则使用异步 runner、
+PPO 是同步的单进程路径。APPO 与 off-policy 算法则使用异步 runner、
 共享缓冲区，以及位于 `src/unilab/ipc/` 与 `src/unilab/algos/` 下的权重同步原语。
 
 ## 分层边界
@@ -70,7 +70,6 @@ PPO 与 MLX PPO 是同步的单进程路径。APPO 与 off-policy 算法则使�
 ## 关键文件
 
 - `scripts/train_rsl_rl.py`
-- `scripts/train_mlx_ppo.py`
 - `scripts/train_appo.py`
 - `scripts/train_offpolicy.py`
 - `src/unilab/base/np_env.py`

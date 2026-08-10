@@ -10,7 +10,7 @@ changing behavior.
 | `conf/` | Hydra roots and task owner YAMLs. The top-level CLI exposes backend selection as `--task` plus `--sim`, then composes the matching owner YAML. |
 | `src/unilab/base/` | Registry, env state, scene, and backend contracts. |
 | `src/unilab/envs/` | Task env implementations and task-specific reset, reward, observation, and DR logic. |
-| `src/unilab/algos/` | PPO, APPO, off-policy, MLX, HIM-PPO, and HORA algorithm code. |
+| `src/unilab/algos/` | PPO, APPO, off-policy, HIM-PPO, and HORA algorithm code. |
 | `src/unilab/ipc/` | Shared-memory and async runner primitives. |
 | `src/unilab/training/` | Shared training helpers for logging, playback, seed handling, and config guards. |
 | `src/unilab/visualization/` | Playback, rendering, NaN inspection, and scene/export utilities. |
@@ -23,7 +23,6 @@ changing behavior.
 The main config roots are:
 
 - `conf/ppo/config.yaml` for torch PPO.
-- `conf/ppo/config_mlx.yaml` for MLX PPO.
 - `conf/appo/config.yaml` for APPO.
 - `conf/offpolicy/config.yaml` plus `conf/offpolicy/algo/*.yaml` for SAC,
   TD3, and FlashSAC.

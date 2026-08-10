@@ -23,7 +23,6 @@ RUN_PATH_IGNORED_PARTS = ("__pycache__", "outputs")
 SCRIPT_ASSIGNMENT_PATTERN = re.compile(r'^([A-Za-z0-9_.-]+)\s*=\s*"([^"]+)"\s*(?:#.*)?$')
 DEFAULT_ALGO_LOG_NAMES = {
     "ppo": "rsl_rl_ppo",
-    "mlx_ppo": "mlx_rl_train",
     "appo": "appo",
     "sac": "fast_sac",
     "td3": "fast_td3",
@@ -173,7 +172,7 @@ def _task_entries_for_offpolicy(root: Path) -> list[TaskCompletionEntry]:
 
 def _task_entries(root: Path) -> tuple[TaskCompletionEntry, ...]:
     entries = [
-        *_task_entries_for_group(root, "ppo", ("ppo", "mlx_ppo")),
+        *_task_entries_for_group(root, "ppo", ("ppo",)),
         *_task_entries_for_group(root, "appo", ("appo",)),
         *_task_entries_for_offpolicy(root),
     ]

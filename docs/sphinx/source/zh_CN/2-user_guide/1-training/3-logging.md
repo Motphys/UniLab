@@ -21,7 +21,6 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 | 算法 | 日志根目录 | `algo_log_name` 来源 |
 | --- | --- | --- |
 | PPO | `logs/rsl_rl_ppo/<task>/` | `conf/ppo/config.yaml` |
-| MLX PPO | `logs/mlx_rl_train/<task>/` | `conf/ppo/config_mlx.yaml` |
 | APPO | `logs/appo/<task>/` | `conf/appo/config.yaml` |
 | SAC | `logs/fast_sac/<task>/` | `conf/offpolicy/algo/sac.yaml` |
 | FlashSAC | `logs/flash_sac/<task>/` | `conf/offpolicy/algo/flashsac.yaml` |

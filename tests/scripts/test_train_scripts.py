@@ -2,7 +2,6 @@
 
 Coverage targets:
   - train_offpolicy.py: Hydra defaults, default_device(), resolve_checkpoint_path()
-  - train_mlx_ppo.py:   get_latest_run(), get_latest_checkpoint()  (skipped if mlx absent)
   - play_interactive.py: resolve_checkpoint()                       (skipped if mujoco absent)
 """
 
@@ -10,7 +9,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 import types
 from pathlib import Path
@@ -99,20 +97,6 @@ def test_analyze_offpolicy_trace_reports_training_e2e(tmp_path, capsys):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _mlx_runtime_usable() -> bool:
-    """Probe whether importing mlx.core is safe in a subprocess on this host."""
-    if sys.platform != "darwin":
-        return False
-    if importlib.util.find_spec("mlx.core") is None:
-        return False
-    result = subprocess.run(
-        [sys.executable, "-c", "import mlx.core"], capture_output=True, text=True, timeout=10
-    )
-    return result.returncode == 0
-
-
-_HAS_MLX = _mlx_runtime_usable()
 
 try:
     import mujoco  # noqa: F401
@@ -1905,107 +1889,6 @@ def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
     np.testing.assert_allclose(captured["priv_info"], reset_priv)
     assert captured["deterministic"] is True
     assert not (run_dir / "policy.onnx").exists()
-
-
-# ---------------------------------------------------------------------------
-# train_mlx_ppo.py — get_latest_run() / get_latest_checkpoint()
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_run_nonexistent_dir(tmp_path):
-    mod = _load_script("train_mlx_ppo")
-    assert mod.get_latest_run(tmp_path / "nonexistent") is None
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_run_empty_dir(tmp_path):
-    mod = _load_script("train_mlx_ppo")
-    assert mod.get_latest_run(tmp_path) is None
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_run_returns_last_sorted(tmp_path):
-    mod = _load_script("train_mlx_ppo")
-    (tmp_path / "2024-01-01_mujoco").mkdir()
-    (tmp_path / "2024-03-15_mujoco").mkdir()
-    (tmp_path / "2024-02-10_mujoco").mkdir()
-    result = mod.get_latest_run(tmp_path)
-    assert result is not None
-    assert result.name == "2024-03-15_mujoco"
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_checkpoint_nonexistent_dir(tmp_path):
-    mod = _load_script("train_mlx_ppo")
-    assert mod.get_latest_checkpoint(tmp_path / "no_such_dir") is None
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_checkpoint_empty_dir(tmp_path):
-    mod = _load_script("train_mlx_ppo")
-    assert mod.get_latest_checkpoint(tmp_path) is None
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_checkpoint_picks_highest_iter(tmp_path):
-    mod = _load_script("train_mlx_ppo")
-    (tmp_path / "model_0.safetensors").write_bytes(b"")
-    (tmp_path / "model_50.safetensors").write_bytes(b"")
-    (tmp_path / "model_200.safetensors").write_bytes(b"")
-    result = mod.get_latest_checkpoint(tmp_path)
-    assert result is not None
-    assert result.name == "model_200.safetensors"
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_get_latest_checkpoint_ignores_non_safetensors(tmp_path):
-    """Only .safetensors files count; .pt files must be ignored."""
-    mod = _load_script("train_mlx_ppo")
-    (tmp_path / "model_999.pt").write_bytes(b"")  # should be ignored
-    assert mod.get_latest_checkpoint(tmp_path) is None
-
-
-@pytest.mark.skipif(not _HAS_MLX, reason="mlx not installed")
-def test_mlx_time_limit_bootstrap_values_use_final_observation():
-    mod = _load_script("train_mlx_ppo")
-
-    class FakeModel:
-        def __init__(self):
-            self.last_obs = None
-
-        def value(self, obs):
-            self.last_obs = obs
-            return mod.mx.sum(obs, axis=1)
-
-    state = type(
-        "State",
-        (),
-        {
-            "truncated": np.array([True, False]),
-            "final_observation": {
-                "obs": np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
-            },
-            "info": {
-                "final_observation": {
-                    "obs": np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
-                }
-            },
-        },
-    )()
-    model = FakeModel()
-
-    values = mod.get_time_limit_bootstrap_values(state, model, mod.mx.float32)
-
-    if values is None:
-        raise AssertionError("expected bootstrap values")
-    if model.last_obs is None:
-        raise AssertionError("expected model to receive observations")
-    np.testing.assert_allclose(np.array(values.tolist()), np.array([7.0, 18.0], dtype=np.float32))
-    np.testing.assert_allclose(
-        np.array(model.last_obs.tolist()),
-        np.array([[3.0, 4.0], [9.0, 9.0]], dtype=np.float32),
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -139,7 +139,7 @@ def test_offpolicy_training_terminal_refresh_uses_single_low_frequency_trigger(m
 
 def test_onpolicy_logger_uses_offpolicy_terminal_layout():
     logger = OnPolicyLogger(
-        algo_name="MLX_PPO",
+        algo_name="PPO",
         env_name="Go2JoystickFlat",
         max_iterations=10,
         num_envs=4,

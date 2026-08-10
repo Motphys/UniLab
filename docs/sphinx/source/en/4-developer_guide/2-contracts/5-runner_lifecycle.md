@@ -19,7 +19,6 @@ The training scripts follow the same high-level sequence:
 
 - `scripts/train_rsl_rl.py` uses `RslRlVecEnvWrapper` and RSL-RL's
   `OnPolicyRunner`.
-- `scripts/train_mlx_ppo.py` uses the MLX PPO trainer path.
 - `scripts/train_appo.py` uses `APPORunner`, `RolloutRingBuffer`, and
   `SharedWeightSync`.
 - `scripts/train_offpolicy.py` uses off-policy runners with `ReplayBuffer` and

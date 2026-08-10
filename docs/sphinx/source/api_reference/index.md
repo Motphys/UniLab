@@ -44,7 +44,7 @@ top of `base`.
 :::{grid-item-card} 🎛 `unilab.algos`
 :link: algos/index
 :link-type: doc
-PPO / APPO / SAC / TD3 variants, in PyTorch and MLX flavours.
+PPO / APPO / SAC / TD3 variants, in PyTorch.
 :::
 
 :::{grid-item-card} 🏋 `unilab.training`

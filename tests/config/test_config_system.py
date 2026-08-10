@@ -17,7 +17,6 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 CONF_DIR = Path(__file__).parent.parent.parent / "conf"
-_PPO_MLX_TASKS = {"go1_joystick_flat", "go2_joystick_flat", "g1_walk_flat"}
 _BACKENDS = ("mujoco", "mjwarp", "motrix")
 
 
@@ -89,17 +88,6 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
                         [f"task={task_dir.name}/{backend_file.stem}"],
                     )
                 )
-                if algo_dir == "ppo" and task_dir.name in _PPO_MLX_TASKS:
-                    cases.append(
-                        (
-                            algo_dir,
-                            "config_mlx",
-                            task_dir.name,
-                            expected_backend,
-                            str(backend_file.relative_to(CONF_DIR)),
-                            [f"task={task_dir.name}/{backend_file.stem}"],
-                        )
-                    )
 
     offpolicy_root = CONF_DIR / "offpolicy" / "task"
     for algo_root in sorted(path for path in offpolicy_root.iterdir() if path.is_dir()):
@@ -131,7 +119,6 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
         ("offpolicy", "config"),
         ("appo", "config"),
         ("ppo", "config"),
-        ("ppo", "config_mlx"),
     ],
 )
 def test_algo_config_composes(algo_dir: str, config_name: str):

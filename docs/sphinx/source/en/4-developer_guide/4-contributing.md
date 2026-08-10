@@ -119,7 +119,7 @@ tests/
 ├── terrains/     # terrain generators and scene materialization
 ├── ipc/          # shared-memory and async-runner primitives
 ├── scripts/      # training-script configs and entrypoint tooling
-├── algos/        # runner integration, RSL-RL PPO, MLX PPO
+├── algos/        # runner integration, RSL-RL PPO
 ├── integration/  # cross-module reward / config integration
 ├── training/     # training-run helpers
 └── utils/        # helpers and experiment tracking
@@ -131,9 +131,6 @@ Markers and skips:
 - `@pytest.mark.slow` marks full training/script smoke runs or cumulatively
   expensive backend matrices. CI skips them; run them locally with
   `make test-slow`. The `slow` marker is registered in `pyproject.toml`.
-- The MLX PPO tests (`tests/algos/test_mlx_ppo.py`) use
-  `pytest.importorskip(...)` so they skip automatically when MLX is unavailable,
-  which keeps them macOS-only in practice.
 
 Notes for `make test-slow`:
 

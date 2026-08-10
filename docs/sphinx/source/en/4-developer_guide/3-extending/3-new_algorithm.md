@@ -6,8 +6,7 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
 
 ## Choose The Integration Path
 
-- Synchronous on-policy examples: `scripts/train_rsl_rl.py` and
-  `scripts/train_mlx_ppo.py`.
+- Synchronous on-policy example: `scripts/train_rsl_rl.py`.
 - Async on-policy example: `scripts/train_appo.py` with `APPORunner`.
 - Off-policy examples: `scripts/train_offpolicy.py` with SAC, TD3, and
   FlashSAC configs under `conf/offpolicy/`.
@@ -42,5 +41,4 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
 - Structured config dataclasses: `src/unilab/structured_configs.py`
 - Training helpers: `src/unilab/training/common.py`,
   `src/unilab/training/run.py`
-- Existing algorithm packages: `src/unilab/algos/torch/`,
-  `src/unilab/algos/mlx/`
+- Existing algorithm packages: `src/unilab/algos/torch/`

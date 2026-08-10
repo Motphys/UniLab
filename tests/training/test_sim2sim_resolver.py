@@ -263,13 +263,6 @@ def test_dim_guard_translates_torch_size_mismatch():
     assert isinstance(excinfo.value.__cause__, RuntimeError)  # original chained
 
 
-def test_dim_guard_translates_mlx_shape_valueerror():
-    # mlx load_weights(strict=True) raises ValueError mentioning the expected shape.
-    with pytest.raises(CrossBackendIncompatibleError):
-        with policy_load_dim_guard(env_obs_dim=8, env_action_dim=2, algo_name="ppo"):
-            raise ValueError("Expected shape (256, 8) but received (256, 11)")
-
-
 def test_dim_guard_reraises_unrelated_errors_unchanged():
     # A non-dimension load failure must propagate as-is (not masked as a sim2sim error).
     with pytest.raises(RuntimeError) as excinfo:

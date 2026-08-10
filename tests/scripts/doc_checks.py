@@ -284,7 +284,6 @@ def check_argparse_vs_hydra(content: str, doc_path: Path, root: Path) -> list[st
     ]
     hydra_scripts = [
         "train_rsl_rl.py",
-        "train_mlx_ppo.py",
         "train_appo.py",
         "train_offpolicy.py",
     ]

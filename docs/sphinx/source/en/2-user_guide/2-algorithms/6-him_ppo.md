@@ -6,7 +6,7 @@ the committed task owner is `conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`.
 
 ## Current Entrypoint
 
-`src/unilab/cli.py` currently exposes `1-ppo`, `8-mlx_ppo`, `2-appo`, `3-sac`, `4-td3`,
+`src/unilab/cli.py` currently exposes `1-ppo`, `2-appo`, `3-sac`, `4-td3`,
 and `flashsac` through the top-level `uv run train` CLI. HIM-PPO is implemented
 by `scripts/train_him_ppo.py`, but it does not yet have a top-level `--algo`
 route.

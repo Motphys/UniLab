@@ -27,7 +27,6 @@ dependencies = [
     "rich",
     "tqdm",
     "typing-extensions",
-    "mlx ; sys_platform == 'darwin'",
     "lark>=1.3.1",
     "wandb",
     "notebook>=7.5.5",
@@ -154,7 +153,6 @@ venv = ".venv"
 include = ["src/unilab"]
 exclude = [
     "src/unilab/algos/torch/rsl_rl/",
-    "src/unilab/algos/mlx/",
     "src/unilab/algos/torch/common/ane_*",
     "src/unilab/base/backend/",
     "src/unilab/envs/",
