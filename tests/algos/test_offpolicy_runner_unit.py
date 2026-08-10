@@ -190,6 +190,9 @@ class _FakeLogger:
     def set_collection_sync(self, *args):
         del args
 
+    def set_collector_infer_device(self, *args):
+        del args
+
     def log_status(self, value):
         self.statuses.append(value)
 

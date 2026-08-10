@@ -267,6 +267,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             log_backend=logger_type,
         )
         logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
+        logger.set_collector_infer_device(self.collector_infer_device)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
         logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))

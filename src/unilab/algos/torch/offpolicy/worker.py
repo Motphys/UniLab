@@ -23,16 +23,19 @@ from unilab.training.seed import apply_training_seed
 # Exclusive phases for one collector loop iteration (one vectorized env.step).
 # Every key is recorded once per iteration so the reported averages share one
 # denominator and can be summed without double counting.
+# - weight_apply_ms: check for and apply newly published learner weights
+# - replay_write_ms: pack transitions and write them into the bounded ingress
+# - sync_idle_ms: per-cycle bookkeeping and metrics reporting; in sync
+#   collection mode it is dominated by waiting for the learner release token,
+#   so it doubles as the collector idle indicator (excluded from Collector/s)
 COLLECTOR_TIMING_KEYS = (
-    "weight_sync_ms",
-    "action_select_ms",
+    "weight_apply_ms",
+    "policy_infer_ms",
     "env_step_ms",
-    "replay_ms",
-    "sync_coordination_ms",
+    "replay_write_ms",
+    "sync_idle_ms",
 )
-COLLECTOR_ACTIVE_TIMING_KEYS = tuple(
-    key for key in COLLECTOR_TIMING_KEYS if key != "sync_coordination_ms"
-)
+COLLECTOR_ACTIVE_TIMING_KEYS = tuple(key for key in COLLECTOR_TIMING_KEYS if key != "sync_idle_ms")
 
 
 def resolve_collector_actor_dims(
@@ -367,7 +370,7 @@ def _run_collector(
                     if stats is not None:
                         # Apply stats to a local normalizer if needed, or directly to actor
                         pass  # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "weight_sync_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "weight_apply_ms", phase_start_ns)
 
             # Normalize obs_np
             obs_np_input = obs_np
@@ -412,7 +415,7 @@ def _run_collector(
                             "collector_infer_device": collector_infer_device,
                         },
                     )
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "action_select_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "policy_infer_ms", phase_start_ns)
 
             # Step environment
             _env_ns = _time.perf_counter_ns()
@@ -455,7 +458,7 @@ def _run_collector(
                 info=state.info,
                 truncated=truncated_np,
             )
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_write_ms", phase_start_ns)
 
             # ReplayBuffer `dones` follows the UniLab env lifecycle contract:
             # done = terminated | truncated. Learners use `truncated` to keep
@@ -489,7 +492,7 @@ def _run_collector(
                     start_ns=_rb_ns,
                     end_ns=_time.perf_counter_ns(),
                 )
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "replay_write_ms", phase_start_ns)
 
             # Track episode rewards - vectorized
             current_ep_rewards += rewards_np
@@ -507,9 +510,7 @@ def _run_collector(
             info_dict = state.info
             total_steps += num_envs
             env_steps_since_sync += 1
-            phase_start_ns = _record_phase_ms(
-                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
-            )
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_idle_ms", phase_start_ns)
 
             # Signal the learner once this collection chunk is ready.
             if (
@@ -528,19 +529,19 @@ def _run_collector(
                             end_ns=_time.perf_counter_ns(),
                         )
                     phase_start_ns = _record_phase_ms(
-                        cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                        cycle_timing_ms, "sync_idle_ms", phase_start_ns
                     )
                     _wait_ns = _time.perf_counter_ns()
                     while not stop_event.is_set():
                         try:
                             trainer_done_queue.get(timeout=0.001)
                             phase_start_ns = _record_phase_ms(
-                                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                                cycle_timing_ms, "sync_idle_ms", phase_start_ns
                             )
                             break
                         except queue.Empty:
                             phase_start_ns = _record_phase_ms(
-                                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                                cycle_timing_ms, "sync_idle_ms", phase_start_ns
                             )
                             continue
                     if trace_recorder:
@@ -558,14 +559,12 @@ def _run_collector(
                             except Exception:
                                 pass
                         phase_start_ns = _record_phase_ms(
-                            cycle_timing_ms, "sync_coordination_ms", phase_start_ns
+                            cycle_timing_ms, "sync_idle_ms", phase_start_ns
                         )
                     env_steps_since_sync = 0
             elif env_steps_since_sync >= env_steps_per_sync:
                 env_steps_since_sync = 0
-            phase_start_ns = _record_phase_ms(
-                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
-            )
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_idle_ms", phase_start_ns)
 
             # Progress log every 2 seconds
             now = _time.time()
@@ -631,9 +630,7 @@ def _run_collector(
                         timing_counts.clear()
                 except Exception as e:
                     print(f"[OffPolicyWorker] metrics enqueue error: {e}", file=sys.stderr)
-            phase_start_ns = _record_phase_ms(
-                cycle_timing_ms, "sync_coordination_ms", phase_start_ns
-            )
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_idle_ms", phase_start_ns)
 
             for key, value in cycle_timing_ms.items():
                 _record_timing_ms(timing_accum_ms, timing_counts, key, value)

@@ -87,15 +87,16 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
         env_name="Dummy",
         log_backend="none",
     )
+    logger.set_collector_infer_device("cpu")
     logger.update_collector_timing(
         {
-            "weight_sync_ms": 0.1,
-            "action_select_ms": 0.2,
+            "weight_apply_ms": 0.1,
+            "policy_infer_ms": 0.2,
             "env_step_ms": 14.0,
             "env_step_backend_ms": 12.5,
             "env_step_update_state_ms": 1.0,
             "env_step_reset_done_ms": 0.5,
-            "replay_ms": 0.3,
+            "replay_write_ms": 0.3,
         }
     )
 
@@ -104,22 +105,22 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
     collector_value_cells = list(table.columns[3].cells)
 
     assert collector_cells == [
-        "Weight Sync",
-        "Action Select",
+        "Weight Apply",
+        "Policy Infer(cpu)",
         "Env Step",
         "[dim]  Backend Step[/]",
         "[dim]  Update State[/]",
         "[dim]  Reset Done[/]",
-        "Replay",
+        "Replay Write",
     ]
     assert collector_value_cells == [
-        "0.1ms",
-        "0.2ms",
-        "14.0ms",
-        "[dim cyan]12.5ms ─┤[/]",
-        "[dim cyan]1.0ms ─┤[/]",
-        "[dim cyan]0.5ms ─┘[/]",
-        "0.3ms",
+        "    0.1ms    1%",
+        "    0.2ms    1%",
+        "   14.0ms   96%",
+        "[dim cyan]   12.5ms  86%─┤[/]",
+        "[dim cyan]    1.0ms   7%─┤[/]",
+        "[dim cyan]    0.5ms   3%─┘[/]",
+        "    0.3ms    2%",
     ]
 
     console = Console(width=100, record=True, force_terminal=False)

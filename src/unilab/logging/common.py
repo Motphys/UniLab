@@ -351,7 +351,7 @@ class BaseTrainingLogger:
         if include_status and self._status:
             fields.append((self._status, "dim italic"))
 
-        header_text = Text(no_wrap=True, overflow="ellipsis")
+        header_text = Text(no_wrap=True, overflow="ellipsis", justify="center")
         for index, (text, style) in enumerate(fields):
             if index > 0:
                 header_text.append(" | ", style="dim")
