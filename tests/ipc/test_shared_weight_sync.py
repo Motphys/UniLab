@@ -14,6 +14,25 @@ from unilab.ipc.weight_sync import SharedWeightSync
 _SPAWN_CTX = mp.get_context("spawn")
 
 
+class _Actor31(torch.nn.Module):
+    """Small actor-shaped module: 20 parameters + 11 persistent buffers = 31 state entries."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fc1 = torch.nn.Linear(8, 16)
+        self.ln1 = torch.nn.LayerNorm(16)
+        self.fc2 = torch.nn.Linear(16, 16)
+        self.ln2 = torch.nn.LayerNorm(16)
+        self.fc3 = torch.nn.Linear(16, 16)
+        self.ln3 = torch.nn.LayerNorm(16)
+        self.fc4 = torch.nn.Linear(16, 16)
+        self.ln4 = torch.nn.LayerNorm(16)
+        self.fc5 = torch.nn.Linear(16, 3)
+        self.ln5 = torch.nn.LayerNorm(3)
+        for i in range(11):
+            self.register_buffer(f"buf{i}", torch.zeros(4), persistent=True)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -175,5 +194,171 @@ def test_multiprocess_write_then_read(tiny_weight_shapes):
 
     for name in tiny_weight_shapes:
         assert torch.allclose(written_sd[name].float(), read_sd[name].float(), atol=1e-6)
+
+    ws.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# DeviceWeightApplier tests
+# ---------------------------------------------------------------------------
+
+
+def _make_31entry_state_dict(seed: int) -> dict:
+    module = _Actor31()
+    torch.manual_seed(seed)
+    return {name: torch.randn_like(t) for name, t in module.state_dict().items()}
+
+
+def _assert_state_dict_matches(target_sd: dict, expected_sd: dict) -> None:
+    for name, expected in expected_sd.items():
+        actual = target_sd[name].detach().cpu()
+        assert torch.allclose(actual, expected.float().cpu(), atol=1e-6), f"Mismatch for {name}"
+
+
+def test_device_applier_cpu_roundtrip(tiny_weight_shapes):
+    """Applier on CPU device copies the snapshot into the bound tensors."""
+    state_dict = _make_state_dict(tiny_weight_shapes)
+    ws = SharedWeightSync.from_state_dict(state_dict, create=True)
+
+    target = {name: torch.zeros(shape) for name, shape in tiny_weight_shapes.items()}
+    applier = ws.create_device_applier(target, torch.device("cpu"))
+    version = applier.apply()
+
+    assert version == ws.version
+    for name in tiny_weight_shapes:
+        assert torch.allclose(state_dict[name].float(), target[name].float(), atol=1e-6)
+
+    ws.cleanup()
+
+
+def test_device_applier_consecutive_versions(tiny_weight_shapes):
+    """Back-to-back version publishes each apply completely and return the new version."""
+    ws = SharedWeightSync(tiny_weight_shapes, create=True)
+    target = {name: torch.zeros(shape) for name, shape in tiny_weight_shapes.items()}
+    applier = ws.create_device_applier(target, torch.device("cpu"))
+
+    versions = []
+    for seed in range(3):
+        sd = {
+            name: torch.full(shape, float(seed + 1)) for name, shape in tiny_weight_shapes.items()
+        }
+        ws.write_weights(sd)
+        versions.append(applier.apply())
+        for name in tiny_weight_shapes:
+            assert torch.allclose(target[name], sd[name], atol=1e-6)
+
+    assert versions == [1, 2, 3]
+
+    ws.cleanup()
+
+
+def test_device_applier_shape_mismatch_raises(tiny_weight_shapes):
+    """Applier construction fails closed on shape/layout mismatch."""
+    ws = SharedWeightSync(tiny_weight_shapes, create=True)
+    bad = {name: torch.zeros(tuple(shape) + (1,)) for name, shape in tiny_weight_shapes.items()}
+    with pytest.raises(ValueError, match="shape mismatch"):
+        ws.create_device_applier(bad, torch.device("cpu"))
+    ws.cleanup()
+
+
+def test_device_applier_no_version_bump_without_write(tiny_weight_shapes):
+    """Without a new publish, apply() keeps returning the same version (no-op upstream)."""
+    state_dict = _make_state_dict(tiny_weight_shapes)
+    ws = SharedWeightSync.from_state_dict(state_dict, create=True)
+    target = {name: torch.zeros(shape) for name, shape in tiny_weight_shapes.items()}
+    applier = ws.create_device_applier(target, torch.device("cpu"))
+
+    v1 = applier.apply()
+    v2 = applier.apply()
+    assert v1 == v2 == ws.version
+
+    ws.cleanup()
+
+
+def test_device_applier_31entry_param_buffer_completeness():
+    """31-entry (20 params + 11 persistent buffers) snapshot applies every entry."""
+    source_sd = _make_31entry_state_dict(seed=0)
+    assert len(source_sd) == 31
+
+    ws = SharedWeightSync.from_state_dict(source_sd, create=True)
+
+    target_module = _Actor31()
+    with torch.no_grad():
+        for t in target_module.state_dict().values():
+            t.zero_()
+    target_sd = dict(target_module.state_dict())
+
+    applier = ws.create_device_applier(target_module.state_dict(), torch.device("cpu"))
+    version = applier.apply()
+
+    assert version == ws.version
+    # The bound state_dict storage must have been updated in place.
+    _assert_state_dict_matches(target_sd, source_sd)
+    # And the module itself observes the new values (same storage).
+    _assert_state_dict_matches(dict(target_module.state_dict()), source_sd)
+
+    ws.cleanup()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_device_applier_cuda_roundtrip():
+    """CUDA applier: 31-entry snapshot lands on the on-device actor tensors."""
+    source_sd = _make_31entry_state_dict(seed=1)
+    ws = SharedWeightSync.from_state_dict(source_sd, create=True)
+
+    target_module = _Actor31().cuda()
+    target_sd = dict(target_module.state_dict())
+
+    applier = ws.create_device_applier(target_module.state_dict(), torch.device("cuda"))
+    version = applier.apply()
+    torch.cuda.synchronize()
+
+    assert version == ws.version
+    _assert_state_dict_matches(target_sd, source_sd)
+
+    # A second publish must also apply cleanly over the reused staging buffers.
+    source_sd2 = _make_31entry_state_dict(seed=2)
+    ws.write_weights(source_sd2)
+    version2 = applier.apply()
+    torch.cuda.synchronize()
+
+    assert version2 == version + 1
+    _assert_state_dict_matches(dict(target_module.state_dict()), source_sd2)
+
+    ws.cleanup()
+
+
+def _constant_writer_fn(shm_name: str, lock, shapes: dict, iterations: int) -> None:
+    """Subprocess: alternate publishing all-ones and all-twos snapshots."""
+    ws = SharedWeightSync(shapes, create=False, shm_name=shm_name, lock=lock)
+    sd_one = {name: torch.ones(shape) for name, shape in shapes.items()}
+    sd_two = {name: torch.full(shape, 2.0) for name, shape in shapes.items()}
+    for i in range(iterations):
+        ws.write_weights(sd_one if i % 2 == 0 else sd_two)
+    ws.close()
+
+
+def test_device_applier_concurrent_publish_no_torn_snapshot(tiny_weight_shapes):
+    """Concurrent publish/apply must never surface a partially published state."""
+    ws = SharedWeightSync(tiny_weight_shapes, create=True)
+    target = {name: torch.zeros(shape) for name, shape in tiny_weight_shapes.items()}
+    applier = ws.create_device_applier(target, torch.device("cpu"))
+
+    p = _SPAWN_CTX.Process(
+        target=_constant_writer_fn,
+        args=(ws.name, ws._lock, tiny_weight_shapes, 50),
+    )
+    p.start()
+    while p.is_alive():
+        version = applier.apply()
+        if version == 0:
+            continue  # initial all-zero snapshot, writer has not published yet
+        for name in tiny_weight_shapes:
+            values = target[name]
+            assert torch.allclose(values, torch.ones_like(values), atol=1e-6) or torch.allclose(
+                values, torch.full_like(values, 2.0), atol=1e-6
+            ), f"Torn snapshot for {name}"
+    p.join(timeout=30)
+    assert p.exitcode == 0
 
     ws.cleanup()
