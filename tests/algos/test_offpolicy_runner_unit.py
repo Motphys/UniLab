@@ -10,12 +10,21 @@ import torch
 
 import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
 import unilab.algos.torch.offpolicy.runner as runner_module
+from unilab.algos.torch.offpolicy.double_buffer_runner import algo_display_name
 from unilab.algos.torch.offpolicy.runner import (
     build_offpolicy_sample_info,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
     update_reward_stats_from_replay,
 )
+
+
+@pytest.mark.parametrize(
+    ("algo_type", "expected"),
+    [("sac", "SAC"), ("td3", "TD3"), ("flashsac", "FlashSAC"), ("hora_sac", "HORA_SAC")],
+)
+def test_algo_display_name(algo_type, expected):
+    assert algo_display_name(algo_type) == expected
 
 
 @pytest.mark.parametrize(
