@@ -1,4 +1,5 @@
 # Linux NVIDIA/CUDA training image.
+# Physics backends: MuJoCo and Motrix.
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -33,7 +34,7 @@ WORKDIR /workspace/UniLab
 
 COPY . /workspace/UniLab
 
-RUN uv sync --dev --extra motrix \
+RUN uv sync --dev --extra mujoco --extra motrix \
     && uv cache clean \
     && rm -rf /root/.cache/uv
 

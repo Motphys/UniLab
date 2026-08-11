@@ -1,7 +1,8 @@
 # Docker
 
 仓库内置的 `Dockerfile` 是 Linux NVIDIA/CUDA 容器路径。它会安装 UniLab 运行时依
-赖、Motrix extra 以及 dev/test 工具。macOS Docker 目前不作为主要路径，ROCm 则使用
+赖、MuJoCo 和 Motrix 两个物理后端 extra 以及 dev/test 工具，容器内训练支持
+`--sim mujoco` 和 `--sim motrix`。macOS Docker 目前不作为主要路径，ROCm 则使用
 另外的镜像（见下文），而不是这个 CUDA `Dockerfile`。
 
 ## 构建
@@ -36,11 +37,11 @@ docker run --rm --gpus all -it \
 把 `.venv` 放进 named volume 的作用是避免容器内的虚拟环境覆盖宿主机仓库目录，切回
 本地 `uv` 工作流时也更干净。
 
-在容器内部，使用与宿主机工作流相同的命令：
+在容器内部，使用与宿主机工作流相同的命令，两个物理后端都可用：
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
-uv run train --algo sac --task g1_walk_flat --sim mujoco
+uv run train --algo ppo --task go2_joystick_flat --sim motrix
 ```
 
 容器内的评估和回放方式相同；`--load-run -1` 会选择最新的 run：
