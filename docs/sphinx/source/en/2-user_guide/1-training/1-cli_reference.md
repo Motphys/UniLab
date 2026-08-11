@@ -95,14 +95,13 @@ Supported render modes are `auto`, `interactive`, `record`, and `none`.
 ```bash
 uv run demo dance
 uv run demo wallflip
-uv run demo wallflip2
 uv run demo boxtracking
 uv run demo locomani
 uv run demo inhandgrasp
 uv run demo dance --refresh --device cpu
 ```
 
-Available demos: `teaser`, `dance`, `wallflip`, `wallflip2`, `boxtracking`, `locomani`, `inhandgrasp`.
+Available demos: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
 Each demo fetches a pre-trained checkpoint from the
 `unilabsim/unilab-checkpoints` Hugging Face dataset on first run and caches it
 under `src/unilab/assets/checkpoints/<demo>/model_0.pt`. Pass `--refresh` to
