@@ -295,7 +295,6 @@ def test_demo_positional_completes_all_demo_names(tmp_path: Path) -> None:
         "sharpa_appo_student",
         "teaser",
         "wallflip",
-        "wallflip2",
     ]
 
 
