@@ -307,8 +307,10 @@ class TorchRng:
         t = self.torch.rand(shape, device=self.device, dtype=self.torch.float32)
         if np.isscalar(low) and np.isscalar(high):
             return t * float(high - low) + float(low)
-        low_t = self.torch.as_tensor(np.asarray(low), device=self.device)
-        high_t = self.torch.as_tensor(np.asarray(high), device=self.device)
+        low_t = self.torch.as_tensor(np.asarray(low), dtype=self.torch.float32, device=self.device)
+        high_t = self.torch.as_tensor(
+            np.asarray(high), dtype=self.torch.float32, device=self.device
+        )
         return t * (high_t - low_t) + low_t
 
     def choice(self, a, size, p):
