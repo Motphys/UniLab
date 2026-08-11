@@ -107,7 +107,7 @@ tests/
 ├── terrains/     # 地形生成器与场景 materialization
 ├── ipc/          # shared-memory 与 async-runner 原语
 ├── scripts/      # 训练脚本配置与入口工具
-├── algos/        # runner 集成、RSL-RL PPO、MLX PPO
+├── algos/        # runner 集成、RSL-RL PPO
 ├── integration/  # 跨模块 reward / config 集成
 ├── training/     # 训练运行辅助
 └── utils/        # 辅助工具与实验跟踪
@@ -118,8 +118,6 @@ tests/
 - 无标记的测试是快速 unit / contract / env smoke，由 `make test` 运行。
 - `@pytest.mark.slow` 标记完整训练/脚本 smoke 或累计成本高的 backend matrix。CI
   会跳过，本地用 `make test-slow`。`slow` 标记在 `pyproject.toml` 中注册。
-- MLX PPO 测试（`tests/algos/test_mlx_ppo.py`）使用 `pytest.importorskip(...)`，
-  在 MLX 不可用时自动跳过，实际上保持 macOS only。
 
 `make test-slow` 运行须知：
 

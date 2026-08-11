@@ -23,12 +23,10 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
 
 def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     torch_row = _row("PPO (torch)", "g1_walk_flat")
-    mlx_row = _row("PPO (mlx)", "g1_walk_flat")
     sac_row = _row("SAC (torch)", "g1_walk_flat")
 
     assert BACKENDS == ("mujoco", "mjwarp", "motrix")
     assert torch_row.cells["mjwarp"].level == EvidenceLevel.TESTED
-    assert mlx_row.cells["mjwarp"].level == EvidenceLevel.CONFIGURED
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED
 
 
@@ -53,13 +51,6 @@ def test_support_matrix_marks_appo_go1_backends_as_tested():
 
     assert row.cells["mujoco"].level == EvidenceLevel.TESTED
     assert row.cells["motrix"].level == EvidenceLevel.TESTED
-
-
-def test_support_matrix_keeps_uncovered_mlx_tasks_at_configured():
-    row = _row("PPO (mlx)", "g1_motion_tracking")
-
-    assert row.cells["mujoco"].level == EvidenceLevel.CONFIGURED
-    assert row.cells["motrix"].level == EvidenceLevel.CONFIGURED
 
 
 def test_support_matrix_marks_sharpa_motrix_phase1_support():

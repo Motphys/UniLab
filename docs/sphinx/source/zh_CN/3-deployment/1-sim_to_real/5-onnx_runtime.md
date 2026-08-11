@@ -12,7 +12,6 @@ owner；回放代码加载检查点、导出 `policy.onnx`，并在该路径实�
 | HIM-PPO | `scripts/train_him_ppo.py` | 与 PPO 相同的脚本级导出模式。 |
 | APPO | `scripts/train_appo.py` | 回放写出 `policy.onnx` 并将 ONNX Runtime 输出与 PyTorch 比对校验。 |
 | SAC / TD3 / FlashSAC | `scripts/train_offpolicy.py` | 回放写出 `policy.onnx`；SAC 与 FlashSAC 在导出前使用 `actor.as_export_module()`。 |
-| MLX PPO | `scripts/train_mlx_ppo.py` | 回放将 MLX actor 权重转换为 PyTorch 模块，写出 `policy.onnx`，并校验 ONNX Runtime 输出。 |
 
 ## 命令
 

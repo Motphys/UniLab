@@ -6,8 +6,7 @@
 
 ## 选择集成路径
 
-- 同步 on-policy 示例：`scripts/train_rsl_rl.py` 与
-  `scripts/train_mlx_ppo.py`。
+- 同步 on-policy 示例：`scripts/train_rsl_rl.py`。
 - 异步 on-policy 示例：使用 `APPORunner` 的 `scripts/train_appo.py`。
 - Off-policy 示例：`scripts/train_offpolicy.py`，配合 `conf/offpolicy/`
   下的 SAC、TD3 与 FlashSAC 配置。
@@ -42,5 +41,4 @@
 - 结构化 config dataclass：`src/unilab/structured_configs.py`
 - 训练辅助工具：`src/unilab/training/common.py`、
   `src/unilab/training/run.py`
-- 现有算法包：`src/unilab/algos/torch/`、
-  `src/unilab/algos/mlx/`
+- 现有算法包：`src/unilab/algos/torch/`

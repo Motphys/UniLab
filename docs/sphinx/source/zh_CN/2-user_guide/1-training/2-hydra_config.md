@@ -8,7 +8,6 @@ reward、scene 以及 task 专属运行时字段的身份标识。
 | 技术栈 | Owner YAML 形式 |
 | --- | --- |
 | PPO | `conf/ppo/task/<task>/<backend>.yaml` |
-| MLX PPO | `conf/ppo/task/<task>/<backend>.yaml`，搭配 `conf/ppo/config_mlx.yaml` |
 | APPO | `conf/appo/task/<task>/<backend>.yaml` |
 | SAC / TD3 / FlashSAC | `conf/offpolicy/task/<algo>/<task>/<backend>.yaml` |
 | HIM-PPO | `conf/ppo_him/task/<task>/<backend>.yaml` |

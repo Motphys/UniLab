@@ -57,25 +57,6 @@ recommendation metadata, so rows do not auto-promote to `Benchmarked` or
 | PPO (torch) | `go2_footstand` | Tested | - |
 | PPO (torch) | `go2w_joystick_flat` | Tested | Tested |
 | PPO (torch) | `go2w_joystick_rough` | Tested | Tested |
-| PPO (mlx) | `go1_joystick_flat` | Tested | Tested |
-| PPO (mlx) | `go2_joystick_flat` | Tested | Tested |
-| PPO (mlx) | `go2_joystick_rough` | Configured | Configured |
-| PPO (mlx) | `g1_walk_flat` | Tested | Tested |
-| PPO (mlx) | `g1_motion_tracking` | Configured | Configured |
-| PPO (mlx) | `g1_flip_tracking` | Configured | Configured |
-| PPO (mlx) | `g1_wall_flip_tracking` | Configured | Configured |
-| PPO (mlx) | `allegro_inhand` | Configured | Configured |
-| PPO (mlx) | `sharpa_inhand` | Configured | Configured |
-| PPO (mlx) | `sharpa_inhand_grasp` | Configured | Configured |
-| PPO (mlx) | `allegro_inhand_grasp` | Configured | Configured |
-| PPO (mlx) | `g1_box_tracking` | Configured | Configured |
-| PPO (mlx) | `g1_climb_tracking` | Configured | Configured |
-| PPO (mlx) | `g1_motion_tracking_deploy` | Configured | Registered |
-| PPO (mlx) | `go1_joystick_rough` | Configured | Configured |
-| PPO (mlx) | `go2_arm_manip_loco` | Configured | - |
-| PPO (mlx) | `go2_footstand` | Configured | - |
-| PPO (mlx) | `go2w_joystick_flat` | Configured | Configured |
-| PPO (mlx) | `go2w_joystick_rough` | Configured | Configured |
 | APPO (torch) | `go1_joystick_flat` | Tested | Registered |
 | APPO (torch) | `go2_joystick_flat` | Tested | Registered |
 | APPO (torch) | `g1_walk_flat` | Tested | Registered |
@@ -103,7 +84,3 @@ recommendation metadata, so rows do not auto-promote to `Benchmarked` or
   `conf/offpolicy/task/**`.
 - Generic compose coverage:
   `tests/config/test_config_system.py::test_supported_task_composes`.
-- MLX-specific compose coverage:
-  `tests/config/test_config_system.py::_PPO_MLX_TASKS`.
-- MLX runtime smoke:
-  `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env`.

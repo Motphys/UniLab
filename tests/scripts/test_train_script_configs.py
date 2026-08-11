@@ -17,19 +17,6 @@ pytest.importorskip("mujoco")
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
-def _mlx_runtime_usable() -> bool:
-    """Probe whether importing mlx.core is safe in a subprocess on this host."""
-    if sys.platform != "darwin":
-        return True
-    result = subprocess.run(
-        [sys.executable, "-c", "import mlx.core"], capture_output=True, text=True, timeout=10
-    )
-    return result.returncode == 0
-
-
-_MLX_RUNTIME_USABLE = _mlx_runtime_usable()
-
-
 def _write_sharpa_smoke_cache(cache_prefix, scale_values: list[float]) -> None:
     from unilab.envs.manipulation.sharpa_inhand.base import (
         SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
@@ -108,8 +95,6 @@ def test_appo_mujoco_smoke_tasks_have_owner_configs():
 @pytest.mark.parametrize("task", APPO_MUJOCO_SMOKE_TASKS)
 def test_appo_task_configs_load(task, tmp_path):
     """APPO can start training with selected MuJoCo owner configs."""
-    if not _MLX_RUNTIME_USABLE:
-        pytest.skip("mlx runtime aborts in subprocess on this host")
     motion_overrides = _appo_motion_file_overrides(task, tmp_path)
     result = subprocess.run(
         [
@@ -134,8 +119,6 @@ def test_appo_task_configs_load(task, tmp_path):
 )
 def test_offpolicy_task_configs_load(task):
     """Off-policy task configs can start training with supported MuJoCo owners."""
-    if not _MLX_RUNTIME_USABLE:
-        pytest.skip("mlx runtime aborts in subprocess on this host")
     result = subprocess.run(
         [
             sys.executable,

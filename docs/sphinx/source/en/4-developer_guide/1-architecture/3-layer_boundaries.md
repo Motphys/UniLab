@@ -33,5 +33,5 @@ standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 - Backend boundary: `src/unilab/base/backend/base.py`
 - Env state contract: `src/unilab/base/np_env.py`
 - Registry construction path: `src/unilab/base/registry.py`
-- Training entrypoints: `scripts/train_rsl_rl.py`, `scripts/train_mlx_ppo.py`,
+- Training entrypoints: `scripts/train_rsl_rl.py`,
   `scripts/train_appo.py`, `scripts/train_offpolicy.py`

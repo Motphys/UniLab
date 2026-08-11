@@ -9,10 +9,9 @@
 
 ### 同步 PPO 路径
 
-`scripts/train_rsl_rl.py` 与 `scripts/train_mlx_ppo.py` 会 compose Hydra config、
+`scripts/train_rsl_rl.py` 会 compose Hydra config、
 调用 registry bootstrap、通过 `registry.make(...)` 构造 env，并在同一进程内运行
-learner。RSL-RL 路径通过 `src/unilab/training/rsl_rl.py` 适配 `NpEnv`；MLX 路径
-则使用 `src/unilab/algos/mlx/ppo/runner.py` 与 `src/unilab/algos/mlx/ppo/ppo.py`。
+learner。RSL-RL 路径通过 `src/unilab/training/rsl_rl.py` 适配 `NpEnv`。
 
 ### 异步 APPO 与 off-policy 路径
 
@@ -40,7 +39,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 ## 仓库中的证据
 
-- PPO 入口：`scripts/train_rsl_rl.py`、`scripts/train_mlx_ppo.py`
+- PPO 入口：`scripts/train_rsl_rl.py`
 - APPO runner：`src/unilab/algos/torch/appo/runner.py`
 - Off-policy runner：`src/unilab/algos/torch/offpolicy/double_buffer_runner.py`
 - IPC 原语：`src/unilab/ipc/async_runner.py`、

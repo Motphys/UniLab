@@ -53,7 +53,7 @@ MuJoCo 与 Motrix 的渲染路径和输出形式不同。仓库当前存在两�
 
 - 后端文档与矩阵: `docs/sphinx/source/zh_CN/2-user_guide/3-backends/0-index.md`
 - Backend 抽象: `src/unilab/base/backend/base.py`
-- 训练入口与 play 边界: `scripts/train_rsl_rl.py`, `scripts/train_mlx_ppo.py`, `scripts/train_appo.py`, `scripts/train_offpolicy.py`
+- 训练入口与 play 边界: `scripts/train_rsl_rl.py`, `scripts/train_appo.py`, `scripts/train_offpolicy.py`
 
 ## Related Documents
 

@@ -45,7 +45,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
 
-`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`；PPO (mlx) 仍为 `Configured`。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
+`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
 
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
@@ -84,36 +84,6 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested |
-| PPO (mlx) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
-| PPO (mlx) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
-| PPO (mlx) | `go2_joystick_rough` (Go2 joystick rough) | Configured | - | Configured |
-| PPO (mlx) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested |
-| PPO (mlx) | `g1_motion_tracking` (G1 motion tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_flip_tracking` (G1 flip tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Configured | - | Configured |
-| PPO (mlx) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Configured | - | Configured |
-| PPO (mlx) | `allegro_inhand` (Allegro in-hand) | Configured | - | Configured |
-| PPO (mlx) | `sharpa_inhand` (Sharpa in-hand) | Configured | - | Configured |
-| PPO (mlx) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Configured | - | Configured |
-| PPO (mlx) | `a2_joystick_flat` (a2 joystick flat) | Configured | - | - |
-| PPO (mlx) | `allegro_inhand_grasp` (allegro inhand grasp) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_box_tracking` (g1 23dof box tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_motion_tracking_deploy` (g1 23dof motion tracking deploy) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Configured | - | Configured |
-| PPO (mlx) | `g1_23dof_walk_rough` (g1 23dof walk rough) | Configured | - | Registered |
-| PPO (mlx) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_box_tracking` (g1 box tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_climb_tracking` (g1 climb tracking) | Configured | - | Configured |
-| PPO (mlx) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Configured | - | Configured |
-| PPO (mlx) | `go1_joystick_rough` (go1 joystick rough) | Configured | - | Configured |
-| PPO (mlx) | `go2_arm_manip_loco` (go2 arm manip loco) | Configured | - | Configured |
-| PPO (mlx) | `go2_footstand` (go2 footstand) | Configured | - | Configured |
-| PPO (mlx) | `go2w_joystick_flat` (go2w joystick flat) | Configured | - | Configured |
-| PPO (mlx) | `go2w_joystick_rough` (go2w joystick rough) | Configured | - | Configured |
-| PPO (mlx) | `stewart_balance` (stewart balance) | Configured | - | Configured |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
@@ -154,6 +124,4 @@ uv run scripts/generate_support_matrix.py --write
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/offpolicy/task/**`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
 - Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.
-- MLX-specific compose coverage only upgrades task owners listed in `tests/config/test_config_system.py::_PPO_MLX_TASKS`: `go1_joystick_flat`, `go2_joystick_flat`, `g1_walk_flat`.
-- MLX runtime smoke: `tests/algos/test_mlx_ppo.py::test_mlx_ppo_one_iteration_real_env` currently exercises `go2_joystick_flat/mujoco`.
 <!-- END GENERATED SUPPORT MATRIX -->

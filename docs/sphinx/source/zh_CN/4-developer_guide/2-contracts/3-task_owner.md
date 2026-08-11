@@ -7,8 +7,6 @@
 
 - PPO 与 APPO 的 owner YAML 使用
   `conf/{ppo,appo}/task/<task>/<backend>.yaml`。
-- MLX PPO 从 `conf/ppo/config_mlx.yaml` compose，并复用 PPO 任务 owner YAML 的
-  布局。
 - Off-policy owner YAML 多出算法这一维度：
   `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`。
 - 其他已有的 config 根目录，例如 `conf/ppo_him/` 与 `conf/hora_distill/`，对其

@@ -13,7 +13,7 @@ from typing import Any
 
 from packaging.version import Version
 
-_MLX_PPO_ONLY_KEYS = {
+_OWNER_ONLY_ALGO_KEYS = {
     "adaptive_kl_beta",
     "adaptive_lr_decay",
     "adaptive_lr_growth",
@@ -161,7 +161,7 @@ def _normalize_algorithm_cfg(cfg: dict[str, Any]) -> None:
         return
 
     algorithm_cfg.setdefault("rnd_cfg", None)
-    for key in _MLX_PPO_ONLY_KEYS:
+    for key in _OWNER_ONLY_ALGO_KEYS:
         algorithm_cfg.pop(key, None)
 
 

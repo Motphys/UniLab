@@ -75,7 +75,6 @@ def apply_training_seed(
     *,
     torch_runtime: bool = True,
     cuda: bool = True,
-    mlx_runtime: bool = False,
 ) -> int | None:
     """Apply a seed to the runtimes used by training entrypoints."""
     if seed is None:
@@ -98,14 +97,6 @@ def apply_training_seed(
             if cuda and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(effective_seed)
 
-    if mlx_runtime:
-        try:
-            import mlx.core as mx
-        except ImportError:
-            mx = None
-        if mx is not None:
-            mx.random.seed(effective_seed)
-
     return effective_seed
 
 
@@ -114,7 +105,6 @@ def apply_configured_training_seed(
     *,
     torch_runtime: bool = True,
     cuda: bool = True,
-    mlx_runtime: bool = False,
 ) -> TrainingSeedInfo:
     """Resolve and apply the configured training seed before runtime construction."""
     seed_info = resolve_training_seed(cfg)
@@ -122,7 +112,6 @@ def apply_configured_training_seed(
         seed_info.effective_seed,
         torch_runtime=torch_runtime,
         cuda=cuda,
-        mlx_runtime=mlx_runtime,
     )
     return TrainingSeedInfo(
         configured_seed=seed_info.configured_seed,

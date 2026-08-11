@@ -21,7 +21,6 @@ Run directories are created under `logs/<algo.algo_log_name>/<task>/` unless
 | Algorithm | Log Root | `algo_log_name` Source |
 | --- | --- | --- |
 | PPO | `logs/rsl_rl_ppo/<task>/` | `conf/ppo/config.yaml` |
-| MLX PPO | `logs/mlx_rl_train/<task>/` | `conf/ppo/config_mlx.yaml` |
 | APPO | `logs/appo/<task>/` | `conf/appo/config.yaml` |
 | SAC | `logs/fast_sac/<task>/` | `conf/offpolicy/algo/sac.yaml` |
 | FlashSAC | `logs/flash_sac/<task>/` | `conf/offpolicy/algo/flashsac.yaml` |

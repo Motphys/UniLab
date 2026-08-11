@@ -102,7 +102,7 @@ Compare MuJoCo and Motrix through task owner YAMLs and backend capability docs.
 :::{grid-item-card} Pick an algorithm
 :link: 2-user_guide/2-algorithms/0-index
 :link-type: doc
-Compare PPO, APPO, SAC, TD3, FlashSAC, MLX PPO, HIM-PPO, and HORA entrypoints.
+Compare PPO, APPO, SAC, TD3, FlashSAC, HIM-PPO, and HORA entrypoints.
 :::
 
 :::{grid-item-card} Deploy or switch sims
@@ -131,7 +131,7 @@ flowchart LR
   registry --> env["NpEnv contract<br/>obs dict + info dict"]
   env --> backend["SimBackend<br/>MuJoCo or Motrix"]
   env --> runtime["Runner / IPC<br/>shared memory lifecycle"]
-  runtime --> learner["Learner<br/>PPO / APPO / SAC / TD3 / MLX"]
+  runtime --> learner["Learner<br/>PPO / APPO / SAC / TD3"]
 ```
 
 The load-bearing contracts are documented in
@@ -146,12 +146,12 @@ committed benchmark manifest or separate recommendation metadata.
 
 | Robot / task family | Algorithm paths with repo evidence | Backend evidence |
 | --- | --- | --- |
-| Go1 joystick | PPO (torch, MLX), APPO, TD3 | PPO has tested MuJoCo and Motrix rows. APPO has tested MuJoCo rows and Motrix registered rows. TD3 has a Motrix owner YAML for `go1_joystick_flat`. |
-| Go2 joystick | PPO (torch, MLX), FlashSAC, TD3 | PPO has tested MuJoCo and Motrix rows. FlashSAC has MuJoCo owner YAMLs for `go2_joystick_flat`; TD3 has a Motrix owner YAML for `go2_joystick_flat`. |
+| Go1 joystick | PPO, APPO, TD3 | PPO has tested MuJoCo and Motrix rows. APPO has tested MuJoCo rows and Motrix registered rows. TD3 has a Motrix owner YAML for `go1_joystick_flat`. |
+| Go2 joystick | PPO, FlashSAC, TD3 | PPO has tested MuJoCo and Motrix rows. FlashSAC has MuJoCo owner YAMLs for `go2_joystick_flat`; TD3 has a Motrix owner YAML for `go2_joystick_flat`. |
 | Go2 arm manip-loco | PPO, HIM-PPO | Committed MuJoCo owner YAMLs are present under `conf/ppo/task/go2_arm_manip_loco/` and `conf/ppo_him/task/go2_arm_manip_loco/`. |
-| Go2W joystick | PPO (torch, MLX configured) | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `conf/ppo/task/go2w_joystick_*`. |
-| G1 locomotion / tracking | PPO (torch, MLX), APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
-| Allegro in-hand | PPO (torch, MLX configured), APPO | PPO and APPO have committed MuJoCo and Motrix owner YAMLs for Allegro in-hand tasks. |
+| Go2W joystick | PPO | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `conf/ppo/task/go2w_joystick_*`. |
+| G1 locomotion / tracking | PPO, APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
+| Allegro in-hand | PPO, APPO | PPO and APPO have committed MuJoCo and Motrix owner YAMLs for Allegro in-hand tasks. |
 | Sharpa in-hand | PPO, APPO HORA teacher, HORA distillation | Sharpa owner YAMLs are committed for PPO/APPO teacher paths; student distillation uses `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`. |
 
 ```{toctree}

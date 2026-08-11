@@ -79,14 +79,3 @@ def test_owner_configs_resolve_algorithm_seed_contract(config_dir: str, override
     assert seed_info.configured_seed == int(cfg.algo.seed)
     assert seed_info.configured_seed_source == "algo.seed"
     assert seed_info.effective_seed == int(cfg.algo.seed)
-
-
-def test_mlx_config_keeps_training_seed_as_legacy_fallback_only():
-    mlx_cfg = OmegaConf.load(_CONF_DIR / "ppo" / "config_mlx.yaml")
-    mlx_cfg.algo.seed = 17
-    mlx_cfg.training.seed = 29
-
-    seed_info = resolve_training_seed(mlx_cfg)
-
-    assert seed_info.configured_seed == 17
-    assert seed_info.configured_seed_source == "algo.seed"

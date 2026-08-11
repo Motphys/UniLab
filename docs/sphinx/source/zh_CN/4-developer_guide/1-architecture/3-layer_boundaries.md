@@ -33,5 +33,5 @@
 - Backend 边界：`src/unilab/base/backend/base.py`
 - Env 状态契约：`src/unilab/base/np_env.py`
 - Registry 构造路径：`src/unilab/base/registry.py`
-- 训练入口：`scripts/train_rsl_rl.py`、`scripts/train_mlx_ppo.py`、
+- 训练入口：`scripts/train_rsl_rl.py`、
   `scripts/train_appo.py`、`scripts/train_offpolicy.py`

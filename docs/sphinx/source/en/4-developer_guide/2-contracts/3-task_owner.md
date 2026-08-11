@@ -8,8 +8,6 @@ contract is recorded in
 
 - PPO and APPO owner YAMLs use
   `conf/{ppo,appo}/task/<task>/<backend>.yaml`.
-- MLX PPO composes from `conf/ppo/config_mlx.yaml` and reuses the PPO task
-  owner YAML layout.
 - Off-policy owner YAMLs include the algorithm dimension:
   `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`.
 - Other existing config roots, such as `conf/ppo_him/` and

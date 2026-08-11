@@ -6,7 +6,7 @@ HIM-PPO 有自己的配置组和脚本。入口是 `scripts/train_him_ppo.py`，
 
 ## 当前入口
 
-`src/unilab/cli.py` 目前通过顶层的 `uv run train` CLI 暴露了 `1-ppo`、`8-mlx_ppo`、
+`src/unilab/cli.py` 目前通过顶层的 `uv run train` CLI 暴露了 `1-ppo`、
 `2-appo`、`3-sac`、`4-td3` 和 `flashsac`。HIM-PPO 由 `scripts/train_him_ppo.py`
 实现，但它尚未拥有顶层的 `--algo` 路由。
 

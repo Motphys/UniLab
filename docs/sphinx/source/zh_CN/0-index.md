@@ -100,7 +100,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 :::{grid-item-card} 挑选算法
 :link: 2-user_guide/2-algorithms/0-index
 :link-type: doc
-对比 PPO、APPO、SAC、TD3、FlashSAC、MLX PPO、HIM-PPO 和 HORA 的入口。
+对比 PPO、APPO、SAC、TD3、FlashSAC、HIM-PPO 和 HORA 的入口。
 :::
 
 :::{grid-item-card} 部署或切换仿真
@@ -129,7 +129,7 @@ flowchart LR
   registry --> env["NpEnv contract<br/>obs dict + info dict"]
   env --> backend["SimBackend<br/>MuJoCo or Motrix"]
   env --> runtime["Runner / IPC<br/>shared memory lifecycle"]
-  runtime --> learner["Learner<br/>PPO / APPO / SAC / TD3 / MLX"]
+  runtime --> learner["Learner<br/>PPO / APPO / SAC / TD3"]
 ```
 
 承载核心的 contract 记录在
@@ -144,12 +144,12 @@ recommendation 元数据。
 
 | 机器人 / 任务族 | 有仓库证据的算法路径 | 后端证据 |
 | --- | --- | --- |
-| Go1 joystick | PPO (torch, MLX)、APPO、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。APPO 有已测试的 MuJoCo 行和 Motrix registered 行。TD3 有 `go1_joystick_flat` 的 Motrix owner YAML。 |
-| Go2 joystick | PPO (torch, MLX)、FlashSAC、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。FlashSAC 有 `go2_joystick_flat` 的 MuJoCo owner YAML；TD3 有 `go2_joystick_flat` 的 Motrix owner YAML。 |
+| Go1 joystick | PPO、APPO、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。APPO 有已测试的 MuJoCo 行和 Motrix registered 行。TD3 有 `go1_joystick_flat` 的 Motrix owner YAML。 |
+| Go2 joystick | PPO、FlashSAC、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。FlashSAC 有 `go2_joystick_flat` 的 MuJoCo owner YAML；TD3 有 `go2_joystick_flat` 的 Motrix owner YAML。 |
 | Go2 arm manip-loco | PPO、HIM-PPO | `conf/ppo/task/go2_arm_manip_loco/` 和 `conf/ppo_him/task/go2_arm_manip_loco/` 下有已提交的 MuJoCo owner YAML。 |
-| Go2W joystick | PPO (torch、MLX configured) | `conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
-| G1 locomotion / tracking | PPO (torch, MLX)、APPO、SAC、TD3 | PPO、APPO、SAC 都为 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
-| Allegro in-hand | PPO (torch、MLX configured)、APPO | PPO 和 APPO 为 Allegro in-hand 任务提供了已提交的 MuJoCo 与 Motrix owner YAML。 |
+| Go2W joystick | PPO | `conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
+| G1 locomotion / tracking | PPO、APPO、SAC、TD3 | PPO、APPO、SAC 都为 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
+| Allegro in-hand | PPO、APPO | PPO 和 APPO 为 Allegro in-hand 任务提供了已提交的 MuJoCo 与 Motrix owner YAML。 |
 | Sharpa in-hand | PPO、APPO HORA teacher、HORA distillation | Sharpa owner YAML 为 PPO/APPO teacher 路径已提交；student distillation 使用 `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`。 |
 
 ```{toctree}
