@@ -47,7 +47,6 @@ run_summary.json
 .tmp/
 *.log
 .DS_Store
-.ipynb_checkpoints/
 *.bak
 *.backup
 *.old
