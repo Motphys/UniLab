@@ -26,11 +26,11 @@ Start with the `Quick Demo` below to run the primary training command. The recom
 ## ✨ Highlights
 
 ```
-┌───────────────────┐                            ┌─────────────────────────┐
-│  CPU Physics Sim  │   Unified Shared Memory    │   GPU Policy Training   │
-│   MuJoCo/Motrix   │ ─────────────────────────▶ │     PPO / SAC / TD3     │
-│ Multithread Step  │    SharedReplayBuffer      │ CUDA / MPS / ROCm / XPU │
-└───────────────────┘                            └─────────────────────────┘
+┌────────────────────┐                            ┌─────────────────────────┐
+│   Uni Physics Sim  │   Unified Shared Memory    │   GPU Policy Training   │
+│   Motrix / MuJoCo  │ ─────────────────────────▶ │     PPO / SAC / TD3     │
+│   MjWarp / Drake   │    SharedReplayBuffer      │ CUDA / MPS / ROCm / XPU │
+└────────────────────┘                            └─────────────────────────┘
 ```
 
 - **Heterogeneous RL runtime:** CPU-parallel simulation streams transitions through shared memory while policy learning runs on GPU accelerators.

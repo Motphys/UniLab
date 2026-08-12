@@ -26,11 +26,11 @@
 ## ✨ 亮点
 
 ```
-┌───────────────────┐                            ┌─────────────────────────┐
-│  CPU Physics Sim  │   Unified Shared Memory    │   GPU Policy Training   │
-│   MuJoCo/Motrix   │ ─────────────────────────▶ │     PPO / SAC / TD3     │
-│ Multithread Step  │    SharedReplayBuffer      │ CUDA / MPS / ROCm / XPU │
-└───────────────────┘                            └─────────────────────────┘
+┌────────────────────┐                            ┌─────────────────────────┐
+│   Uni Physics Sim  │   Unified Shared Memory    │   GPU Policy Training   │
+│   Motrix / MuJoCo  │ ─────────────────────────▶ │     PPO / SAC / TD3     │
+│   MjWarp / Drake   │    SharedReplayBuffer      │ CUDA / MPS / ROCm / XPU │
+└────────────────────┘                            └─────────────────────────┘
 ```
 
 - **异构 RL 运行时：** CPU 并行仿真通过共享内存流式传输 transition，而策略学习运行在 GPU 加速器上。
