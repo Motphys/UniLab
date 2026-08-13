@@ -173,7 +173,7 @@ def test_onpolicy_logger_uses_offpolicy_terminal_layout():
     logger.close()
 
 
-def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_context():
+def test_offpolicy_logger_terminal_keeps_core_bottleneck_timing_rows():
     logger = OffPolicyLogger(
         algo_name="FastSAC",
         env_name="G1WalkFlat",
@@ -187,8 +187,15 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_context():
         reward=1.0,
         train_time=0.5,
         collector_wait_time=1.0,
+        replay_batch_wait_time=0.005,
+        learner_replay_sample_time=0.005,
+        sync_coordination_time=0.005,
         learner_incremental_h2d_time=0.01,
-        weight_sync_time=0.03,
+        weight_sync_time=0.005,
+        inference_h2d_time=0.01,
+        inference_forward_time=0.16,
+        inference_d2h_time=0.01,
+        inference_time=0.18,
         iteration_time=1.6,
         extra_info={
             "throughput_steps": 8,
@@ -204,12 +211,20 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_context():
     output = console.export_text()
 
     assert "Replay Wait" not in output
-    assert "H2D Copy" in output
+    assert "Collector Wait" in output
+    assert "Inference Total" in output
+    assert "Train" in output
+    assert "Iter Wall" in output
     assert "Replay Batch Wait" not in output
-    assert "Replay Sample" in output
+    assert "Replay Sample" not in output
+    assert "Inference H2D" not in output
+    assert "Inference Forward" not in output
+    assert "Inference D2H" not in output
+    assert "Collector Release" not in output
+    assert "H2D Copy" not in output
+    assert "Weight Publish" not in output
     assert "Rank Barrier" not in output
     assert "Param Sync" not in output
-    assert "Iter Wall" in output
     assert "Unaccounted" not in output
     assert "Other Loop" not in output
     assert "GPUs" not in output
@@ -219,6 +234,36 @@ def test_offpolicy_logger_terminal_timing_labels_include_wall_clock_context():
     assert "Batch/Update" not in output
     assert "Samples/Iter" in output
     assert "Samples/s" in output
+
+    logger.close()
+
+
+def test_offpolicy_logger_terminal_shows_material_blocking_phases():
+    logger = OffPolicyLogger(log_backend="no_print")
+    logger.log_step(
+        iteration=1,
+        train_time=0.5,
+        collector_wait_time=0.3,
+        replay_batch_wait_time=0.01,
+        learner_replay_sample_time=0.01,
+        sync_coordination_time=0.01,
+        learner_incremental_h2d_time=0.01,
+        weight_sync_time=0.01,
+        iteration_time=1.0,
+    )
+
+    console = Console(record=True, width=140)
+    console.print(logger._build_display())
+    output = console.export_text()
+
+    for label in (
+        "Replay Batch Wait",
+        "Replay Sample",
+        "Collector Release",
+        "H2D Copy",
+        "Weight Publish",
+    ):
+        assert label in output
 
     logger.close()
 
@@ -568,9 +613,16 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_scalars():
         metrics={},
         train_time=0.7,
         collector_wait_time=1.0,
+        replay_batch_wait_time=0.02,
+        learner_replay_sample_time=0.03,
+        sync_coordination_time=0.04,
         learner_incremental_h2d_time=0.05,
         weight_sync_time=0.1,
-        iteration_time=1.95,
+        inference_h2d_time=0.01,
+        inference_forward_time=0.18,
+        inference_d2h_time=0.01,
+        inference_time=0.2,
+        iteration_time=2.15,
         extra_info={
             "throughput_steps": 16,
             "collector_active_steps_per_sec": 4321.0,
@@ -584,16 +636,23 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_scalars():
     scalars = {tag: value for tag, value, _ in tb_writer.scalars}
     assert scalars["timing/learner_collector_wait_ms"] == pytest.approx(1_000.0)
     assert "timing/learner_replay_wait_ms" not in scalars
+    assert scalars["timing/learner_replay_batch_wait_ms"] == pytest.approx(20.0)
     assert scalars["timing/learner_incremental_h2d_ms"] == pytest.approx(50.0)
-    assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(0.0)
+    assert scalars["timing/learner_replay_sample_ms"] == pytest.approx(30.0)
+    assert scalars["timing/learner_collector_release_ms"] == pytest.approx(40.0)
+    assert scalars["timing/inference_h2d_ms"] == pytest.approx(10.0)
+    assert scalars["timing/inference_forward_ms"] == pytest.approx(180.0)
+    assert scalars["timing/inference_d2h_ms"] == pytest.approx(10.0)
+    assert scalars["timing/inference_total_ms"] == pytest.approx(200.0)
     assert "timing/learner_param_sync_ms" not in scalars
-    assert scalars["timing/learner_other_ms"] == pytest.approx(100.0)
-    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(850.0)
-    assert scalars["perf/iter_ms"] == pytest.approx(1_950.0)
-    assert scalars["perf/learner_train_pct"] == pytest.approx(0.7 / 1.95 * 100)
-    assert scalars["perf/learner_other_pct"] == pytest.approx(0.1 / 1.95 * 100)
+    assert scalars["timing/learner_weight_publish_ms"] == pytest.approx(100.0)
+    assert scalars["timing/learner_other_ms"] == pytest.approx(10.0)
+    assert scalars["perf/learner_pipeline_ms"] == pytest.approx(1_050.0)
+    assert scalars["perf/iter_ms"] == pytest.approx(2_150.0)
+    assert scalars["perf/learner_train_pct"] == pytest.approx(0.7 / 2.15 * 100)
+    assert scalars["perf/learner_other_pct"] == pytest.approx(0.01 / 2.15 * 100)
     assert scalars["perf/collector_active_steps_per_sec"] == pytest.approx(4321.0)
-    assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 1.95)
+    assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 2.15)
     for key in ("axis/iteration", "axis/env_steps_total"):
         assert key not in scalars
     assert not any(key.startswith("distributed/") for key in scalars)
