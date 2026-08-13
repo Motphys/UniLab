@@ -262,3 +262,124 @@ def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.Monke
     monkeypatch.setattr(module, "create_env", lambda *args, **kwargs: _FakeEnv())
     with pytest.raises(ValueError, match="log_dir"):
         module.build_runner("sac", cfg)
+
+
+# ---- FlashSACLearner.dp_sync_tensors contract ----
+
+
+def test_flash_sac_dp_sync_tensors_returns_live_references():
+    from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+
+    learner = FlashSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=6,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        actor_num_blocks=1,
+        critic_num_blocks=1,
+        num_atoms=3,
+    )
+    tensors = learner.dp_sync_tensors()
+
+    for prefix, module in (
+        ("actor", learner.actor),
+        ("critic", learner.critic),
+        ("target_critic", learner.target_critic),
+        ("temperature", learner.temperature),
+    ):
+        state = module.state_dict()
+        assert state, prefix
+        for key, value in state.items():
+            full_key = f"{prefix}.{key}"
+            assert full_key in tensors
+            # Live references, not copies: same storage as the module state.
+            assert tensors[full_key].data_ptr() == value.data_ptr()
+
+    # Every optimizer-updated tensor is covered by the sync set.
+    for prefix, module in (
+        ("actor", learner.actor),
+        ("critic", learner.critic),
+        ("target_critic", learner.target_critic),
+        ("temperature", learner.temperature),
+    ):
+        for key, param in module.named_parameters():
+            assert f"{prefix}.{key}" in tensors
+
+    # In-place collective semantics propagate into the module parameters.
+    probe_key = next(key for key in tensors if key.startswith("actor."))
+    with torch.no_grad():
+        tensors[probe_key].mul_(0.0)
+    assert torch.all(tensors[probe_key] == 0.0)
+
+
+# ---- flashsac build_runner assembly ----
+
+
+def _build_flashsac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: list[str]):
+    """build_runner("flashsac", ...) with learner/env/runner fakes; returns runner kwargs."""
+    module = _offpolicy()
+    cfg = _offpolicy_cfg(overrides)
+    monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
+
+    import unilab.algos.torch.flash_sac.double_buffer as flash_module
+
+    monkeypatch.setattr(flash_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(flash_module, "create_env", lambda *args, **kwargs: _FakeEnv())
+
+    class _Learner:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+    monkeypatch.setattr(flash_module, "FlashSACLearner", _Learner)
+    monkeypatch.setattr(flash_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+    runner = module.build_runner("flashsac", cfg, log_dir="/tmp/dp_sync_test_run")
+    return runner.kwargs
+
+
+def test_build_runner_single_rank_flashsac_keeps_dp_sync_none(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
+    kwargs = _build_flashsac_runner_with_dp_fakes(monkeypatch, ["algo=flashsac"])
+    assert kwargs["dp_sync"] is None
+    assert kwargs["dp_sync_interval"] == 8
+    assert kwargs["collector_cpu_ids"] is None
+
+
+def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
+    monkeypatch.delenv(UNILAB_DP_LOG_DIR, raising=False)
+    kwargs = _build_flashsac_runner_with_dp_fakes(
+        monkeypatch,
+        [
+            "algo=flashsac",
+            "training.devices=[0,1]",
+            "training.dp_sync_interval=4",
+        ],
+    )
+    dp_sync = kwargs["dp_sync"]
+    assert isinstance(dp_sync, DpParameterSync)
+    assert dp_sync.world_size == 2
+    assert dp_sync.rank == 0
+    assert dp_sync.backend == "nccl"
+    assert dp_sync.rendezvous_path == "/tmp/dp_sync_test_run/.dp_rendezvous"
+    assert kwargs["dp_sync_interval"] == 4
+    # Rank 0 collector owns the first contiguous CPU block.
+    assert kwargs["collector_cpu_ids"] == list(range(64))
+
+
+def test_build_runner_multi_gpu_flashsac_spawned_rank(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv(UNILAB_DP_RANK, "1")
+    monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/dp_sync_shared_root")
+    kwargs = _build_flashsac_runner_with_dp_fakes(
+        monkeypatch,
+        ["algo=flashsac", "training.devices=[0,1]"],
+    )
+    dp_sync = kwargs["dp_sync"]
+    assert isinstance(dp_sync, DpParameterSync)
+    assert dp_sync.rank == 1
+    # Spawned ranks rendezvous on rank 0's run root, not their rank sub-dir.
+    assert dp_sync.rendezvous_path == "/tmp/dp_sync_shared_root/.dp_rendezvous"
+    assert kwargs["collector_cpu_ids"] == list(range(64, 128))

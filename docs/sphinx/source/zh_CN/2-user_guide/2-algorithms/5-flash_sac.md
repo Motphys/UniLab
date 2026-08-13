@@ -33,3 +33,16 @@ FlashSAC 要求同步采集，并与 SAC、TD3 共用唯一 replay 路径：有�
 training 不受支持。
 
 日志根目录为 `logs/flash_sac/<task>/`。
+
+## 多卡数据并行
+
+FlashSAC 与 SAC 共用同一套多卡数据并行机制：`training.devices` 下每个 rank 各跑一
+套独立的 learner+collector，`FlashSACLearner.dp_sync_tensors()` 同步 actor / critic /
+target critic / temperature 参数。用法与限制见
+{doc}`/zh_CN/2-user_guide/2-algorithms/3-sac` 的"多卡数据并行"小节。
+
+```bash
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
+  training.devices=[0,1] \
+  training.dp_sync_interval=8
+```
