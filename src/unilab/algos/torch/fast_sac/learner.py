@@ -1497,6 +1497,28 @@ class FastSACLearner:
                     for tgt, src in zip(target_params, source_params):
                         tgt.mul_(1.0 - self.tau).add_(src, alpha=self.tau)
 
+    def dp_sync_tensors(self) -> Dict[str, torch.Tensor]:
+        """Tensors synchronized across data-parallel ranks, as live references.
+
+        The values alias the parameter/buffer storage of ``actor``, ``qnet``
+        and ``qnet_target`` (plus the ``log_alpha`` leaf) rather than copies,
+        so the DP collectives (``unilab.ipc.dp_sync.DpParameterSync``) update
+        the model in place — required because CUDA-graph capture pins
+        parameter addresses. Optimizer state (AdamW moments) is deliberately
+        excluded: sync is parameter-level, each rank keeps its own optimizer
+        state, and the moments diverge across ranks by design.
+        """
+        tensors: Dict[str, torch.Tensor] = {}
+        for prefix, module in (
+            ("actor", self.actor),
+            ("qnet", self.qnet),
+            ("qnet_target", self.qnet_target),
+        ):
+            for key, value in module.state_dict().items():
+                tensors[f"{prefix}.{key}"] = value
+        tensors["log_alpha"] = self.log_alpha
+        return tensors
+
     def get_state_dict(self) -> Dict[str, Any]:
         """Save all components."""
         return {

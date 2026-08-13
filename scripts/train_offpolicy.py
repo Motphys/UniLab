@@ -21,6 +21,7 @@ from unilab.ipc.dp_launcher import (
     apply_dp_rank_config,
     current_dp_rank,
     resolve_collector_cpu_ids,
+    resolve_dp_rendezvous_path,
     resolve_dp_topology,
     validate_dp_launchable,
 )
@@ -161,7 +162,7 @@ def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[st
     )
 
 
-def build_runner(algo_name: str, cfg: DictConfig):
+def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
     from unilab.algos.torch.offpolicy.thread_budget import (
@@ -177,16 +178,39 @@ def build_runner(algo_name: str, cfg: DictConfig):
     # only spawned ranks carry it), rank from the env (0 for rank 0).
     dp_devices = resolve_dp_topology(cfg.training.devices)
     dp_world_size = len(dp_devices) if dp_devices is not None else 1
+    dp_rank = current_dp_rank()
     host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:
         explicit_cpu_ids = cast(list, OmegaConf.to_container(explicit_cpu_ids, resolve=True))
     collector_cpu_ids = resolve_collector_cpu_ids(
         dp_world_size,
-        current_dp_rank(),
+        dp_rank,
         host_cpu_count,
         explicit=explicit_cpu_ids,
     )
+
+    # Cold-path DP parameter sync: ranks average actor+critic parameters at
+    # the update boundary. world_size == 1 keeps dp_sync=None (bit-identical
+    # single-rank path, no process group is created).
+    dp_sync_interval = int(getattr(cfg.training, "dp_sync_interval", 8))
+    if dp_sync_interval < 1:
+        raise ValueError(f"training.dp_sync_interval must be >= 1, got {dp_sync_interval}")
+    dp_sync = None
+    if dp_world_size > 1:
+        if dp_rank == 0 and log_dir is None:
+            raise ValueError(
+                "build_runner requires log_dir for multi-GPU data-parallel rank 0 "
+                "(it anchors the DP rendezvous FileStore)"
+            )
+        from unilab.ipc.dp_sync import DpParameterSync
+
+        dp_sync = DpParameterSync(
+            world_size=dp_world_size,
+            rank=dp_rank,
+            rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
+            device=cfg.training.device,
+        )
 
     torch_thread_runtime = resolve_torch_thread_runtime(
         getattr(cfg.training, "torch_threads", None),
@@ -345,6 +369,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
+            dp_sync=dp_sync,
+            dp_sync_interval=dp_sync_interval,
         )
 
     if algo_name == "td3":
@@ -410,6 +436,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
+            dp_sync=dp_sync,
+            dp_sync_interval=dp_sync_interval,
         )
 
     if algo_name == "flashsac":
@@ -749,7 +777,7 @@ def main(cfg: DictConfig) -> None:
             if not cfg.training.play_only:
                 runner = None
                 try:
-                    runner = build_runner(algo_name, cfg)
+                    runner = build_runner(algo_name, cfg, log_dir=log_dir)
                     runner.learn(
                         max_iterations=cfg.algo.max_iterations,
                         save_interval=cfg.algo.save_interval,

@@ -13,7 +13,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from hydra.errors import ConfigCompositionException
 
-from unilab.ipc.dp_launcher import UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
+from unilab.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
 
 _ROOT = Path(__file__).parent.parent.parent
 _CONF_DIR = _ROOT / "conf"
@@ -267,13 +267,14 @@ def _build_sac_runner_with_fakes(
     monkeypatch.setattr(learner_module, "FastSACLearner", _FakeLearner)
     monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
 
-    runner = module.build_runner("sac", cfg)
+    runner = module.build_runner("sac", cfg, log_dir="/tmp/offpolicy_test_run")
     return runner, probe_env_calls
 
 
 def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.MonkeyPatch):
     # Spawned rank: rank comes from the env, world_size from training.devices.
     monkeypatch.setenv(UNILAB_DP_RANK, "1")
+    monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/offpolicy_test_run")
     runner, probe_env_calls = _build_sac_runner_with_fakes(
         monkeypatch,
         ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],

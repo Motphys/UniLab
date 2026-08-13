@@ -2,8 +2,8 @@
 
 Topology rules (config parsing, rank/device mapping, subprocess supervision)
 live here so that ``scripts/train_offpolicy.py`` only assembles the flow.
-This module covers topology only; parameter sync between ranks is out of
-scope for this stage.
+This module covers topology only; the parameter-sync collectives between
+ranks live in ``dp_sync.py``.
 """
 
 from __future__ import annotations
@@ -64,6 +64,27 @@ def current_dp_rank() -> int:
 def current_dp_world_size() -> int:
     """Data-parallel world size of this process (1 when not spawned as a rank)."""
     return int(os.environ.get(UNILAB_DP_WORLD_SIZE, "1"))
+
+
+def resolve_dp_rendezvous_path(log_dir: str, *, rank: int) -> str:
+    """Shared FileStore rendezvous path for the DP parameter-sync group.
+
+    Rank 0 anchors the store in its own run directory; spawned ranks point at
+    the same run root via ``UNILAB_DP_LOG_DIR`` (their own log_dir is a
+    per-rank subdirectory). The run directory is unique per run, which keeps
+    stale FileStore state from a previous run out of the rendezvous.
+
+    Cold path only: call at runner construction.
+    """
+    if int(rank) > 0:
+        root = os.environ.get(UNILAB_DP_LOG_DIR)
+        if root is None:
+            raise ValueError(
+                f"{UNILAB_DP_LOG_DIR} must be set for spawned data-parallel rank {rank}"
+            )
+    else:
+        root = str(log_dir)
+    return os.path.join(root, ".dp_rendezvous")
 
 
 def resolve_collector_cpu_ids(
