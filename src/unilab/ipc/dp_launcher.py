@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 UNILAB_DP_RANK = "UNILAB_DP_RANK"
 UNILAB_DP_WORLD_SIZE = "UNILAB_DP_WORLD_SIZE"
@@ -159,7 +159,7 @@ class DpRankSupervisor:
         self._watchdog.start()
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Literal[False]:
         self._watchdog_stop.set()
         if self._watchdog is not None:
             self._watchdog.join(timeout=_TERMINATE_TIMEOUT_S)
@@ -195,9 +195,8 @@ class DpRankSupervisor:
                     )
         self._terminate_children()
         if failed:
-            message = (
-                "data-parallel rank subprocess(es) failed: "
-                + ", ".join(f"rank {rank} exit code {code}" for rank, code in failed)
+            message = "data-parallel rank subprocess(es) failed: " + ", ".join(
+                f"rank {rank} exit code {code}" for rank, code in failed
             )
             if exc_type is None:
                 raise RuntimeError(message)
