@@ -350,6 +350,9 @@ def test_runner_constructs_only_bounded_device_replay(
     }
     assert _FakePipeline.last_kwargs["pack_layout"] == expected_layout
     assert _FakePipeline.last_kwargs["use_critic_graph_packed_source"] is expected_critic_source
+    runtime_manifest = runner.last_run_summary["runtime_manifest"]
+    assert runtime_manifest["replay_h2d_submitter"] == runner.replay_h2d_submitter
+    assert "replay_device_submission_thread" in runtime_manifest
     assert not any(key.startswith("collector_pack") for key in collector_kwargs)
     assert "weight_sync_name" not in collector_kwargs
     assert "weight_param_shapes" not in collector_kwargs

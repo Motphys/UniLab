@@ -490,6 +490,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "transfer_manifest",
             {},
         )
+        self.runtime_manifest.update(
+            {
+                "replay_h2d_submitter": self.replay_h2d_submitter,
+                "replay_device_submission_thread": self.replay_transfer_backend.get(
+                    "device_submission_thread"
+                ),
+            }
+        )
 
         actor_context_dim = int(getattr(self.learner, "priv_info_dim", 0))
         inference_input_dim = self.obs_dim + actor_context_dim
@@ -763,7 +771,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         sample_count=sample_count,
                     )
                     learner_replay_sample_time = time.perf_counter() - replay_sample_start
-                    learner_incremental_h2d_time = float(
+                    replay_ingress_h2d_submit_time = float(
                         getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0)
                     )
                     if iteration < max_iterations:
@@ -916,7 +924,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     replay_batch_wait_time=replay_batch_wait_time,
                     learner_replay_sample_time=learner_replay_sample_time,
                     sync_coordination_time=sync_coordination_time,
-                    learner_incremental_h2d_time=learner_incremental_h2d_time,
+                    replay_ingress_h2d_submit_time=replay_ingress_h2d_submit_time,
                     inference_h2d_time=inference_h2d_time,
                     inference_forward_time=inference_forward_time,
                     inference_d2h_time=inference_d2h_time,

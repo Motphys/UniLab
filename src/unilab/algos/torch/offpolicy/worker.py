@@ -19,16 +19,16 @@ from unilab.training.seed import apply_training_seed
 # Every key is recorded once per iteration so the reported averages share one
 # denominator and can be summed without double counting.
 # - replay_write_ms: pack transitions and write them into the bounded ingress
-# - sync_idle_ms: per-cycle bookkeeping and metrics reporting
+# - bookkeeping_ms: per-cycle episode bookkeeping and metrics reporting
 COLLECTOR_TIMING_KEYS = (
     "inference_request_ms",
-    "inference_wait_ms",
+    "learner_action_wait_ms",
     "env_step_ms",
     "replay_write_ms",
-    "sync_idle_ms",
+    "bookkeeping_ms",
 )
 COLLECTOR_ACTIVE_TIMING_KEYS = tuple(
-    key for key in COLLECTOR_TIMING_KEYS if key not in {"inference_wait_ms", "sync_idle_ms"}
+    key for key in COLLECTOR_TIMING_KEYS if key not in {"learner_action_wait_ms", "bookkeeping_ms"}
 )
 
 
@@ -351,7 +351,9 @@ def _run_collector(
                         "policy_version": policy_version,
                     },
                 )
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "inference_wait_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(
+                cycle_timing_ms, "learner_action_wait_ms", phase_start_ns
+            )
             inference_tick += 1
 
             # Step environment
@@ -446,7 +448,7 @@ def _run_collector(
             critic_np = next_critic_np
             info_dict = state.info
             total_steps += num_envs
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_idle_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "bookkeeping_ms", phase_start_ns)
 
             # Progress log every 2 seconds
             now = _time.time()
@@ -512,7 +514,7 @@ def _run_collector(
                         timing_counts.clear()
                 except Exception as e:
                     print(f"[OffPolicyWorker] metrics enqueue error: {e}", file=sys.stderr)
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "sync_idle_ms", phase_start_ns)
+            phase_start_ns = _record_phase_ms(cycle_timing_ms, "bookkeeping_ms", phase_start_ns)
 
             for key, value in cycle_timing_ms.items():
                 _record_timing_ms(timing_accum_ms, timing_counts, key, value)
