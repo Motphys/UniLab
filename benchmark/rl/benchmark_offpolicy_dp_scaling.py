@@ -1,0 +1,473 @@
+"""Off-policy multi-GPU data-parallel scaling benchmark (issue #968).
+
+Runs real ``scripts/train_offpolicy.py`` training via subprocess (same Hydra
+overrides as the production CLI entry, never importing training internals) and
+compares single-device N=1 (no ``training.devices``) against N-way data
+parallel (``training.devices=[d0..dN-1]``, default ``[0,1]``). Every config
+keeps the owner YAML production defaults (sac / g1_walk_flat / mujoco) except
+``algo.max_iterations``, ``training.no_play=true`` and ``training.log_dir``
+pointing into this benchmark's own work directory. Runs execute sequentially
+to avoid resource contention.
+
+Measurement conventions:
+
+- Steady-state throughput: mean of the last 50% of ``perf/steps_per_sec``
+  tfevents samples (ceil(n/2) tail points; with n samples the tail is
+  ``n - n//2``). This skips collector warm-up and replay prefill.
+- N-way aggregate throughput: sum of per-rank steady-state steps/s. Rank 0
+  artifacts live in the run directory itself (``run_summary.json`` +
+  tfevents); rank i>0 tfevents live in the ``rank{i}/`` subdirectory. A rank
+  missing its tfevents is a hard error, never silently skipped.
+- Scaling ratio: N-way aggregate / N=1 steady-state steps/s. The verdict is
+  ``pass`` when ratio >= 1.7 (``SCALING_PASS_THRESHOLD``), otherwise
+  ``below threshold``. The verdict is data only: it does not affect the
+  exit code.
+- Exit code is non-zero only when a run itself failed (subprocess error,
+  non-completed summary, or missing artifacts).
+
+Run:
+    uv run benchmark/rl/benchmark_offpolicy_dp_scaling.py
+
+    # tuning / passthrough overrides:
+    uv run benchmark/rl/benchmark_offpolicy_dp_scaling.py \
+        --iterations 300 --sync-interval 8 --devices 0,1 \
+        --extra-overrides algo.num_envs=2048 \
+        --out-json benchmark/outputs/offpolicy_dp_scaling/results.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Sequence
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from benchmark.core.device_info import get_device_info_dict, get_device_info_line
+from benchmark.core.output import print_table, save_json
+
+DEFAULT_OUTPUT_JSON = ROOT_DIR / "benchmark" / "outputs" / "offpolicy_dp_scaling" / "results.json"
+DEFAULT_RUNS_ROOT = ROOT_DIR / "benchmark" / "outputs" / "offpolicy_dp_scaling" / "runs"
+
+TRAIN_SCRIPT = ROOT_DIR / "scripts" / "train_offpolicy.py"
+
+# Route overrides equivalent to `uv run train --algo sac --task g1_walk_flat
+# --sim mujoco` (see src/unilab/cli.py build_route for off-policy algos).
+ROUTE_OVERRIDES = ("algo=sac", "task=sac/g1_walk_flat/mujoco")
+
+STEPS_PER_SEC_TAG = "perf/steps_per_sec"
+REWARD_TAG = "reward/mean"
+DP_SYNC_TIME_TAG = "train/dp_sync_time"
+
+DEFAULT_ITERATIONS = 300
+DEFAULT_SYNC_INTERVAL = 8
+DEFAULT_DEVICES = "0,1"
+
+# Roadmap #964 acceptance target for 2-way data-parallel aggregate throughput.
+SCALING_PASS_THRESHOLD = 1.7
+
+STEADY_STATE_TAIL_FRACTION = 0.5
+
+
+class RunParseError(RuntimeError):
+    """A finished run directory is missing required artifacts or is invalid."""
+
+
+# =====================================================================
+# Pure helpers (unit-tested in tests/benchmark/)
+# =====================================================================
+
+
+def steady_state_mean(
+    values: Sequence[float], tail_fraction: float = STEADY_STATE_TAIL_FRACTION
+) -> float:
+    """Mean of the last ``tail_fraction`` of samples (ceil tail size, min 1)."""
+    if not values:
+        raise ValueError("steady_state_mean requires at least one sample")
+    if not 0 < tail_fraction <= 1:
+        raise ValueError(f"tail_fraction must be in (0, 1], got {tail_fraction}")
+    n = len(values)
+    tail = max(1, n - int(n * (1 - tail_fraction)))
+    window = [float(v) for v in values[n - tail :]]
+    return sum(window) / len(window)
+
+
+def verdict_for_ratio(ratio: float | None, threshold: float = SCALING_PASS_THRESHOLD) -> str | None:
+    """Map a scaling ratio to its verdict string; None stays None (baseline)."""
+    if ratio is None:
+        return None
+    return "pass" if ratio >= threshold else "below threshold"
+
+
+def find_event_files(rank_dir: Path) -> list[Path]:
+    """All tfevents files directly under one rank's log directory."""
+    rank_dir = Path(rank_dir)
+    if not rank_dir.is_dir():
+        raise RunParseError(f"rank log directory does not exist: {rank_dir}")
+    return sorted(rank_dir.glob("events.out.tfevents.*"))
+
+
+def read_scalar_series(rank_dir: Path, tag: str) -> list[float]:
+    """Scalar values of ``tag`` from a rank's tfevents (in event order).
+
+    An absent tag yields ``[]``; a rank directory without any tfevents file
+    raises ``RunParseError`` so missing rank data is never silent.
+    """
+    event_files = find_event_files(rank_dir)
+    if not event_files:
+        raise RunParseError(f"no tfevents file found under {rank_dir}")
+    if len(event_files) > 1:
+        raise RunParseError(
+            f"expected exactly one tfevents file under {rank_dir}, got {len(event_files)}"
+        )
+    from tensorboard.backend.event_processing import event_accumulator
+
+    accumulator = event_accumulator.EventAccumulator(str(event_files[0]))
+    accumulator.Reload()
+    if tag not in accumulator.Tags()["scalars"]:
+        return []
+    return [float(event.value) for event in accumulator.Scalars(tag)]
+
+
+def rank_dir_for(run_dir: Path, rank: int) -> Path:
+    """Rank i>0 logs into the ``rank{i}`` subdirectory of rank 0's run dir."""
+    run_dir = Path(run_dir)
+    return run_dir if rank == 0 else run_dir / f"rank{rank}"
+
+
+def parse_run(run_dir: Path, world_size: int) -> dict[str, Any]:
+    """Parse one finished run directory into a metrics record.
+
+    Rank 0 must carry a ``run_summary.json`` with ``status == "completed"``
+    and a tfevents file; ranks 1..N-1 must each carry their own tfevents.
+    """
+    run_dir = Path(run_dir)
+    if world_size < 1:
+        raise ValueError(f"world_size must be >= 1, got {world_size}")
+
+    summary_path = run_dir / "run_summary.json"
+    if not summary_path.is_file():
+        raise RunParseError(f"missing run summary: {summary_path}")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    status = summary.get("status")
+    if status != "completed":
+        raise RunParseError(
+            f"run {run_dir} did not complete: status={status!r} error={summary.get('error')!r}"
+        )
+
+    ranks: list[dict[str, Any]] = []
+    dp_sync_samples: list[float] = []
+    for rank in range(world_size):
+        rank_dir = rank_dir_for(run_dir, rank)
+        series = read_scalar_series(rank_dir, STEPS_PER_SEC_TAG)
+        if not series:
+            raise RunParseError(
+                f"rank {rank} has no {STEPS_PER_SEC_TAG!r} samples under {rank_dir}"
+            )
+        ranks.append(
+            {
+                "rank": rank,
+                "log_dir": str(rank_dir),
+                "num_throughput_samples": len(series),
+                "steady_state_env_steps_per_s": steady_state_mean(series),
+            }
+        )
+        dp_sync_samples.extend(read_scalar_series(rank_dir, DP_SYNC_TIME_TAG))
+
+    reward_series = read_scalar_series(run_dir, REWARD_TAG)
+    aggregate = sum(r["steady_state_env_steps_per_s"] for r in ranks)
+    return {
+        "run_dir": str(run_dir),
+        "world_size": world_size,
+        "completed_iterations": summary.get("completed_iterations"),
+        "total_env_steps": summary.get("total_env_steps"),
+        "training_wall_time_sec": summary.get("training_wall_time_sec"),
+        "ranks": ranks,
+        "aggregate_env_steps_per_s": aggregate,
+        "final_mean_reward": reward_series[-1] if reward_series else None,
+        "mean_dp_sync_time_sec": (
+            sum(dp_sync_samples) / len(dp_sync_samples) if dp_sync_samples else None
+        ),
+    }
+
+
+def build_train_command(
+    run_dir: Path,
+    *,
+    iterations: int,
+    devices: Sequence[int] | None = None,
+    sync_interval: int = DEFAULT_SYNC_INTERVAL,
+    extra_overrides: Sequence[str] = (),
+) -> list[str]:
+    """Subprocess argv matching the production off-policy CLI overrides.
+
+    ``devices=None`` is the N=1 baseline and intentionally carries no
+    ``training.devices`` override at all.
+    """
+    command = [
+        sys.executable,
+        str(TRAIN_SCRIPT),
+        *ROUTE_OVERRIDES,
+        "training.no_play=true",
+        f"algo.max_iterations={iterations}",
+        f"training.log_dir={Path(run_dir)}",
+    ]
+    if devices is not None:
+        command.append(f"training.devices=[{','.join(str(d) for d in devices)}]")
+        command.append(f"training.dp_sync_interval={sync_interval}")
+    command.extend(extra_overrides)
+    return command
+
+
+def attach_scaling(
+    records: list[dict[str, Any]], threshold: float = SCALING_PASS_THRESHOLD
+) -> list[dict[str, Any]]:
+    """Fill ``scaling_vs_n1``/``verdict`` on DP configs against the N=1 record."""
+    baseline = next(
+        (
+            r
+            for r in records
+            if r["config"] == "n1" and r["status"] == "ok" and r["metrics"] is not None
+        ),
+        None,
+    )
+    baseline_throughput = (
+        float(baseline["metrics"]["aggregate_env_steps_per_s"]) if baseline else None
+    )
+    for record in records:
+        record["scaling_vs_n1"] = None
+        record["verdict"] = None
+        if record["config"] == "n1" or record["status"] != "ok" or record["metrics"] is None:
+            continue
+        if baseline_throughput:
+            ratio = float(record["metrics"]["aggregate_env_steps_per_s"]) / baseline_throughput
+            record["scaling_vs_n1"] = ratio
+            record["verdict"] = verdict_for_ratio(ratio, threshold)
+    return records
+
+
+def git_commit() -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(ROOT_DIR), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return out.strip()
+    except Exception:
+        return "unknown"
+
+
+def _parse_int_list(text: str, name: str) -> list[int]:
+    values = [int(v) for v in text.split(",") if v.strip()]
+    if not values:
+        raise ValueError(f"{name} must not be empty")
+    return values
+
+
+# =====================================================================
+# Subprocess execution
+# =====================================================================
+
+
+def execute_run(command: list[str], run_dir: Path) -> None:
+    """Run one training config to completion; raise on subprocess failure."""
+    run_dir = Path(run_dir)
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    run_dir.mkdir(parents=True)
+    completed = subprocess.run(command, cwd=ROOT_DIR)  # noqa: S603 - fixed argv, no shell
+    if completed.returncode != 0:
+        raise RunParseError(
+            f"training subprocess exited with code {completed.returncode}: {' '.join(command)}"
+        )
+
+
+def run_config(
+    name: str,
+    devices: Sequence[int] | None,
+    *,
+    iterations: int,
+    sync_interval: int,
+    extra_overrides: Sequence[str],
+    runs_root: Path,
+) -> dict[str, Any]:
+    """Execute and parse one benchmark config; failures are recorded, not raised."""
+    world_size = len(devices) if devices is not None else 1
+    run_dir = runs_root / name
+    record: dict[str, Any] = {
+        "config": name,
+        "world_size": world_size,
+        "devices": list(devices) if devices is not None else None,
+        "status": "ok",
+        "error": None,
+        "metrics": None,
+        "scaling_vs_n1": None,
+        "verdict": None,
+    }
+    try:
+        command = build_train_command(
+            run_dir,
+            iterations=iterations,
+            devices=devices,
+            sync_interval=sync_interval,
+            extra_overrides=extra_overrides,
+        )
+        print(f"[{name}] launching: {' '.join(command)}", flush=True)
+        execute_run(command, run_dir)
+        record["metrics"] = parse_run(run_dir, world_size)
+    except (RunParseError, ValueError) as exc:
+        record["status"] = "failed"
+        record["error"] = str(exc)
+    print(
+        f"[{name}] {record['status']}"
+        + (
+            f"  aggregate={record['metrics']['aggregate_env_steps_per_s']:,.0f} env-steps/s"
+            if record["metrics"]
+            else f"  error={record['error']}"
+        ),
+        flush=True,
+    )
+    return record
+
+
+# =====================================================================
+# CLI
+# =====================================================================
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Off-policy multi-GPU data-parallel scaling benchmark (issue #968)."
+    )
+    parser.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS)
+    parser.add_argument("--sync-interval", type=int, default=DEFAULT_SYNC_INTERVAL)
+    parser.add_argument(
+        "--devices",
+        default=DEFAULT_DEVICES,
+        help="comma-separated CUDA indices for the data-parallel config "
+        "(length 1 skips the DP config)",
+    )
+    parser.add_argument(
+        "--extra-overrides",
+        nargs="*",
+        default=(),
+        help="extra Hydra overrides appended verbatim to every config "
+        "(e.g. algo.num_envs=2048); owner YAML defaults are used otherwise",
+    )
+    parser.add_argument("--out-json", type=Path, default=DEFAULT_OUTPUT_JSON)
+    parser.add_argument(
+        "--keep-runs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="keep per-config training run directories under the output root",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    devices = _parse_int_list(args.devices, "--devices")
+
+    print(f"Device: {get_device_info_line()}")
+    print(f"commit: {git_commit()}")
+
+    configs: list[tuple[str, list[int] | None]] = [("n1", None)]
+    if len(devices) > 1:
+        configs.append((f"n{len(devices)}", devices))
+    else:
+        print(
+            f"--devices={args.devices!r} has length {len(devices)}; "
+            "skipping the data-parallel config (need >= 2 devices)."
+        )
+
+    records = [
+        run_config(
+            name,
+            config_devices,
+            iterations=args.iterations,
+            sync_interval=args.sync_interval,
+            extra_overrides=tuple(args.extra_overrides),
+            runs_root=DEFAULT_RUNS_ROOT,
+        )
+        for name, config_devices in configs
+    ]
+    attach_scaling(records)
+
+    if not args.keep_runs:
+        shutil.rmtree(DEFAULT_RUNS_ROOT, ignore_errors=True)
+
+    print()
+    print_table(
+        [
+            {
+                "config": r["config"],
+                "devices": ",".join(str(d) for d in r["devices"]) if r["devices"] else "-",
+                "aggregate env-steps/s": (
+                    f"{r['metrics']['aggregate_env_steps_per_s']:,.0f}" if r["metrics"] else "-"
+                ),
+                "final reward": (
+                    f"{r['metrics']['final_mean_reward']:.2f}"
+                    if r["metrics"] and r["metrics"]["final_mean_reward"] is not None
+                    else "-"
+                ),
+                "dp_sync mean (s)": (
+                    f"{r['metrics']['mean_dp_sync_time_sec']:.4f}"
+                    if r["metrics"] and r["metrics"]["mean_dp_sync_time_sec"] is not None
+                    else "-"
+                ),
+                "scaling vs n1": (
+                    f"{r['scaling_vs_n1']:.2f}x" if r["scaling_vs_n1"] is not None else "-"
+                ),
+                "verdict": r["verdict"] or "-",
+                "status": r["status"],
+            }
+            for r in records
+        ],
+        [
+            "config",
+            "devices",
+            "aggregate env-steps/s",
+            "final reward",
+            "dp_sync mean (s)",
+            "scaling vs n1",
+            "verdict",
+            "status",
+        ],
+    )
+
+    save_json(
+        args.out_json,
+        records,
+        {
+            "benchmark": "offpolicy_dp_scaling",
+            "issue": 968,
+            "commit": git_commit(),
+            "device": get_device_info_dict(),
+            "params": {
+                "route_overrides": list(ROUTE_OVERRIDES),
+                "iterations": args.iterations,
+                "sync_interval": args.sync_interval,
+                "devices": devices,
+                "extra_overrides": list(args.extra_overrides),
+                "scaling_pass_threshold": SCALING_PASS_THRESHOLD,
+                "steady_state_tail_fraction": STEADY_STATE_TAIL_FRACTION,
+                "throughput_tag": STEPS_PER_SEC_TAG,
+            },
+        },
+    )
+    failures = [r["config"] for r in records if r["status"] != "ok"]
+    if failures:
+        print(f"failed configs: {', '.join(failures)}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
