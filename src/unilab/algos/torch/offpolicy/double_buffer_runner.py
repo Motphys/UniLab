@@ -115,6 +115,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self,
         *,
         replay_prefetch_mode: str = "one_tick",
+        collector_cpu_ids: list[int] | None = None,
         **kwargs,
     ):
         kwargs["device"] = require_offpolicy_replay_device(kwargs.get("device"))
@@ -124,6 +125,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "DoubleBufferOffPolicyRunner only supports replay_prefetch_mode='one_tick'"
             )
         self.replay_prefetch_mode = replay_prefetch_mode
+        # Per-rank CPU block owned by this rank's collector (multi-GPU DP);
+        # merged into the collector-only env override at collector startup.
+        self.collector_cpu_ids = list(collector_cpu_ids) if collector_cpu_ids is not None else None
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
         self.replay_h2d_submitter = "auto"
@@ -135,6 +139,17 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "collector_torch_inference": False,
             "learner_actor_reused": True,
         }
+
+    def _collector_env_cfg_override(self) -> dict | None:
+        """Env override copy for the collector process, with per-rank CPU ids.
+
+        MuJoCo sizes its BatchEnvPool worker count from ``len(cpu_ids)``, so
+        the affinity list must only reach the collector's copy — never the
+        learner-side probe envs, which keep the base override untouched.
+        """
+        if self.collector_cpu_ids is None:
+            return self.env_cfg_override
+        return {**(self.env_cfg_override or {}), "cpu_ids": list(self.collector_cpu_ids)}
 
     def _wait_for_inference_request(
         self,
@@ -572,7 +587,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "inference_request_queue": inference_request_queue,
                 "inference_response_queue": inference_response_queue,
                 "sim_backend": self.sim_backend,
-                "env_cfg_override": self.env_cfg_override,
+                "env_cfg_override": self._collector_env_cfg_override(),
                 "inference_slot": inference_slot,
                 "seed": derive_worker_seed(self.seed, worker_index=0),
                 "trace_enabled": self.trace_enabled,

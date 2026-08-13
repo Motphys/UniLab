@@ -13,6 +13,7 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from omegaconf import OmegaConf
 
 import unilab.ipc.dp_launcher as dp_launcher
 from unilab.ipc.dp_launcher import (
@@ -24,6 +25,7 @@ from unilab.ipc.dp_launcher import (
     apply_dp_rank_config,
     current_dp_rank,
     current_dp_world_size,
+    resolve_collector_cpu_ids,
     resolve_dp_topology,
     validate_dp_launchable,
 )
@@ -273,6 +275,78 @@ def test_supervisor_restores_sigterm_handler(fake_popen):
         assert signal.getsignal(signal.SIGTERM) is dp_launcher._sigterm_system_exit
         fake_popen.instances[0].returncode = 0
     assert signal.getsignal(signal.SIGTERM) == previous
+
+
+# ---------------------------------------------------------------------------
+# resolve_collector_cpu_ids
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_collector_cpu_ids_single_rank_returns_none():
+    assert resolve_collector_cpu_ids(1, 0, 128) is None
+    assert resolve_collector_cpu_ids(0, 0, 128) is None
+
+
+def test_resolve_collector_cpu_ids_even_partition():
+    assert resolve_collector_cpu_ids(2, 0, 128) == list(range(0, 64))
+    assert resolve_collector_cpu_ids(2, 1, 128) == list(range(64, 128))
+
+
+def test_resolve_collector_cpu_ids_remainder_stays_unassigned():
+    # 129 CPUs / 2 ranks -> 64+64; CPU 128 keeps default OS scheduling.
+    assert resolve_collector_cpu_ids(2, 0, 129) == list(range(0, 64))
+    assert resolve_collector_cpu_ids(2, 1, 129) == list(range(64, 128))
+
+
+def test_resolve_collector_cpu_ids_requires_one_cpu_per_rank():
+    with pytest.raises(ValueError, match="cpu_count"):
+        resolve_collector_cpu_ids(4, 0, 3)
+
+
+def test_resolve_collector_cpu_ids_rank_out_of_range():
+    with pytest.raises(ValueError, match="out of range"):
+        resolve_collector_cpu_ids(2, 2, 128)
+
+
+def test_resolve_collector_cpu_ids_explicit_valid():
+    assert resolve_collector_cpu_ids(2, 1, 128, explicit=[[0, 1], [2, 3]]) == [2, 3]
+
+
+def test_resolve_collector_cpu_ids_empty_explicit_falls_back_to_auto():
+    assert resolve_collector_cpu_ids(2, 1, 128, explicit=[]) == list(range(64, 128))
+
+
+def test_resolve_collector_cpu_ids_explicit_rejects_segment_count_mismatch():
+    with pytest.raises(ValueError, match="world_size"):
+        resolve_collector_cpu_ids(2, 0, 128, explicit=[[0], [1], [2]])
+
+
+def test_resolve_collector_cpu_ids_explicit_rejects_overlapping_segments():
+    with pytest.raises(ValueError, match="overlap"):
+        resolve_collector_cpu_ids(2, 0, 128, explicit=[[0, 1], [1, 2]])
+
+
+def test_resolve_collector_cpu_ids_explicit_rejects_empty_segment():
+    with pytest.raises(ValueError, match="non-empty"):
+        resolve_collector_cpu_ids(2, 0, 128, explicit=[[0, 1], []])
+
+
+@pytest.mark.parametrize("bad_id", [-1, True, "2"])
+def test_resolve_collector_cpu_ids_explicit_rejects_invalid_ids(bad_id):
+    with pytest.raises(ValueError, match="non-negative integers"):
+        resolve_collector_cpu_ids(2, 0, 128, explicit=[[0, bad_id], [2, 3]])
+
+
+def test_offpolicy_config_dp_collector_cpu_ids_defaults_to_null():
+    cfg = _offpolicy_cfg()
+    assert cfg.training.dp_collector_cpu_ids is None
+
+
+def test_offpolicy_config_dp_collector_cpu_ids_compose():
+    cfg = _offpolicy_cfg(["training.dp_collector_cpu_ids=[[0,1],[2,3]]"])
+    explicit = OmegaConf.to_container(cfg.training.dp_collector_cpu_ids, resolve=True)
+    assert explicit == [[0, 1], [2, 3]]
+    assert resolve_collector_cpu_ids(2, 1, 128, explicit=explicit) == [2, 3]
 
 
 # ---------------------------------------------------------------------------

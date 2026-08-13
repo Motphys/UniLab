@@ -66,6 +66,67 @@ def current_dp_world_size() -> int:
     return int(os.environ.get(UNILAB_DP_WORLD_SIZE, "1"))
 
 
+def resolve_collector_cpu_ids(
+    world_size: int,
+    rank: int,
+    cpu_count: int,
+    explicit: Any = None,
+) -> list[int] | None:
+    """Resolve the CPU ids exclusively owned by this rank's collector.
+
+    Returns None for the single-rank default (``world_size <= 1``) so the
+    single-card path stays bit-identical to the pre-partition behavior.
+    Otherwise the host CPUs are split into ``world_size`` contiguous blocks of
+    ``cpu_count // world_size``: rank i owns ``[i*size, (i+1)*size)`` and any
+    remainder CPUs stay on default OS scheduling. ``explicit`` (config
+    ``training.dp_collector_cpu_ids``, one segment per rank) overrides the
+    automatic partition; the segments must number exactly ``world_size``, be
+    non-empty, contain non-negative ints, and not overlap. An empty
+    ``explicit`` falls back to the automatic partition.
+
+    Cold path only: call at runner construction, never from the collect loop.
+    """
+    world_size = int(world_size)
+    if world_size <= 1:
+        return None
+    rank = int(rank)
+    if rank < 0 or rank >= world_size:
+        raise ValueError(f"data-parallel rank {rank} is out of range for world_size={world_size}")
+    cpu_count = int(cpu_count)
+    if cpu_count < world_size:
+        raise ValueError(
+            f"cpu_count={cpu_count} cannot give each data-parallel rank its own CPU "
+            f"(world_size={world_size})"
+        )
+    if explicit is not None and len(explicit) > 0:
+        segments: list[list[int]] = [list(segment) for segment in explicit]
+        if len(segments) != world_size:
+            raise ValueError(
+                f"training.dp_collector_cpu_ids must provide exactly world_size={world_size} "
+                f"segments, got {len(segments)}"
+            )
+        seen: set[int] = set()
+        for segment in segments:
+            if not segment:
+                raise ValueError(
+                    f"training.dp_collector_cpu_ids segments must be non-empty, got {segments!r}"
+                )
+            for cpu_id in segment:
+                if isinstance(cpu_id, bool) or not isinstance(cpu_id, int) or cpu_id < 0:
+                    raise ValueError(
+                        "training.dp_collector_cpu_ids entries must be non-negative "
+                        f"integers, got {cpu_id!r}"
+                    )
+                if cpu_id in seen:
+                    raise ValueError(
+                        f"training.dp_collector_cpu_ids segments overlap on CPU {cpu_id}"
+                    )
+                seen.add(cpu_id)
+        return segments[rank]
+    size = cpu_count // world_size
+    return list(range(rank * size, rank * size + size))
+
+
 def validate_dp_launchable(devices: tuple[int, ...]) -> None:
     """Fail fast at launch time when the host lacks any requested CUDA device."""
     import torch
