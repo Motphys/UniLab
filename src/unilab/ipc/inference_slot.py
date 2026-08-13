@@ -122,3 +122,5 @@ class SharedInferenceSlot:
 
     def close(self) -> None:
         return None
+
+    cleanup = close

@@ -35,8 +35,8 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.max_iterations=500`
 - `training.use_amp=true` in the shared off-policy config
 
-SAC and TD3 can run the off-policy device replay path with
-`training.no_sync_collection=true`. FlashSAC-B requires synchronized collection.
+The off-policy device replay path uses synchronized, learner-owned inference:
+collectors exchange observations and actions through shared memory and do not own an actor.
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \

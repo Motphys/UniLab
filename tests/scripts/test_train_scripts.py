@@ -70,14 +70,6 @@ def test_analyze_offpolicy_trace_reports_training_e2e(tmp_path, capsys):
                     {"name": "learner/wait_for_data", "ph": "X", "ts": 0.0, "dur": 10.0},
                     {"name": "learner/wait_for_data", "ph": "X", "ts": 1000.0, "dur": 10.0},
                     {"name": "learner/training_e2e", "ph": "X", "ts": 0.0, "dur": 2500.0},
-                    {"name": "learner/weight_sync_write", "ph": "X", "ts": 800.0, "dur": 100.0},
-                    {
-                        "name": "learner/update_critic",
-                        "ph": "X",
-                        "ts": 1200.0,
-                        "dur": 50.0,
-                        "args": {"update_idx": 0},
-                    },
                 ]
             }
         ),
@@ -86,11 +78,9 @@ def test_analyze_offpolicy_trace_reports_training_e2e(tmp_path, capsys):
     mod = _load_script("analyze_offpolicy_trace")
 
     mod.analyze_training_e2e(trace_path)
-    mod.analyze_iteration_resume_gap(trace_path)
 
     out = capsys.readouterr().out
     assert "training_e2e: n=1 mean=2.500ms" in out
-    assert "weight_sync_end_to_next_update0_start_gap: n=1 mean=0.300ms" in out
 
 
 # ---------------------------------------------------------------------------

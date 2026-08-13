@@ -13,7 +13,10 @@ import torch
 
 import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
 import unilab.algos.torch.offpolicy.runner as runner_module
-from unilab.algos.torch.offpolicy.double_buffer_runner import algo_display_name
+from unilab.algos.torch.offpolicy.double_buffer_runner import (
+    _LearnerInferenceScheduler,
+    algo_display_name,
+)
 from unilab.algos.torch.offpolicy.runner import (
     build_offpolicy_sample_info,
     compute_train_start_threshold,
@@ -53,6 +56,51 @@ def test_replay_ready_contract(size, batch_size, learning_starts, num_envs, expe
         )
         is expected
     )
+
+
+def test_multi_step_scheduler_keeps_one_policy_version_until_update_boundary() -> None:
+    scheduler = _LearnerInferenceScheduler(env_steps_per_sync=2, initial_policy_version=7)
+
+    scheduler.record_inference(0)
+    assert scheduler.policy_version == 7
+    assert scheduler.update_ready is False
+    assert scheduler.release_pending() == 0
+
+    scheduler.record_inference(1)
+    assert scheduler.policy_version == 7
+    assert scheduler.update_ready is True
+    assert scheduler.release_pending() == 1
+
+    scheduler.finish_update()
+    assert scheduler.policy_version == 8
+    assert scheduler.next_tick == 2
+    assert scheduler.update_ready is False
+
+
+def test_scheduler_rejects_update_before_configured_tick_boundary() -> None:
+    scheduler = _LearnerInferenceScheduler(env_steps_per_sync=2)
+    scheduler.record_inference(0)
+    scheduler.release_pending()
+
+    with pytest.raises(RuntimeError, match="before the configured inference tick boundary"):
+        scheduler.finish_update()
+
+
+def test_scheduler_rejects_slot_reuse_before_response_release() -> None:
+    scheduler = _LearnerInferenceScheduler(env_steps_per_sync=1)
+    scheduler.record_inference(0)
+
+    with pytest.raises(RuntimeError, match="has not been released"):
+        scheduler.record_inference(1)
+    with pytest.raises(RuntimeError, match="before releasing the collector tick"):
+        scheduler.finish_update()
+
+
+def test_scheduler_rejects_out_of_order_collector_tick() -> None:
+    scheduler = _LearnerInferenceScheduler(env_steps_per_sync=1)
+
+    with pytest.raises(RuntimeError, match="expected 0, got 1"):
+        scheduler.record_inference(1)
 
 
 class _Symmetry:
@@ -182,19 +230,6 @@ class _FakePipeline:
         type(self).close_calls += 1
 
 
-class _FakeWeightSync:
-    name = "fake-weights"
-    _lock = None
-
-    @classmethod
-    def from_state_dict(cls, state_dict, create=True):
-        del state_dict, create
-        return cls()
-
-    def close(self):
-        return None
-
-
 class _FakeLogger:
     _total_steps = 0
     _mean_ep_length = 0.0
@@ -205,9 +240,6 @@ class _FakeLogger:
         self.statuses = []
 
     def set_collection_sync(self, *args):
-        del args
-
-    def set_collector_infer_device(self, *args):
         del args
 
     def update_runtime_manifest(self, manifest):
@@ -256,7 +288,6 @@ def _make_device_runner(monkeypatch: pytest.MonkeyPatch, learner=None):
         learning_starts=0,
         updates_per_step=2,
         policy_frequency=1,
-        sync_collection=False,
         env_steps_per_sync=1,
         device="cuda",
     )
@@ -281,7 +312,6 @@ def test_runner_constructs_only_bounded_device_replay(
     _FakePipeline.close_calls = 0
     monkeypatch.setattr(device_runner_module, "ReplayBuffer", _FakeReplayBuffer)
     monkeypatch.setattr(device_runner_module, "GPUResidentReplayPipeline", _FakePipeline)
-    monkeypatch.setattr(device_runner_module, "SharedWeightSync", _FakeWeightSync)
     monkeypatch.setattr(device_runner_module, "OffPolicyLogger", _FakeLogger)
     monkeypatch.setattr(device_runner_module.torch, "save", lambda *args, **kwargs: None)
     monkeypatch.setattr(device_runner_module.time, "sleep", lambda seconds: None)
@@ -309,6 +339,15 @@ def test_runner_constructs_only_bounded_device_replay(
     assert _FakePipeline.last_kwargs["pack_layout"] == expected_layout
     assert _FakePipeline.last_kwargs["use_critic_graph_packed_source"] is expected_critic_source
     assert not any(key.startswith("collector_pack") for key in collector_kwargs)
+    assert "weight_sync_name" not in collector_kwargs
+    assert "weight_param_shapes" not in collector_kwargs
+    assert "collector_infer_device" not in collector_kwargs
+    assert "inference_owner" not in collector_kwargs
+    assert collector_kwargs["inference_slot"] is not None
+    assert collector_kwargs["inference_request_queue"] is not None
+    assert collector_kwargs["inference_response_queue"] is not None
+    assert "collection_ready_queue" not in collector_kwargs
+    assert "trainer_done_queue" not in collector_kwargs
     assert _FakePipeline.close_calls == 1
 
 
@@ -369,16 +408,20 @@ def test_drain_metrics_propagates_collector_error():
         )
 
 
-@pytest.mark.parametrize("algo_type", ["sac", "flashsac"])
+@pytest.mark.parametrize("algo_type", ["sac", "td3", "flashsac"])
 def test_learner_inference_matches_existing_actor_exploration(algo_type: str) -> None:
     if algo_type == "sac":
         from unilab.algos.torch.fast_sac.learner import SACActor
 
         actor = SACActor(3, 2, hidden_dim=8, use_layer_norm=False)
-    else:
+    elif algo_type == "flashsac":
         from unilab.algos.torch.flash_sac.network import FlashSACActor
 
         actor = FlashSACActor(num_blocks=1, input_dim=3, hidden_dim=8, action_dim=2)
+    else:
+        from unilab.algos.torch.fast_td3.learner import TD3Actor
+
+        actor = TD3Actor(3, 2, num_envs=2, init_scale=0.01, hidden_dim=8)
     expected_actor = copy.deepcopy(actor)
     observations = np.arange(6, dtype=np.float32).reshape(2, 3) / 10.0
     dones = np.array([0.0, 1.0], dtype=np.float32)
@@ -391,6 +434,7 @@ def test_learner_inference_matches_existing_actor_exploration(algo_type: str) ->
 
     runner = object.__new__(device_runner_module.DoubleBufferOffPolicyRunner)
     runner.device = "cpu"
+    runner.obs_dim = 3
     runner.obs_normalization = False
     runner.algo_type = algo_type
     runner.learner = SimpleNamespace(actor=actor)
@@ -413,3 +457,50 @@ def test_learner_inference_matches_existing_actor_exploration(algo_type: str) ->
         torch.testing.assert_close(actor._noise, expected_actor._noise)
         torch.testing.assert_close(actor._repeat_count, expected_actor._repeat_count)
         torch.testing.assert_close(actor._repeat_target, expected_actor._repeat_target)
+
+
+def test_hora_learner_inference_uses_privileged_context() -> None:
+    from unilab.algos.torch.hora.sac_models import HoraSACActor
+
+    actor = HoraSACActor(
+        obs_dim=3,
+        priv_info_dim=2,
+        action_dim=2,
+        hidden_dim=8,
+        priv_mlp_hidden_dims=(4, 2),
+        priv_info_embed_dim=2,
+        use_layer_norm=False,
+    )
+    expected_actor = copy.deepcopy(actor)
+    observations = np.arange(6, dtype=np.float32).reshape(2, 3) / 10.0
+    priv_info = np.arange(4, dtype=np.float32).reshape(2, 2) / 10.0
+    actor_input = np.concatenate((observations, priv_info), axis=1)
+    dones = np.zeros(2, dtype=np.float32)
+    torch.manual_seed(23)
+    expected = expected_actor.explore(
+        torch.from_numpy(observations),
+        torch.from_numpy(priv_info),
+        deterministic=False,
+    )
+
+    runner = object.__new__(device_runner_module.DoubleBufferOffPolicyRunner)
+    runner.device = "cpu"
+    runner.obs_dim = 3
+    runner.obs_normalization = False
+    runner.algo_type = "hora_sac"
+    runner.learner = SimpleNamespace(actor=actor)
+    slot = SharedInferenceSlot(2, 5, 2)
+    slot.publish_observation(tick_id=5, observations=actor_input, dones=dones)
+    torch.manual_seed(23)
+    runner._serve_learner_inference(
+        slot,
+        tick_id=5,
+        policy_version=10,
+        obs_device=torch.empty(2, 5),
+        dones_device=torch.empty(2),
+        trace_recorder=None,
+    )
+    actual, policy_version = slot.consume_action(tick_id=5)
+
+    torch.testing.assert_close(torch.from_numpy(actual), expected)
+    assert policy_version == 10

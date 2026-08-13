@@ -25,7 +25,6 @@ from unilab.algos.torch.offpolicy.thread_budget import (
     torch_thread_env,
 )
 from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn, sample_offpolicy_actions
-from unilab.ipc import SharedObsNormStats, SharedWeightSync
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.inference_slot import SharedInferenceSlot
 from unilab.ipc.replay_buffer import DEFAULT_REPLAY_INGRESS_DEPTH, ReplayBuffer
@@ -50,11 +49,60 @@ def algo_display_name(algo_type: str) -> str:
 
 
 class _CollectorDiedError(RuntimeError):
-    """Raised by _safe_put_trainer_done when collector death is detected.
+    """Raised when an inference response cannot be delivered to the collector.
 
     Caught by learn() to trigger the standard cleanup via _fail_collector_died
     using the currently-bound logger/replay_buffer/replay_pipeline/iteration/
     ckpt_path/train_start_wall context. Module-private (_-prefixed)."""
+
+
+class _LearnerInferenceScheduler:
+    """Track fixed inference ticks and the learner update boundary."""
+
+    def __init__(self, *, env_steps_per_sync: int, initial_policy_version: int = 0) -> None:
+        if int(env_steps_per_sync) < 1:
+            raise ValueError("Off-policy env_steps_per_sync must be >= 1")
+        self.env_steps_per_sync = int(env_steps_per_sync)
+        self.next_tick = 0
+        self.policy_version = int(initial_policy_version)
+        self._ticks_since_update = 0
+        self._pending_tick: int | None = None
+
+    @property
+    def update_ready(self) -> bool:
+        return self._ticks_since_update >= self.env_steps_per_sync
+
+    @property
+    def pending_tick(self) -> int | None:
+        return self._pending_tick
+
+    def record_inference(self, tick_id: int) -> None:
+        if self._pending_tick is not None:
+            raise RuntimeError("Previous learner inference tick has not been released")
+        if int(tick_id) != self.next_tick:
+            raise RuntimeError(
+                f"Collector inference tick mismatch: expected {self.next_tick}, got {tick_id}"
+            )
+        self._pending_tick = int(tick_id)
+        self.next_tick += 1
+        self._ticks_since_update += 1
+
+    def release_pending(self) -> int:
+        if self._pending_tick is None:
+            raise RuntimeError("Learner inference lost the pending collector tick")
+        tick_id = self._pending_tick
+        self._pending_tick = None
+        return tick_id
+
+    def finish_update(self) -> None:
+        if not self.update_ready:
+            raise RuntimeError(
+                "Learner update started before the configured inference tick boundary"
+            )
+        if self._pending_tick is not None:
+            raise RuntimeError("Learner update completed before releasing the collector tick")
+        self._ticks_since_update = 0
+        self.policy_version += 1
 
 
 class DoubleBufferOffPolicyRunner(OffPolicyRunner):
@@ -81,17 +129,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self.replay_h2d_submitter = "auto"
         self.replay_transfer_backend: dict[str, object] = {}
         self.runtime_manifest = {
-            "inference_owner": self.inference_owner,
-            "collector_actor": self.inference_owner == "collector",
-            "collector_accelerator_context": self.inference_owner == "collector"
-            and torch.device(self.collector_infer_device).type != "cpu",
-            "collector_torch_inference": self.inference_owner == "collector",
-            "learner_actor_reused": self.inference_owner == "learner",
+            "inference_owner": "learner",
+            "collector_actor": False,
+            "collector_accelerator_context": False,
+            "collector_torch_inference": False,
+            "learner_actor_reused": True,
         }
-
-    @property
-    def learner_owned_inference(self) -> bool:
-        return self.inference_owner == "learner"
 
     def _wait_for_inference_request(
         self,
@@ -161,7 +204,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         )
         h2d_end_ns = time.perf_counter_ns()
 
-        actor_obs = obs_device
+        actor_obs = obs_device[:, : self.obs_dim]
+        actor_context = obs_device[:, self.obs_dim :] if self.algo_type == "hora_sac" else None
         if self.obs_normalization:
             actor_obs = self.learner.obs_normalizer(actor_obs, update=False)
         forward_start_ns = time.perf_counter_ns()
@@ -171,6 +215,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 algo_type=self.algo_type,
                 obs_torch=actor_obs,
                 prev_dones_torch=dones_device,
+                priv_info_torch=actor_context,
             )
         if device.type == "cuda":
             torch.cuda.current_stream(device).synchronize()
@@ -254,23 +299,21 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         replay_pipeline.close()
         raise RuntimeError("Collector process died during off-policy training")
 
-    def _safe_put_trainer_done(
+    def _publish_inference_response(
         self,
         queue,
         *,
         value: int = 1,
         timeout: float = 5.0,
-        label: str = "trainer_done",
+        label: str = "inference_response",
     ) -> None:
-        """Put trainer-done token with timeout + liveness check.
+        """Publish an inference response tick with timeout and liveness checks.
 
         Raises _CollectorDiedError if collector is dead or queue stays full
         beyond timeout. Caller (learn) must catch and dispatch to
-        _fail_collector_died for full cleanup. Avoids the unbounded blocking put
-        that otherwise deadlocks the learner when sync collector dies early.
+        _fail_collector_died for full cleanup. This avoids an unbounded blocking
+        put when the collector dies before consuming the previous response.
         """
-        if queue is None:
-            return
         deadline = time.monotonic() + timeout
         while True:
             try:
@@ -413,35 +456,25 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             {},
         )
 
-        weight_sync = None
-        inference_slot = None
-        inference_obs_device = None
-        inference_dones_device = None
-        if self.learner_owned_inference:
-            inference_slot = SharedInferenceSlot(
-                self.num_envs,
-                self.obs_dim,
-                self.action_dim,
-            )
-            self._shared_resources.append(inference_slot)
-            inference_obs_device = torch.empty(
-                (self.num_envs, self.obs_dim),
-                dtype=torch.float32,
-                device=self.device,
-            )
-            inference_dones_device = torch.empty(
-                self.num_envs,
-                dtype=torch.float32,
-                device=self.device,
-            )
-            self.runtime_manifest["inference_slot_bytes"] = inference_slot.nbytes
-        else:
-            weight_sync = SharedWeightSync.from_state_dict(
-                self.learner.actor.state_dict(), create=True
-            )
-            self._shared_resources.append(weight_sync)
-            weight_sync.trace_recorder = trace_recorder
-            weight_sync.trace_thread_time = self.trace_thread_time
+        actor_context_dim = int(getattr(self.learner, "priv_info_dim", 0))
+        inference_input_dim = self.obs_dim + actor_context_dim
+        inference_slot = SharedInferenceSlot(
+            self.num_envs,
+            inference_input_dim,
+            self.action_dim,
+        )
+        self._shared_resources.append(inference_slot)
+        inference_obs_device = torch.empty(
+            (self.num_envs, inference_input_dim),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        inference_dones_device = torch.empty(
+            self.num_envs,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.runtime_manifest["inference_slot_bytes"] = inference_slot.nbytes
 
         # --- logger ---
         logger = OffPolicyLogger(
@@ -454,10 +487,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             log_dir=log_dir,
             log_backend=logger_type,
         )
-        logger.set_collection_sync(self.sync_collection, self.env_steps_per_sync)
-        logger.set_collector_infer_device(
-            str(self.device) if self.learner_owned_inference else self.collector_infer_device
-        )
+        logger.set_collection_sync(True, self.env_steps_per_sync)
         logger.update_runtime_manifest(self.runtime_manifest)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
@@ -473,70 +503,33 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"{self.replay_transfer_backend.get('backend')} "
                 f"({self.replay_transfer_backend.get('device_family')})"
             )
-        if self.learner_owned_inference:
-            logger.log_status(f"Inference owner: learner.actor ({self.device})")
-            logger.log_status("Collector model/accelerator ownership: none")
-        else:
-            logger.log_status(
-                "Collector infer device: "
-                f"{self.collector_infer_device_raw} -> {self.collector_infer_device}"
-            )
+        logger.log_status(f"Inference owner: learner.actor ({self.device})")
+        logger.log_status("Collector model/accelerator ownership: none")
         logger.log_status("Replay learner lightweight: fixed (log_interval=1)")
         self._active_logger = logger
         logger.start()
         try:
-            # --- sync queues ---
-            collection_ready_queue = None
-            trainer_done_queue = None
-            if self.sync_collection:
-                collection_ready_queue = _SPAWN_CTX.Queue(maxsize=1)
-                trainer_done_queue = _SPAWN_CTX.Queue(maxsize=1)
-                if not self.learner_owned_inference:
-                    self._safe_put_trainer_done(trainer_done_queue, label="init")
-                print(
-                    f"[DoubleBufferRunner] Collection sync enabled: "
-                    f"env_steps_per_sync={self.env_steps_per_sync}"
-                )
+            # --- inference coordination queues ---
+            inference_request_queue = _SPAWN_CTX.Queue(maxsize=1)
+            inference_response_queue = _SPAWN_CTX.Queue(maxsize=1)
+            print(
+                f"[DoubleBufferRunner] Collection sync enabled: "
+                f"env_steps_per_sync={self.env_steps_per_sync}"
+            )
 
             metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
-            # --- obs normalization ---
-            shared_obs_normalizer_stats = None
-            if self.obs_normalization and not self.learner_owned_inference:
-                shared_obs_normalizer_stats = SharedObsNormStats(_SPAWN_CTX)
-
             # --- start collector ---
-            weight_param_shapes = (
-                {}
-                if self.learner_owned_inference
-                else {k: v.shape for k, v in self.learner.actor.state_dict().items()}
-            )
             collector_kwargs = {
                 "env_name": self.env_name,
                 "num_envs": self.num_envs,
                 "replay_buffer": replay_buffer,
-                "weight_sync_name": "" if weight_sync is None else weight_sync.name,
-                "weight_sync_lock": None if weight_sync is None else weight_sync._lock,
-                "weight_param_shapes": weight_param_shapes,
                 "algo_type": self.algo_type,
-                "actor_hidden_dim": self.actor_hidden_dim,
-                "use_layer_norm": self.use_layer_norm,
-                "learning_starts": self.learning_starts,
                 "metrics_queue": metrics_queue,
-                "sync_collection": self.sync_collection,
-                "collection_ready_queue": collection_ready_queue,
-                "trainer_done_queue": trainer_done_queue,
-                "env_steps_per_sync": self.env_steps_per_sync,
-                "obs_normalization": self.obs_normalization,
-                "shared_obs_normalizer_stats": shared_obs_normalizer_stats,
+                "inference_request_queue": inference_request_queue,
+                "inference_response_queue": inference_response_queue,
                 "sim_backend": self.sim_backend,
                 "env_cfg_override": self.env_cfg_override,
-                "obs_dim": self.obs_dim,
-                "action_dim": self.action_dim,
-                "actor_kwargs": self.actor_kwargs,
-                "collector_infer_device": self.collector_infer_device,
-                "collector_infer_device_raw": self.collector_infer_device_raw,
-                "inference_owner": self.inference_owner,
                 "inference_slot": inference_slot,
                 "seed": derive_worker_seed(self.seed, worker_index=0),
                 "trace_enabled": self.trace_enabled,
@@ -564,8 +557,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             reward_stats_ptr = 0
             train_start_threshold = self.train_start_threshold
             prepared_tick: int | None = None
-            next_inference_tick = 0
-            policy_version = int(getattr(self.learner, "update_count", 0))
+            inference_scheduler = _LearnerInferenceScheduler(
+                env_steps_per_sync=self.env_steps_per_sync,
+                initial_policy_version=int(getattr(self.learner, "update_count", 0)),
+            )
 
             if trace_recorder:
                 manifest_ns = time.perf_counter_ns()
@@ -591,142 +586,69 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 inference_forward_time = 0.0
                 inference_d2h_time = 0.0
                 inference_time = 0.0
-                pending_inference_tick: int | None = None
-                if self.sync_collection and collection_ready_queue:
-                    while True:
-                        if self.learner_owned_inference:
-                            request_tick = self._wait_for_inference_request(
-                                collection_ready_queue,
-                                expected_tick=next_inference_tick,
-                                replay_pipeline=replay_pipeline,
-                                metrics_queue=metrics_queue,
-                                reward_history=reward_history,
-                                latest_reward_components=latest_reward_components,
-                                logger=logger,
-                                trace_recorder=trace_recorder,
-                                replay_buffer=replay_buffer,
-                                ckpt_path=ckpt_path,
-                                train_start_wall=train_start_wall,
-                            )
-                            assert inference_slot is not None
-                            assert inference_obs_device is not None
-                            assert inference_dones_device is not None
-                            inference_timings = self._serve_learner_inference(
-                                inference_slot,
-                                tick_id=request_tick,
-                                policy_version=policy_version,
-                                obs_device=inference_obs_device,
-                                dones_device=inference_dones_device,
-                                trace_recorder=trace_recorder,
-                            )
-                            inference_h2d_time += inference_timings["inference_h2d_time"]
-                            inference_forward_time += inference_timings["inference_forward_time"]
-                            inference_d2h_time += inference_timings["inference_d2h_time"]
-                            inference_time += inference_timings["inference_time"]
-                            collector_wait_overhead += inference_timings["inference_time"]
-                            pending_inference_tick = request_tick
-                            next_inference_tick += 1
-                        else:
-                            try:
-                                collection_ready_queue.get(timeout=1.0)
-                            except queue_module.Empty:
-                                replay_pipeline.progress(wait=True)
-                                if not self._check_collector_alive():
-                                    self._drain_metrics(
-                                        metrics_queue,
-                                        reward_history,
-                                        latest_reward_components,
-                                        logger,
-                                        trace_recorder,
-                                    )
-                                    self._fail_collector_died(
-                                        logger,
-                                        replay_buffer,
-                                        replay_pipeline,
-                                        iteration,
-                                        ckpt_path,
-                                        train_start_wall,
-                                    )
-                                continue
+                while True:
+                    request_tick = self._wait_for_inference_request(
+                        inference_request_queue,
+                        expected_tick=inference_scheduler.next_tick,
+                        replay_pipeline=replay_pipeline,
+                        metrics_queue=metrics_queue,
+                        reward_history=reward_history,
+                        latest_reward_components=latest_reward_components,
+                        logger=logger,
+                        trace_recorder=trace_recorder,
+                        replay_buffer=replay_buffer,
+                        ckpt_path=ckpt_path,
+                        train_start_wall=train_start_wall,
+                    )
+                    inference_timings = self._serve_learner_inference(
+                        inference_slot,
+                        tick_id=request_tick,
+                        policy_version=inference_scheduler.policy_version,
+                        obs_device=inference_obs_device,
+                        dones_device=inference_dones_device,
+                        trace_recorder=trace_recorder,
+                    )
+                    inference_h2d_time += inference_timings["inference_h2d_time"]
+                    inference_forward_time += inference_timings["inference_forward_time"]
+                    inference_d2h_time += inference_timings["inference_d2h_time"]
+                    inference_time += inference_timings["inference_time"]
+                    collector_wait_overhead += inference_timings["inference_time"]
+                    inference_scheduler.record_inference(request_tick)
 
-                        self._drain_metrics(
-                            metrics_queue,
-                            reward_history,
-                            latest_reward_components,
-                            logger,
-                            trace_recorder,
-                        )
-                        replay_pipeline.progress(wait=True)
-                        cur_size = int(replay_buffer.size[0])
-                        if replay_buffer_ready_for_learning(
-                            cur_size,
-                            batch_size=self.batch_size,
-                            learning_starts=self.learning_starts,
-                            num_envs=self.num_envs,
-                        ):
-                            if prepared_tick != iteration:
-                                replay_pipeline.start_prepare(iteration, sample_count)
-                                prepared_tick = iteration
-                            break
-                        if cur_size - last_buf_log >= self.num_envs * 10:
-                            last_buf_log = cur_size
-                            _fill_t = time.perf_counter()
-                            logger.log_buffer_fill(cur_size, train_start_threshold)
-                            collector_wait_overhead += time.perf_counter() - _fill_t
-                        if trainer_done_queue:
-                            _coord_t = time.perf_counter()
-                            self._safe_put_trainer_done(
-                                trainer_done_queue,
-                                value=(
-                                    pending_inference_tick
-                                    if pending_inference_tick is not None
-                                    else 1
-                                ),
-                                label="buffer_wait",
-                            )
-                            _coord_d = time.perf_counter() - _coord_t
-                            sync_coordination_time += _coord_d
-                            collector_wait_overhead += _coord_d
-                            pending_inference_tick = None
-                else:
-                    while True:
-                        replay_pipeline.progress(wait=True)
-                        if replay_buffer_ready_for_learning(
-                            int(replay_buffer.size[0]),
-                            batch_size=self.batch_size,
-                            learning_starts=self.learning_starts,
-                            num_envs=self.num_envs,
-                        ):
-                            break
-                        if not self._check_collector_alive():
-                            self._drain_metrics(
-                                metrics_queue,
-                                reward_history,
-                                latest_reward_components,
-                                logger,
-                            )
-                            self._fail_collector_died(
-                                logger,
-                                replay_buffer,
-                                replay_pipeline,
-                                iteration,
-                                ckpt_path,
-                                train_start_wall,
-                            )
-                        cur_size = int(replay_buffer.size[0])
-                        if cur_size - last_buf_log >= self.num_envs * 10:
-                            last_buf_log = cur_size
-                            _fill_t = time.perf_counter()
-                            logger.log_buffer_fill(cur_size, train_start_threshold)
-                            collector_wait_overhead += time.perf_counter() - _fill_t
-                        time.sleep(0.1)
-                        self._drain_metrics(
-                            metrics_queue,
-                            reward_history,
-                            latest_reward_components,
-                            logger,
-                            trace_recorder,
-                        )
+                    self._drain_metrics(
+                        metrics_queue,
+                        reward_history,
+                        latest_reward_components,
+                        logger,
+                        trace_recorder,
+                    )
+                    replay_pipeline.progress(wait=True)
+                    cur_size = int(replay_buffer.size[0])
+                    replay_ready = replay_buffer_ready_for_learning(
+                        cur_size,
+                        batch_size=self.batch_size,
+                        learning_starts=self.learning_starts,
+                        num_envs=self.num_envs,
+                    )
+                    if replay_ready and inference_scheduler.update_ready:
+                        if prepared_tick != iteration:
+                            replay_pipeline.start_prepare(iteration, sample_count)
+                            prepared_tick = iteration
+                        break
+                    if cur_size - last_buf_log >= self.num_envs * 10:
+                        last_buf_log = cur_size
+                        _fill_t = time.perf_counter()
+                        logger.log_buffer_fill(cur_size, train_start_threshold)
+                        collector_wait_overhead += time.perf_counter() - _fill_t
+                    _coord_t = time.perf_counter()
+                    self._publish_inference_response(
+                        inference_response_queue,
+                        value=inference_scheduler.release_pending(),
+                        label="warmup_response",
+                    )
+                    _coord_d = time.perf_counter() - _coord_t
+                    sync_coordination_time += _coord_d
+                    collector_wait_overhead += _coord_d
 
                 collector_wait_time = time.perf_counter() - wait_start - collector_wait_overhead
                 if trace_recorder:
@@ -766,7 +688,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 # -- train --
                 iter_metrics = defaultdict(list)
                 ptr_before = int(replay_buffer.ptr[0])
-                collector_released_for_next = False
                 learner = self.learner
 
                 with nullcontext():
@@ -816,28 +737,13 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             min_snapshot_ptr=min_snapshot_ptr,
                         )
                         prepared_tick = iteration + 1
-                    if (
-                        self.sync_collection
-                        and trainer_done_queue
-                        and (self.learner_owned_inference or iteration < max_iterations)
-                    ):
-                        _sync_coord_start = time.perf_counter()
-                        if self.learner_owned_inference:
-                            if pending_inference_tick is None:
-                                raise RuntimeError(
-                                    "Learner-owned inference lost the pending collector tick"
-                                )
-                            self._safe_put_trainer_done(
-                                trainer_done_queue,
-                                value=pending_inference_tick,
-                                label="tick_release",
-                            )
-                            pending_inference_tick = None
-                        else:
-                            _sync_coord_start = time.perf_counter()
-                            self._safe_put_trainer_done(trainer_done_queue, label="tick_release")
-                        sync_coordination_time += time.perf_counter() - _sync_coord_start
-                        collector_released_for_next = True
+                    _sync_coord_start = time.perf_counter()
+                    self._publish_inference_response(
+                        inference_response_queue,
+                        value=inference_scheduler.release_pending(),
+                        label="update_response",
+                    )
+                    sync_coordination_time += time.perf_counter() - _sync_coord_start
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/replay_sample",
@@ -925,12 +831,11 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             )
 
                     replay_pipeline.after_tick()
-                    if self.learner_owned_inference:
-                        device = torch.device(self.device)
-                        if device.type == "cuda":
-                            torch.cuda.current_stream(device).synchronize()
-                        elif device.type == "mps":
-                            torch.mps.synchronize()
+                    device = torch.device(self.device)
+                    if device.type == "cuda":
+                        torch.cuda.current_stream(device).synchronize()
+                    elif device.type == "mps":
+                        torch.mps.synchronize()
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/update_phase",
@@ -940,41 +845,13 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             args={
                                 "iteration": iteration,
                                 "updates_per_step": self.updates_per_step,
-                                "policy_version_before": policy_version,
+                                "policy_version_before": inference_scheduler.policy_version,
                             },
                         )
 
-                if (
-                    self.obs_normalization
-                    and not self.learner_owned_inference
-                    and getattr(self.learner, "obs_normalizer", None) is not None
-                ):
-                    assert shared_obs_normalizer_stats is not None
-                    shared_obs_normalizer_stats.put(
-                        (
-                            self.learner.obs_normalizer.mean.cpu().numpy(),
-                            self.learner.obs_normalizer.std.cpu().numpy(),
-                        )
-                    )
-
                 train_time = time.perf_counter() - train_start
                 self.learner.update_count += 1
-                policy_version += 1
-                weight_sync_time = 0.0
-                if not self.learner_owned_inference:
-                    assert weight_sync is not None
-                    _ws_ns = time.perf_counter_ns()
-                    weight_sync_start = time.perf_counter()
-                    weight_sync.write_weights(self.learner.actor.state_dict())
-                    weight_sync_time = time.perf_counter() - weight_sync_start
-                    if trace_recorder:
-                        trace_recorder.add_slice(
-                            "learner/weight_sync_write",
-                            category="learner",
-                            start_ns=_ws_ns,
-                            end_ns=time.perf_counter_ns(),
-                            args={"mode": "sync"},
-                        )
+                inference_scheduler.finish_update()
                 if trace_recorder:
                     trace_recorder.add_counter(
                         "replay_size",
@@ -982,15 +859,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         category="replay",
                     )
 
-                if (
-                    not self.learner_owned_inference
-                    and self.sync_collection
-                    and trainer_done_queue
-                    and not collector_released_for_next
-                ):
-                    _sync_coord_start = time.perf_counter()
-                    self._safe_put_trainer_done(trainer_done_queue, label="weight_sync")
-                    sync_coordination_time += time.perf_counter() - _sync_coord_start
                 iteration_time = time.perf_counter() - iteration_start
 
                 write_delta = int(replay_buffer.ptr[0]) - ptr_before
@@ -1016,7 +884,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     learner_replay_sample_time=learner_replay_sample_time,
                     sync_coordination_time=sync_coordination_time,
                     learner_incremental_h2d_time=learner_incremental_h2d_time,
-                    weight_sync_time=weight_sync_time,
                     inference_h2d_time=inference_h2d_time,
                     inference_forward_time=inference_forward_time,
                     inference_d2h_time=inference_d2h_time,

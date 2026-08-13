@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+import queue
+import threading
+
 import pytest
 import torch
 
 from unilab.algos.torch.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.algos.torch.offpolicy.worker import (
+    _publish_inference_tick,
+    _wait_for_inference_tick,
     compute_collector_active_steps_per_sec,
     resolve_offpolicy_actor_priv_info,
     sample_offpolicy_actions,
 )
+
+
+def test_inference_request_publish_timeout_is_explicit() -> None:
+    requests: queue.Queue[int] = queue.Queue(maxsize=1)
+    requests.put_nowait(0)
+
+    with pytest.raises(TimeoutError, match="publishing off-policy inference tick 1"):
+        _publish_inference_tick(requests, 1, threading.Event(), timeout=0.01)
+
+
+def test_inference_response_wait_timeout_is_explicit() -> None:
+    with pytest.raises(TimeoutError, match="waiting for off-policy inference tick 0"):
+        _wait_for_inference_tick(queue.Queue(), 0, threading.Event(), timeout=0.01)
 
 
 class _DummyActor:
@@ -29,8 +47,8 @@ class _DummyActor:
 def test_compute_collector_active_steps_per_sec_includes_active_phases_only() -> None:
     steps_per_sec = compute_collector_active_steps_per_sec(
         {
-            "weight_apply_ms": 1.0,
-            "policy_infer_ms": 2.0,
+            "inference_request_ms": 1.0,
+            "inference_wait_ms": 100.0,
             "env_step_ms": 10.0,
             "replay_write_ms": 3.0,
             "sync_idle_ms": 100.0,
@@ -38,7 +56,7 @@ def test_compute_collector_active_steps_per_sec_includes_active_phases_only() ->
         num_envs=32,
     )
 
-    assert steps_per_sec == pytest.approx(32 / 0.016)
+    assert steps_per_sec == pytest.approx(32 / 0.014)
 
 
 def test_extract_env_step_breakdown_timing_ms_maps_env_owned_keys_only() -> None:
@@ -91,7 +109,7 @@ def test_sample_offpolicy_actions_uses_actor_explore(algo_type: str) -> None:
 def test_sample_offpolicy_actions_rejects_unknown_algo() -> None:
     actor = _DummyActor()
 
-    with pytest.raises(ValueError, match="Unsupported off-policy algo_type"):
+    with pytest.raises(ValueError, match="learner action sampling"):
         sample_offpolicy_actions(
             actor=actor,
             algo_type="unknown",

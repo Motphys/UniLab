@@ -70,6 +70,18 @@ class _FakeReplayBuffer:
         pass
 
 
+class _FakeInferenceSlot:
+    def __init__(self, num_envs, obs_dim, action_dim):
+        del num_envs, obs_dim, action_dim
+        self.nbytes = 0
+
+    def close(self):
+        pass
+
+    def cleanup(self):
+        pass
+
+
 class _FakeWeightSync:
     def __init__(self):
         self.name = "fake-ws"
@@ -189,7 +201,7 @@ def _check_double_buffer_runner_wires_nan_guard():
 
     with (
         patch.object(db_mod, "ReplayBuffer", _FakeReplayBuffer),
-        patch.object(db_mod, "SharedWeightSync", _FakeWeightSync),
+        patch.object(db_mod, "SharedInferenceSlot", _FakeInferenceSlot),
         patch.object(db_mod, "GPUResidentReplayPipeline", _FakePipeline),
         patch.object(db_mod, "require_offpolicy_replay_device", lambda value: value),
         patch.object(runner_mod, "get_env_dims", return_value=(4, 2, 0)),
@@ -209,7 +221,6 @@ def _check_double_buffer_runner_wires_nan_guard():
             learning_starts=6,
             updates_per_step=1,
             policy_frequency=1,
-            sync_collection=False,
             env_steps_per_sync=1,
             device="cuda",
             nan_guard_cfg=nan_guard_cfg,

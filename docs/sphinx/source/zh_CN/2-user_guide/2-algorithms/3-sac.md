@@ -32,8 +32,8 @@ uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
 - `algo.max_iterations=500`
 - 共享 off-policy 配置中的 `training.use_amp=true`
 
-SAC 与 TD3 可以在 off-policy device replay 路径下使用
-`training.no_sync_collection=true`。FlashSAC-B 要求同步采集。
+off-policy device replay 路径统一使用同步、learner-owned inference：collector 通过
+shared memory 交换 observation/action，不持有 actor。
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \

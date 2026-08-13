@@ -82,7 +82,11 @@ class _FakeRunner:
 def test_offpolicy_config_has_one_replay_path():
     cfg = _offpolicy_cfg()
     assert cfg.training.replay_prefetch_mode == "one_tick"
-    assert cfg.training.inference_owner == "learner"
+    assert cfg.training.env_steps_per_sync == 1
+    assert "env_steps_per_sync" not in cfg.algo
+    assert "inference_owner" not in cfg.training
+    assert "collector_infer_device" not in cfg.training
+    assert "no_sync_collection" not in cfg.training
     assert "replay_pipeline" not in cfg.training
     assert "verbose_metrics" not in cfg.training
     assert "replay_pack_layout" not in cfg.training
@@ -90,9 +94,10 @@ def test_offpolicy_config_has_one_replay_path():
     assert "replay_h2d_submitter" not in cfg.training
 
 
-def test_hora_owner_keeps_collector_inference():
+def test_hora_uses_same_learner_inference_path():
     cfg = _offpolicy_cfg(["algo=sac", "task=sac/sharpa_inhand/mujoco_hora"])
-    assert cfg.training.inference_owner == "collector"
+    assert "inference_owner" not in cfg.training
+    assert cfg.training.env_steps_per_sync == 2
 
 
 @pytest.mark.parametrize(
@@ -103,6 +108,10 @@ def test_hora_owner_keeps_collector_inference():
         "training.num_gpus=2",
         "training.multi_gpu_sync_mode=sync_sgd",
         "training.multi_gpu_sync_interval=2",
+        "training.inference_owner=collector",
+        "training.collector_infer_device=cpu",
+        "training.no_sync_collection=true",
+        "algo.env_steps_per_sync=2",
     ],
 )
 def test_removed_offpolicy_options_fail_hydra_compose(override: str):
@@ -157,14 +166,16 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert runner.kwargs["algo_type"] == "sac"
     assert runner.kwargs["device"] == "cuda"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
-    assert runner.kwargs["inference_owner"] == "learner"
+    assert "inference_owner" not in runner.kwargs
+    assert "collector_infer_device" not in runner.kwargs
+    assert "sync_collection" not in runner.kwargs
     assert "replay_pipeline" not in runner.kwargs
     assert "verbose_metrics" not in runner.kwargs
 
 
 def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=td3", "training.no_sync_collection=true"])
+    cfg = _offpolicy_cfg(["algo=td3"])
 
     import unilab.algos.torch.common.device as device_module
     import unilab.algos.torch.fast_td3.learner as learner_module
@@ -177,9 +188,10 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     runner = module.build_runner("td3", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "td3"
-    assert runner.kwargs["sync_collection"] is False
     assert runner.kwargs["device"] == "cuda"
-    assert runner.kwargs["inference_owner"] == "collector"
+    assert "inference_owner" not in runner.kwargs
+    assert "collector_infer_device" not in runner.kwargs
+    assert "sync_collection" not in runner.kwargs
     assert "replay_pipeline" not in runner.kwargs
 
 
@@ -199,14 +211,10 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     assert runner.kwargs["algo_type"] == "flashsac"
     assert runner.kwargs["device"] == "cuda"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
-    assert runner.kwargs["inference_owner"] == "learner"
+    assert "inference_owner" not in runner.kwargs
+    assert "collector_infer_device" not in runner.kwargs
+    assert "sync_collection" not in runner.kwargs
     assert "replay_pipeline" not in runner.kwargs
-
-
-def test_flashsac_async_collection_is_rejected():
-    cfg = _offpolicy_cfg(["algo=flashsac", "training.no_sync_collection=true"])
-    with pytest.raises(ValueError, match="requires synchronized collection"):
-        _offpolicy().build_runner("flashsac", cfg)
 
 
 def test_flashsac_n_step_is_rejected():
@@ -221,15 +229,11 @@ def _bare_runner():
     return object.__new__(DoubleBufferOffPolicyRunner)
 
 
-def test_safe_put_detects_dead_collector():
+def test_inference_response_detects_dead_collector():
     runner = _bare_runner()
     runner._check_collector_alive = lambda: False
     full_queue: queue.Queue = queue.Queue(maxsize=1)
     full_queue.put_nowait(1)
 
     with pytest.raises(RuntimeError, match="collector dead"):
-        runner._safe_put_trainer_done(full_queue, timeout=0.01)
-
-
-def test_safe_put_noops_without_sync_queue():
-    _bare_runner()._safe_put_trainer_done(None)
+        runner._publish_inference_response(full_queue, timeout=0.01)

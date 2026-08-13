@@ -13,7 +13,7 @@ from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed
-from unilab.utils.device import get_default_device, resolve_torch_device_alias
+from unilab.utils.device import get_default_device
 from unilab.utils.nan_guard import NanGuardCfg
 
 
@@ -133,57 +133,27 @@ class OffPolicyRunner(AsyncRunner):
         learning_starts: int = 0,
         updates_per_step: int = 8,
         policy_frequency: int = 4,
-        sync_collection: bool = True,
         env_steps_per_sync: int = 1,
         device: str | None = None,
-        actor_hidden_dim: int = 512,
-        use_layer_norm: bool = True,
         obs_normalization: bool = False,
         sim_backend: str = "mujoco",
         env_cfg_override: dict | None = None,
-        actor_kwargs: dict | None = None,
         seed: int | None = None,
         trace_enabled: bool = False,
         trace_output_dir: str | None = None,
         trace_thread_time: bool = False,
         trace_cuda_events: bool = True,
         nan_guard_cfg: NanGuardCfg | None = None,
-        collector_infer_device: str | None = "cpu",
-        inference_owner: str = "collector",
         torch_thread_runtime: dict[str, Any] | None = None,
     ):
-        self.inference_owner = str(inference_owner)
-        if self.inference_owner not in {"collector", "learner"}:
-            raise ValueError(
-                "Off-policy inference_owner must be 'collector' or 'learner', "
-                f"got {self.inference_owner!r}"
-            )
-        if self.inference_owner == "learner":
-            if algo_type not in {"sac", "flashsac"}:
-                raise ValueError(
-                    "Learner-owned inference initially supports FastSAC and FlashSAC only"
-                )
-            if not sync_collection or int(env_steps_per_sync) != 1:
-                raise ValueError(
-                    "Learner-owned inference requires synchronized collection with "
-                    "env_steps_per_sync=1"
-                )
-            self.collector_infer_device_raw = "none"
-            self.collector_infer_device = "none"
-            collector_device = "cpu"
-        else:
-            self.collector_infer_device_raw = str(collector_infer_device or "cpu")
-            self.collector_infer_device = resolve_torch_device_alias(
-                self.collector_infer_device_raw,
-                default="cpu",
-            )
-            collector_device = self.collector_infer_device
+        if int(env_steps_per_sync) < 1:
+            raise ValueError("Off-policy env_steps_per_sync must be >= 1")
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device=collector_device,
+            collector_device="cpu",
             num_envs=num_envs,
             sim_backend=sim_backend,
         )
@@ -201,12 +171,8 @@ class OffPolicyRunner(AsyncRunner):
         )
         self.updates_per_step = updates_per_step
         self.policy_frequency = policy_frequency
-        self.sync_collection = sync_collection
-        self.env_steps_per_sync = env_steps_per_sync
-        self.actor_hidden_dim = actor_hidden_dim
-        self.use_layer_norm = use_layer_norm
+        self.env_steps_per_sync = int(env_steps_per_sync)
         self.obs_normalization = obs_normalization
-        self.actor_kwargs = actor_kwargs or {}
         self.seed = seed
         self._active_logger: OffPolicyLogger | None = None
         self.trace_enabled = trace_enabled

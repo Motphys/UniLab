@@ -54,3 +54,8 @@ def test_inference_slot_rejects_early_reuse_and_tick_mismatch() -> None:
     slot.publish_action(tick_id=3, policy_version=5, actions=torch.ones(1, 1))
     with pytest.raises(RuntimeError, match="tick mismatch"):
         slot.consume_action(tick_id=4)
+
+    actions, policy_version = slot.consume_action(tick_id=3)
+    np.testing.assert_array_equal(actions, [[1.0]])
+    assert policy_version == 5
+    slot.publish_observation(tick_id=4, observations=observations, dones=dones)
