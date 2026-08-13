@@ -14,9 +14,7 @@ from rich.text import Text
 from unilab.logging.common import BaseTrainingLogger, _fmt_number, _load_wandb
 
 OFFPOLICY_COLLECTOR_TIMING_ORDER = {
-    "weight_apply_ms": 0,
     "mlp_infer_ms": 1,
-    "policy_infer_ms": 1,
     "inference_request_ms": 1,
     "inference_wait_ms": 1.1,
     "env_step_ms": 2,
@@ -30,9 +28,7 @@ OFFPOLICY_COLLECTOR_TIMING_ORDER = {
 
 OFFPOLICY_COLLECTOR_TIMING_LABELS = {
     "rollout_ms": "Rollout",
-    "weight_apply_ms": "Weight Apply",
     "mlp_infer_ms": "MLP Infer",
-    "policy_infer_ms": "Policy Infer",
     "inference_request_ms": "Inference Request",
     "inference_wait_ms": "Inference Barrier Wait",
     "env_step_ms": "Env Step",
@@ -159,7 +155,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_utilization: float = 0.0
         self._sync_collection: bool = False
         self._env_steps_per_sync: int = 0
-        self._collector_infer_device: str = ""
         self._runtime_manifest: dict[str, Any] = {}
         self._staging_pool_len: int = 0
         self._staging_pool_max: int = 0
@@ -301,10 +296,6 @@ class OffPolicyLogger(BaseTrainingLogger):
     def set_collection_sync(self, enabled: bool, env_steps_per_sync: int = 0):
         self._sync_collection = enabled
         self._env_steps_per_sync = env_steps_per_sync
-
-    def set_collector_infer_device(self, device: str):
-        """Record the collector inference device for the Policy Infer row label."""
-        self._collector_infer_device = str(device)
 
     def update_runtime_manifest(self, manifest: dict[str, Any]) -> None:
         self._runtime_manifest.update(manifest)
@@ -697,8 +688,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         collector_items: list[tuple[str, str]] = []
         for key, value in sorted_collector_timing:
             label = OFFPOLICY_COLLECTOR_TIMING_LABELS.get(key, key)
-            if key == "policy_infer_ms" and self._collector_infer_device:
-                label = f"{label}({self._collector_infer_device})"
             value_text = f"{value:.1f}ms"
             if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS:
                 if self._unicode_console:

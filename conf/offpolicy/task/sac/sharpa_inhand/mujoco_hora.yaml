@@ -4,7 +4,6 @@
 training:
   task_name: SharpaInhandRotation
   sim_backend: mujoco
-  inference_owner: collector
   use_amp: true
   env_steps_per_sync: 2
   no_play: true

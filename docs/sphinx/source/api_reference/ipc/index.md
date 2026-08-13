@@ -11,8 +11,8 @@ here is a building block of the **async runner** that powers APPO / FastSAC
 | `rollout_ring_buffer` | Rollout window used by on-policy collectors |
 | `replay_buffer` | Bounded shared ingress for off-policy transitions |
 | `replay_pipelines.*` | Authoritative CUDA/MPS replay ring, device gather, and native H2D |
-| `shared_obs_stats` | Running mean/std shared across workers |
-| `weight_sync` | Push learner weights back to workers |
+| `inference_slot` | Fixed shared observation/action slot for learner-owned off-policy inference |
+| `weight_sync` | Push learner weights to on-policy collector workers |
 
 ```{eval-rst}
 .. autosummary::

@@ -80,45 +80,41 @@ instead of being compared only against wait metrics.
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce trainable data; in async collection it is ≈0 in steady state (only warm-up buffer fill), in sync collection each iteration waits for one collection chunk |
+| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to submit the next inference request and produce trainable data; APPO is ≈0 in steady state, while the synchronized off-policy path waits for its configured collection chunk |
 | Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Waiting for the device batch prefetched at the end of the previous iteration (ingress commit + side-stream gather); ~0 on a prefetch hit, non-zero means the device replay pipeline is not keeping up with the learner |
 | Replay Sample | `timing/learner_replay_sample_ms` | Consuming the already gathered hot device batch (hot/cold slot swap + view); ≈0 on CUDA, on MPS it includes the slot-event synchronization |
-| Collector Release | `timing/learner_collector_release_ms` | Sync collection only: the learner sending the release token to the collector; blocking here means the collector has not consumed the previous release (collection side is behind); 0 when not in sync collection |
+| Collector Release | `timing/learner_collector_release_ms` | The learner sending the release token to a synchronized collector; blocking here means the collector has not consumed the previous release |
 | H2D Copy | `timing/learner_incremental_h2d_ms` | Submission cost of the incremental bounded-ingress copy into the authoritative device ring (CUDA: non-blocking submit on a daemon thread; MPS: blocking copy on the learner thread); on CUDA this work overlaps Train or already happens inside Collector Wait / Replay Batch Wait, so treat this row as a diagnostic that is not strictly additive with the other learner rows |
 | Train | `timing/learner_train_ms` | Pure SGD compute |
-| Weight Publish | `timing/learner_weight_publish_ms` | Publishing new actor weights to shared memory for the collector (write side of the weight channel) |
+| Weight Publish | `timing/learner_weight_publish_ms` | APPO only: publishing new actor weights to shared memory for its collector; zero for learner-owned off-policy inference |
 | Iter Wall | `perf/iter_ms` | Whole-iteration wall time, not the sum of the components |
 
 The terminal shows every learner row as right-aligned `ms` plus `% of Iter Wall`.
 Backend logs include `perf/learner_train_pct`, `perf/learner_accounted_pct`,
 `perf/learner_other_pct` and `timing/learner_other_ms`; the latter two are residual
-diagnostics and are not shown as terminal rows. `perf/learner_pipeline_ms` = H2D +
-Train + Weight Publish. The former `timing/learner_wait_ms` was renamed to
+diagnostics and are not shown as terminal rows. `perf/learner_pipeline_ms` = learner
+inference + H2D + Train + APPO Weight Publish. The former `timing/learner_wait_ms` was renamed to
 `timing/learner_collector_wait_ms`; the former `timing/learner_sync_coordination_ms`
 and `timing/learner_weight_sync_ms` were renamed to
 `timing/learner_collector_release_ms` and `timing/learner_weight_publish_ms`.
 
 The collector process reports per-phase timings in the terminal Collector column and
 TensorBoard `timing/collector_*`; each terminal row also shows the share of one
-collection cycle (the sum of the rows below). SAC / TD3:
+collection cycle (the sum of the rows below). SAC / TD3 / FlashSAC:
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| Weight Apply | `timing/collector_weight_apply_ms` | Checking for and loading newly published learner weights (read side of the same channel as the learner's Weight Publish — not a duplicate) |
-| Policy Infer | `timing/collector_policy_infer_ms` | Actor forward inference (including exploration sampling); the terminal row reads `Policy Infer(<device>)` with the collector inference device |
+| Inference Request | `timing/collector_inference_request_ms` | Publishing observations and dones to the shared inference slot and notifying the learner |
+| Inference Barrier Wait | `timing/collector_inference_wait_ms` | Waiting for the learner-owned actor to publish this tick's action |
 | Env Step | `timing/collector_env_step_ms` | Environment step |
 | Replay Write | `timing/collector_replay_write_ms` | Packing transitions and writing them into the bounded replay ingress |
-| Sync Idle | `timing/collector_sync_idle_ms` | Per-step bookkeeping and metrics reporting; in sync collection it is dominated by waiting for the learner release, making it the collector idle indicator; excluded from `Collector/s` |
+| Sync Idle | `timing/collector_sync_idle_ms` | Per-step episode bookkeeping and metrics reporting; excluded from `Collector/s` |
 
-`Collector/s` is collector active throughput. For SAC / TD3 it uses
-`num_envs / (Weight Apply + Policy Infer + Env Step + Replay Write)` and excludes
-`Sync Idle`. The three indented child rows under Env Step (Backend Step / Update
+`Collector/s` is collector active throughput. For SAC / TD3 / FlashSAC it uses
+`num_envs / (Inference Request + Env Step + Replay Write)` and excludes
+`Inference Barrier Wait` and `Sync Idle`. The three indented child rows under Env Step (Backend Step / Update
 State / Reset Done) are marked with tree connectors and share the same percentage
-base as the other rows (one collection cycle). The former `timing/collector_weight_sync_ms`,
-`timing/collector_action_select_ms`, `timing/collector_replay_ms`, and
-`timing/collector_sync_coordination_ms` were renamed to
-`timing/collector_weight_apply_ms`, `timing/collector_policy_infer_ms`,
-`timing/collector_replay_write_ms`, and `timing/collector_sync_idle_ms`.
+base as the other rows (one collection cycle).
 
 ### Reading CPU vs GPU load
 
@@ -127,11 +123,10 @@ side is the bottleneck:
 
 | Observation | Meaning | Where to look |
 | --- | --- | --- |
-| Learner Collector Wait % is high | Learner starved for data: collection (CPU env step + inference) cannot keep up | Scale `num_envs`, cut collector cost, or move collector inference to GPU |
+| Learner Collector Wait % is high | Learner is waiting on the collector's CPU environment and transition path | Scale `num_envs` or reduce environment/transition overhead |
 | Learner Replay Batch Wait is high | The device replay pipeline (ingress commit + gather) is not keeping up with learner consumption | GPU is saturated or the side stream is queued behind training kernels |
-| Collector Sync Idle is high (sync collection) | Collector waits for the learner: GPU training is the bottleneck | Reduce `updates_per_step` / batch size, or disable sync collection |
+| Collector Inference Barrier Wait is high | Collector waits for learner inference or the learner update phase | Inspect inference latency and reduce `updates_per_step` / batch size |
 | Collector Replay Write grows | Writing into the bounded ingress slows down, e.g. slots exhausted waiting for device commits | Same direction as Replay Batch Wait: the device consumption side is behind |
-| Collector Weight Apply is high | Loading published weights costs too much per step | Weight publish frequency and collector inference device |
 
 APPO uses a ring buffer; the collector reports two **per-step** EMAs plus one **whole-rollout** total:
 
@@ -178,4 +173,4 @@ gantt
 
 All off-policy terminal views use the same value formatting. Replay Batch Wait is
 shown only when a single-device/double-buffer prefetch miss is non-zero. Collector
-Release is shown only with synchronous collection.
+Release is shown for the synchronized learner-owned inference path.

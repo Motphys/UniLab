@@ -28,15 +28,12 @@ def _make_result(
         runtime_sim_backend=runtime_sim_backend,
         command=f"uv run train --algo {algo} --task {task} --sim {runtime_sim_backend}",
         training_task_name="G1WalkFlat",
-        collector_algo_type=algo,
         num_envs=num_envs,
         replay_capacity_rows=num_envs * 2,
         replay_capacity_steps=2,
         obs_dim=3,
         critic_dim=4,
         action_dim=1,
-        actor_hidden_dim=8,
-        use_layer_norm=False,
         env_steps_per_sync=1,
     )
     physics_stats = (
@@ -213,7 +210,7 @@ def test_throughput_table_includes_case_throughput_and_num_env() -> None:
     assert "123,457" in table
     assert "42.5" in table
     assert "Total active ms" in table
-    assert "Weight sync ms (% active)" in table
+    assert "Env step ms (%)" in table
     assert "1.000 (20.0%)" in table
     assert "Physics ms" not in table
 

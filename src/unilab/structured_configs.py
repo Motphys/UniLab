@@ -47,7 +47,6 @@ class SACConfig(BaseConfig):
     updates_per_step: int = 4
     learning_starts: int = 1
     policy_frequency: int = 4
-    env_steps_per_sync: int = 1
     max_iterations: int = 500
     save_interval: int = 500
     gamma: float = 0.97
@@ -91,7 +90,6 @@ class TD3Config(BaseConfig):
     updates_per_step: int = 4
     learning_starts: int = 1
     policy_frequency: int = 2
-    env_steps_per_sync: int = 1
     max_iterations: int = 5000
     save_interval: int = 500
     gamma: float = 0.97
@@ -148,7 +146,6 @@ class FlashSACConfig(BaseConfig):
     updates_per_step: int = 2
     learning_starts: int = 98
     policy_frequency: int = 2
-    env_steps_per_sync: int = 1
     max_iterations: int = 5000
     save_interval: int = 1000
     gamma: float = 0.97

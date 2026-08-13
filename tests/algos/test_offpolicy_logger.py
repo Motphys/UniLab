@@ -87,11 +87,10 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
         env_name="Dummy",
         log_backend="none",
     )
-    logger.set_collector_infer_device("cpu")
     logger.update_collector_timing(
         {
-            "weight_apply_ms": 0.1,
-            "policy_infer_ms": 0.2,
+            "inference_request_ms": 0.1,
+            "inference_wait_ms": 0.2,
             "env_step_ms": 14.0,
             "env_step_backend_ms": 12.5,
             "env_step_update_state_ms": 1.0,
@@ -105,8 +104,8 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
     collector_value_cells = list(table.columns[3].cells)
 
     assert collector_cells == [
-        "Weight Apply",
-        "Policy Infer(cpu)",
+        "Inference Request",
+        "Inference Barrier Wait",
         "Env Step",
         "[dim]  Backend Step[/]",
         "[dim]  Update State[/]",
