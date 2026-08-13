@@ -52,12 +52,13 @@ gantt
 
     section Learner（GPU）
     Collector Wait（缓冲满则约 0）    :done,   l0, 12000, 13000
-    H2D Copy（ring 进 staging）       :        l1, 13000, 16000
-    Train（V-trace + PPO SGD）        :active, l2, 16000, 28000
-    Weight Publish 写回 collector     :crit,   l3, 28000, 30000
+    Replay Stage（ring 进 staging）   :        l1, 13000, 15500
+    Replay Sample（组合 batch view）  :        l2, 15500, 16000
+    Train（V-trace + PPO SGD）        :active, l3, 16000, 28000
+    Weight Publish 写回 collector     :crit,   l4, 28000, 30000
 
     section Iter Wall
-    perf/iter_ms（仅 learner 这圈）   :        l4, 12000, 30000
+    perf/iter_ms（仅 learner 这圈）   :        l5, 12000, 30000
 ```
 
 > 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`perf/iter_ms` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Publish 标志该轮迭代结束、向 collector 发布新权重。各字段含义见[日志页](../1-training/3-logging.md)。

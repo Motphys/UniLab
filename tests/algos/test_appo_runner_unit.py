@@ -160,7 +160,7 @@ class _FakeLogger:
     last_instance: "_FakeLogger | None" = None
 
     def __init__(self, **kwargs) -> None:
-        del kwargs
+        self.init_kwargs = dict(kwargs)
         self._total_steps = 0
         self._mean_ep_length = 0.0
         self._collector_active_steps_per_sec = None
@@ -319,8 +319,25 @@ def test_appo_runner_logs_learner_timing_for_fps_inputs(
     monkeypatch.setattr(appo_runner_module.mp, "get_context", lambda method: queue)
     monkeypatch.setattr(appo_runner_module.torch, "save", lambda *args, **kwargs: None)
 
-    fake_clock = _FakeClock([100.0, 100.0, 110.0, 120.0, 120.5, 121.0])
-    monkeypatch.setattr(appo_runner_module.time, "time", fake_clock.time)
+    wall_clock = _FakeClock([100.0, 121.0])
+    phase_clock = _FakeClock(
+        [
+            0.0,  # iteration start
+            0.0,  # collector wait start
+            10.0,  # collector wait end
+            10.0,  # replay stage start
+            10.1,  # replay stage end
+            10.1,  # replay sample start
+            10.2,  # replay sample end
+            10.2,  # train start
+            10.7,  # train end
+            10.7,  # weight publish start
+            10.8,  # weight publish end
+            10.9,  # iteration end
+        ]
+    )
+    monkeypatch.setattr(appo_runner_module.time, "time", wall_clock.time)
+    monkeypatch.setattr(appo_runner_module.time, "perf_counter", phase_clock.time)
 
     runner = APPORunner(
         env_name="DummyEnv",
@@ -343,13 +360,14 @@ def test_appo_runner_logs_learner_timing_for_fps_inputs(
     assert storage.wait_calls == 1
     assert storage.advance_calls == 1
     assert logger.step_calls
+    assert logger.init_kwargs["timing_profile"] == "appo"
 
     step = logger.step_calls[0]
     assert "collect_time" not in step
     assert "wait_time" not in step
     assert step["collector_wait_time"] == pytest.approx(10.0)
     assert step["train_time"] == pytest.approx(0.5)
-    assert step["learner_incremental_h2d_time"] >= 0.0
+    assert step["learner_replay_stage_time"] >= 0.0
     assert step["weight_sync_time"] >= 0.0
     assert step["extra_info"]["throughput_steps"] == 8
     assert "collector_active_steps_per_sec" in step["extra_info"]

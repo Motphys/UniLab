@@ -48,10 +48,10 @@ def test_compute_collector_active_steps_per_sec_includes_active_phases_only() ->
     steps_per_sec = compute_collector_active_steps_per_sec(
         {
             "inference_request_ms": 1.0,
-            "inference_wait_ms": 100.0,
+            "learner_action_wait_ms": 100.0,
             "env_step_ms": 10.0,
             "replay_write_ms": 3.0,
-            "sync_idle_ms": 100.0,
+            "bookkeeping_ms": 100.0,
         },
         num_envs=32,
     )
@@ -81,7 +81,7 @@ def test_extract_env_step_breakdown_timing_ms_maps_env_owned_keys_only() -> None
 def test_compute_collector_active_steps_per_sec_returns_none_without_active_time() -> None:
     assert (
         compute_collector_active_steps_per_sec(
-            {"sync_idle_ms": 100.0},
+            {"bookkeeping_ms": 100.0},
             num_envs=32,
         )
         is None
