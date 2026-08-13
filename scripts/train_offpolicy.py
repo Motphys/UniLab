@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,14 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+from unilab.ipc.dp_launcher import (
+    UNILAB_DP_LOG_DIR,
+    DpRankSupervisor,
+    apply_dp_rank_config,
+    current_dp_rank,
+    resolve_dp_topology,
+    validate_dp_launchable,
+)
 from unilab.training import (
     BackendAdapter,
     apply_configured_training_seed,
@@ -670,6 +679,10 @@ def main(cfg: DictConfig) -> None:
     enable_faulthandler()
     ensure_registries()
 
+    devices = resolve_dp_topology(cfg.training.devices)
+    rank = current_dp_rank()
+    apply_dp_rank_config(cfg, devices, rank)
+
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo
     task_name = cfg.training.task_name
@@ -681,11 +694,20 @@ def main(cfg: DictConfig) -> None:
         log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
+    if rank > 0:
+        # Spawned ranks reuse rank 0's run directory via a rank sub-directory;
+        # rank 0 owns the canonical checkpoints and the ExperimentTracker.
+        log_dir = os.path.join(os.environ[UNILAB_DP_LOG_DIR], f"rank{rank}")
+
+    supervisor: DpRankSupervisor | None = None
+    if devices is not None and rank == 0 and len(devices) > 1:
+        validate_dp_launchable(devices)
+        supervisor = DpRankSupervisor(devices, log_dir)
 
     import torch
 
     tracker = None
-    if not cfg.training.play_only:
+    if not cfg.training.play_only and rank == 0:
         tracker = ExperimentTracker(
             root_dir=ROOT_DIR,
             log_dir=log_dir,
@@ -700,45 +722,46 @@ def main(cfg: DictConfig) -> None:
         tracker.start()
 
     try:
-        if not cfg.training.play_only:
-            runner = None
-            try:
-                runner = build_runner(algo_name, cfg)
-                runner.learn(
-                    max_iterations=cfg.algo.max_iterations,
-                    save_interval=cfg.algo.save_interval,
-                    log_dir=log_dir,
-                    logger_type=cfg.training.logger,
-                )
-                run_summary = getattr(runner, "last_run_summary", None)
-                if isinstance(run_summary, dict) and run_summary.get("status") not in (
-                    None,
-                    "completed",
-                ):
-                    raise RuntimeError(
-                        f"Off-policy training ended with status={run_summary.get('status')!r}"
+        with supervisor if supervisor is not None else nullcontext():
+            if not cfg.training.play_only:
+                runner = None
+                try:
+                    runner = build_runner(algo_name, cfg)
+                    runner.learn(
+                        max_iterations=cfg.algo.max_iterations,
+                        save_interval=cfg.algo.save_interval,
+                        log_dir=log_dir,
+                        logger_type=cfg.training.logger,
                     )
-                if tracker is not None:
-                    tracker.update_summary(run_summary)
-            except BaseException as exc:
-                if tracker is not None:
-                    tracker.update_summary(
-                        build_failure_summary(exc, getattr(runner, "last_run_summary", None))
-                    )
-                raise
-            finally:
-                if runner is not None:
-                    runner.close()
+                    run_summary = getattr(runner, "last_run_summary", None)
+                    if isinstance(run_summary, dict) and run_summary.get("status") not in (
+                        None,
+                        "completed",
+                    ):
+                        raise RuntimeError(
+                            f"Off-policy training ended with status={run_summary.get('status')!r}"
+                        )
+                    if tracker is not None:
+                        tracker.update_summary(run_summary)
+                except BaseException as exc:
+                    if tracker is not None:
+                        tracker.update_summary(
+                            build_failure_summary(exc, getattr(runner, "last_run_summary", None))
+                        )
+                    raise
+                finally:
+                    if runner is not None:
+                        runner.close()
 
-        if should_run_playback(
-            play_only=cfg.training.play_only,
-            no_play=cfg.training.no_play,
-            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
-        ):
-            print("@" * 50)
-            play_video_path = play_offpolicy(algo_name, cfg)
-            if tracker is not None:
-                tracker.log_video(play_video_path)
+            if rank == 0 and should_run_playback(
+                play_only=cfg.training.play_only,
+                no_play=cfg.training.no_play,
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            ):
+                print("@" * 50)
+                play_video_path = play_offpolicy(algo_name, cfg)
+                if tracker is not None:
+                    tracker.log_video(play_video_path)
     finally:
         if tracker is not None:
             tracker.finish()

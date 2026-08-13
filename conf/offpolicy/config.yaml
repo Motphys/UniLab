@@ -6,6 +6,9 @@ defaults:
 training:
   task_name: G1WalkFlat
   device: null
+  # list[int] | null; null/[] = current single-device behavior;
+  # [d0..dN-1] = N-way data parallel, rank i trains on cuda:devices[i].
+  devices: null
   logger: tensorboard
   wandb_project: unilab
   wandb_entity: null
