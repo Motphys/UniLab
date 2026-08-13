@@ -452,6 +452,9 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             device=replay_device,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            collector_cpu_ids=collector_cpu_ids,
+            dp_sync=dp_sync,
+            dp_sync_interval=dp_sync_interval,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")

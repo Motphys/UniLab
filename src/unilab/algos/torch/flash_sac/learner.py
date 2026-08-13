@@ -1052,6 +1052,29 @@ class FlashSACLearner:
             ):
                 target_param.data.mul_(1.0 - self.tau).add_(param.data, alpha=self.tau)
 
+    def dp_sync_tensors(self) -> dict[str, torch.Tensor]:
+        """Tensors synchronized across data-parallel ranks, as live references.
+
+        The values alias the parameter/buffer storage of ``actor``, ``critic``,
+        ``target_critic`` and ``temperature`` rather than copies, so the DP
+        collectives (``unilab.ipc.dp_sync.DpParameterSync``) update the model
+        in place — required because CUDA-graph capture pins parameter
+        addresses. Optimizer state (Adam moments) and the observation/reward
+        normalizers' running statistics are deliberately excluded: sync is
+        parameter-level, each rank keeps its own optimizer state and running
+        statistics, and they diverge across ranks by design.
+        """
+        tensors: dict[str, torch.Tensor] = {}
+        for prefix, module in (
+            ("actor", self.actor),
+            ("critic", self.critic),
+            ("target_critic", self.target_critic),
+            ("temperature", self.temperature),
+        ):
+            for key, value in module.state_dict().items():
+                tensors[f"{prefix}.{key}"] = value
+        return tensors
+
     def get_state_dict(self) -> dict[str, Any]:
         return {
             "actor": self.actor.state_dict(),

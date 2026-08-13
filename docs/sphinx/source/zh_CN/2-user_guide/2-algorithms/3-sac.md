@@ -47,8 +47,9 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
 `training.devices` 打开单节点多卡数据并行（data parallel）：rank i 在
 `cuda:devices[i]` 上各跑一套独立的 learner+collector，rank 0 负责 spawn 其余
 rank 子进程。同步是参数级的：启动时先广播 rank 0 的初始参数，之后每
-`training.dp_sync_interval`（默认 8）个 learner iteration 对 actor+critic 参数做
-一次 all-reduce 平均；梯度不交换，各 rank 保留自己的 optimizer 状态。
+`training.dp_sync_interval`（默认 8）个 learner iteration 对 learner 可学习参数
+（actor / critic / 温度系数）做一次 all-reduce 平均；梯度不交换，各 rank 保留自己的
+optimizer 状态。
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \
@@ -63,7 +64,7 @@ collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段
 
 当前限制：
 
-- 仅 SAC：TD3 / FlashSAC 的 learner 未实现 `dp_sync_tensors()`，多卡启动即报错。
+- 仅 SAC 与 FlashSAC：TD3 的 learner 未实现 `dp_sync_tensors()`，多卡启动即报错。
 - 仅验证过 `mujoco` backend；`training.devices` 与 `training.device` 互斥。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置
