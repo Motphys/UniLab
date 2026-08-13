@@ -45,6 +45,9 @@ class _FakePopen:
     """Minimal subprocess.Popen stand-in with a scriptable exit code."""
 
     instances: list["_FakePopen"] = []
+    # When True, wait() on a still-running child makes it exit cleanly
+    # (simulates a rank that finishes during the normal-exit grace window).
+    wait_completes: bool = False
 
     def __init__(self, argv, env=None, **kwargs):
         del kwargs
@@ -69,8 +72,10 @@ class _FakePopen:
         self.returncode = -signal.SIGKILL
 
     def wait(self, timeout=None):
-        del timeout
         if self.returncode is None:
+            if _FakePopen.wait_completes:
+                self.returncode = 0
+                return 0
             raise subprocess.TimeoutExpired(cmd=self.argv, timeout=timeout)
         return self.returncode
 
@@ -78,6 +83,7 @@ class _FakePopen:
 @pytest.fixture()
 def fake_popen(monkeypatch: pytest.MonkeyPatch):
     _FakePopen.instances = []
+    _FakePopen.wait_completes = False
     monkeypatch.setattr(dp_launcher.subprocess, "Popen", _FakePopen)
     return _FakePopen
 
@@ -201,8 +207,28 @@ def test_supervisor_spawn_argv_and_env(fake_popen, monkeypatch: pytest.MonkeyPat
             assert child.env[UNILAB_DP_LOG_DIR] == "/tmp/dp_test_log"
         # Rank 0's own environment stays untouched.
         assert os.environ.get(UNILAB_DP_RANK) is None
+        for child in fake_popen.instances:
+            child.returncode = 0
     for child in fake_popen.instances:
-        assert child.terminated
+        assert not child.terminated
+
+
+def test_supervisor_normal_exit_waits_for_children(fake_popen):
+    _FakePopen.wait_completes = True
+    with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log"):
+        pass
+    child = fake_popen.instances[0]
+    assert child.returncode == 0
+    assert not child.terminated
+
+
+def test_supervisor_grace_timeout_is_a_failure(fake_popen):
+    with pytest.raises(RuntimeError, match="rank 1 exit code timeout"):
+        with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log"):
+            pass
+    child = fake_popen.instances[0]
+    assert child.terminated
+    assert child.returncode == -signal.SIGTERM
 
 
 def test_supervisor_clean_child_exit_is_not_a_failure(fake_popen):
@@ -222,9 +248,10 @@ def test_supervisor_failed_child_makes_rank_zero_fail(
         supervisor.__exit__(None, None, None)
 
 
-def test_supervisor_exit_terminates_live_children(fake_popen):
-    with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log"):
-        pass
+def test_supervisor_error_exit_terminates_live_children(fake_popen):
+    with pytest.raises(ValueError, match="boom"):
+        with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log"):
+            raise ValueError("boom")
     assert all(child.terminated for child in fake_popen.instances)
     assert all(child.returncode == -signal.SIGTERM for child in fake_popen.instances)
 
@@ -248,6 +275,7 @@ def test_supervisor_restores_sigterm_handler(fake_popen):
     previous = signal.getsignal(signal.SIGTERM)
     with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log"):
         assert signal.getsignal(signal.SIGTERM) is dp_launcher._sigterm_system_exit
+        fake_popen.instances[0].returncode = 0
     assert signal.getsignal(signal.SIGTERM) == previous
 
 

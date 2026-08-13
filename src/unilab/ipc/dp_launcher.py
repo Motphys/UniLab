@@ -25,6 +25,10 @@ _OFFPOLICY_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "train_off
 
 _WATCHDOG_INTERVAL_S = 0.5
 _TERMINATE_TIMEOUT_S = 10.0
+# Grace window for sibling ranks to finish their own runs once rank 0
+# completed normally. Ranks run the same config, so they should land within
+# startup skew of each other; exceeding the grace is treated as a failure.
+_NORMAL_EXIT_GRACE_S = 600.0
 
 
 def resolve_dp_topology(devices_cfg: Any) -> tuple[int, ...] | None:
@@ -166,11 +170,29 @@ class DpRankSupervisor:
 
         # Ranks that already exited on their own keep their exit code;
         # non-zero means the data-parallel run failed even if rank 0 is fine.
-        failed = [
+        failed: list[tuple[int, object]] = [
             (rank, child.returncode)
             for rank, child in enumerate(self._children, start=1)
             if child.returncode is not None and child.returncode != 0
         ]
+        if exc_type is None and not failed:
+            # Normal rank-0 completion: give sibling ranks a grace window to
+            # finish their own runs instead of cutting them short.
+            for rank, child in enumerate(self._children, start=1):
+                if child.returncode is not None:
+                    continue
+                try:
+                    child.wait(timeout=_NORMAL_EXIT_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    print(
+                        f"[dp_launcher] rank {rank} subprocess pid={child.pid} did not "
+                        f"exit within {_NORMAL_EXIT_GRACE_S}s of rank 0 completion",
+                        file=sys.stderr,
+                    )
+                if child.returncode != 0:
+                    failed.append(
+                        (rank, child.returncode if child.returncode is not None else "timeout")
+                    )
         self._terminate_children()
         if failed:
             message = (
