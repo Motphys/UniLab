@@ -20,7 +20,6 @@ from unilab.ipc.dp_launcher import (
     DpRankSupervisor,
     apply_dp_rank_config,
     current_dp_rank,
-    current_dp_world_size,
     resolve_collector_cpu_ids,
     resolve_dp_topology,
     validate_dp_launchable,
@@ -174,7 +173,10 @@ def build_runner(algo_name: str, cfg: DictConfig):
     # CPU block (single rank keeps the legacy unset behavior). The ids only
     # reach the collector env override — never the num_envs=1 probe envs,
     # whose MuJoCo pool would size itself from len(cpu_ids).
-    dp_world_size = current_dp_world_size()
+    # world_size comes from training.devices (rank 0 has no UNILAB_DP_* env;
+    # only spawned ranks carry it), rank from the env (0 for rank 0).
+    dp_devices = resolve_dp_topology(cfg.training.devices)
+    dp_world_size = len(dp_devices) if dp_devices is not None else 1
     host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:

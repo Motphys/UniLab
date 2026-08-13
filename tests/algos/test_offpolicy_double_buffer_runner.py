@@ -272,10 +272,11 @@ def _build_sac_runner_with_fakes(
 
 
 def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.MonkeyPatch):
+    # Spawned rank: rank comes from the env, world_size from training.devices.
     monkeypatch.setenv(UNILAB_DP_RANK, "1")
-    monkeypatch.setenv(UNILAB_DP_WORLD_SIZE, "2")
     runner, probe_env_calls = _build_sac_runner_with_fakes(
-        monkeypatch, ["algo=sac", "algo.use_symmetry=false"], cpu_count=128
+        monkeypatch, ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
     # The thread budget is resolved against the rank's CPU share, not the host.
@@ -286,6 +287,18 @@ def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.Mon
     for call in probe_env_calls:
         override = call.get("env_cfg_override") or {}
         assert "cpu_ids" not in override
+
+
+def test_build_runner_rank_zero_partitions_without_dp_env(monkeypatch: pytest.MonkeyPatch):
+    # Rank 0 carries no UNILAB_DP_* env; world_size must come from the config.
+    monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
+    monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
+    runner, _ = _build_sac_runner_with_fakes(
+        monkeypatch, ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        cpu_count=128,
+    )
+    assert runner.kwargs["collector_cpu_ids"] == list(range(0, 64))
+    assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
 
 
 def test_build_runner_single_rank_keeps_collector_cpus_unset(monkeypatch: pytest.MonkeyPatch):
@@ -305,10 +318,14 @@ def test_build_runner_single_rank_keeps_collector_cpus_unset(monkeypatch: pytest
 
 def test_build_runner_explicit_dp_collector_cpu_ids(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv(UNILAB_DP_RANK, "0")
-    monkeypatch.setenv(UNILAB_DP_WORLD_SIZE, "2")
     runner, probe_env_calls = _build_sac_runner_with_fakes(
         monkeypatch,
-        ["algo=sac", "algo.use_symmetry=false", "training.dp_collector_cpu_ids=[[0,1],[2,3]]"],
+        [
+            "algo=sac",
+            "algo.use_symmetry=false",
+            "training.devices=[0,1]",
+            "training.dp_collector_cpu_ids=[[0,1],[2,3]]",
+        ],
         cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == [0, 1]
