@@ -849,6 +849,8 @@ class GPUResidentReplayPipeline:
         self._hot_metadata = None
 
     def close(self) -> None:
+        if self._closed:
+            return
         self._closed = True
         with self._prepare_condition:
             self._prepare_condition.notify_all()

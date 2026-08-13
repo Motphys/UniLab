@@ -1,10 +1,4 @@
 # @package _global_
-training:
-  # "gpu" is a cross-platform accelerator alias resolved by
-  # resolve_torch_device_alias: cuda (including ROCm/AMD), then xpu, then mps
-  # (macOS); it fails fast when no accelerator is available, which matches the
-  # off-policy learner device requirement (CUDA or MPS only).
-  collector_infer_device: gpu
 algo:
   algo: sac
   algo_log_name: fast_sac
@@ -20,7 +14,6 @@ algo:
   updates_per_step: 4
   learning_starts: 1
   policy_frequency: 4
-  env_steps_per_sync: 1
   max_iterations: 500
   save_interval: 500
   gamma: 0.97
