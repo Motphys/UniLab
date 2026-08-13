@@ -17,6 +17,8 @@ OFFPOLICY_COLLECTOR_TIMING_ORDER = {
     "weight_apply_ms": 0,
     "mlp_infer_ms": 1,
     "policy_infer_ms": 1,
+    "inference_request_ms": 1,
+    "inference_wait_ms": 1.1,
     "env_step_ms": 2,
     "env_step_backend_ms": 2.1,
     "env_step_update_state_ms": 2.2,
@@ -31,6 +33,8 @@ OFFPOLICY_COLLECTOR_TIMING_LABELS = {
     "weight_apply_ms": "Weight Apply",
     "mlp_infer_ms": "MLP Infer",
     "policy_infer_ms": "Policy Infer",
+    "inference_request_ms": "Inference Request",
+    "inference_wait_ms": "Inference Barrier Wait",
     "env_step_ms": "Env Step",
     "env_step_backend_ms": "  Backend Step",
     "env_step_update_state_ms": "  Update State",
@@ -137,6 +141,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._sync_coordination_time: float = 0.0
         self._learner_incremental_h2d_time: float = 0.0
         self._weight_sync_time: float = 0.0
+        self._inference_h2d_time: float = 0.0
+        self._inference_forward_time: float = 0.0
+        self._inference_d2h_time: float = 0.0
+        self._inference_time: float = 0.0
         self._iteration_time: float | None = None
         self._throughput_steps: int = 0
         self._collector_active_steps_per_sec: float | None = None
@@ -152,6 +160,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._sync_collection: bool = False
         self._env_steps_per_sync: int = 0
         self._collector_infer_device: str = ""
+        self._runtime_manifest: dict[str, Any] = {}
         self._staging_pool_len: int = 0
         self._staging_pool_max: int = 0
         self._status: str = "Initializing..."
@@ -205,7 +214,12 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._learner_samples_per_iter / iter_time
 
     def _get_learner_pipeline_time(self) -> float:
-        return self._learner_incremental_h2d_time + self._train_time + self._weight_sync_time
+        return (
+            self._inference_time
+            + self._learner_incremental_h2d_time
+            + self._train_time
+            + self._weight_sync_time
+        )
 
     def _get_learner_accounted_time(self) -> float:
         return (
@@ -292,6 +306,9 @@ class OffPolicyLogger(BaseTrainingLogger):
         """Record the collector inference device for the Policy Infer row label."""
         self._collector_infer_device = str(device)
 
+    def update_runtime_manifest(self, manifest: dict[str, Any]) -> None:
+        self._runtime_manifest.update(manifest)
+
     def log_collector(self, total_steps: int, buffer_size: int, mean_reward: float = 0.0):
         self._total_steps = total_steps
         self._buffer_size = buffer_size
@@ -312,6 +329,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         sync_coordination_time: float = 0.0,
         learner_incremental_h2d_time: float = 0.0,
         weight_sync_time: float = 0.0,
+        inference_h2d_time: float = 0.0,
+        inference_forward_time: float = 0.0,
+        inference_d2h_time: float = 0.0,
+        inference_time: float = 0.0,
         iteration_time: float | None = None,
         extra_info: dict | None = None,
     ):
@@ -324,6 +345,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._sync_coordination_time = sync_coordination_time
         self._learner_incremental_h2d_time = learner_incremental_h2d_time
         self._weight_sync_time = weight_sync_time
+        self._inference_h2d_time = inference_h2d_time
+        self._inference_forward_time = inference_forward_time
+        self._inference_d2h_time = inference_d2h_time
+        self._inference_time = inference_time
         self._iteration_time = iteration_time
         self._has_iteration_extra_info = extra_info is not None
         if extra_info:
@@ -427,6 +452,18 @@ class OffPolicyLogger(BaseTrainingLogger):
                 self._learner_incremental_h2d_time * 1000,
                 global_step,
             )
+            writer.add_scalar(
+                "timing/inference_h2d_ms", self._inference_h2d_time * 1000, global_step
+            )
+            writer.add_scalar(
+                "timing/inference_forward_ms",
+                self._inference_forward_time * 1000,
+                global_step,
+            )
+            writer.add_scalar(
+                "timing/inference_d2h_ms", self._inference_d2h_time * 1000, global_step
+            )
+            writer.add_scalar("timing/inference_total_ms", self._inference_time * 1000, global_step)
             writer.add_scalar("timing/learner_train_ms", train_time * 1000, global_step)
             writer.add_scalar(
                 "timing/learner_weight_publish_ms",
@@ -499,6 +536,10 @@ class OffPolicyLogger(BaseTrainingLogger):
             log_dict["timing/learner_incremental_h2d_ms"] = (
                 self._learner_incremental_h2d_time * 1000
             )
+            log_dict["timing/inference_h2d_ms"] = self._inference_h2d_time * 1000
+            log_dict["timing/inference_forward_ms"] = self._inference_forward_time * 1000
+            log_dict["timing/inference_d2h_ms"] = self._inference_d2h_time * 1000
+            log_dict["timing/inference_total_ms"] = self._inference_time * 1000
             log_dict["timing/learner_train_ms"] = train_time * 1000
             log_dict["timing/learner_weight_publish_ms"] = self._weight_sync_time * 1000
             log_dict["timing/learner_other_ms"] = learner_other_time * 1000
@@ -618,6 +659,15 @@ class OffPolicyLogger(BaseTrainingLogger):
         if self._replay_batch_wait_time > 0.0:
             learner_items.append(("Replay Batch Wait", _fmt_phase(self._replay_batch_wait_time)))
         learner_items.append(("Replay Sample", _fmt_phase(self._learner_replay_sample_time)))
+        if self._inference_time > 0.0:
+            learner_items.extend(
+                [
+                    ("Inference H2D", _fmt_phase(self._inference_h2d_time)),
+                    ("Inference Forward", _fmt_phase(self._inference_forward_time)),
+                    ("Inference D2H", _fmt_phase(self._inference_d2h_time)),
+                    ("Inference Total", _fmt_phase(self._inference_time)),
+                ]
+            )
         if self._sync_coordination_time > 0.0:
             learner_items.append(("Collector Release", _fmt_phase(self._sync_coordination_time)))
         learner_items.extend(

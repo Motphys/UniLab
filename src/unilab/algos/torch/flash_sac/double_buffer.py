@@ -36,6 +36,7 @@ def build_flashsac_double_buffer_runner(
     device: str | None = None,
     nan_guard_cfg: NanGuardCfg | None = None,
     torch_thread_runtime: dict[str, Any] | None = None,
+    inference_owner: str = "collector",
 ) -> Any:
     """Build FlashSAC with the bounded-ingress device replay pipeline."""
     from unilab.base.observations import get_obs_dims
@@ -135,5 +136,6 @@ def build_flashsac_double_buffer_runner(
         replay_prefetch_mode=replay_prefetch_mode,
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
+        inference_owner=inference_owner,
         torch_thread_runtime=torch_thread_runtime,
     )

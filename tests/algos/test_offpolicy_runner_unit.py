@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import queue
 from collections import deque
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 
@@ -17,6 +20,7 @@ from unilab.algos.torch.offpolicy.runner import (
     replay_buffer_ready_for_learning,
     update_reward_stats_from_replay,
 )
+from unilab.ipc.inference_slot import SharedInferenceSlot
 
 
 @pytest.mark.parametrize(
@@ -169,8 +173,12 @@ class _FakePipeline:
     def __init__(self, replay_buffer, **kwargs):
         del replay_buffer
         type(self).last_kwargs = kwargs
+        self._closed = False
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         type(self).close_calls += 1
 
 
@@ -202,6 +210,9 @@ class _FakeLogger:
     def set_collector_infer_device(self, *args):
         del args
 
+    def update_runtime_manifest(self, manifest):
+        self._runtime_manifest = dict(manifest)
+
     def log_status(self, value):
         self.statuses.append(value)
 
@@ -219,6 +230,15 @@ class _FakeLogger:
 
     def close(self):
         return None
+
+    def _get_iter_steps_per_sec(self):
+        return None
+
+    def _get_effective_samples_per_sec(self):
+        return None
+
+    def _get_iter_wall_time(self):
+        return 0.0
 
 
 def _make_device_runner(monkeypatch: pytest.MonkeyPatch, learner=None):
@@ -347,3 +367,49 @@ def test_drain_metrics_propagates_collector_error():
             {},
             _FakeLogger(),
         )
+
+
+@pytest.mark.parametrize("algo_type", ["sac", "flashsac"])
+def test_learner_inference_matches_existing_actor_exploration(algo_type: str) -> None:
+    if algo_type == "sac":
+        from unilab.algos.torch.fast_sac.learner import SACActor
+
+        actor = SACActor(3, 2, hidden_dim=8, use_layer_norm=False)
+    else:
+        from unilab.algos.torch.flash_sac.network import FlashSACActor
+
+        actor = FlashSACActor(num_blocks=1, input_dim=3, hidden_dim=8, action_dim=2)
+    expected_actor = copy.deepcopy(actor)
+    observations = np.arange(6, dtype=np.float32).reshape(2, 3) / 10.0
+    dones = np.array([0.0, 1.0], dtype=np.float32)
+    torch.manual_seed(17)
+    expected = expected_actor.explore(
+        torch.from_numpy(observations),
+        dones=torch.from_numpy(dones),
+        deterministic=False,
+    )
+
+    runner = object.__new__(device_runner_module.DoubleBufferOffPolicyRunner)
+    runner.device = "cpu"
+    runner.obs_normalization = False
+    runner.algo_type = algo_type
+    runner.learner = SimpleNamespace(actor=actor)
+    slot = SharedInferenceSlot(2, 3, 2)
+    slot.publish_observation(tick_id=4, observations=observations, dones=dones)
+    torch.manual_seed(17)
+    runner._serve_learner_inference(
+        slot,
+        tick_id=4,
+        policy_version=9,
+        obs_device=torch.empty(2, 3),
+        dones_device=torch.empty(2),
+        trace_recorder=None,
+    )
+    actual, policy_version = slot.consume_action(tick_id=4)
+
+    torch.testing.assert_close(torch.from_numpy(actual), expected)
+    assert policy_version == 9
+    if algo_type == "flashsac":
+        torch.testing.assert_close(actor._noise, expected_actor._noise)
+        torch.testing.assert_close(actor._repeat_count, expected_actor._repeat_count)
+        torch.testing.assert_close(actor._repeat_target, expected_actor._repeat_target)

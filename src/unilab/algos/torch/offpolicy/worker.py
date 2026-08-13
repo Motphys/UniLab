@@ -31,11 +31,30 @@ from unilab.training.seed import apply_training_seed
 COLLECTOR_TIMING_KEYS = (
     "weight_apply_ms",
     "policy_infer_ms",
+    "inference_request_ms",
+    "inference_wait_ms",
     "env_step_ms",
     "replay_write_ms",
     "sync_idle_ms",
 )
-COLLECTOR_ACTIVE_TIMING_KEYS = tuple(key for key in COLLECTOR_TIMING_KEYS if key != "sync_idle_ms")
+COLLECTOR_ACTIVE_TIMING_KEYS = tuple(
+    key for key in COLLECTOR_TIMING_KEYS if key not in {"inference_wait_ms", "sync_idle_ms"}
+)
+
+_COLLECTOR_INFERENCE_TIMING_KEYS = (
+    "weight_apply_ms",
+    "policy_infer_ms",
+    "env_step_ms",
+    "replay_write_ms",
+    "sync_idle_ms",
+)
+_LEARNER_INFERENCE_TIMING_KEYS = (
+    "inference_request_ms",
+    "inference_wait_ms",
+    "env_step_ms",
+    "replay_write_ms",
+    "sync_idle_ms",
+)
 
 
 def resolve_collector_actor_dims(
@@ -133,6 +152,36 @@ def compute_collector_active_steps_per_sec(
     return int(num_envs) / (active_ms / 1000.0)
 
 
+def _put_sync_tick(sync_queue, tick_id: int, stop_event, *, timeout: float = 30.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while not stop_event.is_set():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Timed out publishing off-policy inference tick {tick_id}")
+        try:
+            sync_queue.put(int(tick_id), timeout=0.1)
+            return True
+        except queue.Full:
+            continue
+    return False
+
+
+def _wait_for_sync_tick(sync_queue, tick_id: int, stop_event, *, timeout: float = 30.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while not stop_event.is_set():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Timed out waiting for off-policy inference tick {tick_id}")
+        try:
+            received_tick = int(sync_queue.get(timeout=0.1))
+        except queue.Empty:
+            continue
+        if received_tick != int(tick_id):
+            raise RuntimeError(
+                f"Off-policy inference tick mismatch: expected {tick_id}, got {received_tick}"
+            )
+        return True
+    return False
+
+
 def off_policy_collector_fn(
     stop_event,
     env_name: str,
@@ -163,6 +212,8 @@ def off_policy_collector_fn(
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
+    inference_owner: str = "collector",
+    inference_slot=None,
     torch_thread_runtime=None,
     **kwargs,
 ):
@@ -202,6 +253,8 @@ def off_policy_collector_fn(
         nan_guard_cfg=nan_guard_cfg,
         collector_infer_device=collector_infer_device,
         collector_infer_device_raw=collector_infer_device_raw,
+        inference_owner=inference_owner,
+        inference_slot=inference_slot,
         torch_thread_runtime=torch_thread_runtime,
     )
 
@@ -236,15 +289,26 @@ def _run_collector(
     nan_guard_cfg=None,
     collector_infer_device: str = "cpu",
     collector_infer_device_raw: str | None = None,
+    inference_owner: str = "collector",
+    inference_slot=None,
     torch_thread_runtime=None,
 ):
     del learning_starts
     from unilab.base import registry
-    from unilab.ipc import SharedWeightSync
+
+    learner_owned_inference = inference_owner == "learner"
+    if inference_owner not in {"collector", "learner"}:
+        raise ValueError(f"Unsupported off-policy inference owner: {inference_owner!r}")
+    if learner_owned_inference and inference_slot is None:
+        raise ValueError("Learner-owned inference requires a shared inference slot")
 
     apply_torch_thread_runtime(torch_thread_runtime, role="collector", torch_module=torch)
     ensure_registries()
-    apply_training_seed(seed, torch_runtime=True, cuda=True)
+    apply_training_seed(
+        seed,
+        torch_runtime=not learner_owned_inference,
+        cuda=not learner_owned_inference,
+    )
 
     trace_recorder = None
     if trace_enabled:
@@ -269,50 +333,49 @@ def _run_collector(
     if env.state is None:
         env.init_state()
 
-    # Connect to weight sync
-    weight_sync = SharedWeightSync(
-        weight_param_shapes, create=False, shm_name=weight_sync_name, lock=weight_sync_lock
-    )
-    weight_sync.trace_recorder = trace_recorder
-    weight_sync.trace_thread_time = trace_thread_time
-
     collector_infer_device = str(collector_infer_device or "cpu")
     collector_infer_device_raw = str(collector_infer_device_raw or collector_infer_device)
-
-    # Build actor on the resolved collector inference device. Env I/O remains numpy.
     obs_dim, action_dim = resolve_collector_actor_dims(
         env,
         obs_dim=obs_dim,
         action_dim=action_dim,
     )
-    actor = build_actor(
-        algo_type,
-        obs_dim,
-        action_dim,
-        actor_hidden_dim,
-        use_layer_norm,
-        collector_infer_device,
-        num_envs,
-        **(actor_kwargs or {}),
-    )
-    actor.eval()
     replay_buffer.trace_recorder = trace_recorder
     replay_buffer.trace_thread_time = trace_thread_time
     replay_buffer.attach_stop_event(stop_event)
-
-    # Load initial weights. read_weights_into / the device applier copy
-    # directly into the actor's own state-dict storage, so no follow-up
-    # actor.load_state_dict(sd) is needed (it would be a redundant self-copy).
-    collector_device = torch.device(collector_infer_device)
+    actor = None
+    weight_sync = None
     weight_applier = None
-    if collector_device.type == "cuda":
-        # CUDA collectors take the flat-snapshot fast path (single H2D +
-        # on-device apply). CPU and other accelerators keep the reference path.
-        weight_applier = weight_sync.create_device_applier(actor.state_dict(), collector_device)
-        local_weight_version = weight_applier.apply()
-    else:
-        sd = dict(actor.state_dict())
-        local_weight_version = weight_sync.read_weights_into(sd)
+    local_weight_version = 0
+    if not learner_owned_inference:
+        from unilab.ipc import SharedWeightSync
+
+        weight_sync = SharedWeightSync(
+            weight_param_shapes,
+            create=False,
+            shm_name=weight_sync_name,
+            lock=weight_sync_lock,
+        )
+        weight_sync.trace_recorder = trace_recorder
+        weight_sync.trace_thread_time = trace_thread_time
+        actor = build_actor(
+            algo_type,
+            obs_dim,
+            action_dim,
+            actor_hidden_dim,
+            use_layer_norm,
+            collector_infer_device,
+            num_envs,
+            **(actor_kwargs or {}),
+        )
+        actor.eval()
+        collector_device = torch.device(collector_infer_device)
+        if collector_device.type == "cuda":
+            weight_applier = weight_sync.create_device_applier(actor.state_dict(), collector_device)
+            local_weight_version = weight_applier.apply()
+        else:
+            sd = dict(actor.state_dict())
+            local_weight_version = weight_sync.read_weights_into(sd)
 
     total_steps = 0
     ep_rewards = []
@@ -328,9 +391,12 @@ def _run_collector(
     timeout_count_window = 0
     terminated_count_window = 0
 
-    # Initial step to get first observation
     actions_np = np.zeros((num_envs, action_dim), dtype=np.float32)
-    state = env.step(actions_np)
+    if learner_owned_inference:
+        state = env.state
+        assert state is not None
+    else:
+        state = env.step(actions_np)
     obs_np, critic_np = split_obs_dict(state.obs)
     obs_np = np.asarray(obs_np, dtype=np.float32)
     critic_np = np.asarray(critic_np, dtype=np.float32)
@@ -340,82 +406,161 @@ def _run_collector(
 
     _last_log_time = _time.time()
 
+    runtime_manifest = {
+        "inference_owner": inference_owner,
+        "actor_owned": actor is not None,
+        "weight_sync_attached": weight_sync is not None,
+        "torch_inference": actor is not None,
+        "cuda_context_initialized": bool(torch.cuda.is_initialized()),
+    }
+    if trace_recorder:
+        manifest_ns = _time.perf_counter_ns()
+        trace_recorder.add_slice(
+            "collector/runtime_manifest",
+            category="collector",
+            start_ns=manifest_ns,
+            end_ns=manifest_ns,
+            args=runtime_manifest,
+        )
+    if metrics_queue is not None:
+        manifest_message: dict[str, Any] = {"runtime_manifest": runtime_manifest}
+        if trace_recorder:
+            manifest_message["trace_events"] = trace_recorder.drain_events()
+        try:
+            metrics_queue.put_nowait(manifest_message)
+        except queue.Full:
+            pass
+
     # Track env.step calls collected since the last learner phase.
     env_steps_since_sync = 0
+    inference_tick = 0
     # Collection loop
     try:
         while not stop_event.is_set():
-            cycle_timing_ms: dict[str, float] = dict.fromkeys(COLLECTOR_TIMING_KEYS, 0.0)
+            timing_keys = (
+                _LEARNER_INFERENCE_TIMING_KEYS
+                if learner_owned_inference
+                else _COLLECTOR_INFERENCE_TIMING_KEYS
+            )
+            cycle_timing_ms: dict[str, float] = dict.fromkeys(timing_keys, 0.0)
             phase_start_ns = _time.perf_counter_ns()
 
-            # Check for weight updates
-            if weight_sync.version > local_weight_version:
-                _wt_ns = _time.perf_counter_ns()
-                if weight_applier is not None:
-                    local_weight_version = weight_applier.apply()
-                else:
-                    sd = dict(actor.state_dict())
-                    local_weight_version = weight_sync.read_weights_into(sd)
+            if learner_owned_inference:
+                assert inference_slot is not None
+                request_ns = _time.perf_counter_ns()
+                inference_slot.publish_observation(
+                    tick_id=inference_tick,
+                    observations=obs_np,
+                    dones=prev_dones_np,
+                )
+                if not _put_sync_tick(collection_ready_queue, inference_tick, stop_event):
+                    break
                 if trace_recorder:
                     trace_recorder.add_slice(
-                        "collector/check_weight_update",
+                        "collector/inference_request",
                         category="collector",
-                        start_ns=_wt_ns,
+                        start_ns=request_ns,
                         end_ns=_time.perf_counter_ns(),
+                        args={"tick_id": inference_tick},
                     )
+                phase_start_ns = _record_phase_ms(
+                    cycle_timing_ms, "inference_request_ms", phase_start_ns
+                )
+                wait_ns = _time.perf_counter_ns()
+                if not _wait_for_sync_tick(trainer_done_queue, inference_tick, stop_event):
+                    break
+                actions_np, local_weight_version = inference_slot.consume_action(
+                    tick_id=inference_tick
+                )
+                if trace_recorder:
+                    trace_recorder.add_slice(
+                        "collector/wait_for_learner_action",
+                        category="collector",
+                        start_ns=wait_ns,
+                        end_ns=_time.perf_counter_ns(),
+                        args={
+                            "tick_id": inference_tick,
+                            "policy_version": local_weight_version,
+                        },
+                    )
+                phase_start_ns = _record_phase_ms(
+                    cycle_timing_ms, "inference_wait_ms", phase_start_ns
+                )
+                inference_tick += 1
+            else:
+                assert actor is not None
+                assert weight_sync is not None
+                if weight_sync.version > local_weight_version:
+                    _wt_ns = _time.perf_counter_ns()
+                    if weight_applier is not None:
+                        local_weight_version = weight_applier.apply()
+                    else:
+                        sd = dict(actor.state_dict())
+                        local_weight_version = weight_sync.read_weights_into(sd)
+                    if trace_recorder:
+                        trace_recorder.add_slice(
+                            "collector/check_weight_update",
+                            category="collector",
+                            start_ns=_wt_ns,
+                            end_ns=_time.perf_counter_ns(),
+                        )
 
-                # Update normalizer stats
+                    # Update normalizer stats
+                    if obs_normalization and shared_obs_normalizer_stats is not None:
+                        stats = shared_obs_normalizer_stats.get()
+                        if stats is not None:
+                            # Apply stats to a local normalizer if needed, or directly to actor
+                            pass  # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
+            if not learner_owned_inference:
+                phase_start_ns = _record_phase_ms(
+                    cycle_timing_ms, "weight_apply_ms", phase_start_ns
+                )
+
+            if not learner_owned_inference:
+                obs_np_input = obs_np
                 if obs_normalization and shared_obs_normalizer_stats is not None:
                     stats = shared_obs_normalizer_stats.get()
                     if stats is not None:
-                        # Apply stats to a local normalizer if needed, or directly to actor
-                        pass  # Handled by EmpiricalNormalization in learner if actor possesses it. We need a local normalizer.
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "weight_apply_ms", phase_start_ns)
+                        mean, std = stats
+                        obs_np_input = (obs_np - mean) / (std + 1e-8)
 
-            # Normalize obs_np
-            obs_np_input = obs_np
-            if obs_normalization and shared_obs_normalizer_stats is not None:
-                stats = shared_obs_normalizer_stats.get()
-                if stats is not None:
-                    mean, std = stats
-                    obs_np_input = (obs_np - mean) / (std + 1e-8)
-
-            # Select action
-            with torch.no_grad():
-                _t_infer_ns = _time.perf_counter_ns()
-                obs_torch = torch.from_numpy(obs_np_input).to(collector_infer_device)
-                dones_torch = torch.from_numpy(prev_dones_np).to(collector_infer_device)
-                priv_info_np = resolve_offpolicy_actor_priv_info(
-                    algo_type=algo_type,
-                    obs_np=obs_np,
-                    critic_np=critic_np,
-                    info=info_dict,
-                )
-                priv_info_torch = (
-                    torch.from_numpy(priv_info_np).to(collector_infer_device)
-                    if priv_info_np is not None
-                    else None
-                )
-                actions_torch = sample_offpolicy_actions(
-                    actor=actor,
-                    algo_type=algo_type,
-                    obs_torch=obs_torch,
-                    prev_dones_torch=dones_torch,
-                    priv_info_torch=priv_info_torch,
-                )
-                actions_np = actions_torch.detach().cpu().numpy()
-                if trace_recorder:
-                    trace_recorder.add_slice(
-                        "collector/actor_infer",
-                        category="collector",
-                        start_ns=_t_infer_ns,
-                        end_ns=_time.perf_counter_ns(),
-                        args={
-                            "collector_infer_device_raw": collector_infer_device_raw,
-                            "collector_infer_device": collector_infer_device,
-                        },
+                with torch.no_grad():
+                    _t_infer_ns = _time.perf_counter_ns()
+                    obs_torch = torch.from_numpy(obs_np_input).to(collector_infer_device)
+                    dones_torch = torch.from_numpy(prev_dones_np).to(collector_infer_device)
+                    priv_info_np = resolve_offpolicy_actor_priv_info(
+                        algo_type=algo_type,
+                        obs_np=obs_np,
+                        critic_np=critic_np,
+                        info=info_dict,
                     )
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "policy_infer_ms", phase_start_ns)
+                    priv_info_torch = (
+                        torch.from_numpy(priv_info_np).to(collector_infer_device)
+                        if priv_info_np is not None
+                        else None
+                    )
+                    actions_torch = sample_offpolicy_actions(
+                        actor=actor,
+                        algo_type=algo_type,
+                        obs_torch=obs_torch,
+                        prev_dones_torch=dones_torch,
+                        priv_info_torch=priv_info_torch,
+                    )
+                    actions_np = actions_torch.detach().cpu().numpy()
+                    if trace_recorder:
+                        trace_recorder.add_slice(
+                            "collector/actor_infer",
+                            category="collector",
+                            start_ns=_t_infer_ns,
+                            end_ns=_time.perf_counter_ns(),
+                            args={
+                                "collector_infer_device_raw": collector_infer_device_raw,
+                                "collector_infer_device": collector_infer_device,
+                            },
+                        )
+                phase_start_ns = _record_phase_ms(
+                    cycle_timing_ms, "policy_infer_ms", phase_start_ns
+                )
 
             # Step environment
             _env_ns = _time.perf_counter_ns()
@@ -514,7 +659,8 @@ def _run_collector(
 
             # Signal the learner once this collection chunk is ready.
             if (
-                sync_collection
+                not learner_owned_inference
+                and sync_collection
                 and collection_ready_queue is not None
                 and trainer_done_queue is not None
             ):
@@ -641,4 +787,5 @@ def _run_collector(
                 metrics_queue.put_nowait({"trace_events": trace_recorder.drain_events()})
             except Exception:
                 pass
-        weight_sync.close()
+        if weight_sync is not None:
+            weight_sync.close()

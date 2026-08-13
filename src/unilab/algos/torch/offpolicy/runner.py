@@ -149,19 +149,41 @@ class OffPolicyRunner(AsyncRunner):
         trace_cuda_events: bool = True,
         nan_guard_cfg: NanGuardCfg | None = None,
         collector_infer_device: str | None = "cpu",
+        inference_owner: str = "collector",
         torch_thread_runtime: dict[str, Any] | None = None,
     ):
-        self.collector_infer_device_raw = str(collector_infer_device or "cpu")
-        self.collector_infer_device = resolve_torch_device_alias(
-            self.collector_infer_device_raw,
-            default="cpu",
-        )
+        self.inference_owner = str(inference_owner)
+        if self.inference_owner not in {"collector", "learner"}:
+            raise ValueError(
+                "Off-policy inference_owner must be 'collector' or 'learner', "
+                f"got {self.inference_owner!r}"
+            )
+        if self.inference_owner == "learner":
+            if algo_type not in {"sac", "flashsac"}:
+                raise ValueError(
+                    "Learner-owned inference initially supports FastSAC and FlashSAC only"
+                )
+            if not sync_collection or int(env_steps_per_sync) != 1:
+                raise ValueError(
+                    "Learner-owned inference requires synchronized collection with "
+                    "env_steps_per_sync=1"
+                )
+            self.collector_infer_device_raw = "none"
+            self.collector_infer_device = "none"
+            collector_device = "cpu"
+        else:
+            self.collector_infer_device_raw = str(collector_infer_device or "cpu")
+            self.collector_infer_device = resolve_torch_device_alias(
+                self.collector_infer_device_raw,
+                default="cpu",
+            )
+            collector_device = self.collector_infer_device
         super().__init__(
             env_name=env_name,
             env_cfg_overrides={},
             rl_cfg={},
             device=device,
-            collector_device=self.collector_infer_device,
+            collector_device=collector_device,
             num_envs=num_envs,
             sim_backend=sim_backend,
         )
@@ -253,6 +275,8 @@ class OffPolicyRunner(AsyncRunner):
 
             try:
                 updated_reward = False
+                if "runtime_manifest" in metrics:
+                    logger.update_runtime_manifest(metrics["runtime_manifest"])
                 if "mean_ep_reward" in metrics:
                     reward_history.append(metrics["mean_ep_reward"])
                     updated_reward = True

@@ -5,6 +5,7 @@ training:
   # (macOS); it fails fast when no accelerator is available, which matches the
   # off-policy learner device requirement (CUDA or MPS only).
   collector_infer_device: gpu
+  inference_owner: learner
 algo:
   algo: sac
   algo_log_name: fast_sac
