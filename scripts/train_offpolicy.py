@@ -185,6 +185,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
 
     replay_device = require_offpolicy_replay_device(cfg.training.device or get_default_device())
     collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
+    inference_owner = str(getattr(cfg.training, "inference_owner", "collector"))
 
     sync_collection = not bool(cfg.training.no_sync_collection)
 
@@ -324,6 +325,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
             collector_infer_device=collector_infer_device,
+            inference_owner=inference_owner,
             torch_thread_runtime=torch_thread_runtime,
         )
 
@@ -399,6 +401,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             actor_kwargs=_actor_kwargs,
             nan_guard_cfg=_nan_guard_cfg,
             collector_infer_device=collector_infer_device,
+            inference_owner=inference_owner,
             torch_thread_runtime=torch_thread_runtime,
         )
 
@@ -414,6 +417,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             device=replay_device,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            inference_owner=inference_owner,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")

@@ -82,11 +82,17 @@ class _FakeRunner:
 def test_offpolicy_config_has_one_replay_path():
     cfg = _offpolicy_cfg()
     assert cfg.training.replay_prefetch_mode == "one_tick"
+    assert cfg.training.inference_owner == "learner"
     assert "replay_pipeline" not in cfg.training
     assert "verbose_metrics" not in cfg.training
     assert "replay_pack_layout" not in cfg.training
     assert "replay_pack_executor" not in cfg.training
     assert "replay_h2d_submitter" not in cfg.training
+
+
+def test_hora_owner_keeps_collector_inference():
+    cfg = _offpolicy_cfg(["algo=sac", "task=sac/sharpa_inhand/mujoco_hora"])
+    assert cfg.training.inference_owner == "collector"
 
 
 @pytest.mark.parametrize(
@@ -151,6 +157,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert runner.kwargs["algo_type"] == "sac"
     assert runner.kwargs["device"] == "cuda"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
+    assert runner.kwargs["inference_owner"] == "learner"
     assert "replay_pipeline" not in runner.kwargs
     assert "verbose_metrics" not in runner.kwargs
 
@@ -172,6 +179,7 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert runner.kwargs["algo_type"] == "td3"
     assert runner.kwargs["sync_collection"] is False
     assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["inference_owner"] == "collector"
     assert "replay_pipeline" not in runner.kwargs
 
 
@@ -191,6 +199,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     assert runner.kwargs["algo_type"] == "flashsac"
     assert runner.kwargs["device"] == "cuda"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
+    assert runner.kwargs["inference_owner"] == "learner"
     assert "replay_pipeline" not in runner.kwargs
 
 
