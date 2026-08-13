@@ -112,6 +112,47 @@ collector 进程在终端 Collector 列、TensorBoard `timing/collector_*` 上�
 | collector Inference Barrier Wait 高 | collector 在等 learner inference 或 learner update phase | 检查 inference latency，并降低 `updates_per_step` / batch size |
 | collector Replay Write 升高 | 写 bounded ingress 变慢，例如 ingress 槽耗尽、在等设备端 commit 释放槽位 | 与 Replay Batch Wait 同向：device 消费侧落后 |
 
+### 单次迭代时序（以 FastSAC 为例）
+
+下图描述 replay 已达到 `learning_starts` 后的稳态 FastSAC 迭代；默认
+`training.env_steps_per_sync=1`，因此每个 learner 迭代服务一个 inference tick：
+
+```{mermaid}
+sequenceDiagram
+    autonumber
+    participant C as Collector（CPU / NumPy Env）
+    participant I as Inference Slot + Queues
+    participant L as Learner（GPU）
+    participant R as Device Replay
+
+    Note over C,R: tick t：learner 使用当前完整 policy_version
+    C->>I: 发布 obs_t、dones_(t-1) 与 inference request
+    I-->>L: Observation H2D
+    L->>L: learner.actor.explore()
+    L->>I: Action D2H + policy_version
+    L->>R: 等待并取得预取的 hot batch
+    R-->>L: iteration k 的 device batch
+    L->>I: 发布 inference response(t)
+
+    par Collector 采集 transition_t
+        I-->>C: 消费 action_t
+        C->>C: env.step / reset / postprocess
+        C->>R: 写入 bounded replay ingress
+    and Learner 固定更新阶段
+        L->>L: updates_per_step 次 critic / actor / target 更新
+        L->>L: 完成后 policy_version += 1
+    end
+
+    Note over C,L: 两侧都完成后才服务 tick t+1；inference 与 learner update 不重叠
+```
+
+`Observation H2D`、`learner.actor.explore()` 和 `Action D2H` 分别对应
+`Inference H2D`、`Inference Forward` 和 `Inference D2H`。learner 发布 response 后，
+collector 的 `Env Step` / `Replay Write` 与 learner 的 `Train` 并行；本 tick 写入的
+`transition_t` 进入 replay 供后续采样，并不要求被 iteration k 立即消费。若 collector
+先完成，它可以提交 tick t+1 的 request，但 learner 会等当前更新阶段结束后才处理，
+所以 `Inference Barrier Wait` 同时可能包含 learner inference 和剩余 update 时间。
+
 APPO 沿用 ring buffer，collector 上报两个**单步** EMA 和一个**整条 rollout** 的总时间：
 
 | 终端字段 | TensorBoard / W&B key | 含义 |
