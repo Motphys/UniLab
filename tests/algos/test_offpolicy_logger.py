@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from rich.console import Console
 
 import unilab.logging.common as common_logger_module
@@ -87,26 +88,26 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
         env_name="Dummy",
         log_backend="none",
     )
-    logger.set_collector_infer_device("cpu")
     logger.update_collector_timing(
         {
-            "weight_apply_ms": 0.1,
-            "policy_infer_ms": 0.2,
+            "inference_request_ms": 0.1,
+            "learner_action_wait_ms": 0.2,
             "env_step_ms": 14.0,
             "env_step_backend_ms": 12.5,
             "env_step_update_state_ms": 1.0,
             "env_step_reset_done_ms": 0.5,
             "replay_write_ms": 0.3,
+            "bookkeeping_ms": 0.0,
         }
     )
 
     table = logger._build_timing_table()
-    collector_cells = list(table.columns[2].cells)
-    collector_value_cells = list(table.columns[3].cells)
+    collector_cells = list(table.columns[2].cells)[:7]
+    collector_value_cells = list(table.columns[3].cells)[:7]
 
     assert collector_cells == [
-        "Weight Apply",
-        "Policy Infer(cpu)",
+        "Inference Request",
+        "Learner Action Wait",
         "Env Step",
         "[dim]  Backend Step[/]",
         "[dim]  Update State[/]",
@@ -134,6 +135,165 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
     ]
     assert len(connector_columns) == 3
     assert len(set(connector_columns)) == 1
+
+
+def test_offpolicy_logger_normalizes_pre_contract_collector_timing_names() -> None:
+    logger = OffPolicyLogger(log_backend="none")
+
+    logger.update_collector_timing(
+        {
+            "inference_wait_ms": 2.0,
+            "learner_action_wait_ms": 4.0,
+            "sync_idle_ms": 3.0,
+        }
+    )
+
+    assert logger._collector_timing == {
+        "learner_action_wait_ms": 4.0,
+        "bookkeeping_ms": 3.0,
+    }
+
+
+def test_offpolicy_logger_waits_for_complete_collector_cycle_before_percentages() -> None:
+    logger = OffPolicyLogger(log_backend="none")
+    logger.update_collector_timing({"replay_write_ms": 2.5})
+
+    assert logger._get_collector_cycle_ms() is None
+    assert "%" not in list(logger._build_timing_table().columns[3].cells)[0]
+
+
+def test_offpolicy_logger_rejects_unknown_timing_profile() -> None:
+    with pytest.raises(ValueError, match="timing_profile"):
+        OffPolicyLogger(log_backend="none", timing_profile="unknown")
+
+
+def test_offpolicy_logger_shows_complete_additive_learner_timeline() -> None:
+    logger = OffPolicyLogger(
+        algo_name="FastSAC",
+        max_iterations=2,
+        num_envs=8,
+        env_name="Dummy",
+        log_backend="none",
+    )
+    logger.log_step(
+        iteration=1,
+        collector_wait_time=0.10,
+        inference_time=0.20,
+        sync_coordination_time=0.03,
+        replay_batch_wait_time=0.04,
+        learner_replay_stage_time=0.07,
+        learner_replay_sample_time=0.05,
+        train_time=0.50,
+        weight_sync_time=0.06,
+        replay_ingress_h2d_submit_time=0.40,
+        iteration_time=1.0,
+    )
+
+    table = logger._build_timing_table()
+
+    assert table.columns[0].header == "Learner (Iter Wall)"
+    assert list(table.columns[0].cells)[:8] == [
+        "Collector Wait",
+        "Inference",
+        "Collector Release",
+        "Replay Batch Wait",
+        "Replay Sample",
+        "Train",
+        "Other",
+        "Iter Wall",
+    ]
+    assert list(table.columns[1].cells)[:8] == [
+        "[red]  100.0ms   10%[/]",
+        "  200.0ms   20%",
+        "   30.0ms    3%",
+        "   40.0ms    4%",
+        "   50.0ms    5%",
+        "[green]  500.0ms   50%[/]",
+        "   80.0ms    8%",
+        " 1000.0ms  100%",
+    ]
+    assert logger._get_learner_accounted_time() == pytest.approx(0.92)
+    assert logger._get_learner_other_time() == pytest.approx(0.08)
+
+
+def test_offpolicy_logger_does_not_fold_parallel_h2d_into_accounted_time() -> None:
+    logger = OffPolicyLogger(
+        algo_name="FlashSAC",
+        max_iterations=2,
+        num_envs=8,
+        env_name="Dummy",
+        log_backend="none",
+    )
+    logger.log_step(
+        iteration=1,
+        collector_wait_time=0.05,
+        inference_time=0.10,
+        replay_batch_wait_time=0.05,
+        train_time=0.70,
+        replay_ingress_h2d_submit_time=0.50,
+        iteration_time=1.0,
+    )
+
+    assert logger._get_learner_accounted_time() == pytest.approx(0.90)
+    assert logger._get_iter_pct(logger._get_learner_accounted_time()) == pytest.approx(90.0)
+    assert "Replay H2D Submit" not in list(logger._build_timing_table().columns[0].cells)
+
+
+def test_offpolicy_logger_appo_profile_only_shows_applicable_learner_phases() -> None:
+    logger = OffPolicyLogger(log_backend="none", timing_profile="appo")
+    logger.log_step(
+        iteration=1,
+        collector_wait_time=0.10,
+        inference_time=0.20,
+        sync_coordination_time=0.03,
+        replay_batch_wait_time=0.04,
+        learner_replay_stage_time=0.05,
+        learner_replay_sample_time=0.06,
+        train_time=0.50,
+        weight_sync_time=0.07,
+        replay_ingress_h2d_submit_time=0.40,
+        iteration_time=1.0,
+    )
+
+    table = logger._build_timing_table()
+
+    assert list(table.columns[0].cells)[:7] == [
+        "Collector Wait",
+        "Replay Stage",
+        "Replay Sample",
+        "Train",
+        "Weight Publish",
+        "Other",
+        "Iter Wall",
+    ]
+    assert logger._get_learner_accounted_time() == pytest.approx(0.78)
+    assert logger._get_learner_other_time() == pytest.approx(0.22)
+
+
+def test_offpolicy_logger_rollout_collector_uses_milliseconds_without_cycle_total() -> None:
+    logger = OffPolicyLogger(log_backend="none", timing_profile="appo")
+    logger._unicode_console = False
+    logger.update_collector_timing(
+        {
+            "mlp_infer_ms": 1.5,
+            "env_step_ms": 2.5,
+            "env_step_backend_ms": 2.0,
+            "rollout_ms": 40.0,
+        }
+    )
+
+    table = logger._build_timing_table()
+    collector_values = list(table.columns[3].cells)[:4]
+
+    assert table.columns[2].header == "Collector (own clock)"
+    assert collector_values == [
+        "1.5ms",
+        "2.5ms",
+        "[dim cyan]    2.0ms -'[/]",
+        "40.0ms",
+    ]
+    assert all("%" not in value for value in collector_values)
+    assert logger._get_collector_cycle_ms() is None
 
 
 def test_offpolicy_reward_component_names_stay_on_one_line_at_narrow_width() -> None:

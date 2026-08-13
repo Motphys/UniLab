@@ -6,7 +6,6 @@ defaults:
 training:
   task_name: G1WalkFlat
   device: null
-  collector_infer_device: cpu
   logger: tensorboard
   wandb_project: unilab
   wandb_entity: null
@@ -35,7 +34,6 @@ training:
   cam_azimuth: 90.0
   log_root: null
   log_dir: null
-  no_sync_collection: false
   env_steps_per_sync: 1
   trace_enabled: false
   trace_output_dir: null

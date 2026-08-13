@@ -281,6 +281,7 @@ class MuJoCoBackend(SimBackend):
         post_step_forward_sensor: bool = False,
         chunk_size: Optional[int] = None,
         adaptive_chunk_size: bool = False,
+        cpu_ids: Optional[Sequence[int]] = None,
         bench_nsteps: int = 1,
     ):
         scene_context = _build_mujoco_scene_context(scene)
@@ -299,6 +300,7 @@ class MuJoCoBackend(SimBackend):
         self._post_step_forward_sensor = bool(post_step_forward_sensor)
         self._manual_chunk_size = None if chunk_size is None else int(chunk_size)
         self._adaptive_chunk_size = bool(adaptive_chunk_size)
+        self._cpu_ids = self._validate_cpu_ids(cpu_ids)
         self._bench_nsteps = max(1, int(bench_nsteps))
         self._chunk_size: int | None = None
         self._position_actuator_gains = (
@@ -320,8 +322,11 @@ class MuJoCoBackend(SimBackend):
         self.backend_type = "mujoco"
         self._pending_xfrc_applied = np.zeros((num_envs, 6 * self._model.nbody), dtype=np.float64)
 
-        # Thread configuration.
-        self._n_threads = min(num_envs, cpu_count() * 2)
+        # Thread configuration. An explicit ``cpu_ids`` affinity pins one worker
+        # per CPU, so it also fixes the pool worker count.
+        self._n_threads = (
+            min(num_envs, cpu_count() * 2) if self._cpu_ids is None else len(self._cpu_ids)
+        )
 
         self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
         self._model_assignments = np.zeros((num_envs,), dtype=np.int32)
@@ -572,12 +577,37 @@ class MuJoCoBackend(SimBackend):
             return self._model_variants[0]
         return [self._model_variants[int(idx)] for idx in self._model_assignments]
 
+    @staticmethod
+    def _validate_cpu_ids(cpu_ids: Optional[Sequence[int]]) -> tuple[int, ...] | None:
+        """Cold-path structural validation for the optional worker CPU affinity.
+
+        ``cpu_ids[i]`` pins pool worker thread ``i`` to one CPU, so its length
+        also fixes ``nthread``. Platform/availability checks happen in the
+        mujoco-uni runtime when the pool is created.
+        """
+        if cpu_ids is None:
+            return None
+        if isinstance(cpu_ids, (str, bytes)):
+            raise TypeError("cpu_ids must be a sequence of integer CPU ids")
+        entries = list(cpu_ids)
+        if not entries:
+            raise ValueError("cpu_ids must be non-empty")
+        for cpu_id in entries:
+            if isinstance(cpu_id, bool) or not isinstance(cpu_id, int) or cpu_id < 0:
+                raise ValueError(f"cpu_ids entries must be non-negative integers, got {cpu_id!r}")
+        ids = tuple(entries)
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"cpu_ids entries must be unique, got {list(ids)!r}")
+        return ids
+
     def _build_pool(self) -> BatchEnvPool:
-        pool = BatchEnvPool(
-            self._current_model_sequence(),
-            nbatch=self._num_envs,
-            nthread=self._n_threads,
-        )
+        pool_kwargs: dict[str, Any] = {
+            "nbatch": self._num_envs,
+            "nthread": self._n_threads,
+        }
+        if self._cpu_ids is not None:
+            pool_kwargs["cpu_ids"] = list(self._cpu_ids)
+        pool = BatchEnvPool(self._current_model_sequence(), **pool_kwargs)
         sensor_init = pool.forward(self._physics_state)
         self._sensor_data[:] = sensor_init.astype(self._np_dtype)
         return pool

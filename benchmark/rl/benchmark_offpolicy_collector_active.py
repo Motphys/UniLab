@@ -2,9 +2,9 @@
 """Benchmark off-policy collector active-window throughput.
 
 This benchmark measures the collector-side hot loop without learner waiting.
-It uses the same Hydra owner configs, registry-created envs, off-policy actor
-factory, action sampling helpers, terminal-observation contract, and ReplayBuffer
-write path used by the training collector.
+It uses the same Hydra owner configs, registry-created envs, terminal-observation
+contract, and ReplayBuffer write path used by the training collector. Actions are
+pre-generated because policy inference is learner-owned.
 
 Usage:
     uv run benchmark/rl/benchmark_offpolicy_collector_active.py
@@ -40,7 +40,7 @@ import numpy as np
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
@@ -69,8 +69,6 @@ BACKEND_ALIASES = {
     "motrixsim": "motrix",
 }
 COLLECTOR_PHASES = (
-    "weight_sync_ms",
-    "action_select_ms",
     "env_step_ms",
     "replay_ms",
     "bookkeeping_ms",
@@ -190,15 +188,12 @@ class CollectorCase:
     runtime_sim_backend: str
     command: str
     training_task_name: str
-    collector_algo_type: str
     num_envs: int
     replay_capacity_rows: int
     replay_capacity_steps: int
     obs_dim: int
     critic_dim: int
     action_dim: int
-    actor_hidden_dim: int
-    use_layer_norm: bool
     env_steps_per_sync: int
 
 
@@ -468,52 +463,6 @@ def _resolve_case_specs(
     return specs
 
 
-def _resolve_actor_spec(
-    algo: str,
-    cfg: DictConfig,
-    *,
-    obs_dim: int,
-    critic_dim: int,
-) -> tuple[str, dict[str, Any], bool]:
-    if algo == "sac":
-        from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
-
-        rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
-        custom_runtime = resolve_custom_offpolicy_runtime(rl_cfg)
-        if custom_runtime is None:
-            return "sac", {}, bool(cfg.algo.use_layer_norm)
-        algo_type = str(custom_runtime.algo_type or "sac")
-        return (
-            algo_type,
-            custom_runtime.build_model_kwargs(obs_dim=obs_dim, critic_obs_dim=critic_dim),
-            bool(cfg.algo.use_layer_norm),
-        )
-
-    if algo == "flashsac":
-        return (
-            "flashsac",
-            {
-                "actor_num_blocks": int(cfg.algo.algo_params.actor_num_blocks),
-                "actor_noise_zeta_mu": float(cfg.algo.algo_params.actor_noise_zeta_mu),
-                "actor_noise_zeta_max": int(cfg.algo.algo_params.actor_noise_zeta_max),
-            },
-            False,
-        )
-
-    if algo == "td3":
-        return (
-            "td3",
-            {
-                "init_scale": float(cfg.algo.algo_params.init_scale),
-                "log_std_min": float(cfg.algo.algo_params.log_std_min),
-                "log_std_max": float(cfg.algo.algo_params.log_std_max),
-            },
-            False,
-        )
-
-    raise ValueError(f"Unsupported algo={algo!r}")
-
-
 def _build_case(
     cfg: DictConfig,
     *,
@@ -522,8 +471,6 @@ def _build_case(
     sim: str,
     variant: str,
     replay_capacity_steps: int,
-    actor_algo_type: str,
-    use_layer_norm: bool,
     obs_dim: int,
     critic_dim: int,
     action_dim: int,
@@ -538,26 +485,21 @@ def _build_case(
         runtime_sim_backend=str(cfg.training.sim_backend),
         command=f"uv run train --algo {algo} --task {task} --sim {cfg.training.sim_backend}",
         training_task_name=str(cfg.training.task_name),
-        collector_algo_type=actor_algo_type,
         num_envs=num_envs,
         replay_capacity_rows=num_envs * capacity_steps,
         replay_capacity_steps=capacity_steps,
         obs_dim=int(obs_dim),
         critic_dim=int(critic_dim),
         action_dim=int(action_dim),
-        actor_hidden_dim=int(cfg.algo.actor_hidden_dim),
-        use_layer_norm=use_layer_norm,
         env_steps_per_sync=int(cfg.training.env_steps_per_sync),
     )
 
 
-def _make_env_and_actor(
+def _make_env(
     cfg: DictConfig,
     *,
-    algo: str,
     env_cfg_override: dict[str, Any] | None,
 ):
-    from unilab.algos.torch.common.actor_factory import build_actor
     from unilab.base.observations import get_obs_dims
     from unilab.training import create_env
 
@@ -570,49 +512,17 @@ def _make_env_and_actor(
         env.close()
         raise ValueError("env.action_space.shape must be defined")
     action_dim = int(action_shape[0])
-    actor_algo_type, actor_kwargs, use_layer_norm = _resolve_actor_spec(
-        algo,
-        cfg,
-        obs_dim=int(obs_dim),
-        critic_dim=int(critic_dim),
-    )
-    actor = build_actor(
-        actor_algo_type,
-        int(obs_dim),
-        action_dim,
-        int(cfg.algo.actor_hidden_dim),
-        use_layer_norm,
-        "cpu",
-        int(cfg.algo.num_envs),
-        **actor_kwargs,
-    )
-    actor.eval()
-    return (
-        env,
-        actor,
-        actor_algo_type,
-        actor_kwargs,
-        use_layer_norm,
-        int(obs_dim),
-        int(critic_dim),
-        action_dim,
-    )
+    return env, int(obs_dim), int(critic_dim), action_dim
 
 
 def _run_active_window_case(
     case: CollectorCase,
     *,
-    cfg: DictConfig,
     env,
-    actor,
     warmup_steps: int,
     measure_steps: int,
     profile_numpy_random: bool = False,
 ) -> CollectorResult:
-    from unilab.algos.torch.offpolicy.worker import (
-        resolve_offpolicy_actor_priv_info,
-        sample_offpolicy_actions,
-    )
     from unilab.base.final_observation import resolve_terminal_observation_contract
     from unilab.base.observations import split_obs_dict
     from unilab.ipc.replay_buffer import ReplayBuffer
@@ -631,8 +541,6 @@ def _run_active_window_case(
     obs_np, critic_np = split_obs_dict(state.obs)
     obs_np = np.asarray(obs_np, dtype=np.float32)
     critic_np = np.asarray(critic_np, dtype=np.float32)
-    info_dict = state.info
-    prev_dones_np = np.zeros(case.num_envs, dtype=np.float32)
     current_ep_rewards = np.zeros(case.num_envs, dtype=np.float32)
     current_ep_lengths = np.zeros(case.num_envs, dtype=np.int32)
     ep_rewards: list[float] = []
@@ -668,35 +576,6 @@ def _run_active_window_case(
             record = step_idx >= warmup_steps
             if record and cpu_probe_start is None:
                 cpu_probe_start = _read_cpu_times()  # begin measured-window CPU sampling
-
-            phase_start_ns = time.perf_counter_ns()
-            # No learner exists in this benchmark, so weight sync is intentionally a
-            # zero-work phase. Keeping it explicit preserves the training collector's
-            # phase schema.
-            weight_sync_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
-
-            phase_start_ns = time.perf_counter_ns()
-            with torch.no_grad():
-                obs_torch = torch.from_numpy(obs_np)
-                dones_torch = torch.from_numpy(prev_dones_np)
-                priv_info_np = resolve_offpolicy_actor_priv_info(
-                    algo_type=case.collector_algo_type,
-                    obs_np=obs_np,
-                    critic_np=critic_np,
-                    info=info_dict,
-                )
-                priv_info_torch = (
-                    torch.from_numpy(priv_info_np) if priv_info_np is not None else None
-                )
-                actions_torch = sample_offpolicy_actions(
-                    actor=actor,
-                    algo_type=case.collector_algo_type,
-                    obs_torch=obs_torch,
-                    prev_dones_torch=dones_torch,
-                    priv_info_torch=priv_info_torch,
-                )
-                actions_np = actions_torch.numpy()
-            action_select_ms = (time.perf_counter_ns() - phase_start_ns) / 1e6
 
             phase_start_ns = time.perf_counter_ns()
             if random_profiler is not None and record:
@@ -795,13 +674,9 @@ def _run_active_window_case(
 
             obs_np = next_obs_np
             critic_np = next_critic_np
-            info_dict = state.info
-            prev_dones_np = combined_dones
 
             if record:
                 phase_values = {
-                    "weight_sync_ms": weight_sync_ms,
-                    "action_select_ms": action_select_ms,
                     "env_step_ms": env_step_ms,
                     "replay_ms": replay_ms,
                     "bookkeeping_ms": bookkeeping_ms,
@@ -891,9 +766,7 @@ def _build_and_run_case(
         extra_overrides=extra_overrides,
     )
     ensure_registries()
-    # Mirror the real collector subprocess: cap torch CPU threads so this
-    # in-process replica measures the same action_select/replay cost the
-    # training collector sees.
+    # Mirror the real collector subprocess CPU budget for env/replay work.
     _configure_collector_cpu_threads()
     apply_training_seed(int(cfg.algo.seed), torch_runtime=True, cuda=True)
     env_cfg_override = BackendAdapter(
@@ -904,16 +777,10 @@ def _build_and_run_case(
 
     env = None
     try:
-        (
-            env,
-            actor,
-            actor_algo_type,
-            _actor_kwargs,
-            use_layer_norm,
-            obs_dim,
-            critic_dim,
-            action_dim,
-        ) = _make_env_and_actor(cfg, algo=algo, env_cfg_override=env_cfg_override)
+        env, obs_dim, critic_dim, action_dim = _make_env(
+            cfg,
+            env_cfg_override=env_cfg_override,
+        )
         case = _build_case(
             cfg,
             algo=algo,
@@ -921,17 +788,13 @@ def _build_and_run_case(
             sim=sim,
             variant=variant,
             replay_capacity_steps=replay_capacity_steps,
-            actor_algo_type=actor_algo_type,
-            use_layer_norm=use_layer_norm,
             obs_dim=obs_dim,
             critic_dim=critic_dim,
             action_dim=action_dim,
         )
         return _run_active_window_case(
             case,
-            cfg=cfg,
             env=env,
-            actor=actor,
             warmup_steps=warmup_steps,
             measure_steps=measure_steps,
             profile_numpy_random=profile_numpy_random,
@@ -969,16 +832,13 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "variant",
         "runtime_sim_backend",
         "training_task_name",
-        "collector_algo_type",
         "num_envs",
         "warmup_steps",
         "measure_steps",
         "collector_active_steps_per_sec",
         "total_active_ms",
-        "action_select_ms",
         "env_step_ms",
         "replay_ms",
-        "weight_sync_ms",
         "bookkeeping_ms",
         "numpy_random_ms",
         "numpy_random_calls",
@@ -986,10 +846,8 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "env_step_overhead_ms",
         "reset_done_count",
         *(field_name for _, field_name in NP_ENV_STEP_TIMING_CSV_FIELDS),
-        "action_select_pct",
         "env_step_pct",
         "replay_pct",
-        "weight_sync_pct",
         "bookkeeping_pct",
         "physics_pct",
         "env_step_overhead_pct",
@@ -1007,7 +865,6 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                 "variant": result.case.variant,
                 "runtime_sim_backend": result.case.runtime_sim_backend,
                 "training_task_name": result.case.training_task_name,
-                "collector_algo_type": result.case.collector_algo_type,
                 "num_envs": result.case.num_envs,
                 "warmup_steps": result.warmup_steps,
                 "measure_steps": result.measure_steps,
@@ -1307,8 +1164,6 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
         "num_env",
         "Throughput env/s",
         "Total active ms",
-        "Weight sync ms (% active)",
-        "Action select ms (%)",
         "Env step ms (%)",
         "CPU %",
         "Replay ms (%)",
@@ -1334,10 +1189,6 @@ def _format_throughput_table(results: list[CollectorResult]) -> str:
                 f"{result.case.num_envs:,}",
                 f"{result.collector_active_steps_per_sec:,.0f}",
                 f"{result.total_active_ms / result.measure_steps:.3f} (100.0%)",
-                _format_ms_pct(phase_means["weight_sync_ms"], _phase_pct(result, "weight_sync_ms")),
-                _format_ms_pct(
-                    phase_means["action_select_ms"], _phase_pct(result, "action_select_ms")
-                ),
                 _format_ms_pct(phase_means["env_step_ms"], _phase_pct(result, "env_step_ms")),
                 cpu_str,
                 _format_ms_pct(phase_means["replay_ms"], _phase_pct(result, "replay_ms")),
@@ -1821,7 +1672,7 @@ def main() -> int:
         "benchmark": "offpolicy_collector_active",
         "definition": (
             "active collect window excludes learner-wait time and measures the "
-            "collector hot loop: action selection, env.step including reward computation, "
+            "collector hot loop with pre-generated actions: env.step including reward computation, "
             "terminal-contract handling, replay writes, and collector-side bookkeeping."
         ),
         "device": hardware_info,

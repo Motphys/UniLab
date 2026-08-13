@@ -20,7 +20,7 @@ class HoraSACRuntime(OffPolicyRuntime):
     actor_cfg: dict[str, Any] = field(default_factory=dict)
 
     def build_model_kwargs(self, *, obs_dim: int, critic_obs_dim: int) -> dict[str, Any]:
-        """Build shared learner/collector actor kwargs for the HORA-SAC actor."""
+        """Build HORA learner actor kwargs from privileged observation dimensions."""
         priv_info_dim = int(critic_obs_dim - obs_dim)
         if priv_info_dim <= 0:
             raise ValueError(

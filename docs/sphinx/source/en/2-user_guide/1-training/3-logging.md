@@ -1,24 +1,26 @@
 # Logging
 
-Training configs default to TensorBoard with `training.logger=tensorboard`.
-Set `training.logger=wandb` to enable Weights & Biases integration.
+The terminal panel and TensorBoard / W&B are not separate logging systems. An
+algorithm runner submits each metric once to the same training logger. The terminal
+is a live view of the latest values; `training.logger=tensorboard` (the default) or
+`training.logger=wandb` selects the persistent backend for the same canonical keys.
 
-## TensorBoard
+This page first covers the log directory shared by all algorithms, then documents the
+off-policy terminal used by SAC / TD3 / FlashSAC and APPO. Every terminal field in the
+tables maps directly to one backend key; an `_ms` suffix always means milliseconds.
 
-Run any training command with the default logger:
+## Log Directory and Backend
+
+Run training with the default TensorBoard backend:
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 ```
 
-Run directories are created under `logs/<algo.algo_log_name>/<task>/` unless
-`training.log_root` or `training.log_dir` is overridden by the selected stack.
+Run directories default to `logs/<algo.algo_log_name>/<task>/` unless the selected
+stack overrides `training.log_root` or `training.log_dir`:
 
-### Log Roots Per Algorithm
-
-`algo_log_name` is set by each stack's config and resolves to a concrete root:
-
-| Algorithm | Log Root | `algo_log_name` Source |
+| Algorithm | Log root | `algo_log_name` source |
 | --- | --- | --- |
 | PPO | `logs/rsl_rl_ppo/<task>/` | `conf/ppo/config.yaml` |
 | APPO | `logs/appo/<task>/` | `conf/appo/config.yaml` |
@@ -26,24 +28,11 @@ Run directories are created under `logs/<algo.algo_log_name>/<task>/` unless
 | FlashSAC | `logs/flash_sac/<task>/` | `conf/offpolicy/algo/flashsac.yaml` |
 | TD3 | `logs/fast_td3/<task>/` | `conf/offpolicy/algo/td3.yaml` |
 
-### Run Directory Naming
+A run directory is named `YYYY-MM-DD_HH-MM-SS_<sim_backend>`, for example
+`2026-03-09_18-30-00_mujoco`. Common artifacts include `run_config.json`,
+`run_summary.json`, checkpoints, and `play_video.mp4` when that run produced one.
 
-A single run directory is named with a UTC-local timestamp plus the simulation
-backend:
-
-```text
-YYYY-MM-DD_HH-MM-SS_<sim_backend>
-```
-
-For example, `2026-03-09_18-30-00_mujoco`. Common local artifacts written into a
-run directory are:
-
-- `run_config.json`
-- `run_summary.json`
-- checkpoint files
-- `play_video.mp4` (MuJoCo, when that run produced a playback video)
-
-## Weights & Biases
+Enable W&B with:
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
@@ -51,131 +40,232 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   training.wandb_project=unilab
 ```
 
-Supported shared W&B fields are declared in the training config blocks:
+Shared fields include `training.wandb_project`, `training.wandb_entity`,
+`training.wandb_group`, `training.wandb_name`, `training.wandb_tags`,
+`training.wandb_notes`, and `training.wandb_mode`. `ExperimentTracker` writes
+`run_config.json` and `run_summary.json`; RSL-RL PPO also connects its writer in W&B
+mode. A MuJoCo `play_video.mp4` is uploaded when the run produces one.
 
-- `training.wandb_project`
-- `training.wandb_entity`
-- `training.wandb_group`
-- `training.wandb_name`
-- `training.wandb_tags`
-- `training.wandb_notes`
-- `training.wandb_mode`
+## Off-policy Terminal
 
-`src/unilab/training/experiment.py` writes `run_config.json` and
-`run_summary.json` in the run directory. RSL-RL PPO also patches the RSL-RL W&B
-writer when `training.logger=wandb`. When the backend is MuJoCo and a run
-produces `play_video.mp4`, that video is uploaded to the W&B run.
+The bottom of the terminal has three columns:
 
-## Trace Options
+- `Learner (Iter Wall)` is one learner-main-thread iteration; every percentage uses
+  `Iter Wall` as its denominator.
+- `Collector (own clock)` is measured in the collector subprocess and runs in
+  parallel with the learner.
+- `System` contains non-timing state such as buffer, batch, and done rates.
 
-The off-policy config exposes trace fields such as
-`training.trace_enabled`, `training.trace_output_dir`,
-`training.trace_thread_time`, and `training.trace_cuda_events`.
+Do not add times across the learner and collector columns. Only the learner rows from
+`Collector Wait` through `Other` are mutually exclusive main-thread phases. The
+implementation fills unnamed intervals with `Other = max(Iter Wall - accounted, 0)`.
+Normally the rows sum to `Iter Wall`, so their displayed percentages sum to about
+100% (per-row rounding can introduce a small difference). The terminal no longer
+hides applicable phases below a 1% threshold: a zero row is kept so it can be matched
+directly with TensorBoard / W&B. Algorithm-specific phases neither occupy terminal
+rows nor get persisted for other algorithms; for example, `Replay Stage` and
+`Weight Publish` exist only for APPO / HORA-APPO.
 
-## Off-Policy Timing Fields
+### Learner Main Timeline
 
-For off-policy (SAC / TD3 / FlashSAC and APPO) the learner loop is reported as
-named wall-clock phases, so `Train` can be read as a share of the full iteration
-instead of being compared only against wait metrics.
+| Terminal field | TensorBoard / W&B key | Path | Meaning |
+| --- | --- | --- | --- |
+| Collector Wait | `timing/learner_collector_wait_ms` | All | Learner-main-thread wait to reach this iteration's update boundary; SAC-like paths serve inference requests and continue until replay is ready and the `env_steps_per_sync` tick count is met, while APPO waits for a rollout in the ring |
+| Inference | `timing/learner_inference_ms` | Learner-owned inference | Total wall time for observation H2D, actor forward, and action D2H; nested details are listed below |
+| Collector Release | `timing/learner_collector_release_ms` | Learner-owned inference | Publishing the action response token; normally short, while blocking means the response queue has not drained |
+| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Device replay | Waiting for the prefetched device batch to finish ingress commit and gather; near zero on a prefetch hit |
+| Replay Stage | `timing/learner_replay_stage_ms` | APPO | Sequentially materializing newly arrived NumPy rollouts from the ring into the learner staging pool; this is an exclusive learner-main-thread phase |
+| Replay Sample | `timing/learner_replay_sample_ms` | All | Acquiring the ready batch; usually hot/cold swap plus views on CUDA, with possible slot-event waiting on MPS |
+| Train | `timing/learner_train_ms` | All | Learner update-phase wall time |
+| Weight Publish | `timing/learner_weight_publish_ms` | APPO | Writing fresh actor / critic weights to shared memory |
+| Other | `timing/learner_other_ms` | All | Residual after subtracting the phases above from `Iter Wall`, including metrics drain, reward stats, and loop bookkeeping |
+| Iter Wall | `perf/iter_ms` | All | Wall time from learner-loop iteration start through update completion; always shown as 100% |
+
+Backends also record `perf/learner_train_pct`, `perf/learner_accounted_pct`, and
+`perf/learner_other_pct`. Accounted time contains only the mutually exclusive
+main-thread phases above, never nested or background work. Normally
+`accounted + other = 100%`. If a clock anomaly or a future overlapping timer makes
+`accounted > Iter Wall`, `Other` is clamped to zero and `accounted_pct > 100%` is a
+contract violation to fix, not an interpretable parallel-work percentage.
+
+### Learner Nested and Background Diagnostics
+
+The following keys are persistent-backend diagnostics, not additional `Iter Wall`
+slices:
+
+| TensorBoard / W&B key | Parent or execution thread | Meaning |
+| --- | --- | --- |
+| `timing/learner_inference_h2d_ms` | Child of `Inference` | Observation copy from the shared CPU slot to the learner device |
+| `timing/learner_inference_forward_ms` | Child of `Inference` | `learner.actor` inference, including the current device synchronization |
+| `timing/learner_inference_d2h_ms` | Child of `Inference` | Action copy into the shared CPU slot |
+| `timing/replay_ingress_h2d_submit_ms` | Replay ingress; CUDA daemon or MPS learner thread | CPU-side duration of the latest transition-span submission into the authoritative device ring; it can occur inside any main phase and must not be added to learner percentages |
+
+The three inference details should approximately compose `Inference`; small gaps come
+from Python work between timers. `Replay H2D Submit` overlaps the learner timeline:
+CUDA submits non-blocking copies from the `replay_gpu_resident_sync` daemon, while MPS
+advances them from existing learner calls. Use a trace for the real asynchronous GPU
+copy / gather interval instead of treating submit wall time as extra iteration share.
+
+### Tags in Existing Runs
+
+Historical TensorBoard event files are not rewritten. New runs use the canonical
+tags below, while an existing run continues to show its old names:
+
+| Old tag | New tag | Reason |
+| --- | --- | --- |
+| `timing/inference_total_ms` | `timing/learner_inference_ms` | Match terminal `Inference` and identify the owner |
+| `timing/inference_{h2d,forward,d2h}_ms` | `timing/learner_inference_{h2d,forward,d2h}_ms` | Put all three nested items in the learner namespace |
+| `timing/learner_incremental_h2d_ms` (SAC-like) | `timing/replay_ingress_h2d_submit_ms` | Identify a potentially parallel submit diagnostic rather than a learner main phase |
+| `timing/learner_incremental_h2d_ms` (APPO) | `timing/learner_replay_stage_ms` | Identify synchronous staging that is part of `Iter Wall` |
+| `timing/collector_inference_wait_ms` | `timing/collector_learner_action_wait_ms` | The wait can include the remaining learner update, not only inference latency |
+| `timing/collector_sync_idle_ms` | `timing/collector_bookkeeping_ms` | The measured work is episode / metrics bookkeeping, not synchronization idle time |
+
+`perf/learner_pipeline_ms` was removed because it mixed exclusive main phases with a
+background H2D submission. Use `perf/iter_ms` for the main timeline and reconcile it
+with `perf/learner_accounted_pct` plus `perf/learner_other_pct`.
+
+### Collector Timeline
+
+SAC / TD3 / FlashSAC record five mutually exclusive phases per vectorized env tick.
+Terminal percentages use `perf/collector_cycle_ms`, the sum of these five phases:
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | Waiting for the collector to produce trainable data; in async collection it is ≈0 in steady state (only warm-up buffer fill), in sync collection each iteration waits for one collection chunk |
-| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | Waiting for the device batch prefetched at the end of the previous iteration (ingress commit + side-stream gather); ~0 on a prefetch hit, non-zero means the device replay pipeline is not keeping up with the learner |
-| Replay Sample | `timing/learner_replay_sample_ms` | Consuming the already gathered hot device batch (hot/cold slot swap + view); ≈0 on CUDA, on MPS it includes the slot-event synchronization |
-| Collector Release | `timing/learner_collector_release_ms` | Sync collection only: the learner sending the release token to the collector; blocking here means the collector has not consumed the previous release (collection side is behind); 0 when not in sync collection |
-| H2D Copy | `timing/learner_incremental_h2d_ms` | Submission cost of the incremental bounded-ingress copy into the authoritative device ring (CUDA: non-blocking submit on a daemon thread; MPS: blocking copy on the learner thread); on CUDA this work overlaps Train or already happens inside Collector Wait / Replay Batch Wait, so treat this row as a diagnostic that is not strictly additive with the other learner rows |
-| Train | `timing/learner_train_ms` | Pure SGD compute |
-| Weight Publish | `timing/learner_weight_publish_ms` | Publishing new actor weights to shared memory for the collector (write side of the weight channel) |
-| Iter Wall | `perf/iter_ms` | Whole-iteration wall time, not the sum of the components |
+| Inference Request | `timing/collector_inference_request_ms` | Publish observations / dones to the shared slot and notify the learner |
+| Learner Action Wait | `timing/collector_learner_action_wait_ms` | Barrier wall time from request publication until the learner publishes this tick's action |
+| Env Step | `timing/collector_env_step_ms` | `env.step()` wall time |
+| Replay Write | `timing/collector_replay_write_ms` | Transition post-processing, packing, and bounded-ingress write |
+| Bookkeeping | `timing/collector_bookkeeping_ms` | Episode statistics, metrics reporting, and remaining per-step bookkeeping |
 
-The terminal shows every learner row as right-aligned `ms` plus `% of Iter Wall`.
-Backend logs include `perf/learner_train_pct`, `perf/learner_accounted_pct`,
-`perf/learner_other_pct` and `timing/learner_other_ms`; the latter two are residual
-diagnostics and are not shown as terminal rows. `perf/learner_pipeline_ms` = H2D +
-Train + Weight Publish. The former `timing/learner_wait_ms` was renamed to
-`timing/learner_collector_wait_ms`; the former `timing/learner_sync_coordination_ms`
-and `timing/learner_weight_sync_ms` were renamed to
-`timing/learner_collector_release_ms` and `timing/learner_weight_publish_ms`.
+`Learner Action Wait` is deliberately not named “Inference Wait”: it is not pure
+inference latency. If the collector finishes `Env Step + Replay Write` and submits its
+next request while the learner is still updating, the value includes the remaining
+update, a small scheduling part of the next learner `Collector Wait`, and the next
+`Inference + Collector Release`. A long value therefore agrees with parallel
+execution: it means the collector reached the next barrier before the learner.
 
-The collector process reports per-phase timings in the terminal Collector column and
-TensorBoard `timing/collector_*`; each terminal row also shows the share of one
-collection cycle (the sum of the rows below). SAC / TD3:
+`Collector/s` is active collector throughput, calculated as
+`num_envs / (Inference Request + Env Step + Replay Write)`. It intentionally excludes
+`Learner Action Wait` and `Bookkeeping`. The indented Backend Step / Update State /
+Reset Done rows are nested `Env Step` details. They do not enter the cycle sum, though
+their displayed percentages use the same collector-cycle denominator.
 
-| Terminal field | TensorBoard / W&B key | Meaning |
+APPO has a different collection contract and reports:
+
+| Terminal field | TensorBoard / W&B key | Basis |
 | --- | --- | --- |
-| Weight Apply | `timing/collector_weight_apply_ms` | Checking for and loading newly published learner weights (read side of the same channel as the learner's Weight Publish — not a duplicate) |
-| Policy Infer | `timing/collector_policy_infer_ms` | Actor forward inference (including exploration sampling); the terminal row reads `Policy Infer(<device>)` with the collector inference device |
-| Env Step | `timing/collector_env_step_ms` | Environment step |
-| Replay Write | `timing/collector_replay_write_ms` | Packing transitions and writing them into the bounded replay ingress |
-| Sync Idle | `timing/collector_sync_idle_ms` | Per-step bookkeeping and metrics reporting; in sync collection it is dominated by waiting for the learner release, making it the collector idle indicator; excluded from `Collector/s` |
+| MLP Infer | `timing/collector_mlp_infer_ms` | Per-step policy-inference EMA |
+| Env Step | `timing/collector_env_step_ms` | Single-`env.step()` EMA |
+| Rollout Wall | `timing/collector_rollout_ms` | Whole `steps_per_env` rollout wall-time EMA |
 
-`Collector/s` is collector active throughput. For SAC / TD3 it uses
-`num_envs / (Weight Apply + Policy Infer + Env Step + Replay Write)` and excludes
-`Sync Idle`. The three indented child rows under Env Step (Backend Step / Update
-State / Reset Done) are marked with tree connectors and share the same percentage
-base as the other rows (one collection cycle). The former `timing/collector_weight_sync_ms`,
-`timing/collector_action_select_ms`, `timing/collector_replay_ms`, and
-`timing/collector_sync_coordination_ms` were renamed to
-`timing/collector_weight_apply_ms`, `timing/collector_policy_infer_ms`,
-`timing/collector_replay_write_ms`, and `timing/collector_sync_idle_ms`.
+These are not one percentage breakdown: the first two are per-step EMAs and `Rollout
+Wall` is a whole-rollout total, so the terminal shows milliseconds only.
+`Collector/s = (num_envs * steps_per_env) / Rollout Wall`.
 
-### Reading CPU vs GPU load
+## FastSAC Dual Timeline
 
-The two sides of the pipeline expose matching wait signals; use them to tell which
-side is the bottleneck:
+With the default `training.env_steps_per_sync=1`, this sequence starts at learner
+iteration `k`. Horizontal messages are synchronization points; the `par` branches are
+the actual overlap:
 
-| Observation | Meaning | Where to look |
-| --- | --- | --- |
-| Learner Collector Wait % is high | Learner starved for data: collection (CPU env step + inference) cannot keep up | Scale `num_envs`, cut collector cost, or move collector inference to GPU |
-| Learner Replay Batch Wait is high | The device replay pipeline (ingress commit + gather) is not keeping up with learner consumption | GPU is saturated or the side stream is queued behind training kernels |
-| Collector Sync Idle is high (sync collection) | Collector waits for the learner: GPU training is the bottleneck | Reduce `updates_per_step` / batch size, or disable sync collection |
-| Collector Replay Write grows | Writing into the bounded ingress slows down, e.g. slots exhausted waiting for device commits | Same direction as Replay Batch Wait: the device consumption side is behind |
-| Collector Weight Apply is high | Loading published weights costs too much per step | Weight publish frequency and collector inference device |
+```{mermaid}
+sequenceDiagram
+    autonumber
+    participant C as Collector (CPU / NumPy Env)
+    participant I as Inference Slot + Queue
+    participant L as Learner Main Thread
+    participant D as Device Replay / CUDA Daemon
 
-APPO uses a ring buffer; the collector reports two **per-step** EMAs plus one **whole-rollout** total:
+    Note over C,L: iteration k starts with request(t) already published
+    C->>I: Inference Request(t)
+    I-->>L: Collector Wait ends
+    rect rgb(235, 245, 255)
+        L->>I: Inference: observation H2D
+        L->>L: learner.actor forward
+        L->>I: action D2H
+        L-->>C: Collector Release / response(t)
+    end
 
-| Terminal field | TensorBoard / W&B key | Meaning |
-| --- | --- | --- |
-| MLP Infer | `timing/collector_mlp_infer_ms` | EMA of per-step policy inference (**per step**) |
-| Env Step | `timing/collector_env_step_ms` | EMA of a single `env.step()` (**per step**) |
-| Rollout | `timing/collector_rollout_ms` | EMA of the real wall-clock time to produce **one full rollout** (`steps_per_env` steps); shown last in the column as the total |
+    par Collector tick t
+        C->>C: Env Step(t)
+        C->>D: Replay Write(t)
+        C->>C: Bookkeeping(t)
+        C->>I: Inference Request(t+1)
+        Note over C,I: Learner Action Wait(t+1) starts here
+    and Learner iteration k
+        L->>D: Replay Batch Wait + Replay Sample(k)
+        L->>L: Train(k): fixed updates_per_step
+        Note over D,L: replay-ingress H2D / gather may overlap Train in background
+    end
 
-For APPO, `Collector/s` uses `(num_envs * steps_per_env) / Rollout`.
+    I-->>L: iteration k+1 Collector Wait ends
+    L->>I: Inference(t+1)
+    L-->>C: response(t+1), ending Learner Action Wait
+```
 
-> Rollout ≈ `steps_per_env` × (MLP Infer + Env Step) + untimed per-step overhead (e.g. the timeout-bootstrap critic forward, obs processing). It and the learner's Collector Wait are **two independent-timeline views**: collection overlaps the learner's compute, so Collector Wait (the time the learner is actually blocked) is normally **smaller** than Rollout, and the two are not meant to reconcile exactly. To see "how much of this iteration waits on the collector," read the percentage on the Collector Wait row (= Collector Wait / Iter Wall). The same percentage format is used for every learner row. The former `env_step_total_ms` (`timing/collector_env_step_total_ms`) is renamed to `Env Step` (`timing/collector_env_step_ms`).
+The important relationships are:
 
-### Per-iteration sequence (APPO example)
+- Learner `Inference(t)` is the final part of collector `Learner Action Wait(t)`;
+  they are not expected to have equal duration.
+- `Env Step(t) + Replay Write(t)` overlaps learner replay work and `Train(k)`.
+- The next request may arrive before `Train(k)` finishes, but the learner serves it
+  only after the complete update. `Learner Action Wait(t+1)` can therefore be long
+  while the next learner `Collector Wait` remains near zero.
+- Inference does not overlap learner updates; each tick uses a complete
+  `policy_version`.
 
-The collector continuously produces rollouts through the ring buffer; each learner
-iteration goes through the following timed components (the meaning is in parentheses):
+## APPO Dual Timeline
+
+The APPO collector continuously produces rollouts while the learner consumes complete
+ring-buffer slots:
 
 ```{mermaid}
 gantt
-    title Time inside one learner iteration (APPO)
+    title One APPO learner iteration (schematic scale)
     dateFormat x
     axisFormat %S
 
-    section Collector (proc)
-    rollout N · env interaction (mlp_infer + env_step) ×steps_per_env :active, c0, 0, 12000
-    rollout N+1 (collected in parallel with learner)                  :active, c1, 13000, 30000
+    section Collector (separate process)
+    rollout N+1: MLP Infer + Env Step + other collection work :active, c0, 0, 18000
 
-    section Ring Buffer (4 slots)
-    rollout N ready    :milestone, r0, 12000, 12000
-    rollout N+1 ready  :milestone, r1, 30000, 30000
+    section Ring Buffer
+    rollout N ready   :milestone, r0, 0, 0
+    rollout N+1 ready :milestone, r1, 18000, 18000
 
-    section Learner (GPU)
-    Collector Wait (≈0 when buffer full)  :done,   l0, 12000, 13000
-    H2D Copy (ring → staging)             :        l1, 13000, 16000
-    Train (V-trace + PPO SGD)             :active, l2, 16000, 28000
-    Weight Publish → collector            :crit,   l3, 28000, 30000
+    section Learner (Iter Wall)
+    Collector Wait          :done,   l0, 0, 1000
+    Replay Stage            :        l1, 1000, 3000
+    Replay Sample           :        l2, 3000, 4000
+    Train                   :active, l3, 4000, 16000
+    Weight Publish          :crit,   l4, 16000, 18000
 
-    section Iter Wall
-    perf/iter_ms (learner loop only)      :        l4, 12000, 30000
+    section Learner Total
+    Iter Wall               :        l5, 0, 18000
 ```
 
-> The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Publish marks the end of the iteration when fresh weights are published to the collector.
+Collector rollout and learner `Iter Wall` are independent, overlapping timelines and
+must not be added. `Collector Wait` is near zero when the ring already contains a
+slot. Collector `Rollout Wall` may be greater than, equal to, or less than one learner
+`Iter Wall`, depending on ring backlog and relative throughput.
 
-All off-policy terminal views use the same value formatting. Replay Batch Wait is
-shown only when a single-device/double-buffer prefetch miss is non-zero. Collector
-Release is shown only with synchronous collection.
+`Replay Stage` is the main-thread work that inserts every newly arrived slot into the
+staging pool. `Replay Sample` then combines a training batch from that pool. They are
+adjacent, additive learner phases, not background H2D diagnostics.
+
+## Diagnosing Bottlenecks
+
+| Observation | Direct meaning | Check first |
+| --- | --- | --- |
+| Learner `Collector Wait` is high | The collector's data / request is not ready when the learner reaches iteration start | Env step, transition post-processing, collector liveness, and IPC |
+| Collector `Learner Action Wait` is high while learner `Collector Wait` is low | Collector reaches the next barrier first and waits for update completion plus inference | `Train`, `updates_per_step`, and batch size; then inference details |
+| Learner `Inference` is high | The learner-owned action path itself is slow | H2D / forward / D2H children |
+| Learner `Replay Batch Wait` is high | Device-replay prefetch misses the consumption point | Ingress commit, side-stream gather, and GPU contention |
+| Collector `Replay Write` is high | Bounded-ingress write or transition post-processing slows down | Exhausted ingress slots and delayed device commit |
+| `Replay H2D Submit` is high but main phases are normal | Background submission diagnostic grew; it did not add the same wall time to the iteration | GPU copy, ingress commit, and overlap in Perfetto |
+
+## Trace Options
+
+Off-policy configs expose `training.trace_enabled`, `training.trace_output_dir`,
+`training.trace_thread_time`, and `training.trace_cuda_events`. Scalar logs answer how
+long each iteration took. Use the generated Perfetto timeline to determine whether
+asynchronous H2D, device gather, collector, and learner work actually overlap.

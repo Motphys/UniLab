@@ -21,7 +21,7 @@ class OffPolicyRuntime:
     supports_symmetry: bool = True
 
     def build_model_kwargs(self, *, obs_dim: int, critic_obs_dim: int) -> dict[str, Any]:
-        """Build kwargs shared by learner construction and collector actor construction."""
+        """Build learner model kwargs from the environment observation contract."""
         del obs_dim, critic_obs_dim
         return dict(self.actor_kwargs)
 

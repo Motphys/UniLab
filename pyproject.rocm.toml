@@ -52,7 +52,7 @@ mujoco = [
     "mujoco>=3.5",
     # Bound stays loose; uv.rocm.lock pins the default solver version. The
     # tested window is >=3.5,<3.11 — switch via `make mujoco MJ=<version>`.
-    "mujoco-uni-runtime==0.3.0",
+    "mujoco-uni-runtime==0.3.1",
     # pybind11/wheel are build requirements of mujoco-uni-runtime, which is
     # compiled in this environment (see no-build-isolation-package below).
     "pybind11>=2.12",

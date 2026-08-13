@@ -54,12 +54,13 @@ gantt
 
     section Learner (GPU)
     Collector Wait (≈0 when buffer full)  :done,   l0, 12000, 13000
-    H2D Copy (ring → staging)             :        l1, 13000, 16000
-    Train (V-trace + PPO SGD)             :active, l2, 16000, 28000
-    Weight Publish → collector            :crit,   l3, 28000, 30000
+    Replay Stage (ring → staging)         :        l1, 13000, 15500
+    Replay Sample (compose batch views)   :        l2, 15500, 16000
+    Train (V-trace + PPO SGD)             :active, l3, 16000, 28000
+    Weight Publish → collector            :crit,   l4, 28000, 30000
 
     section Iter Wall
-    perf/iter_ms (learner loop only)      :        l4, 12000, 30000
+    perf/iter_ms (learner loop only)      :        l5, 12000, 30000
 ```
 
 > The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Publish marks the end of the iteration when fresh weights are published to the collector. Field meanings are on the [logging page](../1-training/3-logging.md).
