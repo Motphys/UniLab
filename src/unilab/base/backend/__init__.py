@@ -18,6 +18,7 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "motrix_max_iterations": cfg.motrix_max_iterations,
         "chunk_size": cfg.chunk_size,
         "adaptive_chunk_size": cfg.adaptive_chunk_size,
+        "cpu_ids": cfg.cpu_ids,
         "bench_nsteps": cfg.sim_substeps,
         "mjwarp_nconmax": cfg.mjwarp_nconmax,
         "mjwarp_njmax": cfg.mjwarp_njmax,
@@ -117,6 +118,7 @@ def create_backend(
     post_step_forward_sensor = kwargs.pop("post_step_forward_sensor", None)
     chunk_size = kwargs.pop("chunk_size", None)
     adaptive_chunk_size = kwargs.pop("adaptive_chunk_size", False)
+    cpu_ids = kwargs.pop("cpu_ids", None)
     bench_nsteps = kwargs.pop("bench_nsteps", 1)
     mjwarp_nconmax = kwargs.pop("mjwarp_nconmax", None)
     mjwarp_njmax = kwargs.pop("mjwarp_njmax", None)
@@ -130,6 +132,7 @@ def create_backend(
             kwargs["post_step_forward_sensor"] = post_step_forward_sensor
         kwargs["chunk_size"] = chunk_size
         kwargs["adaptive_chunk_size"] = adaptive_chunk_size
+        kwargs["cpu_ids"] = cpu_ids
         kwargs["bench_nsteps"] = bench_nsteps
         return cast(SimBackend, MuJoCoBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "mjwarp":
@@ -145,6 +148,7 @@ def create_backend(
                 ("post_step_forward_sensor", post_step_forward_sensor, None),
                 ("chunk_size", chunk_size, None),
                 ("adaptive_chunk_size", adaptive_chunk_size, False),
+                ("cpu_ids", cpu_ids, None),
                 ("bench_nsteps", bench_nsteps, 1),
             )
             if value != default
@@ -157,7 +161,7 @@ def create_backend(
                 stacklevel=2,
             )
         # These generic EnvCfg fields are routed only to the MuJoCo pool.
-        del post_step_forward_sensor, chunk_size, adaptive_chunk_size, bench_nsteps
+        del post_step_forward_sensor, chunk_size, adaptive_chunk_size, cpu_ids, bench_nsteps
         kwargs["nconmax"] = mjwarp_nconmax
         kwargs["njmax"] = mjwarp_njmax
         return cast(SimBackend, MjwarpBackend(scene, num_envs, sim_dt, **kwargs))
