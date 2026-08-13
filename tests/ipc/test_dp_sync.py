@@ -193,6 +193,7 @@ def _nccl_smoke_worker(rank: int, rendezvous_path: str, result_queue) -> None:
         rank=rank,
         rendezvous_path=rendezvous_path,
         backend="nccl",
+        device=str(device),
         timeout_s=120,
     )
     sync.start()

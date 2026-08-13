@@ -42,6 +42,7 @@ class DpParameterSync:
         rank: int,
         rendezvous_path: str,
         backend: str = "nccl",
+        device: str | None = None,
         timeout_s: int = 120,
     ) -> None:
         if int(world_size) < 2:
@@ -52,6 +53,7 @@ class DpParameterSync:
         self.rank = int(rank)
         self.rendezvous_path = str(rendezvous_path)
         self.backend = str(backend)
+        self.device = None if device is None else torch.device(device)
         self.timeout_s = int(timeout_s)
         self._key_order: tuple[str, ...] | None = None
         self._started = False
@@ -62,9 +64,31 @@ class DpParameterSync:
         The rendezvous path must be unique per run (the caller derives it
         from the per-run log directory), so no stale FileStore state from a
         previous run can leak in and no pre-clean is needed.
+
+        For NCCL the current CUDA device is pinned to this rank's device
+        first: ProcessGroupNCCL binds communicators to the current device,
+        and without the pin every rank defaults to cuda:0, which hangs the
+        first collective on any rank whose learner lives on another GPU.
+
+        ``NCCL_P2P_DISABLE``/``NCCL_SHM_DISABLE`` default to 1 (env override
+        wins): on hosts with broken NCCL peer transport (e.g. RTX 6000D on
+        current drivers, where P2P hangs and SHM triggers CUDA illegal
+        memory access) the TCP loopback transport is the only reliable
+        path, and it is fast enough for periodic parameter averaging.
         """
         if self._started:
             return
+        if self.backend == "nccl":
+            import os
+
+            os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+            os.environ.setdefault("NCCL_SHM_DISABLE", "1")
+        if (
+            self.backend == "nccl"
+            and self.device is not None
+            and self.device.type == "cuda"
+        ):
+            torch.cuda.set_device(self.device)
         dist.init_process_group(
             backend=self.backend,
             init_method=f"file://{self.rendezvous_path}",

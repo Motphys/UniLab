@@ -209,6 +209,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             world_size=dp_world_size,
             rank=dp_rank,
             rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
+            device=cfg.training.device,
         )
 
     torch_thread_runtime = resolve_torch_thread_runtime(
