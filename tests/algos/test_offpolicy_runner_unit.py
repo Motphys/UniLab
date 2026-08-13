@@ -305,6 +305,7 @@ def _make_device_runner(monkeypatch: pytest.MonkeyPatch, learner=None):
     )
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize(
     ("critic_graph", "actor_graph", "expected_layout", "expected_critic_source"),
     [
