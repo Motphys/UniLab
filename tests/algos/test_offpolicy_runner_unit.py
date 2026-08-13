@@ -251,6 +251,18 @@ class _FakeLogger:
     def start(self):
         return None
 
+    def start_training_timer(self):
+        return 0.0
+
+    def log_buffer_fill(self, *args):
+        del args
+
+    def update_buffer_utilization(self, value):
+        del value
+
+    def log_step(self, **kwargs):
+        del kwargs
+
     def log_save(self, path):
         del path
 
@@ -394,6 +406,124 @@ def test_replay_batch_wait_uses_fine_grained_polling(monkeypatch: pytest.MonkeyP
     )
     assert pipeline.start_calls == 1
     assert sleeps == [pytest.approx(runner.REPLAY_BATCH_READY_POLL_SEC)]
+
+
+def test_inference_response_freezes_next_replay_boundary_before_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _make_device_runner(monkeypatch)
+    scheduler = _LearnerInferenceScheduler(env_steps_per_sync=1)
+    scheduler.record_inference(0)
+    replay_buffer = SimpleNamespace(published_ptr=8)
+    published = []
+
+    def publish_response(queue, *, value, timeout=5.0, label="inference_response"):
+        del queue, timeout
+        published.append((value, label))
+        replay_buffer.published_ptr = 100
+
+    monkeypatch.setattr(runner, "_publish_inference_response", publish_response)
+
+    next_prepare_ptr = runner._release_inference_tick(
+        object(),
+        inference_scheduler=scheduler,
+        replay_buffer=replay_buffer,
+        trace_recorder=None,
+    )
+
+    assert next_prepare_ptr == 10
+    assert published == [(0, "inference_response")]
+    assert scheduler.pending_tick is None
+
+
+def test_runner_releases_action_before_replay_wait_and_sample(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    events: list[str] = []
+
+    class LoopReplayBuffer(_FakeReplayBuffer):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.ptr[0] = 4
+            self.size[0] = 4
+            self.published_ptr = 4
+
+    class LoopPipeline(_FakePipeline):
+        last_incremental_h2d_time_s = 0.0
+
+        def progress(self, *, wait=False):
+            events.append("replay_progress")
+            return wait
+
+        def start_prepare(self, tick_id, sample_count, min_snapshot_ptr=None):
+            del tick_id, sample_count, min_snapshot_ptr
+            events.append("replay_prepare")
+            return True
+
+        def batch_ready(self, tick_id, sample_count):
+            del tick_id, sample_count
+            events.append("replay_batch_ready")
+            return True
+
+        def sample_large_batch(self, tick_id, sample_count):
+            del tick_id, sample_count
+            events.append("replay_sample")
+            return {}
+
+        def after_tick(self):
+            events.append("replay_after_tick")
+
+    class LoopLearner(_Learner):
+        def update_critic(self, batch):
+            del batch
+            events.append("update_critic")
+            return {}
+
+        def update_actor(self, batch):
+            del batch
+            events.append("update_actor")
+            return {}
+
+        def soft_update_target(self):
+            events.append("soft_update_target")
+
+    monkeypatch.setattr(device_runner_module, "ReplayBuffer", LoopReplayBuffer)
+    monkeypatch.setattr(device_runner_module, "GPUResidentReplayPipeline", LoopPipeline)
+    monkeypatch.setattr(device_runner_module, "OffPolicyLogger", _FakeLogger)
+    monkeypatch.setattr(device_runner_module.torch, "save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(device_runner_module.time, "sleep", lambda seconds: None)
+
+    runner = _make_device_runner(monkeypatch, LoopLearner())
+    runner.device = "cpu"
+    monkeypatch.setattr(runner, "_start_collector", lambda **kwargs: None)
+    monkeypatch.setattr(runner, "_check_collector_alive", lambda: True)
+    monkeypatch.setattr(runner, "_wait_for_inference_request", lambda *args, **kwargs: 0)
+
+    def serve_inference(*args, **kwargs):
+        del args, kwargs
+        events.append("action_d2h")
+        return {
+            "inference_h2d_time": 0.0,
+            "inference_forward_time": 0.0,
+            "inference_d2h_time": 0.0,
+            "inference_time": 0.0,
+        }
+
+    def publish_response(*args, **kwargs):
+        del args, kwargs
+        events.append("inference_response")
+
+    monkeypatch.setattr(runner, "_serve_learner_inference", serve_inference)
+    monkeypatch.setattr(runner, "_publish_inference_response", publish_response)
+
+    runner.learn(max_iterations=1, save_interval=0, log_dir=str(tmp_path))
+
+    assert events.index("action_d2h") < events.index("inference_response")
+    assert events.index("inference_response") < events.index("replay_progress")
+    assert events.index("inference_response") < events.index("replay_batch_ready")
+    assert events.index("inference_response") < events.index("replay_sample")
+    assert events.index("inference_response") < events.index("update_critic")
 
 
 def test_drain_metrics_propagates_collector_error():
