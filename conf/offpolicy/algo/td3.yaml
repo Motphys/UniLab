@@ -9,7 +9,6 @@ replay_buffer_n: 1000
 updates_per_step: 4
 learning_starts: 1
 policy_frequency: 2
-env_steps_per_sync: 1
 max_iterations: 5000
 save_interval: 500
 gamma: 0.97

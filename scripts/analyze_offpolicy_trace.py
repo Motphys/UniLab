@@ -66,35 +66,6 @@ def _event_end_to_next_start_ms(trace_events: list[dict], name: str) -> list[flo
     ]
 
 
-def _iteration_resume_gap_ms(trace_events: list[dict]) -> list[float]:
-    weight_writes = sorted(
-        (
-            (float(event["ts"]), float(event["dur"]))
-            for event in trace_events
-            if event.get("name") == "learner/weight_sync_write"
-            and event.get("ph") == "X"
-            and "dur" in event
-        ),
-        key=lambda item: item[0],
-    )
-    first_updates = sorted(
-        float(event["ts"])
-        for event in trace_events
-        if event.get("name") == "learner/update_critic"
-        and event.get("ph") == "X"
-        and event.get("args", {}).get("update_idx") == 0
-    )
-    gaps: list[float] = []
-    update_pos = 0
-    for start, dur in weight_writes:
-        end = start + dur
-        while update_pos < len(first_updates) and first_updates[update_pos] <= end:
-            update_pos += 1
-        if update_pos < len(first_updates):
-            gaps.append((first_updates[update_pos] - end) / 1000.0)
-    return gaps
-
-
 def analyze(path: Path, *, steps_per_cycle: int, drop_first: int, events: list[str]) -> None:
     with path.open() as f:
         trace_events = json.load(f)["traceEvents"]
@@ -130,17 +101,6 @@ def analyze_gaps(path: Path, *, gap_events: list[str]) -> None:
             print(f"{name} end_to_next_start_gap: n=0")
 
 
-def analyze_iteration_resume_gap(path: Path) -> None:
-    with path.open() as f:
-        trace_events = json.load(f)["traceEvents"]
-    gaps = _iteration_resume_gap_ms(trace_events)
-    print(path)
-    if gaps:
-        _format_stats("weight_sync_end_to_next_update0_start_gap", _stats(gaps))
-    else:
-        print("weight_sync_end_to_next_update0_start_gap: n=0")
-
-
 def analyze_training_e2e(path: Path) -> None:
     with path.open() as f:
         trace_events = json.load(f)["traceEvents"]
@@ -170,11 +130,6 @@ def main() -> None:
         help="Report end-to-next-start gap stats for this event name. May be repeated.",
     )
     parser.add_argument(
-        "--iteration-resume-gap",
-        action="store_true",
-        help="Report gap from learner/weight_sync_write end to next update_critic(update_idx=0) start.",
-    )
-    parser.add_argument(
         "--training-e2e",
         action="store_true",
         help="Report learner/training_e2e duration stats.",
@@ -192,8 +147,6 @@ def main() -> None:
         )
         if args.gap_event:
             analyze_gaps(path, gap_events=args.gap_event)
-        if args.iteration_resume_gap:
-            analyze_iteration_resume_gap(path)
         if args.training_e2e:
             analyze_training_e2e(path)
 

@@ -21,8 +21,6 @@ class FastTD3Runner(DoubleBufferOffPolicyRunner):
         learning_starts: int = 0,
         num_updates: int = 4,
         policy_frequency: int = 2,
-        # Collection/training synchronization
-        sync_collection: bool = True,
         env_steps_per_sync: int = 1,
         # Algorithm parameters
         gamma: float = 0.97,
@@ -93,11 +91,8 @@ class FastTD3Runner(DoubleBufferOffPolicyRunner):
             learning_starts=learning_starts,
             updates_per_step=num_updates,
             policy_frequency=policy_frequency,
-            sync_collection=sync_collection,
             env_steps_per_sync=env_steps_per_sync,
             device=device,
-            actor_hidden_dim=actor_hidden_dim,
-            use_layer_norm=False,
             obs_normalization=obs_normalization,
             sim_backend=sim_backend,
             env_cfg_override=env_cfg_override,

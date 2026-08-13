@@ -184,10 +184,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
     from unilab.utils.device import get_default_device
 
     replay_device = require_offpolicy_replay_device(cfg.training.device or get_default_device())
-    collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
-
-    sync_collection = not bool(cfg.training.no_sync_collection)
-
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
@@ -234,7 +230,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
 
         _learner_cls = FastSACLearner
         _algo_type = "sac"
-        _actor_kwargs: dict[str, Any] = {}
         _learner_extra_kwargs: dict[str, Any] = {}
         if _custom_runtime is not None:
             _learner_extra_kwargs = cast(
@@ -248,7 +243,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
                 _learner_cls = _custom_runtime.learner_cls
             if _custom_runtime.algo_type is not None:
                 _algo_type = str(_custom_runtime.algo_type)
-            _actor_kwargs = dict(_learner_extra_kwargs)
 
         _learner_kwargs = {
             "obs_dim": _obs_dim,
@@ -307,15 +301,11 @@ def build_runner(algo_name: str, cfg: DictConfig):
             learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
-            sync_collection=sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
             device=_device,
-            actor_hidden_dim=cfg.algo.actor_hidden_dim,
-            use_layer_norm=cfg.algo.use_layer_norm,
             obs_normalization=cfg.algo.obs_normalization,
             sim_backend=cfg.training.sim_backend,
             env_cfg_override=env_cfg_override,
-            actor_kwargs=_actor_kwargs,
             trace_enabled=cfg.training.trace_enabled,
             trace_output_dir=cfg.training.trace_output_dir,
             trace_thread_time=cfg.training.trace_thread_time,
@@ -323,7 +313,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
             replay_prefetch_mode=replay_prefetch_mode,
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
-            collector_infer_device=collector_infer_device,
             torch_thread_runtime=torch_thread_runtime,
         )
 
@@ -366,12 +355,6 @@ def build_runner(algo_name: str, cfg: DictConfig):
             obs_normalization=cfg.algo.obs_normalization,
         )
 
-        _actor_kwargs = {
-            "init_scale": cfg.algo.algo_params.init_scale,
-            "log_std_min": cfg.algo.algo_params.log_std_min,
-            "log_std_max": cfg.algo.algo_params.log_std_max,
-        }
-
         return DoubleBufferOffPolicyRunner(
             learner=_learner,
             env_name=cfg.training.task_name,
@@ -384,10 +367,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             learning_starts=cfg.algo.learning_starts,
             updates_per_step=cfg.algo.updates_per_step,
             policy_frequency=cfg.algo.policy_frequency,
-            sync_collection=sync_collection,
             env_steps_per_sync=cfg.training.env_steps_per_sync,
-            actor_hidden_dim=cfg.algo.actor_hidden_dim,
-            use_layer_norm=False,
             obs_normalization=cfg.algo.obs_normalization,
             sim_backend=cfg.training.sim_backend,
             seed=cfg.algo.seed,
@@ -396,9 +376,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             trace_thread_time=cfg.training.trace_thread_time,
             trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
-            actor_kwargs=_actor_kwargs,
             nan_guard_cfg=_nan_guard_cfg,
-            collector_infer_device=collector_infer_device,
             torch_thread_runtime=torch_thread_runtime,
         )
 

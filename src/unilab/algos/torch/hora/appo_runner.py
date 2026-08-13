@@ -297,6 +297,7 @@ class HoraAPPORunner(APPORunner):
             action_dim=self.action_dim,
             log_dir=log_dir,
             log_backend=logger_type,
+            timing_profile="appo",
         )
         logger.set_collection_sync(True, env_steps_per_sync)
         logger.start()
@@ -318,7 +319,7 @@ class HoraAPPORunner(APPORunner):
         for iteration in range(1, max_iterations + 1):
             iteration_start = time.perf_counter()
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
-            wait_start = time.time()
+            wait_start = time.perf_counter()
 
             # Chunked wait with periodic liveness check (issue #594 B-2):
             # avoid freezing the learner for 60s when the collector dies mid-iteration.
@@ -347,16 +348,16 @@ class HoraAPPORunner(APPORunner):
                     f"[yellow]Warning: Timeout waiting for data at iteration {iteration}[/]"
                 )
                 continue
-            wait_time = time.time() - wait_start
+            wait_time = time.perf_counter() - wait_start
 
             available_on_arrive = rollout_ring_buffer.available()
 
             num_new = rollout_ring_buffer.available()
-            learner_incremental_h2d_time = 0.0
+            learner_replay_stage_time = 0.0
             for _ in range(num_new):
                 h2d_start = time.perf_counter()
                 staging_pool.stage_numpy_views(rollout_ring_buffer.read_numpy_views())
-                learner_incremental_h2d_time += time.perf_counter() - h2d_start
+                learner_replay_stage_time += time.perf_counter() - h2d_start
                 rollout_ring_buffer.advance_read()
 
             self._drain_metrics(metrics_queue, reward_history, latest_reward_components, logger)
@@ -365,10 +366,10 @@ class HoraAPPORunner(APPORunner):
             combined = staging_pool.batch()
             learner_replay_sample_time = time.perf_counter() - replay_sample_start
 
-            train_start = time.time()
+            train_start = time.perf_counter()
             learner.process_batch(combined)
             metrics = learner.update(combined)
-            train_time = time.time() - train_start
+            train_time = time.perf_counter() - train_start
             weight_sync_start = time.perf_counter()
             actor_weight_sync.write_weights(learner.actor.state_dict())
             critic_weight_sync.write_weights(learner.critic.state_dict())
@@ -397,7 +398,7 @@ class HoraAPPORunner(APPORunner):
                 train_time=train_time,
                 collector_wait_time=wait_time,
                 learner_replay_sample_time=learner_replay_sample_time,
-                learner_incremental_h2d_time=learner_incremental_h2d_time,
+                learner_replay_stage_time=learner_replay_stage_time,
                 weight_sync_time=weight_sync_time,
                 iteration_time=iteration_time,
                 extra_info={
