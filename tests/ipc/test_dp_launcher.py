@@ -173,9 +173,7 @@ def test_apply_dp_rank_config_rank_zero_keeps_seed():
     assert int(cfg.algo.seed) == 42
 
 
-def test_single_device_topology_spawns_no_children(
-    fake_popen, monkeypatch: pytest.MonkeyPatch
-):
+def test_single_device_topology_spawns_no_children(fake_popen, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     cfg = _offpolicy_cfg(["training.devices=[0]", "training.device=null"])
     devices = resolve_dp_topology(cfg.training.devices)
@@ -236,9 +234,7 @@ def test_supervisor_clean_child_exit_is_not_a_failure(fake_popen):
         fake_popen.instances[0].returncode = 0
 
 
-def test_supervisor_failed_child_makes_rank_zero_fail(
-    fake_popen, monkeypatch: pytest.MonkeyPatch
-):
+def test_supervisor_failed_child_makes_rank_zero_fail(fake_popen, monkeypatch: pytest.MonkeyPatch):
     # Keep the watchdog from polling so __exit__ observes the exit code first.
     monkeypatch.setattr(dp_launcher, "_WATCHDOG_INTERVAL_S", 60.0)
     supervisor = DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log")
