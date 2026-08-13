@@ -83,11 +83,7 @@ class DpParameterSync:
 
             os.environ.setdefault("NCCL_P2P_DISABLE", "1")
             os.environ.setdefault("NCCL_SHM_DISABLE", "1")
-        if (
-            self.backend == "nccl"
-            and self.device is not None
-            and self.device.type == "cuda"
-        ):
+        if self.backend == "nccl" and self.device is not None and self.device.type == "cuda":
             torch.cuda.set_device(self.device)
         dist.init_process_group(
             backend=self.backend,
