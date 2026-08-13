@@ -20,6 +20,8 @@ from unilab.ipc.dp_launcher import (
     DpRankSupervisor,
     apply_dp_rank_config,
     current_dp_rank,
+    current_dp_world_size,
+    resolve_collector_cpu_ids,
     resolve_dp_topology,
     validate_dp_launchable,
 )
@@ -168,8 +170,25 @@ def build_runner(algo_name: str, cfg: DictConfig):
         resolve_torch_thread_runtime,
     )
 
+    # Cold-path DP CPU partition: each rank's collector owns one contiguous
+    # CPU block (single rank keeps the legacy unset behavior). The ids only
+    # reach the collector env override — never the num_envs=1 probe envs,
+    # whose MuJoCo pool would size itself from len(cpu_ids).
+    dp_world_size = current_dp_world_size()
+    host_cpu_count = os.cpu_count() or 1
+    explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
+    if explicit_cpu_ids is not None:
+        explicit_cpu_ids = cast(list, OmegaConf.to_container(explicit_cpu_ids, resolve=True))
+    collector_cpu_ids = resolve_collector_cpu_ids(
+        dp_world_size,
+        current_dp_rank(),
+        host_cpu_count,
+        explicit=explicit_cpu_ids,
+    )
+
     torch_thread_runtime = resolve_torch_thread_runtime(
-        getattr(cfg.training, "torch_threads", None)
+        getattr(cfg.training, "torch_threads", None),
+        cpu_count=host_cpu_count // dp_world_size if dp_world_size > 1 else None,
     )
     apply_torch_thread_runtime(torch_thread_runtime, role="learner")
 
@@ -323,6 +342,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            collector_cpu_ids=collector_cpu_ids,
         )
 
     if algo_name == "td3":
@@ -387,6 +407,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             replay_prefetch_mode=replay_prefetch_mode,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            collector_cpu_ids=collector_cpu_ids,
         )
 
     if algo_name == "flashsac":

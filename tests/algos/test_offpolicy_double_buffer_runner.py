@@ -13,6 +13,8 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from hydra.errors import ConfigCompositionException
 
+from unilab.ipc.dp_launcher import UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
+
 _ROOT = Path(__file__).parent.parent.parent
 _CONF_DIR = _ROOT / "conf"
 
@@ -237,3 +239,102 @@ def test_inference_response_detects_dead_collector():
 
     with pytest.raises(RuntimeError, match="collector dead"):
         runner._publish_inference_response(full_queue, timeout=0.01)
+
+
+def _build_sac_runner_with_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: list[str],
+    *,
+    cpu_count: int = 128,
+):
+    """build_runner("sac", ...) with learner/env/runner fakes; returns captured state."""
+    module = _offpolicy()
+    cfg = _offpolicy_cfg(overrides)
+    probe_env_calls: list[dict] = []
+
+    def fake_create_env(*args, **kwargs):
+        del args
+        probe_env_calls.append(kwargs)
+        return _FakeEnv()
+
+    monkeypatch.setattr(module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(module, "create_env", fake_create_env)
+    monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
+
+    import unilab.algos.torch.fast_sac.learner as learner_module
+    import unilab.algos.torch.offpolicy.double_buffer_runner as runner_module
+
+    monkeypatch.setattr(learner_module, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = module.build_runner("sac", cfg)
+    return runner, probe_env_calls
+
+
+def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv(UNILAB_DP_RANK, "1")
+    monkeypatch.setenv(UNILAB_DP_WORLD_SIZE, "2")
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch, ["algo=sac", "algo.use_symmetry=false"], cpu_count=128
+    )
+    assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
+    # The thread budget is resolved against the rank's CPU share, not the host.
+    assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
+    # The num_envs=1 probe env must never see cpu_ids (it would size its
+    # MuJoCo BatchEnvPool worker count from len(cpu_ids)).
+    assert probe_env_calls
+    for call in probe_env_calls:
+        override = call.get("env_cfg_override") or {}
+        assert "cpu_ids" not in override
+
+
+def test_build_runner_single_rank_keeps_collector_cpus_unset(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
+    monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch, ["algo=sac", "algo.use_symmetry=false"], cpu_count=128
+    )
+    assert runner.kwargs["collector_cpu_ids"] is None
+    # Single-rank thread budget still resolves against the full host.
+    assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 128
+    override = runner.kwargs["env_cfg_override"] or {}
+    assert "cpu_ids" not in override
+    for call in probe_env_calls:
+        assert "cpu_ids" not in (call.get("env_cfg_override") or {})
+
+
+def test_build_runner_explicit_dp_collector_cpu_ids(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv(UNILAB_DP_RANK, "0")
+    monkeypatch.setenv(UNILAB_DP_WORLD_SIZE, "2")
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch,
+        ["algo=sac", "algo.use_symmetry=false", "training.dp_collector_cpu_ids=[[0,1],[2,3]]"],
+        cpu_count=128,
+    )
+    assert runner.kwargs["collector_cpu_ids"] == [0, 1]
+    for call in probe_env_calls:
+        assert "cpu_ids" not in (call.get("env_cfg_override") or {})
+
+
+def test_collector_env_cfg_override_merges_cpu_ids_without_mutating_base():
+    runner = _bare_runner()
+    base = {"reward_config": {"x": 1}}
+    runner.env_cfg_override = base
+    runner.collector_cpu_ids = [0, 1]
+    merged = runner._collector_env_cfg_override()
+    assert merged == {"reward_config": {"x": 1}, "cpu_ids": [0, 1]}
+    assert "cpu_ids" not in base
+
+
+def test_collector_env_cfg_override_without_cpu_ids_passes_through():
+    runner = _bare_runner()
+    runner.env_cfg_override = {"a": 1}
+    runner.collector_cpu_ids = None
+    assert runner._collector_env_cfg_override() is runner.env_cfg_override
+
+
+def test_collector_env_cfg_override_from_none_base():
+    runner = _bare_runner()
+    runner.env_cfg_override = None
+    runner.collector_cpu_ids = [4, 5]
+    assert runner._collector_env_cfg_override() == {"cpu_ids": [4, 5]}
