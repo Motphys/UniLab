@@ -91,9 +91,7 @@ def resolve_collector_cpu_ids(
         return None
     rank = int(rank)
     if rank < 0 or rank >= world_size:
-        raise ValueError(
-            f"data-parallel rank {rank} is out of range for world_size={world_size}"
-        )
+        raise ValueError(f"data-parallel rank {rank} is out of range for world_size={world_size}")
     cpu_count = int(cpu_count)
     if cpu_count < world_size:
         raise ValueError(
@@ -111,8 +109,7 @@ def resolve_collector_cpu_ids(
         for segment in segments:
             if not segment:
                 raise ValueError(
-                    "training.dp_collector_cpu_ids segments must be non-empty, "
-                    f"got {segments!r}"
+                    f"training.dp_collector_cpu_ids segments must be non-empty, got {segments!r}"
                 )
             for cpu_id in segment:
                 if isinstance(cpu_id, bool) or not isinstance(cpu_id, int) or cpu_id < 0:

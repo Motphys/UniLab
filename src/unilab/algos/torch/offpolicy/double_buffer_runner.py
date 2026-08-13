@@ -127,9 +127,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self.replay_prefetch_mode = replay_prefetch_mode
         # Per-rank CPU block owned by this rank's collector (multi-GPU DP);
         # merged into the collector-only env override at collector startup.
-        self.collector_cpu_ids = (
-            list(collector_cpu_ids) if collector_cpu_ids is not None else None
-        )
+        self.collector_cpu_ids = list(collector_cpu_ids) if collector_cpu_ids is not None else None
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
         self.replay_h2d_submitter = "auto"

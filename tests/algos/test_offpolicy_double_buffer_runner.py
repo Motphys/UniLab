@@ -275,7 +275,8 @@ def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.Mon
     # Spawned rank: rank comes from the env, world_size from training.devices.
     monkeypatch.setenv(UNILAB_DP_RANK, "1")
     runner, probe_env_calls = _build_sac_runner_with_fakes(
-        monkeypatch, ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        monkeypatch,
+        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
         cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
@@ -294,7 +295,8 @@ def test_build_runner_rank_zero_partitions_without_dp_env(monkeypatch: pytest.Mo
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
     runner, _ = _build_sac_runner_with_fakes(
-        monkeypatch, ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        monkeypatch,
+        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
         cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == list(range(0, 64))
