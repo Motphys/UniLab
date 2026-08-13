@@ -1798,14 +1798,14 @@ wheels = [
 
 [[package]]
 name = "mujoco-uni-runtime"
-version = "0.3.0"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mujoco" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/50/bc95bed26510455c97be426a1e9c9a087249c64d57e96c13c5fc0717fbbf/mujoco_uni_runtime-0.3.0.tar.gz", hash = "sha256:64eabb2dc87f745882aa2baafaea3667d0eba0312d8bbed81fb588f77123eb06", size = 45961, upload-time = "2026-07-27T15:39:29.089Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/ce/9024e9183314e3d596d65fe3ceba062c771c0e400b1f021a8baf105b8856/mujoco_uni_runtime-0.3.1.tar.gz", hash = "sha256:4313d5442db141a73e793834b3185d2166d3f6407db1c91b3eabe9cb2902ac31", size = 49914, upload-time = "2026-08-13T13:17:14.313Z" }
 
 [[package]]
 name = "mujoco-warp"
@@ -3974,7 +3974,7 @@ requires-dist = [
     { name = "mediapy" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5" },
-    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.3.0" },
+    { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.3.1" },
     { name = "mujoco-warp", marker = "extra == 'mjwarp'", specifier = "==3.10.0.3" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
     { name = "numpy" },

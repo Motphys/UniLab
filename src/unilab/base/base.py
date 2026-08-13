@@ -40,6 +40,10 @@ class EnvCfg:
     post_step_forward_sensor: bool = False
     adaptive_chunk_size: bool = True
     chunk_size: Optional[int] = None
+    # Explicit worker CPU affinity for the MuJoCo BatchEnvPool (Linux only).
+    # ``cpu_ids[i]`` pins pool worker thread ``i`` to one CPU; ``None`` keeps
+    # the default OS scheduling behavior.
+    cpu_ids: Optional[list[int]] = None
     # ``mjwarp`` owns contact/constraint storage independently from MuJoCo.
     # Keep its capacity knobs explicit in the task owner configuration so a
     # device profile never relies on an implicit backend-wide allocation size.
@@ -76,6 +80,17 @@ class EnvCfg:
                 isinstance(value, bool) or not isinstance(value, int) or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
+        if self.cpu_ids is not None:
+            ids = list(self.cpu_ids)
+            if not ids:
+                raise ValueError("cpu_ids must be a non-empty sequence of CPU ids or None")
+            for cpu_id in ids:
+                if isinstance(cpu_id, bool) or not isinstance(cpu_id, int) or cpu_id < 0:
+                    raise ValueError(
+                        f"cpu_ids entries must be non-negative integers, got {cpu_id!r}"
+                    )
+            if len(set(ids)) != len(ids):
+                raise ValueError(f"cpu_ids entries must be unique, got {ids!r}")
 
 
 class ABEnv(abc.ABC):

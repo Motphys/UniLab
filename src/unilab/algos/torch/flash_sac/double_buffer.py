@@ -20,8 +20,6 @@ def _validate_flashsac_double_buffer_runtime(
     *,
     replay_prefetch_mode: str,
 ) -> None:
-    if cfg.training.no_sync_collection:
-        raise ValueError("FlashSAC device replay requires synchronized collection")
     if replay_prefetch_mode != "one_tick":
         raise ValueError("FlashSAC device replay requires replay_prefetch_mode='one_tick'")
     if cfg.algo.algo_params.n_step != 1:
@@ -43,7 +41,6 @@ def build_flashsac_double_buffer_runner(
     device = require_offpolicy_replay_device(device or cfg.training.device or get_default_device())
     ensure_registries()
     apply_training_seed(cfg.algo.seed, torch_runtime=True, cuda=True)
-    collector_infer_device = str(getattr(cfg.training, "collector_infer_device", "cpu") or "cpu")
     _validate_flashsac_double_buffer_runtime(
         cfg,
         replay_prefetch_mode=replay_prefetch_mode,
@@ -100,12 +97,6 @@ def build_flashsac_double_buffer_runner(
             cfg.algo.algo_params.use_cuda_graph_actor_packed_staging
         ),
     }
-    actor_kwargs = {
-        "actor_num_blocks": cfg.algo.algo_params.actor_num_blocks,
-        "actor_noise_zeta_mu": cfg.algo.algo_params.actor_noise_zeta_mu,
-        "actor_noise_zeta_max": cfg.algo.algo_params.actor_noise_zeta_max,
-    }
-
     learner = FlashSACLearner(device=device, **learner_kwargs)
 
     return DoubleBufferOffPolicyRunner(
@@ -118,15 +109,11 @@ def build_flashsac_double_buffer_runner(
         learning_starts=cfg.algo.learning_starts,
         updates_per_step=cfg.algo.updates_per_step,
         policy_frequency=cfg.algo.policy_frequency,
-        sync_collection=not cfg.training.no_sync_collection,
         env_steps_per_sync=cfg.training.env_steps_per_sync,
         device=device,
-        actor_hidden_dim=cfg.algo.actor_hidden_dim,
-        use_layer_norm=False,
         obs_normalization=cfg.algo.obs_normalization,
         sim_backend=cfg.training.sim_backend,
         env_cfg_override=env_cfg_override,
-        actor_kwargs=actor_kwargs,
         seed=cfg.algo.seed,
         trace_enabled=cfg.training.trace_enabled,
         trace_output_dir=cfg.training.trace_output_dir,
@@ -134,6 +121,5 @@ def build_flashsac_double_buffer_runner(
         trace_cuda_events=cfg.training.trace_cuda_events,
         replay_prefetch_mode=replay_prefetch_mode,
         nan_guard_cfg=nan_guard_cfg,
-        collector_infer_device=collector_infer_device,
         torch_thread_runtime=torch_thread_runtime,
     )
