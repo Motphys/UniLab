@@ -54,6 +54,8 @@ _OFFPOLICY_COLLECTOR_CYCLE_KEYS = tuple(
     if key not in OFFPOLICY_ENV_STEP_DETAIL_KEYS and key != "rollout_ms"
 )
 
+_OFFPOLICY_TERMINAL_MIN_PHASE_PCT = 1.0
+
 
 def _metric_backend_key(key: str) -> str:
     """Keep canonical slash metrics intact; namespace legacy flat metrics under train/."""
@@ -647,27 +649,19 @@ class OffPolicyLogger(BaseTrainingLogger):
         learner_items = [
             ("Collector Wait", _fmt_phase(self._collector_wait_time, color=wait_color)),
         ]
-        if self._replay_batch_wait_time > 0.0:
-            learner_items.append(("Replay Batch Wait", _fmt_phase(self._replay_batch_wait_time)))
-        learner_items.append(("Replay Sample", _fmt_phase(self._learner_replay_sample_time)))
+
+        def _append_material_phase(label: str, seconds: float) -> None:
+            if self._get_iter_pct(seconds) >= _OFFPOLICY_TERMINAL_MIN_PHASE_PCT:
+                learner_items.append((label, _fmt_phase(seconds)))
+
+        _append_material_phase("Replay Batch Wait", self._replay_batch_wait_time)
+        _append_material_phase("Replay Sample", self._learner_replay_sample_time)
         if self._inference_time > 0.0:
-            learner_items.extend(
-                [
-                    ("Inference H2D", _fmt_phase(self._inference_h2d_time)),
-                    ("Inference Forward", _fmt_phase(self._inference_forward_time)),
-                    ("Inference D2H", _fmt_phase(self._inference_d2h_time)),
-                    ("Inference Total", _fmt_phase(self._inference_time)),
-                ]
-            )
-        if self._sync_coordination_time > 0.0:
-            learner_items.append(("Collector Release", _fmt_phase(self._sync_coordination_time)))
-        learner_items.extend(
-            [
-                ("H2D Copy", _fmt_phase(self._learner_incremental_h2d_time)),
-                ("Train", _fmt_phase(self._train_time, color="green")),
-            ]
-        )
-        learner_items.append(("Weight Publish", _fmt_phase(self._weight_sync_time)))
+            learner_items.append(("Inference Total", _fmt_phase(self._inference_time)))
+        _append_material_phase("Collector Release", self._sync_coordination_time)
+        _append_material_phase("H2D Copy", self._learner_incremental_h2d_time)
+        learner_items.append(("Train", _fmt_phase(self._train_time, color="green")))
+        _append_material_phase("Weight Publish", self._weight_sync_time)
         learner_items.append(("Iter Wall", f"{self._get_iter_wall_time() * 1000:>7.1f}ms  100%"))
         sorted_collector_timing = sorted(
             self._collector_timing.items(),
