@@ -1464,7 +1464,7 @@ def test_offpolicy_main_failure_summary_and_skips_playback(
         mod, "assert_offpolicy_task_choice_matches_algo", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(mod, "ExperimentTracker", FakeTracker)
-    monkeypatch.setattr(mod, "build_runner", lambda algo_name, cfg: FakeRunner())
+    monkeypatch.setattr(mod, "build_runner", lambda algo_name, cfg, log_dir=None: FakeRunner())
     monkeypatch.setattr(
         mod,
         "play_offpolicy",

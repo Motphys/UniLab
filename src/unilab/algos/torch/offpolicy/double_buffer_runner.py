@@ -10,8 +10,12 @@ import time
 from collections import defaultdict, deque
 from contextlib import nullcontext
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import torch
+
+if TYPE_CHECKING:
+    from unilab.ipc.dp_sync import DpParameterSync
 
 from unilab.algos.torch.offpolicy.runner import (
     OffPolicyRunner,
@@ -116,6 +120,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         *,
         replay_prefetch_mode: str = "one_tick",
         collector_cpu_ids: list[int] | None = None,
+        dp_sync: DpParameterSync | None = None,
+        dp_sync_interval: int = 8,
         **kwargs,
     ):
         kwargs["device"] = require_offpolicy_replay_device(kwargs.get("device"))
@@ -128,6 +134,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         # Per-rank CPU block owned by this rank's collector (multi-GPU DP);
         # merged into the collector-only env override at collector startup.
         self.collector_cpu_ids = list(collector_cpu_ids) if collector_cpu_ids is not None else None
+        # Multi-GPU data-parallel parameter sync (None = single-rank default,
+        # bit-identical to the pre-DP behavior). Sync happens only at learner
+        # update boundaries — init broadcast before the collector starts, then
+        # an in-place all-reduce mean every dp_sync_interval iterations.
+        self.dp_sync = dp_sync
+        self.dp_sync_interval = int(dp_sync_interval)
+        if self.dp_sync is not None and self.dp_sync_interval < 1:
+            raise ValueError(f"dp_sync_interval must be >= 1, got {dp_sync_interval}")
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
         self.replay_h2d_submitter = "auto"
@@ -139,6 +153,46 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "collector_torch_inference": False,
             "learner_actor_reused": True,
         }
+        if self.dp_sync is not None:
+            self.runtime_manifest["dp_sync"] = {
+                "world_size": self.dp_sync.world_size,
+                "interval": self.dp_sync_interval,
+                "backend": self.dp_sync.backend,
+            }
+
+    def _dp_sync_tensors(self) -> dict[str, torch.Tensor]:
+        """Live parameter references handed to the DP collectives."""
+        dp_sync_tensors = getattr(self.learner, "dp_sync_tensors", None)
+        if not callable(dp_sync_tensors):
+            raise TypeError(
+                f"{type(self.learner).__name__} must implement dp_sync_tensors() "
+                "for multi-GPU data-parallel parameter sync"
+            )
+        return cast(dict[str, torch.Tensor], dp_sync_tensors())
+
+    def _dp_init_broadcast(self) -> None:
+        """Align initial parameters from rank 0 before the collector starts.
+
+        Ranks train with per-rank seeds, so without this broadcast each
+        rank's actor would serve different inference from the first tick.
+        """
+        if self.dp_sync is None:
+            return
+        self.dp_sync.start()
+        self.dp_sync.broadcast_from_rank0(self._dp_sync_tensors())
+
+    def _maybe_dp_sync(self, iteration: int, iter_metrics: defaultdict[str, list]) -> None:
+        """All-reduce parameter means at the configured update boundary."""
+        if self.dp_sync is None or iteration % self.dp_sync_interval != 0:
+            return
+        sync_start = time.perf_counter()
+        self.dp_sync.allreduce_mean(self._dp_sync_tensors())
+        iter_metrics["dp_sync_time"].append(time.perf_counter() - sync_start)
+
+    def close(self) -> None:
+        if self.dp_sync is not None:
+            self.dp_sync.close()
+        super().close()
 
     def _collector_env_cfg_override(self) -> dict | None:
         """Env override copy for the collector process, with per-rank CPU ids.
@@ -577,6 +631,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
             metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
+            # --- DP init broadcast must land before the collector's first ---
+            # --- inference request reaches learner.actor ---
+            self._dp_init_broadcast()
+
             # --- start collector ---
             collector_kwargs = {
                 "env_name": self.env_name,
@@ -908,6 +966,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 train_time = time.perf_counter() - train_start
                 self.learner.update_count += 1
                 inference_scheduler.finish_update()
+                # DP parameter averaging sits at the update boundary: the
+                # update phase is done and the next iteration's inference
+                # tick has not started (strict learner/inference time-share).
+                self._maybe_dp_sync(iteration, iter_metrics)
                 if trace_recorder:
                     trace_recorder.add_counter(
                         "replay_size",
