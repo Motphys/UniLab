@@ -327,6 +327,41 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     raise _CollectorDiedError(f"{label} (collector dead)")
                 # else loop & retry until deadline
 
+    def _release_inference_tick(
+        self,
+        queue,
+        *,
+        inference_scheduler: _LearnerInferenceScheduler,
+        replay_buffer,
+        trace_recorder: TraceRecorder | None,
+    ) -> int | None:
+        """Release the action immediately and freeze the next replay boundary."""
+        tick_id = inference_scheduler.release_pending()
+        next_prepare_min_snapshot_ptr = None
+        if inference_scheduler.update_ready:
+            next_prepare_min_snapshot_ptr = replay_buffer.published_ptr + (
+                self.num_envs * self.env_steps_per_sync
+            )
+        release_start_ns = time.perf_counter_ns()
+        self._publish_inference_response(
+            queue,
+            value=tick_id,
+            label="inference_response",
+        )
+        if trace_recorder:
+            trace_recorder.add_slice(
+                "learner/inference_response",
+                category="learner_inference",
+                start_ns=release_start_ns,
+                end_ns=time.perf_counter_ns(),
+                args={
+                    "tick_id": tick_id,
+                    "policy_version": inference_scheduler.policy_version,
+                    "next_prepare_min_snapshot_ptr": next_prepare_min_snapshot_ptr,
+                },
+            )
+        return next_prepare_min_snapshot_ptr
+
     def _wait_for_replay_batch_ready(
         self,
         replay_pipeline,
@@ -586,6 +621,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 inference_forward_time = 0.0
                 inference_d2h_time = 0.0
                 inference_time = 0.0
+                next_prepare_min_snapshot_ptr: int | None = None
                 while True:
                     request_tick = self._wait_for_inference_request(
                         inference_request_queue,
@@ -614,6 +650,18 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     inference_time += inference_timings["inference_time"]
                     collector_wait_overhead += inference_timings["inference_time"]
                     inference_scheduler.record_inference(request_tick)
+                    _coord_t = time.perf_counter()
+                    frozen_prepare_ptr = self._release_inference_tick(
+                        inference_response_queue,
+                        inference_scheduler=inference_scheduler,
+                        replay_buffer=replay_buffer,
+                        trace_recorder=trace_recorder,
+                    )
+                    _coord_d = time.perf_counter() - _coord_t
+                    sync_coordination_time += _coord_d
+                    collector_wait_overhead += _coord_d
+                    if frozen_prepare_ptr is not None:
+                        next_prepare_min_snapshot_ptr = frozen_prepare_ptr
 
                     self._drain_metrics(
                         metrics_queue,
@@ -640,15 +688,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         _fill_t = time.perf_counter()
                         logger.log_buffer_fill(cur_size, train_start_threshold)
                         collector_wait_overhead += time.perf_counter() - _fill_t
-                    _coord_t = time.perf_counter()
-                    self._publish_inference_response(
-                        inference_response_queue,
-                        value=inference_scheduler.release_pending(),
-                        label="warmup_response",
-                    )
-                    _coord_d = time.perf_counter() - _coord_t
-                    sync_coordination_time += _coord_d
-                    collector_wait_overhead += _coord_d
 
                 collector_wait_time = time.perf_counter() - wait_start - collector_wait_overhead
                 if trace_recorder:
@@ -728,22 +767,16 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         getattr(replay_pipeline, "last_incremental_h2d_time_s", 0.0)
                     )
                     if iteration < max_iterations:
-                        min_snapshot_ptr = int(replay_buffer.ptr[0]) + (
-                            self.num_envs * self.env_steps_per_sync
-                        )
+                        if next_prepare_min_snapshot_ptr is None:
+                            raise RuntimeError(
+                                "Off-policy replay prefetch lost the inference update boundary"
+                            )
                         replay_pipeline.start_prepare(
                             iteration + 1,
                             sample_count,
-                            min_snapshot_ptr=min_snapshot_ptr,
+                            min_snapshot_ptr=next_prepare_min_snapshot_ptr,
                         )
                         prepared_tick = iteration + 1
-                    _sync_coord_start = time.perf_counter()
-                    self._publish_inference_response(
-                        inference_response_queue,
-                        value=inference_scheduler.release_pending(),
-                        label="update_response",
-                    )
-                    sync_coordination_time += time.perf_counter() - _sync_coord_start
                     if trace_recorder:
                         trace_recorder.add_slice(
                             "learner/replay_sample",

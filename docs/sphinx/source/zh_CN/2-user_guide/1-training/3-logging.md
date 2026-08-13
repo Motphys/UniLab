@@ -74,18 +74,19 @@ off-policy 配置暴露了 trace 字段，例如 `training.trace_enabled`、
 
 off-policy（SAC / TD3 / FlashSAC 与 APPO）把 learner loop 记录为已命名的墙钟阶段，所以 `Train` 可以直接看作完整迭代的占比，而不是只和 wait 指标比较。
 
-| 终端字段 | TensorBoard / W&B key | 含义 |
+| 计时阶段 | TensorBoard / W&B key | 含义 |
 | --- | --- | --- |
 | Collector Wait | `timing/learner_collector_wait_ms` | 等待 collector 提交下一次 inference request 并产出可训练数据；APPO 稳态下 ≈0，off-policy 同步路径按配置等待 collection chunk |
 | Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | 等上一轮末尾 prefetch 的 device batch 就绪（ingress commit + side-stream gather）；预取命中 ≈0，非零说明 device replay 流水线跟不上 learner 的消费速度 |
 | Replay Sample | `timing/learner_replay_sample_ms` | 消费已 gather 完成的 hot device batch（hot/cold 槽交换 + view）；CUDA 下 ≈0，MPS 下含 slot event 同步 |
-| Collector Release | `timing/learner_collector_release_ms` | learner 向同步 collector 发送 release token 的耗时；阻塞说明 collector 还没消费上一个 release |
+| Inference Total | `timing/inference_total_ms` | learner-owned inference 的 Observation H2D、actor forward 与 Action D2H 总耗时 |
+| Collector Release | `timing/learner_collector_release_ms` | learner 在 Action D2H 后立即向同步 collector 发送 response token 的耗时；阻塞说明 collector 还没消费上一个 response |
 | H2D Copy | `timing/learner_incremental_h2d_ms` | bounded ingress 增量拷入 authoritative device ring 的提交耗时（CUDA：后台线程 non_blocking 提交；MPS：learner 线程阻塞拷贝）；这部分工作在 CUDA 下与 Train 并行、或已发生在 Collector Wait / Replay Batch Wait 内，因此该行是诊断项，与其他 learner 行不严格可加 |
 | Train | `timing/learner_train_ms` | 纯 SGD 计算耗时 |
 | Weight Publish | `timing/learner_weight_publish_ms` | 仅 APPO：把 actor 新权重写入共享内存给其 collector；learner-owned off-policy inference 下为 0 |
 | Iter Wall | `perf/iter_ms` | 整圈迭代墙钟，非各分量之和 |
 
-终端所有 learner 行都显示右对齐的 `ms` 与占 `Iter Wall` 百分比。后端额外记录 `perf/learner_train_pct`、`perf/learner_accounted_pct`、`perf/learner_other_pct` 和 `timing/learner_other_ms`；后两者是 residual 诊断，不占终端行。另有 `perf/learner_pipeline_ms` = learner inference + H2D + Train + APPO Weight Publish。原 `timing/learner_wait_ms` 已更名为 `timing/learner_collector_wait_ms`；原 `timing/learner_sync_coordination_ms`、`timing/learner_weight_sync_ms` 已更名为 `timing/learner_collector_release_ms`、`timing/learner_weight_publish_ms`。
+终端常驻 `Collector Wait`、`Inference Total`（适用时）、`Train` 和 `Iter Wall`，用于直接判断 collector/CPU 等待、GPU inference 与训练占比。其余诊断阶段仅在占 `Iter Wall` 至少 1% 时出现，避免长期低占比指标挤占终端；TensorBoard / W&B 仍逐轮记录表中所有阶段。终端行都显示右对齐的 `ms` 与占 `Iter Wall` 百分比。后端额外记录 `perf/learner_train_pct`、`perf/learner_accounted_pct`、`perf/learner_other_pct` 和 `timing/learner_other_ms`；后两者是 residual 诊断，不占终端行。另有 `perf/learner_pipeline_ms` = learner inference + H2D + Train + APPO Weight Publish。原 `timing/learner_wait_ms` 已更名为 `timing/learner_collector_wait_ms`；原 `timing/learner_sync_coordination_ms`、`timing/learner_weight_sync_ms` 已更名为 `timing/learner_collector_release_ms`、`timing/learner_weight_publish_ms`。
 
 collector 进程在终端 Collector 列、TensorBoard `timing/collector_*` 上报各阶段耗时；终端每行同时显示占单步采集周期（下列各行之和）的百分比。SAC / TD3 / FlashSAC：
 
@@ -130,15 +131,15 @@ sequenceDiagram
     I-->>L: Observation H2D
     L->>L: learner.actor.explore()
     L->>I: Action D2H + policy_version
-    L->>R: 等待并取得预取的 hot batch
-    R-->>L: iteration k 的 device batch
     L->>I: 发布 inference response(t)
 
     par Collector 采集 transition_t
         I-->>C: 消费 action_t
         C->>C: env.step / reset / postprocess
         C->>R: 写入 bounded replay ingress
-    and Learner 固定更新阶段
+    and Learner replay 与固定更新阶段
+        L->>R: Replay Batch Wait / side-stream gather
+        R-->>L: iteration k 的 hot device batch
         L->>L: updates_per_step 次 critic / actor / target 更新
         L->>L: 完成后 policy_version += 1
     end
@@ -147,11 +148,13 @@ sequenceDiagram
 ```
 
 `Observation H2D`、`learner.actor.explore()` 和 `Action D2H` 分别对应
-`Inference H2D`、`Inference Forward` 和 `Inference D2H`。learner 发布 response 后，
-collector 的 `Env Step` / `Replay Write` 与 learner 的 `Train` 并行；本 tick 写入的
-`transition_t` 进入 replay 供后续采样，并不要求被 iteration k 立即消费。若 collector
-先完成，它可以提交 tick t+1 的 request，但 learner 会等当前更新阶段结束后才处理，
-所以 `Inference Barrier Wait` 同时可能包含 learner inference 和剩余 update 时间。
+`Inference H2D`、`Inference Forward` 和 `Inference D2H`。learner 在 Action D2H 后立即
+发布 response，因此 collector 的 `Env Step` / `Replay Write` 不仅与 `Train` 并行，
+也与 learner 的 `Replay Batch Wait` / side-stream gather 重叠。本 tick 写入的
+`transition_t` 进入 replay 供后续采样，并不要求被 iteration k 立即消费；下一轮
+prefetch 的最小 snapshot 边界在发布 response 前冻结，不受两侧执行快慢影响。若
+collector 先完成，它可以提交 tick t+1 的 request，但 learner 会等当前更新阶段结束后
+才处理，所以 `Inference Barrier Wait` 同时可能包含 learner inference 和剩余 update 时间。
 
 APPO 沿用 ring buffer，collector 上报两个**单步** EMA 和一个**整条 rollout** 的总时间：
 
@@ -195,4 +198,4 @@ gantt
 
 > 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`perf/iter_ms` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Publish 标志该轮迭代结束、向 collector 发布新权重。
 
-所有 off-policy 终端视图都使用同一套数值格式。Replay Batch Wait 只在单 device / double-buffer 预取 miss 非零时显示；Collector Release 用于同步的 learner-owned inference 路径。
+所有 off-policy 终端视图都使用同一套数值格式。Replay Batch Wait 和 Collector Release 等诊断阶段达到 1% 阈值时才显示；Collector Release 适用于同步的 learner-owned inference 路径。
