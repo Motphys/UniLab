@@ -32,7 +32,7 @@ Run:
 
     # tuning / passthrough overrides:
     uv run benchmark/rl/benchmark_offpolicy_dp_scaling.py \
-        --iterations 300 --sync-interval 8 --devices 0,1 \
+        --iterations 300 --devices 0,1 \
         --extra-overrides algo.num_envs=2048 \
         --out-json benchmark/outputs/offpolicy_dp_scaling/results.json
 """
@@ -69,7 +69,6 @@ REWARD_TAG = "reward/mean"
 DP_SYNC_TIME_TAG = "train/dp_sync_time"
 
 DEFAULT_ITERATIONS = 300
-DEFAULT_SYNC_INTERVAL = 8
 DEFAULT_DEVICES = "0,1"
 
 # Roadmap #964 acceptance target for 2-way data-parallel aggregate throughput.
@@ -189,7 +188,6 @@ def build_train_command(
     *,
     iterations: int,
     devices: Sequence[int] | None = None,
-    sync_interval: int = DEFAULT_SYNC_INTERVAL,
     extra_overrides: Sequence[str] = (),
 ) -> list[str]:
     """Subprocess argv matching the production off-policy CLI overrides.
@@ -207,7 +205,6 @@ def build_train_command(
     ]
     if devices is not None:
         command.append(f"training.devices=[{','.join(str(d) for d in devices)}]")
-        command.append(f"training.dp_sync_interval={sync_interval}")
     command.extend(extra_overrides)
     return command
 
@@ -291,7 +288,6 @@ def run_config(
     devices: Sequence[int] | None,
     *,
     iterations: int,
-    sync_interval: int,
     extra_overrides: Sequence[str],
     runs_root: Path,
 ) -> dict[str, Any]:
@@ -314,7 +310,6 @@ def run_config(
             run_dir,
             iterations=iterations,
             devices=devices,
-            sync_interval=sync_interval,
             extra_overrides=extra_overrides,
         )
         print(f"[{name}] launching: {' '.join(command)}", flush=True)
@@ -346,7 +341,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Off-policy multi-GPU data-parallel scaling benchmark (issue #968)."
     )
     parser.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS)
-    parser.add_argument("--sync-interval", type=int, default=DEFAULT_SYNC_INTERVAL)
     parser.add_argument(
         "--devices",
         default=DEFAULT_DEVICES,
@@ -391,7 +385,6 @@ def main(argv: list[str] | None = None) -> int:
             name,
             config_devices,
             iterations=args.iterations,
-            sync_interval=args.sync_interval,
             extra_overrides=tuple(args.extra_overrides),
             runs_root=DEFAULT_RUNS_ROOT,
         )
@@ -468,7 +461,6 @@ def main(argv: list[str] | None = None) -> int:
             "params": {
                 "route_overrides": list(ROUTE_OVERRIDES),
                 "iterations": args.iterations,
-                "sync_interval": args.sync_interval,
                 "devices": devices,
                 "extra_overrides": list(args.extra_overrides),
                 "scaling_pass_threshold": SCALING_PASS_THRESHOLD,

@@ -11,7 +11,7 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any, Dict, Tuple, cast
 
@@ -444,6 +444,8 @@ class FastSACLearner:
         requested_cuda_graph_critic_packed_staging = bool(use_cuda_graph_critic_packed_staging)
         requested_cuda_graph_actor_packed_staging = bool(use_cuda_graph_actor_packed_staging)
         self.use_cuda_graph_actor = bool(use_cuda_graph_actor) and self._device_type == "cuda"
+        self._gradient_sync: Callable[[Iterable[torch.Tensor]], None] | None = None
+        self.dp_cuda_graph_fallback = False
         self.nvtx_profile_ranges = bool(nvtx_profile_ranges) and self._device_type == "cuda"
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
@@ -1379,6 +1381,7 @@ class FastSACLearner:
             if self.scaler:
                 with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
                     self.scaler.scale(qf_loss).backward()
+                self._sync_gradients(self.qnet.parameters())
                 self.scaler.unscale_(self.q_optimizer)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
@@ -1393,6 +1396,7 @@ class FastSACLearner:
             else:
                 with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
                     qf_loss.backward()
+                self._sync_gradients(self.qnet.parameters())
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
                         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1415,6 +1419,7 @@ class FastSACLearner:
                 if torch.isfinite(alpha_loss):
                     with _cuda_nvtx_range("critic/alpha_backward", self.nvtx_profile_ranges):
                         alpha_loss.backward()
+                    self._sync_gradients((self.log_alpha,))
                     with _cuda_nvtx_range("critic/alpha_optimizer_step", self.nvtx_profile_ranges):
                         self.alpha_optimizer.step()
 
@@ -1451,6 +1456,7 @@ class FastSACLearner:
             if self.scaler:
                 with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
                     self.scaler.scale(actor_loss).backward()
+                self._sync_gradients(self.actor.parameters())
                 self.scaler.unscale_(self.actor_optimizer)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
@@ -1465,6 +1471,7 @@ class FastSACLearner:
             else:
                 with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
                     actor_loss.backward()
+                self._sync_gradients(self.actor.parameters())
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
                         actor_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1497,16 +1504,35 @@ class FastSACLearner:
                     for tgt, src in zip(target_params, source_params):
                         tgt.mul_(1.0 - self.tau).add_(src, alpha=self.tau)
 
-    def dp_sync_tensors(self) -> Dict[str, torch.Tensor]:
-        """Tensors synchronized across data-parallel ranks, as live references.
+    def set_gradient_sync(
+        self,
+        sync: Callable[[Iterable[torch.Tensor]], None] | None,
+    ) -> None:
+        """Attach the per-optimizer gradient collective used by multi-GPU DP."""
+        self.dp_cuda_graph_fallback = bool(
+            sync is not None and (self.use_cuda_graph_critic or self.use_cuda_graph_actor)
+        )
+        if self.dp_cuda_graph_fallback:
+            self.use_cuda_graph_critic = False
+            self.use_cuda_graph_actor = False
+            self.use_cuda_graph_critic_packed_staging = False
+            self.use_cuda_graph_actor_packed_staging = False
+            self._reset_critic_cuda_graph()
+            self._reset_actor_cuda_graph()
+        self._gradient_sync = sync
+
+    def _sync_gradients(self, parameters: Iterable[torch.Tensor]) -> None:
+        if self._gradient_sync is not None:
+            self._gradient_sync(parameters)
+
+    def dp_initial_sync_tensors(self) -> Dict[str, torch.Tensor]:
+        """Model state broadcast once from rank 0 before collection starts.
 
         The values alias the parameter/buffer storage of ``actor``, ``qnet``
         and ``qnet_target`` (plus the ``log_alpha`` leaf) rather than copies,
-        so the DP collectives (``unilab.ipc.dp_sync.DpParameterSync``) update
-        the model in place — required because CUDA-graph capture pins
-        parameter addresses. Optimizer state (AdamW moments) is deliberately
-        excluded: sync is parameter-level, each rank keeps its own optimizer
-        state, and the moments diverge across ranks by design.
+        so startup broadcast updates the model in place. Optimizer state starts
+        empty and remains aligned because every actual optimizer update uses
+        the same cross-rank mean gradient.
         """
         tensors: Dict[str, torch.Tensor] = {}
         for prefix, module in (

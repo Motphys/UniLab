@@ -1,22 +1,23 @@
-"""Periodic parameter averaging across data-parallel ranks (torch.distributed).
+"""Synchronous gradient averaging across data-parallel ranks.
 
 Multi-GPU data-parallel off-policy training runs one independent
-learner+collector pair per rank (see ``dp_launcher.py``). Ranks start from
-different initial parameters (seed = cfg.algo.seed + rank), so the runner
-broadcasts rank 0's parameters before the collector starts, then averages
-actor/critic parameters every ``dp_sync_interval`` learner iterations at the
-update boundary (never overlapping an inference tick).
+learner+collector pair per rank (see ``dp_launcher.py``). The runner broadcasts
+rank 0's model state before collection starts. During steady-state training,
+each learner averages the actor/critic/temperature gradients immediately after
+``backward()`` and before clipping or ``optimizer.step()``.
 
-This module owns the process-group lifecycle, parameter collectives, and the
-small scalar reduction used by the canonical rank-0 logger. The runner decides
-when to call them. Synchronization is parameter-level by design: gradients are
-never exchanged and each rank keeps its own optimizer state (AdamW moments
-diverge across ranks — see ``FastSACLearner.dp_sync_tensors``).
+This module owns the process-group lifecycle, the startup parameter broadcast,
+flat-gradient collectives, and the small scalar reduction used by the canonical
+rank-0 logger. Optimizer state is not communicated: identical initialization
+and identical averaged gradients keep each rank's optimizer state aligned.
 """
 
 from __future__ import annotations
 
 import datetime
+import json
+import time
+from collections.abc import Iterable
 from typing import cast
 
 import torch
@@ -24,13 +25,9 @@ import torch.distributed as dist
 
 
 class DpParameterSync:
-    """torch.distributed process group for DP parameter broadcast/averaging.
+    """Process group for startup state broadcast and steady-state gradients.
 
-    Both collectives mutate the given tensors **in place**: CUDA-graph capture
-    pins parameter addresses and AMP master weights stay fp32, so after an
-    in-place all-reduce every rank already holds the mean with no write-back.
-
-    The synchronization key order is frozen on the first collective
+    The startup synchronization key order is frozen on the first collective
     (``sorted(keys)``) so every rank walks the identical sequence without
     re-sorting per call; a later call with a different key set is a bug and
     raises ValueError.
@@ -58,6 +55,8 @@ class DpParameterSync:
         self.timeout_s = int(timeout_s)
         self._key_order: tuple[str, ...] | None = None
         self._statistics_schema: dict[str, str] = {}
+        self._gradient_sync_time_sec = 0.0
+        self._gradient_sync_calls = 0
         self._started = False
 
     def start(self) -> None:
@@ -76,7 +75,7 @@ class DpParameterSync:
         wins): on hosts with broken NCCL peer transport (e.g. RTX 6000D on
         current drivers, where P2P hangs and SHM triggers CUDA illegal
         memory access) the TCP loopback transport is the only reliable
-        path, and it is fast enough for periodic parameter averaging.
+        path.
         """
         if self._started:
             return
@@ -102,13 +101,60 @@ class DpParameterSync:
             for key in self._ordered_keys(tensors):
                 dist.broadcast(tensors[key], src=0)
 
-    def allreduce_mean(self, tensors: dict[str, torch.Tensor]) -> None:
-        """Replace every tensor with the cross-rank mean, in place."""
-        with torch.no_grad():
-            for key in self._ordered_keys(tensors):
-                tensor = tensors[key]
-                dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-                tensor.div_(self.world_size)
+    def allreduce_gradients(self, parameters: Iterable[torch.Tensor]) -> None:
+        """Average one optimizer's gradients with one flat all-reduce.
+
+        Existing gradients are packed in parameter order, matching the manual
+        collective used by Holosoma FastSAC. All ranks must execute the same
+        optimizer graph and therefore present the same gradient layout.
+        """
+        sync_start = time.perf_counter()
+        params = [
+            parameter
+            for parameter in parameters
+            if parameter.requires_grad and parameter.grad is not None
+        ]
+        if not params:
+            raise ValueError("gradient synchronization requires at least one existing gradient")
+
+        device = params[0].device
+        dtype = params[0].dtype
+        for parameter in params:
+            if parameter.device != device or parameter.dtype != dtype:
+                raise ValueError(
+                    "one flat gradient collective requires matching parameter devices and dtypes"
+                )
+
+        gradient_numel = sum(parameter.numel() for parameter in params)
+        packed = torch.empty(gradient_numel, device=device, dtype=dtype)
+        offset = 0
+        for parameter in params:
+            width = parameter.numel()
+            gradient = parameter.grad
+            assert gradient is not None
+            packed[offset : offset + width].copy_(gradient.detach().reshape(-1))
+            offset += width
+
+        dist.all_reduce(packed, op=dist.ReduceOp.SUM)
+        packed.div_(self.world_size)
+
+        offset = 0
+        for parameter in params:
+            width = parameter.numel()
+            gradient = parameter.grad
+            assert gradient is not None
+            gradient.copy_(packed[offset : offset + width].view_as(parameter))
+            offset += width
+
+        self._gradient_sync_time_sec += time.perf_counter() - sync_start
+        self._gradient_sync_calls += 1
+
+    def take_gradient_sync_metrics(self) -> tuple[float, int]:
+        """Return and reset this rank's gradient-sync time and call count."""
+        metrics = (self._gradient_sync_time_sec, self._gradient_sync_calls)
+        self._gradient_sync_time_sec = 0.0
+        self._gradient_sync_calls = 0
+        return metrics
 
     def allreduce_statistics(
         self,
@@ -125,9 +171,8 @@ class DpParameterSync:
         exchange happens only when a new field appears; the steady-state path
         is two small collectives (schema-change flag + packed scalar reduce).
 
-        This collective is intentionally separate from parameter averaging:
-        logging is aggregated every learner iteration while model parameters
-        retain the configured ``dp_sync_interval`` semantics.
+        This collective is intentionally separate from per-optimizer gradient
+        averaging: logging is aggregated once per outer learner iteration.
         """
         mean = dict(mean or {})
         total = dict(total or {})
@@ -150,12 +195,9 @@ class DpParameterSync:
         )
         dist.all_reduce(changed_tensor, op=dist.ReduceOp.MAX)
         if bool(changed_tensor.item()):
-            gathered: list[object | None] = [None] * self.world_size
-            dist.all_gather_object(gathered, tuple(sorted(local_schema.items())))
             merged = dict(self._statistics_schema)
-            for rank_schema in gathered:
-                assert rank_schema is not None
-                for key, reduction in cast(tuple[tuple[str, str], ...], rank_schema):
+            for rank_schema in self._gather_statistics_schemas(local_schema, device=device):
+                for key, reduction in rank_schema:
                     existing = merged.get(key)
                     if existing is not None and existing != reduction:
                         raise ValueError(
@@ -190,6 +232,47 @@ class DpParameterSync:
                 value /= count
             aggregated[key] = value
         return aggregated
+
+    def _gather_statistics_schemas(
+        self,
+        local_schema: dict[str, str],
+        *,
+        device: torch.device,
+    ) -> list[tuple[tuple[str, str], ...]]:
+        """Exchange sparse logger schemas without NCCL object collectives.
+
+        ``all_gather_object`` stages pickle payloads through an NCCL all-gather.
+        That path is both unnecessary for this string-only schema and has
+        caused CUDA out-of-range-address faults on supported multi-GPU hosts.
+        Rank-ordered byte broadcasts keep the exchange deterministic and use
+        the same well-tested NCCL primitive as the startup model sync.
+        """
+        payload = json.dumps(
+            sorted(local_schema.items()),
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        local_payload = torch.tensor(list(payload), dtype=torch.uint8, device=device)
+        gathered: list[tuple[tuple[str, str], ...]] = []
+
+        for source_rank in range(self.world_size):
+            payload_size = torch.tensor(
+                [len(payload) if self.rank == source_rank else 0],
+                dtype=torch.int64,
+                device=device,
+            )
+            dist.broadcast(payload_size, src=source_rank)
+            size = int(payload_size.item())
+            rank_payload = torch.empty(size, dtype=torch.uint8, device=device)
+            if self.rank == source_rank:
+                rank_payload.copy_(local_payload)
+            dist.broadcast(rank_payload, src=source_rank)
+
+            decoded = json.loads(bytes(rank_payload.cpu().tolist()).decode("utf-8"))
+            gathered.append(
+                tuple((cast(str, key), cast(str, reduction)) for key, reduction in decoded)
+            )
+        return gathered
 
     def close(self) -> None:
         """Destroy the process group; idempotent and safe before start()."""

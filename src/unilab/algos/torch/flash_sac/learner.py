@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -193,6 +194,8 @@ class FlashSACLearner:
         )
         self.use_cuda_graph_critic = bool(use_cuda_graph_critic)
         self.use_cuda_graph_actor = bool(use_cuda_graph_actor)
+        self._gradient_sync: Callable[[Iterable[torch.Tensor]], None] | None = None
+        self.dp_cuda_graph_fallback = False
         self.use_cuda_graph_critic_packed_staging = bool(
             use_cuda_graph_critic_packed_staging and self.use_cuda_graph_critic
         )
@@ -978,11 +981,13 @@ class FlashSACLearner:
         self.critic_optimizer.zero_grad(set_to_none=True)
         if self.scaler is not None:
             self.scaler.scale(critic_loss).backward()
+            self._sync_gradients(self.critic.parameters())
             self.scaler.unscale_(self.critic_optimizer)
             self.scaler.step(self.critic_optimizer)
             self.scaler.update()
         else:
             critic_loss.backward()
+            self._sync_gradients(self.critic.parameters())
             self.critic_optimizer.step()
         self.critic_scheduler.step()
         self.critic.normalize_parameters()
@@ -1022,11 +1027,13 @@ class FlashSACLearner:
         self.actor_optimizer.zero_grad(set_to_none=True)
         if self.scaler is not None:
             self.scaler.scale(actor_loss).backward()
+            self._sync_gradients(self.actor.parameters())
             self.scaler.unscale_(self.actor_optimizer)
             self.scaler.step(self.actor_optimizer)
             self.scaler.update()
         else:
             actor_loss.backward()
+            self._sync_gradients(self.actor.parameters())
             self.actor_optimizer.step()
         self.actor_scheduler.step()
         self.actor.normalize_parameters()
@@ -1035,6 +1042,7 @@ class FlashSACLearner:
         temp_loss = temp_value * (entropy - self.target_entropy)
         self.temperature_optimizer.zero_grad(set_to_none=True)
         temp_loss.backward()
+        self._sync_gradients(self.temperature.parameters())
         self.temperature_optimizer.step()
         self.temperature_scheduler.step()
 
@@ -1052,17 +1060,35 @@ class FlashSACLearner:
             ):
                 target_param.data.mul_(1.0 - self.tau).add_(param.data, alpha=self.tau)
 
-    def dp_sync_tensors(self) -> dict[str, torch.Tensor]:
-        """Tensors synchronized across data-parallel ranks, as live references.
+    def set_gradient_sync(
+        self,
+        sync: Callable[[Iterable[torch.Tensor]], None] | None,
+    ) -> None:
+        """Attach the per-optimizer gradient collective used by multi-GPU DP."""
+        self.dp_cuda_graph_fallback = bool(
+            sync is not None and (self.use_cuda_graph_critic or self.use_cuda_graph_actor)
+        )
+        if self.dp_cuda_graph_fallback:
+            self.use_cuda_graph_critic = False
+            self.use_cuda_graph_actor = False
+            self.use_cuda_graph_critic_packed_staging = False
+            self.use_cuda_graph_actor_packed_staging = False
+            self._reset_critic_cuda_graph()
+            self._reset_actor_cuda_graph()
+        self._gradient_sync = sync
+
+    def _sync_gradients(self, parameters: Iterable[torch.Tensor]) -> None:
+        if self._gradient_sync is not None:
+            self._gradient_sync(parameters)
+
+    def dp_initial_sync_tensors(self) -> dict[str, torch.Tensor]:
+        """Model state broadcast once from rank 0 before collection starts.
 
         The values alias the parameter/buffer storage of ``actor``, ``critic``,
-        ``target_critic`` and ``temperature`` rather than copies, so the DP
-        collectives (``unilab.ipc.dp_sync.DpParameterSync``) update the model
-        in place — required because CUDA-graph capture pins parameter
-        addresses. Optimizer state (Adam moments) and the observation/reward
-        normalizers' running statistics are deliberately excluded: sync is
-        parameter-level, each rank keeps its own optimizer state and running
-        statistics, and they diverge across ranks by design.
+        ``target_critic`` and ``temperature`` rather than copies. Optimizer
+        state starts empty and remains aligned because every actual optimizer
+        update uses the same cross-rank mean gradient. Observation/reward
+        normalizer statistics remain rank-local.
         """
         tensors: dict[str, torch.Tensor] = {}
         for prefix, module in (

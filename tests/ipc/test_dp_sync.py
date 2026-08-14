@@ -17,8 +17,8 @@ _SPAWN_CTX = mp.get_context("spawn")
 def _make_tensors(rank: int, *, reversed_order: bool = False) -> dict[str, torch.Tensor]:
     """Deterministic per-rank tensors; distinct values and shapes per key."""
     entries = [
-        ("actor.net.weight", torch.full((4, 3), 1.0 + rank)),
-        ("qnet.head.bias", torch.full((2,), 10.0 + rank)),
+        ("actor.net.weight", torch.full((4, 3), 1.0 + rank, requires_grad=True)),
+        ("qnet.head.bias", torch.full((2,), 10.0 + rank, requires_grad=True)),
         ("log_alpha", torch.full((1,), -0.5 + rank, requires_grad=True)),
     ]
     if reversed_order:
@@ -26,7 +26,7 @@ def _make_tensors(rank: int, *, reversed_order: bool = False) -> dict[str, torch
     return dict(entries)
 
 
-def _broadcast_and_allreduce_worker(
+def _broadcast_and_gradient_worker(
     rank: int, rendezvous_path: str, reversed_order: bool, result_queue
 ) -> None:
     tensors = _make_tensors(rank, reversed_order=reversed_order)
@@ -47,33 +47,34 @@ def _broadcast_and_allreduce_worker(
             f"rank {rank} broadcast mismatch on {key}"
         )
 
-    # In-place semantics: allreduce_mean must not rebind the storage.
-    ptrs_before = {key: tensor.data_ptr() for key, tensor in tensors.items()}
+    grad_ptrs: dict[str, int] = {}
+    gradient_base = {"actor.net.weight": 1.0, "qnet.head.bias": 2.0, "log_alpha": 3.0}
+    for key, tensor in tensors.items():
+        tensor.grad = torch.full_like(tensor, gradient_base[key] + 2.0 * rank)
+        grad_ptrs[key] = tensor.grad.data_ptr()
+    sync.allreduce_gradients(tensors[key] for key in sorted(tensors))
+    for key, tensor in tensors.items():
+        assert tensor.grad is not None
+        assert torch.allclose(tensor.grad, torch.full_like(tensor, gradient_base[key] + 1.0))
+        assert tensor.grad.data_ptr() == grad_ptrs[key]
 
-    # Per-rank perturbation -> allreduce_mean lands on the cross-rank mean.
-    for key, tensor in tensors.items():
-        with torch.no_grad():
-            tensor.add_(float(rank + 1))
-    sync.allreduce_mean(tensors)
-    for key, tensor in tensors.items():
-        base = expected[key].detach()
-        assert torch.allclose(tensor.detach(), base + 1.5), (
-            f"rank {rank} allreduce mismatch on {key}"
-        )
-        assert tensor.data_ptr() == ptrs_before[key], f"{key} was not updated in place"
+    sync_time, sync_calls = sync.take_gradient_sync_metrics()
+    assert sync_time >= 0.0
+    assert sync_calls == 1
+    assert sync.take_gradient_sync_metrics() == (0.0, 0)
 
     sync.close()
     sync.close()  # idempotent
     result_queue.put((rank, sorted(tensors)))
 
 
-def test_broadcast_then_allreduce_mean_two_ranks(tmp_path: Path):
+def test_broadcast_then_flat_gradient_mean_two_ranks(tmp_path: Path):
     rendezvous = str(tmp_path / "rendezvous")
     result_queue = _SPAWN_CTX.Queue()
     procs = [
         _SPAWN_CTX.Process(
-            target=_broadcast_and_allreduce_worker,
-            args=(rank, rendezvous, False, result_queue),
+            target=_broadcast_and_gradient_worker,
+            args=(rank, rendezvous, bool(rank), result_queue),
         )
         for rank in range(2)
     ]
@@ -84,42 +85,8 @@ def test_broadcast_then_allreduce_mean_two_ranks(tmp_path: Path):
     results = sorted(result_queue.get(timeout=10) for _ in procs)
     for proc in procs:
         assert proc.exitcode == 0
-    # Both ranks walked the same (sorted) key order.
+    # Different insertion order still resolves to the same startup key order.
     assert results[0][1] == results[1][1]
-
-
-def _key_order_worker(rank: int, rendezvous_path: str, result_queue) -> None:
-    # Insertion order differs per rank; the collective order must not.
-    tensors = _make_tensors(rank, reversed_order=bool(rank))
-    sync = DpParameterSync(
-        world_size=2,
-        rank=rank,
-        rendezvous_path=rendezvous_path,
-        backend="gloo",
-        timeout_s=60,
-    )
-    sync.start()
-    sync.allreduce_mean(tensors)
-    for key, tensor in tensors.items():
-        mean = (_make_tensors(0)[key].detach() + _make_tensors(1)[key].detach()) / 2
-        assert torch.allclose(tensor.detach(), mean), f"rank {rank} key-order mismatch on {key}"
-    sync.close()
-    result_queue.put(rank)
-
-
-def test_collective_key_order_is_insertion_order_independent(tmp_path: Path):
-    rendezvous = str(tmp_path / "rendezvous_key_order")
-    result_queue = _SPAWN_CTX.Queue()
-    procs = [
-        _SPAWN_CTX.Process(target=_key_order_worker, args=(rank, rendezvous, result_queue))
-        for rank in range(2)
-    ]
-    for proc in procs:
-        proc.start()
-    for proc in procs:
-        proc.join(timeout=120)
-    for proc in procs:
-        assert proc.exitcode == 0
 
 
 def _statistics_worker(rank: int, rendezvous_path: str, result_queue) -> None:
@@ -229,7 +196,7 @@ def test_resolve_dp_rendezvous_path_anchors_on_run_root(tmp_path: Path, monkeypa
 @pytest.mark.slow
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires 2 CUDA devices")
 def test_nccl_two_gpu_smoke(tmp_path: Path):
-    """Real NCCL smoke: parameters and logger statistics across two GPUs."""
+    """Real NCCL smoke: startup state, gradients, and logger statistics."""
     rendezvous = str(tmp_path / "rendezvous_nccl")
     result_queue = _SPAWN_CTX.Queue()
     procs = [
@@ -249,7 +216,7 @@ def test_nccl_two_gpu_smoke(tmp_path: Path):
 
 def _nccl_smoke_worker(rank: int, rendezvous_path: str, result_queue) -> None:
     device = torch.device(f"cuda:{rank}")
-    tensor = torch.full((8,), float(rank + 1), device=device)
+    tensor = torch.nn.Parameter(torch.full((8,), float(rank + 1), device=device))
     sync = DpParameterSync(
         world_size=2,
         rank=rank,
@@ -262,8 +229,9 @@ def _nccl_smoke_worker(rank: int, rendezvous_path: str, result_queue) -> None:
     tensors = {"w": tensor}
     sync.broadcast_from_rank0(tensors)
     assert torch.equal(tensor, torch.ones(8, device=device))
-    sync.allreduce_mean(tensors)
-    assert torch.allclose(tensor, torch.full((8,), 0.5 + 0.5, device=device))
+    tensor.grad = torch.full_like(tensor, float(rank + 1))
+    sync.allreduce_gradients((tensor,))
+    assert torch.allclose(tensor.grad, torch.full((8,), 1.5, device=device))
     statistics = sync.allreduce_statistics(
         mean={"loss": float(rank + 1)},
         total={"steps_per_sec": float(100 * (rank + 1))},

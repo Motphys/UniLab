@@ -88,11 +88,10 @@ def test_build_train_command_matches_production_overrides(tmp_path: Path) -> Non
         tmp_path / "runs" / "n2",
         iterations=300,
         devices=[0, 1],
-        sync_interval=4,
         extra_overrides=("algo.num_envs=2048",),
     )
     assert "training.devices=[0,1]" in command_dp
-    assert "training.dp_sync_interval=4" in command_dp
+    assert not any(arg.startswith("training.dp_sync_interval") for arg in command_dp)
     assert "algo.num_envs=2048" in command_dp
 
 

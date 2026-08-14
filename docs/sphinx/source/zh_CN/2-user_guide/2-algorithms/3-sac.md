@@ -46,32 +46,38 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
 
 `training.devices` 打开单节点多卡数据并行（data parallel）：rank i 在
 `cuda:devices[i]` 上各跑一套独立的 learner+collector，rank 0 负责 spawn 其余
-rank 子进程。同步是参数级的：启动时先广播 rank 0 的初始参数，之后每
-`training.dp_sync_interval`（默认 8）个 learner iteration 对 learner 可学习参数
-（actor / critic / 温度系数）做一次 all-reduce 平均；梯度不交换，各 rank 保留自己的
-optimizer 状态。
+rank 子进程。启动时 rank 0 一次性广播 actor、critic、target critic 和温度状态；稳态
+训练不再平均参数，而是在每个实际 optimizer step 前对对应的 actor、critic 或温度梯度
+执行阻塞式 flat-gradient `all_reduce(SUM) / world_size`。各 rank 不交换 replay 数据，
+在相同初值、平均梯度和更新顺序下各自维护一致的 optimizer 状态。
 
 off-policy 只公开 `training.devices` 这一个设备字段：`null` 或 `[]` 自动选择单个
 learner device，`[0]` 显式选择 `cuda:0`，两个以上索引才启动多卡拓扑。
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \
-  training.devices=[0,1] \
-  training.dp_sync_interval=8
+  training.devices=[0,1]
 ```
 
 rank 0 独占终端与 TensorBoard/W&B logger；其他 learner 不刷新终端，也不创建独立
 tfevents。rank 0 在每个 learner iteration 汇总跨 rank 标量：loss、reward 和 timing
 取均值，计数与并行吞吐求和。`perf/steps_per_sec` / 终端 `Steps/s` 表示所有
 collector 的聚合 env-step 吞吐，`perf/effective_samples_per_sec` / 终端 `Samples/s`
-表示所有 learner 的聚合有效样本吞吐。
+表示所有 learner 的聚合有效样本吞吐。checkpoint 同样由 rank 0 独占：每个保存间隔和
+训练结束只在 canonical run 目录写一份模型，rank 子目录不保存副本。
+自动生成的多卡 run 目录以 `_gpuxN` 结尾（例如 `_gpux2`）；单卡目录和显式
+`training.log_dir` 保持原样。
 
 collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段），可用
 `training.dp_collector_cpu_ids` 显式指定。
 
 当前限制：
 
-- 仅 SAC 与 FlashSAC：TD3 的 learner 未实现 `dp_sync_tensors()`，多卡启动即报错。
+- 仅 SAC 与 FlashSAC：TD3 learner 未实现 optimizer-boundary gradient sync contract，
+  多卡启动即报错。
+- NCCL gradient collective 不捕获进 optimizer CUDA Graph；若多卡配置请求 actor/critic
+  graph capture，learner 会自动切换到 eager optimizer update 并继续同步梯度，单卡行为不变。
+  runtime manifest 的 `dp_sync.cuda_graph_optimizer_capture=eager_fallback` 会记录该回退。
 - 仅验证过 `mujoco` backend。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置

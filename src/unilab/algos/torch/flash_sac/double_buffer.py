@@ -39,7 +39,6 @@ def build_flashsac_double_buffer_runner(
     torch_thread_runtime: dict[str, Any] | None = None,
     collector_cpu_ids: list[int] | None = None,
     dp_sync: DpParameterSync | None = None,
-    dp_sync_interval: int = 8,
 ) -> Any:
     """Build FlashSAC with the bounded-ingress device replay pipeline."""
     from unilab.base.observations import get_obs_dims
@@ -130,5 +129,4 @@ def build_flashsac_double_buffer_runner(
         torch_thread_runtime=torch_thread_runtime,
         collector_cpu_ids=collector_cpu_ids,
         dp_sync=dp_sync,
-        dp_sync_interval=dp_sync_interval,
     )

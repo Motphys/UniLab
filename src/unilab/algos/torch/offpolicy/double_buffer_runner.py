@@ -159,7 +159,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         replay_prefetch_mode: str = "one_tick",
         collector_cpu_ids: list[int] | None = None,
         dp_sync: DpParameterSync | None = None,
-        dp_sync_interval: int = 8,
         **kwargs,
     ):
         kwargs["device"] = require_offpolicy_replay_device(kwargs.get("device"))
@@ -172,15 +171,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         # Per-rank CPU block owned by this rank's collector (multi-GPU DP);
         # merged into the collector-only env override at collector startup.
         self.collector_cpu_ids = list(collector_cpu_ids) if collector_cpu_ids is not None else None
-        # Multi-GPU data-parallel parameter sync (None = single-rank default,
-        # bit-identical to the pre-DP behavior). Sync happens only at learner
-        # update boundaries — init broadcast before the collector starts, then
-        # an in-place all-reduce mean every dp_sync_interval iterations.
+        # Multi-GPU synchronous data parallelism (None = the bit-identical
+        # single-rank path): startup model broadcast, then gradient averaging
+        # before every actor/critic/temperature optimizer step.
         self.dp_sync = dp_sync
-        self.dp_sync_interval = int(dp_sync_interval)
         self._local_logger_statistics: _LocalLoggerStatistics | None = None
-        if self.dp_sync is not None and self.dp_sync_interval < 1:
-            raise ValueError(f"dp_sync_interval must be >= 1, got {dp_sync_interval}")
+        self._attach_dp_gradient_sync()
         self.replay_pack_layout = "packed"
         self.replay_pack_executor = "collector_thread"
         self.replay_h2d_submitter = "auto"
@@ -197,19 +193,35 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         if self.dp_sync is not None:
             self.runtime_manifest["dp_sync"] = {
                 "world_size": self.dp_sync.world_size,
-                "interval": self.dp_sync_interval,
                 "backend": self.dp_sync.backend,
+                "mode": "gradient_mean_per_optimizer_step",
+                "cuda_graph_optimizer_capture": (
+                    "eager_fallback"
+                    if bool(getattr(self.learner, "dp_cuda_graph_fallback", False))
+                    else "not_requested"
+                ),
             }
 
-    def _dp_sync_tensors(self) -> dict[str, torch.Tensor]:
-        """Live parameter references handed to the DP collectives."""
-        dp_sync_tensors = getattr(self.learner, "dp_sync_tensors", None)
-        if not callable(dp_sync_tensors):
+    def _attach_dp_gradient_sync(self) -> None:
+        if self.dp_sync is None:
+            return
+        setter = getattr(self.learner, "set_gradient_sync", None)
+        if not callable(setter):
             raise TypeError(
-                f"{type(self.learner).__name__} must implement dp_sync_tensors() "
-                "for multi-GPU data-parallel parameter sync"
+                f"{type(self.learner).__name__} must implement set_gradient_sync() "
+                "for multi-GPU data parallelism"
             )
-        return cast(dict[str, torch.Tensor], dp_sync_tensors())
+        setter(self.dp_sync.allreduce_gradients)
+
+    def _dp_initial_sync_tensors(self) -> dict[str, torch.Tensor]:
+        """Live model-state references broadcast once before collection."""
+        initial_tensors = getattr(self.learner, "dp_initial_sync_tensors", None)
+        if not callable(initial_tensors):
+            raise TypeError(
+                f"{type(self.learner).__name__} must implement dp_initial_sync_tensors() "
+                "for multi-GPU data parallelism"
+            )
+        return cast(dict[str, torch.Tensor], initial_tensors())
 
     def _dp_init_broadcast(self) -> None:
         """Align initial parameters from rank 0 before the collector starts.
@@ -220,15 +232,16 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         if self.dp_sync is None:
             return
         self.dp_sync.start()
-        self.dp_sync.broadcast_from_rank0(self._dp_sync_tensors())
+        self.dp_sync.broadcast_from_rank0(self._dp_initial_sync_tensors())
 
-    def _maybe_dp_sync(self, iteration: int, iter_metrics: defaultdict[str, list]) -> None:
-        """All-reduce parameter means at the configured update boundary."""
-        if self.dp_sync is None or iteration % self.dp_sync_interval != 0:
+    def _collect_dp_sync_metrics(self, iter_metrics: defaultdict[str, list]) -> None:
+        """Move per-optimizer collective timing into this iteration's metrics."""
+        if self.dp_sync is None:
             return
-        sync_start = time.perf_counter()
-        self.dp_sync.allreduce_mean(self._dp_sync_tensors())
-        iter_metrics["dp_sync_time"].append(time.perf_counter() - sync_start)
+        sync_time, sync_calls = self.dp_sync.take_gradient_sync_metrics()
+        if sync_calls > 0:
+            iter_metrics["dp_sync_time"].append(sync_time)
+            iter_metrics["dp_gradient_sync_calls"].append(float(sync_calls))
 
     def _aggregate_log_statistics(
         self,
@@ -439,9 +452,27 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
     def _logger_backend(self, requested: str) -> str:
         """Only rank 0 owns terminal and external logging backends."""
-        if self.dp_sync is not None and self.dp_sync.rank != 0:
+        if not self._is_primary_rank():
             return "no_print"
         return requested
+
+    def _is_primary_rank(self) -> bool:
+        return self.dp_sync is None or self.dp_sync.rank == 0
+
+    def _save_checkpoint(
+        self,
+        *,
+        log_dir: str,
+        iteration: int,
+        logger: OffPolicyLogger,
+    ) -> str | None:
+        """Persist the single canonical checkpoint from rank 0 only."""
+        if not self._is_primary_rank():
+            return None
+        ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
+        torch.save(self.learner.get_state_dict(), ckpt_path)
+        logger.log_save(ckpt_path)
+        return ckpt_path
 
     def close(self) -> None:
         if self.dp_sync is not None:
@@ -1226,10 +1257,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 train_time = time.perf_counter() - train_start
                 self.learner.update_count += 1
                 inference_scheduler.finish_update()
-                # DP parameter averaging sits at the update boundary: the
-                # update phase is done and the next iteration's inference
-                # tick has not started (strict learner/inference time-share).
-                self._maybe_dp_sync(iteration, iter_metrics)
+                self._collect_dp_sync_metrics(iter_metrics)
                 if trace_recorder:
                     trace_recorder.add_counter(
                         "replay_size",
@@ -1289,9 +1317,13 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 )
 
                 if save_interval > 0 and iteration % save_interval == 0:
-                    ckpt_path = os.path.join(log_dir, f"model_{iteration}.pt")
-                    torch.save(self.learner.get_state_dict(), ckpt_path)
-                    logger.log_save(ckpt_path)
+                    saved_path = self._save_checkpoint(
+                        log_dir=log_dir,
+                        iteration=iteration,
+                        logger=logger,
+                    )
+                    if saved_path is not None:
+                        ckpt_path = saved_path
 
             if trace_recorder:
                 trace_recorder.add_slice(
@@ -1310,9 +1342,15 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
             # -- finalize --
             replay_pipeline.close()
-            ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
-            torch.save(self.learner.get_state_dict(), ckpt_path)
-            logger.log_save(ckpt_path)
+            final_ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
+            if ckpt_path != final_ckpt_path:
+                saved_path = self._save_checkpoint(
+                    log_dir=log_dir,
+                    iteration=max_iterations,
+                    logger=logger,
+                )
+                if saved_path is not None:
+                    ckpt_path = saved_path
             if self.dp_sync is None:
                 self._sync_logger_replay_counters(logger, replay_buffer)
             logger.finish()

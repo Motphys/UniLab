@@ -68,8 +68,9 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     return summary
 
 
-def build_run_dir_name(timestamp: str, sim_backend: str) -> str:
-    return f"{timestamp}_{sim_backend}"
+def build_run_dir_name(timestamp: str, sim_backend: str, *, world_size: int = 1) -> str:
+    gpu_suffix = f"_gpux{world_size}" if world_size > 1 else ""
+    return f"{timestamp}_{sim_backend}{gpu_suffix}"
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -194,12 +195,9 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         explicit=explicit_cpu_ids,
     )
 
-    # Cold-path DP parameter sync: ranks average actor+critic parameters at
-    # the update boundary. world_size == 1 keeps dp_sync=None (bit-identical
-    # single-rank path, no process group is created).
-    dp_sync_interval = int(getattr(cfg.training, "dp_sync_interval", 8))
-    if dp_sync_interval < 1:
-        raise ValueError(f"training.dp_sync_interval must be >= 1, got {dp_sync_interval}")
+    # Cold-path DP process-group assembly. world_size == 1 keeps dp_sync=None
+    # (bit-identical single-rank path); multi-rank learners attach the group's
+    # flat-gradient collective at their optimizer boundaries.
     dp_sync = None
     if dp_world_size > 1:
         if dp_rank == 0 and log_dir is None:
@@ -373,7 +371,6 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
             dp_sync=dp_sync,
-            dp_sync_interval=dp_sync_interval,
         )
 
     if algo_name == "td3":
@@ -440,7 +437,6 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
             dp_sync=dp_sync,
-            dp_sync_interval=dp_sync_interval,
         )
 
     if algo_name == "flashsac":
@@ -457,7 +453,6 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
             dp_sync=dp_sync,
-            dp_sync_interval=dp_sync_interval,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")
@@ -748,7 +743,11 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir_name = build_run_dir_name(timestamp, str(cfg.training.sim_backend))
+        run_dir_name = build_run_dir_name(
+            timestamp,
+            str(cfg.training.sim_backend),
+            world_size=len(devices) if devices is not None else 1,
+        )
         log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir

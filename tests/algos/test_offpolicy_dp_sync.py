@@ -1,4 +1,4 @@
-"""Runner/build_runner integration tests for DP parameter sync (CPU-only)."""
+"""Runner/build_runner integration tests for synchronous off-policy DP."""
 
 from __future__ import annotations
 
@@ -30,8 +30,12 @@ class _SyncLearner:
             "actor.w": torch.ones(2),
             "qnet.w": torch.full((2,), 2.0),
         }
+        self.gradient_sync = None
 
-    def dp_sync_tensors(self) -> dict[str, torch.Tensor]:
+    def set_gradient_sync(self, sync) -> None:
+        self.gradient_sync = sync
+
+    def dp_initial_sync_tensors(self) -> dict[str, torch.Tensor]:
         return self.tensors
 
 
@@ -52,8 +56,12 @@ class _FakeDpSync:
     def broadcast_from_rank0(self, tensors) -> None:
         self.calls.append(("broadcast_from_rank0", tensors))
 
-    def allreduce_mean(self, tensors) -> None:
-        self.calls.append(("allreduce_mean", tensors))
+    def allreduce_gradients(self, parameters) -> None:
+        self.calls.append(("allreduce_gradients", tuple(parameters)))
+
+    def take_gradient_sync_metrics(self):
+        self.calls.append(("take_gradient_sync_metrics", None))
+        return 0.25, 3
 
     def allreduce_statistics(self, *, mean=None, total=None):
         self.calls.append(("allreduce_statistics", {"mean": mean, "total": total}))
@@ -66,37 +74,37 @@ class _FakeDpSync:
         self.calls.append(("close", None))
 
 
-def _runner_with(learner, dp_sync, interval: int = 2):
+def _runner_with(learner, dp_sync):
     runner = _bare_runner()
     runner.learner = learner
     runner.dp_sync = dp_sync
-    runner.dp_sync_interval = interval
     return runner
 
 
-def test_maybe_dp_sync_allreduces_on_interval_boundary():
+def test_runner_attaches_per_optimizer_gradient_collective():
     learner = _SyncLearner()
     dp_sync = _FakeDpSync()
-    runner = _runner_with(learner, dp_sync, interval=2)
+    runner = _runner_with(learner, dp_sync)
+    runner._attach_dp_gradient_sync()
+    assert learner.gradient_sync is not None
+
+    parameter = torch.nn.Parameter(torch.ones(2))
+    parameter.grad = torch.full_like(parameter, 2.0)
+    learner.gradient_sync((parameter,))
+    assert dp_sync.calls == [("allreduce_gradients", (parameter,))]
+
+
+def test_runner_collects_per_iteration_gradient_sync_metrics():
+    runner = _runner_with(_SyncLearner(), _FakeDpSync())
     metrics = defaultdict(list)
-
-    runner._maybe_dp_sync(1, metrics)
-    assert dp_sync.calls == []
-    assert "dp_sync_time" not in metrics
-
-    runner._maybe_dp_sync(2, metrics)
-    assert [name for name, _ in dp_sync.calls] == ["allreduce_mean"]
-    # The collectives receive the learner's live tensor references.
-    assert dp_sync.calls[0][1] is learner.tensors
-    assert len(metrics["dp_sync_time"]) == 1
-    assert metrics["dp_sync_time"][0] >= 0.0
+    runner._collect_dp_sync_metrics(metrics)
+    assert metrics == {"dp_sync_time": [0.25], "dp_gradient_sync_calls": [3.0]}
 
 
-def test_maybe_dp_sync_skips_everything_without_dp_sync():
-    runner = _runner_with(_SyncLearner(), None, interval=1)
-    metrics = defaultdict(list)
-    runner._maybe_dp_sync(4, metrics)
-    assert metrics == {}
+def test_runner_requires_gradient_sync_contract():
+    runner = _runner_with(_NoSyncLearner(), _FakeDpSync())
+    with pytest.raises(TypeError, match="set_gradient_sync"):
+        runner._attach_dp_gradient_sync()
 
 
 def test_dp_init_broadcast_starts_group_then_broadcasts():
@@ -113,9 +121,9 @@ def test_dp_init_broadcast_is_a_noop_without_dp_sync():
     runner._dp_init_broadcast()  # must not touch the learner
 
 
-def test_learner_without_dp_sync_tensors_fails_with_type_error():
+def test_learner_without_initial_sync_tensors_fails_with_type_error():
     runner = _runner_with(_NoSyncLearner(), _FakeDpSync())
-    with pytest.raises(TypeError, match="dp_sync_tensors"):
+    with pytest.raises(TypeError, match="dp_initial_sync_tensors"):
         runner._dp_init_broadcast()
 
 
@@ -208,24 +216,75 @@ def test_only_rank_zero_owns_terminal_and_tensorboard_backend():
     assert single._logger_backend("tensorboard") == "tensorboard"
 
 
+def test_only_rank_zero_persists_checkpoint(tmp_path):
+    class _CheckpointLearner:
+        def __init__(self) -> None:
+            self.state_reads = 0
+
+        def get_state_dict(self):
+            self.state_reads += 1
+            return {"weight": torch.ones(1)}
+
+    class _Logger:
+        def __init__(self) -> None:
+            self.paths: list[str] = []
+
+        def log_save(self, path: str) -> None:
+            self.paths.append(path)
+
+    rank0_sync = _FakeDpSync()
+    rank0_learner = _CheckpointLearner()
+    rank0 = _runner_with(rank0_learner, rank0_sync)
+    rank0_logger = _Logger()
+    rank0_dir = tmp_path / "run"
+    rank0_dir.mkdir()
+    path = rank0._save_checkpoint(
+        log_dir=str(rank0_dir),
+        iteration=10,
+        logger=rank0_logger,
+    )
+    assert path == str(rank0_dir / "model_10.pt")
+    assert (rank0_dir / "model_10.pt").is_file()
+    assert rank0_learner.state_reads == 1
+    assert rank0_logger.paths == [path]
+
+    rank1_sync = _FakeDpSync()
+    rank1_sync.rank = 1
+    rank1_learner = _CheckpointLearner()
+    rank1 = _runner_with(rank1_learner, rank1_sync)
+    rank1_logger = _Logger()
+    rank1_dir = rank0_dir / "rank1"
+    rank1_dir.mkdir()
+    assert (
+        rank1._save_checkpoint(
+            log_dir=str(rank1_dir),
+            iteration=10,
+            logger=rank1_logger,
+        )
+        is None
+    )
+    assert not (rank1_dir / "model_10.pt").exists()
+    assert rank1_learner.state_reads == 0
+    assert rank1_logger.paths == []
+
+
 def test_learn_source_orders_sync_around_collector_and_logging():
-    """Structural contract: init broadcast precedes collector startup, and the
-    periodic all-reduce sits at the update boundary before log_step."""
+    """Startup broadcast precedes collection; timing is consumed after updates."""
     from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 
     source = inspect.getsource(DoubleBufferOffPolicyRunner.learn)
     assert source.index("self._dp_init_broadcast()") < source.index("self._start_collector(")
     assert (
         source.index("inference_scheduler.finish_update()")
-        < source.index("self._maybe_dp_sync(iteration, iter_metrics)")
+        < source.index("self._collect_dp_sync_metrics(iter_metrics)")
         < source.index("logger.log_step(")
     )
 
 
-# ---- FastSACLearner.dp_sync_tensors contract ----
+# ---- FastSACLearner distributed contracts ----
 
 
-def test_fast_sac_dp_sync_tensors_returns_live_references():
+def test_fast_sac_initial_sync_tensors_return_live_references():
     from unilab.algos.torch.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
@@ -241,7 +300,7 @@ def test_fast_sac_dp_sync_tensors_returns_live_references():
         use_autotune=False,
         max_grad_norm=0.0,
     )
-    tensors = learner.dp_sync_tensors()
+    tensors = learner.dp_initial_sync_tensors()
 
     for prefix, module in (
         ("actor", learner.actor),
@@ -262,6 +321,75 @@ def test_fast_sac_dp_sync_tensors_returns_live_references():
     with torch.no_grad():
         tensors[probe_key].mul_(0.0)
     assert torch.all(tensors[probe_key] == 0.0)
+
+
+def test_fast_sac_syncs_each_optimizer_gradient_before_step():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+        use_autotune=True,
+    )
+    calls: list[tuple[int, ...]] = []
+
+    def record_gradients(parameters) -> None:
+        params = tuple(parameters)
+        assert params
+        assert all(parameter.grad is not None for parameter in params)
+        calls.append(tuple(parameter.numel() for parameter in params))
+
+    learner.set_gradient_sync(record_gradients)
+    batch_size = 4
+    batch = {
+        "obs": torch.randn(batch_size, 4),
+        "critic": torch.randn(batch_size, 5),
+        "actions": torch.randn(batch_size, 2).tanh(),
+        "rewards": torch.randn(batch_size),
+        "next_obs": torch.randn(batch_size, 4),
+        "next_critic": torch.randn(batch_size, 5),
+        "dones": torch.zeros(batch_size),
+        "truncated": torch.zeros(batch_size),
+    }
+    learner.update_critic(batch)
+    learner.update_actor(batch)
+    assert len(calls) == 3  # critic, alpha, actor
+    assert calls[1] == (1,)
+
+
+def test_fast_sac_gradient_sync_disables_cuda_graph_capture():
+    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+
+    learner = FastSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=5,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        num_atoms=3,
+        num_q_networks=2,
+        use_layer_norm=False,
+    )
+    learner.use_cuda_graph_critic = True
+    learner.use_cuda_graph_actor = True
+    learner.use_cuda_graph_critic_packed_staging = True
+    learner.use_cuda_graph_actor_packed_staging = True
+
+    learner.set_gradient_sync(lambda parameters: None)
+
+    assert learner.dp_cuda_graph_fallback is True
+    assert learner.use_cuda_graph_critic is False
+    assert learner.use_cuda_graph_actor is False
+    assert learner.use_cuda_graph_critic_packed_staging is False
+    assert learner.use_cuda_graph_actor_packed_staging is False
 
 
 # ---- build_runner assembly ----
@@ -288,22 +416,15 @@ def _build_sac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: 
     return runner.kwargs
 
 
-def test_offpolicy_config_dp_sync_interval_defaults_to_eight():
+def test_offpolicy_config_has_no_periodic_parameter_sync_interval():
     cfg = _offpolicy_cfg()
-    assert cfg.training.dp_sync_interval == 8
-
-
-def test_build_runner_rejects_invalid_dp_sync_interval():
-    cfg = _offpolicy_cfg(["algo=sac", "training.dp_sync_interval=0"])
-    with pytest.raises(ValueError, match="dp_sync_interval"):
-        _offpolicy().build_runner("sac", cfg)
+    assert "dp_sync_interval" not in cfg.training
 
 
 def test_build_runner_single_rank_keeps_dp_sync_none(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     kwargs = _build_sac_runner_with_dp_fakes(monkeypatch, ["algo=sac", "algo.use_symmetry=false"])
     assert kwargs["dp_sync"] is None
-    assert kwargs["dp_sync_interval"] == 8
 
 
 def test_build_runner_multi_gpu_constructs_dp_sync_for_rank0(monkeypatch: pytest.MonkeyPatch):
@@ -315,7 +436,6 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_rank0(monkeypatch: pytest
             "algo=sac",
             "algo.use_symmetry=false",
             "training.devices=[0,1]",
-            "training.dp_sync_interval=4",
         ],
     )
     dp_sync = kwargs["dp_sync"]
@@ -324,7 +444,6 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_rank0(monkeypatch: pytest
     assert dp_sync.rank == 0
     assert dp_sync.backend == "nccl"
     assert dp_sync.rendezvous_path == "/tmp/dp_sync_test_run/.dp_rendezvous"
-    assert kwargs["dp_sync_interval"] == 4
 
 
 def test_build_runner_spawned_rank_uses_shared_run_root(monkeypatch: pytest.MonkeyPatch):
@@ -352,10 +471,10 @@ def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.Monke
         module.build_runner("sac", cfg)
 
 
-# ---- FlashSACLearner.dp_sync_tensors contract ----
+# ---- FlashSACLearner distributed contracts ----
 
 
-def test_flash_sac_dp_sync_tensors_returns_live_references():
+def test_flash_sac_initial_sync_tensors_return_live_references():
     from unilab.algos.torch.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
@@ -369,7 +488,7 @@ def test_flash_sac_dp_sync_tensors_returns_live_references():
         critic_num_blocks=1,
         num_atoms=3,
     )
-    tensors = learner.dp_sync_tensors()
+    tensors = learner.dp_initial_sync_tensors()
 
     for prefix, module in (
         ("actor", learner.actor),
@@ -402,6 +521,95 @@ def test_flash_sac_dp_sync_tensors_returns_live_references():
     assert torch.all(tensors[probe_key] == 0.0)
 
 
+def test_flash_sac_syncs_each_optimizer_gradient_before_step():
+    from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+
+    learner = FlashSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=6,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        actor_num_blocks=1,
+        critic_num_blocks=1,
+        num_atoms=3,
+        normalize_reward=False,
+    )
+    calls: list[tuple[int, ...]] = []
+
+    def record_gradients(parameters) -> None:
+        params = tuple(parameters)
+        assert params
+        assert all(parameter.grad is not None for parameter in params)
+        calls.append(tuple(parameter.numel() for parameter in params))
+
+    learner.set_gradient_sync(record_gradients)
+    batch_size = 4
+    batch = {
+        "obs": torch.randn(batch_size, 4),
+        "critic": torch.randn(batch_size, 6),
+        "actions": torch.randn(batch_size, 2).tanh(),
+        "rewards": torch.randn(batch_size),
+        "next_obs": torch.randn(batch_size, 4),
+        "next_critic": torch.randn(batch_size, 6),
+        "dones": torch.zeros(batch_size),
+        "truncated": torch.zeros(batch_size),
+    }
+    learner.update_critic(batch)
+    learner.update_actor(batch)
+    assert len(calls) == 3  # critic, actor, temperature
+    assert calls[-1] == (1,)
+
+
+def test_gradient_sync_falls_back_from_cuda_graph_to_eager_updates():
+    from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+
+    learner = FlashSACLearner(
+        obs_dim=4,
+        action_dim=2,
+        critic_obs_dim=6,
+        device="cpu",
+        actor_hidden_dim=8,
+        critic_hidden_dim=8,
+        actor_num_blocks=1,
+        critic_num_blocks=1,
+        num_atoms=3,
+        use_cuda_graph_critic=True,
+        use_cuda_graph_actor=True,
+        use_cuda_graph_critic_packed_staging=True,
+        use_cuda_graph_actor_packed_staging=True,
+    )
+    calls: list[tuple[int, ...]] = []
+
+    def record_gradients(parameters) -> None:
+        params = tuple(parameters)
+        assert all(parameter.grad is not None for parameter in params)
+        calls.append(tuple(parameter.numel() for parameter in params))
+
+    learner.set_gradient_sync(record_gradients)
+    assert learner.dp_cuda_graph_fallback is True
+    assert learner.use_cuda_graph_critic is False
+    assert learner.use_cuda_graph_actor is False
+    assert learner.use_cuda_graph_critic_packed_staging is False
+    assert learner.use_cuda_graph_actor_packed_staging is False
+    batch_size = 4
+    batch = {
+        "obs": torch.randn(batch_size, 4),
+        "critic": torch.randn(batch_size, 6),
+        "actions": torch.randn(batch_size, 2).tanh(),
+        "rewards": torch.randn(batch_size),
+        "next_obs": torch.randn(batch_size, 4),
+        "next_critic": torch.randn(batch_size, 6),
+        "dones": torch.zeros(batch_size),
+        "truncated": torch.zeros(batch_size),
+    }
+    learner.update_critic_cuda_graph(batch)
+    learner.update_actor_cuda_graph(batch)
+
+    assert len(calls) == 3  # critic, actor, temperature
+
+
 # ---- flashsac build_runner assembly ----
 
 
@@ -430,7 +638,6 @@ def test_build_runner_single_rank_flashsac_keeps_dp_sync_none(monkeypatch: pytes
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     kwargs = _build_flashsac_runner_with_dp_fakes(monkeypatch, ["algo=flashsac"])
     assert kwargs["dp_sync"] is None
-    assert kwargs["dp_sync_interval"] == 8
     assert kwargs["collector_cpu_ids"] is None
 
 
@@ -444,7 +651,6 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
         [
             "algo=flashsac",
             "training.devices=[0,1]",
-            "training.dp_sync_interval=4",
         ],
     )
     dp_sync = kwargs["dp_sync"]
@@ -453,7 +659,6 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
     assert dp_sync.rank == 0
     assert dp_sync.backend == "nccl"
     assert dp_sync.rendezvous_path == "/tmp/dp_sync_test_run/.dp_rendezvous"
-    assert kwargs["dp_sync_interval"] == 4
     # Rank 0 collector owns the first contiguous CPU block.
     assert kwargs["collector_cpu_ids"] == list(range(64))
 
