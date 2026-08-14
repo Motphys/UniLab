@@ -761,10 +761,11 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         log_dir: str = "logs",
         logger_type: str = "tensorboard",
     ) -> None:
-        os.makedirs(log_dir, exist_ok=True)
+        if self._is_primary_rank():
+            os.makedirs(log_dir, exist_ok=True)
         trace_output_path = None
         trace_recorder: TraceRecorder | None = None
-        if self.trace_enabled:
+        if self.trace_enabled and self._is_primary_rank():
             trace_root = Path(self.trace_output_dir or log_dir)
             trace_output_path = trace_root / "perfetto_offpolicy_timeline.json"
             trace_recorder = TraceRecorder("offpolicy_learner")

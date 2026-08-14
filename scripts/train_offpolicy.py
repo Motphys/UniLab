@@ -752,9 +752,9 @@ def main(cfg: DictConfig) -> None:
     else:
         log_dir = cfg.training.log_dir
     if rank > 0:
-        # Spawned ranks reuse rank 0's run directory via a rank sub-directory;
-        # rank 0 owns the canonical checkpoints and the ExperimentTracker.
-        log_dir = os.path.join(os.environ[UNILAB_DP_LOG_DIR], f"rank{rank}")
+        # Spawned ranks reuse the canonical run directory but never create
+        # logging backends, checkpoints, summaries, or traces there.
+        log_dir = os.environ[UNILAB_DP_LOG_DIR]
 
     supervisor: DpRankSupervisor | None = None
     if devices is not None and rank == 0 and len(devices) > 1:

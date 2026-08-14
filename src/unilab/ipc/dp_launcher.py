@@ -70,9 +70,9 @@ def resolve_dp_rendezvous_path(log_dir: str, *, rank: int) -> str:
     """Shared FileStore rendezvous path for the DP parameter-sync group.
 
     Rank 0 anchors the store in its own run directory; spawned ranks point at
-    the same run root via ``UNILAB_DP_LOG_DIR`` (their own log_dir is a
-    per-rank subdirectory). The run directory is unique per run, which keeps
-    stale FileStore state from a previous run out of the rendezvous.
+    the same canonical run root via ``UNILAB_DP_LOG_DIR``. The run directory
+    is unique per run, which keeps stale FileStore state from a previous run
+    out of the rendezvous.
 
     Cold path only: call at runner construction.
     """

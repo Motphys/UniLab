@@ -64,7 +64,8 @@ tfevents。rank 0 在每个 learner iteration 汇总跨 rank 标量：loss、rew
 取均值，计数与并行吞吐求和。`perf/steps_per_sec` / 终端 `Steps/s` 表示所有
 collector 的聚合 env-step 吞吐，`perf/effective_samples_per_sec` / 终端 `Samples/s`
 表示所有 learner 的聚合有效样本吞吐。checkpoint 同样由 rank 0 独占：每个保存间隔和
-训练结束只在 canonical run 目录写一份模型，rank 子目录不保存副本。
+训练结束只在 canonical run 目录写一份模型；其他 rank 复用该路径完成进程协调，不创建
+rank 子目录或任何日志文件。
 自动生成的多卡 run 目录以 `_gpuxN` 结尾（例如 `_gpux2`）；单卡目录和显式
 `training.log_dir` 保持原样。
 

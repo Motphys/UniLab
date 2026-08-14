@@ -254,7 +254,6 @@ def test_only_rank_zero_persists_checkpoint(tmp_path):
     rank1 = _runner_with(rank1_learner, rank1_sync)
     rank1_logger = _Logger()
     rank1_dir = rank0_dir / "rank1"
-    rank1_dir.mkdir()
     assert (
         rank1._save_checkpoint(
             log_dir=str(rank1_dir),
@@ -263,7 +262,7 @@ def test_only_rank_zero_persists_checkpoint(tmp_path):
         )
         is None
     )
-    assert not (rank1_dir / "model_10.pt").exists()
+    assert not rank1_dir.exists()
     assert rank1_learner.state_reads == 0
     assert rank1_logger.paths == []
 
