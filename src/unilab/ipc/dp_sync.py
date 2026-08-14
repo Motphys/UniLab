@@ -7,16 +7,17 @@ broadcasts rank 0's parameters before the collector starts, then averages
 actor/critic parameters every ``dp_sync_interval`` learner iterations at the
 update boundary (never overlapping an inference tick).
 
-This module owns only the process-group lifecycle and the two collectives;
-the runner decides when to call them. Synchronization is parameter-level by
-design: gradients are never exchanged and each rank keeps its own optimizer
-state (AdamW moments diverge across ranks — see
-``FastSACLearner.dp_sync_tensors``).
+This module owns the process-group lifecycle, parameter collectives, and the
+small scalar reduction used by the canonical rank-0 logger. The runner decides
+when to call them. Synchronization is parameter-level by design: gradients are
+never exchanged and each rank keeps its own optimizer state (AdamW moments
+diverge across ranks — see ``FastSACLearner.dp_sync_tensors``).
 """
 
 from __future__ import annotations
 
 import datetime
+from typing import cast
 
 import torch
 import torch.distributed as dist
@@ -56,6 +57,7 @@ class DpParameterSync:
         self.device = None if device is None else torch.device(device)
         self.timeout_s = int(timeout_s)
         self._key_order: tuple[str, ...] | None = None
+        self._statistics_schema: dict[str, str] = {}
         self._started = False
 
     def start(self) -> None:
@@ -107,6 +109,87 @@ class DpParameterSync:
                 tensor = tensors[key]
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
                 tensor.div_(self.world_size)
+
+    def allreduce_statistics(
+        self,
+        *,
+        mean: dict[str, float] | None = None,
+        total: dict[str, float] | None = None,
+    ) -> dict[str, float]:
+        """Aggregate sparse scalar statistics on every rank.
+
+        ``mean`` fields are averaged over ranks that supplied the field;
+        ``total`` fields are summed. A cached union schema plus a presence mask
+        allows optional collector/reward fields to appear at different times on
+        different ranks without treating a missing value as zero. Schema
+        exchange happens only when a new field appears; the steady-state path
+        is two small collectives (schema-change flag + packed scalar reduce).
+
+        This collective is intentionally separate from parameter averaging:
+        logging is aggregated every learner iteration while model parameters
+        retain the configured ``dp_sync_interval`` semantics.
+        """
+        mean = dict(mean or {})
+        total = dict(total or {})
+        overlap = set(mean) & set(total)
+        if overlap:
+            raise ValueError(
+                f"DP statistic fields cannot be both mean and total: {sorted(overlap)}"
+            )
+
+        local_schema = {key: "mean" for key in mean}
+        local_schema.update({key: "total" for key in total})
+        schema_changed = any(
+            self._statistics_schema.get(key) != reduction for key, reduction in local_schema.items()
+        )
+        device = self.device if self.device is not None else torch.device("cpu")
+        changed_tensor = torch.tensor(
+            [int(schema_changed)],
+            dtype=torch.int32,
+            device=device,
+        )
+        dist.all_reduce(changed_tensor, op=dist.ReduceOp.MAX)
+        if bool(changed_tensor.item()):
+            gathered: list[object | None] = [None] * self.world_size
+            dist.all_gather_object(gathered, tuple(sorted(local_schema.items())))
+            merged = dict(self._statistics_schema)
+            for rank_schema in gathered:
+                assert rank_schema is not None
+                for key, reduction in cast(tuple[tuple[str, str], ...], rank_schema):
+                    existing = merged.get(key)
+                    if existing is not None and existing != reduction:
+                        raise ValueError(
+                            f"DP statistic {key!r} changed reduction from "
+                            f"{existing!r} to {reduction!r}"
+                        )
+                    merged[key] = reduction
+            self._statistics_schema = merged
+
+        if not self._statistics_schema:
+            return {}
+
+        keys = tuple(sorted(self._statistics_schema))
+        values = mean | total
+        packed = torch.zeros((2, len(keys)), dtype=torch.float64, device=device)
+        for index, key in enumerate(keys):
+            if key not in values:
+                continue
+            packed[0, index] = float(values[key])
+            packed[1, index] = 1.0
+        dist.all_reduce(packed, op=dist.ReduceOp.SUM)
+
+        value_sums = packed[0].tolist()
+        presence_counts = packed[1].tolist()
+        aggregated: dict[str, float] = {}
+        for index, key in enumerate(keys):
+            count = float(presence_counts[index])
+            if count <= 0:
+                continue
+            value = float(value_sums[index])
+            if self._statistics_schema[key] == "mean":
+                value /= count
+            aggregated[key] = value
+        return aggregated
 
     def close(self) -> None:
         """Destroy the process group; idempotent and safe before start()."""

@@ -229,7 +229,15 @@ class OffPolicyRunner(AsyncRunner):
         super().close()
 
     @staticmethod
-    def _drain_metrics(queue, reward_history, reward_components, logger, trace_recorder=None):
+    def _drain_metrics(
+        queue,
+        reward_history,
+        reward_components,
+        logger,
+        trace_recorder=None,
+        *,
+        log_collector_reward: bool = True,
+    ):
         while True:
             try:
                 metrics = queue.get_nowait()
@@ -265,7 +273,11 @@ class OffPolicyRunner(AsyncRunner):
                     logger.log_collector(
                         metrics["total_steps"],
                         metrics["buffer_size"],
-                        metrics.get("mean_ep_reward", 0.0) if updated_reward else 0.0,
+                        (
+                            metrics.get("mean_ep_reward", 0.0)
+                            if updated_reward and log_collector_reward
+                            else 0.0
+                        ),
                     )
                 if trace_recorder and "trace_events" in metrics:
                     trace_recorder.extend(metrics["trace_events"])

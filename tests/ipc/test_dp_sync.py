@@ -122,6 +122,68 @@ def test_collective_key_order_is_insertion_order_independent(tmp_path: Path):
         assert proc.exitcode == 0
 
 
+def _statistics_worker(rank: int, rendezvous_path: str, result_queue) -> None:
+    sync = DpParameterSync(
+        world_size=2,
+        rank=rank,
+        rendezvous_path=rendezvous_path,
+        backend="gloo",
+        timeout_s=60,
+    )
+    sync.start()
+    first = sync.allreduce_statistics(
+        mean={
+            "loss": 1.0 + 2.0 * rank,
+            **({"rank0_optional": 10.0} if rank == 0 else {}),
+        },
+        total={"steps_per_sec": 100.0 * (rank + 1)},
+    )
+    second = sync.allreduce_statistics(
+        mean={
+            "loss": 5.0 + 2.0 * rank,
+            **({"late_rank1_field": 9.0} if rank == 1 else {}),
+        },
+        total={"steps_per_sec": 10.0 * (rank + 1)},
+    )
+    sync.close()
+    result_queue.put((rank, first, second))
+
+
+def test_allreduce_statistics_sums_rates_and_means_sparse_fields(tmp_path: Path):
+    rendezvous = str(tmp_path / "rendezvous_statistics")
+    result_queue = _SPAWN_CTX.Queue()
+    procs = [
+        _SPAWN_CTX.Process(
+            target=_statistics_worker,
+            args=(rank, rendezvous, result_queue),
+        )
+        for rank in range(2)
+    ]
+    for proc in procs:
+        proc.start()
+    for proc in procs:
+        proc.join(timeout=120)
+    results = sorted(result_queue.get(timeout=10) for _ in procs)
+    for proc in procs:
+        assert proc.exitcode == 0
+    for _, first, second in results:
+        assert first == pytest.approx({"loss": 2.0, "rank0_optional": 10.0, "steps_per_sec": 300.0})
+        assert second == pytest.approx(
+            {"loss": 6.0, "late_rank1_field": 9.0, "steps_per_sec": 30.0}
+        )
+
+
+def test_allreduce_statistics_rejects_overlapping_reduction_modes(tmp_path: Path):
+    sync = DpParameterSync(
+        world_size=2,
+        rank=0,
+        rendezvous_path=str(tmp_path / "unused_statistics"),
+        backend="gloo",
+    )
+    with pytest.raises(ValueError, match="both mean and total"):
+        sync.allreduce_statistics(mean={"x": 1.0}, total={"x": 2.0})
+
+
 def test_key_set_change_between_collectives_is_rejected(tmp_path: Path):
     sync = DpParameterSync(
         world_size=2,
@@ -167,7 +229,7 @@ def test_resolve_dp_rendezvous_path_anchors_on_run_root(tmp_path: Path, monkeypa
 @pytest.mark.slow
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires 2 CUDA devices")
 def test_nccl_two_gpu_smoke(tmp_path: Path):
-    """Real NCCL smoke: init + broadcast + allreduce across cuda:0/cuda:1."""
+    """Real NCCL smoke: parameters and logger statistics across two GPUs."""
     rendezvous = str(tmp_path / "rendezvous_nccl")
     result_queue = _SPAWN_CTX.Queue()
     procs = [
@@ -202,5 +264,10 @@ def _nccl_smoke_worker(rank: int, rendezvous_path: str, result_queue) -> None:
     assert torch.equal(tensor, torch.ones(8, device=device))
     sync.allreduce_mean(tensors)
     assert torch.allclose(tensor, torch.full((8,), 0.5 + 0.5, device=device))
+    statistics = sync.allreduce_statistics(
+        mean={"loss": float(rank + 1)},
+        total={"steps_per_sec": float(100 * (rank + 1))},
+    )
+    assert statistics == pytest.approx({"loss": 1.5, "steps_per_sec": 300.0})
     sync.close()
     result_queue.put(rank)

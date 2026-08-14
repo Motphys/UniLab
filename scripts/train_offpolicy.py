@@ -21,6 +21,7 @@ from unilab.ipc.dp_launcher import (
     apply_dp_rank_config,
     current_dp_rank,
     resolve_collector_cpu_ids,
+    resolve_dp_rank_device,
     resolve_dp_rendezvous_path,
     resolve_dp_topology,
     validate_dp_launchable,
@@ -179,6 +180,9 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     dp_devices = resolve_dp_topology(cfg.training.devices)
     dp_world_size = len(dp_devices) if dp_devices is not None else 1
     dp_rank = current_dp_rank()
+    from unilab.utils.device import get_default_device
+
+    rank_device = resolve_dp_rank_device(dp_devices, dp_rank) or get_default_device()
     host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:
@@ -209,7 +213,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             world_size=dp_world_size,
             rank=dp_rank,
             rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
-            device=cfg.training.device,
+            device=rank_device,
         )
 
     torch_thread_runtime = resolve_torch_thread_runtime(
@@ -235,9 +239,8 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             "expected 'one_tick'"
         )
     from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
-    from unilab.utils.device import get_default_device
 
-    replay_device = require_offpolicy_replay_device(cfg.training.device or get_default_device())
+    replay_device = require_offpolicy_replay_device(rank_device)
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
@@ -490,7 +493,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
-    device = default_device(torch, cfg.training.device)
+    devices = resolve_dp_topology(cfg.training.devices)
+    device = default_device(torch, resolve_dp_rank_device(devices, current_dp_rank()))
     print(f"Using device for play: {device}")
 
     env = cast(
@@ -735,7 +739,7 @@ def main(cfg: DictConfig) -> None:
 
     devices = resolve_dp_topology(cfg.training.devices)
     rank = current_dp_rank()
-    apply_dp_rank_config(cfg, devices, rank)
+    rank_device = apply_dp_rank_config(cfg, devices, rank)
 
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo
@@ -770,7 +774,7 @@ def main(cfg: DictConfig) -> None:
             sim_backend=cfg.training.sim_backend,
             training_cfg=cfg.training,
             full_cfg=cfg,
-            device=default_device(torch, cfg.training.device),
+            device=default_device(torch, rank_device),
             seed_info=seed_info,
         )
         tracker.start()

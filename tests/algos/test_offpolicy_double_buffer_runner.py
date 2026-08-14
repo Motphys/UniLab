@@ -33,19 +33,19 @@ def _offpolicy_cfg(overrides: list[str] | None = None):
     normalized: list[str] = []
     algo = "sac"
     task_selected = False
-    device_selected = False
+    devices_selected = False
     for override in overrides or []:
         if override.startswith("algo="):
             algo = override.split("=", 1)[1]
         elif override.startswith("task="):
             task_selected = True
-        elif override.startswith("training.device="):
-            device_selected = True
+        elif override.startswith("training.devices="):
+            devices_selected = True
         normalized.append(override)
     if not task_selected:
         normalized.append(f"task={algo}/g1_walk_flat/mujoco")
-    if not device_selected:
-        normalized.append("training.device=cuda")
+    if not devices_selected:
+        normalized.append("training.devices=[0]")
     with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
         return compose("config", overrides=normalized, return_hydra_config=True)
 
@@ -110,6 +110,7 @@ def test_hora_uses_same_learner_inference_path():
         "training.num_gpus=2",
         "training.multi_gpu_sync_mode=sync_sgd",
         "training.multi_gpu_sync_interval=2",
+        "training.device=cuda",
         "training.inference_owner=collector",
         "training.collector_infer_device=cpu",
         "training.no_sync_collection=true",
@@ -130,13 +131,13 @@ def test_non_one_tick_prefetch_is_rejected_before_dispatch(mode: str):
 
 @pytest.mark.parametrize("algo", ["sac", "td3", "flashsac"])
 @pytest.mark.parametrize("device", ["cpu", "xpu"])
-def test_unsupported_training_device_fails_before_env_materialization(
+def test_non_cuda_training_devices_fail_before_env_materialization(
     monkeypatch: pytest.MonkeyPatch,
     algo: str,
     device: str,
 ):
     module = _offpolicy()
-    cfg = _offpolicy_cfg([f"algo={algo}", f"training.device={device}"])
+    cfg = _offpolicy_cfg([f"algo={algo}", f"training.devices=[{device}]"])
     env_calls = 0
 
     def reject_env(*args, **kwargs):
@@ -146,7 +147,7 @@ def test_unsupported_training_device_fails_before_env_materialization(
         raise AssertionError("unsupported replay device must fail before env creation")
 
     monkeypatch.setattr(module, "create_env", reject_env)
-    with pytest.raises(ValueError, match="CUDA or MPS learner device"):
+    with pytest.raises(ValueError, match="training.devices entries"):
         module.build_runner(algo, cfg)
     assert env_calls == 0
 
@@ -166,7 +167,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     runner = module.build_runner("sac", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "sac"
-    assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["device"] == "cuda:0"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
     assert "inference_owner" not in runner.kwargs
     assert "collector_infer_device" not in runner.kwargs
@@ -190,7 +191,7 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     runner = module.build_runner("td3", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "td3"
-    assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["device"] == "cuda:0"
     assert "inference_owner" not in runner.kwargs
     assert "collector_infer_device" not in runner.kwargs
     assert "sync_collection" not in runner.kwargs
@@ -211,7 +212,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     runner = module.build_runner("flashsac", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "flashsac"
-    assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["device"] == "cuda:0"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
     assert "inference_owner" not in runner.kwargs
     assert "collector_infer_device" not in runner.kwargs

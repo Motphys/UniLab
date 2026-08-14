@@ -201,6 +201,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._inference_time: float = 0.0
         self._iteration_time: float | None = None
         self._throughput_steps: int = 0
+        self._steps_per_sec_override: float | None = None
+        self._samples_per_sec_override: float | None = None
         self._collector_active_steps_per_sec: float | None = None
         self._batch_size_per_rank: int = 0
         self._effective_batch_size: int = 0
@@ -254,6 +256,8 @@ class OffPolicyLogger(BaseTrainingLogger):
             self._refresh()
 
     def _get_iter_steps_per_sec(self) -> float | None:
+        if self._steps_per_sec_override is not None:
+            return self._steps_per_sec_override
         if not self._has_iteration_extra_info or self._throughput_steps <= 0:
             return None
         iter_time = self._get_iter_wall_time()
@@ -262,6 +266,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         return self._throughput_steps / iter_time
 
     def _get_effective_samples_per_sec(self) -> float | None:
+        if self._samples_per_sec_override is not None:
+            return self._samples_per_sec_override
         if not self._has_iteration_extra_info or self._learner_samples_per_iter <= 0:
             return None
         iter_time = self._get_iter_wall_time()
@@ -324,10 +330,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         header_extra_fields: list[tuple[str, str]] = []
         if iter_steps_per_sec is not None:
             header_extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
-        if self._collector_active_steps_per_sec is not None:
-            header_extra_fields.append(
-                (f"Collector/s {self._collector_active_steps_per_sec:,.0f}", "bold magenta")
-            )
         if effective_samples_per_sec is not None:
             header_extra_fields.append((f"Samples/s {effective_samples_per_sec:,.0f}", "bold cyan"))
         if extra_fields:
@@ -419,6 +421,14 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._has_iteration_extra_info = extra_info is not None
         if extra_info:
             self._throughput_steps = int(extra_info.get("throughput_steps", 0))
+            steps_per_sec = extra_info.get("steps_per_sec")
+            self._steps_per_sec_override = (
+                float(steps_per_sec) if steps_per_sec is not None else None
+            )
+            samples_per_sec = extra_info.get("learner_samples_per_sec")
+            self._samples_per_sec_override = (
+                float(samples_per_sec) if samples_per_sec is not None else None
+            )
             collector_active_steps_per_sec = extra_info.get("collector_active_steps_per_sec")
             self._collector_active_steps_per_sec = (
                 float(collector_active_steps_per_sec)
@@ -437,6 +447,8 @@ class OffPolicyLogger(BaseTrainingLogger):
                 self._replay_samples_per_iter = self._learner_samples_per_iter
         else:
             self._throughput_steps = 0
+            self._steps_per_sec_override = None
+            self._samples_per_sec_override = None
             self._collector_active_steps_per_sec = None
             self._batch_size_per_rank = 0
             self._effective_batch_size = 0

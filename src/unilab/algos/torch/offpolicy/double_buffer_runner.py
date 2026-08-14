@@ -10,7 +10,7 @@ import time
 from collections import defaultdict, deque
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import torch
 
@@ -46,6 +46,44 @@ _ALGO_DISPLAY_NAMES = {
     "td3": "TD3",
     "flashsac": "FlashSAC",
 }
+
+_DP_METRIC_PREFIX = "metric::"
+_DP_REWARD_METRIC_PREFIX = "reward_metric::"
+_DP_REWARD_COMPONENT_PREFIX = "reward_component::"
+_DP_COLLECTOR_TIMING_PREFIX = "collector_timing::"
+
+
+class _LogStepPayload(TypedDict):
+    metrics: dict[str, float]
+    reward: float | None
+    reward_metrics: dict[str, float]
+    reward_components: dict[str, float]
+    train_time: float
+    collector_wait_time: float
+    replay_batch_wait_time: float
+    learner_replay_sample_time: float
+    sync_coordination_time: float
+    replay_ingress_h2d_submit_time: float
+    inference_h2d_time: float
+    inference_forward_time: float
+    inference_d2h_time: float
+    inference_time: float
+    iteration_time: float
+    extra_info: dict[str, int | float | None]
+
+
+class _LocalLoggerStatistics(TypedDict):
+    total_steps: int
+    buffer_size: int
+    buffer_target: int
+    collector_active_steps_per_sec: float | None
+    mean_ep_length: float
+    timeout_rate: float
+    terminated_rate: float
+    buffer_utilization: float
+    collector_timing: dict[str, float]
+    staging_pool_len: int
+    staging_pool_max: int
 
 
 def algo_display_name(algo_type: str) -> str:
@@ -140,6 +178,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         # an in-place all-reduce mean every dp_sync_interval iterations.
         self.dp_sync = dp_sync
         self.dp_sync_interval = int(dp_sync_interval)
+        self._local_logger_statistics: _LocalLoggerStatistics | None = None
         if self.dp_sync is not None and self.dp_sync_interval < 1:
             raise ValueError(f"dp_sync_interval must be >= 1, got {dp_sync_interval}")
         self.replay_pack_layout = "packed"
@@ -152,6 +191,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "collector_accelerator_context": False,
             "collector_torch_inference": False,
             "learner_actor_reused": True,
+            "logger_owner_rank": 0,
+            "logger_cross_rank_aggregation": self.dp_sync is not None,
         }
         if self.dp_sync is not None:
             self.runtime_manifest["dp_sync"] = {
@@ -188,6 +229,219 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         sync_start = time.perf_counter()
         self.dp_sync.allreduce_mean(self._dp_sync_tensors())
         iter_metrics["dp_sync_time"].append(time.perf_counter() - sync_start)
+
+    def _aggregate_log_statistics(
+        self,
+        logger: OffPolicyLogger,
+        *,
+        metrics: dict[str, float],
+        reward: float | None,
+        reward_metrics: dict[str, float],
+        reward_components: dict[str, float],
+        train_time: float,
+        collector_wait_time: float,
+        replay_batch_wait_time: float,
+        learner_replay_sample_time: float,
+        sync_coordination_time: float,
+        replay_ingress_h2d_submit_time: float,
+        inference_h2d_time: float,
+        inference_forward_time: float,
+        inference_d2h_time: float,
+        inference_time: float,
+        iteration_time: float,
+        extra_info: dict[str, int | float | None],
+    ) -> _LogStepPayload:
+        """Return one log-step payload, reduced across ranks when DP is active.
+
+        Model/reward/timing scalars are means. Concurrent work rates and
+        capacity/sample counters are totals, so the rank-0 logger reports
+        aggregate collector Steps/s and aggregate learner Samples/s. Optional
+        collector fields use the sparse presence-mask contract implemented by
+        ``DpParameterSync.allreduce_statistics``.
+        """
+        payload: _LogStepPayload = {
+            "metrics": metrics,
+            "reward": reward,
+            "reward_metrics": reward_metrics,
+            "reward_components": reward_components,
+            "train_time": train_time,
+            "collector_wait_time": collector_wait_time,
+            "replay_batch_wait_time": replay_batch_wait_time,
+            "learner_replay_sample_time": learner_replay_sample_time,
+            "sync_coordination_time": sync_coordination_time,
+            "replay_ingress_h2d_submit_time": replay_ingress_h2d_submit_time,
+            "inference_h2d_time": inference_h2d_time,
+            "inference_forward_time": inference_forward_time,
+            "inference_d2h_time": inference_d2h_time,
+            "inference_time": inference_time,
+            "iteration_time": iteration_time,
+            "extra_info": extra_info,
+        }
+        if self.dp_sync is None:
+            return payload
+
+        # ``logger`` also receives collector telemetry asynchronously. Keep a
+        # rank-local snapshot before replacing its presentation state with the
+        # aggregate; the next iteration restores this snapshot so a field that
+        # is reported only every few collector cycles is never summed twice.
+        self._local_logger_statistics = {
+            "total_steps": logger._total_steps,
+            "buffer_size": logger._buffer_size,
+            "buffer_target": logger._buffer_target,
+            "collector_active_steps_per_sec": logger._collector_active_steps_per_sec,
+            "mean_ep_length": logger._mean_ep_length,
+            "timeout_rate": logger._timeout_rate,
+            "terminated_rate": logger._terminated_rate,
+            "buffer_utilization": logger._buffer_utilization,
+            "collector_timing": dict(logger._collector_timing),
+            "staging_pool_len": logger._staging_pool_len,
+            "staging_pool_max": logger._staging_pool_max,
+        }
+
+        mean: dict[str, float] = {
+            **{f"{_DP_METRIC_PREFIX}{key}": float(value) for key, value in metrics.items()},
+            **{
+                f"{_DP_REWARD_METRIC_PREFIX}{key}": float(value)
+                for key, value in reward_metrics.items()
+            },
+            **{
+                f"{_DP_REWARD_COMPONENT_PREFIX}{key}": float(value)
+                for key, value in reward_components.items()
+            },
+            "timing::train_time": train_time,
+            "timing::collector_wait_time": collector_wait_time,
+            "timing::replay_batch_wait_time": replay_batch_wait_time,
+            "timing::learner_replay_sample_time": learner_replay_sample_time,
+            "timing::sync_coordination_time": sync_coordination_time,
+            "timing::replay_ingress_h2d_submit_time": replay_ingress_h2d_submit_time,
+            "timing::inference_h2d_time": inference_h2d_time,
+            "timing::inference_forward_time": inference_forward_time,
+            "timing::inference_d2h_time": inference_d2h_time,
+            "timing::inference_time": inference_time,
+            "timing::iteration_time": iteration_time,
+            "logger::timeout_rate": float(logger._timeout_rate),
+            "logger::terminated_rate": float(logger._terminated_rate),
+            "logger::buffer_utilization": float(logger._buffer_utilization),
+            "extra::batch_size_per_rank": float(extra_info.get("batch_size_per_rank", 0) or 0),
+        }
+        if reward is not None:
+            mean["reward::mean"] = float(reward)
+        if logger._mean_ep_length > 0:
+            mean["logger::mean_ep_length"] = float(logger._mean_ep_length)
+        mean.update(
+            {
+                f"{_DP_COLLECTOR_TIMING_PREFIX}{key}": float(value)
+                for key, value in logger._collector_timing.items()
+            }
+        )
+
+        throughput_steps = int(extra_info.get("throughput_steps", 0) or 0)
+        learner_samples = int(extra_info.get("learner_samples_per_iter", 0) or 0)
+        total: dict[str, float] = {
+            "logger::total_steps": float(logger._total_steps),
+            "logger::buffer_size": float(logger._buffer_size),
+            "logger::buffer_target": float(logger._buffer_target),
+            "logger::staging_pool_len": float(logger._staging_pool_len),
+            "logger::staging_pool_max": float(logger._staging_pool_max),
+            "extra::throughput_steps": float(throughput_steps),
+            "extra::effective_batch_size": float(extra_info.get("effective_batch_size", 0) or 0),
+            "extra::replay_samples_per_iter": float(
+                extra_info.get("replay_samples_per_iter", 0) or 0
+            ),
+            "extra::learner_samples_per_iter": float(learner_samples),
+        }
+        if iteration_time > 0:
+            total["rate::steps_per_sec"] = throughput_steps / iteration_time
+            total["rate::learner_samples_per_sec"] = learner_samples / iteration_time
+        collector_active_steps_per_sec = extra_info.get("collector_active_steps_per_sec")
+        if collector_active_steps_per_sec is not None:
+            total["rate::collector_active_steps_per_sec"] = float(collector_active_steps_per_sec)
+
+        aggregated = self.dp_sync.allreduce_statistics(mean=mean, total=total)
+
+        logger._total_steps = int(round(aggregated["logger::total_steps"]))
+        logger._buffer_size = int(round(aggregated["logger::buffer_size"]))
+        logger._buffer_target = int(round(aggregated["logger::buffer_target"]))
+        logger._staging_pool_len = int(round(aggregated["logger::staging_pool_len"]))
+        logger._staging_pool_max = int(round(aggregated["logger::staging_pool_max"]))
+        logger._timeout_rate = aggregated["logger::timeout_rate"]
+        logger._terminated_rate = aggregated["logger::terminated_rate"]
+        logger._buffer_utilization = aggregated["logger::buffer_utilization"]
+        if "logger::mean_ep_length" in aggregated:
+            logger._mean_ep_length = aggregated["logger::mean_ep_length"]
+        logger._collector_timing = {
+            key.removeprefix(_DP_COLLECTOR_TIMING_PREFIX): value
+            for key, value in aggregated.items()
+            if key.startswith(_DP_COLLECTOR_TIMING_PREFIX)
+        }
+
+        aggregated_extra_info: dict[str, int | float | None] = {
+            "throughput_steps": int(round(aggregated["extra::throughput_steps"])),
+            "steps_per_sec": aggregated.get("rate::steps_per_sec"),
+            "learner_samples_per_sec": aggregated.get("rate::learner_samples_per_sec"),
+            "collector_active_steps_per_sec": aggregated.get(
+                "rate::collector_active_steps_per_sec"
+            ),
+            "batch_size_per_rank": int(round(aggregated["extra::batch_size_per_rank"])),
+            "effective_batch_size": int(round(aggregated["extra::effective_batch_size"])),
+            "replay_samples_per_iter": int(round(aggregated["extra::replay_samples_per_iter"])),
+            "learner_samples_per_iter": int(round(aggregated["extra::learner_samples_per_iter"])),
+        }
+        return {
+            "metrics": {
+                key.removeprefix(_DP_METRIC_PREFIX): value
+                for key, value in aggregated.items()
+                if key.startswith(_DP_METRIC_PREFIX)
+            },
+            "reward": aggregated.get("reward::mean"),
+            "reward_metrics": {
+                key.removeprefix(_DP_REWARD_METRIC_PREFIX): value
+                for key, value in aggregated.items()
+                if key.startswith(_DP_REWARD_METRIC_PREFIX)
+            },
+            "reward_components": {
+                key.removeprefix(_DP_REWARD_COMPONENT_PREFIX): value
+                for key, value in aggregated.items()
+                if key.startswith(_DP_REWARD_COMPONENT_PREFIX)
+            },
+            "train_time": aggregated["timing::train_time"],
+            "collector_wait_time": aggregated["timing::collector_wait_time"],
+            "replay_batch_wait_time": aggregated["timing::replay_batch_wait_time"],
+            "learner_replay_sample_time": aggregated["timing::learner_replay_sample_time"],
+            "sync_coordination_time": aggregated["timing::sync_coordination_time"],
+            "replay_ingress_h2d_submit_time": aggregated["timing::replay_ingress_h2d_submit_time"],
+            "inference_h2d_time": aggregated["timing::inference_h2d_time"],
+            "inference_forward_time": aggregated["timing::inference_forward_time"],
+            "inference_d2h_time": aggregated["timing::inference_d2h_time"],
+            "inference_time": aggregated["timing::inference_time"],
+            "iteration_time": aggregated["timing::iteration_time"],
+            "extra_info": aggregated_extra_info,
+        }
+
+    def _restore_local_logger_statistics(self, logger: OffPolicyLogger) -> None:
+        """Restore per-rank collector state after the previous aggregate log step."""
+        state = self._local_logger_statistics
+        if state is None:
+            return
+        logger._total_steps = int(state["total_steps"])
+        logger._buffer_size = int(state["buffer_size"])
+        logger._buffer_target = int(state["buffer_target"])
+        active_rate = state["collector_active_steps_per_sec"]
+        logger._collector_active_steps_per_sec = None if active_rate is None else float(active_rate)
+        logger._mean_ep_length = float(state["mean_ep_length"])
+        logger._timeout_rate = float(state["timeout_rate"])
+        logger._terminated_rate = float(state["terminated_rate"])
+        logger._buffer_utilization = float(state["buffer_utilization"])
+        logger._collector_timing = dict(state["collector_timing"])
+        logger._staging_pool_len = int(state["staging_pool_len"])
+        logger._staging_pool_max = int(state["staging_pool_max"])
+        self._local_logger_statistics = None
+
+    def _logger_backend(self, requested: str) -> str:
+        """Only rank 0 owns terminal and external logging backends."""
+        if self.dp_sync is not None and self.dp_sync.rank != 0:
+            return "no_print"
+        return requested
 
     def close(self) -> None:
         if self.dp_sync is not None:
@@ -232,6 +486,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     latest_reward_components,
                     logger,
                     trace_recorder,
+                    log_collector_reward=self.dp_sync is None,
                 )
                 if not self._check_collector_alive():
                     self._fail_collector_died(
@@ -454,6 +709,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 latest_reward_components,
                 logger,
                 trace_recorder,
+                log_collector_reward=self.dp_sync is None,
             )
             if not self._check_collector_alive():
                 self._fail_collector_died(
@@ -592,12 +848,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         logger = OffPolicyLogger(
             algo_name=algo_display_name(self.algo_type),
             max_iterations=max_iterations,
-            num_envs=self.num_envs,
+            num_envs=self.num_envs * (self.dp_sync.world_size if self.dp_sync is not None else 1),
             env_name=self.env_name,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
             log_dir=log_dir,
-            log_backend=logger_type,
+            log_backend=self._logger_backend(logger_type),
         )
         logger.set_collection_sync(True, self.env_steps_per_sync)
         logger.update_runtime_manifest(self.runtime_manifest)
@@ -668,6 +924,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
             reward_history: deque = deque(maxlen=100)
             latest_reward_components: dict[str, float] = {}
+            has_logged_reward = False
             last_buf_log = 0
             write_read_ema = 0.0
             reward_stats_ptr = 0
@@ -692,6 +949,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
             # ---- training loop ----
             for iteration in range(1, max_iterations + 1):
+                self._restore_local_logger_statistics(logger)
                 iteration_start = time.perf_counter()
                 # -- wait for data --
                 wait_start = time.perf_counter()
@@ -750,6 +1008,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         latest_reward_components,
                         logger,
                         trace_recorder,
+                        log_collector_reward=self.dp_sync is None,
                     )
                     replay_pipeline.progress(wait=True)
                     cur_size = int(replay_buffer.size[0])
@@ -789,6 +1048,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     latest_reward_components,
                     logger,
                     trace_recorder,
+                    log_collector_reward=self.dp_sync is None,
                 )
                 _reward_stats_ns = time.perf_counter_ns()
                 reward_stats_ptr = self._update_reward_stats_from_replay(
@@ -985,16 +1245,17 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 logger.update_buffer_utilization(write_read_ema)
 
                 avg_metrics = {k: statistics.mean(v) for k, v in iter_metrics.items() if v}
-                mean_reward = statistics.mean(reward_history) if reward_history else 0.0
-                last_mean_reward = float(mean_reward)
-                best_mean_reward = max(best_mean_reward, last_mean_reward)
+                mean_reward = statistics.mean(reward_history) if reward_history else None
 
                 self._sync_logger_replay_counters(logger, replay_buffer)
-                logger.log_step(
-                    iteration=iteration,
+                log_payload = self._aggregate_log_statistics(
+                    logger,
                     metrics=avg_metrics,
                     reward=mean_reward,
-                    reward_metrics=build_reward_comparison_metrics(reward_history, mean_reward),
+                    reward_metrics=build_reward_comparison_metrics(
+                        reward_history,
+                        mean_reward or 0.0,
+                    ),
                     reward_components=latest_reward_components,
                     train_time=train_time,
                     collector_wait_time=collector_wait_time,
@@ -1016,6 +1277,15 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                             learner=self.learner,
                         ),
                     },
+                )
+                logged_reward = log_payload["reward"]
+                if logged_reward is not None:
+                    last_mean_reward = float(logged_reward)
+                    best_mean_reward = max(best_mean_reward, last_mean_reward)
+                    has_logged_reward = True
+                logger.log_step(
+                    iteration=iteration,
+                    **log_payload,
                 )
 
                 if save_interval > 0 and iteration % save_interval == 0:
@@ -1043,7 +1313,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             ckpt_path = os.path.join(log_dir, f"model_{max_iterations}.pt")
             torch.save(self.learner.get_state_dict(), ckpt_path)
             logger.log_save(ckpt_path)
-            self._sync_logger_replay_counters(logger, replay_buffer)
+            if self.dp_sync is None:
+                self._sync_logger_replay_counters(logger, replay_buffer)
             logger.finish()
             if trace_recorder and trace_output_path:
                 trace_recorder.write_json(trace_output_path)
@@ -1052,8 +1323,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "completed",
                 iteration,
                 logger,
-                last_mean_reward if reward_history else None,
-                best_mean_reward if reward_history else None,
+                last_mean_reward if has_logged_reward else None,
+                best_mean_reward if has_logged_reward else None,
                 ckpt_path,
                 train_start_wall,
                 str(trace_output_path) if trace_output_path else None,

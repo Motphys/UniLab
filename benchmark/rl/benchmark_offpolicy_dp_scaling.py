@@ -11,17 +11,19 @@ to avoid resource contention.
 
 Measurement conventions:
 
-- Steady-state throughput: mean of the last 50% of ``perf/steps_per_sec``
-  tfevents samples (ceil(n/2) tail points; with n samples the tail is
-  ``n - n//2``). This skips collector warm-up and replay prefill.
-- N-way aggregate throughput: sum of per-rank steady-state steps/s. Rank 0
-  artifacts live in the run directory itself (``run_summary.json`` +
-  tfevents); rank i>0 tfevents live in the ``rank{i}/`` subdirectory. A rank
-  missing its tfevents is a hard error, never silently skipped.
-- Scaling ratio: N-way aggregate / N=1 steady-state steps/s. The verdict is
-  ``pass`` when ratio >= 1.7 (``SCALING_PASS_THRESHOLD``), otherwise
-  ``below threshold``. The verdict is data only: it does not affect the
-  exit code.
+- Collector throughput (Steps/s): mean of the last 50% of canonical rank-0
+  ``perf/steps_per_sec`` samples. In DP runs the runner already sums the
+  per-rank collector rates before logging.
+- Learner throughput (Samples/s): the same tail mean over
+  ``perf/effective_samples_per_sec``. This counts effective learner samples
+  (including configured sample multipliers), summed across ranks.
+- Both fields report their own N-way / N=1 scaling ratio. The roadmap verdict
+  remains attached to collector Steps/s: ``pass`` at >= 1.7
+  (``SCALING_PASS_THRESHOLD``), otherwise ``below threshold``. The verdict is
+  data only and does not affect the exit code.
+- The tail uses ceil(n/2) points (with n samples, ``n - n//2``), skipping
+  collector warm-up and replay prefill. Missing either throughput tag is a
+  hard error, never silently skipped.
 - Exit code is non-zero only when a run itself failed (subprocess error,
   non-completed summary, or missing artifacts).
 
@@ -62,6 +64,7 @@ TRAIN_SCRIPT = ROOT_DIR / "scripts" / "train_offpolicy.py"
 ROUTE_OVERRIDES = ("algo=sac", "task=sac/g1_walk_flat/mujoco")
 
 STEPS_PER_SEC_TAG = "perf/steps_per_sec"
+SAMPLES_PER_SEC_TAG = "perf/effective_samples_per_sec"
 REWARD_TAG = "reward/mean"
 DP_SYNC_TIME_TAG = "train/dp_sync_time"
 
@@ -135,17 +138,12 @@ def read_scalar_series(rank_dir: Path, tag: str) -> list[float]:
     return [float(event.value) for event in accumulator.Scalars(tag)]
 
 
-def rank_dir_for(run_dir: Path, rank: int) -> Path:
-    """Rank i>0 logs into the ``rank{i}`` subdirectory of rank 0's run dir."""
-    run_dir = Path(run_dir)
-    return run_dir if rank == 0 else run_dir / f"rank{rank}"
-
-
 def parse_run(run_dir: Path, world_size: int) -> dict[str, Any]:
     """Parse one finished run directory into a metrics record.
 
     Rank 0 must carry a ``run_summary.json`` with ``status == "completed"``
-    and a tfevents file; ranks 1..N-1 must each carry their own tfevents.
+    and the canonical aggregate tfevents file. Non-owner ranks intentionally
+    create no TensorBoard writer.
     """
     run_dir = Path(run_dir)
     if world_size < 1:
@@ -161,35 +159,24 @@ def parse_run(run_dir: Path, world_size: int) -> dict[str, Any]:
             f"run {run_dir} did not complete: status={status!r} error={summary.get('error')!r}"
         )
 
-    ranks: list[dict[str, Any]] = []
-    dp_sync_samples: list[float] = []
-    for rank in range(world_size):
-        rank_dir = rank_dir_for(run_dir, rank)
-        series = read_scalar_series(rank_dir, STEPS_PER_SEC_TAG)
-        if not series:
-            raise RunParseError(
-                f"rank {rank} has no {STEPS_PER_SEC_TAG!r} samples under {rank_dir}"
-            )
-        ranks.append(
-            {
-                "rank": rank,
-                "log_dir": str(rank_dir),
-                "num_throughput_samples": len(series),
-                "steady_state_env_steps_per_s": steady_state_mean(series),
-            }
-        )
-        dp_sync_samples.extend(read_scalar_series(rank_dir, DP_SYNC_TIME_TAG))
-
+    collector_series = read_scalar_series(run_dir, STEPS_PER_SEC_TAG)
+    if not collector_series:
+        raise RunParseError(f"run has no {STEPS_PER_SEC_TAG!r} samples under {run_dir}")
+    learner_series = read_scalar_series(run_dir, SAMPLES_PER_SEC_TAG)
+    if not learner_series:
+        raise RunParseError(f"run has no {SAMPLES_PER_SEC_TAG!r} samples under {run_dir}")
+    dp_sync_samples = read_scalar_series(run_dir, DP_SYNC_TIME_TAG)
     reward_series = read_scalar_series(run_dir, REWARD_TAG)
-    aggregate = sum(r["steady_state_env_steps_per_s"] for r in ranks)
     return {
         "run_dir": str(run_dir),
         "world_size": world_size,
         "completed_iterations": summary.get("completed_iterations"),
         "total_env_steps": summary.get("total_env_steps"),
         "training_wall_time_sec": summary.get("training_wall_time_sec"),
-        "ranks": ranks,
-        "aggregate_env_steps_per_s": aggregate,
+        "num_collector_throughput_samples": len(collector_series),
+        "num_learner_throughput_samples": len(learner_series),
+        "steady_state_collector_steps_per_s": steady_state_mean(collector_series),
+        "steady_state_learner_samples_per_s": steady_state_mean(learner_series),
         "final_mean_reward": reward_series[-1] if reward_series else None,
         "mean_dp_sync_time_sec": (
             sum(dp_sync_samples) / len(dp_sync_samples) if dp_sync_samples else None
@@ -228,7 +215,7 @@ def build_train_command(
 def attach_scaling(
     records: list[dict[str, Any]], threshold: float = SCALING_PASS_THRESHOLD
 ) -> list[dict[str, Any]]:
-    """Fill ``scaling_vs_n1``/``verdict`` on DP configs against the N=1 record."""
+    """Attach separate collector and learner scaling ratios against N=1."""
     baseline = next(
         (
             r
@@ -237,18 +224,28 @@ def attach_scaling(
         ),
         None,
     )
-    baseline_throughput = (
-        float(baseline["metrics"]["aggregate_env_steps_per_s"]) if baseline else None
+    baseline_collector = (
+        float(baseline["metrics"]["steady_state_collector_steps_per_s"]) if baseline else None
+    )
+    baseline_learner = (
+        float(baseline["metrics"]["steady_state_learner_samples_per_s"]) if baseline else None
     )
     for record in records:
-        record["scaling_vs_n1"] = None
+        record["collector_scaling_vs_n1"] = None
+        record["learner_scaling_vs_n1"] = None
         record["verdict"] = None
         if record["config"] == "n1" or record["status"] != "ok" or record["metrics"] is None:
             continue
-        if baseline_throughput:
-            ratio = float(record["metrics"]["aggregate_env_steps_per_s"]) / baseline_throughput
-            record["scaling_vs_n1"] = ratio
+        if baseline_collector:
+            ratio = (
+                float(record["metrics"]["steady_state_collector_steps_per_s"]) / baseline_collector
+            )
+            record["collector_scaling_vs_n1"] = ratio
             record["verdict"] = verdict_for_ratio(ratio, threshold)
+        if baseline_learner:
+            record["learner_scaling_vs_n1"] = (
+                float(record["metrics"]["steady_state_learner_samples_per_s"]) / baseline_learner
+            )
     return records
 
 
@@ -308,7 +305,8 @@ def run_config(
         "status": "ok",
         "error": None,
         "metrics": None,
-        "scaling_vs_n1": None,
+        "collector_scaling_vs_n1": None,
+        "learner_scaling_vs_n1": None,
         "verdict": None,
     }
     try:
@@ -328,7 +326,8 @@ def run_config(
     print(
         f"[{name}] {record['status']}"
         + (
-            f"  aggregate={record['metrics']['aggregate_env_steps_per_s']:,.0f} env-steps/s"
+            f"  collector={record['metrics']['steady_state_collector_steps_per_s']:,.0f} Steps/s"
+            f"  learner={record['metrics']['steady_state_learner_samples_per_s']:,.0f} Samples/s"
             if record["metrics"]
             else f"  error={record['error']}"
         ),
@@ -409,8 +408,15 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "config": r["config"],
                 "devices": ",".join(str(d) for d in r["devices"]) if r["devices"] else "-",
-                "aggregate env-steps/s": (
-                    f"{r['metrics']['aggregate_env_steps_per_s']:,.0f}" if r["metrics"] else "-"
+                "collector Steps/s": (
+                    f"{r['metrics']['steady_state_collector_steps_per_s']:,.0f}"
+                    if r["metrics"]
+                    else "-"
+                ),
+                "learner Samples/s": (
+                    f"{r['metrics']['steady_state_learner_samples_per_s']:,.0f}"
+                    if r["metrics"]
+                    else "-"
                 ),
                 "final reward": (
                     f"{r['metrics']['final_mean_reward']:.2f}"
@@ -422,8 +428,15 @@ def main(argv: list[str] | None = None) -> int:
                     if r["metrics"] and r["metrics"]["mean_dp_sync_time_sec"] is not None
                     else "-"
                 ),
-                "scaling vs n1": (
-                    f"{r['scaling_vs_n1']:.2f}x" if r["scaling_vs_n1"] is not None else "-"
+                "collector scaling": (
+                    f"{r['collector_scaling_vs_n1']:.2f}x"
+                    if r["collector_scaling_vs_n1"] is not None
+                    else "-"
+                ),
+                "learner scaling": (
+                    f"{r['learner_scaling_vs_n1']:.2f}x"
+                    if r["learner_scaling_vs_n1"] is not None
+                    else "-"
                 ),
                 "verdict": r["verdict"] or "-",
                 "status": r["status"],
@@ -433,10 +446,12 @@ def main(argv: list[str] | None = None) -> int:
         [
             "config",
             "devices",
-            "aggregate env-steps/s",
+            "collector Steps/s",
+            "learner Samples/s",
             "final reward",
             "dp_sync mean (s)",
-            "scaling vs n1",
+            "collector scaling",
+            "learner scaling",
             "verdict",
             "status",
         ],
@@ -458,7 +473,10 @@ def main(argv: list[str] | None = None) -> int:
                 "extra_overrides": list(args.extra_overrides),
                 "scaling_pass_threshold": SCALING_PASS_THRESHOLD,
                 "steady_state_tail_fraction": STEADY_STATE_TAIL_FRACTION,
-                "throughput_tag": STEPS_PER_SEC_TAG,
+                "throughput_tags": {
+                    "collector_steps_per_sec": STEPS_PER_SEC_TAG,
+                    "learner_samples_per_sec": SAMPLES_PER_SEC_TAG,
+                },
             },
         },
     )

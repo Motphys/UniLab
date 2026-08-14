@@ -44,7 +44,7 @@ def build_flashsac_double_buffer_runner(
     """Build FlashSAC with the bounded-ingress device replay pipeline."""
     from unilab.base.observations import get_obs_dims
 
-    device = require_offpolicy_replay_device(device or cfg.training.device or get_default_device())
+    device = require_offpolicy_replay_device(device or get_default_device())
     ensure_registries()
     apply_training_seed(cfg.algo.seed, torch_runtime=True, cuda=True)
     _validate_flashsac_double_buffer_runtime(

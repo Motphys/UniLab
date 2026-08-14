@@ -26,6 +26,7 @@ from unilab.ipc.dp_launcher import (
     current_dp_rank,
     current_dp_world_size,
     resolve_collector_cpu_ids,
+    resolve_dp_rank_device,
     resolve_dp_topology,
     validate_dp_launchable,
 )
@@ -145,14 +146,13 @@ def test_offpolicy_config_devices_defaults_to_null():
 
 
 def test_offpolicy_config_devices_compose():
-    cfg = _offpolicy_cfg(["training.devices=[0,1]", "training.device=null"])
+    cfg = _offpolicy_cfg(["training.devices=[0,1]"])
     assert resolve_dp_topology(cfg.training.devices) == (0, 1)
 
 
-def test_training_device_and_devices_are_mutually_exclusive():
-    cfg = _offpolicy_cfg(["training.devices=[0,1]", "training.device=cuda"])
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        apply_dp_rank_config(cfg, resolve_dp_topology(cfg.training.devices), rank=0)
+def test_offpolicy_config_has_no_redundant_singular_device():
+    cfg = _offpolicy_cfg()
+    assert "device" not in cfg.training
 
 
 # ---------------------------------------------------------------------------
@@ -161,27 +161,33 @@ def test_training_device_and_devices_are_mutually_exclusive():
 
 
 def test_apply_dp_rank_config_maps_rank_to_device_and_seed():
-    cfg = _offpolicy_cfg(["training.devices=[0,1]", "training.device=null", "algo.seed=42"])
+    cfg = _offpolicy_cfg(["training.devices=[0,1]", "algo.seed=42"])
     base_seed = int(cfg.algo.seed)
-    apply_dp_rank_config(cfg, (0, 1), rank=1)
-    assert cfg.training.device == "cuda:1"
+    device = apply_dp_rank_config(cfg, (0, 1), rank=1)
+    assert device == "cuda:1"
+    assert "device" not in cfg.training
     assert int(cfg.algo.seed) == base_seed + 1
 
 
 def test_apply_dp_rank_config_rank_zero_keeps_seed():
-    cfg = _offpolicy_cfg(["training.devices=[0,1]", "training.device=null", "algo.seed=42"])
-    apply_dp_rank_config(cfg, (0, 1), rank=0)
-    assert cfg.training.device == "cuda:0"
+    cfg = _offpolicy_cfg(["training.devices=[0,1]", "algo.seed=42"])
+    assert apply_dp_rank_config(cfg, (0, 1), rank=0) == "cuda:0"
     assert int(cfg.algo.seed) == 42
+
+
+def test_resolve_dp_rank_device_uses_auto_selection_without_devices():
+    assert resolve_dp_rank_device(None, rank=0) is None
+    assert resolve_dp_rank_device((2, 0), rank=1) == "cuda:0"
+    with pytest.raises(ValueError, match="out of range"):
+        resolve_dp_rank_device((0, 1), rank=2)
 
 
 def test_single_device_topology_spawns_no_children(fake_popen, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
-    cfg = _offpolicy_cfg(["training.devices=[0]", "training.device=null"])
+    cfg = _offpolicy_cfg(["training.devices=[0]"])
     devices = resolve_dp_topology(cfg.training.devices)
     assert devices == (0,)
-    apply_dp_rank_config(cfg, devices, rank=0)
-    assert cfg.training.device == "cuda:0"
+    assert apply_dp_rank_config(cfg, devices, rank=0) == "cuda:0"
     with DpRankSupervisor(devices, log_dir="/tmp/dp_test_log"):
         assert fake_popen.instances == []
     assert os.environ.get(UNILAB_DP_RANK) is None

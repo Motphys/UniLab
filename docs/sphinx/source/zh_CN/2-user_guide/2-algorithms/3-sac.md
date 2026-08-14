@@ -51,25 +51,32 @@ rank 子进程。同步是参数级的：启动时先广播 rank 0 的初始参�
 （actor / critic / 温度系数）做一次 all-reduce 平均；梯度不交换，各 rank 保留自己的
 optimizer 状态。
 
+off-policy 只公开 `training.devices` 这一个设备字段：`null` 或 `[]` 自动选择单个
+learner device，`[0]` 显式选择 `cuda:0`，两个以上索引才启动多卡拓扑。
+
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco \
   training.devices=[0,1] \
   training.dp_sync_interval=8
 ```
 
-每个 rank 的日志落在同一 run 目录下：rank 0 直接在 run 目录（含
-`run_summary.json` 与 tfevents），rank i>0 在 `rank{i}/` 子目录（仅 tfevents）。
+rank 0 独占终端与 TensorBoard/W&B logger；其他 learner 不刷新终端，也不创建独立
+tfevents。rank 0 在每个 learner iteration 汇总跨 rank 标量：loss、reward 和 timing
+取均值，计数与并行吞吐求和。`perf/steps_per_sec` / 终端 `Steps/s` 表示所有
+collector 的聚合 env-step 吞吐，`perf/effective_samples_per_sec` / 终端 `Samples/s`
+表示所有 learner 的聚合有效样本吞吐。
+
 collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段），可用
 `training.dp_collector_cpu_ids` 显式指定。
 
 当前限制：
 
 - 仅 SAC 与 FlashSAC：TD3 的 learner 未实现 `dp_sync_tensors()`，多卡启动即报错。
-- 仅验证过 `mujoco` backend；`training.devices` 与 `training.device` 互斥。
+- 仅验证过 `mujoco` backend。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置
   时优先）——部分机型（如 RTX 6000D）的 NCCL P2P/SHM peer transport 不可靠，
   TCP loopback 是唯一稳定传输。
 
-2 卡聚合吞吐相对单卡的 scaling 验收基准见
+collector `Steps/s` 与 learner `Samples/s` 各自相对单卡的 scaling 基准见
 `benchmark/rl/benchmark_offpolicy_dp_scaling.py`（issue #968，真实运行不进 CI）。

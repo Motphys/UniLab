@@ -161,29 +161,33 @@ def validate_dp_launchable(devices: tuple[int, ...]) -> None:
         )
 
 
-def apply_dp_rank_config(cfg: Any, devices: tuple[int, ...] | None, rank: int) -> None:
-    """Rewrite per-rank device and seed into the composed Hydra config.
-
-    Rank 0 keeps the configured seed; rank i>0 trains with ``seed + i`` until
-    init broadcast lands in a later stage.
-    """
+def resolve_dp_rank_device(devices: tuple[int, ...] | None, rank: int) -> str | None:
+    """Return ``cuda:<index>`` for one configured rank, or None for auto selection."""
     if devices is None:
-        return
-    if cfg.training.device is not None:
-        raise ValueError(
-            "training.device and training.devices are mutually exclusive; "
-            "use training.devices for multi-GPU data-parallel training and leave "
-            "training.device null"
-        )
+        return None
     if rank < 0 or rank >= len(devices):
         raise ValueError(
             f"data-parallel rank {rank} is out of range for training.devices={list(devices)}"
         )
+    return f"cuda:{devices[rank]}"
+
+
+def apply_dp_rank_config(cfg: Any, devices: tuple[int, ...] | None, rank: int) -> str | None:
+    """Apply the per-rank seed and return this rank's explicit CUDA device.
+
+    Rank 0 keeps the configured seed; rank i>0 trains with ``seed + i`` until
+    init broadcast lands in a later stage. ``training.devices`` is the sole
+    public off-policy device field, so the resolved runtime device is returned
+    instead of being written back into a synthetic ``training.device`` key.
+    """
+    if devices is None:
+        return None
+    device = resolve_dp_rank_device(devices, rank)
     from omegaconf import open_dict
 
     with open_dict(cfg):
-        cfg.training.device = f"cuda:{devices[rank]}"
         cfg.algo.seed = int(cfg.algo.seed) + rank
+    return device
 
 
 def _sigterm_system_exit(signum: int, _frame: Any) -> None:

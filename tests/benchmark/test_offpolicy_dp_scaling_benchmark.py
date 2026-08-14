@@ -37,22 +37,21 @@ def _write_run_summary(run_dir: Path, **overrides: object) -> None:
 def _make_run_dir(
     run_dir: Path,
     *,
-    world_size: int,
     steps_per_sec: list[float] | None = None,
-    rank_steps_per_sec: list[list[float]] | None = None,
+    samples_per_sec: list[float] | None = None,
     reward: list[float] | None = None,
     dp_sync_time: list[float] | None = None,
 ) -> None:
     _write_run_summary(run_dir)
-    rank0_series = {bench.STEPS_PER_SEC_TAG: steps_per_sec or []}
+    rank0_series = {
+        bench.STEPS_PER_SEC_TAG: steps_per_sec or [],
+        bench.SAMPLES_PER_SEC_TAG: samples_per_sec or [],
+    }
     if reward is not None:
         rank0_series[bench.REWARD_TAG] = reward
     if dp_sync_time is not None:
         rank0_series[bench.DP_SYNC_TIME_TAG] = dp_sync_time
     _write_tfevents(run_dir, rank0_series)
-    for rank, series in enumerate(rank_steps_per_sec or [], start=1):
-        _write_tfevents(bench.rank_dir_for(run_dir, rank), {bench.STEPS_PER_SEC_TAG: series})
-    assert world_size == 1 + len(rank_steps_per_sec or [])
 
 
 def test_steady_state_mean_uses_tail_half() -> None:
@@ -101,53 +100,47 @@ def test_parse_run_single_rank(tmp_path: Path) -> None:
     run_dir = tmp_path / "n1"
     _make_run_dir(
         run_dir,
-        world_size=1,
         steps_per_sec=[100.0, 200.0, 300.0, 400.0],
+        samples_per_sec=[1_000.0, 2_000.0, 3_000.0, 4_000.0],
         reward=[0.5, 1.5],
     )
     metrics = bench.parse_run(run_dir, world_size=1)
     assert metrics["completed_iterations"] == 300
     assert metrics["total_env_steps"] == 1_200_000
     assert metrics["training_wall_time_sec"] == pytest.approx(600.0)
-    assert metrics["aggregate_env_steps_per_s"] == pytest.approx(350.0)
+    assert metrics["steady_state_collector_steps_per_s"] == pytest.approx(350.0)
+    assert metrics["steady_state_learner_samples_per_s"] == pytest.approx(3_500.0)
     assert metrics["final_mean_reward"] == pytest.approx(1.5)
     assert metrics["mean_dp_sync_time_sec"] is None
-    assert len(metrics["ranks"]) == 1
-    assert metrics["ranks"][0]["steady_state_env_steps_per_s"] == pytest.approx(350.0)
+    assert metrics["num_collector_throughput_samples"] == 4
+    assert metrics["num_learner_throughput_samples"] == 4
 
 
-def test_parse_run_two_ranks_aggregates_and_reads_rank1_subdir(tmp_path: Path) -> None:
+def test_parse_run_two_ranks_reads_canonical_aggregate_tags(tmp_path: Path) -> None:
     run_dir = tmp_path / "n2"
     _make_run_dir(
         run_dir,
-        world_size=2,
-        steps_per_sec=[100.0, 200.0],
-        rank_steps_per_sec=[[150.0, 250.0]],
+        steps_per_sec=[300.0, 450.0],
+        samples_per_sec=[1_200.0, 1_800.0],
         dp_sync_time=[0.02, 0.04],
     )
     metrics = bench.parse_run(run_dir, world_size=2)
     assert metrics["world_size"] == 2
-    # Aggregate = rank0 steady state + rank1 steady state.
-    assert metrics["aggregate_env_steps_per_s"] == pytest.approx(200.0 + 250.0)
-    assert metrics["ranks"][1]["log_dir"].endswith("rank1")
+    assert metrics["steady_state_collector_steps_per_s"] == pytest.approx(450.0)
+    assert metrics["steady_state_learner_samples_per_s"] == pytest.approx(1_800.0)
     assert metrics["mean_dp_sync_time_sec"] == pytest.approx(0.03)
 
 
-def test_parse_run_missing_rank1_data_is_a_hard_error(tmp_path: Path) -> None:
+def test_parse_run_missing_learner_throughput_is_a_hard_error(tmp_path: Path) -> None:
     run_dir = tmp_path / "n2"
-    _make_run_dir(run_dir, world_size=1, steps_per_sec=[100.0, 200.0])
-    with pytest.raises(bench.RunParseError, match="rank1"):
-        bench.parse_run(run_dir, world_size=2)
-
-    # rank1 directory exists but has no tfevents file.
-    bench.rank_dir_for(run_dir, 1).mkdir(parents=True)
-    with pytest.raises(bench.RunParseError, match="no tfevents"):
+    _make_run_dir(run_dir, steps_per_sec=[100.0, 200.0])
+    with pytest.raises(bench.RunParseError, match="effective_samples_per_sec"):
         bench.parse_run(run_dir, world_size=2)
 
 
 def test_parse_run_rejects_non_completed_status(tmp_path: Path) -> None:
     run_dir = tmp_path / "n1"
-    _make_run_dir(run_dir, world_size=1, steps_per_sec=[100.0])
+    _make_run_dir(run_dir, steps_per_sec=[100.0], samples_per_sec=[200.0])
     _write_run_summary(run_dir, status="failed", error="boom")
     with pytest.raises(bench.RunParseError, match="did not complete"):
         bench.parse_run(run_dir, world_size=1)
@@ -157,14 +150,22 @@ def test_parse_run_rejects_non_completed_status(tmp_path: Path) -> None:
         bench.parse_run(run_dir, world_size=1)
 
 
-def _record(config: str, aggregate: float | None, status: str = "ok") -> dict[str, object]:
+def _record(
+    config: str,
+    collector: float | None,
+    learner: float | None,
+    status: str = "ok",
+) -> dict[str, object]:
     return {
         "config": config,
         "status": status,
         "error": None if status == "ok" else "boom",
         "metrics": (
-            {"aggregate_env_steps_per_s": aggregate}
-            if status == "ok" and aggregate is not None
+            {
+                "steady_state_collector_steps_per_s": collector,
+                "steady_state_learner_samples_per_s": learner,
+            }
+            if status == "ok" and collector is not None and learner is not None
             else None
         ),
     }
@@ -172,23 +173,30 @@ def _record(config: str, aggregate: float | None, status: str = "ok") -> dict[st
 
 def test_attach_scaling_computes_ratio_and_verdict() -> None:
     records = [
-        _record("n1", 100_000.0),
-        _record("n2", 180_000.0),
-        _record("n2", None, status="failed"),
+        _record("n1", 100_000.0, 200_000.0),
+        _record("n2", 180_000.0, 300_000.0),
+        _record("n2", None, None, status="failed"),
     ]
     bench.attach_scaling(records)
-    assert records[0]["scaling_vs_n1"] is None
+    assert records[0]["collector_scaling_vs_n1"] is None
+    assert records[0]["learner_scaling_vs_n1"] is None
     assert records[0]["verdict"] is None
-    assert records[1]["scaling_vs_n1"] == pytest.approx(1.8)
+    assert records[1]["collector_scaling_vs_n1"] == pytest.approx(1.8)
+    assert records[1]["learner_scaling_vs_n1"] == pytest.approx(1.5)
     assert records[1]["verdict"] == "pass"
-    assert records[2]["scaling_vs_n1"] is None
+    assert records[2]["collector_scaling_vs_n1"] is None
+    assert records[2]["learner_scaling_vs_n1"] is None
     assert records[2]["verdict"] is None
 
 
 def test_attach_scaling_below_threshold_verdict() -> None:
-    records = [_record("n1", 100_000.0), _record("n2", 120_000.0)]
+    records = [
+        _record("n1", 100_000.0, 200_000.0),
+        _record("n2", 120_000.0, 240_000.0),
+    ]
     bench.attach_scaling(records)
-    assert records[1]["scaling_vs_n1"] == pytest.approx(1.2)
+    assert records[1]["collector_scaling_vs_n1"] == pytest.approx(1.2)
+    assert records[1]["learner_scaling_vs_n1"] == pytest.approx(1.2)
     assert records[1]["verdict"] == "below threshold"
 
 

@@ -42,6 +42,7 @@ class _NoSyncLearner:
 class _FakeDpSync:
     def __init__(self) -> None:
         self.world_size = 2
+        self.rank = 0
         self.backend = "gloo"
         self.calls: list[tuple[str, object]] = []
 
@@ -53,6 +54,13 @@ class _FakeDpSync:
 
     def allreduce_mean(self, tensors) -> None:
         self.calls.append(("allreduce_mean", tensors))
+
+    def allreduce_statistics(self, *, mean=None, total=None):
+        self.calls.append(("allreduce_statistics", {"mean": mean, "total": total}))
+        return {
+            **(mean or {}),
+            **{key: value * self.world_size for key, value in (total or {}).items()},
+        }
 
     def close(self) -> None:
         self.calls.append(("close", None))
@@ -118,6 +126,86 @@ def test_close_closes_dp_sync_idempotently():
     runner.dp_sync.close()
     runner.dp_sync.close()
     assert [name for name, _ in dp_sync.calls] == ["close", "close"]
+
+
+def test_log_statistics_mean_scalars_and_sum_concurrent_throughput():
+    from unilab.logging import OffPolicyLogger
+
+    dp_sync = _FakeDpSync()
+    runner = _runner_with(_SyncLearner(), dp_sync)
+    logger = OffPolicyLogger(log_backend="none")
+    logger._total_steps = 100
+    logger._buffer_size = 50
+    logger._buffer_target = 200
+    logger._collector_active_steps_per_sec = 1_000.0
+    logger._mean_ep_length = 25.0
+    logger._collector_timing = {"env_step_ms": 2.0}
+
+    payload = runner._aggregate_log_statistics(
+        logger,
+        metrics={"critic_loss": 2.0},
+        reward=3.0,
+        reward_metrics={"mean_ep100": 4.0},
+        reward_components={"reward/tracking": 5.0},
+        train_time=0.4,
+        collector_wait_time=0.1,
+        replay_batch_wait_time=0.01,
+        learner_replay_sample_time=0.02,
+        sync_coordination_time=0.03,
+        replay_ingress_h2d_submit_time=0.04,
+        inference_h2d_time=0.05,
+        inference_forward_time=0.06,
+        inference_d2h_time=0.07,
+        inference_time=0.18,
+        iteration_time=0.5,
+        extra_info={
+            "throughput_steps": 100,
+            "collector_active_steps_per_sec": 1_000.0,
+            "batch_size_per_rank": 64,
+            "effective_batch_size": 64,
+            "replay_samples_per_iter": 128,
+            "learner_samples_per_iter": 256,
+        },
+    )
+
+    assert payload["metrics"] == {"critic_loss": pytest.approx(2.0)}
+    assert payload["reward"] == pytest.approx(3.0)
+    extra_info = payload["extra_info"]
+    assert isinstance(extra_info, dict)
+    assert extra_info["steps_per_sec"] == pytest.approx(400.0)
+    assert extra_info["learner_samples_per_sec"] == pytest.approx(1_024.0)
+    assert extra_info["collector_active_steps_per_sec"] == pytest.approx(2_000.0)
+    assert extra_info["effective_batch_size"] == 128
+    assert extra_info["learner_samples_per_iter"] == 512
+    assert logger._total_steps == 200
+    assert logger._buffer_size == 100
+    assert logger._collector_timing == {"env_step_ms": pytest.approx(2.0)}
+
+    logger.log_step(iteration=1, **payload)
+    assert logger._get_iter_steps_per_sec() == pytest.approx(400.0)
+    assert logger._get_effective_samples_per_sec() == pytest.approx(1_024.0)
+    header = logger._build_compact_header(include_status=False).plain
+    assert "Steps/s 400" in header
+    assert "Samples/s 1,024" in header
+    assert "Collector/s" not in header
+    runner._restore_local_logger_statistics(logger)
+    assert logger._total_steps == 100
+    assert logger._buffer_size == 50
+    assert logger._collector_active_steps_per_sec == pytest.approx(1_000.0)
+
+
+def test_only_rank_zero_owns_terminal_and_tensorboard_backend():
+    rank0_sync = _FakeDpSync()
+    rank0 = _runner_with(_SyncLearner(), rank0_sync)
+    assert rank0._logger_backend("tensorboard") == "tensorboard"
+
+    rank1_sync = _FakeDpSync()
+    rank1_sync.rank = 1
+    rank1 = _runner_with(_SyncLearner(), rank1_sync)
+    assert rank1._logger_backend("tensorboard") == "no_print"
+
+    single = _runner_with(_SyncLearner(), None)
+    assert single._logger_backend("tensorboard") == "tensorboard"
 
 
 def test_learn_source_orders_sync_around_collector_and_logging():
