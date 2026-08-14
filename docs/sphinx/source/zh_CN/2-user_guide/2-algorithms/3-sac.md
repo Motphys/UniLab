@@ -76,9 +76,16 @@ collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段
 
 - 仅 SAC 与 FlashSAC：TD3 learner 未实现 optimizer-boundary gradient sync contract，
   多卡启动即报错。
-- NCCL gradient collective 不捕获进 optimizer CUDA Graph；若多卡配置请求 actor/critic
-  graph capture，learner 会自动切换到 eager optimizer update 并继续同步梯度，单卡行为不变。
-  runtime manifest 的 `dp_sync.cuda_graph_optimizer_capture=eager_fallback` 会记录该回退。
+- 多卡 actor/critic optimizer CUDA Graph 支持捕获 NCCL gradient all-reduce。首次 capture
+  前，DP owner 会先执行一次 eager all-reduce 并同步设备，完成 NCCL collective lazy
+  initialization；flat-gradient buffer 在 graph 生命周期内保持固定地址。runtime manifest
+  记录 `dp_sync.cuda_graph_optimizer_capture=enabled_after_collective_warmup` 和
+  `cuda_graph_collective_warmup=true`。销毁 process group 前会先释放 graph 中的 NCCL 节点。
+  Issue #978 的验证环境为 PyTorch 2.7.0+cu128、CUDA 12.8、NCCL 2.26.2、2 × RTX
+  6000D；TCP loopback 下同步 all-reduce 和 `async_op=True` + `Work.wait()` 均可 capture/replay，
+  默认 stream 与 side stream 均通过；跳过 warmup 时首个 all-reduce 会在 capture 中报
+  `operation not permitted when stream is capturing`。有限超时的最小复现见
+  `benchmark/rl/reproduce_nccl_cuda_graph_capture.py`。
 - 仅验证过 `mujoco` backend。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置

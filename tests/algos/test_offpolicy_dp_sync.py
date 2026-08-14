@@ -31,9 +31,12 @@ class _SyncLearner:
             "qnet.w": torch.full((2,), 2.0),
         }
         self.gradient_sync = None
+        self.graph_replay_recorder = None
+        self.dp_cuda_graph_gradient_sync = False
 
-    def set_gradient_sync(self, sync) -> None:
+    def set_gradient_sync(self, sync, *, graph_replay_recorder=None) -> None:
         self.gradient_sync = sync
+        self.graph_replay_recorder = graph_replay_recorder
 
     def dp_initial_sync_tensors(self) -> dict[str, torch.Tensor]:
         return self.tensors
@@ -58,6 +61,12 @@ class _FakeDpSync:
 
     def allreduce_gradients(self, parameters) -> None:
         self.calls.append(("allreduce_gradients", tuple(parameters)))
+
+    def record_cuda_graph_gradient_replay(self, collective_calls: int) -> None:
+        self.calls.append(("record_cuda_graph_gradient_replay", collective_calls))
+
+    def prepare_cuda_graph_collectives(self) -> None:
+        self.calls.append(("prepare_cuda_graph_collectives", None))
 
     def take_gradient_sync_metrics(self):
         self.calls.append(("take_gradient_sync_metrics", None))
@@ -92,6 +101,9 @@ def test_runner_attaches_per_optimizer_gradient_collective():
     parameter.grad = torch.full_like(parameter, 2.0)
     learner.gradient_sync((parameter,))
     assert dp_sync.calls == [("allreduce_gradients", (parameter,))]
+    assert learner.graph_replay_recorder is not None
+    learner.graph_replay_recorder(2)
+    assert dp_sync.calls[-1] == ("record_cuda_graph_gradient_replay", 2)
 
 
 def test_runner_collects_per_iteration_gradient_sync_metrics():
@@ -114,6 +126,19 @@ def test_dp_init_broadcast_starts_group_then_broadcasts():
     runner._dp_init_broadcast()
     assert [name for name, _ in dp_sync.calls] == ["start", "broadcast_from_rank0"]
     assert dp_sync.calls[1][1] is learner.tensors
+
+
+def test_dp_init_warms_nccl_collective_when_optimizer_graph_is_enabled():
+    learner = _SyncLearner()
+    learner.dp_cuda_graph_gradient_sync = True
+    dp_sync = _FakeDpSync()
+    runner = _runner_with(learner, dp_sync)
+    runner._dp_init_broadcast()
+    assert [name for name, _ in dp_sync.calls] == [
+        "start",
+        "broadcast_from_rank0",
+        "prepare_cuda_graph_collectives",
+    ]
 
 
 def test_dp_init_broadcast_is_a_noop_without_dp_sync():
@@ -141,7 +166,7 @@ def test_log_statistics_mean_scalars_and_sum_concurrent_throughput():
 
     dp_sync = _FakeDpSync()
     runner = _runner_with(_SyncLearner(), dp_sync)
-    logger = OffPolicyLogger(log_backend="none")
+    logger = OffPolicyLogger(log_backend="none", num_gpus=dp_sync.world_size)
     logger._total_steps = 100
     logger._buffer_size = 50
     logger._buffer_target = 200
@@ -196,6 +221,7 @@ def test_log_statistics_mean_scalars_and_sum_concurrent_throughput():
     assert "Steps/s 400" in header
     assert "Samples/s 1,024" in header
     assert "Collector/s" not in header
+    assert "GPUs 2" in logger._build_display().title.plain
     runner._restore_local_logger_statistics(logger)
     assert logger._total_steps == 100
     assert logger._buffer_size == 50
@@ -362,8 +388,24 @@ def test_fast_sac_syncs_each_optimizer_gradient_before_step():
     assert len(calls) == 3  # critic, alpha, actor
     assert calls[1] == (1,)
 
+    calls.clear()
+    learner._cuda_graph_critic_action_noise = torch.zeros_like(batch["actions"])
+    learner._update_critic_capture_candidate(
+        batch["critic"],
+        batch["actions"],
+        batch["rewards"],
+        batch["next_obs"],
+        batch["next_critic"],
+        batch["dones"],
+        batch["truncated"],
+    )
+    learner._cuda_graph_actor_action_noise = torch.zeros_like(batch["actions"])
+    learner._update_actor_capture_candidate(batch["obs"], batch["critic"])
+    assert len(calls) == 3  # captured critic, alpha, actor collectives
+    assert calls[1] == (1,)
 
-def test_fast_sac_gradient_sync_disables_cuda_graph_capture():
+
+def test_fast_sac_gradient_sync_preserves_cuda_graph_capture():
     from unilab.algos.torch.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
@@ -384,11 +426,11 @@ def test_fast_sac_gradient_sync_disables_cuda_graph_capture():
 
     learner.set_gradient_sync(lambda parameters: None)
 
-    assert learner.dp_cuda_graph_fallback is True
-    assert learner.use_cuda_graph_critic is False
-    assert learner.use_cuda_graph_actor is False
-    assert learner.use_cuda_graph_critic_packed_staging is False
-    assert learner.use_cuda_graph_actor_packed_staging is False
+    assert learner.dp_cuda_graph_gradient_sync is True
+    assert learner.use_cuda_graph_critic is True
+    assert learner.use_cuda_graph_actor is True
+    assert learner.use_cuda_graph_critic_packed_staging is True
+    assert learner.use_cuda_graph_actor_packed_staging is True
 
 
 # ---- build_runner assembly ----
@@ -560,8 +602,14 @@ def test_flash_sac_syncs_each_optimizer_gradient_before_step():
     assert len(calls) == 3  # critic, actor, temperature
     assert calls[-1] == (1,)
 
+    calls.clear()
+    learner._update_critic_capture_candidate(learner._prepare_critic_graph_inputs(batch))
+    learner._update_actor_capture_candidate(learner._prepare_actor_graph_inputs(batch))
+    assert len(calls) == 3  # captured critic, actor, temperature collectives
+    assert calls[-1] == (1,)
 
-def test_gradient_sync_falls_back_from_cuda_graph_to_eager_updates():
+
+def test_flash_sac_gradient_sync_preserves_cuda_graph_and_cpu_fallback_updates():
     from unilab.algos.torch.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
@@ -587,11 +635,11 @@ def test_gradient_sync_falls_back_from_cuda_graph_to_eager_updates():
         calls.append(tuple(parameter.numel() for parameter in params))
 
     learner.set_gradient_sync(record_gradients)
-    assert learner.dp_cuda_graph_fallback is True
-    assert learner.use_cuda_graph_critic is False
-    assert learner.use_cuda_graph_actor is False
-    assert learner.use_cuda_graph_critic_packed_staging is False
-    assert learner.use_cuda_graph_actor_packed_staging is False
+    assert learner.dp_cuda_graph_gradient_sync is True
+    assert learner.use_cuda_graph_critic is True
+    assert learner.use_cuda_graph_actor is True
+    assert learner.use_cuda_graph_critic_packed_staging is True
+    assert learner.use_cuda_graph_actor_packed_staging is True
     batch_size = 4
     batch = {
         "obs": torch.randn(batch_size, 4),

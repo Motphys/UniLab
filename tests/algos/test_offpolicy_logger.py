@@ -6,10 +6,11 @@ import pytest
 from rich.console import Console
 
 import unilab.logging.common as common_logger_module
+import unilab.logging.offpolicy as offpolicy_logger_module
 from unilab.logging.offpolicy import OffPolicyLogger
 
 
-def test_offpolicy_logger_defers_warmup_refresh_until_training_step(monkeypatch) -> None:
+def test_offpolicy_logger_only_forces_refresh_for_errors(monkeypatch) -> None:
     logger = OffPolicyLogger(
         algo_name="SAC",
         max_iterations=2,
@@ -44,7 +45,7 @@ def test_offpolicy_logger_defers_warmup_refresh_until_training_step(monkeypatch)
     logger.log_status("Training")
     logger.log_buffer_fill(64, 64)
 
-    assert refresh_calls == [False, False, False]
+    assert refresh_calls == []
 
 
 def test_offpolicy_logger_stop_live_lets_rich_do_final_refresh() -> None:
@@ -97,7 +98,6 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
             "env_step_update_state_ms": 1.0,
             "env_step_reset_done_ms": 0.5,
             "replay_write_ms": 0.3,
-            "bookkeeping_ms": 0.0,
         }
     )
 
@@ -137,7 +137,7 @@ def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> 
     assert len(set(connector_columns)) == 1
 
 
-def test_offpolicy_logger_normalizes_pre_contract_collector_timing_names() -> None:
+def test_offpolicy_logger_discards_retired_collector_timing_names() -> None:
     logger = OffPolicyLogger(log_backend="none")
 
     logger.update_collector_timing(
@@ -148,10 +148,7 @@ def test_offpolicy_logger_normalizes_pre_contract_collector_timing_names() -> No
         }
     )
 
-    assert logger._collector_timing == {
-        "learner_action_wait_ms": 4.0,
-        "bookkeeping_ms": 3.0,
-    }
+    assert logger._collector_timing == {"learner_action_wait_ms": 4.0}
 
 
 def test_offpolicy_logger_waits_for_complete_collector_cycle_before_percentages() -> None:
@@ -369,9 +366,102 @@ def test_offpolicy_logger_moves_identity_and_iteration_to_panel_title() -> None:
 
     assert isinstance(display.title, type(header))
     assert display.title.plain == (
-        " 🚀 UniLab Off-Policy Training | FastSAC | G1WalkFlat | iter 5000/5000 "
+        " 🚀 UniLab Off-Policy Training | FastSAC | G1WalkFlat | GPUs 1 | iter 5000/5000 "
     )
     assert "FastSAC" not in header.plain
     assert "G1WalkFlat" not in header.plain
     assert "iter 5000/5000" not in header.plain
     assert "Training" not in header.plain
+
+
+def test_offpolicy_terminal_averages_aggregated_samples_over_two_seconds(
+    monkeypatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr(offpolicy_logger_module.time, "monotonic", lambda: now)
+
+    class _Writer:
+        def __init__(self) -> None:
+            self.scalars: list[tuple[str, float, int]] = []
+
+        def add_scalar(self, tag: str, value: float, step: int) -> None:
+            self.scalars.append((tag, value, step))
+
+    logger = OffPolicyLogger(log_backend="none", num_gpus=2)
+    writer = _Writer()
+    logger._tb_writer = writer
+
+    logger.update_timeout_rate(0.2)
+    logger.update_collector_timing(
+        {
+            "inference_request_ms": 1.0,
+            "learner_action_wait_ms": 2.0,
+            "env_step_ms": 3.0,
+            "replay_write_ms": 4.0,
+        }
+    )
+    logger.log_step(
+        iteration=1,
+        metrics={"critic_loss": 2.0},
+        train_time=0.2,
+        iteration_time=0.5,
+        extra_info={
+            "steps_per_sec": 400.0,
+            "learner_samples_per_sec": 1_000.0,
+        },
+    )
+
+    now = 101.0
+    logger.update_timeout_rate(0.4)
+    logger.update_collector_timing(
+        {
+            "inference_request_ms": 3.0,
+            "learner_action_wait_ms": 4.0,
+            "env_step_ms": 5.0,
+            "replay_write_ms": 6.0,
+        }
+    )
+    logger.log_step(
+        iteration=2,
+        metrics={"critic_loss": 4.0},
+        train_time=0.4,
+        iteration_time=1.0,
+        extra_info={
+            "steps_per_sec": 800.0,
+            "learner_samples_per_sec": 3_000.0,
+        },
+    )
+
+    snapshot = logger._terminal_snapshot
+    assert snapshot is not None
+    assert snapshot.sample_count == 2
+    assert snapshot.metrics["critic_loss"] == pytest.approx(3.0)
+    assert snapshot.scalars["_train_time"] == pytest.approx(0.3)
+    assert snapshot.scalars["timeout_rate"] == pytest.approx(0.3)
+    assert snapshot.scalars["steps_per_sec"] == pytest.approx(600.0)
+    assert snapshot.scalars["samples_per_sec"] == pytest.approx(2_000.0)
+    assert snapshot.collector_timing["env_step_ms"] == pytest.approx(4.0)
+    collector_values = list(logger._build_timing_table().columns[3].cells)
+    assert "    4.0ms   29%" in collector_values
+    assert "Avg 2s (n=2)" in logger._build_compact_header(include_status=False).plain
+    assert "GPUs 2" in logger._build_display().title.plain
+
+    latest_backend_values = {tag: value for tag, value, _ in writer.scalars}
+    assert latest_backend_values["train/critic_loss"] == pytest.approx(4.0)
+    assert latest_backend_values["perf/steps_per_sec"] == pytest.approx(800.0)
+
+    now = 103.1
+    logger.log_step(
+        iteration=3,
+        metrics={"critic_loss": 10.0},
+        train_time=1.0,
+        iteration_time=2.0,
+        extra_info={
+            "steps_per_sec": 1_200.0,
+            "learner_samples_per_sec": 5_000.0,
+        },
+    )
+    snapshot = logger._terminal_snapshot
+    assert snapshot is not None
+    assert snapshot.sample_count == 1
+    assert snapshot.metrics["critic_loss"] == pytest.approx(10.0)

@@ -76,6 +76,7 @@ class BaseTrainingLogger:
         wandb_tags: list[str] | None,
         wandb_notes: str | None,
         refresh_per_second: int = 4,
+        fixed_terminal_refresh: bool = False,
         tensorboard_subdir: str | None = "tb",
         wandb_config: dict[str, Any] | None = None,
     ):
@@ -91,6 +92,7 @@ class BaseTrainingLogger:
         self._console = Console(force_terminal=False if not self._unicode_console else None)
         self._live: Live | None = None
         self._refresh_rate = refresh_per_second
+        self._fixed_terminal_refresh = fixed_terminal_refresh
         self._last_live_refresh_time: float | None = None
 
         self._start_time: float = 0.0
@@ -211,9 +213,10 @@ class BaseTrainingLogger:
             self._live = Live(
                 self._build_display(),
                 console=self._console,
-                auto_refresh=False,
+                auto_refresh=self._fixed_terminal_refresh,
                 refresh_per_second=self._refresh_rate,
                 transient=False,
+                get_renderable=(self._build_display if self._fixed_terminal_refresh else None),
             )
             self._live.start(refresh=False)
 
@@ -277,6 +280,8 @@ class BaseTrainingLogger:
     def _refresh(self, *, force: bool = False):
         if self._live is None:
             return
+        if self._fixed_terminal_refresh and not force:
+            return
         now = time.time()
         if not force and self._refresh_rate > 0 and self._last_live_refresh_time is not None:
             min_interval_s = 1.0 / self._refresh_rate
@@ -285,12 +290,13 @@ class BaseTrainingLogger:
         self._last_live_refresh_time = now
         self._live.update(self._build_display(), refresh=True)
 
-    def _estimate_eta(self) -> str:
-        if self._iteration <= 0:
+    def _estimate_eta(self, *, iteration: int | None = None) -> str:
+        current_iteration = self._iteration if iteration is None else iteration
+        if current_iteration <= 0:
             return ""
         elapsed = time.time() - self._start_time
-        remaining = self.max_iterations - self._iteration
-        avg_iter = elapsed / self._iteration
+        remaining = self.max_iterations - current_iteration
+        avg_iter = elapsed / current_iteration
         eta_s = remaining * avg_iter
         return _fmt_time(eta_s)
 
@@ -324,8 +330,27 @@ class BaseTrainingLogger:
         include_iteration: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
     ) -> Text:
+        return self._build_compact_header_state(
+            include_status=include_status,
+            include_identity=include_identity,
+            include_iteration=include_iteration,
+            extra_fields=extra_fields,
+            ep_length=self._mean_ep_length,
+            current_iteration=self._iteration,
+        )
+
+    def _build_compact_header_state(
+        self,
+        *,
+        include_status: bool,
+        include_identity: bool,
+        include_iteration: bool,
+        extra_fields: list[tuple[str, str]] | None,
+        ep_length: float,
+        current_iteration: int,
+    ) -> Text:
         elapsed = time.time() - self._start_time if self._start_time else 0
-        eta = self._estimate_eta()
+        eta = self._estimate_eta(iteration=current_iteration)
         fields: list[tuple[str, str]] = []
         if include_identity:
             fields.extend(
@@ -335,7 +360,7 @@ class BaseTrainingLogger:
                 ]
             )
         if include_iteration:
-            fields.append((f"iter {self._iteration}/{self.max_iterations}", "yellow"))
+            fields.append((f"iter {current_iteration}/{self.max_iterations}", "yellow"))
         fields.append(
             (
                 f"{'⏱' if self._unicode_console else 'time'} {_fmt_time(elapsed)}",
@@ -344,8 +369,8 @@ class BaseTrainingLogger:
         )
         if eta:
             fields.append((f"ETA {eta}", "bold magenta"))
-        if self._mean_ep_length > 0:
-            fields.append((f"Ep Len {self._mean_ep_length:.1f}", "yellow"))
+        if ep_length > 0:
+            fields.append((f"Ep Len {ep_length:.1f}", "yellow"))
         if extra_fields:
             fields.extend(extra_fields)
         if include_status and self._status:
@@ -363,6 +388,9 @@ class BaseTrainingLogger:
         *,
         wait_message: str,
         include_ep_length: bool = True,
+        reward_history: tuple[float, ...] | None = None,
+        reward_components: dict[str, float] | None = None,
+        mean_reward: float | None = None,
     ) -> Table:
         table = Table(
             box=box.SIMPLE_HEAVY,
@@ -375,9 +403,13 @@ class BaseTrainingLogger:
         table.add_column("Rewards", style="white", width=21, no_wrap=True)
         table.add_column("Value", justify="right", ratio=2, no_wrap=True)
 
-        if self._reward_history:
-            recent = list(self._reward_history)
-            mean_rew = sum(recent[-50:]) / max(len(recent[-50:]), 1)
+        recent = list(self._reward_history if reward_history is None else reward_history)
+        if recent:
+            mean_rew = (
+                mean_reward
+                if mean_reward is not None
+                else sum(recent[-50:]) / max(len(recent[-50:]), 1)
+            )
             peak_rew = max(recent) if recent else 0
 
             if len(recent) >= 10:
@@ -403,8 +435,11 @@ class BaseTrainingLogger:
         else:
             table.add_row(wait_message, "")
 
-        if self._latest_reward_components:
-            for name, val in sorted(self._latest_reward_components.items()):
+        components = (
+            self._latest_reward_components if reward_components is None else reward_components
+        )
+        if components:
+            for name, val in sorted(components.items()):
                 display = name.replace("reward/", "").replace("_", " ")
                 color = "green" if val > 0 else "red" if val < 0 else "dim"
                 table.add_row(f"  {display}", f"[{color}]{val:+.4f}[/]")

@@ -264,11 +264,8 @@ class OffPolicyRunner(AsyncRunner):
                 active_steps_per_sec = metrics.get("collector_active_steps_per_sec")
                 if active_steps_per_sec is not None:
                     logger.update_collector_active_steps_per_sec(float(active_steps_per_sec))
-                if "timeout_rate" in metrics or "terminated_rate" in metrics:
-                    logger.update_done_rates(
-                        timeout_rate=float(metrics.get("timeout_rate", 0.0)),
-                        terminated_rate=float(metrics.get("terminated_rate", 0.0)),
-                    )
+                if "timeout_rate" in metrics:
+                    logger.update_timeout_rate(float(metrics["timeout_rate"]))
                 if "total_steps" in metrics and "buffer_size" in metrics:
                     logger.log_collector(
                         metrics["total_steps"],

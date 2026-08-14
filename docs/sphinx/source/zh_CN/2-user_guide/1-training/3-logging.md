@@ -1,8 +1,9 @@
 # 日志
 
 训练时看到的终端面板与 TensorBoard / W&B 不是两套 logger：算法 runner 只向同一个
-training logger 提交一次指标。终端面板是当前值的实时视图；`training.logger=tensorboard`
-（默认）或 `training.logger=wandb` 决定把同一批 canonical key 持久化到哪个 backend。
+training logger 提交一次指标。终端面板按固定 2 Hz 时钟刷新，并显示两秒时间滑动平均；
+`training.logger=tensorboard`（默认）或 `training.logger=wandb` 决定持久化 backend，
+backend 保留每个 iteration 未经时间平滑的值。
 
 本文先说明所有算法共用的日志目录，再详细说明 SAC / TD3 / FlashSAC 与 APPO 共用的
 off-policy 终端视图。表中的“终端字段”与 backend key 一一对应；后缀 `_ms` 均为毫秒。
@@ -50,7 +51,13 @@ RSL-RL writer。MuJoCo run 若产生 `play_video.mp4`，该视频会上传至 W&
 
 - `Learner (Iter Wall)`：learner 主线程的一圈；所有行使用 `Iter Wall` 作分母。
 - `Collector (own clock)`：collector 子进程自己的采集时钟，与 learner 并行。
-- `System`：buffer、batch、done rate 等非计时状态。
+- `System`：buffer 大小、timeout rate、env 数和每 rank batch 大小。
+
+面板边框标题显示 `GPUs N`。多卡训练中只有 rank 0 持有终端与持久化 logger；learner
+指标和计时先在 rank 间取平均，再进入终端的两秒时间窗口。`Steps/s` 与 `Samples/s`
+不取 rank 平均：前者把各 rank collector step rate 求和，后者把各 rank learner sample
+rate 求和，因此两者都是整个训练任务的总吞吐。标题中的 `Avg 2s (n=...)` 表示当前窗口
+包含多少个已经完成 rank 聚合的 learner 样本。
 
 两列时间不能横向相加。只有 learner 列从 `Collector Wait` 到 `Other` 的行是互斥主线程
 阶段；实现以 `Other = max(Iter Wall - accounted, 0)` 补齐未命名区间。正常情况下它们合计
@@ -109,7 +116,6 @@ backend 还记录 `perf/learner_train_pct`、`perf/learner_accounted_pct` 与
 | `timing/learner_incremental_h2d_ms`（SAC 类） | `timing/replay_ingress_h2d_submit_ms` | 明确它是可能并行的 submit 诊断，不是 learner 主阶段 |
 | `timing/learner_incremental_h2d_ms`（APPO） | `timing/learner_replay_stage_ms` | 明确它是可计入 `Iter Wall` 的同步 staging 阶段 |
 | `timing/collector_inference_wait_ms` | `timing/collector_learner_action_wait_ms` | 等待范围还包含剩余 learner update，不等于 inference latency |
-| `timing/collector_sync_idle_ms` | `timing/collector_bookkeeping_ms` | 实际内容是 episode / metrics bookkeeping，并非同步 idle |
 
 `perf/learner_pipeline_ms` 已移除：它曾把互斥主阶段与后台 H2D submit 混加。主时间线请使用
 `perf/iter_ms`，完整性请对照 `perf/learner_accounted_pct` 与
@@ -117,8 +123,8 @@ backend 还记录 `perf/learner_train_pct`、`perf/learner_accounted_pct` 与
 
 ### Collector 自有时间线
 
-SAC / TD3 / FlashSAC 每个 vectorized env tick 记录五个互斥阶段，终端百分比使用
-`perf/collector_cycle_ms`（这五项之和）作分母：
+SAC / TD3 / FlashSAC 每个 vectorized env tick 记录四个热路径互斥阶段，终端百分比使用
+`perf/collector_cycle_ms`（这四项之和）作分母：
 
 | 终端字段 | TensorBoard / W&B key | 含义 |
 | --- | --- | --- |
@@ -126,7 +132,6 @@ SAC / TD3 / FlashSAC 每个 vectorized env tick 记录五个互斥阶段，终�
 | Learner Action Wait | `timing/collector_learner_action_wait_ms` | request 发出后，等 learner 发布当前 tick action 的屏障墙钟 |
 | Env Step | `timing/collector_env_step_ms` | `env.step()` 墙钟 |
 | Replay Write | `timing/collector_replay_write_ms` | transition 后处理、打包并写入 bounded ingress |
-| Bookkeeping | `timing/collector_bookkeeping_ms` | episode 统计、metrics 上报及其余单步 bookkeeping |
 
 `Learner Action Wait` 特意不叫 “Inference Wait”：它不是纯 inference latency。如果 collector
 在 learner update 期间先完成 `Env Step + Replay Write` 并提交下一 request，这一项会包含
@@ -134,10 +139,12 @@ SAC / TD3 / FlashSAC 每个 vectorized env tick 记录五个互斥阶段，终�
 Collector Release`。所以它很长并不与“两侧并行”矛盾，反而说明 collector 比 learner
 update 更早到达下一屏障。
 
-`Collector/s` 是 collector 活跃路径吞吐，按
+持久化指标 `perf/collector_active_steps_per_sec` 按 collector 活跃路径计算：
 `num_envs / (Inference Request + Env Step + Replay Write)` 计算；它有意排除
-`Learner Action Wait` 与 `Bookkeeping`。`Env Step` 下缩进的 Backend Step / Update State /
-Reset Done 是父项的嵌套明细，不参与 cycle 求和，但百分比仍使用同一 collector cycle 分母。
+`Learner Action Wait`；诊断价值较低的亚毫秒 episode / metrics bookkeeping 不再单独计时。
+终端 `Steps/s` 则报告同步 collector 的总吞吐。`Env Step` 下缩进的 Backend Step /
+Update State / Reset Done 是父项的嵌套明细，不参与 cycle 求和，但百分比仍使用同一
+collector cycle 分母。
 
 APPO 使用不同的采集 contract，因此 collector 只上报：
 
@@ -148,7 +155,8 @@ APPO 使用不同的采集 contract，因此 collector 只上报：
 | Rollout Wall | `timing/collector_rollout_ms` | 完整 `steps_per_env` 步 rollout 的墙钟 EMA |
 
 APPO 的三个值不是一组百分比分解：前两个是单步 EMA，`Rollout Wall` 是整条 rollout 总量，
-所以终端只显示 ms。`Collector/s = (num_envs * steps_per_env) / Rollout Wall`。
+所以终端只显示 ms。backend 的活跃吞吐诊断按
+`(num_envs * steps_per_env) / Rollout Wall` 计算。
 
 ## FastSAC 双时间线
 
@@ -176,7 +184,6 @@ sequenceDiagram
     par Collector tick t
         C->>C: Env Step(t)
         C->>D: Replay Write(t)
-        C->>C: Bookkeeping(t)
         C->>I: Inference Request(t+1)
         Note over C,I: Learner Action Wait(t+1) 从这里开始
     and Learner iteration k

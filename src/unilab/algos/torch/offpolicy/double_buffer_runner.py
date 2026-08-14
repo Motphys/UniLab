@@ -79,7 +79,6 @@ class _LocalLoggerStatistics(TypedDict):
     collector_active_steps_per_sec: float | None
     mean_ep_length: float
     timeout_rate: float
-    terminated_rate: float
     buffer_utilization: float
     collector_timing: dict[str, float]
     staging_pool_len: int
@@ -191,15 +190,17 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "logger_cross_rank_aggregation": self.dp_sync is not None,
         }
         if self.dp_sync is not None:
+            captures_gradient_sync = bool(
+                getattr(self.learner, "dp_cuda_graph_gradient_sync", False)
+            )
             self.runtime_manifest["dp_sync"] = {
                 "world_size": self.dp_sync.world_size,
                 "backend": self.dp_sync.backend,
                 "mode": "gradient_mean_per_optimizer_step",
                 "cuda_graph_optimizer_capture": (
-                    "eager_fallback"
-                    if bool(getattr(self.learner, "dp_cuda_graph_fallback", False))
-                    else "not_requested"
+                    "enabled_after_collective_warmup" if captures_gradient_sync else "not_requested"
                 ),
+                "cuda_graph_collective_warmup": captures_gradient_sync,
             }
 
     def _attach_dp_gradient_sync(self) -> None:
@@ -211,7 +212,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"{type(self.learner).__name__} must implement set_gradient_sync() "
                 "for multi-GPU data parallelism"
             )
-        setter(self.dp_sync.allreduce_gradients)
+        setter(
+            self.dp_sync.allreduce_gradients,
+            graph_replay_recorder=self.dp_sync.record_cuda_graph_gradient_replay,
+        )
 
     def _dp_initial_sync_tensors(self) -> dict[str, torch.Tensor]:
         """Live model-state references broadcast once before collection."""
@@ -233,6 +237,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             return
         self.dp_sync.start()
         self.dp_sync.broadcast_from_rank0(self._dp_initial_sync_tensors())
+        if bool(getattr(self.learner, "dp_cuda_graph_gradient_sync", False)):
+            self.dp_sync.prepare_cuda_graph_collectives()
 
     def _collect_dp_sync_metrics(self, iter_metrics: defaultdict[str, list]) -> None:
         """Move per-optimizer collective timing into this iteration's metrics."""
@@ -304,7 +310,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "collector_active_steps_per_sec": logger._collector_active_steps_per_sec,
             "mean_ep_length": logger._mean_ep_length,
             "timeout_rate": logger._timeout_rate,
-            "terminated_rate": logger._terminated_rate,
             "buffer_utilization": logger._buffer_utilization,
             "collector_timing": dict(logger._collector_timing),
             "staging_pool_len": logger._staging_pool_len,
@@ -333,7 +338,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             "timing::inference_time": inference_time,
             "timing::iteration_time": iteration_time,
             "logger::timeout_rate": float(logger._timeout_rate),
-            "logger::terminated_rate": float(logger._terminated_rate),
             "logger::buffer_utilization": float(logger._buffer_utilization),
             "extra::batch_size_per_rank": float(extra_info.get("batch_size_per_rank", 0) or 0),
         }
@@ -378,7 +382,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         logger._staging_pool_len = int(round(aggregated["logger::staging_pool_len"]))
         logger._staging_pool_max = int(round(aggregated["logger::staging_pool_max"]))
         logger._timeout_rate = aggregated["logger::timeout_rate"]
-        logger._terminated_rate = aggregated["logger::terminated_rate"]
         logger._buffer_utilization = aggregated["logger::buffer_utilization"]
         if "logger::mean_ep_length" in aggregated:
             logger._mean_ep_length = aggregated["logger::mean_ep_length"]
@@ -443,7 +446,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         logger._collector_active_steps_per_sec = None if active_rate is None else float(active_rate)
         logger._mean_ep_length = float(state["mean_ep_length"])
         logger._timeout_rate = float(state["timeout_rate"])
-        logger._terminated_rate = float(state["terminated_rate"])
         logger._buffer_utilization = float(state["buffer_utilization"])
         logger._collector_timing = dict(state["collector_timing"])
         logger._staging_pool_len = int(state["staging_pool_len"])
@@ -476,6 +478,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
     def close(self) -> None:
         if self.dp_sync is not None:
+            if bool(getattr(self.learner, "dp_cuda_graph_gradient_sync", False)):
+                release_cuda_graphs = getattr(self.learner, "release_cuda_graphs", None)
+                if not callable(release_cuda_graphs):
+                    raise TypeError(
+                        f"{type(self.learner).__name__} must implement release_cuda_graphs() "
+                        "before an NCCL process group with captured collectives is destroyed"
+                    )
+                release_cuda_graphs()
             self.dp_sync.close()
         super().close()
 
@@ -884,10 +894,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             env_name=self.env_name,
             obs_dim=self.obs_dim,
             action_dim=self.action_dim,
+            num_gpus=(self.dp_sync.world_size if self.dp_sync is not None else 1),
             log_dir=log_dir,
             log_backend=self._logger_backend(logger_type),
         )
-        logger.set_collection_sync(True, self.env_steps_per_sync)
         logger.update_runtime_manifest(self.runtime_manifest)
         if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
             logger.log_status("Symmetry augmentation: enabled")
@@ -912,10 +922,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             # --- inference coordination queues ---
             inference_request_queue = _SPAWN_CTX.Queue(maxsize=1)
             inference_response_queue = _SPAWN_CTX.Queue(maxsize=1)
-            print(
-                f"[DoubleBufferRunner] Collection sync enabled: "
-                f"env_steps_per_sync={self.env_steps_per_sync}"
-            )
 
             metrics_queue = _SPAWN_CTX.Queue(maxsize=100)
 
@@ -948,11 +954,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 )
 
             time.sleep(0.5)
-            if self._collector_process:
-                print(
-                    f"[DoubleBufferRunner] Collector process alive: "
-                    f"{self._collector_process.is_alive()}"
-                )
 
             reward_history: deque = deque(maxlen=100)
             latest_reward_components: dict[str, float] = {}

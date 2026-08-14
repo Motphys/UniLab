@@ -175,6 +175,30 @@ def test_close_without_start_is_idempotent(tmp_path: Path):
     sync.close()
 
 
+def test_cuda_graph_collective_warmup_requires_started_nccl_cuda_group(tmp_path: Path):
+    sync = DpParameterSync(
+        world_size=2,
+        rank=0,
+        rendezvous_path=str(tmp_path / "unused_graph_warmup"),
+        backend="gloo",
+    )
+    with pytest.raises(RuntimeError, match=r"start\(\) must run"):
+        sync.prepare_cuda_graph_collectives()
+
+
+def test_cuda_graph_replay_metrics_count_actual_collectives(tmp_path: Path):
+    sync = DpParameterSync(
+        world_size=2,
+        rank=0,
+        rendezvous_path=str(tmp_path / "unused_graph_metrics"),
+        backend="gloo",
+    )
+    sync.record_cuda_graph_gradient_replay(3)
+    assert sync.take_gradient_sync_metrics() == (0.0, 3)
+    with pytest.raises(ValueError, match=">= 0"):
+        sync.record_cuda_graph_gradient_replay(-1)
+
+
 def test_invalid_world_size_and_rank_are_rejected(tmp_path: Path):
     path = str(tmp_path / "unused")
     with pytest.raises(ValueError, match="world_size >= 2"):
@@ -237,5 +261,17 @@ def _nccl_smoke_worker(rank: int, rendezvous_path: str, result_queue) -> None:
         total={"steps_per_sec": float(100 * (rank + 1))},
     )
     assert statistics == pytest.approx({"loss": 1.5, "steps_per_sec": 300.0})
+    sync.prepare_cuda_graph_collectives()
+    tensor.grad = torch.full_like(tensor, float(rank + 1))
+    graph = torch.cuda.CUDAGraph()
+    capture_stream = torch.cuda.Stream(device=device)
+    capture_stream.wait_stream(torch.cuda.current_stream(device))
+    with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+        sync.allreduce_gradients((tensor,))
+    torch.cuda.current_stream(device).wait_stream(capture_stream)
+    graph.replay()
+    torch.cuda.synchronize(device)
+    assert torch.allclose(tensor.grad, torch.full((8,), 1.5, device=device))
+    graph.reset()
     sync.close()
     result_queue.put(rank)
