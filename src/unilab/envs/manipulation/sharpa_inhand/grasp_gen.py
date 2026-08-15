@@ -138,6 +138,7 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
 @registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
     _cfg: SharpaInhandRotationGraspCfg
+    _MATERIALIZE_ROTATION_GRASP_CACHE = False
 
     def __init__(
         self,
