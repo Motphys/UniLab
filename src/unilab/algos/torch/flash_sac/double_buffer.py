@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from omegaconf import DictConfig
 
@@ -13,6 +13,9 @@ from unilab.training import create_env, ensure_registries
 from unilab.training.seed import apply_training_seed
 from unilab.utils.device import get_default_device
 from unilab.utils.nan_guard import NanGuardCfg
+
+if TYPE_CHECKING:
+    from unilab.ipc.dp_sync import DpParameterSync
 
 
 def _validate_flashsac_double_buffer_runtime(
@@ -34,11 +37,13 @@ def build_flashsac_double_buffer_runner(
     device: str | None = None,
     nan_guard_cfg: NanGuardCfg | None = None,
     torch_thread_runtime: dict[str, Any] | None = None,
+    collector_cpu_ids: list[int] | None = None,
+    dp_sync: DpParameterSync | None = None,
 ) -> Any:
     """Build FlashSAC with the bounded-ingress device replay pipeline."""
     from unilab.base.observations import get_obs_dims
 
-    device = require_offpolicy_replay_device(device or cfg.training.device or get_default_device())
+    device = require_offpolicy_replay_device(device or get_default_device())
     ensure_registries()
     apply_training_seed(cfg.algo.seed, torch_runtime=True, cuda=True)
     _validate_flashsac_double_buffer_runtime(
@@ -122,4 +127,6 @@ def build_flashsac_double_buffer_runner(
         replay_prefetch_mode=replay_prefetch_mode,
         nan_guard_cfg=nan_guard_cfg,
         torch_thread_runtime=torch_thread_runtime,
+        collector_cpu_ids=collector_cpu_ids,
+        dp_sync=dp_sync,
     )

@@ -299,7 +299,6 @@ class HoraAPPORunner(APPORunner):
             log_backend=logger_type,
             timing_profile="appo",
         )
-        logger.set_collection_sync(True, env_steps_per_sync)
         logger.start()
         logger.log_status(
             f"Waiting for first rollout... "

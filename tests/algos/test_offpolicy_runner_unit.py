@@ -18,11 +18,13 @@ from unilab.algos.torch.offpolicy.double_buffer_runner import (
     algo_display_name,
 )
 from unilab.algos.torch.offpolicy.runner import (
+    OffPolicyRunner,
     build_offpolicy_sample_info,
     compute_train_start_threshold,
     replay_buffer_ready_for_learning,
     update_reward_stats_from_replay,
 )
+from unilab.ipc.async_runner import AsyncRunner
 from unilab.ipc.inference_slot import SharedInferenceSlot
 
 
@@ -101,6 +103,34 @@ def test_scheduler_rejects_out_of_order_collector_tick() -> None:
 
     with pytest.raises(RuntimeError, match="expected 0, got 1"):
         scheduler.record_inference(1)
+
+
+def test_runner_close_releases_ipc_when_terminal_cleanup_fails(monkeypatch) -> None:
+    events: list[str] = []
+
+    class _ConcreteOffPolicyRunner(OffPolicyRunner):
+        def learn(
+            self,
+            max_iterations: int,
+            save_interval: int = 50,
+            log_dir: str = "logs",
+        ) -> None:
+            del max_iterations, save_interval, log_dir
+
+    class _FailingLogger:
+        def close(self) -> None:
+            events.append("logger.close")
+            raise RuntimeError("terminal cleanup failed")
+
+    runner = object.__new__(_ConcreteOffPolicyRunner)
+    runner._active_logger = _FailingLogger()
+    monkeypatch.setattr(AsyncRunner, "close", lambda self: events.append("async.close"))
+
+    with pytest.raises(RuntimeError, match="terminal cleanup failed"):
+        runner.close()
+
+    assert events == ["logger.close", "async.close"]
+    assert runner._active_logger is None
 
 
 class _Symmetry:

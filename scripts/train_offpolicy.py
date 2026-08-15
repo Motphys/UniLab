@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,17 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+from unilab.ipc.dp_launcher import (
+    UNILAB_DP_LOG_DIR,
+    DpRankSupervisor,
+    apply_dp_rank_config,
+    current_dp_rank,
+    resolve_collector_cpu_ids,
+    resolve_dp_rank_device,
+    resolve_dp_rendezvous_path,
+    resolve_dp_topology,
+    validate_dp_launchable,
+)
 from unilab.training import (
     BackendAdapter,
     apply_configured_training_seed,
@@ -56,8 +68,9 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     return summary
 
 
-def build_run_dir_name(timestamp: str, sim_backend: str) -> str:
-    return f"{timestamp}_{sim_backend}"
+def build_run_dir_name(timestamp: str, sim_backend: str, *, world_size: int = 1) -> str:
+    gpu_suffix = f"_gpux{world_size}" if world_size > 1 else ""
+    return f"{timestamp}_{sim_backend}{gpu_suffix}"
 
 
 def default_device(torch_module, preferred: str | None = None) -> str:
@@ -151,7 +164,7 @@ def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[st
     )
 
 
-def build_runner(algo_name: str, cfg: DictConfig):
+def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
     from unilab.algos.torch.offpolicy.thread_budget import (
@@ -159,8 +172,51 @@ def build_runner(algo_name: str, cfg: DictConfig):
         resolve_torch_thread_runtime,
     )
 
+    # Cold-path DP CPU partition: each rank's collector owns one contiguous
+    # CPU block (single rank keeps the legacy unset behavior). The ids only
+    # reach the collector env override — never the num_envs=1 probe envs,
+    # whose MuJoCo pool would size itself from len(cpu_ids).
+    # world_size comes from training.devices (rank 0 has no UNILAB_DP_* env;
+    # only spawned ranks carry it), rank from the env (0 for rank 0).
+    dp_devices = resolve_dp_topology(cfg.training.devices)
+    dp_world_size = len(dp_devices) if dp_devices is not None else 1
+    dp_rank = current_dp_rank()
+    from unilab.utils.device import get_default_device
+
+    rank_device = resolve_dp_rank_device(dp_devices, dp_rank) or get_default_device()
+    host_cpu_count = os.cpu_count() or 1
+    explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
+    if explicit_cpu_ids is not None:
+        explicit_cpu_ids = cast(list, OmegaConf.to_container(explicit_cpu_ids, resolve=True))
+    collector_cpu_ids = resolve_collector_cpu_ids(
+        dp_world_size,
+        dp_rank,
+        host_cpu_count,
+        explicit=explicit_cpu_ids,
+    )
+
+    # Cold-path DP process-group assembly. world_size == 1 keeps dp_sync=None
+    # (bit-identical single-rank path); multi-rank learners attach the group's
+    # flat-gradient collective at their optimizer boundaries.
+    dp_sync = None
+    if dp_world_size > 1:
+        if dp_rank == 0 and log_dir is None:
+            raise ValueError(
+                "build_runner requires log_dir for multi-GPU data-parallel rank 0 "
+                "(it anchors the DP rendezvous FileStore)"
+            )
+        from unilab.ipc.dp_sync import DpParameterSync
+
+        dp_sync = DpParameterSync(
+            world_size=dp_world_size,
+            rank=dp_rank,
+            rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
+            device=rank_device,
+        )
+
     torch_thread_runtime = resolve_torch_thread_runtime(
-        getattr(cfg.training, "torch_threads", None)
+        getattr(cfg.training, "torch_threads", None),
+        cpu_count=host_cpu_count // dp_world_size if dp_world_size > 1 else None,
     )
     apply_torch_thread_runtime(torch_thread_runtime, role="learner")
 
@@ -181,9 +237,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             "expected 'one_tick'"
         )
     from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
-    from unilab.utils.device import get_default_device
 
-    replay_device = require_offpolicy_replay_device(cfg.training.device or get_default_device())
+    replay_device = require_offpolicy_replay_device(rank_device)
     if algo_name == "sac":
         from unilab.algos.torch.fast_sac.learner import FastSACLearner
         from unilab.algos.torch.offpolicy.double_buffer_runner import (
@@ -314,6 +369,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             seed=cfg.algo.seed,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            collector_cpu_ids=collector_cpu_ids,
+            dp_sync=dp_sync,
         )
 
     if algo_name == "td3":
@@ -378,6 +435,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             replay_prefetch_mode=replay_prefetch_mode,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            collector_cpu_ids=collector_cpu_ids,
+            dp_sync=dp_sync,
         )
 
     if algo_name == "flashsac":
@@ -392,6 +451,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             device=replay_device,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
+            collector_cpu_ids=collector_cpu_ids,
+            dp_sync=dp_sync,
         )
 
     raise ValueError(f"Unsupported algo: {algo_name}")
@@ -427,7 +488,8 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
 
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
 
-    device = default_device(torch, cfg.training.device)
+    devices = resolve_dp_topology(cfg.training.devices)
+    device = default_device(torch, resolve_dp_rank_device(devices, current_dp_rank()))
     print(f"Using device for play: {device}")
 
     env = cast(
@@ -670,6 +732,10 @@ def main(cfg: DictConfig) -> None:
     enable_faulthandler()
     ensure_registries()
 
+    devices = resolve_dp_topology(cfg.training.devices)
+    rank = current_dp_rank()
+    rank_device = apply_dp_rank_config(cfg, devices, rank)
+
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo
     task_name = cfg.training.task_name
@@ -677,15 +743,28 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.training.log_dir is None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir_name = build_run_dir_name(timestamp, str(cfg.training.sim_backend))
+        run_dir_name = build_run_dir_name(
+            timestamp,
+            str(cfg.training.sim_backend),
+            world_size=len(devices) if devices is not None else 1,
+        )
         log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
+    if rank > 0:
+        # Spawned ranks reuse the canonical run directory but never create
+        # logging backends, checkpoints, summaries, or traces there.
+        log_dir = os.environ[UNILAB_DP_LOG_DIR]
+
+    supervisor: DpRankSupervisor | None = None
+    if devices is not None and rank == 0 and len(devices) > 1:
+        validate_dp_launchable(devices)
+        supervisor = DpRankSupervisor(devices, log_dir)
 
     import torch
 
     tracker = None
-    if not cfg.training.play_only:
+    if not cfg.training.play_only and rank == 0:
         tracker = ExperimentTracker(
             root_dir=ROOT_DIR,
             log_dir=log_dir,
@@ -694,51 +773,52 @@ def main(cfg: DictConfig) -> None:
             sim_backend=cfg.training.sim_backend,
             training_cfg=cfg.training,
             full_cfg=cfg,
-            device=default_device(torch, cfg.training.device),
+            device=default_device(torch, rank_device),
             seed_info=seed_info,
         )
         tracker.start()
 
     try:
-        if not cfg.training.play_only:
-            runner = None
-            try:
-                runner = build_runner(algo_name, cfg)
-                runner.learn(
-                    max_iterations=cfg.algo.max_iterations,
-                    save_interval=cfg.algo.save_interval,
-                    log_dir=log_dir,
-                    logger_type=cfg.training.logger,
-                )
-                run_summary = getattr(runner, "last_run_summary", None)
-                if isinstance(run_summary, dict) and run_summary.get("status") not in (
-                    None,
-                    "completed",
-                ):
-                    raise RuntimeError(
-                        f"Off-policy training ended with status={run_summary.get('status')!r}"
+        with supervisor if supervisor is not None else nullcontext():
+            if not cfg.training.play_only:
+                runner = None
+                try:
+                    runner = build_runner(algo_name, cfg, log_dir=log_dir)
+                    runner.learn(
+                        max_iterations=cfg.algo.max_iterations,
+                        save_interval=cfg.algo.save_interval,
+                        log_dir=log_dir,
+                        logger_type=cfg.training.logger,
                     )
-                if tracker is not None:
-                    tracker.update_summary(run_summary)
-            except BaseException as exc:
-                if tracker is not None:
-                    tracker.update_summary(
-                        build_failure_summary(exc, getattr(runner, "last_run_summary", None))
-                    )
-                raise
-            finally:
-                if runner is not None:
-                    runner.close()
+                    run_summary = getattr(runner, "last_run_summary", None)
+                    if isinstance(run_summary, dict) and run_summary.get("status") not in (
+                        None,
+                        "completed",
+                    ):
+                        raise RuntimeError(
+                            f"Off-policy training ended with status={run_summary.get('status')!r}"
+                        )
+                    if tracker is not None:
+                        tracker.update_summary(run_summary)
+                except BaseException as exc:
+                    if tracker is not None:
+                        tracker.update_summary(
+                            build_failure_summary(exc, getattr(runner, "last_run_summary", None))
+                        )
+                    raise
+                finally:
+                    if runner is not None:
+                        runner.close()
 
-        if should_run_playback(
-            play_only=cfg.training.play_only,
-            no_play=cfg.training.no_play,
-            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
-        ):
-            print("@" * 50)
-            play_video_path = play_offpolicy(algo_name, cfg)
-            if tracker is not None:
-                tracker.log_video(play_video_path)
+            if rank == 0 and should_run_playback(
+                play_only=cfg.training.play_only,
+                no_play=cfg.training.no_play,
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            ):
+                print("@" * 50)
+                play_video_path = play_offpolicy(algo_name, cfg)
+                if tracker is not None:
+                    tracker.log_video(play_video_path)
     finally:
         if tracker is not None:
             tracker.finish()

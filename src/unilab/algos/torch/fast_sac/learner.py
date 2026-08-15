@@ -11,7 +11,7 @@ Hyperparameters aligned with holosoma FastSACConfig defaults.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any, Dict, Tuple, cast
 
@@ -444,6 +444,10 @@ class FastSACLearner:
         requested_cuda_graph_critic_packed_staging = bool(use_cuda_graph_critic_packed_staging)
         requested_cuda_graph_actor_packed_staging = bool(use_cuda_graph_actor_packed_staging)
         self.use_cuda_graph_actor = bool(use_cuda_graph_actor) and self._device_type == "cuda"
+        self._gradient_sync: Callable[[Iterable[torch.Tensor]], None] | None = None
+        self._gradient_sync_graph_replay_recorder: Callable[[int], None] | None = None
+        self.dp_cuda_graph_gradient_sync = False
+        self._active_cuda_graph_gradient_sync_calls: list[int] | None = None
         self.nvtx_profile_ranges = bool(nvtx_profile_ranges) and self._device_type == "cuda"
         self.amp_dtype = amp_dtype
         self._amp_dtype = self._resolve_amp_dtype(amp_dtype, self._device_type)
@@ -573,6 +577,7 @@ class FastSACLearner:
             | None
         ) = None
         self._cuda_graph_critic_shapes: dict[str, torch.Size] | None = None
+        self._cuda_graph_critic_gradient_sync_calls = 0
         self._cuda_graph_actor: torch.cuda.CUDAGraph | None = None
         self._cuda_graph_actor_static_inputs: dict[str, torch.Tensor] | None = None
         self._cuda_graph_actor_static_packed_input: torch.Tensor | None = None
@@ -587,6 +592,7 @@ class FastSACLearner:
             | None
         ) = None
         self._cuda_graph_actor_shapes: dict[str, torch.Size] | None = None
+        self._cuda_graph_actor_gradient_sync_calls = 0
         if self.use_compile:
             self._compile_training_methods()
 
@@ -766,6 +772,7 @@ class FastSACLearner:
             self.scaler.update()
         else:
             actor_loss.backward()
+            self._sync_gradients(self.actor.parameters())
             if self.max_grad_norm > 0:
                 actor_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.actor.parameters(), max_norm=self.max_grad_norm
@@ -811,6 +818,7 @@ class FastSACLearner:
             self.scaler.update()
         else:
             qf_loss.backward()
+            self._sync_gradients(self.qnet.parameters())
             if self.max_grad_norm > 0:
                 critic_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.qnet.parameters(), max_norm=self.max_grad_norm
@@ -824,6 +832,7 @@ class FastSACLearner:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             alpha_loss = self._alpha_loss_tensor(next_log_probs)
             alpha_loss.backward()
+            self._sync_gradients((self.log_alpha,))
             self.alpha_optimizer.step()
 
         return (
@@ -1063,7 +1072,10 @@ class FastSACLearner:
                         tensor.zero_()
 
     def _reset_critic_cuda_graph(self) -> None:
+        graph = self._cuda_graph_critic
         self._cuda_graph_critic = None
+        if isinstance(graph, torch.cuda.CUDAGraph):
+            graph.reset()
         self._cuda_graph_critic_static_inputs = None
         self._cuda_graph_critic_static_packed_input = None
         self._cuda_graph_sac_static_packed_input = None
@@ -1071,6 +1083,7 @@ class FastSACLearner:
         self._cuda_graph_critic_action_noise = None
         self._cuda_graph_critic_outputs = None
         self._cuda_graph_critic_shapes = None
+        self._cuda_graph_critic_gradient_sync_calls = 0
 
     def _materialize_capturable_actor_optimizer_state(
         self,
@@ -1116,12 +1129,16 @@ class FastSACLearner:
                     tensor.zero_()
 
     def _reset_actor_cuda_graph(self) -> None:
+        graph = self._cuda_graph_actor
         self._cuda_graph_actor = None
+        if isinstance(graph, torch.cuda.CUDAGraph):
+            graph.reset()
         self._cuda_graph_actor_static_inputs = None
         self._cuda_graph_actor_static_packed_input = None
         self._cuda_graph_actor_action_noise = None
         self._cuda_graph_actor_outputs = None
         self._cuda_graph_actor_shapes = None
+        self._cuda_graph_actor_gradient_sync_calls = 0
 
     def _capture_actor_cuda_graph(self, batch: Dict[str, torch.Tensor]) -> None:
         if not self.use_cuda_graph_actor:
@@ -1162,14 +1179,20 @@ class FastSACLearner:
         graph = torch.cuda.CUDAGraph()
         capture_stream = cast(torch.cuda.Stream, torch.cuda.Stream())
         capture_stream.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
-            self._cuda_graph_actor_outputs = self._update_actor_capture_candidate(
-                self._cuda_graph_actor_static_inputs["obs"],
-                self._cuda_graph_actor_static_inputs["critic"],
-            )
+        sync_calls = [0]
+        self._active_cuda_graph_gradient_sync_calls = sync_calls
+        try:
+            with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+                self._cuda_graph_actor_outputs = self._update_actor_capture_candidate(
+                    self._cuda_graph_actor_static_inputs["obs"],
+                    self._cuda_graph_actor_static_inputs["critic"],
+                )
+        finally:
+            self._active_cuda_graph_gradient_sync_calls = None
         torch.cuda.current_stream().wait_stream(capture_stream)
         torch.cuda.synchronize()
         self._cuda_graph_actor = graph
+        self._cuda_graph_actor_gradient_sync_calls = sync_calls[0]
 
     def _actor_graph_output_metrics(self, *, read_items: bool = True) -> Dict[str, float]:
         if not read_items:
@@ -1227,19 +1250,25 @@ class FastSACLearner:
         graph = torch.cuda.CUDAGraph()
         capture_stream = cast(torch.cuda.Stream, torch.cuda.Stream())
         capture_stream.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
-            self._cuda_graph_critic_outputs = self._update_critic_capture_candidate(
-                self._cuda_graph_critic_static_inputs["critic"],
-                self._cuda_graph_critic_static_inputs["actions"],
-                self._cuda_graph_critic_static_inputs["rewards"],
-                self._cuda_graph_critic_static_inputs["next_obs"],
-                self._cuda_graph_critic_static_inputs["next_critic"],
-                self._cuda_graph_critic_static_inputs["dones"],
-                self._cuda_graph_critic_static_inputs["truncated"],
-            )
+        sync_calls = [0]
+        self._active_cuda_graph_gradient_sync_calls = sync_calls
+        try:
+            with torch.cuda.stream(capture_stream), torch.cuda.graph(graph):
+                self._cuda_graph_critic_outputs = self._update_critic_capture_candidate(
+                    self._cuda_graph_critic_static_inputs["critic"],
+                    self._cuda_graph_critic_static_inputs["actions"],
+                    self._cuda_graph_critic_static_inputs["rewards"],
+                    self._cuda_graph_critic_static_inputs["next_obs"],
+                    self._cuda_graph_critic_static_inputs["next_critic"],
+                    self._cuda_graph_critic_static_inputs["dones"],
+                    self._cuda_graph_critic_static_inputs["truncated"],
+                )
+        finally:
+            self._active_cuda_graph_gradient_sync_calls = None
         torch.cuda.current_stream().wait_stream(capture_stream)
         torch.cuda.synchronize()
         self._cuda_graph_critic = graph
+        self._cuda_graph_critic_gradient_sync_calls = sync_calls[0]
 
     def _critic_graph_output_metrics(self, *, read_items: bool = True) -> Dict[str, float]:
         if not read_items:
@@ -1283,6 +1312,7 @@ class FastSACLearner:
             self._copy_critic_graph_inputs(batch)
         with _cuda_nvtx_range("critic_graph/replay", self.nvtx_profile_ranges):
             self._cuda_graph_critic.replay()
+        self._record_cuda_graph_gradient_replay(self._cuda_graph_critic_gradient_sync_calls)
         with _cuda_nvtx_range("critic_graph/output_metrics_item", self.nvtx_profile_ranges):
             return self._critic_graph_output_metrics(read_items=read_metrics)
 
@@ -1312,6 +1342,7 @@ class FastSACLearner:
             self._copy_actor_graph_inputs(batch)
         with _cuda_nvtx_range("actor_graph/replay", self.nvtx_profile_ranges):
             self._cuda_graph_actor.replay()
+        self._record_cuda_graph_gradient_replay(self._cuda_graph_actor_gradient_sync_calls)
         with _cuda_nvtx_range("actor_graph/output_metrics_item", self.nvtx_profile_ranges):
             return self._actor_graph_output_metrics(read_items=read_metrics)
 
@@ -1379,6 +1410,7 @@ class FastSACLearner:
             if self.scaler:
                 with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
                     self.scaler.scale(qf_loss).backward()
+                self._sync_gradients(self.qnet.parameters())
                 self.scaler.unscale_(self.q_optimizer)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
@@ -1393,6 +1425,7 @@ class FastSACLearner:
             else:
                 with _cuda_nvtx_range("critic/backward", self.nvtx_profile_ranges):
                     qf_loss.backward()
+                self._sync_gradients(self.qnet.parameters())
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("critic/grad_clip", self.nvtx_profile_ranges):
                         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1415,6 +1448,7 @@ class FastSACLearner:
                 if torch.isfinite(alpha_loss):
                     with _cuda_nvtx_range("critic/alpha_backward", self.nvtx_profile_ranges):
                         alpha_loss.backward()
+                    self._sync_gradients((self.log_alpha,))
                     with _cuda_nvtx_range("critic/alpha_optimizer_step", self.nvtx_profile_ranges):
                         self.alpha_optimizer.step()
 
@@ -1451,6 +1485,7 @@ class FastSACLearner:
             if self.scaler:
                 with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
                     self.scaler.scale(actor_loss).backward()
+                self._sync_gradients(self.actor.parameters())
                 self.scaler.unscale_(self.actor_optimizer)
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
@@ -1465,6 +1500,7 @@ class FastSACLearner:
             else:
                 with _cuda_nvtx_range("actor/backward", self.nvtx_profile_ranges):
                     actor_loss.backward()
+                self._sync_gradients(self.actor.parameters())
                 if self.max_grad_norm > 0:
                     with _cuda_nvtx_range("actor/grad_clip", self.nvtx_profile_ranges):
                         actor_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1496,6 +1532,63 @@ class FastSACLearner:
                 except RuntimeError:
                     for tgt, src in zip(target_params, source_params):
                         tgt.mul_(1.0 - self.tau).add_(src, alpha=self.tau)
+
+    def set_gradient_sync(
+        self,
+        sync: Callable[[Iterable[torch.Tensor]], None] | None,
+        *,
+        graph_replay_recorder: Callable[[int], None] | None = None,
+    ) -> None:
+        """Attach the per-optimizer gradient collective used by multi-GPU DP."""
+        if sync is None and graph_replay_recorder is not None:
+            raise ValueError("graph_replay_recorder requires a gradient sync callback")
+        if sync != self._gradient_sync:
+            self._reset_critic_cuda_graph()
+            self._reset_actor_cuda_graph()
+        self._gradient_sync = sync
+        self._gradient_sync_graph_replay_recorder = graph_replay_recorder
+        self.dp_cuda_graph_gradient_sync = bool(
+            sync is not None
+            and (
+                (self.use_cuda_graph_critic and self.scaler is None)
+                or (self.use_cuda_graph_actor and self.scaler is None and not self.use_symmetry)
+            )
+        )
+
+    def _sync_gradients(self, parameters: Iterable[torch.Tensor]) -> None:
+        if self._gradient_sync is not None:
+            self._gradient_sync(parameters)
+            if self._active_cuda_graph_gradient_sync_calls is not None:
+                self._active_cuda_graph_gradient_sync_calls[0] += 1
+
+    def _record_cuda_graph_gradient_replay(self, collective_calls: int) -> None:
+        if self._gradient_sync_graph_replay_recorder is not None and collective_calls > 0:
+            self._gradient_sync_graph_replay_recorder(collective_calls)
+
+    def release_cuda_graphs(self) -> None:
+        """Release captured NCCL nodes before the process group is destroyed."""
+        self._reset_critic_cuda_graph()
+        self._reset_actor_cuda_graph()
+
+    def dp_initial_sync_tensors(self) -> Dict[str, torch.Tensor]:
+        """Model state broadcast once from rank 0 before collection starts.
+
+        The values alias the parameter/buffer storage of ``actor``, ``qnet``
+        and ``qnet_target`` (plus the ``log_alpha`` leaf) rather than copies,
+        so startup broadcast updates the model in place. Optimizer state starts
+        empty and remains aligned because every actual optimizer update uses
+        the same cross-rank mean gradient.
+        """
+        tensors: Dict[str, torch.Tensor] = {}
+        for prefix, module in (
+            ("actor", self.actor),
+            ("qnet", self.qnet),
+            ("qnet_target", self.qnet_target),
+        ):
+            for key, value in module.state_dict().items():
+                tensors[f"{prefix}.{key}"] = value
+        tensors["log_alpha"] = self.log_alpha
+        return tensors
 
     def get_state_dict(self) -> Dict[str, Any]:
         """Save all components."""

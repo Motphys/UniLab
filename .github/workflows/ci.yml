@@ -124,6 +124,7 @@ jobs:
 
   test:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    timeout-minutes: 15
     strategy:
       matrix:
         os: [ubuntu-slim]

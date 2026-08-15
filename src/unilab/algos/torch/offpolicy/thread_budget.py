@@ -1,8 +1,9 @@
 """Torch CPU thread budget helpers for off-policy training.
 
-Off-policy training runs Torch in multiple processes: the learner, the CPU
-collector, and optional multi-GPU learner workers. PyTorch defaults each process
-to a host-sized thread pool, so every role needs an explicit budget.
+Off-policy training runs Torch in multiple processes: the learner and the CPU
+collector of each rank (multi-GPU data parallel runs one learner+collector
+pair per rank). PyTorch defaults each process to a host-sized thread pool, so
+every role needs an explicit budget.
 """
 
 from __future__ import annotations

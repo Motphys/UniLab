@@ -83,6 +83,7 @@ gh pr view
 2. 最终提交已经通过 `make test-all`。
 3. 如果用户明确说明已经跑过 `make test-all`，不要重复跑；但必须在 PR body 的 Validation 里记录 `make test-all` 已完成。
 4. 如果 `make test-all` 未通过且用户没有明确 override，不要创建或更新 PR。
+5. 创建或更新 PR 后，必须按当前 head SHA 等待远程 CI 全部结束并通过后才能报告完成；`pending` / `in_progress`、旧 head 的成功结果或挂起 job 都不算通过。失败或挂起时必须查看对应 job 日志并修复，除非用户明确 override。
 
 ### CI 工作流查看
 ```bash

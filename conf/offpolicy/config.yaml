@@ -5,7 +5,13 @@ defaults:
 
 training:
   task_name: G1WalkFlat
-  device: null
+  # list[int] | null; null/[] = auto-selected single-device behavior;
+  # [d0] = explicit single CUDA device; [d0..dN-1] = N-way data parallel,
+  # rank i trains on cuda:devices[i].
+  devices: null
+  # list[list[int]] | null; one CPU-id segment per rank for the collector's
+  # MuJoCo pool; null = auto partition of cpu_count // world_size per rank.
+  dp_collector_cpu_ids: null
   logger: tensorboard
   wandb_project: unilab
   wandb_entity: null

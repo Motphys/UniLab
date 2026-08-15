@@ -5,12 +5,14 @@ These tests verify that Hydra configs are complete and scripts don't crash on st
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
 pytest.importorskip("mujoco")
 
@@ -170,3 +172,59 @@ def test_ppo_sharpa_motrix_one_iteration_training_smoke(tmp_path):
     )
     assert "Learning iteration 0/1" in result.stdout
     assert "reward/total" in result.stdout
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >=2 CUDA devices")
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("task", "task_name"),
+    [
+        ("go2_joystick_flat/mujoco", "Go2JoystickFlat"),
+        ("g1_motion_tracking/mujoco", "G1MotionTracking"),
+    ],
+)
+def test_ppo_two_gpu_rsl_rl_training_smoke(task: str, task_name: str, tmp_path: Path) -> None:
+    """RSL-RL PPO uses one env/storage replica per rank and rank-0 artifacts."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/train_rsl_rl.py",
+            f"task={task}",
+            "training.devices=[0,1]",
+            "training.play_render_mode=record",
+            "training.play_steps=2",
+            "training.play_env_num=2",
+            "training.nan_guard.enabled=false",
+            f"training.log_root={tmp_path}",
+            "algo.num_envs=64",
+            "algo.num_steps_per_env=4",
+            "algo.max_iterations=1",
+            "algo.save_interval=100",
+            "algo.algorithm.num_learning_epochs=1",
+            "algo.algorithm.num_mini_batches=2",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, (
+        f"PPO two-GPU smoke failed for {task}:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "Synchronizing parameters for rank 0" in result.stdout
+    assert "Synchronizing parameters for rank 1" in result.stdout
+    assert "Done." in result.stdout
+    assert "device used by this process is currently unknown" not in result.stderr
+
+    run_dirs = list((tmp_path / task_name).glob("*_mujoco_gpux2"))
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+    assert len(list(run_dir.glob("events.out.tfevents.*"))) == 1
+    assert len(list(run_dir.glob("model_*.pt"))) == 1
+    assert (run_dir / "play_video.mp4").is_file()
+    summary = json.loads((run_dir / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["world_size"] == 2
+    assert summary["num_envs_per_rank"] == 64
+    assert summary["global_num_envs"] == 128
+    assert summary["samples_per_iteration"] == 512
+    assert summary["run_env_steps"] == 512

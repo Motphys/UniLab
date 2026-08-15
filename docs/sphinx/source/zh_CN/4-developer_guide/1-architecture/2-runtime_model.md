@@ -11,7 +11,15 @@
 
 `scripts/train_rsl_rl.py` 会 compose Hydra config、
 调用 registry bootstrap、通过 `registry.make(...)` 构造 env，并在同一进程内运行
-learner。RSL-RL 路径通过 `src/unilab/training/rsl_rl.py` 适配 `NpEnv`。
+learner。默认配置保持单进程；`training.devices` 指定多张卡时，父进程通过 PyTorch
+elastic launcher 启动本机 worker，worker 再进入同一脚本完成上述构造。RSL-RL 路径
+通过 `src/unilab/training/rsl_rl.py` 适配 `NpEnv`。
+
+多卡时每个 rank 按配置创建完整的 `algo.num_envs`、policy copy 与 rollout storage，
+数据和 GAE 不跨 rank 交换。RSL-RL 负责 startup model broadcast、adaptive-KL 标量
+同步，以及每个 PPO mini-batch 的梯度平均。UniLab 的 launcher 只负责 device/rank、
+共享 log dir、seed offset 与进程失败联动，不另建 PPO 同步协议。只有 rank 0 写日志与
+checkpoint；normalizer buffer、curriculum 和 episode 统计保持 rank-local。
 
 ### 异步 APPO 与 off-policy 路径
 
@@ -36,6 +44,8 @@ CPU physics env loop -> shared IPC buffer -> learner
 - GPU tensor 与 optimizer 状态属于 learner 代码，而非 env 代码。
 - Collector/learner 协议必须复用现有的 IPC 原语，而不是在 scripts 中另起临时的
   并行协议。
+- PPO 多卡必须复用 RSL-RL 的 distributed contract；`algo.num_envs` 是 per-rank
+  语义，不能在脚本中静默除以 world size。
 
 ## 仓库中的证据
 

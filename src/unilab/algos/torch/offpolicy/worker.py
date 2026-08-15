@@ -19,16 +19,14 @@ from unilab.training.seed import apply_training_seed
 # Every key is recorded once per iteration so the reported averages share one
 # denominator and can be summed without double counting.
 # - replay_write_ms: pack transitions and write them into the bounded ingress
-# - bookkeeping_ms: per-cycle episode bookkeeping and metrics reporting
 COLLECTOR_TIMING_KEYS = (
     "inference_request_ms",
     "learner_action_wait_ms",
     "env_step_ms",
     "replay_write_ms",
-    "bookkeeping_ms",
 )
 COLLECTOR_ACTIVE_TIMING_KEYS = tuple(
-    key for key in COLLECTOR_TIMING_KEYS if key not in {"learner_action_wait_ms", "bookkeeping_ms"}
+    key for key in COLLECTOR_TIMING_KEYS if key != "learner_action_wait_ms"
 )
 
 
@@ -170,7 +168,6 @@ def off_policy_collector_fn(
     Error handling is provided by ``_collector_entry_wrapper`` in
     ``async_runner.py``.
     """
-    print("[Collector] Entry point called", file=sys.stderr, flush=True)
     _run_collector(
         stop_event=stop_event,
         env_name=env_name,
@@ -253,7 +250,6 @@ def _run_collector(
     timing_counts: defaultdict[str, int] = defaultdict(int)
     done_count_window = 0
     timeout_count_window = 0
-    terminated_count_window = 0
 
     state = env.state
     assert state is not None
@@ -263,8 +259,6 @@ def _run_collector(
     info_dict = state.info
     prev_dones_np = np.zeros(num_envs, dtype=np.float32)
     import time as _time
-
-    _last_log_time = _time.time()
 
     runtime_manifest = {
         "inference_owner": "learner",
@@ -376,7 +370,6 @@ def _run_collector(
             next_critic_np = np.asarray(next_critic_np, dtype=np.float32)
             rewards_np = np.asarray(state.reward, dtype=np.float32).ravel()
 
-            terminated_np = state.terminated.astype(np.float32, copy=False).ravel()
             truncated_np = state.truncated.astype(np.float32, copy=False).ravel()
             combined_dones = (
                 (state.terminated | state.truncated).astype(np.float32, copy=False).ravel()
@@ -384,11 +377,9 @@ def _run_collector(
             prev_dones_np = combined_dones
             done_mask_np = combined_dones > 0.5
             timeout_mask_np = truncated_np > 0.5
-            terminated_mask_np = np.logical_and(terminated_np > 0.5, ~timeout_mask_np)
 
             done_count_window += int(np.count_nonzero(done_mask_np))
             timeout_count_window += int(np.count_nonzero(timeout_mask_np))
-            terminated_count_window += int(np.count_nonzero(terminated_mask_np))
 
             terminal_contract = resolve_terminal_observation_contract(
                 next_obs_batch_size=next_obs_np.shape[0],
@@ -448,12 +439,6 @@ def _run_collector(
             critic_np = next_critic_np
             info_dict = state.info
             total_steps += num_envs
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "bookkeeping_ms", phase_start_ns)
-
-            # Progress log every 2 seconds
-            now = _time.time()
-            if now - _last_log_time > 2.0:
-                _last_log_time = now
 
             # Extract reward components from env info
             log_info = state.info.get("log", {})
@@ -500,10 +485,8 @@ def _run_collector(
 
                     if done_count_window > 0:
                         msg["timeout_rate"] = timeout_count_window / done_count_window
-                        msg["terminated_rate"] = terminated_count_window / done_count_window
                         done_count_window = 0
                         timeout_count_window = 0
-                        terminated_count_window = 0
 
                     if trace_recorder:
                         msg["trace_events"] = trace_recorder.drain_events()
@@ -514,8 +497,6 @@ def _run_collector(
                         timing_counts.clear()
                 except Exception as e:
                     print(f"[OffPolicyWorker] metrics enqueue error: {e}", file=sys.stderr)
-            phase_start_ns = _record_phase_ms(cycle_timing_ms, "bookkeeping_ms", phase_start_ns)
-
             for key, value in cycle_timing_ms.items():
                 _record_timing_ms(timing_accum_ms, timing_counts, key, value)
 

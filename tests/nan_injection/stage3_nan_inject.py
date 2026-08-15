@@ -106,9 +106,6 @@ class _FakeLogger:
         self._buffer_size = 0
         self._mean_ep_length = 0.0
 
-    def set_collection_sync(self, enabled, env_steps_per_sync):
-        del enabled, env_steps_per_sync
-
     def start(self, **kwargs):
         del kwargs
 
@@ -133,8 +130,8 @@ class _FakeLogger:
     def update_collector_timing(self, timing_ms):
         del timing_ms
 
-    def update_done_rates(self, timeout_rate, terminated_rate):
-        del timeout_rate, terminated_rate
+    def update_timeout_rate(self, timeout_rate):
+        del timeout_rate
 
     def update_replay_queue(self, current_len, max_size):
         del current_len, max_size
