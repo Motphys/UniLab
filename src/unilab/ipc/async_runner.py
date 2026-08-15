@@ -82,9 +82,6 @@ class AsyncRunner(ABC):
     def _build_learner(self) -> Any: ...
 
     @abstractmethod
-    def _collector_fn(self, stop_event: Any, **kwargs) -> None: ...
-
-    @abstractmethod
     def learn(
         self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs"
     ) -> None: ...
