@@ -263,12 +263,23 @@ def test_dim_guard_translates_torch_size_mismatch():
     assert isinstance(excinfo.value.__cause__, RuntimeError)  # original chained
 
 
-def test_dim_guard_reraises_unrelated_errors_unchanged():
-    # A non-dimension load failure must propagate as-is (not masked as a sim2sim error).
-    with pytest.raises(RuntimeError) as excinfo:
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("CUDA out of memory"),
+        RuntimeError("Expected all tensors to be on the same device, but found cuda:0 and cpu"),
+        RuntimeError("expected scalar type Float but found Half"),
+        RuntimeError("shape '[12, 4]' is invalid for input of size 36"),
+        RuntimeError("no kernel image is available for execution on the device"),
+        RuntimeError("copying a param failed: expected all tensors to use the same dtype"),
+        ValueError("Expected input batch_size (32) to match target batch_size (16)"),
+    ],
+)
+def test_dim_guard_reraises_unrelated_errors_unchanged(error):
+    with pytest.raises(type(error)) as excinfo:
         with policy_load_dim_guard(env_obs_dim=10, env_action_dim=3):
-            raise RuntimeError("CUDA out of memory")
-    assert not isinstance(excinfo.value, CrossBackendIncompatibleError)
+            raise error
+    assert excinfo.value is error
 
 
 def test_dim_guard_does_not_swallow_keyerror():
