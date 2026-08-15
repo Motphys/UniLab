@@ -51,28 +51,39 @@ class _FakePopen:
     # When True, wait() on a still-running child makes it exit cleanly
     # (simulates a rank that finishes during the normal-exit grace window).
     wait_completes: bool = False
+    interrupt_exits: bool = True
 
     def __init__(self, argv, env=None, **kwargs):
-        del kwargs
         self.argv = list(argv)
         self.env = dict(env or {})
+        self.start_new_session = bool(kwargs.pop("start_new_session", False))
+        assert not kwargs
         self.pid = 10_000 + len(_FakePopen.instances)
         self.returncode: int | None = None
         self.terminated = False
         self.killed = False
+        self.signals: list[int] = []
         _FakePopen.instances.append(self)
 
     def poll(self):
         return self.returncode
 
     def terminate(self):
-        self.terminated = True
-        if self.returncode is None:
-            self.returncode = -signal.SIGTERM
+        self.send_signal(signal.SIGTERM)
 
     def kill(self):
-        self.killed = True
-        self.returncode = -signal.SIGKILL
+        self.send_signal(signal.SIGKILL)
+
+    def send_signal(self, signum):
+        self.signals.append(signum)
+        if signum == signal.SIGINT and self.interrupt_exits:
+            self.returncode = -signal.SIGINT
+        elif signum == signal.SIGTERM:
+            self.terminated = True
+            self.returncode = -signal.SIGTERM
+        elif signum == signal.SIGKILL:
+            self.killed = True
+            self.returncode = -signal.SIGKILL
 
     def wait(self, timeout=None):
         if self.returncode is None:
@@ -87,7 +98,17 @@ class _FakePopen:
 def fake_popen(monkeypatch: pytest.MonkeyPatch):
     _FakePopen.instances = []
     _FakePopen.wait_completes = False
+    _FakePopen.interrupt_exits = True
     monkeypatch.setattr(dp_launcher.subprocess, "Popen", _FakePopen)
+    monkeypatch.setattr(
+        dp_launcher, "_signal_process_group", lambda child, signum: child.send_signal(signum)
+    )
+    monkeypatch.setattr(
+        dp_launcher, "_process_group_exists", lambda child: child.returncode is None
+    )
+    monkeypatch.setattr(dp_launcher, "_COOPERATIVE_EXIT_GRACE_S", 0.0)
+    monkeypatch.setattr(dp_launcher, "_TERMINATE_TIMEOUT_S", 0.0)
+    monkeypatch.setattr(dp_launcher, "_NORMAL_EXIT_GRACE_S", 0.01)
     return _FakePopen
 
 
@@ -207,6 +228,7 @@ def test_supervisor_spawn_argv_and_env(fake_popen, monkeypatch: pytest.MonkeyPat
             assert child.argv[0] == sys.executable
             assert child.argv[1].endswith("scripts/train_offpolicy.py")
             assert child.argv[2:] == ["algo=sac", "training.devices=[0,1,2]"]
+            assert child.start_new_session is (os.name == "posix")
             assert child.env[UNILAB_DP_RANK] == str(rank)
             assert child.env[UNILAB_DP_WORLD_SIZE] == "3"
             assert child.env[UNILAB_DP_DEVICES] == "0,1,2"
@@ -253,11 +275,27 @@ def test_supervisor_failed_child_makes_rank_zero_fail(fake_popen, monkeypatch: p
 
 
 def test_supervisor_error_exit_terminates_live_children(fake_popen):
+    fake_popen.interrupt_exits = False
     with pytest.raises(ValueError, match="boom"):
         with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log"):
             raise ValueError("boom")
     assert all(child.terminated for child in fake_popen.instances)
     assert all(child.returncode == -signal.SIGTERM for child in fake_popen.instances)
+    assert all(child.signals == [signal.SIGINT, signal.SIGTERM] for child in fake_popen.instances)
+
+
+def test_supervisor_ctrl_c_forwards_sigint_for_cooperative_rank_cleanup(fake_popen):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+
+    with pytest.raises(KeyboardInterrupt):
+        with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log") as supervisor:
+            installed = signal.getsignal(signal.SIGINT)
+            assert getattr(installed, "__self__", None) is supervisor
+            installed(signal.SIGINT, None)
+
+    assert all(child.signals == [signal.SIGINT] for child in fake_popen.instances)
+    assert all(child.returncode == -signal.SIGINT for child in fake_popen.instances)
+    assert signal.getsignal(signal.SIGINT) == previous_sigint
 
 
 def test_supervisor_watchdog_sigterms_rank_zero_on_child_death(
@@ -275,12 +313,36 @@ def test_supervisor_watchdog_sigterms_rank_zero_on_child_death(
     assert killed == [signal.SIGTERM]
 
 
-def test_supervisor_restores_sigterm_handler(fake_popen):
-    previous = signal.getsignal(signal.SIGTERM)
-    with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log"):
-        assert signal.getsignal(signal.SIGTERM) is dp_launcher._sigterm_system_exit
+def test_supervisor_restores_signal_handlers(fake_popen):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log") as supervisor:
+        assert getattr(signal.getsignal(signal.SIGINT), "__self__", None) is supervisor
+        assert getattr(signal.getsignal(signal.SIGTERM), "__self__", None) is supervisor
         fake_popen.instances[0].returncode = 0
-    assert signal.getsignal(signal.SIGTERM) == previous
+    assert signal.getsignal(signal.SIGINT) == previous_sigint
+    assert signal.getsignal(signal.SIGTERM) == previous_sigterm
+
+
+def test_supervisor_restores_signal_handlers_when_group_reaping_fails(
+    fake_popen, monkeypatch: pytest.MonkeyPatch
+):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    supervisor = DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log")
+    supervisor.__enter__()
+    fake_popen.instances[0].returncode = 0
+
+    def fail_reaping() -> None:
+        raise RuntimeError("group reaping failed")
+
+    monkeypatch.setattr(supervisor, "_terminate_children", fail_reaping)
+
+    with pytest.raises(RuntimeError, match="group reaping failed"):
+        supervisor.__exit__(None, None, None)
+
+    assert signal.getsignal(signal.SIGINT) == previous_sigint
+    assert signal.getsignal(signal.SIGTERM) == previous_sigterm
 
 
 # ---------------------------------------------------------------------------

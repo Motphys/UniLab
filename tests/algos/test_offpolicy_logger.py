@@ -81,6 +81,35 @@ def test_offpolicy_logger_stop_live_lets_rich_do_final_refresh() -> None:
     assert logger._last_live_refresh_time is None
 
 
+def test_offpolicy_logger_close_restores_cursor_and_backends_when_rich_stop_fails(
+    monkeypatch,
+) -> None:
+    logger = OffPolicyLogger(log_backend="none")
+
+    class _FailingLive:
+        def update(self, renderable: Any, *, refresh: bool) -> None:
+            del renderable, refresh
+
+        def stop(self) -> None:
+            raise RuntimeError("final render failed")
+
+    cursor_calls: list[bool] = []
+    backend_close_calls: list[bool] = []
+    monkeypatch.setattr(logger._console, "show_cursor", cursor_calls.append)
+    monkeypatch.setattr(logger, "_close_backends", lambda: backend_close_calls.append(True))
+    logger._live = _FailingLive()  # type: ignore[assignment]
+    logger._last_live_refresh_time = 123.0
+
+    with pytest.raises(RuntimeError, match="final render failed"):
+        logger.close()
+
+    assert cursor_calls == [True]
+    assert backend_close_calls == [True]
+    assert logger._live is None
+    assert logger._last_live_refresh_time is None
+    assert logger._closed is True
+
+
 def test_offpolicy_logger_displays_env_step_breakdown_as_indented_children() -> None:
     logger = OffPolicyLogger(
         algo_name="SAC",

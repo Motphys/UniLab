@@ -221,11 +221,23 @@ class BaseTrainingLogger:
             self._live.start(refresh=False)
 
     def _stop_live(self) -> None:
-        if self._live is not None:
-            self._live.update(self._build_display(), refresh=False)
-            self._live.stop()
-            self._live = None
-            self._last_live_refresh_time = None
+        live = self._live
+        if live is None:
+            return
+
+        # Drop the owned reference first so repeated cleanup stays idempotent
+        # even if Rich's final render fails. ``Live.stop()`` normally restores
+        # the cursor itself; the explicit final call covers failures before its
+        # internal cursor-restoration block and makes Ctrl+C teardown fail-safe.
+        self._live = None
+        self._last_live_refresh_time = None
+        try:
+            live.update(self._build_display(), refresh=False)
+        finally:
+            try:
+                live.stop()
+            finally:
+                self._console.show_cursor(True)
 
     def _close_backends(self) -> None:
         if self._tb_writer:
@@ -242,9 +254,13 @@ class BaseTrainingLogger:
         """Release live terminal state and backend handles without printing a summary."""
         if self._closed:
             return
-        self._stop_live()
-        self._close_backends()
-        self._closed = True
+        try:
+            self._stop_live()
+        finally:
+            try:
+                self._close_backends()
+            finally:
+                self._closed = True
 
     def finish(self, *, title: str = "Training Summary", extra_summary: str = ""):
         if self._finished:

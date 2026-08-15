@@ -146,8 +146,11 @@ def test_close_with_no_collector_does_not_raise():
 
 def test_close_is_idempotent():
     r = _make_runner()
+    resource = MagicMock(spec=["cleanup"])
+    r._shared_resources.append(resource)
     r.close()
     r.close()
+    resource.cleanup.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
