@@ -128,15 +128,15 @@ BACKENDS = ["mujoco", "motrix", "mjwarp"]
 class TaskConfig:
     task_id: str
     env_name: str
-    cfg_factory: Callable[[str], Any]
+    cfg_factory: Callable[[str, list[str]], Any]
     env_cls_factory: Callable[[], type]
     backends: tuple[str, ...] = ("mujoco", "motrix")
     aliases: tuple[str, ...] = ()
     cfg_finalizer: Callable[[Any, str], None] | None = None
     include_in_matrix: bool = True
 
-    def build_cfg(self, backend: str) -> Any:
-        return self.cfg_factory(backend)
+    def build_cfg(self, backend: str, config_overrides: list[str] | None = None) -> Any:
+        return self.cfg_factory(backend, config_overrides or [])
 
     def finalize_cfg(self, cfg: Any, backend: str) -> None:
         if self.cfg_finalizer is not None:
@@ -151,6 +151,7 @@ def _owner_yaml_cfg(
     config_root: str,
     algo_name: str,
     overrides: list[str],
+    config_overrides: list[str],
     env_cfg_cls: Callable[[], Any],
 ) -> Any:
     from hydra import compose, initialize_config_dir
@@ -165,6 +166,7 @@ def _owner_yaml_cfg(
             config_name="config",
             overrides=[
                 *overrides,
+                *config_overrides,
                 "hydra.run.dir=.",
                 "hydra.output_subdir=null",
                 "hydra/job_logging=disabled",
@@ -193,22 +195,34 @@ def _hydra_yaml_backend(backend: str) -> str:
     return _HYDRA_YAML_BACKEND_ALIAS.get(backend, backend)
 
 
-def _ppo_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+def _ppo_owner_yaml_cfg(
+    task_id: str,
+    backend: str,
+    env_cfg_cls: Callable[[], Any],
+    config_overrides: list[str],
+) -> Any:
     yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
         config_root="ppo",
         algo_name="ppo",
         overrides=[f"task={task_id}/{yaml_backend}"],
+        config_overrides=config_overrides,
         env_cfg_cls=env_cfg_cls,
     )
 
 
-def _sac_owner_yaml_cfg(task_id: str, backend: str, env_cfg_cls: Callable[[], Any]) -> Any:
+def _sac_owner_yaml_cfg(
+    task_id: str,
+    backend: str,
+    env_cfg_cls: Callable[[], Any],
+    config_overrides: list[str],
+) -> Any:
     yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
         config_root="offpolicy",
         algo_name="sac",
         overrides=["algo=sac", f"task=sac/{task_id}/{yaml_backend}"],
+        config_overrides=config_overrides,
         env_cfg_cls=env_cfg_cls,
     )
 
@@ -261,10 +275,10 @@ def _materialize_sharpa_motrix_scene() -> str:
     return str(output_path)
 
 
-def _go1_cfg(_: str) -> Any:
+def _go1_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
 
-    return _ppo_owner_yaml_cfg("go1_joystick_flat", _, Go1JoystickCfg)
+    return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, Go1JoystickCfg, config_overrides)
 
 
 def _go1_env_cls() -> type:
@@ -273,10 +287,10 @@ def _go1_env_cls() -> type:
     return Go1WalkTask
 
 
-def _go2_cfg(backend: str) -> Any:
+def _go2_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
 
-    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg)
+    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg, config_overrides)
 
 
 def _go2_env_cls() -> type:
@@ -285,10 +299,10 @@ def _go2_env_cls() -> type:
     return Go2WalkTask
 
 
-def _go2_rough_cfg(_: str) -> Any:
+def _go2_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
 
-    return _ppo_owner_yaml_cfg("go2_joystick_rough", _, Go2JoystickRoughCfg)
+    return _ppo_owner_yaml_cfg("go2_joystick_rough", backend, Go2JoystickRoughCfg, config_overrides)
 
 
 def _go2_rough_env_cls() -> type:
@@ -297,38 +311,17 @@ def _go2_rough_env_cls() -> type:
     return Go2JoystickRoughEnv
 
 
-def _go2w_cfg(_: str) -> Any:
+def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg
 
-    return _ppo_owner_yaml_cfg("go2w_joystick_flat", _, Go2WJoystickCfg)
+    return _ppo_owner_yaml_cfg("go2w_joystick_flat", backend, Go2WJoystickCfg, config_overrides)
 
 
-def _go2w_rough_cfg(backend: str) -> Any:
-    del backend
-    from unilab.envs.locomotion.go2w.joystick import RewardConfig
+def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughCfg
 
-    cfg = Go2WJoystickRoughCfg()
-    cfg.reward_config = _go2w_reward_config(RewardConfig)
-    return cfg
-
-
-def _go2w_reward_config(reward_cls: type) -> Any:
-    return reward_cls(
-        scales={
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.1,
-            "base_height": -100.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "torques": -0.0002,
-            "wheel_vel": 0.0,
-            "alive": 0.5,
-        },
-        tracking_sigma=0.25,
-        base_height_target=0.3,
+    return _ppo_owner_yaml_cfg(
+        "go2w_joystick_rough", backend, Go2WJoystickRoughCfg, config_overrides
     )
 
 
@@ -344,29 +337,30 @@ def _go2w_rough_env_cls() -> type:
     return Go2WJoystickRoughEnv
 
 
-def _g1_flat_cfg(backend: str) -> Any:
+def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
 
-    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg)
+    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg, config_overrides)
 
 
-def _g1_rough_cfg(backend: str) -> Any:
+def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
 
-    return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg)
+    return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg, config_overrides)
 
 
-def _g1_motion_tracking_cfg(backend: str) -> Any:
+def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
 
     return _ppo_owner_yaml_cfg(
         "g1_motion_tracking",
         backend,
         G1MotionTrackingEnvCfg,
+        config_overrides,
     )
 
 
-def _sharpa_inhand_cfg(backend: str) -> Any:
+def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
@@ -382,6 +376,7 @@ def _sharpa_inhand_cfg(backend: str) -> Any:
             overrides=[
                 f"task=sharpa_inhand/{yaml_backend}",
                 "env.grasp_cache_path=/tmp/unilab_benchmark_sharpa_grasp",
+                *config_overrides,
                 "hydra.run.dir=.",
                 "hydra.output_subdir=null",
                 "hydra/job_logging=disabled",
@@ -636,7 +631,7 @@ def _matching_task_config(task_path: str) -> TaskConfig | None:
 
 
 def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConfig, str]:
-    """Resolve benchmark task/backend without consulting training owner YAML."""
+    """Resolve the benchmark owner selected by ``task=<task>/<backend>``."""
     task_key = "go1"
     task_config = TASK_CONFIGS[task_key]
     sim_backend: str | None = None
@@ -653,8 +648,11 @@ def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConf
                 key for key, candidate in TASK_CONFIGS.items() if candidate is task_config
             )
             sim_backend = backend or sim_backend
-        elif arg.startswith("training.sim_backend="):
-            sim_backend = arg.split("=", 1)[1]
+        elif arg.lstrip("+").startswith("training.sim_backend="):
+            raise ValueError(
+                "Do not switch benchmark backends with training.sim_backend; "
+                "select the backend owner with task=<task>/<backend>."
+            )
 
     if sim_backend is None:
         sim_backend = task_config.backends[0]
@@ -667,77 +665,38 @@ def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConf
     return task_key, task_config, sim_backend
 
 
-def _dotlist_to_plain_dict(dotlist: list[str]) -> dict[str, Any]:
-    if not dotlist:
-        return {}
-    from omegaconf import OmegaConf
-
-    value = OmegaConf.to_container(OmegaConf.from_dotlist(dotlist), resolve=True)
-    if not isinstance(value, dict):
-        return {}
-    return cast(dict[str, Any], value)
-
-
-def _deep_merge_dict(target: dict[str, Any], updates: dict[str, Any]) -> None:
-    for key, value in updates.items():
-        if isinstance(value, dict) and isinstance(target.get(key), dict):
-            _deep_merge_dict(cast(dict[str, Any], target[key]), value)
-        else:
-            target[key] = value
-
-
-def _apply_plain_overrides(target: Any, overrides: dict[str, Any]) -> None:
-    import dataclasses
-
-    for key, value in overrides.items():
-        if not hasattr(target, key):
-            raise ValueError(f"Config class '{type(target).__name__}' has no attribute '{key}'")
-        existing = getattr(target, key)
-        if isinstance(value, dict) and isinstance(existing, dict):
-            _deep_merge_dict(existing, value)
-        elif isinstance(value, dict) and dataclasses.is_dataclass(existing):
-            _apply_plain_overrides(existing, value)
-        else:
-            setattr(target, key, value)
-
-
-def _apply_cli_cfg_overrides(cfg: Any, hydra_overrides: list[str]) -> None:
-    env_dotlist: list[str] = []
-    reward_dotlist: list[str] = []
-
+def _owner_config_overrides(hydra_overrides: list[str]) -> list[str]:
+    config_overrides: list[str] = []
     for arg in hydra_overrides:
-        if arg.startswith("env."):
-            env_dotlist.append(arg[len("env.") :])
-        elif arg.startswith("+env."):
-            env_dotlist.append(arg[len("+env.") :])
-        elif arg.startswith("reward."):
-            reward_dotlist.append(arg[len("reward.") :])
-        elif arg.startswith("+reward."):
-            reward_dotlist.append(arg[len("+reward.") :])
-
-    env_overrides = _dotlist_to_plain_dict(env_dotlist)
-    if env_overrides:
-        _apply_plain_overrides(cfg, env_overrides)
-
-    reward_overrides = _dotlist_to_plain_dict(reward_dotlist)
-    if reward_overrides:
-        reward_config = getattr(cfg, "reward_config", None)
-        if reward_config is None:
-            raise ValueError("Cannot apply reward.* overrides: task has no reward_config")
-        _apply_plain_overrides(reward_config, reward_overrides)
+        key = arg.split("=", 1)[0].lstrip("+~")
+        if key == "task":
+            continue
+        if key == "training.sim_backend":
+            raise ValueError(
+                "Do not switch benchmark backends with training.sim_backend; "
+                "select the backend owner with task=<task>/<backend>."
+            )
+        if key.startswith(("env.", "reward.")):
+            config_overrides.append(arg)
+            continue
+        raise ValueError(
+            f"Unsupported benchmark config override {arg!r}; "
+            "only task=..., env.* and reward.* are accepted."
+        )
+    return config_overrides
 
 
 def _run_single(extra_args: list[str]) -> dict[str, Any]:
     """Run a single task-side benchmark and return timing records."""
     bench_kwargs, _, hydra_overrides = _parse_cli_args(extra_args)
     _, task_config, sim_backend = _resolve_task_and_backend(hydra_overrides)
+    config_overrides = _owner_config_overrides(hydra_overrides)
 
     num_envs = int(bench_kwargs.get("num_envs", DEFAULT_NUM_ENVS))
     num_steps = int(bench_kwargs.get("num_steps", DEFAULT_NUM_STEPS))
     warmup_steps = int(bench_kwargs.get("warmup_steps", DEFAULT_WARMUP_STEPS))
 
-    cfg = task_config.build_cfg(sim_backend)
-    _apply_cli_cfg_overrides(cfg, hydra_overrides)
+    cfg = task_config.build_cfg(sim_backend, config_overrides)
     task_config.finalize_cfg(cfg, sim_backend)
     cfg.validate()
 
