@@ -10,6 +10,8 @@ from .base import SimBackend
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
 
+    from .mujoco.xml import materialize_scene_visual_override
+
 
 def env_backend_kwargs(cfg: "EnvCfg") -> dict:
     """Bundle EnvCfg-level backend tuning fields for create_backend(**...)."""
