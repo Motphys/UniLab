@@ -56,6 +56,10 @@ algo:
 
 training:
   task_name: Go1JoystickFlat
+  # list[int] | null; null/[] keeps single-device behavior, [d] selects one
+  # CUDA device, and [d0..dN-1] launches one RSL-RL worker per device.
+  # algo.num_envs is per rank; do not set this together with training.device.
+  devices: null
   device: null
   logger: tensorboard
   wandb_project: unilab

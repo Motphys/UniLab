@@ -308,7 +308,6 @@ class APPORunner(AsyncRunner):
             log_backend=logger_type,
             timing_profile="appo",
         )
-        logger.set_collection_sync(True, env_steps_per_sync)
         logger.log_status(
             f"Waiting for first rollout... "
             f"(staging_pool={self.staging_pool_size}, "
@@ -480,11 +479,8 @@ class APPORunner(AsyncRunner):
                         float(collector_active_steps_per_sec)
                     )
 
-                if "timeout_rate" in m or "terminated_rate" in m:
-                    logger.update_done_rates(
-                        timeout_rate=float(m.get("timeout_rate", 0.0)),
-                        terminated_rate=float(m.get("terminated_rate", 0.0)),
-                    )
+                if "timeout_rate" in m:
+                    logger.update_timeout_rate(float(m["timeout_rate"]))
 
                 if "total_steps" in m:
                     logger.log_collector(

@@ -223,13 +223,25 @@ class OffPolicyRunner(AsyncRunner):
 
     def close(self) -> None:
         active_logger = getattr(self, "_active_logger", None)
-        if active_logger is not None:
-            active_logger.close()
+        try:
+            if active_logger is not None:
+                active_logger.close()
+        finally:
             self._active_logger = None
-        super().close()
+            # Terminal restoration must not be able to prevent collector,
+            # shared-memory, queue, and pipe cleanup.
+            super().close()
 
     @staticmethod
-    def _drain_metrics(queue, reward_history, reward_components, logger, trace_recorder=None):
+    def _drain_metrics(
+        queue,
+        reward_history,
+        reward_components,
+        logger,
+        trace_recorder=None,
+        *,
+        log_collector_reward: bool = True,
+    ):
         while True:
             try:
                 metrics = queue.get_nowait()
@@ -256,16 +268,17 @@ class OffPolicyRunner(AsyncRunner):
                 active_steps_per_sec = metrics.get("collector_active_steps_per_sec")
                 if active_steps_per_sec is not None:
                     logger.update_collector_active_steps_per_sec(float(active_steps_per_sec))
-                if "timeout_rate" in metrics or "terminated_rate" in metrics:
-                    logger.update_done_rates(
-                        timeout_rate=float(metrics.get("timeout_rate", 0.0)),
-                        terminated_rate=float(metrics.get("terminated_rate", 0.0)),
-                    )
+                if "timeout_rate" in metrics:
+                    logger.update_timeout_rate(float(metrics["timeout_rate"]))
                 if "total_steps" in metrics and "buffer_size" in metrics:
                     logger.log_collector(
                         metrics["total_steps"],
                         metrics["buffer_size"],
-                        metrics.get("mean_ep_reward", 0.0) if updated_reward else 0.0,
+                        (
+                            metrics.get("mean_ep_reward", 0.0)
+                            if updated_reward and log_collector_reward
+                            else 0.0
+                        ),
                     )
                 if trace_recorder and "trace_events" in metrics:
                     trace_recorder.extend(metrics["trace_events"])

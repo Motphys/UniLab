@@ -71,6 +71,7 @@ class AsyncRunner(ABC):
         self._shared_resources: list = []
         self._error_recv: Any = None
         self._error_send: Any = None
+        self._close_complete = False
 
     @abstractmethod
     def _get_default_device(self) -> str:
@@ -127,6 +128,8 @@ class AsyncRunner(ABC):
         return format_collector_death(exitcode, traceback_text)
 
     def close(self) -> None:
+        if self._close_complete:
+            return
         self._stop_event.set()
         if self._collector_process is not None and self._collector_process.is_alive():
             self._collector_process.join(timeout=10)
@@ -163,6 +166,7 @@ class AsyncRunner(ABC):
             except Exception:
                 pass
             self._error_send = None
+        self._close_complete = True
 
     def __del__(self):
         try:

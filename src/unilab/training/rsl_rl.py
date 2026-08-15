@@ -2,16 +2,109 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any
 
 import numpy as np
 import torch
+from omegaconf import open_dict
 from tensordict import TensorDict
 
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.np_env import NpEnvState
 from unilab.utils.tensor import to_numpy, to_torch
+
+
+def apply_rsl_rl_rank_seed(cfg: Any, rank: int) -> int:
+    """Apply RSL-RL's ``base seed + global rank`` data-parallel contract."""
+    if rank < 0:
+        raise ValueError(f"rank must be non-negative, got {rank}")
+    base_seed = int(cfg.algo.seed)
+    with open_dict(cfg):
+        cfg.algo.seed = base_seed + int(rank)
+    return int(cfg.algo.seed)
+
+
+def resolve_rsl_rl_device(
+    *,
+    configured_device: str | None,
+    devices: tuple[int, ...] | None,
+    world_size: int,
+    local_rank: int,
+    default_device: str,
+) -> str:
+    """Resolve the exact device string expected by RSL-RL's runner.
+
+    Integrated multi-GPU workers see the selected physical devices through a
+    remapped ``CUDA_VISIBLE_DEVICES`` list, so RSL-RL must receive
+    ``cuda:LOCAL_RANK`` rather than the original host-global device index.
+    """
+    if configured_device is not None and devices is not None:
+        raise ValueError("Set either training.device or training.devices, not both")
+    if world_size < 1:
+        raise ValueError(f"world_size must be positive, got {world_size}")
+    if local_rank < 0 or local_rank >= world_size:
+        raise ValueError(f"local_rank={local_rank} is out of range for world_size={world_size}")
+    if world_size > 1:
+        if configured_device is not None:
+            raise ValueError(
+                "training.device cannot select one device in a distributed run; "
+                "use training.devices"
+            )
+        if devices is not None and len(devices) != world_size:
+            raise ValueError(
+                f"training.devices has {len(devices)} entries but WORLD_SIZE={world_size}"
+            )
+        return f"cuda:{local_rank}"
+    if devices is not None:
+        return f"cuda:{devices[0]}"
+    return configured_device or default_device
+
+
+def ppo_samples_per_iteration(*, num_envs: int, num_steps_per_env: int, world_size: int) -> int:
+    """Return the global fresh rollout sample count for one PPO iteration."""
+    return int(num_envs) * int(num_steps_per_env) * int(world_size)
+
+
+def finish_rsl_rl_distributed(*, training_succeeded: bool) -> None:
+    """Synchronize successful ranks and release RSL-RL's process group."""
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return
+    try:
+        if training_succeeded:
+            torch.distributed.barrier()
+    finally:
+        torch.distributed.destroy_process_group()
+
+
+@contextmanager
+def rsl_rl_single_process_topology() -> Iterator[None]:
+    """Temporarily hide torchrun's worker topology from rank-0-only work.
+
+    Destroying a process group does not clear ``WORLD_SIZE`` / ``RANK`` /
+    ``LOCAL_RANK``. RSL-RL would therefore initialize a second distributed
+    group when rank 0 constructs a fresh runner for post-training playback,
+    even though every other rank has already exited. Present the playback
+    scope as a single-process runtime, then restore launcher-owned variables.
+    """
+    single_process_topology = {
+        "WORLD_SIZE": "1",
+        "RANK": "0",
+        "LOCAL_RANK": "0",
+    }
+    previous = {name: os.environ.get(name) for name in single_process_topology}
+    os.environ.update(single_process_topology)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def get_policy_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:

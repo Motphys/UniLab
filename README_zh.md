@@ -169,6 +169,12 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
 uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```
 
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco 'training.devices=[0,1]'
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco training.devices="[0,1,2,3]"
+uv run train --algo sac --task g1_motion_tracking --sim mujoco training.devices="[0,1,2,3,4,5,6,7]"
+```
+
 使用 `uv run train` 进行训练，使用 `uv run eval` 进行检查点回放，`uv run demo` 用于本地 demo 预设。这些命令可以明确指定算法、任务和后端。
 
 更多训练命令、脚本级入口、算法矩阵、续训流程以及 W&B 细节请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。

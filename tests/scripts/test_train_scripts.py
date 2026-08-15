@@ -1416,6 +1416,10 @@ def test_offpolicy_build_run_dir_name_uses_timestamp_and_backend():
     mod = _offpolicy()
 
     assert mod.build_run_dir_name("2026-06-22_22-31-24", "mujoco") == ("2026-06-22_22-31-24_mujoco")
+    assert (
+        mod.build_run_dir_name("2026-06-22_22-31-24", "mujoco", world_size=2)
+        == "2026-06-22_22-31-24_mujoco_gpux2"
+    )
 
 
 def test_offpolicy_main_failure_summary_and_skips_playback(
@@ -1464,7 +1468,7 @@ def test_offpolicy_main_failure_summary_and_skips_playback(
         mod, "assert_offpolicy_task_choice_matches_algo", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(mod, "ExperimentTracker", FakeTracker)
-    monkeypatch.setattr(mod, "build_runner", lambda algo_name, cfg: FakeRunner())
+    monkeypatch.setattr(mod, "build_runner", lambda algo_name, cfg, log_dir=None: FakeRunner())
     monkeypatch.setattr(
         mod,
         "play_offpolicy",

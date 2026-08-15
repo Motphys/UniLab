@@ -1,4 +1,5 @@
 import datetime
+import os
 import statistics
 import sys
 import time
@@ -18,6 +19,15 @@ if str(ROOT_DIR) not in sys.path:
 
 from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
+from unilab.ipc.dp_launcher import (
+    UNILAB_DP_LOG_DIR,
+    current_torch_distributed_local_rank,
+    current_torch_distributed_rank,
+    current_torch_distributed_world_size,
+    launch_torchrun_workers,
+    resolve_dp_topology,
+    validate_dp_launchable,
+)
 from unilab.training import (
     BackendAdapter,
     apply_configured_training_seed,
@@ -35,7 +45,15 @@ from unilab.training.experiment import (
     patch_rsl_rl_resume_state,
     patch_rsl_rl_wandb_writer,
 )
-from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.training.rsl_rl import (
+    RslRlVecEnvWrapper,
+    apply_rsl_rl_rank_seed,
+    finish_rsl_rl_distributed,
+    normalize_ppo_train_cfg,
+    ppo_samples_per_iteration,
+    resolve_rsl_rl_device,
+    rsl_rl_single_process_topology,
+)
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.device import get_default_device
 
@@ -101,6 +119,36 @@ def run_motrix_rsl_play_loop(
 
 def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
+
+
+def build_ppo_run_dir_name(timestamp: str, sim_backend: str, *, world_size: int = 1) -> str:
+    gpu_suffix = f"_gpux{world_size}" if world_size > 1 else ""
+    return f"{timestamp}_{sim_backend}{gpu_suffix}"
+
+
+def resolve_ppo_log_dir(
+    cfg: DictConfig,
+    *,
+    world_size: int,
+    timestamp: str | None = None,
+) -> str:
+    """Resolve one canonical run directory shared by all distributed ranks."""
+    distributed_log_dir = os.environ.get(UNILAB_DP_LOG_DIR)
+    if distributed_log_dir:
+        return distributed_log_dir
+    configured_log_dir = OmegaConf.select(cfg, "training.log_dir", default=None)
+    if configured_log_dir:
+        return str(configured_log_dir)
+    timestamp = timestamp or datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return str(
+        Path(_get_log_root(cfg))
+        / str(cfg.training.task_name)
+        / build_ppo_run_dir_name(
+            timestamp,
+            str(cfg.training.sim_backend),
+            world_size=world_size,
+        )
+    )
 
 
 def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
@@ -296,18 +344,70 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
 
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
-    ensure_registries()
+    devices = resolve_dp_topology(cfg.training.devices)
+    rank = current_torch_distributed_rank()
+    local_rank = current_torch_distributed_local_rank()
+    world_size = current_torch_distributed_world_size()
+    configured_device = OmegaConf.select(cfg, "training.device", default=None)
 
+    if configured_device is not None and devices is not None:
+        raise ValueError("Set either training.device or training.devices, not both")
+    if rank < 0 or rank >= world_size:
+        raise ValueError(f"RANK={rank} is out of range for WORLD_SIZE={world_size}")
+    if cfg.training.play_only and world_size > 1:
+        raise ValueError(
+            "Distributed play-only execution is not supported; launch eval normally and "
+            "select one device"
+        )
+
+    # The parent only composes config and invokes torchrun. CUDA, registry,
+    # env, tracker, and runner construction all happen inside workers.
+    if devices is not None and len(devices) > 1 and world_size == 1:
+        if not cfg.training.play_only:
+            log_dir = resolve_ppo_log_dir(cfg, world_size=len(devices))
+            launch_torchrun_workers(
+                devices,
+                script_path=Path(__file__),
+                argv=sys.argv[1:],
+                log_dir=log_dir,
+            )
+            return
+        validate_dp_launchable(devices)
+    elif devices is not None and world_size == 1:
+        validate_dp_launchable(devices)
+
+    if (
+        world_size > 1
+        and os.environ.get(UNILAB_DP_LOG_DIR) is None
+        and OmegaConf.select(cfg, "training.log_dir", default=None) is None
+    ):
+        raise ValueError(
+            "Distributed RSL-RL workers require one shared run directory; use "
+            "training.devices or set training.log_dir explicitly"
+        )
+
+    ensure_registries()
+    apply_rsl_rl_rank_seed(cfg, rank)
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = build_ppo_env_cfg_override(cfg)
 
-    device = get_default_device()
-    print(f"Using device: {device}")
+    device = resolve_rsl_rl_device(
+        configured_device=str(configured_device) if configured_device is not None else None,
+        devices=devices,
+        world_size=world_size,
+        local_rank=local_rank,
+        default_device=get_default_device(),
+    )
+    print(f"[rank {rank}/{world_size}] Using device: {device}")
 
     # Compute effective max_iterations (supports num_timesteps override)
     max_iterations = cfg.algo.max_iterations
     if cfg.training.num_timesteps:
-        n_steps_per_iter = cfg.algo.num_steps_per_env * cfg.algo.num_envs
+        n_steps_per_iter = ppo_samples_per_iteration(
+            num_envs=cfg.algo.num_envs,
+            num_steps_per_env=cfg.algo.num_steps_per_env,
+            world_size=world_size,
+        )
         max_iterations = max(1, int(cfg.training.num_timesteps / n_steps_per_iter))
         print(
             f"Overriding max_iterations to {max_iterations} based on "
@@ -315,16 +415,12 @@ def main(cfg: DictConfig) -> None:
         )
 
     if not cfg.training.play_only:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_root = _get_log_root(cfg)
-        log_dir = str(
-            Path(log_root) / cfg.training.task_name / f"{timestamp}_{cfg.training.sim_backend}"
-        )
+        log_dir = resolve_ppo_log_dir(cfg, world_size=world_size)
     else:
         log_dir = None
 
     tracker = None
-    if not cfg.training.play_only and log_dir is not None:
+    if not cfg.training.play_only and log_dir is not None and rank == 0:
         tracker = ExperimentTracker(
             root_dir=ROOT_DIR,
             log_dir=log_dir,
@@ -338,6 +434,7 @@ def main(cfg: DictConfig) -> None:
         )
         tracker.start()
 
+    training_succeeded = False
     try:
         if not cfg.training.play_only:
             env = create_env(
@@ -400,48 +497,79 @@ def main(cfg: DictConfig) -> None:
                 resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
                 if resume_path:
                     print(f"Resuming from {resume_path}")
-                    runner.load(str(resume_path))
+                    runner.load(str(resume_path), map_location=device)
 
+            initial_timesteps = int(getattr(runner.logger, "tot_timesteps", 0))
+            initial_training_time = float(getattr(runner.logger, "tot_time", 0.0))
             train_start_wall = time.time()
             runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
-            assert log_dir is not None
-            train_summary = {
-                "status": "completed",
-                "completed_iterations": int(runner.current_learning_iteration),
-                "total_env_steps": int(getattr(runner.logger, "tot_timesteps", 0)),
-                "final_mean_reward": (
-                    float(statistics.mean(runner.logger.rewbuffer))
-                    if len(getattr(runner.logger, "rewbuffer", [])) > 0
-                    else None
-                ),
-                "best_mean_reward": (
-                    float(max(runner.logger.rewbuffer))
-                    if len(getattr(runner.logger, "rewbuffer", [])) > 0
-                    else None
-                ),
-                "mean_episode_length": (
-                    float(statistics.mean(runner.logger.lenbuffer))
-                    if len(getattr(runner.logger, "lenbuffer", [])) > 0
-                    else None
-                ),
-                "last_checkpoint": str(
-                    Path(log_dir) / f"model_{int(runner.current_learning_iteration)}.pt"
-                ),
-                "training_wall_time_sec": time.time() - train_start_wall,
-            }
-            if tracker is not None:
-                tracker.update_summary(train_summary)
+            training_succeeded = True
+            if rank == 0:
+                assert log_dir is not None
+                total_timesteps = int(getattr(runner.logger, "tot_timesteps", 0))
+                total_training_time = float(getattr(runner.logger, "tot_time", 0.0))
+                run_timesteps = total_timesteps - initial_timesteps
+                run_training_time = total_training_time - initial_training_time
+                train_summary = {
+                    "status": "completed",
+                    "completed_iterations": int(runner.current_learning_iteration),
+                    "total_env_steps": total_timesteps,
+                    "run_env_steps": run_timesteps,
+                    "world_size": world_size,
+                    "num_envs_per_rank": int(cfg.algo.num_envs),
+                    "global_num_envs": int(cfg.algo.num_envs) * world_size,
+                    "samples_per_iteration": ppo_samples_per_iteration(
+                        num_envs=cfg.algo.num_envs,
+                        num_steps_per_env=cfg.algo.num_steps_per_env,
+                        world_size=world_size,
+                    ),
+                    "training_throughput_env_steps_per_sec": (
+                        run_timesteps / run_training_time if run_training_time > 0.0 else None
+                    ),
+                    "final_mean_reward": (
+                        float(statistics.mean(runner.logger.rewbuffer))
+                        if len(getattr(runner.logger, "rewbuffer", [])) > 0
+                        else None
+                    ),
+                    "best_mean_reward": (
+                        float(max(runner.logger.rewbuffer))
+                        if len(getattr(runner.logger, "rewbuffer", [])) > 0
+                        else None
+                    ),
+                    "mean_episode_length": (
+                        float(statistics.mean(runner.logger.lenbuffer))
+                        if len(getattr(runner.logger, "lenbuffer", [])) > 0
+                        else None
+                    ),
+                    "last_checkpoint": str(
+                        Path(log_dir) / f"model_{int(runner.current_learning_iteration)}.pt"
+                    ),
+                    "training_wall_time_sec": time.time() - train_start_wall,
+                }
+                if tracker is not None:
+                    tracker.update_summary(train_summary)
             env.close()
 
-        if should_run_playback(
+            # Keep non-main ranks alive until rank 0 has persisted its final
+            # checkpoint and summary, then release NCCL before playback.
+            finish_rsl_rl_distributed(training_succeeded=training_succeeded)
+
+        if rank == 0 and should_run_playback(
             play_only=cfg.training.play_only,
             no_play=cfg.training.no_play,
             play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
         ):
-            play_video_path = play_rsl_rl(cfg, device)
+            # torchrun rank variables outlive the training process group. Mask
+            # them while playback constructs a new runner so rank 0 does not
+            # initialize a second NCCL group after sibling workers have exited.
+            with rsl_rl_single_process_topology():
+                play_video_path = play_rsl_rl(cfg, device)
             if tracker is not None:
                 tracker.log_video(play_video_path)
     finally:
+        # On failure, release an initialized group without a peer barrier;
+        # torchrun owns sibling termination and error propagation.
+        finish_rsl_rl_distributed(training_succeeded=training_succeeded)
         if tracker is not None:
             tracker.finish()
 

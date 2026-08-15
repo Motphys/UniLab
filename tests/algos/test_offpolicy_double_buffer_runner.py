@@ -13,6 +13,8 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from hydra.errors import ConfigCompositionException
 
+from unilab.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
+
 _ROOT = Path(__file__).parent.parent.parent
 _CONF_DIR = _ROOT / "conf"
 
@@ -31,19 +33,19 @@ def _offpolicy_cfg(overrides: list[str] | None = None):
     normalized: list[str] = []
     algo = "sac"
     task_selected = False
-    device_selected = False
+    devices_selected = False
     for override in overrides or []:
         if override.startswith("algo="):
             algo = override.split("=", 1)[1]
         elif override.startswith("task="):
             task_selected = True
-        elif override.startswith("training.device="):
-            device_selected = True
+        elif override.startswith("training.devices="):
+            devices_selected = True
         normalized.append(override)
     if not task_selected:
         normalized.append(f"task={algo}/g1_walk_flat/mujoco")
-    if not device_selected:
-        normalized.append("training.device=cuda")
+    if not devices_selected:
+        normalized.append("training.devices=[0]")
     with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
         return compose("config", overrides=normalized, return_hydra_config=True)
 
@@ -108,6 +110,7 @@ def test_hora_uses_same_learner_inference_path():
         "training.num_gpus=2",
         "training.multi_gpu_sync_mode=sync_sgd",
         "training.multi_gpu_sync_interval=2",
+        "training.device=cuda",
         "training.inference_owner=collector",
         "training.collector_infer_device=cpu",
         "training.no_sync_collection=true",
@@ -128,13 +131,13 @@ def test_non_one_tick_prefetch_is_rejected_before_dispatch(mode: str):
 
 @pytest.mark.parametrize("algo", ["sac", "td3", "flashsac"])
 @pytest.mark.parametrize("device", ["cpu", "xpu"])
-def test_unsupported_training_device_fails_before_env_materialization(
+def test_non_cuda_training_devices_fail_before_env_materialization(
     monkeypatch: pytest.MonkeyPatch,
     algo: str,
     device: str,
 ):
     module = _offpolicy()
-    cfg = _offpolicy_cfg([f"algo={algo}", f"training.device={device}"])
+    cfg = _offpolicy_cfg([f"algo={algo}", f"training.devices=[{device}]"])
     env_calls = 0
 
     def reject_env(*args, **kwargs):
@@ -144,7 +147,7 @@ def test_unsupported_training_device_fails_before_env_materialization(
         raise AssertionError("unsupported replay device must fail before env creation")
 
     monkeypatch.setattr(module, "create_env", reject_env)
-    with pytest.raises(ValueError, match="CUDA or MPS learner device"):
+    with pytest.raises(ValueError, match="training.devices entries"):
         module.build_runner(algo, cfg)
     assert env_calls == 0
 
@@ -164,7 +167,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     runner = module.build_runner("sac", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "sac"
-    assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["device"] == "cuda:0"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
     assert "inference_owner" not in runner.kwargs
     assert "collector_infer_device" not in runner.kwargs
@@ -188,7 +191,7 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     runner = module.build_runner("td3", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "td3"
-    assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["device"] == "cuda:0"
     assert "inference_owner" not in runner.kwargs
     assert "collector_infer_device" not in runner.kwargs
     assert "sync_collection" not in runner.kwargs
@@ -209,7 +212,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     runner = module.build_runner("flashsac", cfg)
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "flashsac"
-    assert runner.kwargs["device"] == "cuda"
+    assert runner.kwargs["device"] == "cuda:0"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
     assert "inference_owner" not in runner.kwargs
     assert "collector_infer_device" not in runner.kwargs
@@ -237,3 +240,122 @@ def test_inference_response_detects_dead_collector():
 
     with pytest.raises(RuntimeError, match="collector dead"):
         runner._publish_inference_response(full_queue, timeout=0.01)
+
+
+def _build_sac_runner_with_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: list[str],
+    *,
+    cpu_count: int = 128,
+):
+    """build_runner("sac", ...) with learner/env/runner fakes; returns captured state."""
+    module = _offpolicy()
+    cfg = _offpolicy_cfg(overrides)
+    probe_env_calls: list[dict] = []
+
+    def fake_create_env(*args, **kwargs):
+        del args
+        probe_env_calls.append(kwargs)
+        return _FakeEnv()
+
+    monkeypatch.setattr(module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(module, "create_env", fake_create_env)
+    monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
+
+    import unilab.algos.torch.fast_sac.learner as learner_module
+    import unilab.algos.torch.offpolicy.double_buffer_runner as runner_module
+
+    monkeypatch.setattr(learner_module, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = module.build_runner("sac", cfg, log_dir="/tmp/offpolicy_test_run")
+    return runner, probe_env_calls
+
+
+def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.MonkeyPatch):
+    # Spawned rank: rank comes from the env, world_size from training.devices.
+    monkeypatch.setenv(UNILAB_DP_RANK, "1")
+    monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/offpolicy_test_run")
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch,
+        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        cpu_count=128,
+    )
+    assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
+    # The thread budget is resolved against the rank's CPU share, not the host.
+    assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
+    # The num_envs=1 probe env must never see cpu_ids (it would size its
+    # MuJoCo BatchEnvPool worker count from len(cpu_ids)).
+    assert probe_env_calls
+    for call in probe_env_calls:
+        override = call.get("env_cfg_override") or {}
+        assert "cpu_ids" not in override
+
+
+def test_build_runner_rank_zero_partitions_without_dp_env(monkeypatch: pytest.MonkeyPatch):
+    # Rank 0 carries no UNILAB_DP_* env; world_size must come from the config.
+    monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
+    monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
+    runner, _ = _build_sac_runner_with_fakes(
+        monkeypatch,
+        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        cpu_count=128,
+    )
+    assert runner.kwargs["collector_cpu_ids"] == list(range(0, 64))
+    assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
+
+
+def test_build_runner_single_rank_keeps_collector_cpus_unset(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
+    monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch, ["algo=sac", "algo.use_symmetry=false"], cpu_count=128
+    )
+    assert runner.kwargs["collector_cpu_ids"] is None
+    # Single-rank thread budget still resolves against the full host.
+    assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 128
+    override = runner.kwargs["env_cfg_override"] or {}
+    assert "cpu_ids" not in override
+    for call in probe_env_calls:
+        assert "cpu_ids" not in (call.get("env_cfg_override") or {})
+
+
+def test_build_runner_explicit_dp_collector_cpu_ids(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv(UNILAB_DP_RANK, "0")
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch,
+        [
+            "algo=sac",
+            "algo.use_symmetry=false",
+            "training.devices=[0,1]",
+            "training.dp_collector_cpu_ids=[[0,1],[2,3]]",
+        ],
+        cpu_count=128,
+    )
+    assert runner.kwargs["collector_cpu_ids"] == [0, 1]
+    for call in probe_env_calls:
+        assert "cpu_ids" not in (call.get("env_cfg_override") or {})
+
+
+def test_collector_env_cfg_override_merges_cpu_ids_without_mutating_base():
+    runner = _bare_runner()
+    base = {"reward_config": {"x": 1}}
+    runner.env_cfg_override = base
+    runner.collector_cpu_ids = [0, 1]
+    merged = runner._collector_env_cfg_override()
+    assert merged == {"reward_config": {"x": 1}, "cpu_ids": [0, 1]}
+    assert "cpu_ids" not in base
+
+
+def test_collector_env_cfg_override_without_cpu_ids_passes_through():
+    runner = _bare_runner()
+    runner.env_cfg_override = {"a": 1}
+    runner.collector_cpu_ids = None
+    assert runner._collector_env_cfg_override() is runner.env_cfg_override
+
+
+def test_collector_env_cfg_override_from_none_base():
+    runner = _bare_runner()
+    runner.env_cfg_override = None
+    runner.collector_cpu_ids = [4, 5]
+    assert runner._collector_env_cfg_override() == {"cpu_ids": [4, 5]}
