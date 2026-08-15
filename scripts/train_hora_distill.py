@@ -37,7 +37,7 @@ from unilab.algos.torch.hora.distill_config import (
     teacher_run_metadata as _teacher_run_metadata,
 )
 from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
-from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
+from unilab.base.backend import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,
