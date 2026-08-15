@@ -223,10 +223,14 @@ class OffPolicyRunner(AsyncRunner):
 
     def close(self) -> None:
         active_logger = getattr(self, "_active_logger", None)
-        if active_logger is not None:
-            active_logger.close()
+        try:
+            if active_logger is not None:
+                active_logger.close()
+        finally:
             self._active_logger = None
-        super().close()
+            # Terminal restoration must not be able to prevent collector,
+            # shared-memory, queue, and pipe cleanup.
+            super().close()
 
     @staticmethod
     def _drain_metrics(

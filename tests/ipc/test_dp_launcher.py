@@ -25,7 +25,12 @@ from unilab.ipc.dp_launcher import (
     apply_dp_rank_config,
     current_dp_rank,
     current_dp_world_size,
+    current_torch_distributed_local_rank,
+    current_torch_distributed_rank,
+    current_torch_distributed_world_size,
+    launch_torchrun_workers,
     resolve_collector_cpu_ids,
+    resolve_cuda_visible_devices,
     resolve_dp_rank_device,
     resolve_dp_topology,
     validate_dp_launchable,
@@ -51,28 +56,39 @@ class _FakePopen:
     # When True, wait() on a still-running child makes it exit cleanly
     # (simulates a rank that finishes during the normal-exit grace window).
     wait_completes: bool = False
+    interrupt_exits: bool = True
 
     def __init__(self, argv, env=None, **kwargs):
-        del kwargs
         self.argv = list(argv)
         self.env = dict(env or {})
+        self.start_new_session = bool(kwargs.pop("start_new_session", False))
+        assert not kwargs
         self.pid = 10_000 + len(_FakePopen.instances)
         self.returncode: int | None = None
         self.terminated = False
         self.killed = False
+        self.signals: list[int] = []
         _FakePopen.instances.append(self)
 
     def poll(self):
         return self.returncode
 
     def terminate(self):
-        self.terminated = True
-        if self.returncode is None:
-            self.returncode = -signal.SIGTERM
+        self.send_signal(signal.SIGTERM)
 
     def kill(self):
-        self.killed = True
-        self.returncode = -signal.SIGKILL
+        self.send_signal(signal.SIGKILL)
+
+    def send_signal(self, signum):
+        self.signals.append(signum)
+        if signum == signal.SIGINT and self.interrupt_exits:
+            self.returncode = -signal.SIGINT
+        elif signum == signal.SIGTERM:
+            self.terminated = True
+            self.returncode = -signal.SIGTERM
+        elif signum == signal.SIGKILL:
+            self.killed = True
+            self.returncode = -signal.SIGKILL
 
     def wait(self, timeout=None):
         if self.returncode is None:
@@ -87,7 +103,17 @@ class _FakePopen:
 def fake_popen(monkeypatch: pytest.MonkeyPatch):
     _FakePopen.instances = []
     _FakePopen.wait_completes = False
+    _FakePopen.interrupt_exits = True
     monkeypatch.setattr(dp_launcher.subprocess, "Popen", _FakePopen)
+    monkeypatch.setattr(
+        dp_launcher, "_signal_process_group", lambda child, signum: child.send_signal(signum)
+    )
+    monkeypatch.setattr(
+        dp_launcher, "_process_group_exists", lambda child: child.returncode is None
+    )
+    monkeypatch.setattr(dp_launcher, "_COOPERATIVE_EXIT_GRACE_S", 0.0)
+    monkeypatch.setattr(dp_launcher, "_TERMINATE_TIMEOUT_S", 0.0)
+    monkeypatch.setattr(dp_launcher, "_NORMAL_EXIT_GRACE_S", 0.01)
     return _FakePopen
 
 
@@ -132,6 +158,122 @@ def test_current_dp_rank_reads_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv(UNILAB_DP_WORLD_SIZE, "4")
     assert current_dp_rank() == 2
     assert current_dp_world_size() == 4
+
+
+def test_current_torch_distributed_rank_defaults(monkeypatch: pytest.MonkeyPatch):
+    for name in ("RANK", "LOCAL_RANK", "WORLD_SIZE"):
+        monkeypatch.delenv(name, raising=False)
+    assert current_torch_distributed_rank() == 0
+    assert current_torch_distributed_local_rank() == 0
+    assert current_torch_distributed_world_size() == 1
+
+
+def test_current_torch_distributed_rank_reads_torchrun_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("RANK", "3")
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setenv("WORLD_SIZE", "4")
+    assert current_torch_distributed_rank() == 3
+    assert current_torch_distributed_local_rank() == 1
+    assert current_torch_distributed_world_size() == 4
+
+
+def test_resolve_cuda_visible_devices_preserves_parent_mapping():
+    assert resolve_cuda_visible_devices((2, 0)) == "2,0"
+    assert (
+        resolve_cuda_visible_devices(
+            (1, 0),
+            current_visible_devices="GPU-parent-0,GPU-parent-1",
+        )
+        == "GPU-parent-1,GPU-parent-0"
+    )
+
+
+def test_resolve_cuda_visible_devices_rejects_hidden_index():
+    with pytest.raises(ValueError, match="CUDA_VISIBLE_DEVICES"):
+        resolve_cuda_visible_devices((0, 2), current_visible_devices="4,7")
+
+
+def test_launch_torchrun_workers_builds_standard_single_node_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    captured: dict[str, object] = {}
+
+    def fake_run(command, *, env, check):
+        captured.update(command=list(command), env=dict(env), check=check)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(dp_launcher, "validate_dp_launchable", lambda devices: None)
+    monkeypatch.setattr(dp_launcher.subprocess, "run", fake_run)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b,GPU-c")
+    monkeypatch.delenv("NCCL_P2P_DISABLE", raising=False)
+    monkeypatch.delenv("NCCL_SHM_DISABLE", raising=False)
+    script = tmp_path / "train_rsl_rl.py"
+
+    launch_torchrun_workers(
+        (2, 0),
+        script_path=script,
+        argv=["task=go2_joystick_flat/mujoco", "training.devices=[2,0]"],
+        log_dir="/tmp/ppo_gpux2",
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[:3] == [sys.executable, "-m", "torch.distributed.run"]
+    assert "--standalone" in command
+    assert "--nnodes=1" in command
+    assert "--nproc_per_node=2" in command
+    assert command[-2:] == ["task=go2_joystick_flat/mujoco", "training.devices=[2,0]"]
+    launch_env = captured["env"]
+    assert isinstance(launch_env, dict)
+    assert launch_env["CUDA_VISIBLE_DEVICES"] == "GPU-c,GPU-a"
+    assert launch_env["NCCL_P2P_DISABLE"] == "1"
+    assert launch_env["NCCL_SHM_DISABLE"] == "1"
+    assert launch_env[UNILAB_DP_LOG_DIR] == "/tmp/ppo_gpux2"
+    assert captured["check"] is False
+
+
+def test_launch_torchrun_workers_propagates_failure(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(dp_launcher, "validate_dp_launchable", lambda devices: None)
+    monkeypatch.setattr(
+        dp_launcher.subprocess,
+        "run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 7})(),
+    )
+
+    with pytest.raises(RuntimeError, match="exit code 7"):
+        launch_torchrun_workers(
+            (0, 1),
+            script_path="scripts/train_rsl_rl.py",
+            argv=[],
+            log_dir="/tmp/ppo_gpux2",
+        )
+
+
+def test_launch_torchrun_workers_preserves_explicit_nccl_transport(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, str] = {}
+
+    def fake_run(*args, env, **kwargs):
+        del args, kwargs
+        captured.update(env)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(dp_launcher, "validate_dp_launchable", lambda devices: None)
+    monkeypatch.setattr(dp_launcher.subprocess, "run", fake_run)
+    monkeypatch.setenv("NCCL_P2P_DISABLE", "0")
+    monkeypatch.setenv("NCCL_SHM_DISABLE", "0")
+
+    launch_torchrun_workers(
+        (0, 1),
+        script_path="scripts/train_rsl_rl.py",
+        argv=[],
+        log_dir="/tmp/ppo_gpux2",
+    )
+
+    assert captured["NCCL_P2P_DISABLE"] == "0"
+    assert captured["NCCL_SHM_DISABLE"] == "0"
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +349,7 @@ def test_supervisor_spawn_argv_and_env(fake_popen, monkeypatch: pytest.MonkeyPat
             assert child.argv[0] == sys.executable
             assert child.argv[1].endswith("scripts/train_offpolicy.py")
             assert child.argv[2:] == ["algo=sac", "training.devices=[0,1,2]"]
+            assert child.start_new_session is (os.name == "posix")
             assert child.env[UNILAB_DP_RANK] == str(rank)
             assert child.env[UNILAB_DP_WORLD_SIZE] == "3"
             assert child.env[UNILAB_DP_DEVICES] == "0,1,2"
@@ -253,11 +396,27 @@ def test_supervisor_failed_child_makes_rank_zero_fail(fake_popen, monkeypatch: p
 
 
 def test_supervisor_error_exit_terminates_live_children(fake_popen):
+    fake_popen.interrupt_exits = False
     with pytest.raises(ValueError, match="boom"):
         with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log"):
             raise ValueError("boom")
     assert all(child.terminated for child in fake_popen.instances)
     assert all(child.returncode == -signal.SIGTERM for child in fake_popen.instances)
+    assert all(child.signals == [signal.SIGINT, signal.SIGTERM] for child in fake_popen.instances)
+
+
+def test_supervisor_ctrl_c_forwards_sigint_for_cooperative_rank_cleanup(fake_popen):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+
+    with pytest.raises(KeyboardInterrupt):
+        with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log") as supervisor:
+            installed = signal.getsignal(signal.SIGINT)
+            assert getattr(installed, "__self__", None) is supervisor
+            installed(signal.SIGINT, None)
+
+    assert all(child.signals == [signal.SIGINT] for child in fake_popen.instances)
+    assert all(child.returncode == -signal.SIGINT for child in fake_popen.instances)
+    assert signal.getsignal(signal.SIGINT) == previous_sigint
 
 
 def test_supervisor_watchdog_sigterms_rank_zero_on_child_death(
@@ -275,12 +434,36 @@ def test_supervisor_watchdog_sigterms_rank_zero_on_child_death(
     assert killed == [signal.SIGTERM]
 
 
-def test_supervisor_restores_sigterm_handler(fake_popen):
-    previous = signal.getsignal(signal.SIGTERM)
-    with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log"):
-        assert signal.getsignal(signal.SIGTERM) is dp_launcher._sigterm_system_exit
+def test_supervisor_restores_signal_handlers(fake_popen):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    with DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log") as supervisor:
+        assert getattr(signal.getsignal(signal.SIGINT), "__self__", None) is supervisor
+        assert getattr(signal.getsignal(signal.SIGTERM), "__self__", None) is supervisor
         fake_popen.instances[0].returncode = 0
-    assert signal.getsignal(signal.SIGTERM) == previous
+    assert signal.getsignal(signal.SIGINT) == previous_sigint
+    assert signal.getsignal(signal.SIGTERM) == previous_sigterm
+
+
+def test_supervisor_restores_signal_handlers_when_group_reaping_fails(
+    fake_popen, monkeypatch: pytest.MonkeyPatch
+):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    supervisor = DpRankSupervisor((0, 1), log_dir="/tmp/dp_test_log")
+    supervisor.__enter__()
+    fake_popen.instances[0].returncode = 0
+
+    def fail_reaping() -> None:
+        raise RuntimeError("group reaping failed")
+
+    monkeypatch.setattr(supervisor, "_terminate_children", fail_reaping)
+
+    with pytest.raises(RuntimeError, match="group reaping failed"):
+        supervisor.__exit__(None, None, None)
+
+    assert signal.getsignal(signal.SIGINT) == previous_sigint
+    assert signal.getsignal(signal.SIGTERM) == previous_sigterm
 
 
 # ---------------------------------------------------------------------------

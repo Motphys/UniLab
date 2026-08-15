@@ -161,6 +161,46 @@ def test_close_closes_dp_sync_idempotently():
     assert [name for name, _ in dp_sync.calls] == ["close", "close"]
 
 
+def test_close_restores_terminal_and_ipc_before_destroying_process_group(monkeypatch):
+    from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+
+    events: list[str] = []
+
+    class _GraphLearner(_SyncLearner):
+        def release_cuda_graphs(self) -> None:
+            events.append("release_cuda_graphs")
+
+    class _OrderedDpSync(_FakeDpSync):
+        def close(self) -> None:
+            events.append("dp_sync.close")
+
+    learner = _GraphLearner()
+    learner.dp_cuda_graph_gradient_sync = True
+    runner = _runner_with(learner, _OrderedDpSync())
+    monkeypatch.setattr(OffPolicyRunner, "close", lambda self: events.append("runner.close"))
+
+    runner.close()
+
+    assert events == ["runner.close", "release_cuda_graphs", "dp_sync.close"]
+
+
+def test_close_still_destroys_process_group_when_local_cleanup_fails(monkeypatch):
+    from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+
+    dp_sync = _FakeDpSync()
+    runner = _runner_with(_SyncLearner(), dp_sync)
+
+    def fail_local_cleanup(self) -> None:
+        raise RuntimeError("local cleanup failed")
+
+    monkeypatch.setattr(OffPolicyRunner, "close", fail_local_cleanup)
+
+    with pytest.raises(RuntimeError, match="local cleanup failed"):
+        runner.close()
+
+    assert [name for name, _ in dp_sync.calls] == ["close"]
+
+
 def test_log_statistics_mean_scalars_and_sum_concurrent_throughput():
     from unilab.logging import OffPolicyLogger
 

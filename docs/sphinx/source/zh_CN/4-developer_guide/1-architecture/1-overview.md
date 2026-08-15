@@ -12,8 +12,10 @@ CPU physics backend -> collector / IPC -> learner
 MuJoCo or Motrix      shared memory       torch
 ```
 
-PPO 是同步的单进程路径。APPO 与 off-policy 算法则使用异步 runner、
-共享缓冲区，以及位于 `src/unilab/ipc/` 与 `src/unilab/algos/` 下的权重同步原语。
+PPO 是同步路径：默认单进程，也可在单机上按一卡一进程运行 RSL-RL 数据并行；
+每个 rank 独立持有 env/rollout，RSL-RL 在每个 mini-batch 后平均梯度。APPO 与
+off-policy 算法则使用异步 runner、共享缓冲区，以及位于 `src/unilab/ipc/` 与
+`src/unilab/algos/` 下的权重同步原语。
 
 ## 分层边界
 

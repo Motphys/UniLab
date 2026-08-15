@@ -477,17 +477,25 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         return ckpt_path
 
     def close(self) -> None:
-        if self.dp_sync is not None:
-            if bool(getattr(self.learner, "dp_cuda_graph_gradient_sync", False)):
-                release_cuda_graphs = getattr(self.learner, "release_cuda_graphs", None)
-                if not callable(release_cuda_graphs):
-                    raise TypeError(
-                        f"{type(self.learner).__name__} must implement release_cuda_graphs() "
-                        "before an NCCL process group with captured collectives is destroyed"
-                    )
-                release_cuda_graphs()
-            self.dp_sync.close()
-        super().close()
+        try:
+            # Rank 0 owns the live terminal, and every rank owns a collector and
+            # shared IPC resources. Release those before NCCL teardown, which
+            # may wait on a peer during Ctrl+C shutdown.
+            super().close()
+        finally:
+            if self.dp_sync is not None:
+                try:
+                    if bool(getattr(self.learner, "dp_cuda_graph_gradient_sync", False)):
+                        release_cuda_graphs = getattr(self.learner, "release_cuda_graphs", None)
+                        if not callable(release_cuda_graphs):
+                            raise TypeError(
+                                f"{type(self.learner).__name__} must implement "
+                                "release_cuda_graphs() before an NCCL process group with "
+                                "captured collectives is destroyed"
+                            )
+                        release_cuda_graphs()
+                finally:
+                    self.dp_sync.close()
 
     def _collector_env_cfg_override(self) -> dict | None:
         """Env override copy for the collector process, with per-rank CPU ids.
