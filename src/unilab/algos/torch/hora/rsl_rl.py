@@ -125,33 +125,3 @@ class HoraRslRlVecEnvWrapper(RslRlVecEnvWrapper):
             dones,
             infos,
         )
-
-    def reset(self) -> tuple[TensorDict, dict[str, Any]]:
-        """Reset the wrapped env and preserve HORA privileged reset payloads.
-
-        Args:
-            None.
-
-        Returns:
-            Tuple ``(obs_td, info)`` where ``obs_td`` retains HORA privileged inputs.
-        """
-        if self.env.state is None:
-            self.env.init_state()
-
-        env_indices = np.arange(self.num_envs, dtype=np.int32)
-        obs_out, info = self.env.reset(env_indices)
-        self.episode_returns[:] = 0
-        self.episode_lengths[:] = 0
-        return self._obs_to_tensordict(obs_out, info), info
-
-    def get_observations(self) -> TensorDict:
-        """Return the current HORA-aware observation TensorDict.
-
-        Args:
-            None.
-
-        Returns:
-            TensorDict containing the current observation batch with HORA extras.
-        """
-        assert self.env.state is not None
-        return self._obs_to_tensordict(self.env.state.obs, self.env.state.info)
