@@ -202,9 +202,6 @@ class HoraAPPORunner(APPORunner):
             enable_compile=algo_cfg.get("enable_compile", True),
         )
 
-    def _collector_fn(self, stop_event, **kwargs):
-        hora_appo_collector_fn(stop_event=stop_event, **kwargs)
-
     def learn(
         self,
         max_iterations: int = 1500,
