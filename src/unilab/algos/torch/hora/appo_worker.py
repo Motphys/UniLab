@@ -233,7 +233,7 @@ def hora_appo_collector_fn(
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
     ep_reward_components = defaultdict(list)
     ep_timeouts = 0
-    ep_terminates = 0
+    ep_completions = 0
 
     _EMA = 0.1
     ema_mlp_infer_ms = 0.0
@@ -357,8 +357,8 @@ def hora_appo_collector_fn(
                     ep_lengths.extend(current_ep_lengths[reset_indices].tolist())
                     current_ep_rewards[reset_indices] = 0.0
                     current_ep_lengths[reset_indices] = 0
+                    ep_completions += len(reset_indices)
                     ep_timeouts += int(np.sum(truncated_raw[reset_indices] > 0.5))
-                    ep_terminates += int(np.sum(truncated_raw[reset_indices] <= 0.5))
 
                 log_info = state.info.get("log", {})
                 for k, v in log_info.items():
@@ -375,12 +375,10 @@ def hora_appo_collector_fn(
                             msg["mean_ep_length"] = (
                                 statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0
                             )
-                        total_ep = ep_timeouts + ep_terminates
-                        if total_ep > 0:
-                            msg["timeout_rate"] = ep_timeouts / total_ep
-                            msg["terminated_rate"] = ep_terminates / total_ep
+                        if ep_completions > 0:
+                            msg["timeout_rate"] = ep_timeouts / ep_completions
                             ep_timeouts = 0
-                            ep_terminates = 0
+                            ep_completions = 0
                         msg["collector_timing_ms"] = {
                             "rollout_ms": ema_rollout_ms,
                             "mlp_infer_ms": ema_mlp_infer_ms,

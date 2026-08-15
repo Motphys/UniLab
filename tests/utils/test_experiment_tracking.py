@@ -70,10 +70,12 @@ class _FakeTensorBoardWriter:
 
 def test_training_logger_defers_initial_live_render(monkeypatch):
     start_refresh_values: list[bool] = []
+    live_kwargs: list[dict[str, Any]] = []
 
     class _FakeLive:
         def __init__(self, *args, **kwargs):
-            del args, kwargs
+            del args
+            live_kwargs.append(kwargs)
 
         def start(self, *, refresh: bool = False) -> None:
             start_refresh_values.append(refresh)
@@ -91,9 +93,12 @@ def test_training_logger_defers_initial_live_render(monkeypatch):
     logger.close()
 
     assert start_refresh_values == [False]
+    assert live_kwargs[0]["auto_refresh"] is True
+    assert live_kwargs[0]["refresh_per_second"] == 2
+    assert callable(live_kwargs[0]["get_renderable"])
 
 
-def test_offpolicy_training_terminal_refresh_uses_single_low_frequency_trigger(monkeypatch):
+def test_offpolicy_training_terminal_uses_fixed_clock_and_only_forces_errors(monkeypatch):
     update_refresh_values: list[bool | None] = []
     now = 100.0
 
@@ -120,19 +125,19 @@ def test_offpolicy_training_terminal_refresh_uses_single_low_frequency_trigger(m
     logger = OffPolicyLogger(log_backend="none", refresh_per_second=4)
     logger.start()
     logger.log_step(iteration=1, train_time=0.01, collector_wait_time=0.0)
-    assert update_refresh_values == [True]
+    assert update_refresh_values == []
 
     logger.log_collector(total_steps=128, buffer_size=128, mean_reward=2.0)
     logger.log_status("Collector metrics updated")
     logger.log_save("/tmp/model_2.pt")
-    assert update_refresh_values == [True]
+    assert update_refresh_values == []
 
     now += 0.3
     logger.log_step(iteration=2, train_time=0.01, collector_wait_time=0.0)
-    assert update_refresh_values == [True, True]
+    assert update_refresh_values == []
 
     logger.log_status("[red]ERROR: Collector died[/]")
-    assert update_refresh_values == [True, True, True]
+    assert update_refresh_values == [True]
 
     logger.close()
 
@@ -227,12 +232,15 @@ def test_offpolicy_logger_terminal_keeps_core_bottleneck_timing_rows():
     assert "Param Sync" not in output
     assert "Unaccounted" not in output
     assert "Other Loop" not in output
-    assert "GPUs" not in output
+    assert "GPUs 1" in output
     assert "Sync Mode" not in output
     assert "Sync Interval" not in output
+    assert "Sync Collect" not in output
+    assert "Terminated Rate" not in output
+    assert "Staging Pool" not in output
     assert "Batch/Rank" in output
     assert "Batch/Update" not in output
-    assert "Samples/Iter" in output
+    assert "Samples/Iter" not in output
     assert "Samples/s" in output
 
     logger.close()
@@ -296,8 +304,8 @@ def test_offpolicy_logger_terminal_shows_replay_rows_when_symmetry_expands_batch
     output = console.export_text()
 
     assert "Batch/Rank" in output
-    assert "Replay/Iter" in output
-    assert "Samples/Iter" in output
+    assert "Replay/Iter" not in output
+    assert "Samples/Iter" not in output
     assert "Samples/s" in output
     assert "Rank Barrier" not in output
     assert "Param Sync" not in output
@@ -631,7 +639,6 @@ def test_offpolicy_logger_uses_same_canonical_timing_names_in_terminal_and_backe
             "learner_action_wait_ms": 2.0,
             "env_step_ms": 3.0,
             "replay_write_ms": 4.0,
-            "bookkeeping_ms": 5.0,
         }
     )
     logger.log_step(
@@ -674,23 +681,22 @@ def test_offpolicy_logger_uses_same_canonical_timing_names_in_terminal_and_backe
         assert key in payload
     assert "timing/learner_replay_stage_ms" not in payload
     assert "timing/learner_weight_publish_ms" not in payload
-    assert collector_labels[:5] == [
+    assert collector_labels[:4] == [
         "Inference Request",
         "Learner Action Wait",
         "Env Step",
         "Replay Write",
-        "Bookkeeping",
     ]
     for key in (
         "timing/collector_inference_request_ms",
         "timing/collector_learner_action_wait_ms",
         "timing/collector_env_step_ms",
         "timing/collector_replay_write_ms",
-        "timing/collector_bookkeeping_ms",
         "perf/collector_cycle_ms",
     ):
         assert key in payload
-    assert payload["perf/collector_cycle_ms"] == pytest.approx(15.0)
+    assert "timing/collector_bookkeeping_ms" not in payload
+    assert payload["perf/collector_cycle_ms"] == pytest.approx(10.0)
     logger.finish()
 
 
@@ -748,6 +754,8 @@ def test_offpolicy_logger_tensorboard_logs_wall_clock_without_axis_scalars():
     assert scalars["perf/learner_other_pct"] == pytest.approx(0.16 / 2.15 * 100)
     assert scalars["perf/collector_active_steps_per_sec"] == pytest.approx(4321.0)
     assert scalars["perf/effective_samples_per_sec"] == pytest.approx(64.0 / 2.15)
+    assert scalars["episode/timeout_rate"] == pytest.approx(0.0)
+    assert "episode/terminated_rate" not in scalars
     for key in ("axis/iteration", "axis/env_steps_total"):
         assert key not in scalars
     assert not any(key.startswith("distributed/") for key in scalars)

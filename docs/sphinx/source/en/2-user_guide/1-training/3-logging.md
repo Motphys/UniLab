@@ -2,8 +2,9 @@
 
 The terminal panel and TensorBoard / W&B are not separate logging systems. An
 algorithm runner submits each metric once to the same training logger. The terminal
-is a live view of the latest values; `training.logger=tensorboard` (the default) or
-`training.logger=wandb` selects the persistent backend for the same canonical keys.
+refreshes on a fixed 2 Hz clock and shows a two-second sliding average;
+`training.logger=tensorboard` (the default) or `training.logger=wandb` selects the
+persistent backend, which keeps each unsmoothed iteration value.
 
 This page first covers the log directory shared by all algorithms, then documents the
 off-policy terminal used by SAC / TD3 / FlashSAC and APPO. Every terminal field in the
@@ -54,7 +55,16 @@ The bottom of the terminal has three columns:
   `Iter Wall` as its denominator.
 - `Collector (own clock)` is measured in the collector subprocess and runs in
   parallel with the learner.
-- `System` contains non-timing state such as buffer, batch, and done rates.
+- `System` contains the buffer size, timeout rate, environment count, and per-rank
+  batch size.
+
+The panel-border title reports `GPUs N`. In multi-GPU training, only rank 0 owns the
+terminal and persistent logger. Learner metrics and timings are averaged across
+ranks first and then across the terminal's two-second window. `Steps/s` and
+`Samples/s` are exceptions to the rank average: per-rank collector step rates and
+learner sample rates are summed, so both fields are total job throughput. The
+`Avg 2s (n=...)` header field gives the number of already rank-reduced learner
+samples in the current time window.
 
 Do not add times across the learner and collector columns. Only the learner rows from
 `Collector Wait` through `Other` are mutually exclusive main-thread phases. The
@@ -118,7 +128,6 @@ tags below, while an existing run continues to show its old names:
 | `timing/learner_incremental_h2d_ms` (SAC-like) | `timing/replay_ingress_h2d_submit_ms` | Identify a potentially parallel submit diagnostic rather than a learner main phase |
 | `timing/learner_incremental_h2d_ms` (APPO) | `timing/learner_replay_stage_ms` | Identify synchronous staging that is part of `Iter Wall` |
 | `timing/collector_inference_wait_ms` | `timing/collector_learner_action_wait_ms` | The wait can include the remaining learner update, not only inference latency |
-| `timing/collector_sync_idle_ms` | `timing/collector_bookkeeping_ms` | The measured work is episode / metrics bookkeeping, not synchronization idle time |
 
 `perf/learner_pipeline_ms` was removed because it mixed exclusive main phases with a
 background H2D submission. Use `perf/iter_ms` for the main timeline and reconcile it
@@ -126,8 +135,9 @@ with `perf/learner_accounted_pct` plus `perf/learner_other_pct`.
 
 ### Collector Timeline
 
-SAC / TD3 / FlashSAC record five mutually exclusive phases per vectorized env tick.
-Terminal percentages use `perf/collector_cycle_ms`, the sum of these five phases:
+SAC / TD3 / FlashSAC record four mutually exclusive hot-path phases per vectorized
+env tick. Terminal percentages use `perf/collector_cycle_ms`, the sum of these four
+phases:
 
 | Terminal field | TensorBoard / W&B key | Meaning |
 | --- | --- | --- |
@@ -135,7 +145,6 @@ Terminal percentages use `perf/collector_cycle_ms`, the sum of these five phases
 | Learner Action Wait | `timing/collector_learner_action_wait_ms` | Barrier wall time from request publication until the learner publishes this tick's action |
 | Env Step | `timing/collector_env_step_ms` | `env.step()` wall time |
 | Replay Write | `timing/collector_replay_write_ms` | Transition post-processing, packing, and bounded-ingress write |
-| Bookkeeping | `timing/collector_bookkeeping_ms` | Episode statistics, metrics reporting, and remaining per-step bookkeeping |
 
 `Learner Action Wait` is deliberately not named “Inference Wait”: it is not pure
 inference latency. If the collector finishes `Env Step + Replay Write` and submits its
@@ -144,11 +153,13 @@ update, a small scheduling part of the next learner `Collector Wait`, and the ne
 `Inference + Collector Release`. A long value therefore agrees with parallel
 execution: it means the collector reached the next barrier before the learner.
 
-`Collector/s` is active collector throughput, calculated as
+The persistent `perf/collector_active_steps_per_sec` diagnostic is calculated as
 `num_envs / (Inference Request + Env Step + Replay Write)`. It intentionally excludes
-`Learner Action Wait` and `Bookkeeping`. The indented Backend Step / Update State /
-Reset Done rows are nested `Env Step` details. They do not enter the cycle sum, though
-their displayed percentages use the same collector-cycle denominator.
+`Learner Action Wait`; low-value sub-millisecond episode / metrics bookkeeping is no
+longer timed separately. The terminal `Steps/s` field instead reports total
+synchronized collector throughput. The indented Backend Step / Update State / Reset
+Done rows are nested `Env Step` details. They do not enter the cycle sum, though their
+displayed percentages use the same collector-cycle denominator.
 
 APPO has a different collection contract and reports:
 
@@ -159,8 +170,8 @@ APPO has a different collection contract and reports:
 | Rollout Wall | `timing/collector_rollout_ms` | Whole `steps_per_env` rollout wall-time EMA |
 
 These are not one percentage breakdown: the first two are per-step EMAs and `Rollout
-Wall` is a whole-rollout total, so the terminal shows milliseconds only.
-`Collector/s = (num_envs * steps_per_env) / Rollout Wall`.
+Wall` is a whole-rollout total, so the terminal shows milliseconds only. The backend
+active-throughput diagnostic is `(num_envs * steps_per_env) / Rollout Wall`.
 
 ## FastSAC Dual Timeline
 
@@ -189,7 +200,6 @@ sequenceDiagram
     par Collector tick t
         C->>C: Env Step(t)
         C->>D: Replay Write(t)
-        C->>C: Bookkeeping(t)
         C->>I: Inference Request(t+1)
         Note over C,I: Learner Action Wait(t+1) starts here
     and Learner iteration k

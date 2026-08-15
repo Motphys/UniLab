@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 from rich import box
@@ -96,7 +98,6 @@ _COLLECTOR_TIMING_SPECS = {
     "env_step_update_state_ms": (2.2, "  Update State", "env_step_detail"),
     "env_step_reset_done_ms": (2.3, "  Reset Done", "env_step_detail"),
     "replay_write_ms": (3.0, "Replay Write", "cycle_phase"),
-    "bookkeeping_ms": (4.0, "Bookkeeping", "cycle_phase"),
     "rollout_ms": (9.0, "Rollout Wall", "rollout_total"),
 }
 
@@ -109,6 +110,31 @@ OFFPOLICY_ENV_STEP_DETAIL_KEYS = (
 _OFFPOLICY_COLLECTOR_CYCLE_KEYS = tuple(
     key for key, (_, _, role) in _COLLECTOR_TIMING_SPECS.items() if role == "cycle_phase"
 )
+
+_TERMINAL_AVERAGE_WINDOW_SEC = 2.0
+_TERMINAL_AVERAGE_MAX_SAMPLES = 512
+
+
+@dataclass(frozen=True)
+class _TerminalSample:
+    timestamp: float
+    scalars: dict[str, float]
+    metrics: dict[str, float]
+    reward_components: dict[str, float]
+    collector_timing: dict[str, float]
+
+
+@dataclass(frozen=True)
+class _TerminalSnapshot:
+    iteration: int
+    sample_count: int
+    scalars: dict[str, float]
+    metrics: dict[str, float]
+    reward_components: dict[str, float]
+    collector_timing: dict[str, float]
+    reward_history: tuple[float, ...]
+    buffer_size: int
+    batch_size_per_rank: int
 
 
 def _metric_backend_key(key: str) -> str:
@@ -149,7 +175,8 @@ class OffPolicyLogger(BaseTrainingLogger):
         env_name: str = "",
         obs_dim: int = 0,
         action_dim: int = 0,
-        refresh_per_second: int = 4,
+        num_gpus: int = 1,
+        refresh_per_second: int = 2,
         log_dir: str = "",
         log_backend: str = "tensorboard",
         wandb_project: str = "unilab",
@@ -176,6 +203,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             wandb_tags=wandb_tags,
             wandb_notes=wandb_notes,
             refresh_per_second=refresh_per_second,
+            fixed_terminal_refresh=True,
             tensorboard_subdir=None,
             wandb_config={
                 "obs_dim": obs_dim,
@@ -185,6 +213,9 @@ class OffPolicyLogger(BaseTrainingLogger):
         )
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        if int(num_gpus) < 1:
+            raise ValueError("num_gpus must be >= 1")
+        self.num_gpus = int(num_gpus)
         self._total_steps: int = 0
         self._buffer_size: int = 0
         self._buffer_target: int = 0
@@ -214,16 +245,14 @@ class OffPolicyLogger(BaseTrainingLogger):
             raise ValueError("timing_profile must be 'sac_family' or 'appo'")
         self._timing_profile = timing_profile
         self._timeout_rate: float = 0.0
-        self._terminated_rate: float = 0.0
         self._buffer_utilization: float = 0.0
-        self._sync_collection: bool = False
-        self._env_steps_per_sync: int = 0
         self._runtime_manifest: dict[str, Any] = {}
         self._staging_pool_len: int = 0
         self._staging_pool_max: int = 0
         self._status: str = "Initializing..."
-        self._terminal_refresh_started: bool = False
         self._training_timer_started: bool = False
+        self._terminal_samples: deque[_TerminalSample] = deque(maxlen=_TERMINAL_AVERAGE_MAX_SAMPLES)
+        self._terminal_snapshot: _TerminalSnapshot | None = None
 
     def _format_tensorboard_message(self, tb_dir: str) -> str:
         return f"[dim]TensorBoard logging to: {tb_dir}[/]"
@@ -252,8 +281,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._buffer_target = target
         pct = current / max(target, 1) * 100
         self._status = f"Buffer fill: {current:,}/{target:,} ({pct:.0f}%)"
-        if self._terminal_refresh_started:
-            self._refresh()
 
     def _get_iter_steps_per_sec(self) -> float | None:
         if self._steps_per_sec_override is not None:
@@ -310,12 +337,16 @@ class OffPolicyLogger(BaseTrainingLogger):
             return self._iteration_time
         return self._get_learner_accounted_time()
 
-    def _get_collector_cycle_ms(self) -> float | None:
+    def _get_collector_cycle_ms(
+        self,
+        collector_timing: dict[str, float] | None = None,
+    ) -> float | None:
         if self._timing_profile != "sac_family":
             return None
-        if not all(key in self._collector_timing for key in _OFFPOLICY_COLLECTOR_CYCLE_KEYS):
+        timing = self._collector_timing if collector_timing is None else collector_timing
+        if not all(key in timing for key in _OFFPOLICY_COLLECTOR_CYCLE_KEYS):
             return None
-        return sum(self._collector_timing.get(key, 0.0) for key in _OFFPOLICY_COLLECTOR_CYCLE_KEYS)
+        return sum(timing.get(key, 0.0) for key in _OFFPOLICY_COLLECTOR_CYCLE_KEYS)
 
     def _build_compact_header(
         self,
@@ -324,21 +355,115 @@ class OffPolicyLogger(BaseTrainingLogger):
         include_identity: bool = True,
         include_iteration: bool = True,
         extra_fields: list[tuple[str, str]] | None = None,
+        terminal_snapshot: _TerminalSnapshot | None = None,
     ) -> Text:
-        iter_steps_per_sec = self._get_iter_steps_per_sec()
-        effective_samples_per_sec = self._get_effective_samples_per_sec()
+        snapshot = terminal_snapshot or self._terminal_snapshot
+        iter_steps_per_sec = (
+            snapshot.scalars.get("steps_per_sec")
+            if snapshot is not None
+            else self._get_iter_steps_per_sec()
+        )
+        effective_samples_per_sec = (
+            snapshot.scalars.get("samples_per_sec")
+            if snapshot is not None
+            else self._get_effective_samples_per_sec()
+        )
         header_extra_fields: list[tuple[str, str]] = []
         if iter_steps_per_sec is not None:
             header_extra_fields.append((f"Steps/s {iter_steps_per_sec:,.0f}", "bold green"))
         if effective_samples_per_sec is not None:
             header_extra_fields.append((f"Samples/s {effective_samples_per_sec:,.0f}", "bold cyan"))
+        if snapshot is not None:
+            header_extra_fields.append(
+                (
+                    f"Avg {_TERMINAL_AVERAGE_WINDOW_SEC:g}s (n={snapshot.sample_count})",
+                    "dim",
+                )
+            )
         if extra_fields:
             header_extra_fields.extend(extra_fields)
-        return super()._build_compact_header(
+        return self._build_compact_header_state(
             include_status=include_status,
             include_identity=include_identity,
             include_iteration=include_iteration,
             extra_fields=header_extra_fields,
+            ep_length=(
+                snapshot.scalars.get("mean_ep_length", 0.0)
+                if snapshot is not None
+                else self._mean_ep_length
+            ),
+            current_iteration=(snapshot.iteration if snapshot is not None else self._iteration),
+        )
+
+    @staticmethod
+    def _mean_sample_maps(
+        samples: tuple[_TerminalSample, ...],
+        attribute: str,
+    ) -> dict[str, float]:
+        totals: dict[str, float] = {}
+        counts: dict[str, int] = {}
+        for sample in samples:
+            values = getattr(sample, attribute)
+            for key, value in values.items():
+                totals[key] = totals.get(key, 0.0) + float(value)
+                counts[key] = counts.get(key, 0) + 1
+        return {key: total / counts[key] for key, total in totals.items()}
+
+    def _record_terminal_sample(
+        self,
+        *,
+        metrics: dict[str, float] | None,
+        reward: float | None,
+        reward_components: dict[str, float] | None,
+    ) -> None:
+        """Publish one immutable, time-smoothed terminal-only state snapshot."""
+        scalars = {
+            attribute: float(getattr(self, attribute))
+            for _, _, attribute in self._learner_timing_specs()
+        }
+        scalars.update(
+            {
+                "iter_wall_time": self._get_iter_wall_time(),
+                "learner_other_time": self._get_learner_other_time(),
+                "timeout_rate": self._timeout_rate,
+            }
+        )
+        if self._mean_ep_length > 0.0:
+            scalars["mean_ep_length"] = self._mean_ep_length
+        if reward is not None:
+            scalars["reward"] = float(reward)
+        steps_per_sec = self._get_iter_steps_per_sec()
+        if steps_per_sec is not None:
+            scalars["steps_per_sec"] = steps_per_sec
+        samples_per_sec = self._get_effective_samples_per_sec()
+        if samples_per_sec is not None:
+            scalars["samples_per_sec"] = samples_per_sec
+
+        now = time.monotonic()
+        self._terminal_samples.append(
+            _TerminalSample(
+                timestamp=now,
+                scalars=scalars,
+                metrics=dict(metrics or {}),
+                reward_components=dict(reward_components or {}),
+                collector_timing=dict(self._collector_timing),
+            )
+        )
+        cutoff = now - _TERMINAL_AVERAGE_WINDOW_SEC
+        while self._terminal_samples and self._terminal_samples[0].timestamp < cutoff:
+            self._terminal_samples.popleft()
+
+        samples = tuple(self._terminal_samples)
+        self._terminal_snapshot = _TerminalSnapshot(
+            iteration=self._iteration,
+            sample_count=len(samples),
+            scalars=self._mean_sample_maps(samples, "scalars"),
+            metrics=self._mean_sample_maps(samples, "metrics"),
+            reward_components=self._mean_sample_maps(samples, "reward_components"),
+            collector_timing=self._mean_sample_maps(samples, "collector_timing"),
+            reward_history=tuple(self._reward_history),
+            buffer_size=self._buffer_size,
+            batch_size_per_rank=self._batch_size_per_rank,
         )
 
     def update_collector_timing(self, timing_ms: dict[str, float]):
@@ -346,17 +471,15 @@ class OffPolicyLogger(BaseTrainingLogger):
         legacy_action_wait = normalized.pop("inference_wait_ms", None)
         if "learner_action_wait_ms" not in normalized and legacy_action_wait is not None:
             normalized["learner_action_wait_ms"] = legacy_action_wait
-        legacy_bookkeeping = normalized.pop("sync_idle_ms", None)
-        if "bookkeeping_ms" not in normalized and legacy_bookkeeping is not None:
-            normalized["bookkeeping_ms"] = legacy_bookkeeping
+        normalized.pop("sync_idle_ms", None)
+        normalized.pop("bookkeeping_ms", None)
         self._collector_timing.update(normalized)
 
     def update_collector_active_steps_per_sec(self, steps_per_sec: float):
         self._collector_active_steps_per_sec = float(steps_per_sec)
 
-    def update_done_rates(self, timeout_rate: float, terminated_rate: float):
+    def update_timeout_rate(self, timeout_rate: float):
         self._timeout_rate = float(timeout_rate)
-        self._terminated_rate = float(terminated_rate)
 
     def update_buffer_utilization(self, utilization: float):
         self._buffer_utilization = float(utilization)
@@ -367,10 +490,6 @@ class OffPolicyLogger(BaseTrainingLogger):
     def update_staging_pool(self, current_len: int, max_size: int):
         self._staging_pool_len = current_len
         self._staging_pool_max = max_size
-
-    def set_collection_sync(self, enabled: bool, env_steps_per_sync: int = 0):
-        self._sync_collection = enabled
-        self._env_steps_per_sync = env_steps_per_sync
 
     def update_runtime_manifest(self, manifest: dict[str, Any]) -> None:
         self._runtime_manifest.update(manifest)
@@ -461,8 +580,6 @@ class OffPolicyLogger(BaseTrainingLogger):
         if reward_components:
             self._latest_reward_components = reward_components
         self._status = "Training"
-        self._terminal_refresh_started = True
-        self._refresh()
         self._backend_log_step(
             iteration,
             metrics,
@@ -470,6 +587,11 @@ class OffPolicyLogger(BaseTrainingLogger):
             reward_metrics,
             reward_components,
             train_time,
+        )
+        self._record_terminal_sample(
+            metrics=metrics,
+            reward=reward,
+            reward_components=reward_components,
         )
 
     def _backend_log_step(
@@ -512,7 +634,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             if self._mean_ep_length > 0:
                 writer.add_scalar("episode/length", self._mean_ep_length, global_step)
             writer.add_scalar("episode/timeout_rate", self._timeout_rate, global_step)
-            writer.add_scalar("episode/terminated_rate", self._terminated_rate, global_step)
             for key, value_ms in learner_timing_ms.items():
                 writer.add_scalar(key, value_ms, global_step)
             for key, value in self._collector_timing.items():
@@ -565,7 +686,6 @@ class OffPolicyLogger(BaseTrainingLogger):
             if self._mean_ep_length > 0:
                 log_dict["episode/length"] = self._mean_ep_length
             log_dict["episode/timeout_rate"] = self._timeout_rate
-            log_dict["episode/terminated_rate"] = self._terminated_rate
             log_dict.update(learner_timing_ms)
             for key, value in self._collector_timing.items():
                 log_dict[f"timing/collector_{key}"] = value
@@ -589,18 +709,18 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._status = status
         if "[red]" in status or "ERROR" in status:
             self._refresh(force=True)
-        elif self._terminal_refresh_started:
-            self._refresh()
 
     def _build_display(self) -> Panel:
+        snapshot = self._terminal_snapshot
         header = self._build_compact_header(
             include_status=self._status != "Training",
             include_identity=False,
             include_iteration=False,
+            terminal_snapshot=snapshot,
         )
-        left = self._build_metrics_table()
-        right = self._build_reward_table()
-        bottom = self._build_timing_table()
+        left = self._build_metrics_table(snapshot)
+        right = self._build_reward_table(snapshot)
+        bottom = self._build_timing_table(snapshot)
         grid = Table.grid(expand=True)
         grid.add_column(ratio=1)
         grid.add_column(width=2)
@@ -615,7 +735,10 @@ class OffPolicyLogger(BaseTrainingLogger):
         title.append("|", style="dim")
         title.append(f" {self.env_name} ", style="bold white")
         title.append("|", style="dim")
-        title.append(f" iter {self._iteration}/{self.max_iterations} ", style="yellow")
+        title.append(f" GPUs {self.num_gpus} ", style="bold magenta")
+        title.append("|", style="dim")
+        iteration = snapshot.iteration if snapshot is not None else self._iteration
+        title.append(f" iter {iteration}/{self.max_iterations} ", style="yellow")
         return Panel(
             Group(header, Text(""), grid, Text(""), bottom),
             title=title,
@@ -623,7 +746,8 @@ class OffPolicyLogger(BaseTrainingLogger):
             padding=(0, 1),
         )
 
-    def _build_metrics_table(self) -> Table:
+    def _build_metrics_table(self, snapshot: _TerminalSnapshot | None = None) -> Table:
+        snapshot = snapshot or self._terminal_snapshot
         table = Table(
             box=box.SIMPLE_HEAVY,
             show_header=True,
@@ -634,27 +758,33 @@ class OffPolicyLogger(BaseTrainingLogger):
         )
         table.add_column("Losses & Metrics", style="white", ratio=2)
         table.add_column("Value", style="yellow", justify="right", ratio=1)
-        if not self._latest_metrics:
+        metrics = snapshot.metrics if snapshot is not None else self._latest_metrics
+        if not metrics:
             table.add_row("[dim]Waiting for data...[/]", "")
         else:
-            loss_keys = sorted([key for key in self._latest_metrics if "loss" in key.lower()])
-            other_keys = sorted([key for key in self._latest_metrics if "loss" not in key.lower()])
+            loss_keys = sorted([key for key in metrics if "loss" in key.lower()])
+            other_keys = sorted([key for key in metrics if "loss" not in key.lower()])
             for key in loss_keys:
-                value = self._latest_metrics[key]
+                value = metrics[key]
                 style = "red" if value > 10 else "yellow"
                 table.add_row(key.replace("_", " ").title(), f"[{style}]{_fmt_number(value)}[/]")
             for key in other_keys:
-                value = self._latest_metrics[key]
+                value = metrics[key]
                 table.add_row(f"  {key.replace('_', ' ').title()}", _fmt_number(value))
         return table
 
-    def _build_reward_table(self) -> Table:
+    def _build_reward_table(self, snapshot: _TerminalSnapshot | None = None) -> Table:
+        snapshot = snapshot or self._terminal_snapshot
         return self._build_reward_table_common(
             wait_message="[dim]Waiting for data...[/]",
             include_ep_length=False,
+            reward_history=(snapshot.reward_history if snapshot is not None else None),
+            reward_components=(snapshot.reward_components if snapshot is not None else None),
+            mean_reward=(snapshot.scalars.get("reward") if snapshot is not None else None),
         )
 
-    def _build_timing_table(self) -> Table:
+    def _build_timing_table(self, snapshot: _TerminalSnapshot | None = None) -> Table:
+        snapshot = snapshot or self._terminal_snapshot
         table = Table(
             box=box.SIMPLE_HEAVY,
             show_header=True,
@@ -670,13 +800,24 @@ class OffPolicyLogger(BaseTrainingLogger):
         table.add_column("System", style="white", ratio=4, no_wrap=True)
         table.add_column("Value", style="yellow", justify="right", width=12, no_wrap=True)
 
+        iter_wall_time = (
+            snapshot.scalars.get("iter_wall_time", self._get_iter_wall_time())
+            if snapshot is not None
+            else self._get_iter_wall_time()
+        )
+
+        def _scalar(attribute: str, fallback: float) -> float:
+            if snapshot is None:
+                return fallback
+            return snapshot.scalars.get(attribute, fallback)
+
         def _fmt_phase(seconds: float, *, color: str | None = None) -> str:
             ms = seconds * 1000
-            pct = self._get_iter_pct(seconds)
+            pct = seconds / iter_wall_time * 100.0 if iter_wall_time > 0.0 else 0.0
             text = f"{ms:>7.1f}ms  {pct:>3.0f}%"
             return f"[{color}]{text}[/]" if color else text
 
-        collector_wait_ms = self._collector_wait_time * 1000
+        collector_wait_ms = _scalar("_collector_wait_time", self._collector_wait_time) * 1000
         wait_color = "red" if collector_wait_ms > 1.0 else "yellow"
         phase_colors = {
             "Collector Wait": wait_color,
@@ -686,7 +827,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             (
                 label,
                 _fmt_phase(
-                    float(getattr(self, attribute)),
+                    _scalar(attribute, float(getattr(self, attribute))),
                     color=phase_colors.get(label),
                 ),
             )
@@ -695,17 +836,20 @@ class OffPolicyLogger(BaseTrainingLogger):
         learner_items.append(
             (
                 _LEARNER_OTHER_TIMING_SPEC[1],
-                _fmt_phase(self._get_learner_other_time()),
+                _fmt_phase(_scalar("learner_other_time", self._get_learner_other_time())),
             )
         )
         learner_items.append(
             (
                 _ITER_WALL_TIMING_SPEC[1],
-                f"{self._get_iter_wall_time() * 1000:>7.1f}ms  100%",
+                f"{iter_wall_time * 1000:>7.1f}ms  100%",
             )
         )
+        collector_timing = (
+            snapshot.collector_timing if snapshot is not None else self._collector_timing
+        )
         sorted_collector_timing = sorted(
-            self._collector_timing.items(),
+            collector_timing.items(),
             key=lambda item: (
                 _COLLECTOR_TIMING_SPECS.get(item[0], (float("inf"), "", ""))[0],
                 item[0],
@@ -715,7 +859,7 @@ class OffPolicyLogger(BaseTrainingLogger):
             key for key, _ in sorted_collector_timing if key in OFFPOLICY_ENV_STEP_DETAIL_KEYS
         ]
         last_env_step_detail_key = env_step_detail_keys[-1] if env_step_detail_keys else None
-        cycle_total_ms = self._get_collector_cycle_ms() or 0.0
+        cycle_total_ms = self._get_collector_cycle_ms(collector_timing) or 0.0
         collector_items: list[tuple[str, str]] = []
         for key, value in sorted_collector_timing:
             _, label, role = _COLLECTOR_TIMING_SPECS.get(
@@ -742,44 +886,18 @@ class OffPolicyLogger(BaseTrainingLogger):
                 pct = value / cycle_total_ms * 100.0
                 value_text = f"{value:>7.1f}ms  {pct:>3.0f}%"
             collector_items.append((label, value_text))
+        buffer_size = snapshot.buffer_size if snapshot is not None else self._buffer_size
+        timeout_rate = _scalar("timeout_rate", self._timeout_rate)
+        batch_size_per_rank = (
+            snapshot.batch_size_per_rank if snapshot is not None else self._batch_size_per_rank
+        )
         system_items = [
-            ("Buffer", f"{self._buffer_size:,}"),
+            ("Buffer", f"{buffer_size:,}"),
+            ("Timeout Rate", f"{timeout_rate * 100:.1f}%"),
         ]
-        system_items.extend(
-            [
-                ("Timeout Rate", f"{self._timeout_rate * 100:.1f}%"),
-                ("Terminated Rate", f"{self._terminated_rate * 100:.1f}%"),
-            ]
-        )
         system_items.append(("Envs", f"{self.num_envs:,}"))
-        if self._batch_size_per_rank > 0:
-            system_items.append(("Batch/Rank", f"{self._batch_size_per_rank:,}"))
-        if (
-            self._effective_batch_size > 0
-            and self._effective_batch_size != self._batch_size_per_rank
-        ):
-            system_items.append(("Batch/Update", f"{self._effective_batch_size:,}"))
-        if (
-            self._replay_samples_per_iter > 0
-            and self._replay_samples_per_iter != self._learner_samples_per_iter
-        ):
-            system_items.append(("Replay/Iter", f"{self._replay_samples_per_iter:,}"))
-        if self._learner_samples_per_iter > 0:
-            system_items.append(("Samples/Iter", f"{self._learner_samples_per_iter:,}"))
-        yes_mark = "✓" if self._unicode_console else "yes"
-        no_mark = "✗" if self._unicode_console else "no"
-        sync_collect = (
-            f"{yes_mark} ({self._env_steps_per_sync})" if self._sync_collection else no_mark
-        )
-        system_items.append(("Sync Collect", sync_collect))
-        if self._staging_pool_max > 0:
-            staging_color = "green" if self._staging_pool_len < self._staging_pool_max else "yellow"
-            system_items.append(
-                (
-                    "Staging Pool",
-                    f"[{staging_color}]{self._staging_pool_len}/{self._staging_pool_max}[/]",
-                )
-            )
+        if batch_size_per_rank > 0:
+            system_items.append(("Batch/Rank", f"{batch_size_per_rank:,}"))
         row_count = max(len(learner_items), len(collector_items), len(system_items))
         for index in range(row_count):
             row: list[str] = []

@@ -141,7 +141,10 @@ class NormalTanhPolicy(nn.Module):
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         mean, std = self.get_mean_and_std(x)
-        dist = torch.distributions.Normal(mean, std)
+        # ``std`` is positive by construction (exp of bounded log_std). The
+        # distribution's generic validation performs a GPU-to-host truth check,
+        # which CUDA forbids while this actor is captured into an optimizer graph.
+        dist = torch.distributions.Normal(mean, std, validate_args=False)
         raw_action = dist.rsample()
         tanh_action = torch.tanh(raw_action)
         log_prob = dist.log_prob(raw_action)
