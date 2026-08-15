@@ -430,27 +430,80 @@ def test_allegro_missing_grasp_cache_prints_local_generation_notice(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from unilab.envs.manipulation.allegro_inhand.rotation import (
-        AllegroRotationDomainRandomizationProvider,
+        AllegroRotationPPOCfg,
+        _materialize_grasp_cache,
     )
 
     missing_cache = tmp_path / "missing_allegro_cache.npy"
-    env = SimpleNamespace(
-        _grasp_cache=None,
-        _grasp_cache_loaded=False,
-        cfg=SimpleNamespace(gen_grasp=False, grasp_cache_path=str(missing_cache)),
+    cfg = AllegroRotationPPOCfg(
+        grasp_cache_path=str(missing_cache),
+        gen_grasp=False,
     )
 
-    provider = AllegroRotationDomainRandomizationProvider()
-
-    assert provider._load_grasp_cache(env) is None
+    assert _materialize_grasp_cache(cfg) is None
     notice = capsys.readouterr().out
 
-    assert env._grasp_cache is None
-    assert env._grasp_cache_loaded is True
     assert str(missing_cache) in notice
     assert "no Hugging Face download will be attempted" in notice
     assert "uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco" in notice
     assert "env.grasp_cache_path" in notice
+
+
+def test_allegro_grasp_generation_skips_cache_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unilab.envs.manipulation.allegro_inhand import rotation
+
+    def fail_io(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("grasp generation must not resolve or load a rotation cache")
+
+    monkeypatch.setattr(rotation, "resolve_grasp_cache_path", fail_io)
+    monkeypatch.setattr(rotation.np, "load", fail_io)
+
+    cfg = rotation.AllegroRotationPPOCfg(gen_grasp=True)
+    assert rotation._materialize_grasp_cache(cfg) is None
+
+
+def test_allegro_reset_samples_materialized_cache_without_file_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unilab.envs.manipulation.allegro_inhand import rotation
+
+    cache_path = tmp_path / "allegro.npy"
+    cache = np.zeros((4, 23), dtype=np.float64)
+    cache[:, 16] = 0.1
+    cache[:, 19] = 1.0
+    np.save(cache_path, cache)
+    cfg = rotation.AllegroRotationPPOCfg(grasp_cache_path=str(cache_path))
+    materialized = rotation._materialize_grasp_cache(cfg)
+    assert materialized is not None
+
+    monkeypatch.setattr(
+        rotation, "resolve_grasp_cache_path", lambda _: (_ for _ in ()).throw(AssertionError)
+    )
+    monkeypatch.setattr(
+        rotation.np, "load", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+    )
+    env = SimpleNamespace(
+        _grasp_cache=materialized,
+        cfg=SimpleNamespace(
+            domain_rand=SimpleNamespace(joint_noise=0.0, ball_vel_noise=0.0, ball_z_offset=0.0)
+        ),
+        default_angles=np.zeros(16),
+        _NUM_HAND_DOF=16,
+        _ctrl_lower=-np.ones(16),
+        _ctrl_upper=np.ones(16),
+        _init_qpos=np.zeros(23),
+        nv=23,
+    )
+
+    provider = rotation.AllegroRotationDomainRandomizationProvider()
+    for _ in range(2):
+        hand_qpos, ball_pos, ball_quat, qvel = provider._sample_reset_state(env, 2)
+        assert hand_qpos.shape == (2, 16)
+        assert ball_pos.shape == (2, 3)
+        assert ball_quat.shape == (2, 4)
+        assert qvel.shape == (2, 23)
 
 
 def test_g1_motion_tracking_uses_combined_body_pose_query():
@@ -1335,15 +1388,12 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["reward_init"] is True
 
 
-def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
+def _patch_sharpa_rotation_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+    initialized_providers: list[Any],
+) -> Any:
     from unilab.envs.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
     from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
-    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
-        SharpaInhandRotationGraspCfg,
-        SharpaInhandRotationGraspEnv,
-    )
-
-    calls: list[str] = []
 
     def fake_base_init(self, cfg, backend, num_envs):
         self._cfg = cfg
@@ -1353,6 +1403,7 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
         self._num_action = 22
         self._num_tactile = 5
         self._num_scales = len(cfg.domain_rand.scale_list)
+        self.scale_values = np.asarray(cfg.domain_rand.scale_list, dtype=np.float64)
         self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
         self._object_body_ids = np.zeros((0,), dtype=np.int32)
 
@@ -1382,10 +1433,61 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
     )
     monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)
     monkeypatch.setattr(
-        SharpaInhandRotationGraspEnv,
+        sharpa_rotation_module.SharpaInhandRotationEnv,
         "_init_domain_randomization",
-        lambda self, provider: calls.append(provider.__class__.__name__),
+        lambda self, provider: initialized_providers.append(provider),
     )
+    return sharpa_rotation_module
+
+
+def test_sharpa_rotation_explicit_default_provider_materializes_cache(monkeypatch):
+    from unilab.envs.manipulation.sharpa_inhand.rotation import (
+        RewardConfig,
+        SharpaInhandRotationCfg,
+        SharpaInhandRotationDRProvider,
+        SharpaInhandRotationEnv,
+    )
+
+    initialized_providers: list[Any] = []
+    rotation = _patch_sharpa_rotation_constructor(monkeypatch, initialized_providers)
+    materialize_calls: list[tuple[str, np.ndarray]] = []
+    sentinel_cache = (np.zeros((1, 29), dtype=np.float64),)
+
+    def materialize(path: str, scale_values: np.ndarray) -> tuple[np.ndarray, ...]:
+        materialize_calls.append((path, scale_values.copy()))
+        return sentinel_cache
+
+    monkeypatch.setattr(rotation, "_materialize_grasp_caches", materialize)
+    cfg = SharpaInhandRotationCfg(reward_config=RewardConfig())
+    provider = SharpaInhandRotationDRProvider()
+
+    env = cast(Any, SharpaInhandRotationEnv)(
+        cfg,
+        num_envs=4,
+        backend_type="mujoco",
+        dr_provider=provider,
+    )
+
+    assert initialized_providers == [provider]
+    assert len(materialize_calls) == 1
+    assert materialize_calls[0][0] == cfg.grasp_cache_path
+    np.testing.assert_array_equal(materialize_calls[0][1], env.scale_values)
+    assert env._grasp_cache is sentinel_cache
+
+
+def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
+    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+        SharpaInhandRotationGraspCfg,
+        SharpaInhandRotationGraspEnv,
+    )
+
+    initialized_providers: list[Any] = []
+    rotation = _patch_sharpa_rotation_constructor(monkeypatch, initialized_providers)
+
+    def fail_materialization(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("grasp generation must not materialize rotation caches")
+
+    monkeypatch.setattr(rotation, "_materialize_grasp_caches", fail_materialization)
 
     cfg = SharpaInhandRotationGraspCfg()
     assert cfg.domain_rand.randomize_pd_gains is False
@@ -1411,7 +1513,9 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
     assert cfg.priv_info.include_gravity_direction is False
     env = cast(Any, SharpaInhandRotationGraspEnv)(cfg, num_envs=4, backend_type="mujoco")
 
-    assert calls == ["SharpaInhandGraspDRProvider"]
+    assert [provider.__class__.__name__ for provider in initialized_providers] == [
+        "SharpaInhandGraspDRProvider"
+    ]
     assert len(env._saved_grasping_states) == env._num_scales
 
 

@@ -17,7 +17,10 @@ from unilab.envs.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseEnv,
     resolve_grasp_cache_file,
 )
-from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
+from unilab.envs.manipulation.sharpa_inhand.rotation import (
+    SharpaInhandRotationDRProvider,
+    _materialize_grasp_caches,
+)
 
 _CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
 _SRC_DIR = Path(__file__).resolve().parents[2] / "src"
@@ -181,6 +184,88 @@ def _write_sharpa_grasp_cache(
     cache = np.broadcast_to(np.concatenate([hand_qpos, object_pose]), (rows, 29)).copy()
     for scale_value in scale_values:
         np.save(resolve_grasp_cache_file(str(cache_prefix), float(scale_value)), cache)
+
+
+def test_sharpa_grasp_cache_is_materialized_once_and_reset_samples_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache_prefix = tmp_path / "sharpa_grasp"
+    scale_values = np.asarray([0.8, 1.0], dtype=np.float64)
+    _write_sharpa_grasp_cache(cache_prefix, [0.8, 1.0])
+
+    from unilab.envs.manipulation.sharpa_inhand import rotation
+
+    path_resolve_calls: list[tuple[str, float]] = []
+    hf_resolve_calls: list[str] = []
+    load_calls: list[Path] = []
+    original_resolve_grasp_cache_file = rotation.resolve_grasp_cache_file
+    original_load = rotation.np.load
+
+    def resolve_path_once(path: str, scale: float) -> Path:
+        path_resolve_calls.append((path, scale))
+        return original_resolve_grasp_cache_file(path, scale)
+
+    def resolve_hf_once(path: str) -> str:
+        hf_resolve_calls.append(path)
+        return path
+
+    def load_once(path: Path) -> np.ndarray:
+        load_calls.append(path)
+        return original_load(path)
+
+    monkeypatch.setattr(rotation, "resolve_grasp_cache_file", resolve_path_once)
+    monkeypatch.setattr(rotation, "resolve_grasp_cache_files", resolve_hf_once)
+    monkeypatch.setattr(rotation.np, "load", load_once)
+    caches = _materialize_grasp_caches(str(cache_prefix), scale_values)
+    assert len(path_resolve_calls) == 2
+    assert len(hf_resolve_calls) == 2
+    assert len(load_calls) == 2
+
+    def fail_io(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("reset must not resolve or load grasp cache files")
+
+    monkeypatch.setattr(rotation, "resolve_grasp_cache_file", fail_io)
+    monkeypatch.setattr(rotation, "resolve_grasp_cache_files", fail_io)
+    monkeypatch.setattr(rotation.np, "load", fail_io)
+
+    cleared_env_ids: list[np.ndarray] = []
+    env = SimpleNamespace(
+        _grasp_cache=caches,
+        scale_ids=np.asarray([0, 1], dtype=np.int32),
+        _num_action=22,
+        _obj_pos_slice=slice(22, 25),
+        _obj_quat_slice=slice(25, 29),
+        _rot_axis=np.asarray([0.0, 0.0, 1.0]),
+        _random_object_force=np.ones((2, 3), dtype=np.float64),
+        nq=29,
+        nv=28,
+        cfg=SimpleNamespace(reset_height_lower=0.61, reset_height_upper=0.63),
+        _sample_friction_scale=lambda _num_reset: None,
+        _sample_object_mass=lambda _num_reset: None,
+        _sample_object_com_offset=lambda _num_reset: None,
+        _sample_reset_gravity=lambda _num_reset: None,
+        _clear_tactile_history=lambda env_ids: cleared_env_ids.append(env_ids.copy()),
+        _build_reset_randomization=lambda *_args, **_kwargs: None,
+    )
+    provider = SharpaInhandRotationDRProvider()
+
+    def sample_reset_pd_gains(
+        _env: Any, num_reset: int, *, dtype: np.dtype[Any]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        gains = np.zeros((num_reset, env._num_action), dtype=dtype)
+        return gains, gains.copy()
+
+    monkeypatch.setattr(provider, "_sample_reset_pd_gains", sample_reset_pd_gains)
+    monkeypatch.setattr(provider, "_build_info_updates", lambda _env, **_kwargs: {})
+
+    env_ids = np.asarray([0, 1], dtype=np.int32)
+    for _ in range(2):
+        plan = provider.build_reset_plan(env, env_ids)
+        assert plan.qpos.shape == (2, 29)
+        assert plan.qvel.shape == (2, 28)
+        assert np.all(np.isfinite(plan.qpos))
+
+    assert len(cleared_env_ids) == 2
 
 
 def _build_fake_tactile_env(
