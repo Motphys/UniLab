@@ -2111,6 +2111,7 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
                 {
                     "obs": {
                         "obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+                        "proprio": np.array([[6.0, 7.0]], dtype=np.float32),
                         "critic": np.array([[1.0, 2.0, 3.0, 4.0, 5.0]], dtype=np.float32),
                     },
                     "info": {
@@ -2125,7 +2126,7 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
             self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
             self.observation_space = type("Space", (), {"shape": (5,)})()
             self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3, "critic": 5}
+            self.obs_groups_spec = {"obs": 3, "proprio": 2, "critic": 5}
 
         def init_state(self):
             pass
@@ -2137,17 +2138,27 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
                 cast(dict[str, np.ndarray], getattr(self.state, "info")),
             )
 
-    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
-    obs_td, _ = wrapper.reset()
+    assert "reset" not in HoraRslRlVecEnvWrapper.__dict__
+    assert "get_observations" not in HoraRslRlVecEnvWrapper.__dict__
 
-    np.testing.assert_allclose(
-        obs_td["priv_info"].cpu().numpy(),
-        np.array([[4.0, 5.0]], dtype=np.float32),
-    )
-    np.testing.assert_allclose(
-        obs_td["proprio_hist"].cpu().numpy(),
-        np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]], dtype=np.float32),
-    )
+    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+    reset_obs_td, reset_info = wrapper.reset()
+    current_obs_td = wrapper.get_observations()
+
+    assert reset_info is wrapper.env.state.info
+    for obs_td in (reset_obs_td, current_obs_td):
+        np.testing.assert_allclose(
+            obs_td["policy"].cpu().numpy(),
+            np.array([[1.0, 2.0, 3.0, 6.0, 7.0]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            obs_td["priv_info"].cpu().numpy(),
+            np.array([[4.0, 5.0]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            obs_td["proprio_hist"].cpu().numpy(),
+            np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]], dtype=np.float32),
+        )
 
 
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
