@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import queue
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,68 @@ from unilab.ipc.dp_launcher import resolve_dp_rendezvous_path
 from unilab.ipc.dp_sync import DpParameterSync
 
 _SPAWN_CTX = mp.get_context("spawn")
+
+
+def _run_workers(
+    procs: list[mp.Process],
+    result_queue,
+    *,
+    result_count: int,
+    timeout_s: float,
+) -> list:
+    """Collect results before joining producers and always reap every child."""
+    started: list[mp.Process] = []
+    deadline = time.monotonic() + timeout_s
+    results = []
+    try:
+        for proc in procs:
+            proc.start()
+            started.append(proc)
+
+        while len(results) < result_count:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                pytest.fail(
+                    "timed out waiting for worker results: "
+                    f"{[(proc.pid, proc.exitcode) for proc in started]}"
+                )
+            try:
+                results.append(result_queue.get(timeout=min(1.0, remaining)))
+            except queue.Empty:
+                failed = [proc for proc in started if proc.exitcode not in (None, 0)]
+                if failed:
+                    pytest.fail(
+                        "worker exited before publishing a result: "
+                        f"{[(proc.pid, proc.exitcode) for proc in failed]}"
+                    )
+
+        for proc in started:
+            proc.join(timeout=max(0.0, deadline - time.monotonic()))
+        hanging = [proc for proc in started if proc.is_alive()]
+        if hanging:
+            pytest.fail(f"workers did not exit: {[proc.pid for proc in hanging]}")
+        failed = [proc for proc in started if proc.exitcode != 0]
+        if failed:
+            pytest.fail(
+                f"workers exited unsuccessfully: {[(proc.pid, proc.exitcode) for proc in failed]}"
+            )
+        return results
+    finally:
+        for proc in started:
+            if proc.is_alive():
+                proc.terminate()
+        cleanup_deadline = time.monotonic() + 5.0
+        for proc in started:
+            if proc.is_alive():
+                proc.join(timeout=max(0.0, cleanup_deadline - time.monotonic()))
+        for proc in started:
+            if proc.is_alive():
+                proc.kill()
+        for proc in started:
+            if proc.is_alive():
+                proc.join(timeout=1.0)
+        result_queue.close()
+        result_queue.join_thread()
 
 
 def _make_tensors(rank: int, *, reversed_order: bool = False) -> dict[str, torch.Tensor]:
@@ -78,13 +142,7 @@ def test_broadcast_then_flat_gradient_mean_two_ranks(tmp_path: Path):
         )
         for rank in range(2)
     ]
-    for proc in procs:
-        proc.start()
-    for proc in procs:
-        proc.join(timeout=120)
-    results = sorted(result_queue.get(timeout=10) for _ in procs)
-    for proc in procs:
-        assert proc.exitcode == 0
+    results = sorted(_run_workers(procs, result_queue, result_count=2, timeout_s=120))
     # Different insertion order still resolves to the same startup key order.
     assert results[0][1] == results[1][1]
 
@@ -126,13 +184,7 @@ def test_allreduce_statistics_sums_rates_and_means_sparse_fields(tmp_path: Path)
         )
         for rank in range(2)
     ]
-    for proc in procs:
-        proc.start()
-    for proc in procs:
-        proc.join(timeout=120)
-    results = sorted(result_queue.get(timeout=10) for _ in procs)
-    for proc in procs:
-        assert proc.exitcode == 0
+    results = sorted(_run_workers(procs, result_queue, result_count=2, timeout_s=120))
     for _, first, second in results:
         assert first == pytest.approx({"loss": 2.0, "rank0_optional": 10.0, "steps_per_sec": 300.0})
         assert second == pytest.approx(
@@ -230,12 +282,8 @@ def test_nccl_two_gpu_smoke(tmp_path: Path):
         )
         for rank in range(2)
     ]
-    for proc in procs:
-        proc.start()
-    for proc in procs:
-        proc.join(timeout=180)
-    for proc in procs:
-        assert proc.exitcode == 0
+    results = sorted(_run_workers(procs, result_queue, result_count=2, timeout_s=180))
+    assert results == [0, 1]
 
 
 def _nccl_smoke_worker(rank: int, rendezvous_path: str, result_queue) -> None:

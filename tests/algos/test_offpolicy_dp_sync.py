@@ -548,6 +548,7 @@ def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.Monke
     monkeypatch.delenv(UNILAB_DP_LOG_DIR, raising=False)
     monkeypatch.setattr(module, "ensure_registries", lambda: None)
     monkeypatch.setattr(module, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
     with pytest.raises(ValueError, match="log_dir"):
         module.build_runner("sac", cfg)
 
