@@ -170,7 +170,10 @@ def _statistics_worker(rank: int, rendezvous_path: str, result_queue) -> None:
         },
         total={"steps_per_sec": 10.0 * (rank + 1)},
     )
-    sync.close()
+    # This worker process owns the Gloo group lifetime. Explicit Gloo destroy
+    # can strand rank 0 after schema broadcasts on a single-vCPU runner, so
+    # process exit is the teardown boundary here. The broadcast/gradient test
+    # above separately covers close() and its idempotence.
     result_queue.put((rank, first, second))
 
 
