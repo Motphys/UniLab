@@ -194,9 +194,6 @@ class APPORunner(AsyncRunner):
         )
         return learner
 
-    def _collector_fn(self, stop_event, **kwargs):
-        appo_collector_fn(stop_event=stop_event, **kwargs)
-
     def learn(
         self,
         max_iterations: int = 1500,
