@@ -25,7 +25,12 @@ from unilab.ipc.dp_launcher import (
     apply_dp_rank_config,
     current_dp_rank,
     current_dp_world_size,
+    current_torch_distributed_local_rank,
+    current_torch_distributed_rank,
+    current_torch_distributed_world_size,
+    launch_torchrun_workers,
     resolve_collector_cpu_ids,
+    resolve_cuda_visible_devices,
     resolve_dp_rank_device,
     resolve_dp_topology,
     validate_dp_launchable,
@@ -153,6 +158,122 @@ def test_current_dp_rank_reads_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv(UNILAB_DP_WORLD_SIZE, "4")
     assert current_dp_rank() == 2
     assert current_dp_world_size() == 4
+
+
+def test_current_torch_distributed_rank_defaults(monkeypatch: pytest.MonkeyPatch):
+    for name in ("RANK", "LOCAL_RANK", "WORLD_SIZE"):
+        monkeypatch.delenv(name, raising=False)
+    assert current_torch_distributed_rank() == 0
+    assert current_torch_distributed_local_rank() == 0
+    assert current_torch_distributed_world_size() == 1
+
+
+def test_current_torch_distributed_rank_reads_torchrun_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("RANK", "3")
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setenv("WORLD_SIZE", "4")
+    assert current_torch_distributed_rank() == 3
+    assert current_torch_distributed_local_rank() == 1
+    assert current_torch_distributed_world_size() == 4
+
+
+def test_resolve_cuda_visible_devices_preserves_parent_mapping():
+    assert resolve_cuda_visible_devices((2, 0)) == "2,0"
+    assert (
+        resolve_cuda_visible_devices(
+            (1, 0),
+            current_visible_devices="GPU-parent-0,GPU-parent-1",
+        )
+        == "GPU-parent-1,GPU-parent-0"
+    )
+
+
+def test_resolve_cuda_visible_devices_rejects_hidden_index():
+    with pytest.raises(ValueError, match="CUDA_VISIBLE_DEVICES"):
+        resolve_cuda_visible_devices((0, 2), current_visible_devices="4,7")
+
+
+def test_launch_torchrun_workers_builds_standard_single_node_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    captured: dict[str, object] = {}
+
+    def fake_run(command, *, env, check):
+        captured.update(command=list(command), env=dict(env), check=check)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(dp_launcher, "validate_dp_launchable", lambda devices: None)
+    monkeypatch.setattr(dp_launcher.subprocess, "run", fake_run)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b,GPU-c")
+    monkeypatch.delenv("NCCL_P2P_DISABLE", raising=False)
+    monkeypatch.delenv("NCCL_SHM_DISABLE", raising=False)
+    script = tmp_path / "train_rsl_rl.py"
+
+    launch_torchrun_workers(
+        (2, 0),
+        script_path=script,
+        argv=["task=go2_joystick_flat/mujoco", "training.devices=[2,0]"],
+        log_dir="/tmp/ppo_gpux2",
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[:3] == [sys.executable, "-m", "torch.distributed.run"]
+    assert "--standalone" in command
+    assert "--nnodes=1" in command
+    assert "--nproc_per_node=2" in command
+    assert command[-2:] == ["task=go2_joystick_flat/mujoco", "training.devices=[2,0]"]
+    launch_env = captured["env"]
+    assert isinstance(launch_env, dict)
+    assert launch_env["CUDA_VISIBLE_DEVICES"] == "GPU-c,GPU-a"
+    assert launch_env["NCCL_P2P_DISABLE"] == "1"
+    assert launch_env["NCCL_SHM_DISABLE"] == "1"
+    assert launch_env[UNILAB_DP_LOG_DIR] == "/tmp/ppo_gpux2"
+    assert captured["check"] is False
+
+
+def test_launch_torchrun_workers_propagates_failure(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(dp_launcher, "validate_dp_launchable", lambda devices: None)
+    monkeypatch.setattr(
+        dp_launcher.subprocess,
+        "run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 7})(),
+    )
+
+    with pytest.raises(RuntimeError, match="exit code 7"):
+        launch_torchrun_workers(
+            (0, 1),
+            script_path="scripts/train_rsl_rl.py",
+            argv=[],
+            log_dir="/tmp/ppo_gpux2",
+        )
+
+
+def test_launch_torchrun_workers_preserves_explicit_nccl_transport(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, str] = {}
+
+    def fake_run(*args, env, **kwargs):
+        del args, kwargs
+        captured.update(env)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(dp_launcher, "validate_dp_launchable", lambda devices: None)
+    monkeypatch.setattr(dp_launcher.subprocess, "run", fake_run)
+    monkeypatch.setenv("NCCL_P2P_DISABLE", "0")
+    monkeypatch.setenv("NCCL_SHM_DISABLE", "0")
+
+    launch_torchrun_workers(
+        (0, 1),
+        script_path="scripts/train_rsl_rl.py",
+        argv=[],
+        log_dir="/tmp/ppo_gpux2",
+    )
+
+    assert captured["NCCL_P2P_DISABLE"] == "0"
+    assert captured["NCCL_SHM_DISABLE"] == "0"
 
 
 # ---------------------------------------------------------------------------

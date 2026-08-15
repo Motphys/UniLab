@@ -1,13 +1,111 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 import torch
+from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 from unilab.algos.torch.rsl_rl_ppo import FinalObservationAwarePPO
-from unilab.training.rsl_rl import RslRlVecEnvWrapper, normalize_ppo_train_cfg
+from unilab.training.rsl_rl import (
+    RslRlVecEnvWrapper,
+    apply_rsl_rl_rank_seed,
+    finish_rsl_rl_distributed,
+    normalize_ppo_train_cfg,
+    ppo_samples_per_iteration,
+    resolve_rsl_rl_device,
+    rsl_rl_single_process_topology,
+)
+
+
+def test_rsl_rl_rank_seed_uses_base_seed_plus_global_rank() -> None:
+    cfg = OmegaConf.create({"algo": {"seed": 41}})
+
+    assert apply_rsl_rl_rank_seed(cfg, rank=3) == 44
+    assert cfg.algo.seed == 44
+
+
+def test_rsl_rl_device_uses_local_rank_after_cuda_visibility_remap() -> None:
+    assert (
+        resolve_rsl_rl_device(
+            configured_device=None,
+            devices=(3, 1),
+            world_size=2,
+            local_rank=1,
+            default_device="cuda",
+        )
+        == "cuda:1"
+    )
+
+
+def test_rsl_rl_device_supports_explicit_single_device() -> None:
+    assert (
+        resolve_rsl_rl_device(
+            configured_device=None,
+            devices=(2,),
+            world_size=1,
+            local_rank=0,
+            default_device="cuda",
+        )
+        == "cuda:2"
+    )
+
+
+def test_rsl_rl_device_rejects_singular_and_plural_config() -> None:
+    with pytest.raises(ValueError, match="either training.device or training.devices"):
+        resolve_rsl_rl_device(
+            configured_device="cuda:0",
+            devices=(0, 1),
+            world_size=2,
+            local_rank=0,
+            default_device="cuda",
+        )
+
+
+def test_ppo_samples_per_iteration_uses_per_rank_num_envs() -> None:
+    assert ppo_samples_per_iteration(num_envs=1024, num_steps_per_env=24, world_size=2) == 49152
+
+
+def test_finish_rsl_rl_distributed_barriers_only_after_success(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.distributed, "barrier", lambda: calls.append("barrier"))
+    monkeypatch.setattr(torch.distributed, "destroy_process_group", lambda: calls.append("destroy"))
+
+    finish_rsl_rl_distributed(training_succeeded=True)
+
+    assert calls == ["barrier", "destroy"]
+
+
+def test_finish_rsl_rl_distributed_failure_skips_barrier(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(torch.distributed, "is_available", lambda: True)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.distributed, "barrier", lambda: calls.append("barrier"))
+    monkeypatch.setattr(torch.distributed, "destroy_process_group", lambda: calls.append("destroy"))
+
+    finish_rsl_rl_distributed(training_succeeded=False)
+
+    assert calls == ["destroy"]
+
+
+def test_rsl_rl_single_process_topology_masks_and_restores_torchrun_env(monkeypatch) -> None:
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+
+    with rsl_rl_single_process_topology():
+        assert os.environ["WORLD_SIZE"] == "1"
+        assert os.environ["RANK"] == "0"
+        assert os.environ["LOCAL_RANK"] == "0"
+
+    assert os.environ["WORLD_SIZE"] == "2"
+    assert os.environ["RANK"] == "0"
+    assert os.environ["LOCAL_RANK"] == "0"
 
 
 class _FakeActor:

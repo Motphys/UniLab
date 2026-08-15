@@ -1,9 +1,10 @@
-"""Multi-GPU data-parallel rank topology for off-policy training.
+"""Single-node multi-GPU data-parallel launch and rank topology helpers.
 
 Topology rules (config parsing, rank/device mapping, subprocess supervision)
-live here so that ``scripts/train_offpolicy.py`` only assembles the flow.
-This module covers topology only; the parameter-sync collectives between
-ranks live in ``dp_sync.py``.
+live here so training scripts only assemble their flows. The off-policy path
+uses :class:`DpRankSupervisor`; RSL-RL PPO uses PyTorch's elastic launcher and
+standard ``WORLD_SIZE`` / ``RANK`` / ``LOCAL_RANK`` variables. Algorithm-level
+collectives remain owned by their respective learner implementations.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 UNILAB_DP_RANK = "UNILAB_DP_RANK"
 UNILAB_DP_WORLD_SIZE = "UNILAB_DP_WORLD_SIZE"
@@ -66,6 +67,21 @@ def current_dp_rank() -> int:
 def current_dp_world_size() -> int:
     """Data-parallel world size of this process (1 when not spawned as a rank)."""
     return int(os.environ.get(UNILAB_DP_WORLD_SIZE, "1"))
+
+
+def current_torch_distributed_rank() -> int:
+    """Global torch-distributed rank of this process (0 outside torchrun)."""
+    return int(os.environ.get("RANK", "0"))
+
+
+def current_torch_distributed_local_rank() -> int:
+    """Node-local torch-distributed rank of this process (0 outside torchrun)."""
+    return int(os.environ.get("LOCAL_RANK", "0"))
+
+
+def current_torch_distributed_world_size() -> int:
+    """Torch-distributed world size of this process (1 outside torchrun)."""
+    return int(os.environ.get("WORLD_SIZE", "1"))
 
 
 def resolve_dp_rendezvous_path(log_dir: str, *, rank: int) -> str:
@@ -161,6 +177,83 @@ def validate_dp_launchable(devices: tuple[int, ...]) -> None:
             f"training.devices={list(devices)} requires CUDA device index(es) {missing}, "
             f"but torch.cuda.device_count()={device_count}"
         )
+
+
+def resolve_cuda_visible_devices(
+    devices: tuple[int, ...],
+    *,
+    current_visible_devices: str | None = None,
+) -> str:
+    """Map configured logical CUDA indices to a child ``CUDA_VISIBLE_DEVICES`` value.
+
+    ``training.devices`` indexes the CUDA devices visible to the parent process.
+    When the parent already has ``CUDA_VISIBLE_DEVICES`` set, preserve that
+    mapping (including UUID entries) instead of accidentally switching back to
+    host-global device indices.
+    """
+    if current_visible_devices is None:
+        return ",".join(str(index) for index in devices)
+
+    visible_entries = [
+        entry.strip() for entry in current_visible_devices.split(",") if entry.strip()
+    ]
+    missing = [index for index in devices if index >= len(visible_entries)]
+    if missing:
+        raise ValueError(
+            f"training.devices={list(devices)} requires visible CUDA index(es) {missing}, "
+            f"but CUDA_VISIBLE_DEVICES={current_visible_devices!r} exposes "
+            f"{len(visible_entries)} device(s)"
+        )
+    return ",".join(visible_entries[index] for index in devices)
+
+
+def launch_torchrun_workers(
+    devices: tuple[int, ...],
+    *,
+    script_path: str | os.PathLike[str],
+    argv: Sequence[str],
+    log_dir: str,
+) -> None:
+    """Launch one local torchrun worker per configured CUDA device.
+
+    PyTorch elastic owns worker supervision and failure propagation. Each
+    worker re-enters the regular training script with the original Hydra
+    arguments, while ``UNILAB_DP_LOG_DIR`` supplies one canonical rank-0-owned
+    run directory.
+    """
+    if len(devices) < 2:
+        raise ValueError("launch_torchrun_workers requires at least two CUDA devices")
+    validate_dp_launchable(devices)
+
+    launch_env = os.environ.copy()
+    launch_env["CUDA_VISIBLE_DEVICES"] = resolve_cuda_visible_devices(
+        devices,
+        current_visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES"),
+    )
+    # Keep the production transport defaults already used by DpParameterSync:
+    # current RTX 6000D hosts hang with NCCL P2P and can fault with SHM. An
+    # explicit user environment still wins over these compatibility defaults.
+    launch_env.setdefault("NCCL_P2P_DISABLE", "1")
+    launch_env.setdefault("NCCL_SHM_DISABLE", "1")
+    launch_env[UNILAB_DP_LOG_DIR] = str(log_dir)
+    command = [
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nnodes=1",
+        f"--nproc_per_node={len(devices)}",
+        str(Path(script_path).resolve()),
+        *argv,
+    ]
+    print(
+        f"Launching RSL-RL data parallel training on CUDA devices {list(devices)} "
+        f"with {len(devices)} workers.",
+        flush=True,
+    )
+    completed = subprocess.run(command, env=launch_env, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"torchrun workers failed with exit code {completed.returncode}")
 
 
 def resolve_dp_rank_device(devices: tuple[int, ...] | None, rank: int) -> str | None:
