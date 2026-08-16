@@ -10,6 +10,7 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.np_env import NpEnvState
+from unilab.base.run_control import RunComplete
 
 from .rotation import AllegroRotationPPO, AllegroRotationPPOCfg, RewardConfigPPO
 
@@ -115,7 +116,7 @@ class AllegroRotationGrasp(AllegroRotationPPO):
         self._grasp_target_reached_notified = True
         print(
             "[AllegroInhandRotationGrasp] Grasp collection target reached "
-            f"({total}/{target}). Program stopped."
+            f"({total}/{target}). Collection completed."
         )
 
         if self.state is not None:
@@ -123,10 +124,17 @@ class AllegroRotationGrasp(AllegroRotationPPO):
             log["grasp/target_reached"] = 1.0
             self.state.info["log"] = log
 
-        exit(0)
+        raise RunComplete(
+            reason="grasp_collection_target_reached",
+            summary={
+                "collected_grasps": int(total),
+                "saved_grasps": int(min(total, target)),
+                "grasp_collection_target": target,
+            },
+        )
 
     def _save_grasp_cache(self, force: bool = False) -> None:
-        if self._grasp_cache_saved and not force:
+        if self._grasp_cache_saved:
             return
 
         total = self._total_saved_grasps()

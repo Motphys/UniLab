@@ -8,6 +8,7 @@ import numpy as np
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.np_env import NpEnvState
+from unilab.base.run_control import RunComplete
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
 from unilab.envs.manipulation.sharpa_inhand.base import (
@@ -251,7 +252,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         target = int(self._cfg.grasp_collection_target)
         print(
             "[SharpaInhandRotationGrasp] Grasp collection target reached "
-            f"(saved={collected}, configured_target={target}). Program stopped."
+            f"(saved={collected}, configured_target={target}). Collection completed."
         )
 
         if self.state is not None:
@@ -259,7 +260,14 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             log["grasp/target_reached"] = 1.0
             self.state.info["log"] = log
 
-        exit(0)
+        raise RunComplete(
+            reason="grasp_collection_target_reached",
+            summary={
+                "collected_grasps": int(collected),
+                "grasp_collection_target": int(self._grasp_target_per_scale),
+                "grasp_collection_counts_by_scale": self._get_per_scale_grasp_counts(),
+            },
+        )
 
     def _collect_successful_grasps(self, env_ids: np.ndarray) -> None:
         if self.state is None or len(env_ids) == 0:
