@@ -14,6 +14,31 @@ from unilab.dr.types import (
 )
 
 PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
+TerrainHeightSampleFn = Callable[[np.ndarray], np.ndarray]
+
+
+@dataclass(frozen=True)
+class BackendTerrainSpawnData:
+    """Read-only terrain spawn metadata materialized by a backend.
+
+    ``terrain_origins`` is a detached snapshot with shape
+    ``(num_rows, num_cols, 3)``. ``sample_height`` samples world-space XY
+    coordinates and returns an array with the same leading shape.
+    """
+
+    terrain_origins: np.ndarray
+    sample_height: TerrainHeightSampleFn | None = None
+
+    def __post_init__(self) -> None:
+        origins = np.array(self.terrain_origins, copy=True)
+        if origins.ndim != 3 or origins.shape[2] != 3:
+            raise ValueError(
+                f"terrain_origins must have shape (num_rows, num_cols, 3); got {origins.shape}"
+            )
+        origins.setflags(write=False)
+        object.__setattr__(self, "terrain_origins", origins)
+        if self.sample_height is not None and not callable(self.sample_height):
+            raise TypeError("sample_height must be callable")
 
 
 @dataclass(frozen=True)
@@ -104,6 +129,15 @@ class SimBackend(abc.ABC):
 
     def get_scene_model_file(self) -> str | None:
         """Return the materialized scene path for diagnostics, when available."""
+        return None
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        """Return backend-materialized terrain metadata on the cold path.
+
+        Backends without generated terrain support return ``None``. Callers
+        should resolve this once during env initialization and cache the
+        returned height-sampling callable for reset/reward hot paths.
+        """
         return None
 
     @abc.abstractmethod
