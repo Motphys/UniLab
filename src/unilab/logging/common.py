@@ -316,28 +316,6 @@ class BaseTrainingLogger:
         eta_s = remaining * avg_iter
         return _fmt_time(eta_s)
 
-    def _build_header(self, *, include_status: bool) -> Panel:
-        elapsed = time.time() - self._start_time if self._start_time else 0
-        eta = self._estimate_eta()
-
-        header_text = Text()
-        header_text.append(f" {self.algo_name}", style="bold cyan")
-        header_text.append("  │  ", style="dim")
-        header_text.append(f"{self.env_name}", style="bold white")
-        header_text.append("  │  ", style="dim")
-        header_text.append(f"iter {self._iteration}/{self.max_iterations}", style="yellow")
-        header_text.append("  │  ", style="dim")
-        time_label = "⏱" if self._unicode_console else "time"
-        header_text.append(f"{time_label} {_fmt_time(elapsed)}", style="green")
-        if eta:
-            header_text.append("  │  ETA ", style="dim")
-            header_text.append(eta, style="bold magenta")
-        if include_status and self._status:
-            header_text.append("  │  ", style="dim")
-            header_text.append(self._status, style="dim italic")
-
-        return Panel(header_text, style="dim", box=box.SIMPLE)
-
     def _build_compact_header(
         self,
         *,
