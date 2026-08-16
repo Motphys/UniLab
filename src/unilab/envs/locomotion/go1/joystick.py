@@ -108,21 +108,20 @@ class Go1WalkTask(Go1BaseEnv):
             drake_backend_mode=cfg.drake_backend_mode,
             drake_nthread=cfg.drake_nthread,
         )
-        self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
-        terrain_origins = getattr(backend, "terrain_origins", None)
-        if terrain_origins is not None:
-            self._scene_terrain_origins = terrain_origins
+        terrain_spawn_data = backend.get_terrain_spawn_data()
+        if terrain_spawn_data is not None:
+            self._scene_terrain_origins = terrain_spawn_data.terrain_origins
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
-        if self._scene_terrain_origins is not None and terrain_generator is not None:
+        if terrain_spawn_data is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,
-                self._scene_terrain_origins,
+                terrain_spawn_data.terrain_origins,
                 cell_size=float(terrain_generator.size[0]),
                 cfg=getattr(cfg, "terrain_curriculum", TerrainCurriculumCfg()),
-                terrain_surface_sampler=self._terrain_surface_sampler,
+                sample_height=terrain_spawn_data.sample_height,
             )
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
