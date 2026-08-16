@@ -34,6 +34,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -165,6 +166,18 @@ class MotrixBackend(SimBackend):
         self.scene_artifacts_dir = None
         self.terrain_origins = scene_context.terrain_origins
         self.terrain_surface_sampler = scene_context.terrain_surface_sampler
+        self._terrain_spawn_data = (
+            None
+            if self.terrain_origins is None
+            else BackendTerrainSpawnData(
+                terrain_origins=self.terrain_origins,
+                sample_height=(
+                    None
+                    if self.terrain_surface_sampler is None
+                    else cast(Any, self.terrain_surface_sampler).sample_height
+                ),
+            )
+        )
         self._scene_cleanup_handle = scene_context.cleanup_handle
         self._base_name = base_name
 
@@ -360,6 +373,9 @@ class MotrixBackend(SimBackend):
         arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
         result: np.ndarray = arr.T.copy()
         return result
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        return self._terrain_spawn_data
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:
