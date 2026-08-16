@@ -37,6 +37,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -290,6 +291,18 @@ class MuJoCoBackend(SimBackend):
         self.scene_artifacts_dir = scene_context.artifacts_dir
         self.terrain_origins = scene_context.terrain_origins
         self.terrain_surface_sampler = scene_context.terrain_surface_sampler
+        self._terrain_spawn_data = (
+            None
+            if self.terrain_origins is None
+            else BackendTerrainSpawnData(
+                terrain_origins=self.terrain_origins,
+                sample_height=(
+                    None
+                    if self.terrain_surface_sampler is None
+                    else self.terrain_surface_sampler.sample_height
+                ),
+            )
+        )
         self._scene_cleanup_handle = scene_context.cleanup_handle
         self.add_body_sensors = add_body_sensors
         self._base_name = base_name
@@ -681,6 +694,9 @@ class MuJoCoBackend(SimBackend):
 
     def get_scene_model_file(self) -> str | None:
         return str(self.scene_model_file) if self.scene_model_file else None
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        return self._terrain_spawn_data
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, name)
