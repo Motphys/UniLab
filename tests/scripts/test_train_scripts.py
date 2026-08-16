@@ -942,6 +942,261 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
     assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
 
 
+def _build_rsl_lifecycle_case(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    learn_exception: Exception | None,
+    *,
+    run_complete: bool = False,
+    close_exception: Exception | None = None,
+    play_only: bool = False,
+) -> tuple[Any, Any, dict[str, Any], Exception | None]:
+    mod = _train_rsl_rl(monkeypatch)
+    if run_complete:
+        assert learn_exception is None
+        learn_exception = mod.RunComplete(
+            reason="grasp_collection_target_reached",
+            summary={"collected_grasps": 12, "status": "payload_must_not_override"},
+        )
+    cfg = _ppo_cfg(
+        [
+            "task=sharpa_inhand_grasp/mujoco",
+            f"training.log_dir={tmp_path}",
+            "training.logger=none",
+            "training.nan_guard.enabled=false",
+            "training.no_play=false",
+            "training.play_render_mode=record",
+            f"training.play_only={str(play_only).lower()}",
+        ]
+    )
+    captured: dict[str, Any] = {
+        "env_create": 0,
+        "env_close": 0,
+        "distributed": [],
+        "summaries": [],
+        "tracker_finish": 0,
+        "playback": 0,
+    }
+
+    class FakeEnv:
+        num_envs = 1
+        play_capabilities = types.SimpleNamespace(supports_physics_state_playback=False)
+
+        def close(self) -> None:
+            captured["env_close"] += 1
+            if close_exception is not None:
+                raise close_exception
+
+    class FakeWrapper:
+        def __init__(self, env: Any, device: str) -> None:
+            del env, device
+
+    class FakeRunner:
+        logger = types.SimpleNamespace(
+            tot_timesteps=0,
+            tot_time=0.0,
+            rewbuffer=[],
+            lenbuffer=[],
+        )
+        current_learning_iteration = 3
+
+        def __init__(self, wrapped_env: Any, train_cfg: dict[str, Any], log_dir: str, device: str):
+            del wrapped_env, train_cfg, log_dir, device
+
+        def learn(self, **kwargs: Any) -> None:
+            del kwargs
+            if learn_exception is not None:
+                raise learn_exception
+            self.logger.tot_timesteps = 8
+            self.logger.tot_time = 2.0
+
+    class FakeTracker:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+
+        def start(self) -> None:
+            captured["tracker_start"] = True
+
+        def update_summary(self, summary: dict[str, Any]) -> None:
+            captured["summaries"].append(summary)
+
+        def finish(self) -> None:
+            captured["tracker_finish"] += 1
+
+        def log_video(self, path: str | None) -> None:
+            captured["video"] = path
+
+    monkeypatch.setattr(mod, "resolve_dp_topology", lambda _devices: None)
+    monkeypatch.setattr(mod, "current_torch_distributed_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_local_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_world_size", lambda: 1)
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "apply_rsl_rl_rank_seed", lambda _cfg, _rank: 0)
+    monkeypatch.setattr(mod, "apply_configured_training_seed", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mod, "build_ppo_env_cfg_override", lambda _cfg: {})
+    monkeypatch.setattr(mod, "get_default_device", lambda: "cpu")
+    monkeypatch.setattr(mod, "resolve_rsl_rl_device", lambda **kwargs: "cpu")
+    monkeypatch.setattr(mod, "resolve_ppo_log_dir", lambda _cfg, world_size: str(tmp_path))
+    monkeypatch.setattr(mod, "ExperimentTracker", FakeTracker)
+
+    def create_env(*args: Any, **kwargs: Any) -> FakeEnv:
+        del args, kwargs
+        captured["env_create"] += 1
+        return FakeEnv()
+
+    monkeypatch.setattr(mod, "create_env", create_env)
+    monkeypatch.setattr(mod, "_algo_config_dict", lambda _cfg: {})
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda _rl_cfg: FakeWrapper)
+    monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda _rl_cfg: {})
+    monkeypatch.setattr(mod, "patch_rsl_rl_resume_state", lambda: None)
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+    monkeypatch.setattr(mod, "_patch_runner_action_std_logging", lambda _runner: None)
+    monkeypatch.setattr(
+        mod,
+        "finish_rsl_rl_distributed",
+        lambda *, training_succeeded: captured["distributed"].append(training_succeeded),
+    )
+
+    def playback(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        captured["playback"] += 1
+
+    monkeypatch.setattr(mod, "play_rsl_rl", playback)
+    return mod, cfg, captured, learn_exception
+
+
+def test_train_rsl_rl_run_complete_closes_resources_and_skips_playback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod, cfg, captured, _ = _build_rsl_lifecycle_case(
+        monkeypatch,
+        tmp_path,
+        None,
+        run_complete=True,
+    )
+
+    assert mod.main.__wrapped__(cfg) is None
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [True]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 0
+    assert captured["summaries"] == [
+        {
+            "collected_grasps": 12,
+            "status": "collection_completed",
+            "completion_reason": "grasp_collection_target_reached",
+        }
+    ]
+
+
+def test_train_rsl_rl_success_keeps_playback_and_single_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod, cfg, captured, raised = _build_rsl_lifecycle_case(monkeypatch, tmp_path, None)
+
+    assert raised is None
+    assert mod.main.__wrapped__(cfg) is None
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [True]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 1
+    assert captured["summaries"][0]["status"] == "completed"
+    assert captured["summaries"][0]["run_env_steps"] == 8
+
+
+def test_train_rsl_rl_runtime_error_propagates_after_single_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sentinel = RuntimeError("runner failed")
+    mod, cfg, captured, raised = _build_rsl_lifecycle_case(monkeypatch, tmp_path, sentinel)
+
+    with pytest.raises(RuntimeError) as caught:
+        mod.main.__wrapped__(cfg)
+
+    assert caught.value is raised is sentinel
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [False]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 0
+    assert captured["summaries"] == []
+
+
+def test_train_rsl_rl_run_complete_close_error_is_not_misclassified(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sentinel = RuntimeError("close failed")
+    mod, cfg, captured, _ = _build_rsl_lifecycle_case(
+        monkeypatch,
+        tmp_path,
+        None,
+        run_complete=True,
+        close_exception=sentinel,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        mod.main.__wrapped__(cfg)
+
+    assert caught.value is sentinel
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [False]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 0
+    assert captured["summaries"] == []
+
+
+def test_train_rsl_rl_play_only_keeps_single_cleanup_and_runs_playback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod, cfg, captured, raised = _build_rsl_lifecycle_case(
+        monkeypatch,
+        tmp_path,
+        None,
+        play_only=True,
+    )
+
+    assert raised is None
+    assert mod.main.__wrapped__(cfg) is None
+    assert captured["env_create"] == 0
+    assert captured["env_close"] == 0
+    assert captured["distributed"] == [False]
+    assert captured["tracker_finish"] == 0
+    assert captured["playback"] == 1
+    assert captured["summaries"] == []
+
+
+@pytest.mark.parametrize(
+    ("devices", "world_size"),
+    [
+        ((0, 1), 1),
+        (None, 2),
+    ],
+)
+def test_train_rsl_rl_grasp_collection_rejects_multi_rank_before_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    devices: tuple[int, ...] | None,
+    world_size: int,
+) -> None:
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=sharpa_inhand_grasp/mujoco"])
+    monkeypatch.setattr(mod, "resolve_dp_topology", lambda _devices: devices)
+    monkeypatch.setattr(mod, "current_torch_distributed_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_local_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_world_size", lambda: world_size)
+    monkeypatch.setattr(
+        mod,
+        "launch_torchrun_workers",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must fail before launch")),
+    )
+    monkeypatch.setattr(
+        mod,
+        "ensure_registries",
+        lambda: (_ for _ in ()).throw(AssertionError("must fail before registry bootstrap")),
+    )
+
+    with pytest.raises(ValueError, match="requires one process"):
+        mod.main.__wrapped__(cfg)
+
+
 def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):

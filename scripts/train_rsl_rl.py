@@ -19,6 +19,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unilab.base.backend import materialize_scene_visual_override
+from unilab.base.run_control import RunComplete
 from unilab.ipc.dp_launcher import (
     UNILAB_DP_LOG_DIR,
     current_torch_distributed_local_rank,
@@ -185,6 +186,25 @@ def apply_ppo_runtime_flags(
         return
     if not training_enabled:
         algorithm_cfg["enable_compile"] = False
+
+
+def validate_ppo_run_completion_topology(
+    cfg: DictConfig,
+    *,
+    devices: tuple[int, ...] | None,
+    world_size: int,
+) -> None:
+    """Reject grasp collection on a topology without run-completion coordination."""
+    if cfg.training.play_only:
+        return
+    if OmegaConf.select(cfg, "env.grasp_collection_target", default=None) is None:
+        return
+    effective_world_size = len(devices) if devices is not None and world_size == 1 else world_size
+    if effective_world_size > 1:
+        raise ValueError(
+            "Grasp collection run completion currently requires one process; "
+            "multi-rank completion needs an explicit cross-rank lifecycle protocol"
+        )
 
 
 def _format_play_checkpoint_error(
@@ -359,6 +379,7 @@ def main(cfg: DictConfig) -> None:
             "Distributed play-only execution is not supported; launch eval normally and "
             "select one device"
         )
+    validate_ppo_run_completion_topology(cfg, devices=devices, world_size=world_size)
 
     # The parent only composes config and invokes torchrun. CUDA, registry,
     # env, tracker, and runner construction all happen inside workers.
@@ -435,129 +456,162 @@ def main(cfg: DictConfig) -> None:
         tracker.start()
 
     training_succeeded = False
+    run_completion: RunComplete | None = None
+    pending_summary: dict[str, object] | None = None
     try:
-        if not cfg.training.play_only:
-            env = create_env(
-                cfg,
-                num_envs=cfg.algo.num_envs,
-                env_cfg_override=env_cfg_override,
-            )
-            rl_cfg = _algo_config_dict(cfg)
-            wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
-
-            nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
-            if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
-                from unilab.utils.nan_guard import NanGuard, NanGuardCfg
-
-                guard = NanGuard(
-                    NanGuardCfg(
-                        enabled=True,
-                        buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
-                        max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
-                        output_dir=getattr(nan_guard_cfg, "output_dir", None),
-                    ),
-                    num_envs=env.num_envs,
-                    supports_state_playback=env.play_capabilities.supports_physics_state_playback,
+        try:
+            if not cfg.training.play_only:
+                env = create_env(
+                    cfg,
+                    num_envs=cfg.algo.num_envs,
+                    env_cfg_override=env_cfg_override,
                 )
-                env.set_nan_guard(guard)
+                try:
+                    rl_cfg = _algo_config_dict(cfg)
+                    wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
-            wrapped_env = wrapper_cls(env, device=device)
+                    nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
+                    if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
+                        from unilab.utils.nan_guard import NanGuard, NanGuardCfg
 
-            train_cfg = normalize_ppo_train_cfg(rl_cfg)
-            apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=True)
-            if "runner" not in train_cfg:
-                train_cfg["runner"] = {}
+                        guard = NanGuard(
+                            NanGuardCfg(
+                                enabled=True,
+                                buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
+                                max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
+                                output_dir=getattr(nan_guard_cfg, "output_dir", None),
+                            ),
+                            num_envs=env.num_envs,
+                            supports_state_playback=(
+                                env.play_capabilities.supports_physics_state_playback
+                            ),
+                        )
+                        env.set_nan_guard(guard)
 
-            logger_type = (
-                cfg.training.logger if cfg.training.logger in ["tensorboard", "wandb"] else "none"
-            )
-            train_cfg["runner"]["logger"] = logger_type
-            train_cfg["logger"] = logger_type
+                    wrapped_env = wrapper_cls(env, device=device)
 
-            patch_rsl_rl_resume_state()
+                    train_cfg = normalize_ppo_train_cfg(rl_cfg)
+                    apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=True)
+                    if "runner" not in train_cfg:
+                        train_cfg["runner"] = {}
 
-            if tracker is not None and logger_type == "wandb":
-                patch_rsl_rl_wandb_writer()
-                wandb_settings = tracker.wandb_settings
-                train_cfg["wandb_project"] = wandb_settings["project"]
-                train_cfg["wandb_entity"] = wandb_settings["entity"]
-                train_cfg["wandb_group"] = wandb_settings["group"]
-                train_cfg["wandb_job_type"] = wandb_settings["job_type"]
-                train_cfg["wandb_tags"] = wandb_settings["tags"]
-                train_cfg["wandb_notes"] = wandb_settings["notes"]
-                train_cfg["wandb_mode"] = wandb_settings["mode"]
+                    logger_type = (
+                        cfg.training.logger
+                        if cfg.training.logger in ["tensorboard", "wandb"]
+                        else "none"
+                    )
+                    train_cfg["runner"]["logger"] = logger_type
+                    train_cfg["logger"] = logger_type
 
-            runner = cast(
-                Any,
-                OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device),
-            )
-            _patch_runner_action_std_logging(runner)
+                    patch_rsl_rl_resume_state()
 
-            if cfg.algo.load_run != "-1":
-                resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
-                if resume_path:
-                    print(f"Resuming from {resume_path}")
-                    runner.load(str(resume_path), map_location=device)
+                    if tracker is not None and logger_type == "wandb":
+                        patch_rsl_rl_wandb_writer()
+                        wandb_settings = tracker.wandb_settings
+                        train_cfg["wandb_project"] = wandb_settings["project"]
+                        train_cfg["wandb_entity"] = wandb_settings["entity"]
+                        train_cfg["wandb_group"] = wandb_settings["group"]
+                        train_cfg["wandb_job_type"] = wandb_settings["job_type"]
+                        train_cfg["wandb_tags"] = wandb_settings["tags"]
+                        train_cfg["wandb_notes"] = wandb_settings["notes"]
+                        train_cfg["wandb_mode"] = wandb_settings["mode"]
 
-            initial_timesteps = int(getattr(runner.logger, "tot_timesteps", 0))
-            initial_training_time = float(getattr(runner.logger, "tot_time", 0.0))
-            train_start_wall = time.time()
-            runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
-            training_succeeded = True
-            if rank == 0:
-                assert log_dir is not None
-                total_timesteps = int(getattr(runner.logger, "tot_timesteps", 0))
-                total_training_time = float(getattr(runner.logger, "tot_time", 0.0))
-                run_timesteps = total_timesteps - initial_timesteps
-                run_training_time = total_training_time - initial_training_time
-                train_summary = {
-                    "status": "completed",
-                    "completed_iterations": int(runner.current_learning_iteration),
-                    "total_env_steps": total_timesteps,
-                    "run_env_steps": run_timesteps,
-                    "world_size": world_size,
-                    "num_envs_per_rank": int(cfg.algo.num_envs),
-                    "global_num_envs": int(cfg.algo.num_envs) * world_size,
-                    "samples_per_iteration": ppo_samples_per_iteration(
-                        num_envs=cfg.algo.num_envs,
-                        num_steps_per_env=cfg.algo.num_steps_per_env,
-                        world_size=world_size,
-                    ),
-                    "training_throughput_env_steps_per_sec": (
-                        run_timesteps / run_training_time if run_training_time > 0.0 else None
-                    ),
-                    "final_mean_reward": (
-                        float(statistics.mean(runner.logger.rewbuffer))
-                        if len(getattr(runner.logger, "rewbuffer", [])) > 0
-                        else None
-                    ),
-                    "best_mean_reward": (
-                        float(max(runner.logger.rewbuffer))
-                        if len(getattr(runner.logger, "rewbuffer", [])) > 0
-                        else None
-                    ),
-                    "mean_episode_length": (
-                        float(statistics.mean(runner.logger.lenbuffer))
-                        if len(getattr(runner.logger, "lenbuffer", [])) > 0
-                        else None
-                    ),
-                    "last_checkpoint": str(
-                        Path(log_dir) / f"model_{int(runner.current_learning_iteration)}.pt"
-                    ),
-                    "training_wall_time_sec": time.time() - train_start_wall,
-                }
-                if tracker is not None:
-                    tracker.update_summary(train_summary)
-            env.close()
+                    runner = cast(
+                        Any,
+                        OnPolicyRunner(
+                            cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device
+                        ),
+                    )
+                    _patch_runner_action_std_logging(runner)
 
+                    if cfg.algo.load_run != "-1":
+                        resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
+                        if resume_path:
+                            print(f"Resuming from {resume_path}")
+                            runner.load(str(resume_path), map_location=device)
+
+                    initial_timesteps = int(getattr(runner.logger, "tot_timesteps", 0))
+                    initial_training_time = float(getattr(runner.logger, "tot_time", 0.0))
+                    train_start_wall = time.time()
+                    try:
+                        runner.learn(
+                            num_learning_iterations=max_iterations,
+                            init_at_random_ep_len=True,
+                        )
+                    except RunComplete as completion:
+                        if world_size != 1:
+                            raise RuntimeError(
+                                "RSL-RL RunComplete handling requires a single-process topology"
+                            ) from completion
+                        run_completion = completion
+                    if run_completion is None and rank == 0:
+                        assert log_dir is not None
+                        total_timesteps = int(getattr(runner.logger, "tot_timesteps", 0))
+                        total_training_time = float(getattr(runner.logger, "tot_time", 0.0))
+                        run_timesteps = total_timesteps - initial_timesteps
+                        run_training_time = total_training_time - initial_training_time
+                        pending_summary = {
+                            "status": "completed",
+                            "completed_iterations": int(runner.current_learning_iteration),
+                            "total_env_steps": total_timesteps,
+                            "run_env_steps": run_timesteps,
+                            "world_size": world_size,
+                            "num_envs_per_rank": int(cfg.algo.num_envs),
+                            "global_num_envs": int(cfg.algo.num_envs) * world_size,
+                            "samples_per_iteration": ppo_samples_per_iteration(
+                                num_envs=cfg.algo.num_envs,
+                                num_steps_per_env=cfg.algo.num_steps_per_env,
+                                world_size=world_size,
+                            ),
+                            "training_throughput_env_steps_per_sec": (
+                                run_timesteps / run_training_time
+                                if run_training_time > 0.0
+                                else None
+                            ),
+                            "final_mean_reward": (
+                                float(statistics.mean(runner.logger.rewbuffer))
+                                if len(getattr(runner.logger, "rewbuffer", [])) > 0
+                                else None
+                            ),
+                            "best_mean_reward": (
+                                float(max(runner.logger.rewbuffer))
+                                if len(getattr(runner.logger, "rewbuffer", [])) > 0
+                                else None
+                            ),
+                            "mean_episode_length": (
+                                float(statistics.mean(runner.logger.lenbuffer))
+                                if len(getattr(runner.logger, "lenbuffer", [])) > 0
+                                else None
+                            ),
+                            "last_checkpoint": str(
+                                Path(log_dir) / f"model_{int(runner.current_learning_iteration)}.pt"
+                            ),
+                            "training_wall_time_sec": time.time() - train_start_wall,
+                        }
+                finally:
+                    env.close()
+                if run_completion is not None:
+                    pending_summary = {
+                        **dict(run_completion.summary),
+                        "completion_reason": run_completion.reason,
+                        "status": "collection_completed",
+                    }
+                if tracker is not None and pending_summary is not None:
+                    tracker.update_summary(pending_summary)
+                training_succeeded = True
+        finally:
             # Keep non-main ranks alive until rank 0 has persisted its final
-            # checkpoint and summary, then release NCCL before playback.
+            # summary, then release NCCL before playback.
             finish_rsl_rl_distributed(training_succeeded=training_succeeded)
 
-        if rank == 0 and should_run_playback(
-            play_only=cfg.training.play_only,
-            no_play=cfg.training.no_play,
-            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+        if (
+            run_completion is None
+            and rank == 0
+            and should_run_playback(
+                play_only=cfg.training.play_only,
+                no_play=cfg.training.no_play,
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+            )
         ):
             # torchrun rank variables outlive the training process group. Mask
             # them while playback constructs a new runner so rank 0 does not
@@ -567,9 +621,6 @@ def main(cfg: DictConfig) -> None:
             if tracker is not None:
                 tracker.log_video(play_video_path)
     finally:
-        # On failure, release an initialized group without a peer barrier;
-        # torchrun owns sibling termination and error propagation.
-        finish_rsl_rl_distributed(training_succeeded=training_succeeded)
         if tracker is not None:
             tracker.finish()
 
