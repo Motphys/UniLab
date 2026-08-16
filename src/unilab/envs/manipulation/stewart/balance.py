@@ -16,7 +16,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import SimBackend, create_backend, env_backend_kwargs
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.scene import SceneCfg

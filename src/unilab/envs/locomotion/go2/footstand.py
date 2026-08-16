@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 import numpy as np
-from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry

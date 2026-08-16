@@ -2,7 +2,6 @@
 
 from typing import Any
 
-from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device

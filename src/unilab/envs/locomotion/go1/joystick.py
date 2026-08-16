@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
@@ -22,7 +21,6 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainSpawnManager,
 )
 from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
-from unilab.utils.rotation import np_quat_mul, np_yaw_to_quat
 
 
 @dataclass
