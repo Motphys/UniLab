@@ -12,7 +12,7 @@ import logging
 import shutil
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import torch
 
