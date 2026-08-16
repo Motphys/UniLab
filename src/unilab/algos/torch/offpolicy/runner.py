@@ -6,8 +6,6 @@ import sys
 from collections import deque
 from typing import Any
 
-import torch
-
 from unilab.algos.torch.common.device import get_env_dims
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.logging import OffPolicyLogger

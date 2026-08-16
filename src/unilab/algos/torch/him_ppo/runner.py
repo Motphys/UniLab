@@ -10,7 +10,6 @@ from collections import deque
 from typing import Any, Callable, cast
 
 import torch
-from tensordict import TensorDict
 
 from unilab.algos.torch.him_ppo.actor_critic import HIMActorCritic
 from unilab.algos.torch.him_ppo.algorithm import HIMPPO
