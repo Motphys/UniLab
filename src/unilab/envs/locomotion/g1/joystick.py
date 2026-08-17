@@ -48,26 +48,6 @@ class InitState:
     pos = [0.0, 0.0, 0.754]
 
 
-def sample_gait_phase_pairs(rng, num_samples: int, mode: str) -> np.ndarray:
-    if mode == "independent":
-        return np.asarray(
-            np.column_stack(
-                [
-                    rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,)),
-                    rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,)),
-                ]
-            ),
-            dtype=get_global_dtype(),
-        )
-
-    phase = rng.uniform(0.0, 2.0 * np.pi, size=(num_samples,))
-    return np.asarray(np.column_stack([phase, phase + np.pi]), dtype=get_global_dtype())
-
-
-def sample_reset_base_qvel(rng, num_samples: int, limit: float) -> np.ndarray:
-    return np.asarray(rng.uniform(-limit, limit, size=(num_samples, 6)), dtype=get_global_dtype())
-
-
 def build_upper_body_pose_weights(pose_weights: list[float]) -> np.ndarray:
     weights = np.asarray(pose_weights, dtype=get_global_dtype()).copy()
     weights[:12] = 0.0
