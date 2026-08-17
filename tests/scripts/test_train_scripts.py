@@ -407,7 +407,8 @@ def test_hora_distill_runtime_checkpoint_records_model_only():
 
 
 def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
-    mod = _train_hora_distill()
+    from unilab.algos.torch.hora.distill import cfg_with_checkpoint_runtime
+
     cfg = _hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"])
     checkpoint = {
         "distill_runtime_cfg": {
@@ -435,7 +436,7 @@ def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
         }
     }
 
-    restored = mod._cfg_with_checkpoint_runtime(cfg, checkpoint)
+    restored = cfg_with_checkpoint_runtime(cfg, checkpoint)
 
     assert restored.training.task_name == "SharpaInhandRotation"
     assert restored.training.sim_backend == "mujoco"
@@ -470,7 +471,9 @@ def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
     teacher_algo_family: str,
     checkpoint_model: dict[str, Any],
 ):
-    mod = _train_hora_distill()
+    from unilab.algos.torch.hora import distill_config
+    from unilab.algos.torch.hora.distill import cfg_with_checkpoint_runtime
+
     owner_cfg = OmegaConf.create(
         {
             "teacher": {"algo_family": teacher_algo_family},
@@ -504,9 +507,9 @@ def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
         },
     }
 
-    monkeypatch.setattr(mod, "_apply_teacher_defaults", lambda cfg: owner_cfg)
+    monkeypatch.setattr(distill_config, "apply_teacher_defaults", lambda cfg: owner_cfg)
 
-    effective_cfg = mod._cfg_with_checkpoint_runtime(OmegaConf.create({}), checkpoint)
+    effective_cfg = cfg_with_checkpoint_runtime(OmegaConf.create({}), checkpoint)
 
     assert effective_cfg.training.task_name == "OwnerTask"
     assert effective_cfg.training.cam_distance == pytest.approx(1.5)
