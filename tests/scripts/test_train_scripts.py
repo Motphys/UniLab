@@ -945,6 +945,47 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
     assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
 
 
+@pytest.mark.parametrize("std_type", ["scalar", "vector"])
+def test_rsl_action_std_logging_patch_delegates_with_detached_clone(std_type: str):
+    import torch
+
+    from unilab.training.experiment import patch_rsl_rl_action_std_logging
+
+    captured: dict[str, Any] = {}
+    expected = torch.tensor([0.25, 0.5], requires_grad=True)
+    distribution = types.SimpleNamespace(
+        std_type=std_type,
+        std_param=expected,
+        log_std_param=torch.log(expected),
+    )
+
+    class Logger:
+        def log(self, *args, **kwargs):
+            captured["call"] = (args, kwargs)
+            return "logged"
+
+    runner = types.SimpleNamespace(
+        logger=Logger(),
+        alg=types.SimpleNamespace(
+            get_policy=lambda: types.SimpleNamespace(distribution=distribution)
+        ),
+    )
+
+    patch_rsl_rl_action_std_logging(runner)
+    result = runner.logger.log("payload", iteration=3)
+
+    assert result == "logged"
+    args, kwargs = captured["call"]
+    assert args == ("payload",)
+    assert kwargs["iteration"] == 3
+    action_std = kwargs["action_std"]
+    torch.testing.assert_close(action_std, expected)
+    assert action_std.requires_grad is False
+    assert action_std.data_ptr() != expected.data_ptr()
+    source = (_SCRIPTS_DIR / "train_rsl_rl.py").read_text(encoding="utf-8")
+    assert "def _patch_runner_action_std_logging" not in source
+
+
 def _build_rsl_lifecycle_case(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1053,7 +1094,7 @@ def _build_rsl_lifecycle_case(
     monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda _rl_cfg: {})
     monkeypatch.setattr(mod, "patch_rsl_rl_resume_state", lambda: None)
     monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
-    monkeypatch.setattr(mod, "_patch_runner_action_std_logging", lambda _runner: None)
+    monkeypatch.setattr(mod, "patch_rsl_rl_action_std_logging", lambda _runner: None)
     monkeypatch.setattr(
         mod,
         "finish_rsl_rl_distributed",
@@ -1868,6 +1909,8 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
 
 
 def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
+    from unilab.training.offpolicy import resolve_play_actor_spec
+
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -1875,7 +1918,7 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
         ]
     )
 
-    actor_algo_type, actor_kwargs = _offpolicy().resolve_play_actor_spec(
+    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
         "sac",
         cfg,
         obs_dim=4,
@@ -1887,17 +1930,18 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
 
 
 def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
-    mod = _offpolicy()
+    from unilab.training.offpolicy import resolve_play_actor_spec
+
     sac_cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/mujoco"])
     flashsac_cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
 
-    sac_algo_type, sac_kwargs = mod.resolve_play_actor_spec(
+    sac_algo_type, sac_kwargs = resolve_play_actor_spec(
         "sac",
         sac_cfg,
         obs_dim=98,
         critic_obs_dim=101,
     )
-    flash_algo_type, flash_kwargs = mod.resolve_play_actor_spec(
+    flash_algo_type, flash_kwargs = resolve_play_actor_spec(
         "flashsac",
         flashsac_cfg,
         obs_dim=98,
@@ -1906,6 +1950,137 @@ def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
 
     assert (sac_algo_type, sac_kwargs) == ("sac", {})
     assert (flash_algo_type, flash_kwargs) == ("flashsac", {})
+
+
+def test_offpolicy_build_play_actor_preserves_flashsac_model_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.algos.torch.common.normalization as normalization
+    from unilab.training.offpolicy import build_play_actor
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def eval(self):
+            captured["actor_eval"] = True
+
+    class FakeNormalizer:
+        def __init__(self, *args, **kwargs):
+            captured["normalizer_init"] = (args, kwargs)
+
+    def fake_build_actor(*args, **kwargs):
+        captured["actor_init"] = (args, kwargs)
+        return FakeActor()
+
+    monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
+    monkeypatch.setattr(normalization, "EmpiricalNormalization", FakeNormalizer)
+    cfg = _offpolicy_cfg(["algo=flashsac", "algo.obs_normalization=true"])
+
+    actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
+        "flashsac",
+        cfg,
+        obs_dim=98,
+        critic_obs_dim=101,
+        action_dim=12,
+        device="cpu",
+    )
+
+    assert isinstance(actor, FakeActor)
+    assert isinstance(normalizer, FakeNormalizer)
+    assert (actor_algo_type, actor_kwargs) == ("flashsac", {})
+    args, kwargs = captured["actor_init"]
+    assert args == (
+        "flashsac",
+        98,
+        12,
+        cfg.algo.actor_hidden_dim,
+        cfg.algo.use_layer_norm,
+        "cpu",
+    )
+    assert kwargs == {
+        "actor_num_blocks": cfg.algo.algo_params.actor_num_blocks,
+        "actor_noise_zeta_mu": cfg.algo.algo_params.actor_noise_zeta_mu,
+        "actor_noise_zeta_max": cfg.algo.algo_params.actor_noise_zeta_max,
+    }
+    assert captured["normalizer_init"] == ((), {"shape": 98, "device": "cpu"})
+    assert captured["actor_eval"] is True
+
+
+def test_offpolicy_build_play_actor_restores_td3_state_and_normalizer(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import torch
+
+    import unilab.algos.torch.fast_td3.learner as learner_module
+    from unilab.training.offpolicy import build_play_actor, load_play_actor
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def __init__(self, *args, **kwargs):
+            captured["actor_init"] = (args, kwargs)
+
+        def eval(self):
+            captured["actor_eval"] = True
+
+        def load_state_dict(self, state_dict, strict=True):
+            captured["actor_load"] = (state_dict, strict)
+
+    class FakeNormalizer:
+        def __init__(self, *args, **kwargs):
+            captured["normalizer_init"] = (args, kwargs)
+
+        def load_state_dict(self, state_dict):
+            captured["normalizer_load"] = state_dict
+
+        def eval(self):
+            captured["normalizer_eval"] = True
+
+    monkeypatch.setattr(learner_module, "TD3Actor", FakeActor)
+    monkeypatch.setattr(learner_module, "EmpiricalNormalization", FakeNormalizer)
+    cfg = _offpolicy_cfg(["algo=td3"])
+    actor_state = {"weight": torch.ones(1), "noise_scales": torch.zeros(1)}
+    normalizer_state = {"mean": torch.ones(1)}
+
+    actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
+        "td3",
+        cfg,
+        obs_dim=4,
+        critic_obs_dim=6,
+        action_dim=2,
+        device="cpu",
+    )
+    load_play_actor(
+        "td3",
+        actor,
+        normalizer,
+        {"actor": actor_state, "obs_normalizer": normalizer_state},
+    )
+
+    assert isinstance(actor, FakeActor)
+    assert isinstance(normalizer, FakeNormalizer)
+    assert (actor_algo_type, actor_kwargs) == ("td3", {})
+    assert captured["actor_load"] == ({"weight": actor_state["weight"]}, False)
+    assert captured["actor_eval"] is True
+    assert captured["normalizer_load"] == normalizer_state
+    assert captured["normalizer_eval"] is True
+
+
+@pytest.mark.parametrize("algo_name", ["sac", "flashsac"])
+def test_offpolicy_load_play_actor_keeps_sac_state_dict_strict(algo_name: str):
+    from unilab.training.offpolicy import load_play_actor
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def load_state_dict(self, state_dict):
+            captured["state_dict"] = state_dict
+
+    actor_state = {"weight": object()}
+    load_play_actor(algo_name, FakeActor(), None, {"actor": actor_state})
+
+    assert captured["state_dict"] is actor_state
 
 
 def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(

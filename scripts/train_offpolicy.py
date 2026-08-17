@@ -40,10 +40,11 @@ from unilab.training.offpolicy import (
     build_offpolicy_env_cfg_override as _build_offpolicy_env_cfg_override,
 )
 from unilab.training.offpolicy import (
+    build_play_actor,
     default_device,
     extract_play_obs,
     extract_reset_obs,
-    resolve_play_actor_spec,
+    load_play_actor,
     resolve_play_obs_dim,
     resolve_play_obs_dims,
 )
@@ -164,133 +165,15 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
 
     replay_device = require_offpolicy_replay_device(rank_device)
     if algo_name == "sac":
-        from unilab.algos.torch.fast_sac.learner import FastSACLearner
-        from unilab.algos.torch.offpolicy.double_buffer_runner import (
-            DoubleBufferOffPolicyRunner,
+        from unilab.algos.torch.fast_sac.double_buffer import (
+            build_sac_double_buffer_runner,
         )
-        from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
-        from unilab.base.registry import ensure_registries as _ensure
 
-        _ensure()
-        _device = replay_device
-        _rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
-        _custom_runtime = resolve_custom_offpolicy_runtime(_rl_cfg)
-        _env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
-        try:
-            assert _env.action_space.shape
-            from unilab.base.observations import get_obs_dims as _get_obs_dims
-
-            _obs_dim, _critic_dim = _get_obs_dims(_env.obs_groups_spec)
-            _action_dim = _env.action_space.shape[0]
-            _symmetry_aug = None
-            if (
-                _custom_runtime is not None
-                and cfg.algo.use_symmetry
-                and not _custom_runtime.supports_symmetry
-            ):
-                raise ValueError("Selected SAC off-policy runtime does not support symmetry.")
-            if cfg.algo.use_symmetry:
-                _symmetry_aug = _env.build_symmetry_augmentation(device=_device)
-                if _symmetry_aug is None:
-                    raise ValueError(
-                        f"{cfg.training.task_name} does not provide symmetry augmentation"
-                    )
-        finally:
-            _env.close()
-
-        _batch_size = cfg.algo.batch_size
-        if _symmetry_aug is not None:
-            if _batch_size % _symmetry_aug.batch_multiplier != 0:
-                raise ValueError(
-                    "Symmetry augmentation requires batch_size divisible by "
-                    f"{_symmetry_aug.batch_multiplier}, got {_batch_size}"
-                )
-            _batch_size = _batch_size // _symmetry_aug.batch_multiplier
-
-        _learner_cls = FastSACLearner
-        _algo_type = "sac"
-        _learner_extra_kwargs: dict[str, Any] = {}
-        if _custom_runtime is not None:
-            _learner_extra_kwargs = cast(
-                dict[str, Any],
-                _custom_runtime.build_model_kwargs(
-                    obs_dim=int(_obs_dim),
-                    critic_obs_dim=int(_critic_dim),
-                ),
-            )
-            if _custom_runtime.learner_cls is not None:
-                _learner_cls = _custom_runtime.learner_cls
-            if _custom_runtime.algo_type is not None:
-                _algo_type = str(_custom_runtime.algo_type)
-
-        _learner_kwargs = {
-            "obs_dim": _obs_dim,
-            "action_dim": _action_dim,
-            "gamma": cfg.algo.gamma,
-            "tau": cfg.algo.tau,
-            "actor_lr": cfg.algo.actor_lr,
-            "critic_lr": cfg.algo.critic_lr,
-            "alpha_lr": cfg.algo.algo_params.alpha_lr,
-            "alpha_init": cfg.algo.algo_params.alpha_init,
-            "target_entropy_ratio": cfg.algo.algo_params.target_entropy_ratio,
-            "actor_hidden_dim": cfg.algo.actor_hidden_dim,
-            "critic_hidden_dim": cfg.algo.critic_hidden_dim,
-            "num_atoms": cfg.algo.num_atoms,
-            "use_layer_norm": cfg.algo.use_layer_norm,
-            "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
-            "use_amp": cfg.training.use_amp,
-            "amp_dtype": cfg.algo.algo_params.amp_dtype,
-            "use_compile": cfg.algo.algo_params.use_compile,
-            "obs_normalization": cfg.algo.obs_normalization,
-            "use_cuda_graph_critic": bool(
-                getattr(cfg.algo.algo_params, "use_cuda_graph_critic", False)
-            ),
-            "use_cuda_graph_actor": bool(
-                getattr(cfg.algo.algo_params, "use_cuda_graph_actor", False)
-            ),
-            "use_cuda_graph_critic_packed_staging": bool(
-                getattr(
-                    cfg.algo.algo_params,
-                    "use_cuda_graph_critic_packed_staging",
-                    False,
-                )
-            ),
-            "use_cuda_graph_actor_packed_staging": bool(
-                getattr(
-                    cfg.algo.algo_params,
-                    "use_cuda_graph_actor_packed_staging",
-                    False,
-                )
-            ),
-            "nvtx_profile_ranges": bool(getattr(cfg.training, "nvtx_profile_ranges", False)),
-            "use_symmetry": cfg.algo.use_symmetry,
-            "symmetry_augmentation": _symmetry_aug,
-            "critic_obs_dim": _critic_dim,
-            **_learner_extra_kwargs,
-        }
-
-        _learner = _learner_cls(device=_device, **_learner_kwargs)
-        return DoubleBufferOffPolicyRunner(
-            learner=_learner,
-            env_name=cfg.training.task_name,
-            algo_type=_algo_type,
-            num_envs=cfg.algo.num_envs,
-            replay_buffer_n=cfg.algo.replay_buffer_n,
-            batch_size=_batch_size,
-            learning_starts=cfg.algo.learning_starts,
-            updates_per_step=cfg.algo.updates_per_step,
-            policy_frequency=cfg.algo.policy_frequency,
-            env_steps_per_sync=cfg.training.env_steps_per_sync,
-            device=_device,
-            obs_normalization=cfg.algo.obs_normalization,
-            sim_backend=cfg.training.sim_backend,
+        return build_sac_double_buffer_runner(
+            cfg,
             env_cfg_override=env_cfg_override,
-            trace_enabled=cfg.training.trace_enabled,
-            trace_output_dir=cfg.training.trace_output_dir,
-            trace_thread_time=cfg.training.trace_thread_time,
-            trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
-            seed=cfg.algo.seed,
+            device=replay_device,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
@@ -298,65 +181,15 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         )
 
     if algo_name == "td3":
-        from unilab.algos.torch.common.device import get_env_dims
-        from unilab.algos.torch.fast_td3.learner import FastTD3Learner
-        from unilab.algos.torch.offpolicy.double_buffer_runner import (
-            DoubleBufferOffPolicyRunner,
+        from unilab.algos.torch.fast_td3.double_buffer import (
+            build_td3_double_buffer_runner,
         )
 
-        _device = replay_device
-        _obs_dim, _action_dim, _critic_dim = get_env_dims(
-            cfg.training.task_name,
-            cfg.training.sim_backend,
+        return build_td3_double_buffer_runner(
+            cfg,
             env_cfg_override=env_cfg_override,
-        )
-        _learner = FastTD3Learner(
-            obs_dim=_obs_dim,
-            action_dim=_action_dim,
-            critic_obs_dim=_critic_dim,
-            num_envs=cfg.algo.num_envs,
-            device=_device,
-            gamma=cfg.algo.gamma,
-            tau=cfg.algo.tau,
-            actor_lr=cfg.algo.actor_lr,
-            critic_lr=cfg.algo.critic_lr,
-            actor_hidden_dim=cfg.algo.actor_hidden_dim,
-            critic_hidden_dim=cfg.algo.critic_hidden_dim,
-            num_atoms=cfg.algo.num_atoms,
-            v_min=cfg.algo.algo_params.v_min,
-            v_max=cfg.algo.algo_params.v_max,
-            init_scale=cfg.algo.algo_params.init_scale,
-            log_std_min=cfg.algo.algo_params.log_std_min,
-            log_std_max=cfg.algo.algo_params.log_std_max,
-            weight_decay=cfg.algo.algo_params.weight_decay,
-            use_cdq=cfg.algo.algo_params.use_cdq,
-            policy_noise=cfg.algo.algo_params.policy_noise,
-            noise_clip=cfg.algo.algo_params.noise_clip,
-            policy_frequency=cfg.algo.policy_frequency,
-            obs_normalization=cfg.algo.obs_normalization,
-        )
-
-        return DoubleBufferOffPolicyRunner(
-            learner=_learner,
-            env_name=cfg.training.task_name,
-            algo_type="td3",
-            env_cfg_override=env_cfg_override,
-            device=_device,
-            num_envs=cfg.algo.num_envs,
-            replay_buffer_n=cfg.algo.replay_buffer_n,
-            batch_size=cfg.algo.batch_size,
-            learning_starts=cfg.algo.learning_starts,
-            updates_per_step=cfg.algo.updates_per_step,
-            policy_frequency=cfg.algo.policy_frequency,
-            env_steps_per_sync=cfg.training.env_steps_per_sync,
-            obs_normalization=cfg.algo.obs_normalization,
-            sim_backend=cfg.training.sim_backend,
-            seed=cfg.algo.seed,
-            trace_enabled=cfg.training.trace_enabled,
-            trace_output_dir=cfg.training.trace_output_dir,
-            trace_thread_time=cfg.training.trace_thread_time,
-            trace_cuda_events=cfg.training.trace_cuda_events,
             replay_prefetch_mode=replay_prefetch_mode,
+            device=replay_device,
             nan_guard_cfg=_nan_guard_cfg,
             torch_thread_runtime=torch_thread_runtime,
             collector_cpu_ids=collector_cpu_ids,
@@ -387,7 +220,6 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     import numpy as np
     import torch
 
-    from unilab.algos.torch.common.actor_factory import build_actor
     from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
 
     load_path, load_path_dir = resolve_checkpoint_path(
@@ -429,78 +261,23 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     if action_shape is None:
         raise ValueError("env.action_space.shape must be defined")
     action_dim = int(action_shape[0])
-    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
+    actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
         algo_name,
         cfg,
         obs_dim=obs_dim,
         critic_obs_dim=critic_obs_dim,
+        action_dim=action_dim,
+        device=device,
     )
-
-    normalizer = None
-    if algo_name == "sac":
-        actor = build_actor(
-            actor_algo_type,
-            obs_dim,
-            action_dim,
-            cfg.algo.actor_hidden_dim,
-            cfg.algo.use_layer_norm,
-            device,
-            **actor_kwargs,
-        )
-    elif algo_name == "td3":
-        import torch
-
-        from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization, TD3Actor
-
-        actor = TD3Actor(
-            obs_dim,
-            action_dim,
-            cfg.training.play_env_num,
-            cfg.algo.algo_params.init_scale,
-            cfg.algo.actor_hidden_dim,
-            cfg.algo.algo_params.log_std_min,
-            cfg.algo.algo_params.log_std_max,
-            torch.device(device),
-        )
-        if cfg.algo.obs_normalization:
-            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
-    elif algo_name == "flashsac":
-        actor = build_actor(
-            "flashsac",
-            obs_dim,
-            action_dim,
-            cfg.algo.actor_hidden_dim,
-            cfg.algo.use_layer_norm,
-            device,
-            actor_num_blocks=cfg.algo.algo_params.actor_num_blocks,
-            actor_noise_zeta_mu=cfg.algo.algo_params.actor_noise_zeta_mu,
-            actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
-        )
-        if cfg.algo.obs_normalization:
-            from unilab.algos.torch.common.normalization import EmpiricalNormalization
-
-            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
-    else:
-        raise ValueError(f"Unsupported algo: {algo_name}")
-
-    actor.eval()
-
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
     with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name=algo_name):
-        if algo_name in ("sac", "flashsac"):
-            actor.load_state_dict(checkpoint["actor"])
-            if normalizer and checkpoint.get("obs_normalizer"):
-                normalizer.load_state_dict(checkpoint["obs_normalizer"])
-                normalizer.eval()
-        else:
-            actor_state = {
-                k: v for k, v in checkpoint["actor"].items() if k not in ("noise_scales",)
-            }
-            actor.load_state_dict(actor_state, strict=False)
-            if normalizer and checkpoint.get("obs_normalizer"):
-                normalizer.load_state_dict(checkpoint["obs_normalizer"])
-                normalizer.eval()
+        load_play_actor(
+            algo_name,
+            actor,
+            normalizer,
+            checkpoint,
+        )
 
     # Export actor to ONNX
     if load_path_dir is not None and bool(getattr(cfg.training, "export_onnx", True)):

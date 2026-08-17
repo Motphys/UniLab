@@ -360,6 +360,24 @@ class ExperimentTracker:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def patch_rsl_rl_action_std_logging(runner: Any) -> None:
+    """Attach rsl-rl action standard deviation to each logger payload."""
+    import torch
+
+    original_log = runner.logger.log
+
+    def _safe_log(self: Any, *args: Any, **kwargs: Any) -> Any:
+        distribution = runner.alg.get_policy().distribution
+        if distribution.std_type == "scalar":
+            action_std = distribution.std_param
+        else:
+            action_std = torch.exp(distribution.log_std_param)
+        kwargs["action_std"] = action_std.detach().clone()
+        return original_log(*args, **kwargs)
+
+    runner.logger.log = _safe_log.__get__(runner.logger, type(runner.logger))
+
+
 def patch_rsl_rl_wandb_writer() -> None:
     """Patch rsl-rl W&B writer so it can reuse an already-open run."""
     try:
