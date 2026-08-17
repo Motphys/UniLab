@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from unilab.base.entity import EntityCfg
 from unilab.terrains.terrain_generator import TerrainGeneratorCfg
 
 
@@ -38,6 +39,8 @@ class SceneCfg:
     model_file: str
     fragment_files: list[str] = field(default_factory=list)
     terrain: TerrainSceneCfg | None = None
+    entities: dict[str, EntityCfg] = field(default_factory=dict)
+    """Logical entity partitions materialized by the base-owned manager facade."""
     # Optional render-only model override. When set, offline playback/video
     # export renders this XML instead of ``model_file`` while physics keeps
     # using ``model_file``. Used to give the renderer a visual twin of the

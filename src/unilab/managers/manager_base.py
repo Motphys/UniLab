@@ -151,9 +151,14 @@ class ManagerBase(abc.ABC):
         raise NotImplementedError
 
     def _resolve_common_term_cfg(self, term_name: str, term_cfg: ManagerTermBaseCfg) -> None:
-        del term_name  # Unused.
-        for value in term_cfg.params.values():
+        for param_name, value in term_cfg.params.items():
             if isinstance(value, SceneEntityCfg):
-                value.resolve(self._env.scene)
+                try:
+                    value.resolve(self._env.scene)
+                except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+                    message = (
+                        f"{type(self).__name__} term '{term_name}' parameter '{param_name}': {exc}"
+                    )
+                    raise type(exc)(message) from exc
         if inspect.isclass(term_cfg.func):
             term_cfg.func = term_cfg.func(cfg=term_cfg, env=self._env)

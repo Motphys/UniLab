@@ -158,7 +158,12 @@ class SceneEntityCfg:
         entity = scene[self.name]
 
         for config in _FIELD_CONFIGS:
-            self._resolve_field(entity, config)
+            try:
+                self._resolve_field(entity, config)
+            except (TypeError, ValueError, NotImplementedError) as exc:
+                raise type(exc)(
+                    f"SceneEntityCfg entity '{self.name}' {config.kind_label} selector: {exc}"
+                ) from exc
 
     def _resolve_field(self, entity: ManagerEntity, config: _FieldConfig) -> None:
         """Resolve a single field's names and IDs.
@@ -199,7 +204,7 @@ class SceneEntityCfg:
                 config.ids_attr,
             )
         elif isinstance(ids, list):
-            self._resolve_ids_to_names(ids, entity_all_names, config.names_attr)
+            self._resolve_ids_to_names(ids, entity_all_names, config.names_attr, config.kind_label)
 
     def _normalize_to_list(self, value: str | int | tuple | list | None) -> list | None:
         """Convert single values to lists for uniform processing."""
@@ -225,6 +230,7 @@ class SceneEntityCfg:
           ValueError: If names and IDs don't match.
         """
         found_ids, _ = find_method(names, preserve_order=self.preserve_order)
+        self._validate_ids(ids, len(entity_all_names), kind_label)
         computed_names = [entity_all_names[i] for i in ids]
 
         if found_ids != ids or computed_names != names:
@@ -256,8 +262,26 @@ class SceneEntityCfg:
             setattr(self, ids_attr, found_ids)
 
     def _resolve_ids_to_names(
-        self, ids: list[int], entity_all_names: list[str], names_attr: str
+        self,
+        ids: list[int],
+        entity_all_names: list[str],
+        names_attr: str,
+        kind_label: str,
     ) -> None:
         """Resolve IDs to their corresponding names."""
+        self._validate_ids(ids, len(entity_all_names), kind_label)
         resolved_names = [entity_all_names[i] for i in ids]
         setattr(self, names_attr, resolved_names)
+
+    @staticmethod
+    def _validate_ids(ids: list[int], count: int, kind_label: str) -> None:
+        invalid_types = [
+            value for value in ids if isinstance(value, bool) or not isinstance(value, int)
+        ]
+        if invalid_types:
+            raise TypeError(f"{kind_label} IDs must be integers; got {invalid_types}")
+        out_of_range = [value for value in ids if value < 0 or value >= count]
+        if out_of_range:
+            raise ValueError(
+                f"{kind_label} IDs {out_of_range} are out of range for {count} available entries"
+            )
