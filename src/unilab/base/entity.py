@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, NoReturn
 import numpy as np
 
 from unilab.base.backend.base import SimBackend
-from unilab.utils.rotation import np_yaw_from_quat
+from unilab.utils.rotation import np_quat_apply_inverse, np_yaw_from_quat
 
 if TYPE_CHECKING:
     from unilab.base.scene import SceneCfg
@@ -141,6 +141,8 @@ class EntityData:
         joint_pos_ids: np.ndarray | None,
         joint_vel_ids: np.ndarray | None,
         default_joint_pos: np.ndarray | None,
+        default_joint_vel: np.ndarray | None,
+        gravity_vec_w: np.ndarray | None,
         body_ids: np.ndarray | None,
         actuator_ids: np.ndarray | None,
         actuator_ctrl_range: np.ndarray | None,
@@ -155,6 +157,8 @@ class EntityData:
         self._joint_pos_index = None if joint_pos_ids is None else _as_column_index(joint_pos_ids)
         self._joint_vel_index = None if joint_vel_ids is None else _as_column_index(joint_vel_ids)
         self._default_joint_pos = default_joint_pos
+        self._default_joint_vel = default_joint_vel
+        self._gravity_vec_w = gravity_vec_w
         self._encoder_bias = (
             None
             if default_joint_pos is None
@@ -209,6 +213,12 @@ class EntityData:
         return np_yaw_from_quat(self.root_link_quat_w)
 
     @property
+    def projected_gravity_b(self) -> np.ndarray:
+        """Unit gravity vector projected into the root link frame."""
+        gravity = self._require(self._gravity_vec_w, "projected gravity")
+        return np_quat_apply_inverse(self.root_link_quat_w, gravity)
+
+    @property
     def root_link_pose_w(self) -> np.ndarray:
         return np.concatenate((self.root_link_pos_w, self.root_link_quat_w), axis=-1)
 
@@ -227,9 +237,19 @@ class EntityData:
         return self._backend.get_dof_vel()[:, index]
 
     @property
+    def joint_pos_biased(self) -> np.ndarray:
+        """Joint positions with the manager-owned encoder bias applied."""
+        return self.joint_pos + self.encoder_bias
+
+    @property
     def default_joint_pos(self) -> np.ndarray:
         """Read-only per-environment default joint positions."""
         return self._require(self._default_joint_pos, "default joint position")
+
+    @property
+    def default_joint_vel(self) -> np.ndarray:
+        """Read-only zero default velocities from the UniLab reset contract."""
+        return self._require(self._default_joint_vel, "default joint velocity")
 
     @property
     def encoder_bias(self) -> np.ndarray:
@@ -433,6 +453,8 @@ class Entity:
         self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
         self._validate_body_state(backend, root_body_ids, body_ids)
         default_joint_pos = self._materialize_default_joint_pos(backend, joint_pos_ids)
+        default_joint_vel = self._materialize_default_joint_vel(backend, joint_vel_ids)
+        gravity_vec_w = self._materialize_gravity_vector(backend, root_body_ids)
         actuator_ctrl_range = self._materialize_actuator_ctrl_range(backend, actuator_ids)
         (
             self._actuator_target_joint_names,
@@ -457,6 +479,8 @@ class Entity:
             joint_pos_ids=joint_pos_ids,
             joint_vel_ids=joint_vel_ids,
             default_joint_pos=default_joint_pos,
+            default_joint_vel=default_joint_vel,
+            gravity_vec_w=gravity_vec_w,
             body_ids=body_ids,
             actuator_ids=actuator_ids,
             actuator_ctrl_range=actuator_ctrl_range,
@@ -631,6 +655,32 @@ class Entity:
         materialized = np.broadcast_to(selected, (backend.num_envs, len(joint_pos_ids))).copy()
         materialized.setflags(write=False)
         return materialized
+
+    def _materialize_default_joint_vel(
+        self, backend: SimBackend, joint_vel_ids: np.ndarray | None
+    ) -> np.ndarray | None:
+        if joint_vel_ids is None:
+            return None
+        current = self._read_state("joint velocity state", backend.get_dof_vel)
+        materialized = np.zeros(
+            (backend.num_envs, len(joint_vel_ids)),
+            dtype=current.dtype,
+        )
+        materialized.setflags(write=False)
+        return materialized
+
+    def _materialize_gravity_vector(
+        self, backend: SimBackend, root_body_ids: np.ndarray | None
+    ) -> np.ndarray | None:
+        if root_body_ids is None:
+            return None
+        quat = self._read_state(
+            "root body quaternion state", backend.get_body_quat_w, root_body_ids
+        )
+        gravity = np.zeros((backend.num_envs, 3), dtype=quat.dtype)
+        gravity[:, 2] = -1.0
+        gravity.setflags(write=False)
+        return gravity
 
     def _materialize_joint_actuator_mapping(
         self, backend: SimBackend, actuator_ids: np.ndarray | None

@@ -133,6 +133,22 @@ class ManagerScene(Protocol):
     def __getitem__(self, name: str) -> ManagerEntity: ...
 
 
+class ManagerActionTerm(Protocol):
+    @property
+    def raw_action(self) -> np.ndarray: ...
+
+
+class ManagerActionManager(Protocol):
+    @property
+    def action(self) -> np.ndarray: ...
+
+    def get_term(self, name: str) -> ManagerActionTerm: ...
+
+
+class ManagerCommandManager(Protocol):
+    def get_command(self, name: str) -> np.ndarray | None: ...
+
+
 class ManagerBasedRlEnv(Protocol):
     """Structural context visible to manager terms.
 
@@ -154,6 +170,12 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def scene(self) -> ManagerScene: ...
+
+    @property
+    def action_manager(self) -> ManagerActionManager: ...
+
+    @property
+    def command_manager(self) -> ManagerCommandManager: ...
 
     @property
     def max_episode_length_s(self) -> float: ...
