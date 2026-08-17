@@ -551,6 +551,10 @@ class NpEnv(ABEnv):
         """
         return self._backend.get_playback_model(env_index)
 
+    def get_scene_visual_model_file(self) -> str | None:
+        """Return the backend scene visual model file on the cold path, when available."""
+        return self._backend.get_scene_visual_model_file()
+
     def set_nan_guard(self, guard: "NanGuard") -> None:
         self._nan_guard = guard
 

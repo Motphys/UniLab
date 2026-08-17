@@ -11,13 +11,17 @@ from unilab.training.common import (
 from unilab.training.experiment import ExperimentTracker
 from unilab.training.monitoring import HardwareMonitor
 from unilab.training.run import (
+    format_hora_stage2_checkpoint_error,
     get_entrypoint_log_root,
     get_latest_checkpoint,
     get_latest_run,
     get_log_root,
     log_playback_plan,
     parse_checkpoint_path,
+    resolve_appo_checkpoint_path,
     resolve_checkpoint_path,
+    resolve_hora_stage2_checkpoint_path,
+    resolve_offpolicy_checkpoint_path,
     resolve_task_checkpoint_path,
     should_run_playback,
 )
@@ -50,6 +54,10 @@ __all__ = [
     "apply_configured_training_seed",
     "apply_training_seed",
     "derive_worker_seed",
+    "format_hora_stage2_checkpoint_error",
+    "resolve_appo_checkpoint_path",
+    "resolve_hora_stage2_checkpoint_path",
+    "resolve_offpolicy_checkpoint_path",
     "resolve_training_seed",
     "setup_logger",
 ]
