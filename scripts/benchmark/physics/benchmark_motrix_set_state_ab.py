@@ -18,9 +18,9 @@ The script does NOT touch the collector loop / physics — it only drives the
 
 Usage::
 
-    uv run python scripts/benchmark/physics/benchmark_motrix_set_state_ab.py \
+    uv run scripts/benchmark/physics/benchmark_motrix_set_state_ab.py \
         --num-envs 1024 --iters 30 --warmup 5
-    uv run python scripts/benchmark/physics/benchmark_motrix_set_state_ab.py --out scripts/benchmark/outputs/set_state_ab.json
+    uv run scripts/benchmark/physics/benchmark_motrix_set_state_ab.py --out scripts/benchmark/outputs/set_state_ab.json
 """
 
 from __future__ import annotations
