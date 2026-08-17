@@ -154,11 +154,6 @@ class MotionLoader:
         clip_indices = np.searchsorted(self.clip_offsets, frame_idx, side="right") - 1
         return np.asarray(clip_indices, dtype=np.int32)
 
-    def get_clip_end_frames(self, frame_idx: np.ndarray) -> np.ndarray:
-        """Return the inclusive global end frame for each indexed clip."""
-        clip_indices = self.get_clip_indices(frame_idx)
-        return np.asarray(self.clip_end_frames[clip_indices], dtype=np.int32)
-
     def make_motion_data_buffer(self, num_frames: int) -> MotionData:
         """Allocate a reusable ``MotionData`` buffer for frame-index gathers."""
         return MotionData(
