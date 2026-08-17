@@ -15,7 +15,11 @@ import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend import create_backend
-from unilab.base.backend.base import BackendTerrainSpawnData, SimBackend
+from unilab.base.backend.base import (
+    BackendRootStateLayout,
+    BackendTerrainSpawnData,
+    SimBackend,
+)
 from unilab.base.scene import SceneCfg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -139,6 +143,29 @@ def test_actuation_metadata_defaults_fail_closed() -> None:
         SimBackend.get_joint_state_qpos_indices(object(), ("joint",))  # type: ignore[arg-type]
     with pytest.raises(NotImplementedError, match="get_joint_state_qvel_indices"):
         SimBackend.get_joint_state_qvel_indices(object(), ("joint",))  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match="root-state layout"):
+        SimBackend.get_root_state_layout(object(), "root")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("qpos_indices", "qvel_indices", "error", "match"),
+    [
+        (list(range(7)), tuple(range(6)), TypeError, "qpos_indices must be a tuple"),
+        (tuple(range(6)), tuple(range(6)), ValueError, "qpos_indices must contain 7"),
+        (tuple(range(7)), tuple(range(5)), ValueError, "qvel_indices must contain 6"),
+        ((0, 1, 2, 3, 4, 5, True), tuple(range(6)), TypeError, "integer columns"),
+        ((0, 1, 2, 3, 4, 5, -1), tuple(range(6)), ValueError, "negative columns"),
+        ((0, 1, 2, 3, 4, 5, 5), tuple(range(6)), ValueError, "unique columns"),
+    ],
+)
+def test_root_state_layout_metadata_fails_closed(
+    qpos_indices,
+    qvel_indices,
+    error,
+    match: str,
+) -> None:
+    with pytest.raises(error, match=match):
+        BackendRootStateLayout(qpos_indices, qvel_indices)
 
 
 @pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
@@ -190,6 +217,112 @@ def test_actuation_metadata_contract(backend_type: str) -> None:
     detached = default_dof_pos.copy()
     default_dof_pos[:] = np.nan
     np.testing.assert_array_equal(backend.get_default_dof_pos(), detached)
+
+
+@pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
+def test_root_state_layout_contract(backend_type: str) -> None:
+    _require_backend(backend_type)
+
+    backend = create_backend(
+        backend_type,
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="pelvis",
+    )
+    backend.materialize()
+
+    if backend_type == "drake":
+        with pytest.raises(
+            NotImplementedError,
+            match="DrakeBackend does not expose root-state layout.*pelvis",
+        ):
+            backend.get_root_state_layout("pelvis")
+        return
+
+    layout = backend.get_root_state_layout("pelvis")
+    assert isinstance(layout, BackendRootStateLayout)
+    qpos_indices = np.asarray(layout.qpos_indices)
+    qvel_indices = np.asarray(layout.qvel_indices)
+    assert qpos_indices.shape == (7,)
+    assert qvel_indices.shape == (6,)
+    assert np.all(qpos_indices < backend.get_default_qpos().size)
+    assert np.all(qvel_indices < backend.get_init_qvel().size)
+    root_pose = backend.get_default_qpos()[qpos_indices]
+    np.testing.assert_allclose(np.linalg.norm(root_pose[3:7]), 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
+def test_root_qvel_body_angular_contract_reads_back_world_velocity(backend_type: str) -> None:
+    _require_backend(backend_type)
+    backend = create_backend(
+        backend_type,
+        SceneCfg(model_file=_G1_SCENE),
+        1,
+        SIM_DT,
+        base_name="pelvis",
+        add_body_sensors=True,
+    )
+    backend.materialize()
+    layout = backend.get_root_state_layout("pelvis")
+    qpos_indices = np.asarray(layout.qpos_indices)
+    qvel_indices = np.asarray(layout.qvel_indices)
+    qpos = backend.get_default_qpos()[None].copy()
+    qvel = backend.get_init_qvel()[None].copy()
+    half_sqrt = np.sqrt(0.5)
+    qpos[0, qpos_indices[3:7]] = [half_sqrt, 0.0, 0.0, half_sqrt]
+    qvel[0, qvel_indices[3:6]] = [0.0, -1.0, 0.0]
+
+    backend.set_state(np.array([0], dtype=np.int32), qpos, qvel)
+
+    root_body_id = backend.get_body_ids(["pelvis"])
+    np.testing.assert_allclose(
+        backend.get_body_ang_vel_w(root_body_id)[0, 0],
+        [1.0, 0.0, 0.0],
+        atol=2e-6,
+    )
+
+
+def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
+    import mujoco
+
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    model = mujoco.MjModel.from_xml_string(
+        """
+        <mujoco>
+          <worldbody>
+            <body name="hinged">
+              <joint name="hinge" type="hinge"/>
+              <geom type="sphere" size="0.1" mass="1"/>
+            </body>
+            <body name="floating">
+              <freejoint name="floating_free"/>
+              <geom type="sphere" size="0.1" mass="1"/>
+            </body>
+          </worldbody>
+        </mujoco>
+        """
+    )
+    backend = object.__new__(MuJoCoBackend)
+    backend._model = model
+
+    layout = backend.get_root_state_layout("floating")
+    assert layout.qpos_indices == tuple(range(1, 8))
+    assert layout.qvel_indices == tuple(range(1, 7))
+    with pytest.raises(NotImplementedError, match="hinged.*exactly one free joint"):
+        backend.get_root_state_layout("hinged")
+
+
+def test_drake_root_layout_is_explicitly_unsupported_without_runtime_metadata() -> None:
+    from unilab.base.backend.drake.backend import DrakeBackend
+
+    backend = object.__new__(DrakeBackend)
+    with pytest.raises(
+        NotImplementedError,
+        match="DrakeBackend does not expose root-state layout.*trunk",
+    ):
+        backend.get_root_state_layout("trunk")
 
 
 def test_terrain_spawn_consumers_do_not_probe_private_backend_capabilities() -> None:

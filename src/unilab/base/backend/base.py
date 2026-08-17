@@ -52,6 +52,45 @@ class BackendTerrainSpawnData:
 
 
 @dataclass(frozen=True)
+class BackendRootStateLayout:
+    """Generalized-state columns for one floating root body.
+
+    ``qpos_indices`` address ``[x, y, z, qw, qx, qy, qz]`` in the public
+    :meth:`SimBackend.set_state` qpos representation. ``qvel_indices`` address
+    ``[linear_velocity_world, angular_velocity_body]``.  Manager-facing root
+    states use world-frame angular velocity, so the base-owned reset
+    transaction performs the frame conversion before calling ``set_state``.
+    """
+
+    qpos_indices: tuple[int, ...]
+    qvel_indices: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        for name, values, expected in (
+            ("qpos_indices", self.qpos_indices, 7),
+            ("qvel_indices", self.qvel_indices, 6),
+        ):
+            if not isinstance(values, tuple):
+                raise TypeError(f"BackendRootStateLayout {name} must be a tuple")
+            if len(values) != expected:
+                raise ValueError(
+                    f"BackendRootStateLayout {name} must contain {expected} columns; "
+                    f"got {len(values)}"
+                )
+            if any(
+                isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer))
+                for value in values
+            ):
+                raise TypeError(f"BackendRootStateLayout {name} must contain integer columns")
+            normalized = tuple(int(value) for value in values)
+            if any(value < 0 for value in normalized):
+                raise ValueError(f"BackendRootStateLayout {name} cannot contain negative columns")
+            if len(set(normalized)) != expected:
+                raise ValueError(f"BackendRootStateLayout {name} must contain unique columns")
+            object.__setattr__(self, name, normalized)
+
+
+@dataclass(frozen=True)
 class BackendPlayCapabilities:
     """Backend-native play/render capabilities surfaced through env contracts."""
 
@@ -202,6 +241,20 @@ class SimBackend(abc.ABC):
         Returns:
             Zero-filled qvel array.
         """
+
+    def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
+        """Resolve one body's floating-root columns on the cold path.
+
+        Backends must verify that ``root_body_name`` owns a free/floating joint;
+        fixed bodies and runtimes without body-to-root metadata fail closed.
+        Name/model lookup is forbidden on reset and step hot paths, so callers
+        cache either the returned layout or the unsupported result during scene
+        materialization.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose root-state layout for "
+            f"body {root_body_name!r}"
+        )
 
     @abc.abstractmethod
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
@@ -358,8 +411,11 @@ class SimBackend(abc.ABC):
 
         Args:
             env_indices: Environment indices.
-            qpos: Position state.
-            qvel: Velocity state.
+            qpos: Position state. Free-root columns exposed by
+                :meth:`get_root_state_layout` use world xyz and wxyz quaternion.
+            qvel: Velocity state. Free-root columns exposed by
+                :meth:`get_root_state_layout` use world linear velocity and
+                body-frame angular velocity.
             randomization: Optional backend randomization payload.
 
         Returns:

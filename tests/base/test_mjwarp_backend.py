@@ -53,6 +53,9 @@ def test_real_cuda_init_reset_step() -> None:
     assert backend.backend_type == "mjwarp"
     assert backend.num_actuators == 29
     assert backend.num_dof_vel == 29
+    root_layout = backend.get_root_state_layout("pelvis")
+    assert root_layout.qpos_indices == tuple(range(7))
+    assert root_layout.qvel_indices == tuple(range(6))
 
     qpos, qvel = _stand_state(backend, 2)
     backend.set_state(np.asarray([0, 1], dtype=np.int32), qpos, qvel)

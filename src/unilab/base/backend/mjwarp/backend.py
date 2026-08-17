@@ -19,6 +19,7 @@ import numpy as np
 from unilab.base.backend.base import (
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendRootStateLayout,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -345,6 +346,30 @@ class MjwarpBackend(SimBackend):
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self._nv,), dtype=np.float32)
+
+    def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
+        try:
+            body_id = self._body_ids[root_body_name]
+        except KeyError as exc:
+            raise ValueError(f"Body {root_body_name!r} not found in mjwarp model") from exc
+        joint_count = int(self._cpu_model.body_jntnum[body_id])
+        joint_id = int(self._cpu_model.body_jntadr[body_id])
+        free_joint = int(self._mujoco.mjtJoint.mjJNT_FREE)
+        if (
+            joint_count != 1
+            or joint_id < 0
+            or int(self._cpu_model.jnt_type[joint_id]) != free_joint
+        ):
+            raise NotImplementedError(
+                "backend 'mjwarp' capability 'root-state layout' requires body "
+                f"{root_body_name!r} to own exactly one free joint"
+            )
+        qpos_start = int(self._cpu_model.jnt_qposadr[joint_id])
+        qvel_start = int(self._cpu_model.jnt_dofadr[joint_id])
+        return BackendRootStateLayout(
+            qpos_indices=tuple(range(qpos_start, qpos_start + 7)),
+            qvel_indices=tuple(range(qvel_start, qvel_start + 6)),
+        )
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
         resolved: list[int] = []

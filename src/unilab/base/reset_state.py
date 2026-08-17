@@ -12,7 +12,8 @@ from contextlib import contextmanager
 
 import numpy as np
 
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend.base import BackendRootStateLayout, SimBackend
+from unilab.utils.rotation import np_quat_apply_inverse
 
 
 class ResetStateTransaction:
@@ -146,6 +147,87 @@ class ResetStateTransaction:
             self._qvel[ids[:, None], vel_columns[None, :]] = velocities
         self._dirty_mask[ids] = True
 
+    def write_root_state(
+        self,
+        env_ids: np.ndarray,
+        layout: BackendRootStateLayout,
+        root_state: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage a community 13-D world-frame root state."""
+        self._require_active()
+        ids = self._validate_ids(env_ids, capability="write_root_state")
+        values = self._validate_values(
+            root_state,
+            shape=(ids.size, 13),
+            capability="root state",
+            term_name=term_name,
+        )
+        self.write_root_pose(ids, layout, values[:, :7], term_name=term_name)
+        self.write_root_velocity(ids, layout, values[:, 7:], term_name=term_name)
+
+    def write_root_pose(
+        self,
+        env_ids: np.ndarray,
+        layout: BackendRootStateLayout,
+        pose: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage world position and wxyz orientation for one floating root."""
+        ids = self._prepare_state_write(env_ids, capability="root-pose", term_name=term_name)
+        positions = self._validate_values(
+            pose,
+            shape=(ids.size, 7),
+            capability="root pose",
+            term_name=term_name,
+        )
+        self._validate_quaternions(positions[:, 3:7], term_name=term_name)
+        qpos_columns, _ = self._validate_root_layout(layout, term_name=term_name)
+        assert self._qpos is not None
+        if ids.size:
+            self._qpos[ids[:, None], qpos_columns[None, :]] = positions
+        self._dirty_mask[ids] = True
+
+    def write_root_velocity(
+        self,
+        env_ids: np.ndarray,
+        layout: BackendRootStateLayout,
+        velocity_w: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage world-frame root velocity in generalized qvel columns.
+
+        The public generalized-state contract stores free-root linear velocity
+        in world coordinates and angular velocity in root-body coordinates.
+        The conversion uses the pose already staged in this transaction.
+        """
+        ids = self._prepare_state_write(env_ids, capability="root-velocity", term_name=term_name)
+        velocities = self._validate_values(
+            velocity_w,
+            shape=(ids.size, 6),
+            capability="root velocity",
+            term_name=term_name,
+        )
+        qpos_columns, qvel_columns = self._validate_root_layout(layout, term_name=term_name)
+        assert self._qpos is not None
+        assert self._qvel is not None
+        if ids.size:
+            quaternions = self._qpos[
+                ids[:, None],
+                qpos_columns[None, 3:7],
+            ]
+            self._validate_quaternions(quaternions, term_name=term_name)
+            encoded_velocity = np.array(velocities, copy=True)
+            encoded_velocity[:, 3:6] = np_quat_apply_inverse(
+                quaternions,
+                velocities[:, 3:6],
+            )
+            self._qvel[ids[:, None], qvel_columns[None, :]] = encoded_velocity
+        self._dirty_mask[ids] = True
+
     def commit(self) -> dict | None:
         """Commit all staged rows through one public backend call."""
         self._require_active()
@@ -193,6 +275,69 @@ class ResetStateTransaction:
         self._default_qvel = default_qvel
         self._qpos = np.empty((self._num_envs, default_qpos.size), dtype=default_qpos.dtype)
         self._qvel = np.empty((self._num_envs, default_qvel.size), dtype=default_qvel.dtype)
+
+    def _prepare_state_write(
+        self,
+        env_ids: np.ndarray,
+        *,
+        capability: str,
+        term_name: str,
+    ) -> np.ndarray:
+        self._require_active()
+        ids = self._validate_ids(env_ids, capability=f"write_{capability}")
+        outside = ids[~self._active_mask[ids]]
+        if outside.size:
+            raise ValueError(
+                f"EventManager term '{term_name}' attempted {capability} mutation outside "
+                f"the active reset: {outside.tolist()}"
+            )
+        self._requesting_terms.add(term_name)
+        self._materialize_default_state(term_name)
+        assert self._default_qpos is not None
+        assert self._default_qvel is not None
+        assert self._qpos is not None
+        assert self._qvel is not None
+        uninitialized = ids[~self._dirty_mask[ids]]
+        if uninitialized.size:
+            self._qpos[uninitialized] = self._default_qpos
+            self._qvel[uninitialized] = self._default_qvel
+        return ids
+
+    def _validate_root_layout(
+        self,
+        layout: BackendRootStateLayout,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if not isinstance(layout, BackendRootStateLayout):
+            raise TypeError(
+                f"EventManager term '{term_name}' root-state layout must be "
+                f"BackendRootStateLayout, got {type(layout).__name__}"
+            )
+        assert self._default_qpos is not None
+        assert self._default_qvel is not None
+        qpos_columns = self._validate_columns(
+            np.asarray(layout.qpos_indices, dtype=np.intp),
+            width=self._default_qpos.size,
+            capability="root qpos indices",
+            term_name=term_name,
+        )
+        qvel_columns = self._validate_columns(
+            np.asarray(layout.qvel_indices, dtype=np.intp),
+            width=self._default_qvel.size,
+            capability="root qvel indices",
+            term_name=term_name,
+        )
+        return qpos_columns, qvel_columns
+
+    def _validate_quaternions(self, values: np.ndarray, *, term_name: str) -> None:
+        norms = np.linalg.norm(values, axis=1)
+        invalid = ~np.isclose(norms, 1.0, rtol=1e-5, atol=1e-6)
+        if np.any(invalid):
+            raise ValueError(
+                f"EventManager term '{term_name}' root quaternion must be unit length; "
+                f"norms={norms[invalid].tolist()}"
+            )
 
     def _validate_state_vector(
         self,

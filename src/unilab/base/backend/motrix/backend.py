@@ -40,6 +40,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendRootStateLayout,
     BackendTerrainSpawnData,
     RenderClosedError,
     SimBackend,
@@ -447,6 +448,21 @@ class MotrixBackend(SimBackend):
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self._model.num_dof_vel,), dtype=self._np_dtype)
+
+    def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
+        body = self._model.get_body(root_body_name)
+        if body is None:
+            raise ValueError(f"Body '{root_body_name}' not found in Motrix model")
+        floating_base = body.floatingbase
+        if floating_base is None:
+            raise NotImplementedError(
+                "backend 'motrix' capability 'root-state layout' requires body "
+                f"'{root_body_name}' to own a floating base"
+            )
+        return BackendRootStateLayout(
+            qpos_indices=tuple(int(index) for index in floating_base.dof_pos_indices),
+            qvel_indices=tuple(int(index) for index in floating_base.dof_vel_indices),
+        )
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
         ids: list[int] = []
