@@ -10,6 +10,7 @@ from typing import Any, Literal, cast, overload
 
 import numpy as np
 
+from unilab.base.scene import resolve_scene_fragment_path
 from unilab.terrains.terrain_generator import TerrainGeneratorCfg
 
 
@@ -230,7 +231,7 @@ def materialize_scene_fragments(
     root = tree.getroot()
     source_path = Path(source_model_file).resolve()
     for fragment_file in fragment_files:
-        _merge_scene_fragment(root, _resolve_scene_fragment_path(fragment_file, source_path))
+        _merge_scene_fragment(root, resolve_scene_fragment_path(fragment_file, source_path))
     return _write_temp_xml(tree, source_model_file)
 
 
@@ -369,15 +370,6 @@ def _merge_scene_fragment(root: ET.Element, fragment_file: Path) -> None:
         root.append(child)
 
 
-def _resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
-    path = Path(fragment_file)
-    if path.is_absolute():
-        return path
-    if path.is_file():
-        return path.resolve()
-    return (model_file.parent / path).resolve()
-
-
 def _copy_robot_asset_dir(model_file: Path, output_dir: Path) -> None:
     """Copy the robot's mesh / texture assets next to the output scene.
 
@@ -502,7 +494,7 @@ def materialize_mujoco_hfield_attached_scene(
     _merge_robot_option(root, robot_path)
     _ensure_generated_hfield_scene_visuals(root, geom_name)
     for fragment_file in fragment_files:
-        _merge_scene_fragment(root, _resolve_scene_fragment_path(fragment_file, robot_path))
+        _merge_scene_fragment(root, resolve_scene_fragment_path(fragment_file, robot_path))
 
     scene_xml = output_path / "scene.xml"
     _write_xml_root(root, scene_xml)
