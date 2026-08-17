@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from omegaconf import DictConfig, OmegaConf
 
+from unilab.base import registry
 from unilab.base.backend import materialize_scene_visual_override
 from unilab.base.scene import SceneCfg
 from unilab.training.reward import extract_reward_config
@@ -30,8 +31,18 @@ class BackendAdapter:
 
     def build_task_env_cfg_override(self) -> dict[str, Any]:
         """Build env_cfg_override from the resolved reward + env sections."""
-        env_cfg_override = extract_reward_config(self.cfg)
-        env_cfg_override.update(self._to_plain_dict(getattr(self.cfg, "env", None)))
+        registry.ensure_registries()
+        task_name = str(self.cfg.training.task_name)
+        reward_target = registry.resolve_reward_override_field(task_name)
+        env_overrides = self._to_plain_dict(getattr(self.cfg, "env", None))
+        if reward_target in env_overrides:
+            raise ValueError(
+                f"Task '{task_name}' declares both Hydra root 'reward' and "
+                f"'env.{reward_target}'; use the root reward owner only"
+            )
+
+        env_cfg_override = extract_reward_config(self.cfg, target_field=reward_target)
+        env_cfg_override.update(env_overrides)
 
         return env_cfg_override
 

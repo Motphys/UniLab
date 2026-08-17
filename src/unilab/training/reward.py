@@ -39,16 +39,24 @@ def resolve_reward_dict(cfg: DictConfig) -> RewardDict:
     return reward_dict
 
 
-def extract_reward_config(cfg: DictConfig) -> dict[str, RewardDict]:
+def extract_reward_config(
+    cfg: DictConfig,
+    *,
+    target_field: str = "reward_config",
+) -> dict[str, RewardDict]:
     """Extract and validate reward config from Hydra config.
 
     Args:
         cfg: Hydra DictConfig containing reward section
 
     Returns:
-        Dictionary with reward_config key for env_cfg_override
+        Dictionary with ``target_field`` as the env config override key.
 
     Raises:
         ValueError: If reward config is missing
     """
-    return {"reward_config": resolve_reward_dict(cfg)}
+    if target_field not in {"reward_config", "rewards"}:
+        raise ValueError(
+            f"Reward config target_field must be 'reward_config' or 'rewards', got {target_field!r}"
+        )
+    return {target_field: resolve_reward_dict(cfg)}
