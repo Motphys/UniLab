@@ -328,6 +328,29 @@ def test_motrix_backend_get_body_pose_w_slices_cached_poses_once() -> None:
     np.testing.assert_allclose(quat, [[[0.8, 0.5, 0.6, 0.7]]])
 
 
+def test_motrix_root_layout_uses_selected_body_floating_base_indices() -> None:
+    import unilab.base.backend.motrix.backend as mod
+
+    floating_base = SimpleNamespace(
+        dof_pos_indices=[4, 5, 6, 7, 8, 9, 10],
+        dof_vel_indices=[3, 4, 5, 6, 7, 8],
+    )
+    bodies = {
+        "fixed": SimpleNamespace(floatingbase=None),
+        "floating": SimpleNamespace(floatingbase=floating_base),
+    }
+    backend = object.__new__(mod.MotrixBackend)
+    backend._model = SimpleNamespace(get_body=lambda name: bodies.get(name))
+
+    layout = backend.get_root_state_layout("floating")
+    assert layout.qpos_indices == tuple(range(4, 11))
+    assert layout.qvel_indices == tuple(range(3, 9))
+    with pytest.raises(NotImplementedError, match="fixed.*floating base"):
+        backend.get_root_state_layout("fixed")
+    with pytest.raises(ValueError, match="missing.*not found"):
+        backend.get_root_state_layout("missing")
+
+
 def test_motrix_backend_applies_init_geom_size_overrides(monkeypatch, tmp_path) -> None:
     mod, fake_model = _install_fake_motrix(monkeypatch, tmp_path)
     backend = mod.MotrixBackend(

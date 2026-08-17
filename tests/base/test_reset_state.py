@@ -7,7 +7,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.base.reset_state import ResetStateTransaction
 
 
@@ -128,6 +128,137 @@ def test_joint_writes_initialize_defaults_and_compose_by_column() -> None:
     np.testing.assert_array_equal(ids, [0, 2])
     np.testing.assert_array_equal(qpos, [[1.0, 8.0, 3.0], [1.0, 9.0, 3.0]])
     np.testing.assert_array_equal(qvel, [[-2.0, 0.0], [-1.0, 0.0]])
+
+
+def test_root_pose_and_world_velocity_compose_at_nonzero_columns() -> None:
+    default_qpos = np.array([99.0, 1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0, 88.0])
+    default_qvel = np.array([77.0, 66.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 55.0])
+    backend = _Backend(qpos=default_qpos, qvel=default_qvel)
+    transaction = _transaction(backend)
+    layout = BackendRootStateLayout(tuple(range(1, 8)), tuple(range(2, 8)))
+    half_sqrt = np.sqrt(0.5)
+    poses = np.array(
+        [
+            [10.0, 11.0, 12.0, half_sqrt, 0.0, 0.0, half_sqrt],
+            [20.0, 21.0, 22.0, 1.0, 0.0, 0.0, 0.0],
+        ]
+    )
+    velocities_w = np.array(
+        [
+            [1.0, 2.0, 3.0, 1.0, 0.0, 0.0],
+            [4.0, 5.0, 6.0, 0.0, 1.0, 2.0],
+        ]
+    )
+
+    with transaction.scoped(np.array([0, 2], dtype=np.int32)):
+        transaction.write_root_pose(
+            np.array([2, 0], dtype=np.int32),
+            layout,
+            poses,
+            term_name="root_pose",
+        )
+        transaction.write_root_velocity(
+            np.array([2, 0], dtype=np.int32),
+            layout,
+            velocities_w,
+            term_name="root_velocity",
+        )
+
+    assert len(backend.set_state_calls) == 1
+    ids, qpos, qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(ids, [0, 2])
+    np.testing.assert_array_equal(qpos[:, [0, 8]], [[99.0, 88.0], [99.0, 88.0]])
+    np.testing.assert_allclose(qpos[0, 1:8], poses[1])
+    np.testing.assert_allclose(qpos[1, 1:8], poses[0])
+    np.testing.assert_array_equal(qvel[:, [0, 1, 8]], [[77.0, 66.0, 55.0]] * 2)
+    np.testing.assert_allclose(qvel[0, 2:8], velocities_w[1])
+    np.testing.assert_allclose(qvel[1, 2:5], velocities_w[0, :3])
+    np.testing.assert_allclose(qvel[1, 5:8], [0.0, -1.0, 0.0], atol=1e-7)
+
+
+def test_combined_root_state_uses_staged_pose_for_angular_velocity() -> None:
+    backend = _Backend(
+        qpos=np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        qvel=np.zeros(6),
+    )
+    transaction = _transaction(backend)
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    half_sqrt = np.sqrt(0.5)
+    root_state = np.array(
+        [[1.0, 2.0, 3.0, half_sqrt, 0.0, 0.0, half_sqrt, 4.0, 5.0, 6.0, 1.0, 0.0, 0.0]]
+    )
+
+    with transaction.scoped(np.array([1], dtype=np.int32)):
+        transaction.write_root_state(
+            np.array([1], dtype=np.int32),
+            layout,
+            root_state,
+            term_name="root_state",
+        )
+
+    _, qpos, qvel = backend.set_state_calls[0]
+    np.testing.assert_allclose(qpos[0], root_state[0, :7])
+    np.testing.assert_allclose(qvel[0, :3], root_state[0, 7:10])
+    np.testing.assert_allclose(qvel[0, 3:6], [0.0, -1.0, 0.0], atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    ("root_state", "error", "match"),
+    [
+        (np.zeros((1, 12)), ValueError, "root state.*expected"),
+        (np.zeros((1, 13), dtype=np.int32), TypeError, "root state.*floating"),
+        (np.full((1, 13), np.nan), ValueError, "root state.*NaN or Inf"),
+        (
+            np.array([[0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+            ValueError,
+            "root quaternion must be unit length",
+        ),
+    ],
+)
+def test_root_state_values_fail_closed(root_state, error, match: str) -> None:
+    backend = _Backend(
+        qpos=np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        qvel=np.zeros(6),
+    )
+    transaction = _transaction(backend)
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    with pytest.raises(error, match=match):
+        with transaction.scoped(np.array([0], dtype=np.int32)):
+            transaction.write_root_state(
+                np.array([0], dtype=np.int32),
+                layout,
+                root_state,
+                term_name="bad_root",
+            )
+    assert backend.set_state_calls == []
+
+
+def test_root_layout_bounds_and_reset_scope_fail_closed() -> None:
+    backend = _Backend(
+        qpos=np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        qvel=np.zeros(6),
+    )
+    transaction = _transaction(backend)
+    out_of_bounds = BackendRootStateLayout(tuple(range(1, 8)), tuple(range(6)))
+
+    with pytest.raises(IndexError, match="root qpos indices out of range"):
+        with transaction.scoped(np.array([0], dtype=np.int32)):
+            transaction.write_root_pose(
+                np.array([0], dtype=np.int32),
+                out_of_bounds,
+                np.array([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]]),
+                term_name="bad_layout",
+            )
+
+    valid = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    with pytest.raises(ValueError, match="root-pose mutation outside the active reset"):
+        with transaction.scoped(np.array([0], dtype=np.int32)):
+            transaction.write_root_pose(
+                np.array([1], dtype=np.int32),
+                valid,
+                np.array([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]]),
+                term_name="outside",
+            )
 
 
 @pytest.mark.parametrize(

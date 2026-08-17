@@ -11,8 +11,9 @@ import pytest
 
 import unilab.base.entity as entity_module
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.base.entity import EntityCfg, EntityScene
+from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg
 from unilab.managers import RewardManager, RewardTermCfg, SceneEntityCfg
 
@@ -49,6 +50,15 @@ class _StrictBackendProfile:
         self.body_ang_vel = self.body_pos + 300.0
         self.body_lin_vel_b = self.body_pos + 400.0
         self.body_ang_vel_b = self.body_pos + 500.0
+        self.default_qpos = np.array(
+            [99.0, 1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0, 88.0],
+            dtype=np.float32,
+        )
+        self.init_qvel = np.array(
+            [77.0, 66.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 55.0],
+            dtype=np.float32,
+        )
+        self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
 
     def _check(self, capability: str) -> None:
         self.calls[capability] += 1
@@ -58,6 +68,30 @@ class _StrictBackendProfile:
     def get_body_ids(self, names) -> np.ndarray:
         self._check("body names")
         return np.asarray([self.body_ids[name] for name in names], dtype=np.int32)
+
+    def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
+        self._check("root-state layout")
+        if root_body_name != "base":
+            raise ValueError(f"unknown root body {root_body_name}")
+        return BackendRootStateLayout(tuple(range(1, 8)), tuple(range(2, 8)))
+
+    def get_default_qpos(self) -> np.ndarray:
+        self._check("default qpos")
+        return self.default_qpos.copy()
+
+    def get_init_qvel(self) -> np.ndarray:
+        self._check("initial qvel")
+        return self.init_qvel.copy()
+
+    def set_state(
+        self,
+        env_ids: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization=None,
+    ) -> None:
+        assert randomization is None
+        self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
     def get_joint_dof_pos_indices(self, names) -> np.ndarray:
         self._check("joint position names")
@@ -160,6 +194,11 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
     np.testing.assert_array_equal(robot.data.heading_w, 0.0)
     np.testing.assert_array_equal(robot.data.projected_gravity_b, [[0.0, 0.0, -1.0]] * 3)
     np.testing.assert_array_equal(
+        robot.data.default_root_state,
+        np.tile([1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], (3, 1)),
+    )
+    assert not robot.data.default_root_state.flags.writeable
+    np.testing.assert_array_equal(
         robot.data.actuator_ctrl_range,
         np.arange(10, dtype=np.float32).reshape(5, 2)[[4, 2]],
     )
@@ -235,6 +274,78 @@ def test_entity_control_write_uses_cached_actuator_columns_and_fails_closed() ->
     _, read_only_scene = _scene()
     with pytest.raises(NotImplementedError, match="actuator control write.*not materialized"):
         read_only_scene["robot"].data.write_ctrl(np.zeros((backend.num_envs, 2), dtype=np.float32))
+
+
+def test_entity_root_writes_use_cached_layout_and_one_reset_commit() -> None:
+    backend = _StrictBackendProfile("mujoco")
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    scene = EntityScene(
+        {"robot": EntityCfg(root_body_name="base")},
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    robot = scene["robot"]
+    cold_layout_calls = backend.calls["root-state layout"]
+    half_sqrt = np.sqrt(0.5)
+
+    with transaction.scoped(np.array([0, 2], dtype=np.int32)):
+        robot.write_root_link_pose_to_sim(
+            np.array(
+                [
+                    [10.0, 11.0, 12.0, half_sqrt, 0.0, 0.0, half_sqrt],
+                    [20.0, 21.0, 22.0, 1.0, 0.0, 0.0, 0.0],
+                ],
+                dtype=np.float32,
+            ),
+            env_ids=np.array([2, 0], dtype=np.int32),
+        )
+        robot.write_root_link_velocity_to_sim(
+            np.array(
+                [[1.0, 2.0, 3.0, 1.0, 0.0, 0.0], [4.0, 5.0, 6.0, 0.0, 1.0, 2.0]],
+                dtype=np.float32,
+            ),
+            env_ids=np.array([2, 0], dtype=np.int32),
+        )
+
+    assert backend.calls["root-state layout"] == cold_layout_calls == 1
+    assert len(backend.set_state_calls) == 1
+    env_ids, qpos, qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(env_ids, [0, 2])
+    np.testing.assert_allclose(qpos[0, 1:8], [20.0, 21.0, 22.0, 1.0, 0.0, 0.0, 0.0])
+    np.testing.assert_allclose(qpos[1, 1:8], [10.0, 11.0, 12.0, half_sqrt, 0.0, 0.0, half_sqrt])
+    np.testing.assert_allclose(qvel[0, 2:8], [4.0, 5.0, 6.0, 0.0, 1.0, 2.0])
+    np.testing.assert_allclose(qvel[1, 2:8], [1.0, 2.0, 3.0, 0.0, -1.0, 0.0], atol=1e-6)
+
+
+def test_entity_caches_unsupported_root_layout_without_hot_path_probe() -> None:
+    backend = _StrictBackendProfile(
+        "drake",
+        unsupported=frozenset({"root-state layout"}),
+    )
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    scene = EntityScene(
+        {"robot": EntityCfg(root_body_name="base")},
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    robot = scene["robot"]
+
+    with pytest.raises(
+        NotImplementedError,
+        match="default root state.*backend 'drake'.*drake lacks root-state layout",
+    ):
+        _ = robot.data.default_root_state
+    with pytest.raises(
+        NotImplementedError,
+        match="reset root-state layout.*backend 'drake'.*drake lacks root-state layout",
+    ):
+        with transaction.scoped(np.array([0], dtype=np.int32)):
+            robot.write_root_state_to_sim(
+                np.array([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+                env_ids=np.array([0], dtype=np.int32),
+            )
+    assert backend.calls["root-state layout"] == 1
+    assert backend.set_state_calls == []
 
 
 def test_entity_joint_position_target_maps_natural_joint_order_to_control_order() -> None:

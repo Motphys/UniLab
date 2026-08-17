@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, NoReturn
 
 import numpy as np
 
-from unilab.base.backend.base import SimBackend
-from unilab.utils.rotation import np_quat_apply_inverse, np_yaw_from_quat
+from unilab.base.backend.base import BackendRootStateLayout, SimBackend
+from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_from_quat
 
 if TYPE_CHECKING:
     from unilab.base.reset_state import ResetStateTransaction
@@ -141,6 +141,8 @@ class EntityData:
         root_body_ids: np.ndarray | None,
         joint_pos_ids: np.ndarray | None,
         joint_vel_ids: np.ndarray | None,
+        default_root_state: np.ndarray | None,
+        default_root_state_error: str | None,
         default_joint_pos: np.ndarray | None,
         default_joint_vel: np.ndarray | None,
         gravity_vec_w: np.ndarray | None,
@@ -157,6 +159,8 @@ class EntityData:
         self._root_body_ids = root_body_ids
         self._joint_pos_index = None if joint_pos_ids is None else _as_column_index(joint_pos_ids)
         self._joint_vel_index = None if joint_vel_ids is None else _as_column_index(joint_vel_ids)
+        self._default_root_state = default_root_state
+        self._default_root_state_error = default_root_state_error
         self._default_joint_pos = default_joint_pos
         self._default_joint_vel = default_joint_vel
         self._gravity_vec_w = gravity_vec_w
@@ -226,6 +230,17 @@ class EntityData:
     @property
     def root_link_vel_w(self) -> np.ndarray:
         return np.concatenate((self.root_link_lin_vel_w, self.root_link_ang_vel_w), axis=-1)
+
+    @property
+    def default_root_state(self) -> np.ndarray:
+        """Read-only 13-D community root state for every environment."""
+        if self._default_root_state is None:
+            detail = self._default_root_state_error or "root_body_name was not declared"
+            raise NotImplementedError(
+                f"Entity '{self._entity_name}' data capability 'default root state' is "
+                f"unavailable on backend '{self._backend_type}': {detail}"
+            )
+        return self._default_root_state
 
     @property
     def joint_pos(self) -> np.ndarray:
@@ -404,6 +419,8 @@ class Entity:
         self._backend_type = backend.backend_type
         self._backend = backend
         self._reset_state = reset_state
+        self._reset_root_layout: BackendRootStateLayout | None = None
+        self._reset_root_layout_error: str | None = None
         self._reset_joint_qpos_ids: np.ndarray | None = None
         self._reset_joint_qvel_ids: np.ndarray | None = None
 
@@ -458,6 +475,11 @@ class Entity:
 
         self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
         self._validate_body_state(backend, root_body_ids, body_ids)
+        (
+            self._reset_root_layout,
+            default_root_state,
+            self._reset_root_layout_error,
+        ) = self._materialize_root_state(backend, cfg.root_body_name)
         default_joint_pos = self._materialize_default_joint_pos(backend, joint_pos_ids)
         default_joint_vel = self._materialize_default_joint_vel(backend, joint_vel_ids)
         gravity_vec_w = self._materialize_gravity_vector(backend, root_body_ids)
@@ -484,6 +506,8 @@ class Entity:
             root_body_ids=root_body_ids,
             joint_pos_ids=joint_pos_ids,
             joint_vel_ids=joint_vel_ids,
+            default_root_state=default_root_state,
+            default_root_state_error=self._reset_root_layout_error,
             default_joint_pos=default_joint_pos,
             default_joint_vel=default_joint_vel,
             gravity_vec_w=gravity_vec_w,
@@ -661,6 +685,78 @@ class Entity:
         materialized = np.broadcast_to(selected, (backend.num_envs, len(joint_pos_ids))).copy()
         materialized.setflags(write=False)
         return materialized
+
+    def _materialize_root_state(
+        self,
+        backend: SimBackend,
+        root_body_name: str | None,
+    ) -> tuple[BackendRootStateLayout | None, np.ndarray | None, str | None]:
+        if root_body_name is None:
+            return None, None, "root_body_name was not declared in EntityCfg"
+        try:
+            layout = backend.get_root_state_layout(root_body_name)
+        except (AttributeError, NotImplementedError) as exc:
+            return None, None, str(exc)
+        if not isinstance(layout, BackendRootStateLayout):
+            raise TypeError(
+                f"Entity '{self.name}' capability 'root-state layout' on backend "
+                f"'{self._backend_type}' must return BackendRootStateLayout, got "
+                f"{type(layout).__name__}"
+            )
+        try:
+            qpos = backend.get_default_qpos()
+            qvel = backend.get_init_qvel()
+        except (AttributeError, NotImplementedError) as exc:
+            return None, None, str(exc)
+        qpos_default = self._validate_root_default_vector(qpos, "default qpos")
+        qvel_default = self._validate_root_default_vector(qvel, "initial qvel")
+        qpos_indices = np.asarray(layout.qpos_indices, dtype=np.intp)
+        qvel_indices = np.asarray(layout.qvel_indices, dtype=np.intp)
+        if np.any(qpos_indices >= qpos_default.size):
+            raise ValueError(
+                f"Entity '{self.name}' root qpos layout exceeds backend "
+                f"'{self._backend_type}' width {qpos_default.size}: {qpos_indices.tolist()}"
+            )
+        if np.any(qvel_indices >= qvel_default.size):
+            raise ValueError(
+                f"Entity '{self.name}' root qvel layout exceeds backend "
+                f"'{self._backend_type}' width {qvel_default.size}: {qvel_indices.tolist()}"
+            )
+
+        pose = np.asarray(qpos_default[qpos_indices])
+        quaternion = pose[3:7]
+        norm = float(np.linalg.norm(quaternion))
+        if not np.isclose(norm, 1.0, rtol=1e-5, atol=1e-6):
+            raise ValueError(
+                f"Entity '{self.name}' default root quaternion on backend "
+                f"'{self._backend_type}' must be unit length; norm={norm}"
+            )
+        generalized_velocity = np.asarray(qvel_default[qvel_indices])
+        velocity_w = np.array(generalized_velocity, copy=True)
+        velocity_w[3:6] = np_quat_apply(quaternion, generalized_velocity[3:6])
+        root_state = np.concatenate((pose, velocity_w))
+        materialized = np.broadcast_to(root_state, (backend.num_envs, 13)).copy()
+        materialized.setflags(write=False)
+        return layout, materialized, None
+
+    def _validate_root_default_vector(self, value: np.ndarray, capability: str) -> np.ndarray:
+        if not isinstance(value, np.ndarray):
+            raise TypeError(
+                f"Entity '{self.name}' capability '{capability}' on backend "
+                f"'{self._backend_type}' must return np.ndarray, got {type(value).__name__}"
+            )
+        if value.ndim != 1 or not np.issubdtype(value.dtype, np.floating):
+            raise TypeError(
+                f"Entity '{self.name}' capability '{capability}' on backend "
+                f"'{self._backend_type}' must be a 1-D floating array; got "
+                f"shape={value.shape}, dtype={value.dtype}"
+            )
+        if not np.isfinite(value).all():
+            raise ValueError(
+                f"Entity '{self.name}' capability '{capability}' on backend "
+                f"'{self._backend_type}' returned NaN or Inf"
+            )
+        return value
 
     def _materialize_default_joint_vel(
         self, backend: SimBackend, joint_vel_ids: np.ndarray | None
@@ -880,6 +976,64 @@ class Entity:
                 f"for passive joints on backend '{self._backend_type}': {passive_names}"
             )
         self.data.write_ctrl(target, env_ids, actuator_ids=actuator_ids)
+
+    def write_root_state_to_sim(
+        self,
+        root_state: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Stage a 13-D world-frame root state in the active reset transaction."""
+        reset_state, layout = self._require_root_state_write()
+        resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        reset_state.write_root_state(
+            resolved_env_ids,
+            layout,
+            root_state,
+            term_name=f"{self.name}.write_root_state_to_sim",
+        )
+
+    def write_root_link_pose_to_sim(
+        self,
+        root_pose: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Stage world position and wxyz root orientation during reset."""
+        reset_state, layout = self._require_root_state_write()
+        resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        reset_state.write_root_pose(
+            resolved_env_ids,
+            layout,
+            root_pose,
+            term_name=f"{self.name}.write_root_link_pose_to_sim",
+        )
+
+    def write_root_link_velocity_to_sim(
+        self,
+        root_velocity: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Stage world linear/angular root velocity during reset."""
+        reset_state, layout = self._require_root_state_write()
+        resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        reset_state.write_root_velocity(
+            resolved_env_ids,
+            layout,
+            root_velocity,
+            term_name=f"{self.name}.write_root_link_velocity_to_sim",
+        )
+
+    def _require_root_state_write(
+        self,
+    ) -> tuple[ResetStateTransaction, BackendRootStateLayout]:
+        if self._reset_state is None:
+            raise self._capability_error(
+                "reset root-state write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        if self._reset_root_layout is None:
+            detail = self._reset_root_layout_error or "root-state layout was not materialized"
+            raise self._capability_error("reset root-state layout", detail)
+        return self._reset_state, self._reset_root_layout
 
     def write_joint_state_to_sim(
         self,

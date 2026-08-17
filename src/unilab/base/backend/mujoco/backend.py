@@ -37,6 +37,7 @@ from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendRootStateLayout,
     BackendTerrainSpawnData,
     SimBackend,
     normalize_play_render_mode,
@@ -750,6 +751,25 @@ class MuJoCoBackend(SimBackend):
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self.nv,), dtype=self._np_dtype)
+
+    def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
+        body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, root_body_name)
+        if body_id < 0:
+            raise ValueError(f"Body '{root_body_name}' not found in MuJoCo model")
+        joint_count = int(self._model.body_jntnum[body_id])
+        joint_id = int(self._model.body_jntadr[body_id])
+        free_joint = int(mujoco.mjtJoint.mjJNT_FREE)
+        if joint_count != 1 or joint_id < 0 or int(self._model.jnt_type[joint_id]) != free_joint:
+            raise NotImplementedError(
+                "backend 'mujoco' capability 'root-state layout' requires body "
+                f"'{root_body_name}' to own exactly one free joint"
+            )
+        qpos_start = int(self._model.jnt_qposadr[joint_id])
+        qvel_start = int(self._model.jnt_dofadr[joint_id])
+        return BackendRootStateLayout(
+            qpos_indices=tuple(range(qpos_start, qpos_start + 7)),
+            qvel_indices=tuple(range(qvel_start, qvel_start + 6)),
+        )
 
     def get_body_ids(self, names: "Sequence[str]") -> np.ndarray:
         ids: list[int] = []

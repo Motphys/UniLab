@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
 
-from .base import RenderClosedError, SimBackend
+from .base import BackendRootStateLayout, RenderClosedError, SimBackend
 
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
