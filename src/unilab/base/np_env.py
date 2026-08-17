@@ -117,6 +117,7 @@ class NpEnv(ABEnv):
         self._init_randomization_applied = False
         self._nan_guard: NanGuard | None = None
         self._autoreset = True
+        self._autoreset_reset_active = False
         self._nan_guard_model_file = self._resolve_nan_guard_model_file()
 
     @property
@@ -156,18 +157,29 @@ class NpEnv(ABEnv):
         reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
-        if self._cfg.max_episode_steps:
-            steps = np.random.randint(
-                0, self._cfg.max_episode_steps, size=(self._num_envs,), dtype=np.uint32
-            )
-        else:
-            steps = np.zeros((self._num_envs,), dtype=np.uint32)
+        steps = self._initial_episode_steps()
         info: dict = {"steps": steps}
 
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
         self._clear_step_final_observation()
         return self._state
+
+    def _initial_episode_steps(self) -> np.ndarray:
+        """Return initial per-env episode counters.
+
+        Existing monolithic tasks keep their randomized initialization.  A lifecycle
+        with different public semantics can override this cold-path hook without
+        duplicating :meth:`init_state` or the autoreset machinery.
+        """
+        if self._cfg.max_episode_steps:
+            return np.random.randint(
+                0,
+                self._cfg.max_episode_steps,
+                size=(self._num_envs,),
+                dtype=np.uint32,
+            )
+        return np.zeros((self._num_envs,), dtype=np.uint32)
 
     def step(self, actions: np.ndarray) -> NpEnvState:
         step_t0 = time.perf_counter()
@@ -274,7 +286,11 @@ class NpEnv(ABEnv):
         detail_timing["reset_done_terminal_obs_ms"] = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        new_obs, info1 = self.reset(env_indices)
+        self._autoreset_reset_active = True
+        try:
+            new_obs, info1 = self.reset(env_indices)
+        finally:
+            self._autoreset_reset_active = False
         detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - t0) * 1000.0
         if self._dr_manager is not None:
             detail_timing.update(self._dr_manager.last_reset_timing_ms)

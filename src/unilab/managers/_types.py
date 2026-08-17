@@ -140,12 +140,20 @@ class ManagerBasedRlEnv(Protocol):
     their concrete environment type, while the manager core depends only on this seam.
     """
 
-    num_envs: int
-    rng: np.random.Generator
-    scene: ManagerScene
-    max_episode_length_s: float
+    @property
+    def num_envs(self) -> int: ...
 
-    def __getattr__(self, name: str) -> Any: ...
+    @property
+    def rng(self) -> np.random.Generator: ...
+
+    @property
+    def scene(self) -> ManagerScene: ...
+
+    @property
+    def max_episode_length_s(self) -> float: ...
+
+    # Concrete task terms may still type their own richer env subclass.  The
+    # standalone manager core deliberately depends only on the properties above.
 
 
 DebugVisualizer = Any

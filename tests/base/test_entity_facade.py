@@ -170,6 +170,42 @@ def test_scene_entity_cfg_resolves_only_against_cached_names() -> None:
         assert backend.calls[key] == cold_path_calls[key]
 
 
+def test_entity_control_write_uses_cached_actuator_columns_and_fails_closed() -> None:
+    backend = _StrictBackendProfile("mujoco")
+    control = np.zeros((backend.num_envs, backend.num_actuators), dtype=np.float32)
+    scene = EntityScene(
+        {"robot": EntityCfg(actuator_names=("ankle", "hip"))},
+        cast(SimBackend, backend),
+        control,
+    )
+    data = scene["robot"].data
+
+    data.write_ctrl(np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32))
+    np.testing.assert_array_equal(control[:, 4], [1.0, 3.0, 5.0])
+    np.testing.assert_array_equal(control[:, 2], [2.0, 4.0, 6.0])
+    data.write_ctrl(
+        np.array([[9.0, 8.0], [7.0, 6.0]], dtype=np.float32),
+        env_ids=np.array([2, 0], dtype=np.int32),
+    )
+    np.testing.assert_array_equal(control[:, 4], [7.0, 3.0, 9.0])
+    np.testing.assert_array_equal(control[:, 2], [6.0, 4.0, 8.0])
+    assert backend.calls["actuator names"] == 1
+
+    with pytest.raises(ValueError, match="expected shape"):
+        data.write_ctrl(np.zeros((backend.num_envs, 1), dtype=np.float32))
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        data.write_ctrl(np.full((backend.num_envs, 2), np.nan, dtype=np.float32))
+    with pytest.raises(IndexError, match="out of range"):
+        data.write_ctrl(
+            np.zeros((1, 2), dtype=np.float32),
+            env_ids=np.array([backend.num_envs], dtype=np.int32),
+        )
+
+    _, read_only_scene = _scene()
+    with pytest.raises(NotImplementedError, match="actuator control write.*not materialized"):
+        read_only_scene["robot"].data.write_ctrl(np.zeros((backend.num_envs, 2), dtype=np.float32))
+
+
 @pytest.mark.parametrize(
     ("ids", "error_type", "message"),
     [
