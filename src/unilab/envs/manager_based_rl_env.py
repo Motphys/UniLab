@@ -16,6 +16,10 @@ import numpy as np
 
 from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
+from unilab.base.config_overrides import (
+    CONFIG_MAPPING_POLICY_KEY,
+    MANAGER_TERM_MAPPING_POLICY,
+)
 from unilab.base.entity import EntityScene
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.reset_state import ResetStateTransaction
@@ -47,6 +51,13 @@ from unilab.managers import (
 )
 
 
+def _manager_terms_field() -> Any:
+    return field(
+        default_factory=dict,
+        metadata={CONFIG_MAPPING_POLICY_KEY: MANAGER_TERM_MAPPING_POLICY},
+    )
+
+
 @dataclass
 class ManagerBasedRlEnvCfg(EnvCfg):
     """Configuration for the manager-based NumPy environment.
@@ -55,15 +66,15 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     configs can overlay them without introducing a second configuration runtime.
     """
 
-    observations: dict[str, ObservationGroupCfg | None] = field(default_factory=dict)
-    actions: dict[str, ActionTermCfg | None] = field(default_factory=dict)
-    events: dict[str, EventTermCfg | None] = field(default_factory=dict)
-    rewards: dict[str, RewardTermCfg | None] = field(default_factory=dict)
-    terminations: dict[str, TerminationTermCfg | None] = field(default_factory=dict)
-    commands: dict[str, CommandTermCfg | None] = field(default_factory=dict)
-    curriculum: dict[str, CurriculumTermCfg | None] = field(default_factory=dict)
-    metrics: dict[str, MetricsTermCfg | None] = field(default_factory=dict)
-    recorders: dict[str, RecorderTermCfg | None] = field(default_factory=dict)
+    observations: dict[str, ObservationGroupCfg | None] = _manager_terms_field()
+    actions: dict[str, ActionTermCfg | None] = _manager_terms_field()
+    events: dict[str, EventTermCfg | None] = _manager_terms_field()
+    rewards: dict[str, RewardTermCfg | None] = _manager_terms_field()
+    terminations: dict[str, TerminationTermCfg | None] = _manager_terms_field()
+    commands: dict[str, CommandTermCfg | None] = _manager_terms_field()
+    curriculum: dict[str, CurriculumTermCfg | None] = _manager_terms_field()
+    metrics: dict[str, MetricsTermCfg | None] = _manager_terms_field()
+    recorders: dict[str, RecorderTermCfg | None] = _manager_terms_field()
 
     seed: int | None = None
     is_finite_horizon: bool = False

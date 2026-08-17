@@ -11,6 +11,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from unilab.base.config_overrides import (
+    CONFIG_MAPPING_POLICY_KEY,
+    MANAGER_PARAMS_MAPPING_POLICY,
+)
 from unilab.managers.scene_entity_config import SceneEntityCfg
 
 if TYPE_CHECKING:
@@ -60,7 +64,10 @@ class ManagerTermBaseCfg:
     """The callable that computes this term's value. Can be a function or a class.
   Classes are auto-instantiated with ``(cfg=term_cfg, env=env)``."""
 
-    params: dict[str, Any] = field(default_factory=lambda: {})
+    params: dict[str, Any] = field(
+        default_factory=dict,
+        metadata={CONFIG_MAPPING_POLICY_KEY: MANAGER_PARAMS_MAPPING_POLICY},
+    )
     """Additional keyword arguments passed to func when called."""
 
 
