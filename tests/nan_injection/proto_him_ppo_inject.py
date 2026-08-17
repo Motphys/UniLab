@@ -3,11 +3,20 @@ Stage 2 prototype B: validate NaN injection on REAL HIM-PPO runner with real
 Go2ArmManipLoco env (mujoco backend). Mirrors the patches from
 proto_nan_inject.py but applied to the actual training loop.
 
-This proves the helper functions work on a real algo runner before lifting
-them into the formal pytest file.
+Promotion status (registered 2026-08, issue #1020): the originally planned
+promotion into a formal pytest module (tests/algos/test_nan_inject_rsl_rl.py)
+was NOT carried out. Final disposition instead:
+- unit-level regression coverage lives in tests/test_nan_guard.py and
+  tests/ipc/test_nan_guard_spawn_pickle.py (both in CI);
+- real-runner HIM-PPO validation was lifted into
+  tests/nan_injection/stage2_nan_inject.py (HIM-PPO x {obs, reward, ctrl}
+  cases), kept as a manual tool per tests/nan_injection/README.md
+  (deliberately out of CI).
+This prototype is retained only as a minimal single-case reference; delete it
+together with stage2/stage3 if the manual validation tooling is ever dropped.
 
 Run:
-    .venv/bin/python tests/nan_injection/proto_him_ppo_inject.py
+    uv run python tests/nan_injection/proto_him_ppo_inject.py
 """
 
 from __future__ import annotations
