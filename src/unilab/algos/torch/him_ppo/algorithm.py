@@ -75,6 +75,9 @@ class HIMPPO:
             self.device,
         )
 
+    def test_mode(self) -> None:
+        self.actor_critic.eval()
+
     def train_mode(self) -> None:
         self.actor_critic.train()
 

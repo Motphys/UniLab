@@ -355,6 +355,11 @@ class FastTD3Learner:
         torch._foreach_mul_(tgt_ps, 1.0 - self.tau)
         torch._foreach_add_(tgt_ps, src_ps, alpha=self.tau)
 
+    @torch.no_grad()
+    def soft_update(self) -> None:
+        """Backward-compatible alias for older call sites."""
+        self.soft_update_target()
+
     def get_state_dict(self) -> Dict:
         return {
             "actor": self.actor.state_dict(),
