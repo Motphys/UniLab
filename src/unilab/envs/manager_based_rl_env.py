@@ -18,6 +18,7 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.entity import EntityScene
 from unilab.base.np_env import NpEnv, NpEnvState
+from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import (
@@ -170,8 +171,14 @@ class ManagerBasedRlEnv(NpEnv):
         self.rng = np.random.default_rng(actual_seed)
 
         self._control = np.zeros((num_envs, backend.num_actuators), dtype=get_global_dtype())
+        self._reset_state = ResetStateTransaction(backend)
         assert cfg.scene is not None
-        self.scene = EntityScene.from_scene_cfg(cfg.scene, backend, self._control)
+        self.scene = EntityScene.from_scene_cfg(
+            cfg.scene,
+            backend,
+            self._control,
+            reset_state=self._reset_state,
+        )
 
         self.common_step_counter = 0
         self._sim_step_counter = 0
@@ -431,11 +438,12 @@ class ManagerBasedRlEnv(NpEnv):
         log: dict[str, Any] = {}
         self.curriculum_manager.compute(env_ids=ids)
         if "reset" in self.event_manager.available_modes:
-            self.event_manager.apply(
-                mode="reset",
-                env_ids=ids,
-                global_env_step_count=self.step_counter,
-            )
+            with self._reset_state.scoped(ids):
+                self.event_manager.apply(
+                    mode="reset",
+                    env_ids=ids,
+                    global_env_step_count=self.step_counter,
+                )
 
         for manager in (
             self.observation_manager,

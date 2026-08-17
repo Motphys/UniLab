@@ -17,6 +17,7 @@ from unilab.envs import (
     ManagerBasedRlEnv,
     ManagerBasedRLEnvCfg,
     ManagerBasedRlEnvCfg,
+    mdp,
 )
 from unilab.managers import (
     ActionTerm,
@@ -72,6 +73,63 @@ class _FakeBackend:
 
     def cleanup_scene_assets(self) -> None:
         self.cleanup_calls += 1
+
+
+class _ResetBackend(_FakeBackend):
+    def __init__(self, num_envs: int) -> None:
+        super().__init__(num_envs)
+        self.default_qpos_calls = 0
+        self.init_qvel_calls = 0
+        self.joint_layout_calls = 0
+        self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+
+    def get_default_qpos(self) -> np.ndarray:
+        self.default_qpos_calls += 1
+        return np.array([0.0, 0.0, 0.5, 0.0], dtype=np.float64)
+
+    def get_init_qvel(self) -> np.ndarray:
+        self.init_qvel_calls += 1
+        return np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        return ("joint",)
+
+    def get_joint_dof_pos_indices(self, names) -> np.ndarray:
+        assert tuple(names) == ("joint",)
+        return np.array([0], dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names) -> np.ndarray:
+        assert tuple(names) == ("joint",)
+        return np.array([0], dtype=np.int32)
+
+    def get_joint_state_qpos_indices(self, names) -> np.ndarray:
+        assert tuple(names) == ("joint",)
+        self.joint_layout_calls += 1
+        return np.array([3], dtype=np.int32)
+
+    def get_joint_state_qvel_indices(self, names) -> np.ndarray:
+        assert tuple(names) == ("joint",)
+        self.joint_layout_calls += 1
+        return np.array([2], dtype=np.int32)
+
+    def get_dof_pos(self) -> np.ndarray:
+        return np.zeros((self.num_envs, 1), dtype=np.float32)
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        return np.zeros((1,), dtype=np.float32)
+
+    def get_dof_vel(self) -> np.ndarray:
+        return np.zeros((self.num_envs, 1), dtype=np.float32)
+
+    def set_state(
+        self,
+        env_ids: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization=None,
+    ) -> None:
+        assert randomization is None
+        self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
 
 @dataclass(kw_only=True)
@@ -186,6 +244,22 @@ def _curriculum(env: _TestEnv, env_ids: np.ndarray | slice) -> float:
 def _event(env: _TestEnv, env_ids: np.ndarray | None) -> None:
     rendered_ids = None if env_ids is None else env_ids.tolist()
     env.trace.append(("event", rendered_ids))
+
+
+def _observe_uncommitted_reset(env: _TestEnv, env_ids: np.ndarray | None) -> None:
+    del env_ids
+    backend = cast(_ResetBackend, env._backend)
+    env.trace.append(("commit_count_during_event", len(backend.set_state_calls)))
+
+
+def _write_reset_joint_state(env: _TestEnv, env_ids: np.ndarray | None) -> None:
+    assert env_ids is not None
+    count = len(env_ids)
+    env.scene["robot"].write_joint_state_to_sim(
+        np.full((count, 1), 0.25, dtype=np.float32),
+        np.full((count, 1), -0.5, dtype=np.float32),
+        env_ids=env_ids,
+    )
 
 
 def _make_cfg(
@@ -340,6 +414,57 @@ def test_np_env_owns_substeps_autoreset_and_final_observation() -> None:
     post_step_index = len(env.trace) - 1
     assert env.trace[post_step_index] == "post_step"
     assert pre_index < post_reset_index < post_step_index
+
+
+def test_reset_events_compose_then_commit_default_state_once() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.events = {
+        "default_first": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset"),
+        "joint_state": EventTermCfg(func=_write_reset_joint_state, mode="reset"),
+        "observe_uncommitted": EventTermCfg(func=_observe_uncommitted_reset, mode="reset"),
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        joint_names=("joint",),
+        actuator_names=("motor",),
+    )
+    backend = _ResetBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    assert backend.default_qpos_calls == 0
+    assert backend.init_qvel_calls == 0
+    assert backend.joint_layout_calls == 0
+    env.reset()
+
+    assert env.trace[-1] == ("commit_count_during_event", 0)
+    assert backend.default_qpos_calls == 1
+    assert backend.init_qvel_calls == 1
+    assert len(backend.set_state_calls) == 1
+    ids, qpos, qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(ids, [0, 1])
+    np.testing.assert_array_equal(
+        qpos,
+        [[0.0, 0.0, 0.5, 0.25], [0.0, 0.0, 0.5, 0.25]],
+    )
+    np.testing.assert_array_equal(qvel, [[0.0, 0.0, -0.5], [0.0, 0.0, -0.5]])
+    assert backend.joint_layout_calls == 2
+
+    env.reset(env_ids=np.array([1], dtype=np.int32))
+    assert ("commit_count_during_event", 1) in env.trace
+    assert len(backend.set_state_calls) == 2
+    np.testing.assert_array_equal(backend.set_state_calls[1][0], [1])
+    assert backend.default_qpos_calls == 1
+    assert backend.init_qvel_calls == 1
+    assert backend.joint_layout_calls == 2
+
+
+def test_pure_reset_event_does_not_request_backend_state_capability() -> None:
+    env, backend = _make_env()
+
+    env.reset()
+    env.reset(env_ids=np.array([0], dtype=np.int32))
+
+    assert isinstance(backend, _FakeBackend)
+    assert not hasattr(backend, "get_default_qpos")
 
 
 def test_partial_reset_preserves_other_env_counter_and_terminal_obs() -> None:

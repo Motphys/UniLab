@@ -19,6 +19,7 @@ from unilab.base.backend.base import SimBackend
 from unilab.utils.rotation import np_quat_apply_inverse, np_yaw_from_quat
 
 if TYPE_CHECKING:
+    from unilab.base.reset_state import ResetStateTransaction
     from unilab.base.scene import SceneCfg
 
 
@@ -395,11 +396,16 @@ class Entity:
         cfg: EntityCfg,
         backend: SimBackend,
         control_buffer: np.ndarray | None = None,
+        reset_state: ResetStateTransaction | None = None,
     ) -> None:
         if not name:
             raise ValueError("Entity name must be a non-empty string")
         self.name = name
         self._backend_type = backend.backend_type
+        self._backend = backend
+        self._reset_state = reset_state
+        self._reset_joint_qpos_ids: np.ndarray | None = None
+        self._reset_joint_qvel_ids: np.ndarray | None = None
 
         self._joint_names = _normalize_names(name, "joint", cfg.joint_names)
         self._body_names = _normalize_names(name, "body", cfg.body_names)
@@ -860,32 +866,10 @@ class Entity:
                 "joint position target",
                 "joint-to-actuator metadata was not materialized",
             )
-        if joint_ids is None:
-            local_joint_ids = np.arange(self.num_joints, dtype=np.intp)
-        elif isinstance(joint_ids, slice):
-            local_joint_ids = np.arange(self.num_joints, dtype=np.intp)[joint_ids]
-        else:
-            raw_joint_ids = np.asarray(joint_ids)
-            if (
-                raw_joint_ids.ndim != 1
-                or not np.issubdtype(raw_joint_ids.dtype, np.integer)
-                or np.issubdtype(raw_joint_ids.dtype, np.bool_)
-            ):
-                raise TypeError(
-                    f"Entity '{self.name}' joint position target joint_ids must be a 1-D "
-                    "integer array or slice"
-                )
-            local_joint_ids = np.asarray(raw_joint_ids, dtype=np.intp)
-        if np.any(local_joint_ids < 0) or np.any(local_joint_ids >= self.num_joints):
-            raise IndexError(
-                f"Entity '{self.name}' joint position target joint_ids out of range for "
-                f"{self.num_joints} joints: {local_joint_ids.tolist()}"
-            )
-        if np.unique(local_joint_ids).size != local_joint_ids.size:
-            raise ValueError(
-                f"Entity '{self.name}' joint position target joint_ids contain duplicates: "
-                f"{local_joint_ids.tolist()}"
-            )
+        local_joint_ids = self._normalize_local_joint_ids(
+            joint_ids,
+            capability="joint position target",
+        )
         actuator_ids = joint_to_actuator[local_joint_ids]
         if np.any(actuator_ids < 0):
             passive_names = [
@@ -896,6 +880,101 @@ class Entity:
                 f"for passive joints on backend '{self._backend_type}': {passive_names}"
             )
         self.data.write_ctrl(target, env_ids, actuator_ids=actuator_ids)
+
+    def write_joint_state_to_sim(
+        self,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Stage community-style joint state writes in the active reset transaction."""
+        if self._reset_state is None:
+            raise self._capability_error(
+                "reset joint-state write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        if self._joint_names is None:
+            raise self._capability_error(
+                "reset joint-state write",
+                "joint_names were not declared in EntityCfg",
+            )
+        local_joint_ids = self._normalize_local_joint_ids(
+            joint_ids,
+            capability="reset joint-state write",
+        )
+        resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        self._materialize_reset_joint_indices()
+        assert self._reset_joint_qpos_ids is not None
+        assert self._reset_joint_qvel_ids is not None
+        self._reset_state.write_joint_state(
+            resolved_env_ids,
+            self._reset_joint_qpos_ids[local_joint_ids],
+            self._reset_joint_qvel_ids[local_joint_ids],
+            position,
+            velocity,
+            term_name=f"{self.name}.write_joint_state_to_sim",
+        )
+
+    def _materialize_reset_joint_indices(self) -> None:
+        if self._reset_joint_qpos_ids is not None:
+            return
+        assert self._joint_names is not None
+        try:
+            qpos_ids = self._backend.get_joint_state_qpos_indices(self._joint_names)
+            qvel_ids = self._backend.get_joint_state_qvel_indices(self._joint_names)
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error("reset joint-state layout", str(exc)) from exc
+        self._reset_joint_qpos_ids = _readonly_ids(
+            qpos_ids,
+            expected=len(self._joint_names),
+            label=f"Entity '{self.name}' reset qpos",
+        )
+        self._reset_joint_qvel_ids = _readonly_ids(
+            qvel_ids,
+            expected=len(self._joint_names),
+            label=f"Entity '{self.name}' reset qvel",
+        )
+
+    def _normalize_local_joint_ids(
+        self,
+        joint_ids: np.ndarray | Sequence[int] | slice | None,
+        *,
+        capability: str,
+    ) -> np.ndarray:
+        if joint_ids is None:
+            ids = np.arange(self.num_joints, dtype=np.intp)
+        elif isinstance(joint_ids, slice):
+            ids = np.arange(self.num_joints, dtype=np.intp)[joint_ids]
+        else:
+            raw = np.asarray(joint_ids)
+            if (
+                raw.ndim != 1
+                or not np.issubdtype(raw.dtype, np.integer)
+                or np.issubdtype(raw.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self.name}' {capability} joint_ids must be a 1-D integer "
+                    "array or slice"
+                )
+            ids = np.asarray(raw, dtype=np.intp)
+        if np.any(ids < 0) or np.any(ids >= self.num_joints):
+            raise IndexError(
+                f"Entity '{self.name}' {capability} joint_ids out of range for "
+                f"{self.num_joints} joints: {ids.tolist()}"
+            )
+        if np.unique(ids).size != ids.size:
+            raise ValueError(
+                f"Entity '{self.name}' {capability} joint_ids contain duplicates: {ids.tolist()}"
+            )
+        return ids
+
+    def _normalize_reset_env_ids(self, env_ids: np.ndarray | slice | None) -> np.ndarray:
+        if env_ids is None:
+            return np.arange(self._backend.num_envs, dtype=np.int32)
+        if isinstance(env_ids, slice):
+            return np.arange(self._backend.num_envs, dtype=np.int32)[env_ids]
+        return env_ids
 
     def find_bodies(
         self, keys: str | Sequence[str], preserve_order: bool = False
@@ -962,6 +1041,8 @@ class EntityScene(Mapping[str, Entity]):
         entities: Mapping[str, EntityCfg],
         backend: SimBackend,
         control_buffer: np.ndarray | None = None,
+        *,
+        reset_state: ResetStateTransaction | None = None,
     ) -> None:
         materialized: dict[str, Entity] = {}
         for name, cfg in entities.items():
@@ -971,8 +1052,12 @@ class EntityScene(Mapping[str, Entity]):
                 raise TypeError(
                     f"Scene entity '{name}' must be EntityCfg, got {type(cfg).__name__}"
                 )
-            materialized[name] = Entity(name, cfg, backend, control_buffer)
+            materialized[name] = Entity(name, cfg, backend, control_buffer, reset_state)
         self._entities = MappingProxyType(materialized)
+        self._reset_state = reset_state
+        env_origins = np.zeros((backend.num_envs, 3), dtype=np.float32)
+        env_origins.setflags(write=False)
+        self._env_origins = env_origins
 
     @classmethod
     def from_scene_cfg(
@@ -980,8 +1065,34 @@ class EntityScene(Mapping[str, Entity]):
         cfg: SceneCfg,
         backend: SimBackend,
         control_buffer: np.ndarray | None = None,
+        *,
+        reset_state: ResetStateTransaction | None = None,
     ) -> EntityScene:
-        return cls(cfg.entities, backend, control_buffer)
+        return cls(cfg.entities, backend, control_buffer, reset_state=reset_state)
+
+    @property
+    def entities(self) -> Mapping[str, Entity]:
+        """Pinned community-style read-only entity mapping."""
+        return self._entities
+
+    @property
+    def env_origins(self) -> np.ndarray:
+        """Read-only per-environment origins; flat UniLab scenes default to zero."""
+        return self._env_origins
+
+    def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None:
+        """Stage a full-scene default state in the active reset transaction."""
+        if self._reset_state is None:
+            raise NotImplementedError(
+                f"EventManager term '{term_name}' reset-state capability is unavailable: "
+                "EntityScene was materialized without an env-owned reset transaction"
+            )
+        if np.any(self._env_origins):
+            raise NotImplementedError(
+                f"EventManager term '{term_name}' cannot apply non-zero env_origins without "
+                "a formal backend root-state layout"
+            )
+        self._reset_state.reset_to_default(env_ids, term_name=term_name)
 
     def __getitem__(self, name: str) -> Entity:
         try:

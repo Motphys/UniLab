@@ -872,6 +872,12 @@ class MuJoCoBackend(SimBackend):
     def get_joint_dof_vel_indices(self, names: Sequence[str]) -> np.ndarray:
         return self.get_joint_dof_indices(names) - self._root_qvel_dim
 
+    def get_joint_state_qpos_indices(self, names: Sequence[str]) -> np.ndarray:
+        return self.get_joint_dof_pos_indices(names) + self._root_qpos_dim
+
+    def get_joint_state_qvel_indices(self, names: Sequence[str]) -> np.ndarray:
+        return self.get_joint_dof_vel_indices(names) + self._root_qvel_dim
+
     def get_joint_range(self) -> np.ndarray | None:
         jnt_range = self._model.jnt_range
         mask = self._model.jnt_type != int(mujoco.mjtJoint.mjJNT_FREE)

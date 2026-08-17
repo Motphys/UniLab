@@ -487,6 +487,14 @@ class MotrixBackend(SimBackend):
             indices.append(self._joint_dof_local_index(name, int(joint.dof_vel_index), pos=False))
         return np.array(indices, dtype=np.int32)
 
+    def get_joint_state_qpos_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices = [int(self._resolve_single_dof_joint(name).dof_pos_index) for name in names]
+        return np.asarray(indices, dtype=np.int32)
+
+    def get_joint_state_qvel_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices = [int(self._resolve_single_dof_joint(name).dof_vel_index) for name in names]
+        return np.asarray(indices, dtype=np.int32)
+
     def get_site_jacobian_w(
         self,
         site_id: int,

@@ -461,6 +461,14 @@ class MjwarpBackend(SimBackend):
 
         return self.get_joint_dof_indices(names) - self._root_qvel_dim
 
+    def get_joint_state_qpos_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve named joints to full reset qpos columns."""
+        return self.get_joint_dof_pos_indices(names) + self._root_qpos_dim
+
+    def get_joint_state_qvel_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve named joints to full reset qvel columns."""
+        return self.get_joint_dof_vel_indices(names) + self._root_qvel_dim
+
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         """Expose immutable model defaults; this does not advertise gain DR support."""
         kp = np.asarray(self._cpu_model.actuator_gainprm[:, 0], dtype=np.float32).copy()

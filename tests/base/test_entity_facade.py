@@ -494,3 +494,16 @@ def test_scene_cfg_entity_defaults_are_not_shared() -> None:
     second = SceneCfg(model_file="second.xml")
     first.entities["robot"] = EntityCfg()
     assert second.entities == {}
+
+
+def test_scene_exposes_read_only_community_entities_and_zero_origins() -> None:
+    _, scene = _scene()
+
+    assert scene.entities["robot"] is scene["robot"]
+    with pytest.raises(TypeError):
+        scene.entities["other"] = scene["robot"]  # type: ignore[index]
+
+    assert scene.env_origins.shape == (3, 3)
+    np.testing.assert_array_equal(scene.env_origins, 0.0)
+    with pytest.raises(ValueError, match="read-only"):
+        scene.env_origins[0, 0] = 1.0
