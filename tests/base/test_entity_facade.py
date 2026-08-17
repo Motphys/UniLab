@@ -47,6 +47,8 @@ class _StrictBackendProfile:
         self.body_quat[..., 0] = 1.0
         self.body_lin_vel = self.body_pos + 200.0
         self.body_ang_vel = self.body_pos + 300.0
+        self.body_lin_vel_b = self.body_pos + 400.0
+        self.body_ang_vel_b = self.body_pos + 500.0
 
     def _check(self, capability: str) -> None:
         self.calls[capability] += 1
@@ -113,6 +115,14 @@ class _StrictBackendProfile:
         self._check("body angular velocity state")
         return self.body_ang_vel[:, ids]
 
+    def get_body_lin_vel_b(self, ids: np.ndarray) -> np.ndarray:
+        self._check("body-frame linear velocity state")
+        return self.body_lin_vel_b[:, ids]
+
+    def get_body_ang_vel_b(self, ids: np.ndarray) -> np.ndarray:
+        self._check("body-frame angular velocity state")
+        return self.body_ang_vel_b[:, ids]
+
 
 def _scene(backend_type: str = "mujoco") -> tuple[_StrictBackendProfile, EntityScene]:
     backend = _StrictBackendProfile(backend_type)
@@ -143,6 +153,9 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
     np.testing.assert_array_equal(robot.data.joint_vel, backend.dof_vel[:, [4, 2]])
     np.testing.assert_array_equal(robot.data.body_link_pos_w, backend.body_pos[:, [7, 4]])
     np.testing.assert_array_equal(robot.data.root_link_pos_w, backend.body_pos[:, 4])
+    np.testing.assert_array_equal(robot.data.root_link_lin_vel_b, backend.body_lin_vel_b[:, 4])
+    np.testing.assert_array_equal(robot.data.root_link_ang_vel_b, backend.body_ang_vel_b[:, 4])
+    np.testing.assert_array_equal(robot.data.heading_w, 0.0)
     np.testing.assert_array_equal(
         robot.data.actuator_ctrl_range,
         np.arange(10, dtype=np.float32).reshape(5, 2)[[4, 2]],
@@ -461,6 +474,12 @@ def test_real_mujoco_entity_selector_and_numpy_state_smoke() -> None:
     assert selector.joint_ids == [2, 5, 8, 11]
     assert scene["robot"].data.joint_pos.shape == (2, 12)
     assert scene["robot"].data.root_link_pose_w.shape == (2, 7)
+    assert scene["robot"].data.root_link_lin_vel_b.shape == (2, 3)
+    assert scene["robot"].data.root_link_ang_vel_b.shape == (2, 3)
+    assert scene["robot"].data.heading_w.shape == (2,)
+    assert np.isfinite(scene["robot"].data.root_link_lin_vel_b).all()
+    assert np.isfinite(scene["robot"].data.root_link_ang_vel_b).all()
+    assert np.isfinite(scene["robot"].data.heading_w).all()
 
 
 def test_scene_cfg_entity_defaults_are_not_shared() -> None:
