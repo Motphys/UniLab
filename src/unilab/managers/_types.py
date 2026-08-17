@@ -142,11 +142,22 @@ class ManagerActionManager(Protocol):
     @property
     def action(self) -> np.ndarray: ...
 
+    @property
+    def prev_action(self) -> np.ndarray: ...
+
+    @property
+    def prev_prev_action(self) -> np.ndarray: ...
+
     def get_term(self, name: str) -> ManagerActionTerm: ...
 
 
 class ManagerCommandManager(Protocol):
     def get_command(self, name: str) -> np.ndarray | None: ...
+
+
+class ManagerTerminationManager(Protocol):
+    @property
+    def terminated(self) -> np.ndarray: ...
 
 
 class ManagerBasedRlEnv(Protocol):
@@ -176,6 +187,9 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def command_manager(self) -> ManagerCommandManager: ...
+
+    @property
+    def termination_manager(self) -> ManagerTerminationManager: ...
 
     @property
     def episode_length_buf(self) -> np.ndarray: ...
