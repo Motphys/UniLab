@@ -480,19 +480,18 @@ def _build_sac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: 
     """build_runner("sac", ...) with learner/env/runner fakes; returns runner kwargs."""
     module = _offpolicy()
     cfg = _offpolicy_cfg(overrides)
-    monkeypatch.setattr(module, "ensure_registries", lambda: None)
-    monkeypatch.setattr(module, "create_env", lambda *args, **kwargs: _FakeEnv())
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
 
-    import unilab.algos.torch.fast_sac.learner as learner_module
-    import unilab.algos.torch.offpolicy.double_buffer_runner as runner_module
+    import unilab.algos.torch.fast_sac.double_buffer as owner_module
 
     class _Learner:
         def __init__(self, *args, **kwargs):
             del args, kwargs
 
-    monkeypatch.setattr(learner_module, "FastSACLearner", _Learner)
-    monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(owner_module, "FastSACLearner", _Learner)
+    monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
     runner = module.build_runner("sac", cfg, log_dir="/tmp/dp_sync_test_run")
     return runner.kwargs
 
