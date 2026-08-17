@@ -13,6 +13,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
+from unilab.base.backend.base import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.scene import SceneCfg
@@ -142,6 +143,25 @@ class TestNanGuardModelPath:
         cfg.scene = SceneCfg(model_file="/changed.xml")
         assert _nan_dump_model_files(env) == [expected, expected]
         assert backend.get_scene_model_file.call_count == 1
+
+
+class TestSceneVisualModelFileContract:
+    def test_backend_default_is_none(self):
+        assert SimBackend.get_scene_visual_model_file(MagicMock()) is None
+
+    def test_env_passthrough_reads_backend_getter(self):
+        backend = MagicMock()
+        backend.backend_type = "mujoco"
+        backend.step.return_value = None
+        backend.get_scene_model_file.return_value = None
+        backend.get_scene_visual_model_file.return_value = "/visual.xml"
+        capabilities = MagicMock()
+        capabilities.supports_physics_state_playback = False
+        backend.get_play_capabilities.return_value = capabilities
+
+        env = _StubNpEnv(backend=backend)
+
+        assert env.get_scene_visual_model_file() == "/visual.xml"
 
 
 class _TerminatingStubEnv(_StubNpEnv):

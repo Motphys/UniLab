@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from omegaconf import OmegaConf
 
 from unilab.base.backend.motrix.backend import MotrixBackend
 from unilab.base.backend.motrix.playback import run_motrix_playback
@@ -14,12 +15,16 @@ from unilab.base.backend.mujoco.playback import run_mujoco_playback
 from unilab.base.scene import SceneCfg
 from unilab.training import (
     BackendAdapter,
+    format_hora_stage2_checkpoint_error,
     get_entrypoint_log_root,
     get_latest_checkpoint,
     get_latest_run,
     get_log_root,
     parse_checkpoint_path,
+    resolve_appo_checkpoint_path,
     resolve_checkpoint_path,
+    resolve_hora_stage2_checkpoint_path,
+    resolve_offpolicy_checkpoint_path,
     resolve_task_checkpoint_path,
 )
 from unilab.visualization.playback import render_play_mode
@@ -105,6 +110,108 @@ def test_resolve_checkpoint_path_accepts_integer_latest_run(tmp_path: Path):
 
     assert checkpoint_path == selected_model
     assert checkpoint_dir == run_dir
+
+
+def test_resolve_appo_checkpoint_path_returns_string_paths(tmp_path: Path):
+    task_dir = tmp_path / "logs" / "appo" / "MyTask"
+    run_dir = task_dir / "2024-02-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+    selected_model = run_dir / "model_9.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_appo_checkpoint_path(task_dir, "-1")
+
+    assert checkpoint_path == str(selected_model)
+    assert checkpoint_dir == str(run_dir)
+
+
+def test_resolve_offpolicy_checkpoint_path_reads_repo_log_tree(tmp_path: Path):
+    run_dir = tmp_path / "logs" / "sac" / "MyTask" / "2024-02-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+    selected_model = run_dir / "model_9.pt"
+    selected_model.write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_offpolicy_checkpoint_path(
+        tmp_path, "sac", "MyTask", "-1"
+    )
+
+    assert checkpoint_path == str(selected_model)
+    assert checkpoint_dir == str(run_dir)
+
+
+def test_resolve_hora_stage2_checkpoint_path_prefers_last_then_numbered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
+    cfg = OmegaConf.create(
+        {
+            "training": {"task_name": "Task", "log_root": None},
+            "algo": {"algo_log_name": "hora_distill", "load_run": "-1", "checkpoint": -1},
+        }
+    )
+    run_dir = tmp_path / "logs" / "hora_distill" / "Task" / "2024-02-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+    (run_dir / "hora_stage2_10.pt").write_bytes(b"")
+    (run_dir / "hora_stage2_20.pt").write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_hora_stage2_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path == run_dir / "hora_stage2_20.pt"
+    assert checkpoint_dir == run_dir
+
+    (run_dir / "hora_stage2_last.pt").write_bytes(b"")
+    checkpoint_path, checkpoint_dir = resolve_hora_stage2_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path == run_dir / "hora_stage2_last.pt"
+    assert checkpoint_dir == run_dir
+
+
+def test_resolve_hora_stage2_checkpoint_path_reports_missing_explicit_checkpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
+    cfg = OmegaConf.create(
+        {
+            "training": {"task_name": "Task", "log_root": None},
+            "algo": {"algo_log_name": "hora_distill", "load_run": "-1", "checkpoint": 7},
+        }
+    )
+    run_dir = tmp_path / "logs" / "hora_distill" / "Task" / "2024-02-01_00-00-00_mujoco"
+    run_dir.mkdir(parents=True)
+    (run_dir / "hora_stage2_last.pt").write_bytes(b"")
+
+    checkpoint_path, checkpoint_dir = resolve_hora_stage2_checkpoint_path(cfg, root_dir=tmp_path)
+
+    assert checkpoint_path is None
+    assert checkpoint_dir == run_dir
+
+    message = format_hora_stage2_checkpoint_error(
+        cfg,
+        task_log_root=run_dir.parent,
+        load_path=checkpoint_path,
+        load_path_dir=checkpoint_dir,
+    )
+
+    assert "Requested stage-2 checkpoint was not found" in message
+    assert "algo.checkpoint=7" in message
+
+
+def test_format_hora_stage2_checkpoint_error_reports_missing_task_root(tmp_path: Path):
+    cfg = OmegaConf.create(
+        {
+            "training": {"task_name": "Task"},
+            "algo": {"load_run": "-1", "checkpoint": -1},
+        }
+    )
+
+    message = format_hora_stage2_checkpoint_error(
+        cfg,
+        task_log_root=tmp_path / "missing",
+        load_path=None,
+        load_path_dir=None,
+    )
+
+    assert "Task log root does not exist." in message
 
 
 def test_parse_checkpoint_path_uses_algo_log_name_from_cfg(

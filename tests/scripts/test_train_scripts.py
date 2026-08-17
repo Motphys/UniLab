@@ -1319,12 +1319,14 @@ def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
     assert env_cfg_override["scene"].model_file == "/tmp/go2_arm_manip_loco_play_scene.xml"
 
 
-def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode():
+def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
     import numpy as np
     import torch
     from tensordict import TensorDict
 
-    mod = _train_rsl_rl(pytest.MonkeyPatch())
+    mod = _train_rsl_rl(monkeypatch)
 
     class FakePolicy:
         def __call__(self, obs):
@@ -3074,6 +3076,7 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
         action_space=types.SimpleNamespace(shape=(3,), low=np.full((3,), -1.0), high=np.ones((3,))),
         cfg=types.SimpleNamespace(ctrl_dt=0.02),
         get_playback_model=lambda: object(),
+        get_scene_visual_model_file=lambda: None,
         get_physics_state_snapshot=lambda: np.zeros((1, 8), dtype=np.float32),
     )
 
