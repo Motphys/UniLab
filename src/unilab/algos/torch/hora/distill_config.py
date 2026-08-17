@@ -6,11 +6,22 @@ import re
 from pathlib import Path
 from typing import Any, cast
 
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.training.run import resolve_task_checkpoint_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
+
+# Teacher owner configs are Hydra-composed from their family config tree.
+# SAC teachers live in the shared offpolicy tree behind the `algo` group.
+_TEACHER_TREE_BY_FAMILY = {"sac": "offpolicy"}
+
+# Teacher -> student `algo.model` mappings expressed in YAML; see
+# conf/hora_distill/student_model/*.yaml. The mapping files interpolate against
+# the composed teacher owner config mounted at `teacher_owner`.
+_STUDENT_MODEL_MAPPING_DIR = Path("conf") / "hora_distill" / "student_model"
 
 
 def _root(root_dir: str | Path | None) -> Path:
@@ -29,53 +40,27 @@ def _sanitize_path_token(value: str, *, fallback: str) -> str:
     return sanitized or fallback
 
 
-def _teacher_config_paths(
-    algo_family: str,
-    task: str,
-    *,
-    root: Path,
-) -> tuple[Path, Path, Path | None]:
-    """Resolve teacher owner/default paths for supported HORA teacher families."""
-    algo_family = str(algo_family)
-    if algo_family == "sac":
-        return (
-            root / "conf" / "offpolicy" / "task" / f"{task}.yaml",
-            root / "conf" / "offpolicy",
-            root / "conf" / "offpolicy" / "algo" / "sac.yaml",
-        )
-    return (
-        root / "conf" / algo_family / "task" / f"{task}.yaml",
-        root / "conf" / algo_family,
-        None,
-    )
-
-
 def load_teacher_owner_config(
     algo_family: str,
     task: str,
     *,
     root_dir: str | Path | None = None,
 ) -> DictConfig:
-    """Load a HORA teacher owner config and its direct owner defaults."""
+    """Compose a HORA teacher owner config with standard Hydra semantics.
+
+    Uses ``initialize_config_dir`` + ``compose`` (same pattern as
+    ``scripts/audit_sim2sim_contracts.py``), so package directives, nested
+    ``defaults`` lists, and interpolations in the teacher tree all resolve.
+    """
     root = _root(root_dir)
-    owner_path, defaults_base, algo_defaults_path = _teacher_config_paths(
-        algo_family,
-        task,
-        root=root,
-    )
-    merged_cfg = OmegaConf.create()
-    if algo_defaults_path is not None:
-        merged_cfg = OmegaConf.merge(
-            merged_cfg,
-            OmegaConf.create({"algo": _load_yaml_config(algo_defaults_path)}),
-        )
-    owner_cfg = _load_yaml_config(owner_path)
-    for default_entry in owner_cfg.get("defaults", []):
-        if not isinstance(default_entry, str) or default_entry == "_self_":
-            continue
-        include_path = defaults_base / f"{default_entry.lstrip('/')}.yaml"
-        merged_cfg = OmegaConf.merge(merged_cfg, _load_yaml_config(include_path))
-    return cast(DictConfig, OmegaConf.merge(merged_cfg, owner_cfg))
+    algo_family = str(algo_family)
+    conf_dir = root / "conf" / _TEACHER_TREE_BY_FAMILY.get(algo_family, algo_family)
+    overrides = [f"task={task}"]
+    if algo_family == "sac":
+        overrides.insert(0, "algo=sac")
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(conf_dir.absolute()), version_base="1.3"):
+        return compose("config", overrides=overrides)
 
 
 def get_teacher_owner_spec(cfg: DictConfig) -> tuple[str | None, str | None]:
@@ -85,6 +70,63 @@ def get_teacher_owner_spec(cfg: DictConfig) -> tuple[str | None, str | None]:
     if algo_family in (None, "") or task in (None, ""):
         return None, None
     return str(algo_family), str(task)
+
+
+def _teacher_contract_mapping_name(
+    teacher_algo_family: str,
+    teacher_task: str,
+    teacher_cfg: DictConfig,
+) -> str:
+    """Validate the teacher owner contract and select the YAML mapping name."""
+    if teacher_algo_family == "sac":
+        runtime_impl = OmegaConf.select(teacher_cfg, "algo.runtime_impl")
+        if runtime_impl != "hora_sac":
+            raise ValueError(
+                "HORA distillation SAC teacher owner must select runtime_impl='hora_sac'. "
+                f"Got task={teacher_task} runtime_impl={runtime_impl!r}."
+            )
+        return "hora_sac"
+
+    actor_class_name = str(OmegaConf.select(teacher_cfg, "algo.actor.class_name") or "")
+    if "HoraActorModel" not in actor_class_name:
+        raise ValueError(
+            "HORA distillation teacher owner must resolve to HoraActorModel. "
+            f"Got algo_family={teacher_algo_family} task={teacher_task} "
+            f"actor.class_name={actor_class_name!r}."
+        )
+    return "hora_actor"
+
+
+def _student_model_defaults(
+    mapping_name: str,
+    teacher_cfg: DictConfig,
+    *,
+    root: Path,
+) -> dict[str, Any]:
+    """Resolve the YAML-expressed teacher -> student model mapping.
+
+    The mapping YAML is merged next to the composed teacher owner config
+    (mounted at ``teacher_owner``) so its interpolations resolve against the
+    Hydra-composed teacher hyperparameters. The mapping file owns all fallback
+    defaults; this function only mounts and resolves it.
+    """
+    mapping_path = root / _STUDENT_MODEL_MAPPING_DIR / f"{mapping_name}.yaml"
+    merged = OmegaConf.merge(
+        {"teacher_owner": teacher_cfg},
+        _load_yaml_config(mapping_path),
+    )
+    model_cfg = OmegaConf.to_container(OmegaConf.select(merged, "model"), resolve=True)
+    if not isinstance(model_cfg, dict):
+        raise TypeError(
+            f"Expected mapping 'model' dict from {mapping_path}, got {type(model_cfg)!r}"
+        )
+    model_cfg = cast(dict[str, Any], model_cfg)
+    distribution_cfg = model_cfg.get("distribution_cfg")
+    if isinstance(distribution_cfg, dict):
+        # The student re-binds its own distribution class; only the teacher's
+        # distribution hyperparameters carry over, not its class binding.
+        distribution_cfg.pop("class_name", None)
+    return model_cfg
 
 
 def teacher_default_cfg(
@@ -97,84 +139,24 @@ def teacher_default_cfg(
     if teacher_algo_family is None or teacher_task is None:
         return OmegaConf.create()
 
+    root = _root(root_dir)
     teacher_cfg = load_teacher_owner_config(
         teacher_algo_family,
         teacher_task,
-        root_dir=root_dir,
+        root_dir=root,
     )
-    if teacher_algo_family == "sac":
-        runtime_impl = OmegaConf.select(teacher_cfg, "algo.runtime_impl")
-        if runtime_impl != "hora_sac":
-            raise ValueError(
-                "HORA distillation SAC teacher owner must select runtime_impl='hora_sac'. "
-                f"Got task={teacher_task} runtime_impl={runtime_impl!r}."
-            )
-        actor_cfg = OmegaConf.to_container(
-            OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True
-        )
-        if not isinstance(actor_cfg, dict):
-            actor_cfg = {}
-        return OmegaConf.create(
-            {
-                "training": OmegaConf.select(teacher_cfg, "training"),
-                "reward": OmegaConf.select(teacher_cfg, "reward"),
-                "env": OmegaConf.select(teacher_cfg, "env"),
-                "algo": {
-                    "model": {
-                        "teacher_arch": "hora_sac",
-                        "actor_hidden_dim": OmegaConf.select(
-                            teacher_cfg,
-                            "algo.actor_hidden_dim",
-                            default=512,
-                        ),
-                        "use_layer_norm": OmegaConf.select(
-                            teacher_cfg,
-                            "algo.use_layer_norm",
-                            default=True,
-                        ),
-                        "priv_info_embed_dim": actor_cfg.get("priv_info_embed_dim", 9),
-                        "priv_mlp_hidden_dims": actor_cfg.get(
-                            "priv_mlp_hidden_dims",
-                            [256, 128, 9],
-                        ),
-                    }
-                },
-            }
-        )
-
-    actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
-    if not isinstance(actor_cfg, dict):
-        actor_cfg = {}
-    actor_cfg = dict(actor_cfg)
-    actor_class_name = str(actor_cfg.get("class_name", ""))
-    if "HoraActorModel" not in actor_class_name:
-        raise ValueError(
-            "HORA distillation teacher owner must resolve to HoraActorModel. "
-            f"Got algo_family={teacher_algo_family} task={teacher_task} "
-            f"actor.class_name={actor_class_name!r}."
-        )
-    actor_cfg.pop("class_name", None)
-    distribution_cfg = actor_cfg.get("distribution_cfg")
-    if isinstance(distribution_cfg, dict):
-        distribution_cfg = {
-            key: value for key, value in distribution_cfg.items() if key != "class_name"
-        }
-
+    mapping_name = _teacher_contract_mapping_name(
+        teacher_algo_family,
+        teacher_task,
+        teacher_cfg,
+    )
+    model_cfg = _student_model_defaults(mapping_name, teacher_cfg, root=root)
     return OmegaConf.create(
         {
             "training": OmegaConf.select(teacher_cfg, "training"),
             "reward": OmegaConf.select(teacher_cfg, "reward"),
             "env": OmegaConf.select(teacher_cfg, "env"),
-            "algo": {
-                "model": {
-                    "hidden_dims": actor_cfg.get("hidden_dims"),
-                    "activation": actor_cfg.get("activation"),
-                    "obs_normalization": actor_cfg.get("obs_normalization"),
-                    "priv_info_embed_dim": actor_cfg.get("priv_info_embed_dim"),
-                    "priv_mlp_hidden_dims": actor_cfg.get("priv_mlp_hidden_dims"),
-                    "distribution_cfg": distribution_cfg,
-                }
-            },
+            "algo": {"model": model_cfg},
         }
     )
 

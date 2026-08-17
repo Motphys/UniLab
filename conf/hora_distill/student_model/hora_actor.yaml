@@ -1,0 +1,17 @@
+# Teacher -> student `algo.model` mapping for HoraActorModel teachers (PPO/APPO).
+#
+# Loaded by unilab.algos.torch.hora.distill_config and merged next to the
+# Hydra-composed teacher owner config mounted at `teacher_owner`, so every
+# student field interpolates directly from the teacher owner YAML. The teacher
+# owner config stays the single source of truth for these hyperparameters;
+# missing teacher fields fail at resolution time instead of falling back to
+# Python-side defaults.
+model:
+  hidden_dims: ${teacher_owner.algo.actor.hidden_dims}
+  activation: ${teacher_owner.algo.actor.activation}
+  obs_normalization: ${teacher_owner.algo.actor.obs_normalization}
+  priv_info_embed_dim: ${teacher_owner.algo.actor.priv_info_embed_dim}
+  priv_mlp_hidden_dims: ${teacher_owner.algo.actor.priv_mlp_hidden_dims}
+  # The student re-binds its own distribution class; distill_config strips
+  # `class_name` from the resolved dict before exposing `algo.model`.
+  distribution_cfg: ${teacher_owner.algo.actor.distribution_cfg}
