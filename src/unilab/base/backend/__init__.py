@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
 
-from .base import SimBackend
+from .base import RenderClosedError, SimBackend
 
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
@@ -24,6 +24,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "bench_nsteps": cfg.sim_substeps,
         "mjwarp_nconmax": cfg.mjwarp_nconmax,
         "mjwarp_njmax": cfg.mjwarp_njmax,
+        "drake_backend_mode": cfg.drake_backend_mode,
+        "drake_nthread": cfg.drake_nthread,
     }
 
 
@@ -106,8 +108,8 @@ def create_backend(
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
-        **kwargs: Additional backend options such as ``position_actuator_gains``
-            or ``motrix_max_iterations``.
+        **kwargs: Additional backend options such as ``position_actuator_gains``,
+            ``iterations``, or ``motrix_max_iterations``.
 
     Returns:
         SimBackend instance.
@@ -118,6 +120,7 @@ def create_backend(
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)
     post_step_forward_sensor = kwargs.pop("post_step_forward_sensor", None)
+    iterations = kwargs.pop("iterations", None)
     chunk_size = kwargs.pop("chunk_size", None)
     adaptive_chunk_size = kwargs.pop("adaptive_chunk_size", False)
     cpu_ids = kwargs.pop("cpu_ids", None)
@@ -132,6 +135,7 @@ def create_backend(
             kwargs["position_actuator_gains"] = position_actuator_gains
         if post_step_forward_sensor is not None:
             kwargs["post_step_forward_sensor"] = post_step_forward_sensor
+        kwargs["iterations"] = iterations
         kwargs["chunk_size"] = chunk_size
         kwargs["adaptive_chunk_size"] = adaptive_chunk_size
         kwargs["cpu_ids"] = cpu_ids
@@ -148,6 +152,7 @@ def create_backend(
             key: value
             for key, value, default in (
                 ("post_step_forward_sensor", post_step_forward_sensor, None),
+                ("iterations", iterations, None),
                 ("chunk_size", chunk_size, None),
                 ("adaptive_chunk_size", adaptive_chunk_size, False),
                 ("cpu_ids", cpu_ids, None),
@@ -163,7 +168,8 @@ def create_backend(
                 stacklevel=2,
             )
         # These generic EnvCfg fields are routed only to the MuJoCo pool.
-        del post_step_forward_sensor, chunk_size, adaptive_chunk_size, cpu_ids, bench_nsteps
+        del post_step_forward_sensor, iterations, chunk_size, adaptive_chunk_size, cpu_ids
+        del bench_nsteps
         kwargs["nconmax"] = mjwarp_nconmax
         kwargs["njmax"] = mjwarp_njmax
         return cast(SimBackend, MjwarpBackend(scene, num_envs, sim_dt, **kwargs))
@@ -215,6 +221,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "SimBackend",
+    "RenderClosedError",
     "MuJoCoBackend",
     "MjwarpBackend",
     "MotrixBackend",
