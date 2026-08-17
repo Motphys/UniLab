@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from unilab.terrains.terrain_generator import TerrainGeneratorCfg
+
+
+def resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
+    """Resolve a ``SceneCfg.fragment_files`` entry against the scene model file.
+
+    Single resolution rule shared by the MuJoCo and Motrix scene
+    materializers: absolute paths pass through; relative paths that exist
+    resolve against the CWD; anything else resolves relative to the model
+    file's directory.
+    """
+    path = Path(fragment_file)
+    if path.is_absolute():
+        return path
+    if path.is_file():
+        return path.resolve()
+    return (model_file.parent / path).resolve()
 
 
 @dataclass
