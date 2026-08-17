@@ -36,6 +36,12 @@ Scene fragments, assets, and cold-path materialization.
 Bootstrap imports and env/backend registration.
 :::
 
+:::{grid-item-card} Manager-Based API
+:link: 6-manager_based_api
+:link-type: doc
+Community manager semantics, NumPy runtime, and fail-closed boundaries.
+:::
+
 ::::
 
 ```{toctree}
@@ -46,4 +52,5 @@ Bootstrap imports and env/backend registration.
 3-layer_boundaries
 4-scene_composition
 5-registry
+6-manager_based_api
 ```
