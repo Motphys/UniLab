@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+import ast
+import inspect
+from collections import Counter
+from types import SimpleNamespace
+from typing import Any, cast
+
+import numpy as np
+import pytest
+
+import unilab.base.entity as entity_module
+from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.backend.base import SimBackend
+from unilab.base.entity import EntityCfg, EntityScene
+from unilab.base.scene import SceneCfg
+from unilab.managers import RewardManager, RewardTermCfg, SceneEntityCfg
+
+
+class _StrictBackendProfile:
+    """Strict public-contract fake shared by backend capability profiles."""
+
+    num_envs = 3
+    num_actuators = 5
+
+    def __init__(self, backend_type: str, *, unsupported: frozenset[str] = frozenset()) -> None:
+        self.backend_type = backend_type
+        self.unsupported = unsupported
+        self.calls: Counter[str] = Counter()
+        self.joint_ids = {"hip": 2, "knee": 0, "ankle": 4}
+        self.body_ids = {"base": 4, "foot": 7}
+        self.site_ids = {"imu": 3}
+        self.geom_names = ("floor", "base_collision", "foot_collision")
+        self.actuator_names = ("knee", "unused", "hip", "unused_2", "ankle")
+        self.dof_pos = np.arange(self.num_envs * 5, dtype=np.float32).reshape(self.num_envs, 5)
+        self.dof_vel = self.dof_pos + 100.0
+        base = np.arange(self.num_envs * 10 * 3, dtype=np.float32)
+        self.body_pos = base.reshape(self.num_envs, 10, 3)
+        self.body_quat = np.zeros((self.num_envs, 10, 4), dtype=np.float32)
+        self.body_quat[..., 0] = 1.0
+        self.body_lin_vel = self.body_pos + 200.0
+        self.body_ang_vel = self.body_pos + 300.0
+
+    def _check(self, capability: str) -> None:
+        self.calls[capability] += 1
+        if capability in self.unsupported:
+            raise NotImplementedError(f"{self.backend_type} lacks {capability}")
+
+    def get_body_ids(self, names) -> np.ndarray:
+        self._check("body names")
+        return np.asarray([self.body_ids[name] for name in names], dtype=np.int32)
+
+    def get_joint_dof_pos_indices(self, names) -> np.ndarray:
+        self._check("joint position names")
+        return np.asarray([self.joint_ids[name] for name in names], dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names) -> np.ndarray:
+        self._check("joint velocity names")
+        return np.asarray([self.joint_ids[name] for name in names], dtype=np.int32)
+
+    def get_site_ids(self, names) -> np.ndarray:
+        self._check("site names")
+        return np.asarray([self.site_ids[name] for name in names], dtype=np.int32)
+
+    def get_geom_names(self) -> tuple[str, ...]:
+        self._check("geom names")
+        return self.geom_names
+
+    def get_actuator_names(self) -> tuple[str, ...]:
+        self._check("actuator names")
+        return self.actuator_names
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        self.calls["actuator range"] += 1
+        return np.arange(10, dtype=np.float32).reshape(5, 2)
+
+    def get_dof_pos(self) -> np.ndarray:
+        self._check("joint position state")
+        return self.dof_pos
+
+    def get_dof_vel(self) -> np.ndarray:
+        self._check("joint velocity state")
+        return self.dof_vel
+
+    def get_body_pos_w(self, ids: np.ndarray) -> np.ndarray:
+        self._check("body position state")
+        return self.body_pos[:, ids]
+
+    def get_body_quat_w(self, ids: np.ndarray) -> np.ndarray:
+        self._check("body quaternion state")
+        return self.body_quat[:, ids]
+
+    def get_body_lin_vel_w(self, ids: np.ndarray) -> np.ndarray:
+        self._check("body linear velocity state")
+        return self.body_lin_vel[:, ids]
+
+    def get_body_ang_vel_w(self, ids: np.ndarray) -> np.ndarray:
+        self._check("body angular velocity state")
+        return self.body_ang_vel[:, ids]
+
+
+def _scene(backend_type: str = "mujoco") -> tuple[_StrictBackendProfile, EntityScene]:
+    backend = _StrictBackendProfile(backend_type)
+    cfg = SceneCfg(
+        model_file="unused.xml",
+        entities={
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=("ankle", "hip"),
+                body_names=("foot", "base"),
+                geom_names=("foot_collision", "base_collision"),
+                site_names=("imu",),
+                actuator_names=("ankle", "hip"),
+            )
+        },
+    )
+    return backend, EntityScene.from_scene_cfg(cfg, cast(SimBackend, backend))
+
+
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix", "drake"])
+def test_backend_profiles_materialize_identical_local_entity_contract(backend_type: str) -> None:
+    backend, scene = _scene(backend_type)
+    robot = scene["robot"]
+
+    assert robot.joint_names == ("ankle", "hip")
+    assert robot.body_names == ("foot", "base")
+    np.testing.assert_array_equal(robot.data.joint_pos, backend.dof_pos[:, [4, 2]])
+    np.testing.assert_array_equal(robot.data.joint_vel, backend.dof_vel[:, [4, 2]])
+    np.testing.assert_array_equal(robot.data.body_link_pos_w, backend.body_pos[:, [7, 4]])
+    np.testing.assert_array_equal(robot.data.root_link_pos_w, backend.body_pos[:, 4])
+    np.testing.assert_array_equal(
+        robot.data.actuator_ctrl_range,
+        np.arange(10, dtype=np.float32).reshape(5, 2)[[4, 2]],
+    )
+
+
+def test_scene_entity_cfg_resolves_only_against_cached_names() -> None:
+    backend, scene = _scene()
+    cold_path_calls = backend.calls.copy()
+
+    cfg = SceneEntityCfg(
+        "robot",
+        joint_names=("hip", "ankle"),
+        body_names=".*",
+        geom_names="foot_.*",
+        site_names="imu",
+        actuator_names=["hip", "ankle"],
+        preserve_order=True,
+    )
+    cfg.resolve(scene)
+
+    assert cfg.joint_ids == [1, 0]
+    assert cfg.body_ids == slice(None)
+    assert cfg.geom_ids == [0]
+    assert cfg.site_ids == slice(None)
+    assert cfg.actuator_ids == [1, 0]
+    assert backend.calls == cold_path_calls
+
+    for _ in range(3):
+        scene["robot"].data.joint_pos
+        scene["robot"].data.root_link_quat_w
+    for key in (
+        "body names",
+        "joint position names",
+        "joint velocity names",
+        "site names",
+        "geom names",
+        "actuator names",
+    ):
+        assert backend.calls[key] == cold_path_calls[key]
+
+
+@pytest.mark.parametrize(
+    ("ids", "error_type", "message"),
+    [
+        ([-1], ValueError, "EntityCfg entity 'robot' joint selector.*out of range"),
+        ([2], ValueError, "EntityCfg entity 'robot' joint selector.*out of range"),
+        ([True], TypeError, "EntityCfg entity 'robot' joint selector.*must be integers"),
+        (["0"], TypeError, "EntityCfg entity 'robot' joint selector.*must be integers"),
+    ],
+)
+def test_scene_entity_cfg_rejects_invalid_ids(ids, error_type, message: str) -> None:
+    _, scene = _scene()
+    cfg = SceneEntityCfg("robot", joint_ids=ids)
+    with pytest.raises(error_type, match=message):
+        cfg.resolve(scene)
+
+
+def test_scene_entity_cfg_reports_entity_for_invalid_regex() -> None:
+    _, scene = _scene()
+    with pytest.raises(
+        ValueError,
+        match="SceneEntityCfg entity 'robot' joint selector.*Invalid entity selector regex",
+    ):
+        SceneEntityCfg("robot", joint_names="[").resolve(scene)
+
+
+def test_missing_entity_namespace_and_backend_capability_fail_closed() -> None:
+    backend = _StrictBackendProfile("drake", unsupported=frozenset({"actuator names"}))
+    with pytest.raises(
+        NotImplementedError,
+        match="Entity 'robot'.*actuator.*backend 'drake'",
+    ):
+        EntityScene(
+            {"robot": EntityCfg(actuator_names=("hip",))},
+            cast(SimBackend, backend),
+        )
+
+    _, scene = _scene("motrix")
+    with pytest.raises(
+        NotImplementedError,
+        match="Entity 'robot'.*tendon.*backend 'motrix'",
+    ):
+        SceneEntityCfg("robot", tendon_names=".*").resolve(scene)
+
+    sparse = EntityScene(
+        {"robot": EntityCfg(joint_names=("hip",))},
+        cast(SimBackend, _StrictBackendProfile("mujoco")),
+    )
+    with pytest.raises(NotImplementedError, match="body.*not declared"):
+        SceneEntityCfg("robot", body_names=".*").resolve(sparse)
+
+    state_missing = _StrictBackendProfile("mujoco", unsupported=frozenset({"body position state"}))
+    with pytest.raises(
+        NotImplementedError,
+        match="Entity 'robot'.*body position state.*backend 'mujoco'",
+    ):
+        EntityScene(
+            {"robot": EntityCfg(root_body_name="base")},
+            cast(SimBackend, state_missing),
+        )
+
+
+def test_entity_declaration_rejects_coercion_and_duplicate_names() -> None:
+    backend = cast(SimBackend, _StrictBackendProfile("mujoco"))
+    with pytest.raises(TypeError, match="sequence of strings, not a scalar"):
+        EntityScene(
+            {"robot": EntityCfg(joint_names=cast(Any, "hip"))},
+            backend,
+        )
+    with pytest.raises(TypeError, match="joint names must be strings"):
+        EntityScene(
+            {"robot": EntityCfg(joint_names=cast(Any, ("hip", 1)))},
+            backend,
+        )
+    with pytest.raises(ValueError, match="joint names must be unique"):
+        EntityScene(
+            {"robot": EntityCfg(joint_names=("hip", "hip"))},
+            backend,
+        )
+
+
+def test_manager_resolution_error_has_manager_term_entity_capability_and_backend() -> None:
+    _, scene = _scene("drake")
+    env = SimpleNamespace(
+        num_envs=3,
+        scene=scene,
+        rng=np.random.default_rng(7),
+        max_episode_length_s=2.0,
+    )
+
+    with pytest.raises(
+        NotImplementedError,
+        match=(
+            "RewardManager term 'unsupported' parameter 'asset_cfg'.*"
+            "Entity 'robot'.*tendon.*backend 'drake'"
+        ),
+    ):
+        RewardManager(
+            {
+                "unsupported": RewardTermCfg(
+                    func=lambda env, asset_cfg: np.zeros(env.num_envs),
+                    weight=1.0,
+                    params={"asset_cfg": SceneEntityCfg("robot", tendon_names=".*")},
+                )
+            },
+            cast(Any, env),
+        )
+
+
+def test_entity_facade_has_no_backend_model_or_asset_access() -> None:
+    tree = ast.parse(inspect.getsource(entity_module))
+    accessed_attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    assert "model" not in accessed_attributes
+    assert "scene_model_file" not in accessed_attributes
+
+
+def test_real_mujoco_entity_selector_and_numpy_state_smoke() -> None:
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    joint_names = (
+        "FL_hip_joint",
+        "FL_thigh_joint",
+        "FL_calf_joint",
+        "FR_hip_joint",
+        "FR_thigh_joint",
+        "FR_calf_joint",
+        "RL_hip_joint",
+        "RL_thigh_joint",
+        "RL_calf_joint",
+        "RR_hip_joint",
+        "RR_thigh_joint",
+        "RR_calf_joint",
+    )
+    actuator_names = (
+        "FR_hip",
+        "FR_thigh",
+        "FR_calf",
+        "FL_hip",
+        "FL_thigh",
+        "FL_calf",
+        "RR_hip",
+        "RR_thigh",
+        "RR_calf",
+        "RL_hip",
+        "RL_thigh",
+        "RL_calf",
+    )
+    scene_cfg = SceneCfg(
+        model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"),
+        entities={
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=joint_names,
+                body_names=("base",),
+                actuator_names=actuator_names,
+            )
+        },
+    )
+    backend = MuJoCoBackend(
+        scene_cfg,
+        num_envs=2,
+        sim_dt=0.01,
+        base_name="base",
+        add_body_sensors=True,
+    )
+    backend.materialize()
+    scene = EntityScene.from_scene_cfg(scene_cfg, backend)
+
+    selector = SceneEntityCfg("robot", joint_names=".*_calf_joint")
+    selector.resolve(scene)
+    assert selector.joint_ids == [2, 5, 8, 11]
+    assert scene["robot"].data.joint_pos.shape == (2, 12)
+    assert scene["robot"].data.root_link_pose_w.shape == (2, 7)
+
+
+def test_scene_cfg_entity_defaults_are_not_shared() -> None:
+    first = SceneCfg(model_file="first.xml")
+    second = SceneCfg(model_file="second.xml")
+    first.entities["robot"] = EntityCfg()
+    assert second.entities == {}

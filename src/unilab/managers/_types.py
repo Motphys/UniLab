@@ -7,6 +7,7 @@ an environment, backend, runner, or IPC implementation.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 import numpy as np
@@ -15,17 +16,115 @@ import numpy as np
 class ManagerEntity(Protocol):
     """Cold-path entity metadata required by :class:`SceneEntityCfg`."""
 
-    joint_names: list[str]
-    body_names: list[str]
-    geom_names: list[str]
-    site_names: list[str]
-    actuator_names: list[str]
-    tendon_names: list[str]
-    camera_names: list[str]
-    light_names: list[str]
-    material_names: list[str]
-    texture_names: list[str]
-    pair_names: list[str]
+    @property
+    def joint_names(self) -> Sequence[str]: ...
+
+    @property
+    def body_names(self) -> Sequence[str]: ...
+
+    @property
+    def geom_names(self) -> Sequence[str]: ...
+
+    @property
+    def site_names(self) -> Sequence[str]: ...
+
+    @property
+    def actuator_names(self) -> Sequence[str]: ...
+
+    @property
+    def tendon_names(self) -> Sequence[str]: ...
+
+    @property
+    def camera_names(self) -> Sequence[str]: ...
+
+    @property
+    def light_names(self) -> Sequence[str]: ...
+
+    @property
+    def material_names(self) -> Sequence[str]: ...
+
+    @property
+    def texture_names(self) -> Sequence[str]: ...
+
+    @property
+    def pair_names(self) -> Sequence[str]: ...
+
+    @property
+    def num_joints(self) -> int: ...
+
+    @property
+    def num_bodies(self) -> int: ...
+
+    @property
+    def num_geoms(self) -> int: ...
+
+    @property
+    def num_sites(self) -> int: ...
+
+    @property
+    def num_actuators(self) -> int: ...
+
+    @property
+    def num_tendons(self) -> int: ...
+
+    @property
+    def num_cameras(self) -> int: ...
+
+    @property
+    def num_lights(self) -> int: ...
+
+    @property
+    def num_materials(self) -> int: ...
+
+    @property
+    def num_textures(self) -> int: ...
+
+    @property
+    def num_pairs(self) -> int: ...
+
+    def find_joints(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_bodies(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_geoms(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_sites(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_actuators(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_tendons(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_cameras(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_lights(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_materials(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_textures(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
+
+    def find_pairs(
+        self, keys: str | Sequence[str], preserve_order: bool = False
+    ) -> tuple[list[int], list[str]]: ...
 
 
 class ManagerScene(Protocol):
