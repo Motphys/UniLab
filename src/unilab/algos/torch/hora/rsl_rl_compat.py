@@ -185,23 +185,3 @@ def convert_config_v3_to_v4(cfg: dict[str, Any]) -> dict[str, Any]:
     if "multi_gpu" not in converted:
         converted["multi_gpu"] = None
     return converted
-
-
-def convert_config_v5(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Convert a legacy UniLab PPO/APPO config into the RSL-RL v5 schema.
-
-    Args:
-        cfg: Resolved owner config dictionary before RSL-RL construction.
-
-    Returns:
-        Deep-copied config dictionary aligned with the RSL-RL v5 actor/critic
-        schema and obs-group naming.
-    """
-    converted = deepcopy(cfg)
-    _convert_policy_to_actor_critic(
-        converted,
-        distribution_class_name="GaussianDistribution",
-    )
-    _normalize_algorithm_cfg(converted)
-    _normalize_obs_groups_for_rsl(converted)
-    return converted

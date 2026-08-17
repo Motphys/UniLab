@@ -119,11 +119,6 @@ def get_diagnostic() -> str:
     return _DIAGNOSTIC
 
 
-def ensure_available() -> bool:
-    """Attempt to load native extension. Returns True if available."""
-    return is_available()
-
-
 def submit_h2d(
     dst: torch.Tensor,
     src: torch.Tensor,
