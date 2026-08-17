@@ -28,6 +28,7 @@ from unilab.training import (
     should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
+from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 
@@ -254,7 +255,6 @@ def play_appo(
 
     # Export actor to ONNX
     if load_path_dir is not None:
-        import numpy as np
         import torch.nn as nn
 
         class _DeterministicAPPOActor(nn.Module):
@@ -268,31 +268,11 @@ def play_appo(
         export_module = _DeterministicAPPOActor(actor.mlp)
         onnx_path = os.path.join(load_path_dir, "policy.onnx")
         dummy_input = torch.randn(1, obs_dim, device=device)
-        with torch.inference_mode():
-            torch.onnx.export(
-                export_module,
-                (dummy_input,),
-                onnx_path,
-                input_names=["obs"],
-                output_names=["action"],
-                opset_version=17,
-            )
-        print(f"Exported actor ONNX to {onnx_path}")
+        export_policy_onnx(export_module, onnx_path, (dummy_input,), input_names=["obs"])
 
-        import onnxruntime as ort
-
-        sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        # Verify ONNX output matches PyTorch
         verify_input = torch.randn(1, obs_dim, device=device)
-        with torch.inference_mode():
-            pt_output = export_module(verify_input).cpu().numpy()
-        onnx_output = sess.run(None, {"obs": verify_input.cpu().numpy().astype(np.float32)})[0]
-        max_diff = np.max(np.abs(pt_output - onnx_output))
-        mean_diff = np.mean(np.abs(pt_output - onnx_output))
-        print(f"ONNX vs PyTorch — max_diff: {max_diff:.2e}, mean_diff: {mean_diff:.2e}")
-        if max_diff > 1e-4:
-            print("WARNING: ONNX output diverges from PyTorch!")
-        else:
-            print("ONNX export verified OK.")
+        verify_policy_onnx(export_module, onnx_path, (verify_input,), input_names=["obs"])
 
     if env.state is None:
         env.init_state()
