@@ -1,0 +1,12 @@
+# Teacher -> student `algo.model` mapping for hora_sac teachers (offpolicy SAC).
+#
+# Loaded by unilab.algos.torch.hora.distill_config and merged next to the
+# Hydra-composed teacher owner config mounted at `teacher_owner`. Values come
+# from the teacher owner YAML; the `oc.select` fallback after the comma only
+# applies when the teacher owner config does not define the field at all.
+model:
+  teacher_arch: hora_sac
+  actor_hidden_dim: ${oc.select:teacher_owner.algo.actor_hidden_dim,512}
+  use_layer_norm: ${oc.select:teacher_owner.algo.use_layer_norm,true}
+  priv_info_embed_dim: ${oc.select:teacher_owner.algo.actor.priv_info_embed_dim,9}
+  priv_mlp_hidden_dims: ${oc.select:teacher_owner.algo.actor.priv_mlp_hidden_dims,[256, 128, 9]}
