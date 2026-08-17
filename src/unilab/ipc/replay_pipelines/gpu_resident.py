@@ -743,9 +743,6 @@ class GPUResidentReplayPipeline:
             return False
         return self._prepare_state == "ready"
 
-    def wait_ready(self) -> None:
-        return None
-
     def wait_until_ready(self, tick_id: int, sample_count: int) -> bool:
         self._validate_sample_count(sample_count)
         metadata = self._prepared_or_wait(tick_id)
