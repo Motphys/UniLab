@@ -96,6 +96,32 @@ def test_action_rejects_invalid_input(fake_env: FakeEnv, action: np.ndarray, mat
         manager.process_action(action)
 
 
+class FailingAction(DummyAction):
+    def process_actions(self, actions: np.ndarray) -> None:
+        del actions
+        raise ValueError("invalid processed target")
+
+    def apply_actions(self) -> None:
+        raise NotImplementedError("backend control write unavailable")
+
+
+@dataclass(kw_only=True)
+class FailingActionCfg(DummyActionCfg):
+    def build(self, env: FakeEnv) -> FailingAction:
+        return FailingAction(self, env)
+
+
+def test_action_term_errors_include_manager_and_term_context(fake_env: FakeEnv) -> None:
+    manager = ActionManager(
+        {"broken": FailingActionCfg(entity_name="robot", dim=1)},
+        fake_env,
+    )
+    with pytest.raises(ValueError, match="ActionManager term 'broken'.*invalid processed"):
+        manager.process_action(np.zeros((fake_env.num_envs, 1), dtype=np.float32))
+    with pytest.raises(NotImplementedError, match="ActionManager term 'broken'.*control write"):
+        manager.apply_action()
+
+
 class StatefulReward:
     def __init__(self, cfg: RewardTermCfg, env: FakeEnv):
         self.reset_ids = None

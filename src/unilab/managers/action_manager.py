@@ -174,9 +174,12 @@ class ActionManager(ManagerBase):
         self._action[:] = action
         # Split the flat action vector and route each slice to its term.
         idx = 0
-        for term in self._terms.values():
+        for name, term in self._terms.items():
             term_actions = self._action[:, idx : idx + term.action_dim]
-            term.process_actions(term_actions)
+            try:
+                term.process_actions(term_actions)
+            except (TypeError, ValueError, NotImplementedError) as exc:
+                raise type(exc)(f"ActionManager term '{name}': {exc}") from exc
             idx += term.action_dim
 
     def apply_action(self) -> None:
@@ -185,8 +188,11 @@ class ActionManager(ManagerBase):
         Called on every decimation substep (physics step), not just once per policy
         step. Each term writes its most recently processed targets to the simulation.
         """
-        for term in self._terms.values():
-            term.apply_actions()
+        for name, term in self._terms.items():
+            try:
+                term.apply_actions()
+            except (TypeError, ValueError, NotImplementedError) as exc:
+                raise type(exc)(f"ActionManager term '{name}': {exc}") from exc
 
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         terms = []

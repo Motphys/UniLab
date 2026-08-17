@@ -140,7 +140,9 @@ class EntityData:
         joint_pos_ids: np.ndarray | None,
         joint_vel_ids: np.ndarray | None,
         body_ids: np.ndarray | None,
+        actuator_ids: np.ndarray | None,
         actuator_ctrl_range: np.ndarray | None,
+        control_buffer: np.ndarray | None,
         entity_name: str,
         backend_type: str,
     ) -> None:
@@ -151,7 +153,9 @@ class EntityData:
         self._joint_pos_index = None if joint_pos_ids is None else _as_column_index(joint_pos_ids)
         self._joint_vel_index = None if joint_vel_ids is None else _as_column_index(joint_vel_ids)
         self._body_ids = body_ids
+        self._actuator_index = None if actuator_ids is None else _as_column_index(actuator_ids)
         self._actuator_ctrl_range = actuator_ctrl_range
+        self._control_buffer = control_buffer
 
     def _require(self, value, capability: str):
         if value is None:
@@ -231,11 +235,81 @@ class EntityData:
     def actuator_ctrl_range(self) -> np.ndarray:
         return self._require(self._actuator_ctrl_range, "actuator control range")
 
+    def write_ctrl(
+        self,
+        values: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Write entity-local actuator controls into the env-owned control buffer.
+
+        This is an in-memory scene write, analogous to the pinned manager runtime's
+        entity target buffers.  Physics remains owned by ``NpEnv``/``SimBackend``;
+        this method never steps or calls a backend-private API.
+        """
+        actuator_index = self._require(self._actuator_index, "actuator control write")
+        control = self._require(self._control_buffer, "actuator control write")
+        if not isinstance(values, np.ndarray):
+            raise TypeError(
+                f"Entity '{self._entity_name}' write_ctrl expected np.ndarray, "
+                f"received {type(values).__name__}"
+            )
+        row_index: np.ndarray | slice
+        if env_ids is None:
+            row_index = slice(None)
+            row_count = control.shape[0]
+        elif isinstance(env_ids, slice):
+            row_index = env_ids
+            row_count = len(range(*env_ids.indices(control.shape[0])))
+        else:
+            raw_ids = np.asarray(env_ids)
+            if (
+                raw_ids.ndim != 1
+                or not np.issubdtype(raw_ids.dtype, np.integer)
+                or np.issubdtype(raw_ids.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self._entity_name}' write_ctrl env_ids must be a 1-D "
+                    f"integer array or slice, got shape={raw_ids.shape}, dtype={raw_ids.dtype}"
+                )
+            row_index = np.asarray(raw_ids, dtype=np.intp)
+            if np.any(row_index < 0) or np.any(row_index >= control.shape[0]):
+                raise IndexError(
+                    f"Entity '{self._entity_name}' write_ctrl env_ids out of range for "
+                    f"{control.shape[0]} environments: {row_index.tolist()}"
+                )
+            if np.unique(row_index).size != row_index.size:
+                raise ValueError(
+                    f"Entity '{self._entity_name}' write_ctrl env_ids contain duplicates: "
+                    f"{row_index.tolist()}"
+                )
+            row_count = len(row_index)
+
+        actuator_count = len(self._require(self._actuator_ctrl_range, "actuator control write"))
+        expected = (row_count, actuator_count)
+        if values.shape != expected:
+            raise ValueError(
+                f"Entity '{self._entity_name}' write_ctrl expected shape {expected}, "
+                f"received {values.shape}"
+            )
+        if not np.isfinite(values).all():
+            raise ValueError(f"Entity '{self._entity_name}' write_ctrl received NaN or Inf")
+
+        if isinstance(row_index, slice) or isinstance(actuator_index, slice):
+            control[row_index, actuator_index] = values
+        else:
+            control[row_index[:, None], actuator_index[None, :]] = values
+
 
 class Entity:
     """Logical entity with cached local-to-backend mappings."""
 
-    def __init__(self, name: str, cfg: EntityCfg, backend: SimBackend) -> None:
+    def __init__(
+        self,
+        name: str,
+        cfg: EntityCfg,
+        backend: SimBackend,
+        control_buffer: np.ndarray | None = None,
+    ) -> None:
         if not name:
             raise ValueError("Entity name must be a non-empty string")
         self.name = name
@@ -293,6 +367,18 @@ class Entity:
         self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
         self._validate_body_state(backend, root_body_ids, body_ids)
         actuator_ctrl_range = self._materialize_actuator_ctrl_range(backend, actuator_ids)
+        if control_buffer is not None:
+            expected_control_shape = (backend.num_envs, backend.num_actuators)
+            if control_buffer.shape != expected_control_shape:
+                raise ValueError(
+                    f"Entity '{self.name}' control buffer has shape {control_buffer.shape}; "
+                    f"expected {expected_control_shape} on backend '{self._backend_type}'"
+                )
+            if not np.issubdtype(control_buffer.dtype, np.floating):
+                raise TypeError(
+                    f"Entity '{self.name}' control buffer must have floating dtype, "
+                    f"got {control_buffer.dtype}"
+                )
 
         self.data = EntityData(
             backend,
@@ -300,7 +386,9 @@ class Entity:
             joint_pos_ids=joint_pos_ids,
             joint_vel_ids=joint_vel_ids,
             body_ids=body_ids,
+            actuator_ids=actuator_ids,
             actuator_ctrl_range=actuator_ctrl_range,
+            control_buffer=control_buffer,
             entity_name=self.name,
             backend_type=self._backend_type,
         )
@@ -601,7 +689,12 @@ class Entity:
 class EntityScene(Mapping[str, Entity]):
     """Read-only name-addressable collection of backend-bound entities."""
 
-    def __init__(self, entities: Mapping[str, EntityCfg], backend: SimBackend) -> None:
+    def __init__(
+        self,
+        entities: Mapping[str, EntityCfg],
+        backend: SimBackend,
+        control_buffer: np.ndarray | None = None,
+    ) -> None:
         materialized: dict[str, Entity] = {}
         for name, cfg in entities.items():
             if not isinstance(name, str) or not name:
@@ -610,12 +703,17 @@ class EntityScene(Mapping[str, Entity]):
                 raise TypeError(
                     f"Scene entity '{name}' must be EntityCfg, got {type(cfg).__name__}"
                 )
-            materialized[name] = Entity(name, cfg, backend)
+            materialized[name] = Entity(name, cfg, backend, control_buffer)
         self._entities = MappingProxyType(materialized)
 
     @classmethod
-    def from_scene_cfg(cls, cfg: SceneCfg, backend: SimBackend) -> EntityScene:
-        return cls(cfg.entities, backend)
+    def from_scene_cfg(
+        cls,
+        cfg: SceneCfg,
+        backend: SimBackend,
+        control_buffer: np.ndarray | None = None,
+    ) -> EntityScene:
+        return cls(cfg.entities, backend, control_buffer)
 
     def __getitem__(self, name: str) -> Entity:
         try:
