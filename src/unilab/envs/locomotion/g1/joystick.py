@@ -162,11 +162,6 @@ class G1RewardConfig:
 
 
 @dataclass
-class G1WalkLegacyRewardConfig(G1RewardConfig):
-    pass
-
-
-@dataclass
 class CurriculumConfig:
     enabled: bool = False
     initial_scale: float = 0.5

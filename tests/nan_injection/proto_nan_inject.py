@@ -5,11 +5,22 @@ instance.
 
 This script uses the existing _StubNpEnv pattern from tests/base/test_np_env.py
 to keep things minimal — no full algo runner needed for the injection mechanic
-itself. Once validated here, the same patch helpers will be lifted into
-tests/algos/test_nan_inject_rsl_rl.py with a real PPO/HIM-PPO runner.
+itself.
+
+Promotion status (registered 2026-08, issue #1020): the originally planned
+promotion into a formal pytest module (tests/algos/test_nan_inject_rsl_rl.py)
+was NOT carried out. Final disposition instead:
+- unit-level regression coverage lives in tests/test_nan_guard.py and
+  tests/ipc/test_nan_guard_spawn_pickle.py (both in CI);
+- real-runner end-to-end validation was lifted into
+  tests/nan_injection/stage2_nan_inject.py, kept as a manual tool per
+  tests/nan_injection/README.md (deliberately out of CI).
+This prototype is retained only as the minimal stub-env smoke reference for
+the inject + dump pattern; delete it together with stage2/stage3 if the
+manual validation tooling is ever dropped.
 
 Run:
-    .venv/bin/python tests/nan_injection/proto_nan_inject.py
+    uv run python tests/nan_injection/proto_nan_inject.py
 """
 
 from __future__ import annotations

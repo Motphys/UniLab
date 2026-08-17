@@ -8,6 +8,7 @@ Slow tests actually call registry.make() and run reset + step.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 import textwrap
@@ -85,23 +86,10 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
 def test_g1_walk_env_cfg_obs_groups_spec():
     """G1WalkEnv must declare obs_groups_spec with actor and critic groups."""
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnvCfg, G1WalkLegacyRewardConfig
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnvCfg
 
     cfg = G1WalkEnvCfg()
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
-
-    reward_cfg = G1WalkLegacyRewardConfig(
-        scales={"feet_phase": 1.0},
-        tracking_sigma=0.25,
-        gait_frequency=1.5,
-        feet_phase_swing_height=0.09,
-        feet_phase_tracking_sigma=0.008,
-        base_height_target=0.765,
-        min_forward_speed_for_gait_reward=0.05,
-        min_base_height=0.5,
-        max_tilt_deg=35.0,
-    )
-    assert reward_cfg.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
 def test_g1_walk_flat_cfg_no_obs_config():
@@ -426,8 +414,8 @@ def test_allegro_grasp_obs_groups_spec_dims():
     assert spec == {"obs": 105}
 
 
-def test_allegro_missing_grasp_cache_prints_local_generation_notice(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_allegro_missing_grasp_cache_logs_local_generation_notice(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     from unilab.envs.manipulation.allegro_inhand.rotation import (
         AllegroRotationPPOCfg,
@@ -440,8 +428,11 @@ def test_allegro_missing_grasp_cache_prints_local_generation_notice(
         gen_grasp=False,
     )
 
-    assert _materialize_grasp_cache(cfg) is None
-    notice = capsys.readouterr().out
+    with caplog.at_level(
+        logging.WARNING, logger="unilab.envs.manipulation.allegro_inhand.rotation"
+    ):
+        assert _materialize_grasp_cache(cfg) is None
+    notice = caplog.text
 
     assert str(missing_cache) in notice
     assert "no Hugging Face download will be attempted" in notice
@@ -1617,7 +1608,9 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
 
 
 def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     from unilab.base.run_control import RunComplete
     from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
@@ -1662,8 +1655,12 @@ def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
         save_once,
     )
 
-    with pytest.raises(RunComplete) as caught:
-        env._collect_successful_grasps(np.asarray([0], dtype=np.int32))
+    with caplog.at_level(
+        logging.INFO,
+        logger="unilab.envs.manipulation.sharpa_inhand.grasp_gen",
+    ):
+        with pytest.raises(RunComplete) as caught:
+            env._collect_successful_grasps(np.asarray([0], dtype=np.int32))
 
     saved_path = tmp_path / "sharpa_0.8.npy"
     saved = np.load(saved_path)
@@ -1677,6 +1674,8 @@ def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
     np.testing.assert_array_equal(saved, expected)
     assert saved.dtype == np.float32
     assert save_calls == [saved_path]
+    assert "grasp progress total=1/1, per_scale=[scale=0.8:1]" in caplog.text
+    assert "target reached (saved=1, configured_target=1)" in caplog.text
     assert env.state.info["log"]["grasp_cache/saved"] == 1.0
     assert env.state.info["log"]["grasp_cache/num_states"] == 1.0
     assert env.state.info["log"]["grasp/target_reached"] == 1.0

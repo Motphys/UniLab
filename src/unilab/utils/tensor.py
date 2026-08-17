@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 def to_torch(x, device: str | torch.device) -> torch.Tensor:
@@ -15,11 +19,23 @@ def to_torch(x, device: str | torch.device) -> torch.Tensor:
         return x.to(device)
     if isinstance(x, np.ndarray):
         return torch.from_numpy(x).to(device)
-    try:
-        if hasattr(x, "__dlpack__"):
+    if hasattr(x, "__dlpack__"):
+        try:
             return torch.from_dlpack(x).to(device)  # pyright: ignore[reportPrivateImportUsage]
-    except Exception:
-        pass
+        except (
+            AttributeError,
+            BufferError,
+            NotImplementedError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            logger.warning(
+                "to_torch: dlpack conversion failed for %s (%s); "
+                "falling back to a float32 numpy copy",
+                type(x).__name__,
+                exc,
+            )
     arr = np.asarray(x, dtype=np.float32)
     return torch.from_numpy(arr).to(device)
 

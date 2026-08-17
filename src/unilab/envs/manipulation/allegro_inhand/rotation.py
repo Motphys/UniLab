@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -33,6 +34,8 @@ from unilab.utils.geometry import (
 )
 
 from .base import AllegroBaseCfg, AllegroBaseEnv
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_grasp_cache_path(cache_path: str) -> epath.Path:
@@ -92,19 +95,22 @@ def _materialize_grasp_cache(cfg: AllegroRotationPPOCfg) -> np.ndarray | None:
 
     cache_path = resolve_grasp_cache_path(cfg.grasp_cache_path)
     if not cache_path.exists():
-        print(
+        logger.warning(
             "[allegro_inhand] Grasp cache is missing; no Hugging Face download will be "
-            f"attempted. Expected local cache: {cache_path}. Generate one with "
+            "attempted. Expected local cache: %s. Generate one with "
             "`uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco "
             "training.no_play=true`, or point `env.grasp_cache_path` at an existing "
-            "local cache."
+            "local cache.",
+            cache_path,
         )
         return None
 
     grasp_cache = np.load(cache_path).astype(np.float64)
-    print(
-        "[allegro_inhand] Loaded grasp cache: "
-        f"{cache_path}, shape={grasp_cache.shape}, dtype={grasp_cache.dtype}"
+    logger.info(
+        "[allegro_inhand] Loaded grasp cache: %s, shape=%s, dtype=%s",
+        cache_path,
+        grasp_cache.shape,
+        grasp_cache.dtype,
     )
     return grasp_cache
 

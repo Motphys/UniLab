@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any
 
@@ -57,7 +58,10 @@ class _FakeEnv:
         self.closed = True
 
 
-def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.MonkeyPatch):
+def test_fast_sac_runner_uses_env_owned_symmetry_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
     import unilab.algos.torch.fast_sac.runner as runner_module
     import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
     from unilab.algos.torch.fast_sac.runner import FastSACRunner
@@ -75,23 +79,25 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(monkeypatch: pytest.Mo
         lambda value: value,
     )
 
-    runner = FastSACRunner(
-        env_name="FakeEnv",
-        device="cpu",
-        num_envs=1,
-        replay_buffer_n=8,
-        batch_size=8,
-        learning_starts=0,
-        updates_per_step=1,
-        policy_frequency=1,
-        use_symmetry=True,
-        obs_normalization=False,
-    )
+    with caplog.at_level(logging.INFO, logger="unilab.algos.torch.fast_sac.runner"):
+        runner = FastSACRunner(
+            env_name="FakeEnv",
+            device="cpu",
+            num_envs=1,
+            replay_buffer_n=8,
+            batch_size=8,
+            learning_starts=0,
+            updates_per_step=1,
+            policy_frequency=1,
+            use_symmetry=True,
+            obs_normalization=False,
+        )
 
     assert fake_env.closed is True
     assert fake_env.last_device == "cpu"
     assert runner.batch_size == 4
     assert runner.learner.symmetry is augmentation
+    assert "[FastSAC] Symmetry enabled: batch_size adjusted to 4 (effective: 8)" in caplog.text
 
 
 def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytest.MonkeyPatch):
