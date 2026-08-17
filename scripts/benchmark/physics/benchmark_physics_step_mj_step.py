@@ -274,7 +274,9 @@ def main():
         "--batch-sizes", type=str, default=",".join(str(x) for x in DEFAULT_BATCH_SIZES)
     )
     parser.add_argument(
-        "--out-json", type=str, default="scripts/benchmark/outputs/physics_step/mj_step/results.json"
+        "--out-json",
+        type=str,
+        default="scripts/benchmark/outputs/physics_step/mj_step/results.json",
     )
     parser.add_argument(
         "--out-dir",

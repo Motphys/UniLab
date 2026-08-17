@@ -504,10 +504,16 @@ def main():
         help="Run multi-thread rollout with skip_checks=false/true/both.",
     )
     parser.add_argument(
-        "--out", type=str, default="scripts/benchmark/outputs/sim/results.json", help="Output JSON path"
+        "--out",
+        type=str,
+        default="scripts/benchmark/outputs/sim/results.json",
+        help="Output JSON path",
     )
     parser.add_argument(
-        "--plot-dir", type=str, default="scripts/benchmark/outputs/sim", help="Plot output directory"
+        "--plot-dir",
+        type=str,
+        default="scripts/benchmark/outputs/sim",
+        help="Plot output directory",
     )
     parser.add_argument(
         "--motrixsim",

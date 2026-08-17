@@ -54,7 +54,9 @@ if str(ROOT_DIR) not in sys.path:
 from scripts.benchmark.core.device_info import get_device_info_dict, get_device_info_line
 from scripts.benchmark.core.output import print_table, save_json
 
-DEFAULT_OUTPUT_JSON = ROOT_DIR / "scripts" / "benchmark" / "outputs" / "offpolicy_dp_scaling" / "results.json"
+DEFAULT_OUTPUT_JSON = (
+    ROOT_DIR / "scripts" / "benchmark" / "outputs" / "offpolicy_dp_scaling" / "results.json"
+)
 DEFAULT_RUNS_ROOT = ROOT_DIR / "scripts" / "benchmark" / "outputs" / "offpolicy_dp_scaling" / "runs"
 
 TRAIN_SCRIPT = ROOT_DIR / "scripts" / "train_offpolicy.py"
