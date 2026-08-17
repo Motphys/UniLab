@@ -7,7 +7,6 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
-from tensordict import TensorDict
 
 ROOT_DIR = Path(__file__).parent.parent
 SRC_DIR = ROOT_DIR / "src"
@@ -19,7 +18,9 @@ if str(ROOT_DIR) not in sys.path:
 from unilab.algos.torch.hora import HoraDistillationTrainer
 from unilab.algos.torch.hora.distill import (
     build_student_actor_and_normalizer,
+    cfg_with_checkpoint_runtime,
     load_distilled_checkpoint,
+    student_policy,
 )
 from unilab.algos.torch.hora.distill_config import (
     apply_teacher_defaults as _apply_teacher_defaults,
@@ -104,21 +105,6 @@ def _build_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], adapter.build_play_env_cfg_override())
 
 
-def _student_policy(
-    actor, hist_normalizer, obs: TensorDict, *, device: torch.device
-) -> torch.Tensor:
-    proprio_hist = hist_normalizer(obs["proprio_hist"].to(device), update=False)
-    policy_obs = TensorDict(
-        {
-            "actor": obs["actor"].to(device),
-            "proprio_hist": proprio_hist,
-        },
-        batch_size=obs.batch_size,
-        device=device,
-    )
-    return actor(policy_obs, stochastic_output=False).clamp_(-1.0, 1.0)
-
-
 def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
     camera_kwargs = {
         "cam_tracking": getattr(cfg.training, "cam_tracking", False),
@@ -130,35 +116,6 @@ def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
         if value is not None:
             camera_kwargs[key] = value
     return camera_kwargs
-
-
-def _cfg_with_checkpoint_runtime(cfg: DictConfig, checkpoint: dict[str, Any]) -> DictConfig:
-    """Merge model-side runtime config stored in a stage-2 checkpoint.
-
-    Args:
-        cfg: Hydra-composed distillation config supplied to play mode.
-        checkpoint: Loaded stage-2 checkpoint dictionary.
-
-    Returns:
-        Config using the current owner env/reward settings and checkpoint model
-        construction fields.
-    """
-    cfg_with_owner_defaults = _apply_teacher_defaults(cfg)
-    cfg_clone = OmegaConf.create(OmegaConf.to_container(cfg_with_owner_defaults, resolve=False))
-    runtime_cfg = checkpoint.get("distill_runtime_cfg")
-    if runtime_cfg is None:
-        return cast(DictConfig, cfg_clone)
-
-    runtime_model_cfg = OmegaConf.select(OmegaConf.create(runtime_cfg), "algo.model")
-    if runtime_model_cfg is None:
-        return cast(DictConfig, cfg_clone)
-    OmegaConf.update(
-        cfg_clone,
-        "algo.model",
-        OmegaConf.to_container(runtime_model_cfg, resolve=True),
-        merge=False,
-    )
-    return cast(DictConfig, cfg_clone)
 
 
 def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
@@ -184,7 +141,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = _cfg_with_checkpoint_runtime(cfg, checkpoint)
+    cfg = cfg_with_checkpoint_runtime(cfg, checkpoint)
     env = create_env(
         cfg,
         num_envs=int(cfg.training.play_env_num),
@@ -211,7 +168,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
             ),
             initialize=lambda: wrapped_env.reset()[0],
             step=lambda obs: wrapped_env.step(
-                _student_policy(actor, hist_normalizer, obs, device=torch_device)
+                student_policy(actor, hist_normalizer, obs, device=torch_device)
             )[0],
             camera_kwargs=_play_camera_kwargs(cfg),
             on_plan=log_playback_plan,
