@@ -431,6 +431,28 @@ class DrakeBackend(SimBackend):
                 raise ValueError(f"Drake model does not contain joint {key!r}") from exc
         return np.asarray(indices, dtype=np.int32)
 
+    def get_joint_state_qpos_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            key = str(name)
+            self._require_single_dof_joint(key)
+            try:
+                indices.append(self._joint_qpos_adr_by_name[key])
+            except KeyError as exc:
+                raise ValueError(f"Drake model does not contain joint {key!r}") from exc
+        return np.asarray(indices, dtype=np.int32)
+
+    def get_joint_state_qvel_indices(self, names: Sequence[str]) -> np.ndarray:
+        indices: list[int] = []
+        for name in names:
+            key = str(name)
+            self._require_single_dof_joint(key)
+            try:
+                indices.append(self._joint_qvel_adr_by_name[key])
+            except KeyError as exc:
+                raise ValueError(f"Drake model does not contain joint {key!r}") from exc
+        return np.asarray(indices, dtype=np.int32)
+
     # Stepping and reset.
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict | None:
         # UniLab passes one actuator command per env. An optional pre-step hook

@@ -7,7 +7,7 @@ an environment, backend, runner, or IPC implementation.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 import numpy as np
@@ -126,11 +126,27 @@ class ManagerEntity(Protocol):
         self, keys: str | Sequence[str], preserve_order: bool = False
     ) -> tuple[list[int], list[str]]: ...
 
+    def write_joint_state_to_sim(
+        self,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None: ...
+
 
 class ManagerScene(Protocol):
     """Minimal name-addressable scene surface consumed by managers."""
 
+    @property
+    def entities(self) -> Mapping[str, ManagerEntity]: ...
+
+    @property
+    def env_origins(self) -> np.ndarray: ...
+
     def __getitem__(self, name: str) -> ManagerEntity: ...
+
+    def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None: ...
 
 
 class ManagerActionTerm(Protocol):

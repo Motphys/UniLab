@@ -135,6 +135,10 @@ def test_actuation_metadata_defaults_fail_closed() -> None:
         SimBackend.get_actuator_joint_names(object())  # type: ignore[arg-type]
     with pytest.raises(NotImplementedError, match="default DoF positions"):
         SimBackend.get_default_dof_pos(object())  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match="get_joint_state_qpos_indices"):
+        SimBackend.get_joint_state_qpos_indices(object(), ("joint",))  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match="get_joint_state_qvel_indices"):
+        SimBackend.get_joint_state_qvel_indices(object(), ("joint",))  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
@@ -153,6 +157,8 @@ def test_actuation_metadata_contract(backend_type: str) -> None:
     actuator_names = backend.get_actuator_names()
     target_joint_names = backend.get_actuator_joint_names()
     default_dof_pos = backend.get_default_dof_pos()
+    reset_qpos_ids = backend.get_joint_state_qpos_indices(target_joint_names)
+    reset_qvel_ids = backend.get_joint_state_qvel_indices(target_joint_names)
 
     assert len(actuator_names) == backend.num_actuators
     assert len(set(actuator_names)) == len(actuator_names)
@@ -162,7 +168,24 @@ def test_actuation_metadata_contract(backend_type: str) -> None:
     assert default_dof_pos.shape == backend.get_dof_pos().shape[1:]
     assert np.issubdtype(default_dof_pos.dtype, np.floating)
     assert np.isfinite(default_dof_pos).all()
+    assert reset_qpos_ids.shape == (backend.num_actuators,)
+    assert reset_qvel_ids.shape == (backend.num_actuators,)
+    assert np.issubdtype(reset_qpos_ids.dtype, np.integer)
+    assert np.issubdtype(reset_qvel_ids.dtype, np.integer)
+    assert np.unique(reset_qpos_ids).size == reset_qpos_ids.size
+    assert np.unique(reset_qvel_ids).size == reset_qvel_ids.size
+    assert np.all((reset_qpos_ids >= 0) & (reset_qpos_ids < backend.get_default_qpos().size))
+    assert np.all((reset_qvel_ids >= 0) & (reset_qvel_ids < backend.get_init_qvel().size))
     np.testing.assert_allclose(default_dof_pos, backend.get_dof_pos()[0], atol=1e-6)
+
+    qpos = np.broadcast_to(
+        backend.get_default_qpos(), (NUM_ENVS, backend.get_default_qpos().size)
+    ).copy()
+    qvel = np.broadcast_to(backend.get_init_qvel(), (NUM_ENVS, backend.get_init_qvel().size)).copy()
+    expected_joint_pos = np.broadcast_to(default_dof_pos + 0.01, (NUM_ENVS, default_dof_pos.size))
+    qpos[:, reset_qpos_ids] = expected_joint_pos
+    backend.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+    np.testing.assert_allclose(backend.get_dof_pos(), expected_joint_pos, atol=1e-5)
 
     detached = default_dof_pos.copy()
     default_dof_pos[:] = np.nan

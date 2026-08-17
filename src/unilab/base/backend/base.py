@@ -774,6 +774,23 @@ class SimBackend(abc.ABC):
             f"{type(self).__name__} does not implement get_joint_dof_vel_indices"
         )
 
+    def get_joint_state_qpos_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve single-DoF joints to full ``set_state`` qpos columns.
+
+        Unlike :meth:`get_joint_dof_pos_indices`, these indices address the
+        complete qpos vector accepted by :meth:`set_state`, including any root
+        coordinates.  Manager reset transactions resolve them on the cold path.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_joint_state_qpos_indices"
+        )
+
+    def get_joint_state_qvel_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve single-DoF joints to full ``set_state`` qvel columns."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_joint_state_qvel_indices"
+        )
+
     def get_site_jacobian_w(
         self,
         site_id: int,

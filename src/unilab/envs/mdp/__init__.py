@@ -4,6 +4,8 @@ from unilab.envs.mdp.actions import JointPositionAction as JointPositionAction
 from unilab.envs.mdp.actions import JointPositionActionCfg as JointPositionActionCfg
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
+from unilab.envs.mdp.events import reset_scene_to_default as reset_scene_to_default
+from unilab.envs.mdp.events import resolve_env_ids as resolve_env_ids
 from unilab.envs.mdp.observations import base_ang_vel as base_ang_vel
 from unilab.envs.mdp.observations import base_lin_vel as base_lin_vel
 from unilab.envs.mdp.observations import generated_commands as generated_commands
@@ -48,6 +50,8 @@ __all__ = [
     "is_alive",
     "is_terminated",
     "projected_gravity",
+    "reset_scene_to_default",
+    "resolve_env_ids",
     "root_height_below_minimum",
     "time_out",
     "track_angular_velocity",
