@@ -50,7 +50,7 @@ def test_utils_directory_is_whitelisted() -> None:
 
 def test_repo_has_no_package_level_utils_imports() -> None:
     current_file = Path(__file__).resolve()
-    for root in (Path("src"), Path("tests"), Path("scripts"), Path("benchmark")):
+    for root in (Path("src"), Path("tests"), Path("scripts")):
         for path in root.rglob("*.py"):
             if path.resolve() == current_file:
                 continue

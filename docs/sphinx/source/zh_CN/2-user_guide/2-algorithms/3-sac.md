@@ -85,7 +85,7 @@ collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段
   6000D；TCP loopback 下同步 all-reduce 和 `async_op=True` + `Work.wait()` 均可 capture/replay，
   默认 stream 与 side stream 均通过；跳过 warmup 时首个 all-reduce 会在 capture 中报
   `operation not permitted when stream is capturing`。有限超时的最小复现见
-  `benchmark/rl/reproduce_nccl_cuda_graph_capture.py`。
+  `scripts/benchmark/rl/reproduce_nccl_cuda_graph_capture.py`。
 - 仅验证过 `mujoco` backend。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置
@@ -93,4 +93,4 @@ collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段
   TCP loopback 是唯一稳定传输。
 
 collector `Steps/s` 与 learner `Samples/s` 各自相对单卡的 scaling 基准见
-`benchmark/rl/benchmark_offpolicy_dp_scaling.py`（issue #968，真实运行不进 CI）。
+`scripts/benchmark/rl/benchmark_offpolicy_dp_scaling.py`（issue #968，真实运行不进 CI）。

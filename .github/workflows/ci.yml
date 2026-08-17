@@ -120,7 +120,7 @@ jobs:
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
       - name: Benchmark entrypoint smoke test
-        run: uv run --no-sync python benchmark/smoke_test.py
+        run: uv run --no-sync python scripts/benchmark/smoke_test.py
 
   test:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'

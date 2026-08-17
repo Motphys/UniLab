@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import benchmark.core.device_info as device_info
+import scripts.benchmark.core.device_info as device_info
 
 
 def test_linux_device_info_reads_amd_visible_vram(monkeypatch):

@@ -72,7 +72,7 @@ def _fallback_device_info_dict() -> dict[str, str]:
 
 def _benchmark_device_info_path() -> Path | None:
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "benchmark" / "core" / "device_info.py"
+        candidate = parent / "scripts" / "benchmark" / "core" / "device_info.py"
         if candidate.is_file():
             return candidate
     return None

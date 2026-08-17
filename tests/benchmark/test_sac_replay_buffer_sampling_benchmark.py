@@ -4,7 +4,7 @@ import json
 
 import pytest
 import torch
-from benchmark.rl import benchmark_sac_replay_buffer_sampling as bench
+from scripts.benchmark.rl import benchmark_sac_replay_buffer_sampling as bench
 
 
 def _tiny_case() -> bench.BenchmarkCase:

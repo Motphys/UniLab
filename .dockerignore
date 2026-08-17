@@ -16,7 +16,7 @@ __pycache__
 **/__pycache__
 logs
 runs
-benchmark/outputs
+scripts/benchmark/outputs
 dist
 build
 temp

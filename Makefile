@@ -72,7 +72,7 @@ test-slow:
 
 .PHONY: test-benchmark-smoke
 test-benchmark-smoke:
-	uv run python benchmark/smoke_test.py
+	uv run python scripts/benchmark/smoke_test.py
 
 .PHONY: test-all
 test-all: check test-cov test-benchmark-smoke

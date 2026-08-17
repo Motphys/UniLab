@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import benchmark.core.mem_profile as mem_profile
+import scripts.benchmark.core.mem_profile as mem_profile
 
 
 def test_build_memory_summary_keeps_env_step_schema() -> None:

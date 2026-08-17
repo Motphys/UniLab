@@ -23,10 +23,9 @@ def _write_completion_fixture(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (root / "benchmark" / "core").mkdir(parents=True)
-    (root / "benchmark" / "benchmark_sim.py").write_text("", encoding="utf-8")
-    (root / "benchmark" / "core" / "runner.py").write_text("", encoding="utf-8")
-    (root / "scripts").mkdir()
+    (root / "scripts" / "benchmark" / "core").mkdir(parents=True)
+    (root / "scripts" / "benchmark" / "benchmark_sim.py").write_text("", encoding="utf-8")
+    (root / "scripts" / "benchmark" / "core" / "runner.py").write_text("", encoding="utf-8")
     (root / "scripts" / "play_viser.py").write_text("", encoding="utf-8")
     owner_files = {
         root / "conf" / "ppo" / "task" / "go1" / "mujoco.yaml": """
@@ -77,20 +76,20 @@ def test_uv_run_command_position_includes_project_scripts_and_run_paths(tmp_path
     metadata = build_metadata(tmp_path)
 
     assert "demo" in complete_words(["uv", "run", "d"], 2, metadata)
-    assert complete_words(["uv", "run", "b"], 2, metadata) == ["benchmark/"]
+    assert complete_words(["uv", "run", "s"], 2, metadata) == ["scripts/"]
 
 
 def test_uv_run_path_completion_is_hierarchical(tmp_path: Path) -> None:
     _write_completion_fixture(tmp_path)
     metadata = build_metadata(tmp_path)
 
-    benchmark_choices = complete_words(["uv", "run", "benchmark/"], 2, metadata)
-    assert "benchmark/benchmark_sim.py" in benchmark_choices
-    assert "benchmark/core/" in benchmark_choices
-    assert "benchmark/core/runner.py" not in benchmark_choices
+    benchmark_choices = complete_words(["uv", "run", "scripts/benchmark/"], 2, metadata)
+    assert "scripts/benchmark/benchmark_sim.py" in benchmark_choices
+    assert "scripts/benchmark/core/" in benchmark_choices
+    assert "scripts/benchmark/core/runner.py" not in benchmark_choices
 
-    assert complete_words(["uv", "run", "benchmark/core/"], 2, metadata) == [
-        "benchmark/core/runner.py"
+    assert complete_words(["uv", "run", "scripts/benchmark/core/"], 2, metadata) == [
+        "scripts/benchmark/core/runner.py"
     ]
 
 
@@ -98,7 +97,7 @@ def test_uv_run_unknown_command_arguments_defer_to_shell_completion(tmp_path: Pa
     _write_completion_fixture(tmp_path)
     metadata = build_metadata(tmp_path)
 
-    assert complete_words(["uv", "run", "benchmark/benchmark_sim.py", ""], 3, metadata) == []
+    assert complete_words(["uv", "run", "scripts/benchmark/benchmark_sim.py", ""], 3, metadata) == []
 
 
 def test_eval_load_run_value_position_completes_latest_run_alias(tmp_path: Path) -> None:

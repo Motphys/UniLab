@@ -17,7 +17,7 @@ TRAINING_ENTRYPOINTS = {
     "train": "unilab.cli:train_main",
     "eval": "unilab.cli:eval_main",
 }
-RUN_PATH_ROOTS = ("benchmark", "scripts")
+RUN_PATH_ROOTS = ("scripts",)
 RUN_PATH_SUFFIXES = (".py", ".sh")
 RUN_PATH_IGNORED_PARTS = ("__pycache__", "outputs")
 SCRIPT_ASSIGNMENT_PATTERN = re.compile(r'^([A-Za-z0-9_.-]+)\s*=\s*"([^"]+)"\s*(?:#.*)?$')
