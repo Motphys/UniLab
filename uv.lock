@@ -2734,6 +2734,18 @@ wheels = [
 ]
 
 [[package]]
+name = "prettytable"
+version = "3.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/74/ba08d81e668ccfe8658d7520a307e63c19862c08eb4ccb26f356c5239a7a/prettytable-3.18.0.tar.gz", hash = "sha256:439217116152244369caf3d9f1caf2f9fe29b03bd79e88d2928c8e718c95d680", size = 76373, upload-time = "2026-06-22T16:07:50.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/be/2e6798ace5cc036f5d05d36b7b2fd85346f1a708c87060890b070d0ec607/prettytable-3.18.0-py3-none-any.whl", hash = "sha256:b3346e0e6f79180833aebaac088ae926340586cf6d7d991b9eb125b65f72313a", size = 37357, upload-time = "2026-06-22T16:07:48.595Z" },
+]
+
+[[package]]
 name = "prompt-toolkit"
 version = "3.0.52"
 source = { registry = "https://pypi.org/simple" }
@@ -3921,6 +3933,7 @@ dependencies = [
     { name = "onnxruntime", version = "1.19.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "onnxruntime", version = "1.24.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "packaging" },
+    { name = "prettytable" },
     { name = "rich" },
     { name = "rsl-rl-lib" },
     { name = "setuptools" },
@@ -3981,6 +3994,7 @@ requires-dist = [
     { name = "onnxruntime", marker = "python_full_version < '3.11'", specifier = "<1.20" },
     { name = "onnxruntime", marker = "python_full_version >= '3.11'", specifier = ">=1.20" },
     { name = "packaging" },
+    { name = "prettytable", specifier = ">=3.10" },
     { name = "pybind11", marker = "extra == 'mujoco'", specifier = ">=2.12" },
     { name = "rich" },
     { name = "rsl-rl-lib", specifier = ">=5.0.0" },
