@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from benchmark.env import benchmark_env_step as bench
 from hydra.errors import ConfigCompositionException
 from omegaconf import OmegaConf
+from scripts.benchmark.env import benchmark_env_step as bench
 
 
 def test_go2w_rough_cfg_matches_ppo_owner_yaml() -> None:

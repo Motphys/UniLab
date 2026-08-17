@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from benchmark.env import benchmark_np_env_shard_throughput as bench
+from scripts.benchmark.env import benchmark_np_env_shard_throughput as bench
 
 
 def test_shard_env_rows_covers_each_row_exactly_once() -> None:

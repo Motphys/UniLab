@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-from benchmark.env import benchmark_sharpa_init_dr_construct as sharpa_benchmark
+from scripts.benchmark.env import benchmark_sharpa_init_dr_construct as sharpa_benchmark
 
 
 def test_sharpa_init_dr_benchmark_uses_owner_scale_list_key() -> None:

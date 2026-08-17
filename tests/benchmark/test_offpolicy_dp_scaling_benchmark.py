@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from benchmark.rl import benchmark_offpolicy_dp_scaling as bench
+from scripts.benchmark.rl import benchmark_offpolicy_dp_scaling as bench
 
 torch = pytest.importorskip("torch")
 from torch.utils.tensorboard import SummaryWriter  # noqa: E402
