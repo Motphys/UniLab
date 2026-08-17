@@ -125,7 +125,6 @@ def _safe_envs_per_sec(env_num: int, mean_sec: float) -> float:
         return 0.0
     mean_sec = max(mean_sec, _MIN_MEAN_SEC)
     return env_num / mean_sec
-    return samples
 
 
 # Input/activation range to avoid overflow (e.g. float32) in large batches

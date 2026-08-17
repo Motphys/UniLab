@@ -129,9 +129,6 @@ class HIMRolloutStorage:
         self.sigma[self.step].copy_(transition.action_sigma)
         self.step += 1
 
-    def add_transitions(self, transition: Transition) -> None:
-        self.add_transition(transition)
-
     def clear(self) -> None:
         self.step = 0
 
