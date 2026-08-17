@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -491,7 +492,9 @@ def test_motrix_record_play_render_plan_is_headless(tmp_path: Path):
     assert plan.num_steps == 12
 
 
-def test_motrix_interactive_run_playback_treats_window_close_as_done(capsys):
+def test_motrix_interactive_run_playback_treats_window_close_as_done(
+    caplog: pytest.LogCaptureFixture,
+):
     class FakeEnv:
         cfg = type("Cfg", (), {"render_spacing": 1.0, "ctrl_dt": 0.02})()
 
@@ -504,18 +507,19 @@ def test_motrix_interactive_run_playback_treats_window_close_as_done(capsys):
     backend.render = _render
     backend.capture_video_frame = lambda: np.zeros((2, 2, 3), dtype=np.uint8)
 
-    result = backend.run_playback(
-        env=FakeEnv(),
-        initialize=lambda: 0,
-        step=lambda obs: obs + 1,
-        num_steps=None,
-        output_video=None,
-        headless=False,
-        record_video=False,
-    )
+    with caplog.at_level(logging.INFO, logger="unilab.base.backend.motrix.backend"):
+        result = backend.run_playback(
+            env=FakeEnv(),
+            initialize=lambda: 0,
+            step=lambda obs: obs + 1,
+            num_steps=None,
+            output_video=None,
+            headless=False,
+            record_video=False,
+        )
 
     assert result is None
-    assert "Render window closed." in capsys.readouterr().out
+    assert "Render window closed." in caplog.text
 
 
 def test_motrix_record_run_playback_does_not_swallow_render_closed(tmp_path: Path):

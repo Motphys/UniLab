@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from collections.abc import Sequence
@@ -51,6 +52,8 @@ from ..motrix_camera import (
     tracking_camera_lookat,
 )
 from .playback import run_motrix_playback
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 DEFAULT_MOTRIX_MAX_ITERATIONS = 3
@@ -936,7 +939,7 @@ class MotrixBackend(SimBackend):
             )
         except RenderClosedError:
             if not should_run_headless and not should_record_video:
-                print("Render window closed.")
+                logger.info("Render window closed.")
                 return None
             raise
 

@@ -3,11 +3,39 @@ from __future__ import annotations
 import ast
 import copy
 import inspect
+import logging
 import textwrap
+from typing import Any, cast
 
 import pytest
 import torch
 from tensordict import TensorDict
+
+
+def test_hora_ppo_logs_when_symmetry_is_logging_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from unilab.algos.torch.hora.ppo import HoraPPO
+
+    actor = torch.nn.Linear(2, 2)
+    critic = torch.nn.Linear(2, 1)
+    actor.is_recurrent = False  # type: ignore[attr-defined]
+    critic.is_recurrent = False  # type: ignore[attr-defined]
+    symmetry_cfg = {
+        "use_data_augmentation": False,
+        "use_mirror_loss": False,
+        "data_augmentation_func": lambda *_args: None,
+    }
+
+    with caplog.at_level(logging.WARNING, logger="unilab.algos.torch.hora.ppo"):
+        HoraPPO(
+            cast(Any, actor),
+            cast(Any, critic),
+            cast(Any, object()),
+            symmetry_cfg=symmetry_cfg,
+        )
+
+    assert "Symmetry not used for learning. We will use it for logging instead." in caplog.text
 
 
 def test_hora_sac_actor_shapes_and_stable_module_names() -> None:

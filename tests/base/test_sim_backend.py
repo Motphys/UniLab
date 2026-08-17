@@ -968,22 +968,6 @@ class TestCrossBackend:
         mj, mx, _ = synced
         np.testing.assert_allclose(mj.get_dof_vel(), mx.get_dof_vel(), atol=self.ATOL)
 
-    # --- after step ---
-
-    # def test_base_pos_after_step(self, synced):
-    #     mj, mx, _ = synced
-    #     ctrl = np.zeros((NUM_ENVS, mj.model.nu))
-    #     mj.step(ctrl, nsteps=5)
-    #     mx.step(ctrl, nsteps=5)
-    #     np.testing.assert_allclose(mj.get_base_pos(), mx.get_base_pos(), atol=self.ATOL)
-
-    # def test_dof_pos_after_step(self, synced):
-    #     mj, mx, _ = synced
-    #     ctrl = np.zeros((NUM_ENVS, mj.model.nu))
-    #     mj.step(ctrl, nsteps=5)
-    #     mx.step(ctrl, nsteps=5)
-    #     np.testing.assert_allclose(mj.get_dof_pos(), mx.get_dof_pos(), atol=self.ATOL)
-
 
 @pytest.mark.slow
 class TestCrossBackendBodySensors:

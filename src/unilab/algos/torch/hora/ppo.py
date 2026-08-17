@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from itertools import chain
 from typing import Any, cast
@@ -15,6 +16,8 @@ from tensordict import TensorDict
 
 from unilab.algos.torch.hora.models import HoraActorModel, HoraCriticModel, HoraSharedActorCritic
 from unilab.algos.torch.rsl_rl_ppo import FinalObservationAwarePPO
+
+logger = logging.getLogger(__name__)
 
 
 class HoraPPO(FinalObservationAwarePPO):
@@ -68,7 +71,9 @@ class HoraPPO(FinalObservationAwarePPO):
         if symmetry_cfg is not None:
             use_symmetry = symmetry_cfg["use_data_augmentation"] or symmetry_cfg["use_mirror_loss"]
             if not use_symmetry:
-                print("Symmetry not used for learning. We will use it for logging instead.")
+                logger.warning(
+                    "Symmetry not used for learning. We will use it for logging instead."
+                )
             from rsl_rl.utils import resolve_callable
 
             symmetry_cfg["data_augmentation_func"] = resolve_callable(
