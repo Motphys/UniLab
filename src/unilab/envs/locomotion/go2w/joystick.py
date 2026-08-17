@@ -242,8 +242,6 @@ class Go2WJoystickEnv(Go2WBaseEnv):
             base_name=cfg.asset.base_name,
             push_body_name=cfg.domain_rand.push_body_name,
             **env_backend_kwargs(cfg),
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
         self._np_dtype = get_global_dtype()

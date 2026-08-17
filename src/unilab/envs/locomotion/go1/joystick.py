@@ -103,8 +103,6 @@ class Go1WalkTask(Go1BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
             **env_backend_kwargs(cfg),
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
         )
         terrain_spawn_data = backend.get_terrain_spawn_data()
         if terrain_spawn_data is not None:

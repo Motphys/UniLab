@@ -45,6 +45,15 @@ def test_env_backend_kwargs_maps_fields():
     assert "motrix_max_iterations" in kw
 
 
+def test_env_backend_kwargs_maps_drake_fields():
+    kw = env_backend_kwargs(EnvCfg(drake_backend_mode="batch", drake_nthread=8))
+    assert kw["drake_backend_mode"] == "batch"
+    assert kw["drake_nthread"] == 8
+    default_kw = env_backend_kwargs(EnvCfg())
+    assert default_kw["drake_backend_mode"] == "batch"
+    assert default_kw["drake_nthread"] == 0
+
+
 def _build_small_backend(**backend_kwargs):
     """Build a minimal real MuJoCoBackend.
 

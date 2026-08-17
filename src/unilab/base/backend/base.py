@@ -17,6 +17,16 @@ PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
 TerrainHeightSampleFn = Callable[[np.ndarray], np.ndarray]
 
 
+class RenderClosedError(RuntimeError):
+    """Interface-level signal that the user closed the backend render window.
+
+    Backends with a native renderer translate their private window-closed
+    errors into this type at the interface boundary (``render`` /
+    ``capture_video_frame``), so play loops can catch it by type instead of
+    matching backend-private exception names.
+    """
+
+
 @dataclass(frozen=True)
 class BackendTerrainSpawnData:
     """Read-only terrain spawn metadata materialized by a backend.
@@ -439,13 +449,21 @@ class SimBackend(abc.ABC):
         raise NotImplementedError(f"{self.__class__.__name__} does not support native rendering")
 
     def render(self) -> None:
-        """Render one frame through a backend-native interactive renderer."""
+        """Render one frame through a backend-native interactive renderer.
+
+        Raises:
+            RenderClosedError: If the user closed the render window.
+        """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support native interactive rendering"
         )
 
     def capture_video_frame(self) -> np.ndarray:
-        """Capture one RGB frame through a backend-native renderer."""
+        """Capture one RGB frame through a backend-native renderer.
+
+        Raises:
+            RenderClosedError: If the user closed the render window.
+        """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support native video capture"
         )

@@ -7,7 +7,7 @@ import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import create_backend
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import ResetPlan
@@ -278,23 +278,18 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
             )
 
         scene = _resolve_go2_arm_scene(cfg)
+        # Single assembly point: every entry is routed (or dropped) by
+        # create_backend/env_backend_kwargs per backend, so the env never
+        # branches on backend_type. Go2Arm's single ``iterations`` knob feeds
+        # both MuJoCo (``iterations``) and Motrix (``max_iterations``).
         backend_kwargs: dict[str, Any] = {
             "base_name": cfg.asset.base_name,
             "push_body_name": cfg.domain_rand.push_body_name,
-            "drake_backend_mode": cfg.drake_backend_mode,
-            "drake_nthread": cfg.drake_nthread,
+            "position_actuator_gains": build_go2_arm_position_gains(cfg.control_config),
+            "iterations": cfg.iterations,
+            **env_backend_kwargs(cfg),
+            "motrix_max_iterations": cfg.iterations,
         }
-        if backend_type == "motrix":
-            backend_kwargs["motrix_max_iterations"] = cfg.iterations
-        elif backend_type == "mujoco":
-            backend_kwargs["position_actuator_gains"] = build_go2_arm_position_gains(
-                cfg.control_config
-            )
-            backend_kwargs["iterations"] = cfg.iterations
-            backend_kwargs["post_step_forward_sensor"] = cfg.post_step_forward_sensor
-            backend_kwargs["chunk_size"] = cfg.chunk_size
-            backend_kwargs["adaptive_chunk_size"] = cfg.adaptive_chunk_size
-            backend_kwargs["bench_nsteps"] = cfg.sim_substeps
         backend = create_backend(
             backend_type,
             scene,

@@ -18,7 +18,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-from unilab.base.backend import materialize_scene_visual_override
+from unilab.base.backend import RenderClosedError, materialize_scene_visual_override
 from unilab.base.run_control import RunComplete
 from unilab.ipc.dp_launcher import (
     UNILAB_DP_LOG_DIR,
@@ -352,11 +352,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     else None
                 ),
             )
-    except Exception as e:
-        if cfg.training.sim_backend == "motrix" and "RenderClosedError" in str(type(e).__name__):
-            print("Render window closed.")
-        else:
-            raise
+    except RenderClosedError:
+        # Interface-level signal: the user closed the backend render window.
+        print("Render window closed.")
     if playback_mode != "none" and num_steps is not None:
         print("Done.")
     return play_video_path
