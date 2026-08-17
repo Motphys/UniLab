@@ -54,13 +54,6 @@ class TerrainHeightField:
             self.noise.astype(np.float64) - self.elevation_min
         ) * self.vertical_scale + self.z_offset
 
-    def normalized_elevation(self) -> np.ndarray:
-        """Return normalized hfield values in ``[0, 1]``."""
-        elevation_range = self.elevation_max - self.elevation_min
-        if elevation_range <= 0:
-            return np.zeros_like(self.noise, dtype=np.float64)
-        return (self.noise.astype(np.float64) - self.elevation_min) / elevation_range
-
 
 @dataclass
 class TerrainOutput:
@@ -124,12 +117,6 @@ class GeneratedTerrain:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         iio.imwrite(path, self.to_uint16())
-
-    def hfield_size_xml(self) -> str:
-        return " ".join(f"{value:.9g}" for value in self.hfield_size)
-
-    def geom_pos_xml(self) -> str:
-        return " ".join(f"{value:.9g}" for value in self.geom_pos)
 
 
 @dataclass
