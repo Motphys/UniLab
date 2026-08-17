@@ -130,6 +130,45 @@ def test_terrain_spawn_contract_is_read_only_and_defaults_to_unsupported() -> No
         )
 
 
+def test_actuation_metadata_defaults_fail_closed() -> None:
+    with pytest.raises(NotImplementedError, match="actuator target joints"):
+        SimBackend.get_actuator_joint_names(object())  # type: ignore[arg-type]
+    with pytest.raises(NotImplementedError, match="default DoF positions"):
+        SimBackend.get_default_dof_pos(object())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
+def test_actuation_metadata_contract(backend_type: str) -> None:
+    _require_backend(backend_type)
+
+    backend = create_backend(
+        backend_type,
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="pelvis",
+    )
+    backend.materialize()
+
+    actuator_names = backend.get_actuator_names()
+    target_joint_names = backend.get_actuator_joint_names()
+    default_dof_pos = backend.get_default_dof_pos()
+
+    assert len(actuator_names) == backend.num_actuators
+    assert len(set(actuator_names)) == len(actuator_names)
+    assert all(actuator_names)
+    assert len(target_joint_names) == backend.num_actuators
+    assert all(target_joint_names)
+    assert default_dof_pos.shape == backend.get_dof_pos().shape[1:]
+    assert np.issubdtype(default_dof_pos.dtype, np.floating)
+    assert np.isfinite(default_dof_pos).all()
+    np.testing.assert_allclose(default_dof_pos, backend.get_dof_pos()[0], atol=1e-6)
+
+    detached = default_dof_pos.copy()
+    default_dof_pos[:] = np.nan
+    np.testing.assert_array_equal(backend.get_default_dof_pos(), detached)
+
+
 def test_terrain_spawn_consumers_do_not_probe_private_backend_capabilities() -> None:
     forbidden_names = {"terrain_origins", "terrain_surface_sampler", "sample_height"}
     offenders: list[str] = []

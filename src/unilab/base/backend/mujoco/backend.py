@@ -692,6 +692,41 @@ class MuJoCoBackend(SimBackend):
             for actuator_id in range(int(self._model.nu))
         )
 
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        supported_transmissions = {
+            int(mujoco.mjtTrn.mjTRN_JOINT),
+            int(mujoco.mjtTrn.mjTRN_JOINTINPARENT),
+        }
+        supported_joint_types = {
+            int(mujoco.mjtJoint.mjJNT_HINGE),
+            int(mujoco.mjtJoint.mjJNT_SLIDE),
+        }
+        names: list[str] = []
+        for actuator_id in range(int(self._model.nu)):
+            transmission = int(self._model.actuator_trntype[actuator_id])
+            joint_id = int(self._model.actuator_trnid[actuator_id, 0])
+            if transmission not in supported_transmissions or joint_id < 0:
+                actuator_name = self.get_actuator_names()[actuator_id]
+                raise NotImplementedError(
+                    "backend 'mujoco' capability 'actuator target joint' requires "
+                    f"a joint transmission; actuator '{actuator_name}' uses "
+                    f"transmission type {transmission}"
+                )
+            if int(self._model.jnt_type[joint_id]) not in supported_joint_types:
+                actuator_name = self.get_actuator_names()[actuator_id]
+                raise NotImplementedError(
+                    "backend 'mujoco' capability 'actuator target joint' requires "
+                    f"a single-DoF joint; actuator '{actuator_name}' targets joint id {joint_id}"
+                )
+            joint_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
+            if not joint_name:
+                raise NotImplementedError(
+                    "backend 'mujoco' capability 'actuator target joint' requires named joints; "
+                    f"actuator id {actuator_id} targets unnamed joint id {joint_id}"
+                )
+            names.append(joint_name)
+        return tuple(names)
+
     def get_scene_model_file(self) -> str | None:
         return str(self.scene_model_file) if self.scene_model_file else None
 
@@ -709,6 +744,9 @@ class MuJoCoBackend(SimBackend):
 
     def get_default_qpos(self) -> np.ndarray:
         return np.asarray(self._model.qpos0, dtype=np.float64).copy()
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        return np.asarray(self._model.qpos0[self._root_qpos_dim :], dtype=self._np_dtype).copy()
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self.nv,), dtype=self._np_dtype)

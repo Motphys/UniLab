@@ -9,6 +9,7 @@ import textwrap
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from unilab.base.backend.mjwarp import dependencies
@@ -140,3 +141,29 @@ def test_mjwarp_getters_do_not_materialize_warp_arrays() -> None:
             ):
                 offenders.append(getter.name)
     assert offenders == []
+
+
+def test_mjwarp_actuation_metadata_uses_cpu_model_only() -> None:
+    import mujoco
+
+    from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.backend.mjwarp.backend import MjwarpBackend
+
+    model = mujoco.MjModel.from_xml_path(
+        str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
+    )
+    backend = object.__new__(MjwarpBackend)
+    backend._mujoco = mujoco
+    backend._cpu_model = model
+    backend._root_qpos_dim = 7
+    backend._actuator_names = tuple(
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, index) or f"#{index}"
+        for index in range(model.nu)
+    )
+
+    assert len(backend.get_actuator_joint_names()) == model.nu
+    assert backend.get_actuator_joint_names()[0] == "FR_hip_joint"
+    default = backend.get_default_dof_pos()
+    np.testing.assert_array_equal(default, model.qpos0[7:])
+    default[:] = np.nan
+    assert np.isfinite(backend.get_default_dof_pos()).all()
