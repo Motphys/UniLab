@@ -18,6 +18,11 @@ from typing import (
 )
 
 from .base import ABEnv, EnvCfg
+from .config_overrides import (
+    CONFIG_MAPPING_POLICY_KEY,
+    MANAGER_PARAMS_MAPPING_POLICY,
+    MANAGER_TERM_MAPPING_POLICY,
+)
 
 TEnvCfg = TypeVar("TEnvCfg", bound=EnvCfg)
 _SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake")
@@ -162,6 +167,86 @@ def _construct_dataclass_from_dict(target_type: Type[Any], values: Dict[str, Any
     return target_obj
 
 
+def _config_mapping_policy(target_obj: Any, field_name: str) -> str | None:
+    if not dataclasses.is_dataclass(target_obj) or isinstance(target_obj, type):
+        return None
+    for config_field in dataclasses.fields(target_obj):
+        if config_field.name == field_name:
+            policy = config_field.metadata.get(CONFIG_MAPPING_POLICY_KEY)
+            return str(policy) if policy is not None else None
+    return None
+
+
+def _is_manager_callable_term_cfg(target_obj: Any) -> bool:
+    if not dataclasses.is_dataclass(target_obj) or isinstance(target_obj, type):
+        return False
+    return any(
+        config_field.metadata.get(CONFIG_MAPPING_POLICY_KEY) == MANAGER_PARAMS_MAPPING_POLICY
+        for config_field in dataclasses.fields(target_obj)
+    )
+
+
+def _apply_manager_mapping_overrides(
+    target_obj: Any,
+    field_name: str,
+    existing: Any,
+    overrides: Any,
+    *,
+    policy: str,
+) -> None:
+    owner = f"{type(target_obj).__name__}.{field_name}"
+    if not isinstance(existing, dict):
+        raise TypeError(
+            f"Config field '{owner}' declares manager mapping policy but contains "
+            f"{type(existing).__name__}, expected dict"
+        )
+    if not isinstance(overrides, dict):
+        raise TypeError(
+            f"Config field '{owner}' must be overridden by a mapping, not "
+            f"{type(overrides).__name__}"
+        )
+
+    if policy == MANAGER_PARAMS_MAPPING_POLICY:
+        for param_name, value in overrides.items():
+            current = existing.get(param_name)
+            if isinstance(value, dict) and dataclasses.is_dataclass(current):
+                apply_cfg_overrides(current, value)
+            else:
+                existing[param_name] = value
+        return
+
+    if policy != MANAGER_TERM_MAPPING_POLICY:
+        raise ValueError(f"Config field '{owner}' has unknown mapping policy {policy!r}")
+
+    for term_name, value in overrides.items():
+        if term_name not in existing:
+            raise ValueError(
+                f"Config field '{owner}' has no factory-owned term '{term_name}'; "
+                "declare its callable/config in the task Python factory first"
+            )
+        if value is None:
+            existing[term_name] = None
+            continue
+
+        current = existing[term_name]
+        if current is None:
+            raise ValueError(
+                f"Config field '{owner}' term '{term_name}' is disabled; set a concrete "
+                "config in the task Python factory before overriding its fields"
+            )
+        if not dataclasses.is_dataclass(current):
+            raise TypeError(
+                f"Config field '{owner}' term '{term_name}' contains "
+                f"{type(current).__name__}, expected a dataclass config"
+            )
+        if not isinstance(value, dict):
+            raise TypeError(
+                f"Config field '{owner}' term '{term_name}' must be overridden by a "
+                "field mapping or None; replacing the factory-owned term is not allowed"
+            )
+        apply_cfg_overrides(current, value)
+
+
 def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
     """Apply a (possibly nested) dict of overrides to ``target_obj`` in place.
 
@@ -176,6 +261,9 @@ def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
       - If ``value`` is a dict and ``target_obj.key`` is currently ``None``,
         instantiate the field's annotated dataclass type from the dict
         (full-construction path).
+      - Fields explicitly marked as manager mappings merge only existing
+        factory-owned entries. ``None`` disables an entry; unknown entries and
+        callable/config replacement fail closed.
       - Otherwise ``setattr`` the value directly (scalar / list / non-dataclass).
     """
     try:
@@ -187,6 +275,21 @@ def apply_cfg_overrides(target_obj: Any, overrides: Dict[str, Any]) -> None:
         if not hasattr(target_obj, key):
             raise ValueError(f"Config class '{type(target_obj).__name__}' has no attribute '{key}'")
         existing = getattr(target_obj, key)
+        mapping_policy = _config_mapping_policy(target_obj, key)
+        if mapping_policy is not None:
+            _apply_manager_mapping_overrides(
+                target_obj,
+                key,
+                existing,
+                value,
+                policy=mapping_policy,
+            )
+            continue
+        if key == "func" and _is_manager_callable_term_cfg(target_obj):
+            raise ValueError(
+                f"Config field '{type(target_obj).__name__}.func' is factory-owned and "
+                "cannot be overridden"
+            )
         if isinstance(value, dict):
             if dataclasses.is_dataclass(existing) and not isinstance(existing, type):
                 apply_cfg_overrides(existing, value)

@@ -6,12 +6,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Sequence
 
 import numpy as np
 from prettytable import PrettyTable
 
+from unilab.base.config_overrides import (
+    CONFIG_MAPPING_POLICY_KEY,
+    MANAGER_TERM_MAPPING_POLICY,
+)
 from unilab.managers._buffers import CircularBuffer, DelayBuffer
 from unilab.managers._noise import noise_cfg, noise_model
 from unilab.managers._noise.noise_cfg import NoiseCfg, NoiseModelCfg
@@ -81,7 +85,9 @@ class ObservationGroupCfg:
     for the actor, "critic" for the value function).
     """
 
-    terms: dict[str, ObservationTermCfg | None]
+    terms: dict[str, ObservationTermCfg | None] = field(
+        metadata={CONFIG_MAPPING_POLICY_KEY: MANAGER_TERM_MAPPING_POLICY}
+    )
     """Dictionary mapping term names to their configurations."""
 
     concatenate_terms: bool = True
