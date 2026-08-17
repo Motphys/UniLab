@@ -54,6 +54,7 @@ from unilab.training import (
     get_entrypoint_log_root,
     resolve_task_checkpoint_path,
 )
+from unilab.training.offpolicy import build_offpolicy_env_cfg_override
 from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
@@ -68,6 +69,7 @@ from unilab.visualization.interactive_playback import (
     create_hora_distill_playback_session,
     create_rsl_rl_playback_session,
     create_sac_playback_session,
+    make_sim2sim_preflight,
     prepare_motion_overlay_selection,
     select_torch_device,
 )
@@ -802,8 +804,7 @@ def _load_resolved_visual_viewer_model(env: Any):
 def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
     import mujoco
 
-    backend = getattr(env, "_backend", None)
-    backend_visual_model_file = getattr(backend, "scene_visual_model_file", None)
+    backend_visual_model_file = env.get_scene_visual_model_file()
     if backend_visual_model_file:
         resolved = _load_resolved_visual_viewer_model(env)
         if resolved is not None:
@@ -1021,9 +1022,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         from unilab.training import create_env
 
         if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
-            from train_offpolicy import build_offpolicy_env_cfg_override
-
-            env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg)
+            env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=ROOT_DIR)
         else:
             env_cfg_override = _backend_adapter(cfg, algo_name=algo).build_task_env_cfg_override()
         try:
@@ -1068,6 +1067,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 runner_cls=OnPolicyRunner,
                 policy_obs_dims_getter=get_policy_obs_dims,
                 train_cfg_normalizer=normalize_ppo_train_cfg,
+                sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
         elif algo == "appo":

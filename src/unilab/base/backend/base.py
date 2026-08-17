@@ -131,6 +131,13 @@ class SimBackend(abc.ABC):
         """Return the materialized scene path for diagnostics, when available."""
         return None
 
+    def get_scene_visual_model_file(self) -> str | None:
+        """Return the scene visual model file on the cold path, when available.
+
+        Backends without a separate visual scene model return ``None``.
+        """
+        return None
+
     def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
         """Return backend-materialized terrain metadata on the cold path.
 
