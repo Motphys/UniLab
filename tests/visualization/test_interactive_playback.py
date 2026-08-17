@@ -401,6 +401,217 @@ def test_create_hora_distill_playback_session_missing_checkpoint_uses_zero_actio
     assert torch.equal(captured["actions"], torch.zeros((1, 2)))
 
 
+def _rsl_rl_session_test_env() -> SimpleNamespace:
+    return SimpleNamespace(
+        obs_groups_spec={"obs": 5},
+        action_space=SimpleNamespace(
+            shape=(2,),
+            low=np.full((2,), -1.0),
+            high=np.full((2,), 1.0),
+        ),
+        get_physics_state_snapshot=lambda: np.zeros((1, 4), dtype=np.float32),
+    )
+
+
+class _RslRlTestWrapper:
+    def __init__(self, wrapped_env, *, device, policy_obs_mode):
+        self.env = wrapped_env
+
+    def reset(self):
+        return "obs", {}
+
+    def step(self, actions):
+        return "obs", 0.0, False, {}
+
+
+def _rsl_rl_session_kwargs(tmp_path: Path) -> dict[str, Any]:
+    return dict(
+        playback_cfg=RslRlPlaybackConfig(
+            task="MyTask",
+            load_run="-1",
+            checkpoint=None,
+            action_mode="policy",
+            policy_obs_mode="actor",
+            algo_log_name="rsl_rl_ppo",
+            log_root=None,
+            num_envs=1,
+        ),
+        env_factory=lambda num_envs: _rsl_rl_session_test_env(),
+        algo_config={},
+        root_dir=tmp_path,
+        device="cpu",
+        checkpoint_resolver=lambda *args: None,
+        checkpoint_input_dim_reader=lambda path: 5,
+        entrypoint_log_root=lambda root_dir, *, algo_log_name, log_root=None: (
+            tmp_path / algo_log_name
+        ),
+        wrapper_cls=_RslRlTestWrapper,
+        policy_obs_dims_getter=lambda spec: (5, 7),
+        train_cfg_normalizer=lambda cfg: cfg,
+        log=lambda message: None,
+    )
+
+
+def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_1"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_10.pt"
+    torch.save({"actor": {}}, checkpoint)
+    preflight_calls: list[str | None] = []
+
+    class Runner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            pass
+
+        def load(self, checkpoint, load_cfg):
+            pass
+
+        def get_inference_policy(self, *, device):
+            return lambda obs: torch.ones((1, 2))
+
+    kwargs = _rsl_rl_session_kwargs(tmp_path)
+    kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
+    kwargs["runner_cls"] = Runner
+    kwargs["sim2sim_preflight"] = lambda run_dir: preflight_calls.append(run_dir)
+
+    _session, _mode, resolved = create_rsl_rl_playback_session(**kwargs)
+
+    assert resolved == str(checkpoint)
+    assert preflight_calls == [str(run_dir)]
+
+
+def test_create_rsl_rl_playback_session_wraps_load_with_dim_guard(tmp_path: Path) -> None:
+    from unilab.training.sim2sim import CrossBackendIncompatibleError
+
+    run_dir = tmp_path / "run_1"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_10.pt"
+    torch.save({"actor": {}}, checkpoint)
+
+    class MismatchRunner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            pass
+
+        def load(self, checkpoint, load_cfg):
+            raise RuntimeError("size mismatch for actor.mlp.0.weight: ...")
+
+        def get_inference_policy(self, *, device):
+            raise AssertionError("unreachable")
+
+    kwargs = _rsl_rl_session_kwargs(tmp_path)
+    kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
+    kwargs["runner_cls"] = MismatchRunner
+
+    with pytest.raises(CrossBackendIncompatibleError):
+        create_rsl_rl_playback_session(**kwargs)
+
+
+def test_interactive_playback_has_no_scripts_sys_path_hack() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "unilab"
+        / "visualization"
+        / "interactive_playback.py"
+    ).read_text(encoding="utf-8")
+
+    assert "sys.path" not in source
+    assert "from train_appo import" not in source
+    assert "from train_offpolicy import" not in source
+    assert "from train_hora_distill import" not in source
+
+
+def test_sac_playback_session_runs_sim2sim_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from omegaconf import OmegaConf
+
+    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.training.offpolicy as offpolicy_play
+    import unilab.training.run as training_run
+    import unilab.visualization.interactive_playback as interactive_playback
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save({"actor": {}}, checkpoint)
+    preflight_calls: list[tuple[Any, str]] = []
+
+    class FakeActor:
+        def eval(self):
+            return self
+
+        def load_state_dict(self, state_dict):
+            pass
+
+    class FakeEnv:
+        num_envs = 1
+        obs_groups_spec = {"obs": 3, "critic": 5}
+        action_space = SimpleNamespace(
+            shape=(2,),
+            low=np.full((2,), -1.0),
+            high=np.full((2,), 1.0),
+        )
+        state = SimpleNamespace(info={})
+
+        def get_physics_state_snapshot(self):
+            return np.zeros((1, 4), dtype=np.float32)
+
+    cfg = OmegaConf.create(
+        {
+            "training": {"task_name": "Task", "device": None},
+            "algo": {
+                "algo_log_name": "sac",
+                "load_run": "run",
+                "actor_hidden_dim": 16,
+                "use_layer_norm": False,
+            },
+        }
+    )
+
+    def fake_preflight(source_run_dir, target_cfg, *, algo_name, strict):
+        preflight_calls.append((source_run_dir, algo_name))
+        return target_cfg
+
+    monkeypatch.setattr(interactive_playback, "resolve_sim2sim_config", fake_preflight)
+    monkeypatch.setattr(
+        offpolicy_play,
+        "default_device",
+        lambda torch_module, preferred=None: "cpu",
+    )
+    monkeypatch.setattr(offpolicy_play, "resolve_play_obs_dims", lambda spec: (3, 5))
+    monkeypatch.setattr(
+        offpolicy_play,
+        "resolve_play_actor_spec",
+        lambda algo_name, cfg, *, obs_dim, critic_obs_dim: ("sac", {}),
+    )
+    monkeypatch.setattr(
+        training_run,
+        "resolve_offpolicy_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(tmp_path)),
+    )
+    monkeypatch.setattr(actor_factory, "build_actor", lambda *args, **kwargs: FakeActor())
+
+    _session, _mode, resolved = create_sac_playback_session(
+        playback_cfg=RslRlPlaybackConfig(
+            task="Task",
+            load_run="run",
+            checkpoint=None,
+            action_mode="policy",
+            policy_obs_mode="actor",
+            algo_log_name="sac",
+            log_root=None,
+        ),
+        cfg=cfg,
+        env_factory=lambda num_envs: FakeEnv(),
+        root_dir=tmp_path,
+        device="cpu",
+        log=lambda message: None,
+    )
+
+    assert resolved == str(checkpoint)
+    assert preflight_calls == [(str(tmp_path), "sac")]
+
+
 def test_keyboard_commander_nudges_stack_and_clamp_to_vel_limit() -> None:
     commander = KeyboardCommander.from_vel_limit(_VEL_LIMIT, step_lin=0.1, step_ang=0.2)
     assert commander.command.tolist() == [0.0, 0.0, 0.0]
@@ -569,10 +780,11 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import train_offpolicy
     from omegaconf import OmegaConf
 
     import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.training.offpolicy as offpolicy_play
+    import unilab.training.run as training_run
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {}}, checkpoint)
@@ -649,13 +861,13 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
     )
 
     monkeypatch.setattr(
-        train_offpolicy,
+        offpolicy_play,
         "default_device",
         lambda torch_module, preferred=None: "cpu",
     )
-    monkeypatch.setattr(train_offpolicy, "resolve_play_obs_dims", lambda spec: (3, 5))
+    monkeypatch.setattr(offpolicy_play, "resolve_play_obs_dims", lambda spec: (3, 5))
     monkeypatch.setattr(
-        train_offpolicy,
+        offpolicy_play,
         "resolve_play_actor_spec",
         lambda algo_name, cfg, *, obs_dim, critic_obs_dim: (
             "hora_sac",
@@ -663,8 +875,8 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
         ),
     )
     monkeypatch.setattr(
-        train_offpolicy,
-        "resolve_checkpoint_path",
+        training_run,
+        "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(tmp_path)),
     )
     monkeypatch.setattr(actor_factory, "build_actor", lambda *args, **kwargs: FakeActor())
@@ -700,7 +912,6 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import train_hora_distill
     from omegaconf import OmegaConf
     from tensordict import TensorDict
 
@@ -755,9 +966,9 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
     )
 
     monkeypatch.setattr(
-        train_hora_distill,
-        "_resolve_stage2_checkpoint_path",
-        lambda cfg: (checkpoint, tmp_path),
+        training,
+        "resolve_hora_stage2_checkpoint_path",
+        lambda cfg, *, root_dir: (checkpoint, tmp_path),
     )
 
     def fake_cfg_with_checkpoint_runtime(cfg, checkpoint_payload):
@@ -765,14 +976,22 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
         return cfg
 
     monkeypatch.setattr(
-        train_hora_distill,
-        "_cfg_with_checkpoint_runtime",
+        distill,
+        "cfg_with_checkpoint_runtime",
         fake_cfg_with_checkpoint_runtime,
     )
-    monkeypatch.setattr(train_hora_distill, "_build_play_env_cfg_override", lambda cfg: {})
+
+    class FakeBackendAdapter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_play_env_cfg_override(self):
+            return {}
+
+    monkeypatch.setattr(training, "BackendAdapter", FakeBackendAdapter)
     monkeypatch.setattr(
-        train_hora_distill,
-        "_student_policy",
+        distill,
+        "student_policy",
         lambda actor, hist_normalizer, obs, *, device: torch.ones((1, 2)),
     )
     monkeypatch.setattr(training, "create_env", lambda *args, **kwargs: fake_env)

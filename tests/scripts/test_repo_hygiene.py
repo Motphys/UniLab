@@ -4,6 +4,11 @@ from pathlib import Path
 
 from tests.scripts import repo_hygiene_checks
 
+REMOVED_ORPHAN_MODULES = (
+    "src/unilab/algos/torch/common/base_collector.py",
+    "src/unilab/algos/torch/fast_td3/runner.py",
+)
+
 
 def test_repo_does_not_track_backup_or_temporary_artifacts():
     root = Path(__file__).resolve().parents[2]
@@ -36,6 +41,14 @@ def test_coverage_commands_use_src_package_path():
     assert 'source = ["src/unilab"]' in pyproject_text or 'source = ["unilab"]' in pyproject_text
     assert "--cov=src/unilab" in (root / "Makefile").read_text(encoding="utf-8")
     assert "--cov=src/unilab" in (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+
+def test_removed_orphan_algorithm_modules_stay_absent():
+    root = Path(__file__).resolve().parents[2]
+
+    restored = [path for path in REMOVED_ORPHAN_MODULES if (root / path).exists()]
+
+    assert restored == []
 
 
 def test_source_command_anti_patterns_flags_python_script_invocation(tmp_path):

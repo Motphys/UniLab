@@ -407,7 +407,8 @@ def test_hora_distill_runtime_checkpoint_records_model_only():
 
 
 def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
-    mod = _train_hora_distill()
+    from unilab.algos.torch.hora.distill import cfg_with_checkpoint_runtime
+
     cfg = _hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"])
     checkpoint = {
         "distill_runtime_cfg": {
@@ -435,7 +436,7 @@ def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
         }
     }
 
-    restored = mod._cfg_with_checkpoint_runtime(cfg, checkpoint)
+    restored = cfg_with_checkpoint_runtime(cfg, checkpoint)
 
     assert restored.training.task_name == "SharpaInhandRotation"
     assert restored.training.sim_backend == "mujoco"
@@ -470,7 +471,9 @@ def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
     teacher_algo_family: str,
     checkpoint_model: dict[str, Any],
 ):
-    mod = _train_hora_distill()
+    from unilab.algos.torch.hora import distill_config
+    from unilab.algos.torch.hora.distill import cfg_with_checkpoint_runtime
+
     owner_cfg = OmegaConf.create(
         {
             "teacher": {"algo_family": teacher_algo_family},
@@ -504,9 +507,9 @@ def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
         },
     }
 
-    monkeypatch.setattr(mod, "_apply_teacher_defaults", lambda cfg: owner_cfg)
+    monkeypatch.setattr(distill_config, "apply_teacher_defaults", lambda cfg: owner_cfg)
 
-    effective_cfg = mod._cfg_with_checkpoint_runtime(OmegaConf.create({}), checkpoint)
+    effective_cfg = cfg_with_checkpoint_runtime(OmegaConf.create({}), checkpoint)
 
     assert effective_cfg.training.task_name == "OwnerTask"
     assert effective_cfg.training.cam_distance == pytest.approx(1.5)
@@ -942,6 +945,302 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
     assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
 
 
+@pytest.mark.parametrize("std_type", ["scalar", "vector"])
+def test_rsl_action_std_logging_patch_delegates_with_detached_clone(std_type: str):
+    import torch
+
+    from unilab.training.experiment import patch_rsl_rl_action_std_logging
+
+    captured: dict[str, Any] = {}
+    expected = torch.tensor([0.25, 0.5], requires_grad=True)
+    distribution = types.SimpleNamespace(
+        std_type=std_type,
+        std_param=expected,
+        log_std_param=torch.log(expected),
+    )
+
+    class Logger:
+        def log(self, *args, **kwargs):
+            captured["call"] = (args, kwargs)
+            return "logged"
+
+    runner = types.SimpleNamespace(
+        logger=Logger(),
+        alg=types.SimpleNamespace(
+            get_policy=lambda: types.SimpleNamespace(distribution=distribution)
+        ),
+    )
+
+    patch_rsl_rl_action_std_logging(runner)
+    result = runner.logger.log("payload", iteration=3)
+
+    assert result == "logged"
+    args, kwargs = captured["call"]
+    assert args == ("payload",)
+    assert kwargs["iteration"] == 3
+    action_std = kwargs["action_std"]
+    torch.testing.assert_close(action_std, expected)
+    assert action_std.requires_grad is False
+    assert action_std.data_ptr() != expected.data_ptr()
+    source = (_SCRIPTS_DIR / "train_rsl_rl.py").read_text(encoding="utf-8")
+    assert "def _patch_runner_action_std_logging" not in source
+
+
+def _build_rsl_lifecycle_case(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    learn_exception: Exception | None,
+    *,
+    run_complete: bool = False,
+    close_exception: Exception | None = None,
+    play_only: bool = False,
+) -> tuple[Any, Any, dict[str, Any], Exception | None]:
+    mod = _train_rsl_rl(monkeypatch)
+    if run_complete:
+        assert learn_exception is None
+        learn_exception = mod.RunComplete(
+            reason="grasp_collection_target_reached",
+            summary={"collected_grasps": 12, "status": "payload_must_not_override"},
+        )
+    cfg = _ppo_cfg(
+        [
+            "task=sharpa_inhand_grasp/mujoco",
+            f"training.log_dir={tmp_path}",
+            "training.logger=none",
+            "training.nan_guard.enabled=false",
+            "training.no_play=false",
+            "training.play_render_mode=record",
+            f"training.play_only={str(play_only).lower()}",
+        ]
+    )
+    captured: dict[str, Any] = {
+        "env_create": 0,
+        "env_close": 0,
+        "distributed": [],
+        "summaries": [],
+        "tracker_finish": 0,
+        "playback": 0,
+    }
+
+    class FakeEnv:
+        num_envs = 1
+        play_capabilities = types.SimpleNamespace(supports_physics_state_playback=False)
+
+        def close(self) -> None:
+            captured["env_close"] += 1
+            if close_exception is not None:
+                raise close_exception
+
+    class FakeWrapper:
+        def __init__(self, env: Any, device: str) -> None:
+            del env, device
+
+    class FakeRunner:
+        logger = types.SimpleNamespace(
+            tot_timesteps=0,
+            tot_time=0.0,
+            rewbuffer=[],
+            lenbuffer=[],
+        )
+        current_learning_iteration = 3
+
+        def __init__(self, wrapped_env: Any, train_cfg: dict[str, Any], log_dir: str, device: str):
+            del wrapped_env, train_cfg, log_dir, device
+
+        def learn(self, **kwargs: Any) -> None:
+            del kwargs
+            if learn_exception is not None:
+                raise learn_exception
+            self.logger.tot_timesteps = 8
+            self.logger.tot_time = 2.0
+
+    class FakeTracker:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+
+        def start(self) -> None:
+            captured["tracker_start"] = True
+
+        def update_summary(self, summary: dict[str, Any]) -> None:
+            captured["summaries"].append(summary)
+
+        def finish(self) -> None:
+            captured["tracker_finish"] += 1
+
+        def log_video(self, path: str | None) -> None:
+            captured["video"] = path
+
+    monkeypatch.setattr(mod, "resolve_dp_topology", lambda _devices: None)
+    monkeypatch.setattr(mod, "current_torch_distributed_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_local_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_world_size", lambda: 1)
+    monkeypatch.setattr(mod, "ensure_registries", lambda: None)
+    monkeypatch.setattr(mod, "apply_rsl_rl_rank_seed", lambda _cfg, _rank: 0)
+    monkeypatch.setattr(mod, "apply_configured_training_seed", lambda *args, **kwargs: {})
+    monkeypatch.setattr(mod, "build_ppo_env_cfg_override", lambda _cfg: {})
+    monkeypatch.setattr(mod, "get_default_device", lambda: "cpu")
+    monkeypatch.setattr(mod, "resolve_rsl_rl_device", lambda **kwargs: "cpu")
+    monkeypatch.setattr(mod, "resolve_ppo_log_dir", lambda _cfg, world_size: str(tmp_path))
+    monkeypatch.setattr(mod, "ExperimentTracker", FakeTracker)
+
+    def create_env(*args: Any, **kwargs: Any) -> FakeEnv:
+        del args, kwargs
+        captured["env_create"] += 1
+        return FakeEnv()
+
+    monkeypatch.setattr(mod, "create_env", create_env)
+    monkeypatch.setattr(mod, "_algo_config_dict", lambda _cfg: {})
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda _rl_cfg: FakeWrapper)
+    monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda _rl_cfg: {})
+    monkeypatch.setattr(mod, "patch_rsl_rl_resume_state", lambda: None)
+    monkeypatch.setattr(mod, "OnPolicyRunner", FakeRunner)
+    monkeypatch.setattr(mod, "patch_rsl_rl_action_std_logging", lambda _runner: None)
+    monkeypatch.setattr(
+        mod,
+        "finish_rsl_rl_distributed",
+        lambda *, training_succeeded: captured["distributed"].append(training_succeeded),
+    )
+
+    def playback(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        captured["playback"] += 1
+
+    monkeypatch.setattr(mod, "play_rsl_rl", playback)
+    return mod, cfg, captured, learn_exception
+
+
+def test_train_rsl_rl_run_complete_closes_resources_and_skips_playback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod, cfg, captured, _ = _build_rsl_lifecycle_case(
+        monkeypatch,
+        tmp_path,
+        None,
+        run_complete=True,
+    )
+
+    assert mod.main.__wrapped__(cfg) is None
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [True]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 0
+    assert captured["summaries"] == [
+        {
+            "collected_grasps": 12,
+            "status": "collection_completed",
+            "completion_reason": "grasp_collection_target_reached",
+        }
+    ]
+
+
+def test_train_rsl_rl_success_keeps_playback_and_single_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod, cfg, captured, raised = _build_rsl_lifecycle_case(monkeypatch, tmp_path, None)
+
+    assert raised is None
+    assert mod.main.__wrapped__(cfg) is None
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [True]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 1
+    assert captured["summaries"][0]["status"] == "completed"
+    assert captured["summaries"][0]["run_env_steps"] == 8
+
+
+def test_train_rsl_rl_runtime_error_propagates_after_single_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sentinel = RuntimeError("runner failed")
+    mod, cfg, captured, raised = _build_rsl_lifecycle_case(monkeypatch, tmp_path, sentinel)
+
+    with pytest.raises(RuntimeError) as caught:
+        mod.main.__wrapped__(cfg)
+
+    assert caught.value is raised is sentinel
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [False]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 0
+    assert captured["summaries"] == []
+
+
+def test_train_rsl_rl_run_complete_close_error_is_not_misclassified(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sentinel = RuntimeError("close failed")
+    mod, cfg, captured, _ = _build_rsl_lifecycle_case(
+        monkeypatch,
+        tmp_path,
+        None,
+        run_complete=True,
+        close_exception=sentinel,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        mod.main.__wrapped__(cfg)
+
+    assert caught.value is sentinel
+    assert captured["env_close"] == 1
+    assert captured["distributed"] == [False]
+    assert captured["tracker_finish"] == 1
+    assert captured["playback"] == 0
+    assert captured["summaries"] == []
+
+
+def test_train_rsl_rl_play_only_keeps_single_cleanup_and_runs_playback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod, cfg, captured, raised = _build_rsl_lifecycle_case(
+        monkeypatch,
+        tmp_path,
+        None,
+        play_only=True,
+    )
+
+    assert raised is None
+    assert mod.main.__wrapped__(cfg) is None
+    assert captured["env_create"] == 0
+    assert captured["env_close"] == 0
+    assert captured["distributed"] == [False]
+    assert captured["tracker_finish"] == 0
+    assert captured["playback"] == 1
+    assert captured["summaries"] == []
+
+
+@pytest.mark.parametrize(
+    ("devices", "world_size"),
+    [
+        ((0, 1), 1),
+        (None, 2),
+    ],
+)
+def test_train_rsl_rl_grasp_collection_rejects_multi_rank_before_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    devices: tuple[int, ...] | None,
+    world_size: int,
+) -> None:
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=sharpa_inhand_grasp/mujoco"])
+    monkeypatch.setattr(mod, "resolve_dp_topology", lambda _devices: devices)
+    monkeypatch.setattr(mod, "current_torch_distributed_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_local_rank", lambda: 0)
+    monkeypatch.setattr(mod, "current_torch_distributed_world_size", lambda: world_size)
+    monkeypatch.setattr(
+        mod,
+        "launch_torchrun_workers",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must fail before launch")),
+    )
+    monkeypatch.setattr(
+        mod,
+        "ensure_registries",
+        lambda: (_ for _ in ()).throw(AssertionError("must fail before registry bootstrap")),
+    )
+
+    with pytest.raises(ValueError, match="requires one process"):
+        mod.main.__wrapped__(cfg)
+
+
 def test_ppo_cli_algo_override_wins_over_base(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1064,12 +1363,14 @@ def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
     assert env_cfg_override["scene"].model_file == "/tmp/go2_arm_manip_loco_play_scene.xml"
 
 
-def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode():
+def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
     import numpy as np
     import torch
     from tensordict import TensorDict
 
-    mod = _train_rsl_rl(pytest.MonkeyPatch())
+    mod = _train_rsl_rl(monkeypatch)
 
     class FakePolicy:
         def __call__(self, obs):
@@ -1608,6 +1909,8 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
 
 
 def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
+    from unilab.training.offpolicy import resolve_play_actor_spec
+
     cfg = _offpolicy_cfg(
         [
             "algo=sac",
@@ -1615,7 +1918,7 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
         ]
     )
 
-    actor_algo_type, actor_kwargs = _offpolicy().resolve_play_actor_spec(
+    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
         "sac",
         cfg,
         obs_dim=4,
@@ -1627,17 +1930,18 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
 
 
 def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
-    mod = _offpolicy()
+    from unilab.training.offpolicy import resolve_play_actor_spec
+
     sac_cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/mujoco"])
     flashsac_cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
 
-    sac_algo_type, sac_kwargs = mod.resolve_play_actor_spec(
+    sac_algo_type, sac_kwargs = resolve_play_actor_spec(
         "sac",
         sac_cfg,
         obs_dim=98,
         critic_obs_dim=101,
     )
-    flash_algo_type, flash_kwargs = mod.resolve_play_actor_spec(
+    flash_algo_type, flash_kwargs = resolve_play_actor_spec(
         "flashsac",
         flashsac_cfg,
         obs_dim=98,
@@ -1646,6 +1950,137 @@ def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
 
     assert (sac_algo_type, sac_kwargs) == ("sac", {})
     assert (flash_algo_type, flash_kwargs) == ("flashsac", {})
+
+
+def test_offpolicy_build_play_actor_preserves_flashsac_model_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.algos.torch.common.normalization as normalization
+    from unilab.training.offpolicy import build_play_actor
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def eval(self):
+            captured["actor_eval"] = True
+
+    class FakeNormalizer:
+        def __init__(self, *args, **kwargs):
+            captured["normalizer_init"] = (args, kwargs)
+
+    def fake_build_actor(*args, **kwargs):
+        captured["actor_init"] = (args, kwargs)
+        return FakeActor()
+
+    monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
+    monkeypatch.setattr(normalization, "EmpiricalNormalization", FakeNormalizer)
+    cfg = _offpolicy_cfg(["algo=flashsac", "algo.obs_normalization=true"])
+
+    actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
+        "flashsac",
+        cfg,
+        obs_dim=98,
+        critic_obs_dim=101,
+        action_dim=12,
+        device="cpu",
+    )
+
+    assert isinstance(actor, FakeActor)
+    assert isinstance(normalizer, FakeNormalizer)
+    assert (actor_algo_type, actor_kwargs) == ("flashsac", {})
+    args, kwargs = captured["actor_init"]
+    assert args == (
+        "flashsac",
+        98,
+        12,
+        cfg.algo.actor_hidden_dim,
+        cfg.algo.use_layer_norm,
+        "cpu",
+    )
+    assert kwargs == {
+        "actor_num_blocks": cfg.algo.algo_params.actor_num_blocks,
+        "actor_noise_zeta_mu": cfg.algo.algo_params.actor_noise_zeta_mu,
+        "actor_noise_zeta_max": cfg.algo.algo_params.actor_noise_zeta_max,
+    }
+    assert captured["normalizer_init"] == ((), {"shape": 98, "device": "cpu"})
+    assert captured["actor_eval"] is True
+
+
+def test_offpolicy_build_play_actor_restores_td3_state_and_normalizer(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import torch
+
+    import unilab.algos.torch.fast_td3.learner as learner_module
+    from unilab.training.offpolicy import build_play_actor, load_play_actor
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def __init__(self, *args, **kwargs):
+            captured["actor_init"] = (args, kwargs)
+
+        def eval(self):
+            captured["actor_eval"] = True
+
+        def load_state_dict(self, state_dict, strict=True):
+            captured["actor_load"] = (state_dict, strict)
+
+    class FakeNormalizer:
+        def __init__(self, *args, **kwargs):
+            captured["normalizer_init"] = (args, kwargs)
+
+        def load_state_dict(self, state_dict):
+            captured["normalizer_load"] = state_dict
+
+        def eval(self):
+            captured["normalizer_eval"] = True
+
+    monkeypatch.setattr(learner_module, "TD3Actor", FakeActor)
+    monkeypatch.setattr(learner_module, "EmpiricalNormalization", FakeNormalizer)
+    cfg = _offpolicy_cfg(["algo=td3"])
+    actor_state = {"weight": torch.ones(1), "noise_scales": torch.zeros(1)}
+    normalizer_state = {"mean": torch.ones(1)}
+
+    actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
+        "td3",
+        cfg,
+        obs_dim=4,
+        critic_obs_dim=6,
+        action_dim=2,
+        device="cpu",
+    )
+    load_play_actor(
+        "td3",
+        actor,
+        normalizer,
+        {"actor": actor_state, "obs_normalizer": normalizer_state},
+    )
+
+    assert isinstance(actor, FakeActor)
+    assert isinstance(normalizer, FakeNormalizer)
+    assert (actor_algo_type, actor_kwargs) == ("td3", {})
+    assert captured["actor_load"] == ({"weight": actor_state["weight"]}, False)
+    assert captured["actor_eval"] is True
+    assert captured["normalizer_load"] == normalizer_state
+    assert captured["normalizer_eval"] is True
+
+
+@pytest.mark.parametrize("algo_name", ["sac", "flashsac"])
+def test_offpolicy_load_play_actor_keeps_sac_state_dict_strict(algo_name: str):
+    from unilab.training.offpolicy import load_play_actor
+
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def load_state_dict(self, state_dict):
+            captured["state_dict"] = state_dict
+
+    actor_state = {"weight": object()}
+    load_play_actor(algo_name, FakeActor(), None, {"actor": actor_state})
+
+    assert captured["state_dict"] is actor_state
 
 
 def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
@@ -2111,6 +2546,7 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
                 {
                     "obs": {
                         "obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
+                        "proprio": np.array([[6.0, 7.0]], dtype=np.float32),
                         "critic": np.array([[1.0, 2.0, 3.0, 4.0, 5.0]], dtype=np.float32),
                     },
                     "info": {
@@ -2125,7 +2561,7 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
             self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
             self.observation_space = type("Space", (), {"shape": (5,)})()
             self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3, "critic": 5}
+            self.obs_groups_spec = {"obs": 3, "proprio": 2, "critic": 5}
 
         def init_state(self):
             pass
@@ -2137,17 +2573,27 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
                 cast(dict[str, np.ndarray], getattr(self.state, "info")),
             )
 
-    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
-    obs_td, _ = wrapper.reset()
+    assert "reset" not in HoraRslRlVecEnvWrapper.__dict__
+    assert "get_observations" not in HoraRslRlVecEnvWrapper.__dict__
 
-    np.testing.assert_allclose(
-        obs_td["priv_info"].cpu().numpy(),
-        np.array([[4.0, 5.0]], dtype=np.float32),
-    )
-    np.testing.assert_allclose(
-        obs_td["proprio_hist"].cpu().numpy(),
-        np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]], dtype=np.float32),
-    )
+    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
+    reset_obs_td, reset_info = wrapper.reset()
+    current_obs_td = wrapper.get_observations()
+
+    assert reset_info is wrapper.env.state.info
+    for obs_td in (reset_obs_td, current_obs_td):
+        np.testing.assert_allclose(
+            obs_td["policy"].cpu().numpy(),
+            np.array([[1.0, 2.0, 3.0, 6.0, 7.0]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            obs_td["priv_info"].cpu().numpy(),
+            np.array([[4.0, 5.0]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            obs_td["proprio_hist"].cpu().numpy(),
+            np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]], dtype=np.float32),
+        )
 
 
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
@@ -2808,6 +3254,7 @@ def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.
         action_space=types.SimpleNamespace(shape=(3,), low=np.full((3,), -1.0), high=np.ones((3,))),
         cfg=types.SimpleNamespace(ctrl_dt=0.02),
         get_playback_model=lambda: object(),
+        get_scene_visual_model_file=lambda: None,
         get_physics_state_snapshot=lambda: np.zeros((1, 8), dtype=np.float32),
     )
 

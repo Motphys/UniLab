@@ -82,6 +82,34 @@ def sample_random_quaternion(num_envs: int) -> np.ndarray:
     return np_sample_uniform_quaternion(num_envs).astype(np.float64)
 
 
+def _materialize_grasp_caches(
+    grasp_cache_path: str,
+    scale_values: np.ndarray,
+) -> tuple[np.ndarray, ...]:
+    """Load one Sharpa grasp cache for each scale on the env construction path."""
+    grasp_caches: list[np.ndarray] = []
+    missing_files: list[str] = []
+    for scale_value in np.asarray(scale_values, dtype=np.float64):
+        cache_file = resolve_grasp_cache_file(grasp_cache_path, float(scale_value))
+        resolved = cast(str, resolve_grasp_cache_files(str(cache_file)))
+        cache_file = Path(resolved)
+        if not cache_file.exists():
+            missing_files.append(str(cache_file))
+            continue
+        grasp_caches.append(np.load(cache_file).astype(np.float64))
+
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise RuntimeError(
+            f"Missing Sharpa grasp cache file(s): {missing}\n"
+            "Generate them with:\n"
+            "  bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6\n"
+            "See docs/sphinx/source/zh_CN/user_guide/D-tasks/04-sharpa-inhand.md"
+        )
+
+    return tuple(grasp_caches)
+
+
 class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
     def validate(self, env: Any, capabilities: DomainRandomizationCapabilities) -> None:
         unsupported = validate_common_reset_randomization(env, capabilities)
@@ -152,42 +180,6 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             model_assignments=np.asarray(env.scale_ids, dtype=np.int32).copy(),
             model_variants=model_variants,
         )
-
-    def _load_grasp_cache(self, env: Any) -> tuple[np.ndarray, ...]:
-        """Load one grasp cache file for each configured object scale.
-
-        Args:
-            env: Sharpa rotation env instance.
-
-        Returns:
-            Tuple of cache arrays ordered the same as ``env.scale_values``.
-        """
-        if getattr(env, "_grasp_cache", None) is not None:
-            return cast(tuple[np.ndarray, ...], env._grasp_cache)
-
-        grasp_caches: list[np.ndarray] = []
-        missing_files: list[str] = []
-        for scale_value in np.asarray(env.scale_values, dtype=np.float64):
-            cache_file = resolve_grasp_cache_file(env.cfg.grasp_cache_path, float(scale_value))
-            # Auto-download from HF if the cache file is missing locally.
-            resolved = cast(str, resolve_grasp_cache_files(str(cache_file)))
-            cache_file = Path(resolved)
-            if not cache_file.exists():
-                missing_files.append(str(cache_file))
-                continue
-            grasp_caches.append(np.load(cache_file).astype(np.float64))
-
-        if missing_files:
-            missing = ", ".join(missing_files)
-            raise RuntimeError(
-                f"Missing Sharpa grasp cache file(s): {missing}\n"
-                "Generate them with:\n"
-                "  bash scripts/sharpa_collect_grasps.sh 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6\n"
-                "See docs/sphinx/source/zh_CN/user_guide/D-tasks/04-sharpa-inhand.md"
-            )
-
-        env._grasp_cache = tuple(grasp_caches)
-        return cast(tuple[np.ndarray, ...], env._grasp_cache)
 
     def _sample_reset_pd_gains(
         self,
@@ -330,7 +322,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         randomized_com_offset = env._sample_object_com_offset(num_reset)
         gravity = env._sample_reset_gravity(num_reset)
         p_gain, d_gain = self._sample_reset_pd_gains(env, num_reset, dtype=get_global_dtype())
-        grasp_cache = self._load_grasp_cache(env)
+        grasp_cache = cast(tuple[np.ndarray, ...], env._grasp_cache)
         sampled_pose = sample_scale_grasp_caches(grasp_cache, env.scale_ids[env_ids])
 
         hand_qpos = sampled_pose[:, : env._num_action]
@@ -454,6 +446,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
     _cfg: SharpaInhandRotationCfg
     _reward_cfg: RewardConfig
+    _MATERIALIZE_ROTATION_GRASP_CACHE = True
     _OBS_MODE_ALIASES: dict[str, str] = {
         "separated": "separated",
         "flattened": "flattened",
@@ -479,8 +472,6 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             add_body_sensors=True,
             **env_backend_kwargs(cfg),
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
 
@@ -514,7 +505,7 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self._reward_cfg = cfg.reward_config
         self._zero_action_test_mode = bool(cfg.zero_action_test_mode)
         self._enable_reward_log = True
-        self._grasp_cache: np.ndarray | None = None
+        self._grasp_cache: tuple[np.ndarray, ...] | None = None
 
         axis = np.asarray(cfg.rot_axis, dtype=self._np_dtype)
         axis_norm = np.linalg.norm(axis)
@@ -523,6 +514,8 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
         self._rot_axis = np.asarray(axis / axis_norm, dtype=self._np_dtype)
 
         provider = dr_provider if dr_provider is not None else SharpaInhandRotationDRProvider()
+        if self._MATERIALIZE_ROTATION_GRASP_CACHE:
+            self._grasp_cache = _materialize_grasp_caches(cfg.grasp_cache_path, self.scale_values)
         self._init_domain_randomization(provider)
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState) -> np.ndarray:

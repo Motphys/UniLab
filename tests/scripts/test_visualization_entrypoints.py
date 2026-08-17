@@ -273,11 +273,9 @@ def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
         fake_resolve_render_play_model_files,
     )
 
-    class FakeBackend:
-        scene_visual_model_file = str(visual_xml)
-
     class FakeEnv:
-        _backend = FakeBackend()
+        def get_scene_visual_model_file(self) -> str:
+            return str(visual_xml)
 
     env = FakeEnv()
     model = mod._load_viewer_model(env, use_env_visual_model=False)

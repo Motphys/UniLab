@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from collections.abc import Sequence
@@ -25,15 +26,22 @@ from unilab.dr.types import (
 try:
     import motrixsim as mtx
     from motrixsim.render import RenderApp, RenderSettings
+    from motrixsim.render import RenderClosedError as _MotrixRenderClosedError
 
     MOTRIX_AVAILABLE = True
 except ImportError:
     MOTRIX_AVAILABLE = False
+    # No motrixsim in this process: the ``except _MotrixRenderClosedError``
+    # clauses below never match, which is correct because the renderer cannot
+    # exist without the package.
+    _MotrixRenderClosedError = ()
 
 from ..base import (
     BackendHeightScanner,
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendTerrainSpawnData,
+    RenderClosedError,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -44,6 +52,8 @@ from ..motrix_camera import (
     tracking_camera_lookat,
 )
 from .playback import run_motrix_playback
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 DEFAULT_MOTRIX_MAX_ITERATIONS = 3
@@ -165,6 +175,18 @@ class MotrixBackend(SimBackend):
         self.scene_artifacts_dir = None
         self.terrain_origins = scene_context.terrain_origins
         self.terrain_surface_sampler = scene_context.terrain_surface_sampler
+        self._terrain_spawn_data = (
+            None
+            if self.terrain_origins is None
+            else BackendTerrainSpawnData(
+                terrain_origins=self.terrain_origins,
+                sample_height=(
+                    None
+                    if self.terrain_surface_sampler is None
+                    else cast(Any, self.terrain_surface_sampler).sample_height
+                ),
+            )
+        )
         self._scene_cleanup_handle = scene_context.cleanup_handle
         self._base_name = base_name
 
@@ -360,6 +382,9 @@ class MotrixBackend(SimBackend):
         arr: np.ndarray = np.array(self._model.actuator_ctrl_limits, dtype=self._np_dtype)
         result: np.ndarray = arr.T.copy()
         return result
+
+    def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
+        return self._terrain_spawn_data
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if hasattr(self._model, "keyframes") and self._model.num_keyframes > 0:
@@ -912,13 +937,9 @@ class MotrixBackend(SimBackend):
                 record_video=should_record_video,
                 camera_kwargs=camera_kwargs,
             )
-        except Exception as e:
-            if (
-                not should_run_headless
-                and not should_record_video
-                and "RenderClosedError" in type(e).__name__
-            ):
-                print("Render window closed.")
+        except RenderClosedError:
+            if not should_run_headless and not should_record_video:
+                logger.info("Render window closed.")
                 return None
             raise
 
@@ -1441,12 +1462,17 @@ class MotrixBackend(SimBackend):
         if capture:
             self._model.cameras.set_system_render_target("image", int(width), int(height))
         render_app = RenderApp(headless=headless)
-        render_app.launch(
-            self._model,
-            batch=self._num_envs,
-            render_offset=offsets,
-            render_settings=settings,
-        )
+        try:
+            render_app.launch(
+                self._model,
+                batch=self._num_envs,
+                render_offset=offsets,
+                render_settings=settings,
+            )
+        except _MotrixRenderClosedError as e:
+            # Normalize the motrixsim-private window-closed error to the
+            # interface-level signal declared on SimBackend.
+            raise RenderClosedError(str(e)) from e
         if use_configured_camera:
             render_app.system_camera.set_view(
                 camera_view.lookat,
@@ -1468,7 +1494,12 @@ class MotrixBackend(SimBackend):
         self._assert_render_context_available(headless=False, capture=False)
         assert self._render_app is not None
         self._update_tracking_camera_view()
-        self._render_app.sync(data=self._data)
+        try:
+            self._render_app.sync(data=self._data)
+        except _MotrixRenderClosedError as e:
+            # Normalize the motrixsim-private window-closed error to the
+            # interface-level signal declared on SimBackend.
+            raise RenderClosedError(str(e)) from e
 
     def capture_video_frame(self) -> np.ndarray:
         """Capture one RGB frame from Motrix's system camera."""
@@ -1479,9 +1510,14 @@ class MotrixBackend(SimBackend):
         assert self._render_app is not None
 
         self._update_tracking_camera_view()
-        task = self._render_app.system_camera.capture()
-        self._render_app.sync(data=self._data, wait=True)
-        image = task.take_image()
+        try:
+            task = self._render_app.system_camera.capture()
+            self._render_app.sync(data=self._data, wait=True)
+            image = task.take_image()
+        except _MotrixRenderClosedError as e:
+            # Normalize the motrixsim-private window-closed error to the
+            # interface-level signal declared on SimBackend.
+            raise RenderClosedError(str(e)) from e
         if image is None:
             raise RuntimeError("Motrix system camera capture did not return an image")
 

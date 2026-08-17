@@ -2,6 +2,8 @@
 
 For every task with >=2 backend YAMLs, hydra-composes each backend's effective config
 and compares the DENYLIST / WARNING_LIST fields from ``unilab.training.sim2sim``.
+Off-policy owners are grouped by algorithm so SAC, TD3, and FlashSAC are never
+compared with one another.
 
 Read-only.
 
@@ -50,9 +52,19 @@ def _select(cfg: Any, path: str) -> Any:
 
 def _compose(tree: str, task_variant: str) -> Any:
     conf_dir = str(CONF_ROOT / tree)
+    overrides: list[str] = []
+    if tree == "offpolicy":
+        variant_parts = task_variant.split("/")
+        if len(variant_parts) != 3:
+            raise ValueError(
+                f"offpolicy task variants must use '<algo>/<task>/<backend>', got {task_variant!r}"
+            )
+        algo = variant_parts[0]
+        overrides.append(f"algo={algo}")
+    overrides.append(f"task={task_variant}")
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=conf_dir, version_base="1.3"):
-        return compose("config", overrides=[f"task={task_variant}"])
+        return compose("config", overrides=overrides)
 
 
 def _discover(tree: str) -> dict[str, list[str]]:
@@ -60,11 +72,14 @@ def _discover(tree: str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     if not base.is_dir():
         return out
-    for task_dir in sorted(p for p in base.iterdir() if p.is_dir()):
-        backends = sorted(p.stem for p in task_dir.glob("*.yaml") if p.stem != "base")
-        if backends:
-            out[task_dir.name] = backends
-    return out
+    for owner_file in sorted(base.rglob("*.yaml")):
+        if owner_file.stem == "base":
+            continue
+        task_variant = owner_file.parent.relative_to(base).as_posix()
+        if task_variant == ".":
+            continue
+        out.setdefault(task_variant, []).append(owner_file.stem)
+    return {task: sorted(backends) for task, backends in sorted(out.items())}
 
 
 def _diff_field(path: str, mj: Any, mx: Any) -> dict[str, Any] | None:
@@ -91,7 +106,10 @@ def _diff_field(path: str, mj: Any, mx: Any) -> dict[str, Any] | None:
 
 def audit_tree(tree: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for task, backends in _discover(tree).items():
+    discovered = _discover(tree)
+    if not discovered:
+        raise ValueError(f"No task owner configs discovered under conf/{tree}/task")
+    for task, backends in discovered.items():
         values: dict[str, dict[str, Any]] = {}
         errors: dict[str, str] = {}
         for backend in backends:

@@ -8,6 +8,7 @@ Slow tests actually call registry.make() and run reset + step.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 import textwrap
@@ -85,23 +86,10 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
 def test_g1_walk_env_cfg_obs_groups_spec():
     """G1WalkEnv must declare obs_groups_spec with actor and critic groups."""
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnvCfg, G1WalkLegacyRewardConfig
+    from unilab.envs.locomotion.g1.joystick import G1WalkEnvCfg
 
     cfg = G1WalkEnvCfg()
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
-
-    reward_cfg = G1WalkLegacyRewardConfig(
-        scales={"feet_phase": 1.0},
-        tracking_sigma=0.25,
-        gait_frequency=1.5,
-        feet_phase_swing_height=0.09,
-        feet_phase_tracking_sigma=0.008,
-        base_height_target=0.765,
-        min_forward_speed_for_gait_reward=0.05,
-        min_base_height=0.5,
-        max_tilt_deg=35.0,
-    )
-    assert reward_cfg.min_forward_speed_for_gait_reward == pytest.approx(0.05)
 
 
 def test_g1_walk_flat_cfg_no_obs_config():
@@ -426,31 +414,184 @@ def test_allegro_grasp_obs_groups_spec_dims():
     assert spec == {"obs": 105}
 
 
-def test_allegro_missing_grasp_cache_prints_local_generation_notice(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_allegro_missing_grasp_cache_logs_local_generation_notice(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     from unilab.envs.manipulation.allegro_inhand.rotation import (
-        AllegroRotationDomainRandomizationProvider,
+        AllegroRotationPPOCfg,
+        _materialize_grasp_cache,
     )
 
     missing_cache = tmp_path / "missing_allegro_cache.npy"
-    env = SimpleNamespace(
-        _grasp_cache=None,
-        _grasp_cache_loaded=False,
-        cfg=SimpleNamespace(gen_grasp=False, grasp_cache_path=str(missing_cache)),
+    cfg = AllegroRotationPPOCfg(
+        grasp_cache_path=str(missing_cache),
+        gen_grasp=False,
     )
 
-    provider = AllegroRotationDomainRandomizationProvider()
+    with caplog.at_level(
+        logging.WARNING, logger="unilab.envs.manipulation.allegro_inhand.rotation"
+    ):
+        assert _materialize_grasp_cache(cfg) is None
+    notice = caplog.text
 
-    assert provider._load_grasp_cache(env) is None
-    notice = capsys.readouterr().out
-
-    assert env._grasp_cache is None
-    assert env._grasp_cache_loaded is True
     assert str(missing_cache) in notice
     assert "no Hugging Face download will be attempted" in notice
     assert "uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco" in notice
     assert "env.grasp_cache_path" in notice
+
+
+def test_allegro_grasp_generation_skips_cache_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unilab.envs.manipulation.allegro_inhand import rotation
+
+    def fail_io(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("grasp generation must not resolve or load a rotation cache")
+
+    monkeypatch.setattr(rotation, "resolve_grasp_cache_path", fail_io)
+    monkeypatch.setattr(rotation.np, "load", fail_io)
+
+    cfg = rotation.AllegroRotationPPOCfg(gen_grasp=True)
+    assert rotation._materialize_grasp_cache(cfg) is None
+
+
+def test_allegro_grasp_target_raises_run_complete_without_resaving_on_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unilab.base.run_control import RunComplete
+    from unilab.envs.manipulation.allegro_inhand import grasp_gen
+
+    cache_path = tmp_path / "allegro.npy"
+    env = cast(Any, object.__new__(grasp_gen.AllegroRotationGrasp))
+    env._cfg = grasp_gen.AllegroRotationGraspCfg(
+        grasp_collection_target=2,
+        grasp_cache_path=str(cache_path),
+        grasp_auto_save=True,
+        grasp_quality_check=False,
+    )
+    states = np.arange(3 * 23, dtype=np.float64).reshape(3, 23)
+    env._saved_grasping_states = []
+    env._grasp_cache_saved = False
+    env._grasp_target_reached_notified = False
+    env._state = SimpleNamespace(
+        truncated=np.ones((3,), dtype=bool),
+        terminated=np.zeros((3,), dtype=bool),
+        info={
+            "curr_dof_pos": states[:, :16],
+            "curr_ball_pos": states[:, 16:19],
+            "curr_ball_quat": states[:, 19:23],
+        },
+    )
+    env.get_hand_dof_pos = lambda: states[:, :16]
+    env.get_ball_pos = lambda: states[:, 16:19]
+    env.get_ball_quat = lambda: states[:, 19:23]
+
+    save_calls: list[Path] = []
+    real_save = grasp_gen.np.save
+
+    def save_once(path: str | Path, values: np.ndarray) -> None:
+        save_calls.append(Path(path))
+        real_save(path, values)
+
+    parent_closes: list[Any] = []
+    monkeypatch.setattr(grasp_gen.np, "save", save_once)
+    monkeypatch.setattr(
+        grasp_gen.AllegroRotationPPO,
+        "close",
+        lambda instance: parent_closes.append(instance),
+    )
+
+    with pytest.raises(RunComplete) as caught:
+        env._collect_successful_grasps(np.arange(3, dtype=np.int32))
+
+    saved = np.load(cache_path)
+    np.testing.assert_array_equal(saved, states[:2].astype(np.float32))
+    assert saved.dtype == np.float32
+    assert save_calls == [cache_path]
+    assert env.state.info["log"] == {
+        "grasp_cache/saved": 1.0,
+        "grasp_cache/num_states": 2.0,
+        "grasp/target_reached": 1.0,
+    }
+    assert dict(caught.value.summary) == {
+        "collected_grasps": 3,
+        "saved_grasps": 2,
+        "grasp_collection_target": 2,
+    }
+
+    env.close()
+    env._stop_collection()
+    assert save_calls == [cache_path]
+    assert parent_closes == [env]
+
+
+def test_allegro_grasp_save_failure_does_not_signal_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unilab.envs.manipulation.allegro_inhand import grasp_gen
+
+    env = cast(Any, object.__new__(grasp_gen.AllegroRotationGrasp))
+    env._cfg = grasp_gen.AllegroRotationGraspCfg(
+        grasp_collection_target=1,
+        grasp_cache_path=str(tmp_path / "allegro.npy"),
+    )
+    env._saved_grasping_states = [np.zeros((1, 23), dtype=np.float32)]
+    env._grasp_cache_saved = False
+    env._grasp_target_reached_notified = False
+    env._state = SimpleNamespace(info={})
+    sentinel = OSError("disk full")
+    monkeypatch.setattr(
+        grasp_gen.np, "save", lambda *_args, **_kwargs: (_ for _ in ()).throw(sentinel)
+    )
+
+    with pytest.raises(OSError) as caught:
+        env._save_grasp_cache()
+
+    assert caught.value is sentinel
+    assert env._grasp_cache_saved is False
+    assert env._grasp_target_reached_notified is False
+
+
+def test_allegro_reset_samples_materialized_cache_without_file_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unilab.envs.manipulation.allegro_inhand import rotation
+
+    cache_path = tmp_path / "allegro.npy"
+    cache = np.zeros((4, 23), dtype=np.float64)
+    cache[:, 16] = 0.1
+    cache[:, 19] = 1.0
+    np.save(cache_path, cache)
+    cfg = rotation.AllegroRotationPPOCfg(grasp_cache_path=str(cache_path))
+    materialized = rotation._materialize_grasp_cache(cfg)
+    assert materialized is not None
+
+    monkeypatch.setattr(
+        rotation, "resolve_grasp_cache_path", lambda _: (_ for _ in ()).throw(AssertionError)
+    )
+    monkeypatch.setattr(
+        rotation.np, "load", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+    )
+    env = SimpleNamespace(
+        _grasp_cache=materialized,
+        cfg=SimpleNamespace(
+            domain_rand=SimpleNamespace(joint_noise=0.0, ball_vel_noise=0.0, ball_z_offset=0.0)
+        ),
+        default_angles=np.zeros(16),
+        _NUM_HAND_DOF=16,
+        _ctrl_lower=-np.ones(16),
+        _ctrl_upper=np.ones(16),
+        _init_qpos=np.zeros(23),
+        nv=23,
+    )
+
+    provider = rotation.AllegroRotationDomainRandomizationProvider()
+    for _ in range(2):
+        hand_qpos, ball_pos, ball_quat, qvel = provider._sample_reset_state(env, 2)
+        assert hand_qpos.shape == (2, 16)
+        assert ball_pos.shape == (2, 3)
+        assert ball_quat.shape == (2, 4)
+        assert qvel.shape == (2, 23)
 
 
 def test_g1_motion_tracking_uses_combined_body_pose_query():
@@ -1335,15 +1476,12 @@ def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatc
     assert calls["reward_init"] is True
 
 
-def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
+def _patch_sharpa_rotation_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+    initialized_providers: list[Any],
+) -> Any:
     from unilab.envs.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
     from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
-    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
-        SharpaInhandRotationGraspCfg,
-        SharpaInhandRotationGraspEnv,
-    )
-
-    calls: list[str] = []
 
     def fake_base_init(self, cfg, backend, num_envs):
         self._cfg = cfg
@@ -1353,6 +1491,7 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
         self._num_action = 22
         self._num_tactile = 5
         self._num_scales = len(cfg.domain_rand.scale_list)
+        self.scale_values = np.asarray(cfg.domain_rand.scale_list, dtype=np.float64)
         self.scale_ids = np.zeros((num_envs,), dtype=np.int32)
         self._object_body_ids = np.zeros((0,), dtype=np.int32)
 
@@ -1382,10 +1521,61 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
     )
     monkeypatch.setattr(SharpaInhandBaseEnv, "__init__", fake_base_init)
     monkeypatch.setattr(
-        SharpaInhandRotationGraspEnv,
+        sharpa_rotation_module.SharpaInhandRotationEnv,
         "_init_domain_randomization",
-        lambda self, provider: calls.append(provider.__class__.__name__),
+        lambda self, provider: initialized_providers.append(provider),
     )
+    return sharpa_rotation_module
+
+
+def test_sharpa_rotation_explicit_default_provider_materializes_cache(monkeypatch):
+    from unilab.envs.manipulation.sharpa_inhand.rotation import (
+        RewardConfig,
+        SharpaInhandRotationCfg,
+        SharpaInhandRotationDRProvider,
+        SharpaInhandRotationEnv,
+    )
+
+    initialized_providers: list[Any] = []
+    rotation = _patch_sharpa_rotation_constructor(monkeypatch, initialized_providers)
+    materialize_calls: list[tuple[str, np.ndarray]] = []
+    sentinel_cache = (np.zeros((1, 29), dtype=np.float64),)
+
+    def materialize(path: str, scale_values: np.ndarray) -> tuple[np.ndarray, ...]:
+        materialize_calls.append((path, scale_values.copy()))
+        return sentinel_cache
+
+    monkeypatch.setattr(rotation, "_materialize_grasp_caches", materialize)
+    cfg = SharpaInhandRotationCfg(reward_config=RewardConfig())
+    provider = SharpaInhandRotationDRProvider()
+
+    env = cast(Any, SharpaInhandRotationEnv)(
+        cfg,
+        num_envs=4,
+        backend_type="mujoco",
+        dr_provider=provider,
+    )
+
+    assert initialized_providers == [provider]
+    assert len(materialize_calls) == 1
+    assert materialize_calls[0][0] == cfg.grasp_cache_path
+    np.testing.assert_array_equal(materialize_calls[0][1], env.scale_values)
+    assert env._grasp_cache is sentinel_cache
+
+
+def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
+    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+        SharpaInhandRotationGraspCfg,
+        SharpaInhandRotationGraspEnv,
+    )
+
+    initialized_providers: list[Any] = []
+    rotation = _patch_sharpa_rotation_constructor(monkeypatch, initialized_providers)
+
+    def fail_materialization(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("grasp generation must not materialize rotation caches")
+
+    monkeypatch.setattr(rotation, "_materialize_grasp_caches", fail_materialization)
 
     cfg = SharpaInhandRotationGraspCfg()
     assert cfg.domain_rand.randomize_pd_gains is False
@@ -1411,8 +1601,117 @@ def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
     assert cfg.priv_info.include_gravity_direction is False
     env = cast(Any, SharpaInhandRotationGraspEnv)(cfg, num_envs=4, backend_type="mujoco")
 
-    assert calls == ["SharpaInhandGraspDRProvider"]
+    assert [provider.__class__.__name__ for provider in initialized_providers] == [
+        "SharpaInhandGraspDRProvider"
+    ]
     assert len(env._saved_grasping_states) == env._num_scales
+
+
+def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from unilab.base.run_control import RunComplete
+    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+        SharpaInhandRotationGraspCfg,
+        SharpaInhandRotationGraspEnv,
+    )
+
+    cache_path = tmp_path / "sharpa.npy"
+    env = cast(Any, object.__new__(SharpaInhandRotationGraspEnv))
+    env._cfg = SharpaInhandRotationGraspCfg(
+        grasp_collection_target=1,
+        grasp_cache_path=str(cache_path),
+        grasp_auto_save=True,
+    )
+    env._grasp_target_per_scale = 1
+    env._num_scales = 1
+    env.scale_values = np.asarray([0.8], dtype=np.float64)
+    env.scale_ids = np.asarray([0], dtype=np.int32)
+    env._saved_grasping_states = [[]]
+    env._grasp_cache_saved = False
+    env._grasp_target_reached_notified = False
+    env._last_grasp_progress_counts = ()
+    env._last_grasp_progress_step = -1
+    env._state = SimpleNamespace(
+        truncated=np.asarray([True]),
+        terminated=np.asarray([False]),
+        info={"steps": np.asarray([1], dtype=np.uint32), "log": {}},
+    )
+    env.get_hand_dof_pos = lambda: np.arange(22, dtype=np.float64).reshape(1, 22)
+    env.get_object_pos = lambda: np.asarray([[1.0, 2.0, 3.0]], dtype=np.float64)
+    env.get_object_quat = lambda: np.asarray([[1.0, 0.0, 0.0, 0.0]], dtype=np.float64)
+
+    save_calls: list[Path] = []
+    real_save = np.save
+
+    def save_once(path: str | Path, values: np.ndarray) -> None:
+        save_calls.append(Path(path))
+        real_save(path, values)
+
+    monkeypatch.setattr(
+        "unilab.envs.manipulation.sharpa_inhand.grasp_gen.np.save",
+        save_once,
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger="unilab.envs.manipulation.sharpa_inhand.grasp_gen",
+    ):
+        with pytest.raises(RunComplete) as caught:
+            env._collect_successful_grasps(np.asarray([0], dtype=np.int32))
+
+    saved_path = tmp_path / "sharpa_0.8.npy"
+    saved = np.load(saved_path)
+    expected = np.concatenate(
+        [
+            np.arange(22, dtype=np.float32),
+            np.asarray([1.0, 2.0, 3.0], dtype=np.float32),
+            np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        ]
+    )[None, :]
+    np.testing.assert_array_equal(saved, expected)
+    assert saved.dtype == np.float32
+    assert save_calls == [saved_path]
+    assert "grasp progress total=1/1, per_scale=[scale=0.8:1]" in caplog.text
+    assert "target reached (saved=1, configured_target=1)" in caplog.text
+    assert env.state.info["log"]["grasp_cache/saved"] == 1.0
+    assert env.state.info["log"]["grasp_cache/num_states"] == 1.0
+    assert env.state.info["log"]["grasp/target_reached"] == 1.0
+    assert dict(caught.value.summary) == {
+        "collected_grasps": 1,
+        "grasp_collection_target": 1,
+        "grasp_collection_counts_by_scale": (1,),
+    }
+
+    env._collect_successful_grasps(np.asarray([0], dtype=np.int32))
+    env._stop_collection()
+    assert save_calls == [saved_path]
+
+
+def test_sharpa_run_complete_reports_effective_collection_target() -> None:
+    from unilab.base.run_control import RunComplete
+    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+        SharpaInhandRotationGraspCfg,
+        SharpaInhandRotationGraspEnv,
+    )
+
+    env = cast(Any, object.__new__(SharpaInhandRotationGraspEnv))
+    env._cfg = SharpaInhandRotationGraspCfg(grasp_collection_target=0)
+    env._grasp_target_per_scale = 1
+    env._saved_grasping_states = [[np.zeros((1, 29), dtype=np.float32)]]
+    env._grasp_target_reached_notified = False
+    env._state = None
+
+    with pytest.raises(RunComplete) as caught:
+        env._stop_collection()
+
+    assert dict(caught.value.summary) == {
+        "collected_grasps": 1,
+        "grasp_collection_target": 1,
+        "grasp_collection_counts_by_scale": (1,),
+    }
 
 
 def test_g1_flip_tracking_cfg_uses_flip_profile():

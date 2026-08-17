@@ -131,12 +131,6 @@ class _DrakeUniModelView:
     nv: int
     nu: int
 
-    def num_positions(self) -> int:
-        return self.nq
-
-    def num_velocities(self) -> int:
-        return self.nv
-
     def num_actuators(self) -> int:
         return self.nu
 

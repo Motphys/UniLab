@@ -15,6 +15,7 @@ import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend import create_backend
+from unilab.base.backend.base import BackendTerrainSpawnData, SimBackend
 from unilab.base.scene import SceneCfg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +23,12 @@ SRC_ROOT = REPO_ROOT / "src"
 _FACTORY_FILE = SRC_ROOT / "unilab" / "base" / "backend" / "__init__.py"
 _BACKEND_CLASS_NAMES = frozenset(
     {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend"}
+)
+_TERRAIN_CONSUMER_FILES = (
+    SRC_ROOT / "unilab" / "envs" / "locomotion" / "common" / "terrain_spawn.py",
+    SRC_ROOT / "unilab" / "envs" / "locomotion" / "go1" / "joystick.py",
+    SRC_ROOT / "unilab" / "envs" / "locomotion" / "go2" / "joystick.py",
+    SRC_ROOT / "unilab" / "envs" / "locomotion" / "go2w" / "rough.py",
 )
 
 NUM_ENVS = 2
@@ -99,6 +106,46 @@ def test_backend_classes_are_only_instantiated_through_create_backend() -> None:
     )
 
 
+def test_terrain_spawn_contract_is_read_only_and_defaults_to_unsupported() -> None:
+    origins = np.arange(12, dtype=np.float64).reshape(2, 2, 3)
+
+    def sample_height(xy: np.ndarray) -> np.ndarray:
+        return np.zeros(np.asarray(xy).shape[:-1], dtype=np.float64)
+
+    data = BackendTerrainSpawnData(origins, sample_height=sample_height)
+
+    assert SimBackend.get_terrain_spawn_data(object()) is None  # type: ignore[arg-type]
+    assert data.sample_height is sample_height
+    assert not data.terrain_origins.flags.writeable
+    assert not np.shares_memory(data.terrain_origins, origins)
+    origins.fill(-1.0)
+    assert np.all(data.terrain_origins >= 0.0)
+
+    with pytest.raises(ValueError, match="terrain_origins must have shape"):
+        BackendTerrainSpawnData(np.zeros((2, 3), dtype=np.float64))
+    with pytest.raises(TypeError, match="sample_height must be callable"):
+        BackendTerrainSpawnData(
+            np.zeros((1, 1, 3), dtype=np.float64),
+            sample_height=object(),  # type: ignore[arg-type]
+        )
+
+
+def test_terrain_spawn_consumers_do_not_probe_private_backend_capabilities() -> None:
+    forbidden_names = {"terrain_origins", "terrain_surface_sampler", "sample_height"}
+    offenders: list[str] = []
+    for path in _TERRAIN_CONSUMER_FILES:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id not in {"getattr", "hasattr"}:
+                continue
+            for arg in node.args[1:]:
+                if isinstance(arg, ast.Constant) and arg.value in forbidden_names:
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {arg.value}")
+    assert not offenders, "private terrain capability probes:\n" + "\n".join(offenders)
+
+
 @pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
 def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> None:
     _require_backend(backend_type)
@@ -114,6 +161,7 @@ def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> No
 
     assert backend.num_envs == NUM_ENVS
     assert backend.num_actuators > 0
+    assert backend.get_terrain_spawn_data() is None
 
     backend.step(np.zeros((NUM_ENVS, backend.num_actuators)), nsteps=2)
 

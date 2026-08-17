@@ -31,9 +31,6 @@ class _StubRunner(AsyncRunner):
     def _build_learner(self) -> Any:
         return None
 
-    def _collector_fn(self, stop_event: Any, **kwargs) -> None:
-        pass
-
     def learn(self, max_iterations: int, save_interval: int = 50, log_dir: str = "logs") -> None:
         pass
 

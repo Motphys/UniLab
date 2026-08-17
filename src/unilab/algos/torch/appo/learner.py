@@ -322,11 +322,6 @@ class APPOLearner:
         self.actor.train()
         self.critic.train()
 
-    def eval_mode(self):
-        """Set actor/critic to eval mode."""
-        self.actor.eval()
-        self.critic.eval()
-
     def update_target_network(self):
         """Soft update target actor: target = tau * current + (1 - tau) * target."""
         for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
@@ -351,14 +346,6 @@ class APPOLearner:
         """Copy actor buffers such as observation-normalization stats to target actor."""
         for target_buf, buf in zip(self.target_actor.buffers(), self.actor.buffers()):
             target_buf.data.copy_(buf.data)
-
-    def get_weights(self):
-        """Return actor state dict for syncing to workers.
-
-        Workers use the behavior policy (which may be stale).
-        Includes EmpiricalNormalization buffers.
-        """
-        return self.actor.state_dict()
 
     def get_state_dict(self):
         """Return full learner state for checkpointing."""

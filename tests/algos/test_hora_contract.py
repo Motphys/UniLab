@@ -3,11 +3,39 @@ from __future__ import annotations
 import ast
 import copy
 import inspect
+import logging
 import textwrap
+from typing import Any, cast
 
 import pytest
 import torch
 from tensordict import TensorDict
+
+
+def test_hora_ppo_logs_when_symmetry_is_logging_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from unilab.algos.torch.hora.ppo import HoraPPO
+
+    actor = torch.nn.Linear(2, 2)
+    critic = torch.nn.Linear(2, 1)
+    actor.is_recurrent = False  # type: ignore[attr-defined]
+    critic.is_recurrent = False  # type: ignore[attr-defined]
+    symmetry_cfg = {
+        "use_data_augmentation": False,
+        "use_mirror_loss": False,
+        "data_augmentation_func": lambda *_args: None,
+    }
+
+    with caplog.at_level(logging.WARNING, logger="unilab.algos.torch.hora.ppo"):
+        HoraPPO(
+            cast(Any, actor),
+            cast(Any, critic),
+            cast(Any, object()),
+            symmetry_cfg=symmetry_cfg,
+        )
+
+    assert "Symmetry not used for learning. We will use it for logging instead." in caplog.text
 
 
 def test_hora_sac_actor_shapes_and_stable_module_names() -> None:
@@ -368,6 +396,141 @@ def test_hora_appo_play_builds_explicit_shared_actor_core() -> None:
 
     assert "build_hora_shared_actor_critic" in source
     assert len(shared_model_keywords) >= 1
+
+
+def _patch_hora_appo_play_fakes(monkeypatch: pytest.MonkeyPatch, *, actor_cls: type) -> None:
+    """Patch env/actor construction fakes for ``play_hora_appo`` contract tests."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    import rsl_rl.utils as rsl_rl_utils
+
+    import unilab.algos.torch.hora.appo as hora_appo
+
+    fake_env = SimpleNamespace(
+        obs_groups_spec={"obs": 3, "critic": 5},
+        action_space=SimpleNamespace(shape=(2,)),
+        state=SimpleNamespace(
+            obs={"obs": np.zeros((1, 3), dtype=np.float32)},
+            info={},
+        ),
+        cfg=SimpleNamespace(render_spacing=1.0),
+        run_playback_mode=lambda **kwargs: None,
+    )
+
+    class FakeBackendAdapter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_task_env_cfg_override(self):
+            return {}
+
+    monkeypatch.setattr(hora_appo, "BackendAdapter", FakeBackendAdapter)
+    monkeypatch.setattr(hora_appo, "create_env", lambda *args, **kwargs: fake_env)
+    monkeypatch.setattr(
+        hora_appo,
+        "split_hora_obs_with_priv_info",
+        lambda obs, info: (
+            np.zeros((1, 3), dtype=np.float32),
+            None,
+            np.zeros((1, 2), dtype=np.float32),
+        ),
+    )
+    monkeypatch.setattr(hora_appo, "is_rsl_rl_v5", lambda: True)
+    monkeypatch.setattr(
+        hora_appo,
+        "build_hora_shared_actor_critic",
+        lambda **kwargs: torch.nn.Identity(),
+    )
+    monkeypatch.setattr(rsl_rl_utils, "resolve_callable", lambda path: actor_cls)
+
+
+def _hora_appo_play_cfg():
+    from omegaconf import OmegaConf
+
+    return OmegaConf.create(
+        {
+            "training": {
+                "task_name": "Task",
+                "device": "cpu",
+                "play_env_num": 1,
+                "cam_distance": 3.0,
+                "cam_elevation": -20.0,
+                "cam_azimuth": 45.0,
+            },
+        }
+    )
+
+
+def test_hora_appo_play_runs_sim2sim_preflight_before_checkpoint_load(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    import unilab.algos.torch.hora.appo as hora_appo
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)
+    events: list[str] = []
+    preflight_calls: list[tuple] = []
+
+    class FakeActor(torch.nn.Module):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+        def load_state_dict(self, state_dict, strict=True):
+            events.append("load")
+            return None
+
+    _patch_hora_appo_play_fakes(monkeypatch, actor_cls=FakeActor)
+
+    def fake_preflight(source_run_dir, target_cfg, *, algo_name, strict):
+        events.append("preflight")
+        preflight_calls.append((source_run_dir, algo_name, strict))
+        return target_cfg
+
+    monkeypatch.setattr(hora_appo, "resolve_sim2sim_config", fake_preflight)
+
+    hora_appo.play_hora_appo(
+        _hora_appo_play_cfg(),
+        {"actor": {"class_name": "fake.Actor"}, "critic": {}},
+        root_dir=tmp_path,
+        resolve_checkpoint_path=lambda current_cfg: (str(checkpoint), str(tmp_path)),
+    )
+
+    assert preflight_calls == [(str(tmp_path), "appo", True)]
+    assert events == ["preflight", "load"]
+
+
+def test_hora_appo_play_dim_mismatch_reraises_explicit_sim2sim_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys,
+) -> None:
+    import unilab.algos.torch.hora.appo as hora_appo
+    from unilab.training.sim2sim import CrossBackendIncompatibleError
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)
+
+    class MismatchActor(torch.nn.Module):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+        def load_state_dict(self, state_dict, strict=True):
+            raise RuntimeError("size mismatch for actor.mlp.0.weight: copying a param ...")
+
+    _patch_hora_appo_play_fakes(monkeypatch, actor_cls=MismatchActor)
+
+    with pytest.raises(CrossBackendIncompatibleError, match="does not fit this play environment"):
+        hora_appo.play_hora_appo(
+            _hora_appo_play_cfg(),
+            {"actor": {"class_name": "fake.Actor"}, "critic": {}},
+            root_dir=tmp_path,
+            resolve_checkpoint_path=lambda current_cfg: (str(checkpoint), str(tmp_path)),
+        )
+
+    # Old runs without a contract snapshot keep the fallback + warning semantics.
+    assert "no contract_snapshot" in capsys.readouterr().out
 
 
 def test_hora_appo_resume_rejects_inconsistent_shared_checkpoint() -> None:

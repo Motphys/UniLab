@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.np_env import NpEnvState
+from unilab.base.run_control import RunComplete
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
 from unilab.envs.manipulation.sharpa_inhand.base import (
@@ -22,6 +24,8 @@ from unilab.envs.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationEnv,
 )
 from unilab.utils.rotation import np_quat_error_magnitude
+
+logger = logging.getLogger(__name__)
 
 
 def _default_sharpa_grasp_domain_rand() -> SharpaDomainRandConfig:
@@ -138,6 +142,7 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
 @registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
     _cfg: SharpaInhandRotationGraspCfg
+    _MATERIALIZE_ROTATION_GRASP_CACHE = False
 
     def __init__(
         self,
@@ -208,11 +213,11 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         """
         return tuple(len(bucket) for bucket in self._saved_grasping_states)
 
-    def _maybe_print_grasp_progress(self, force: bool = False) -> None:
-        """Print runtime grasp-collection progress grouped by scale.
+    def _maybe_log_grasp_progress(self, force: bool = False) -> None:
+        """Log runtime grasp-collection progress grouped by scale.
 
         Args:
-            force: When True, print even if throttling would normally skip.
+            force: When True, log even if throttling would normally skip.
         """
         if self.state is None:
             return
@@ -230,10 +235,11 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         per_scale = ", ".join(
             f"scale={float(self.scale_values[i]):g}:{count}" for i, count in enumerate(counts)
         )
-        print(
-            "[SharpaInhandRotationGrasp] "
-            f"grasp progress total={total}/{int(self._cfg.grasp_collection_target)}, "
-            f"per_scale=[{per_scale}]"
+        logger.info(
+            "[SharpaInhandRotationGrasp] grasp progress total=%d/%d, per_scale=[%s]",
+            total,
+            int(self._cfg.grasp_collection_target),
+            per_scale,
         )
         self._last_grasp_progress_step = step
         self._last_grasp_progress_counts = counts
@@ -244,13 +250,15 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
         if not self._collection_target_reached():
             return
 
-        self._maybe_print_grasp_progress(force=True)
+        self._maybe_log_grasp_progress(force=True)
         self._grasp_target_reached_notified = True
         collected = self._total_saved_grasps()
         target = int(self._cfg.grasp_collection_target)
-        print(
+        logger.info(
             "[SharpaInhandRotationGrasp] Grasp collection target reached "
-            f"(saved={collected}, configured_target={target}). Program stopped."
+            "(saved=%d, configured_target=%d). Collection completed.",
+            collected,
+            target,
         )
 
         if self.state is not None:
@@ -258,7 +266,14 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             log["grasp/target_reached"] = 1.0
             self.state.info["log"] = log
 
-        exit(0)
+        raise RunComplete(
+            reason="grasp_collection_target_reached",
+            summary={
+                "collected_grasps": int(collected),
+                "grasp_collection_target": int(self._grasp_target_per_scale),
+                "grasp_collection_counts_by_scale": self._get_per_scale_grasp_counts(),
+            },
+        )
 
     def _collect_successful_grasps(self, env_ids: np.ndarray) -> None:
         if self.state is None or len(env_ids) == 0:
@@ -280,7 +295,7 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
             if len(bucket) < self._grasp_target_per_scale:
                 bucket.append(all_states[i : i + 1])
 
-        self._maybe_print_grasp_progress()
+        self._maybe_log_grasp_progress()
         if self._grasp_cache_saved:
             return
 

@@ -192,18 +192,9 @@ def resolve_sim2sim_config(
     return target_cfg
 
 
-_DIM_MISMATCH_MARKERS: tuple[str, ...] = (
-    "size mismatch",
-    "copying a param",
-    "shape",
-    "dimension",
-    "expected",
-)
-
-
 def _looks_like_dim_mismatch(message: str) -> bool:
-    low = message.lower()
-    return any(marker in low for marker in _DIM_MISMATCH_MARKERS)
+    """Return whether ``load_state_dict`` reported a parameter size mismatch."""
+    return "size mismatch for " in message.lower()
 
 
 @contextmanager

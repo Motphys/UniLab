@@ -134,18 +134,6 @@ class AllegroBaseEnv(NpEnv):
             dtype=self._np_dtype,
         )
 
-    def get_ball_linvel(self) -> np.ndarray:
-        return np.asarray(
-            self._backend.get_body_lin_vel_w(self._ball_body_ids)[:, 0, :],
-            dtype=self._np_dtype,
-        )
-
-    def get_ball_angvel(self) -> np.ndarray:
-        return np.asarray(
-            self._backend.get_body_ang_vel_w(self._ball_body_ids)[:, 0, :],
-            dtype=self._np_dtype,
-        )
-
     def get_fingertip_pos(self) -> np.ndarray:
         return np.asarray(
             self._backend.get_body_pos_w(self._fingertip_body_ids),

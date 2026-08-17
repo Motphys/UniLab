@@ -1,7 +1,4 @@
-"""Minimal regression test for MjSpec sensor compile failure.
-
-See: https://github.com/google-deepmind/mujoco/issues/XXX
-"""
+"""Minimal regression test for MjSpec sensor compile failure."""
 
 from __future__ import annotations
 
