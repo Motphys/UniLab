@@ -32,6 +32,13 @@ class _StrictBackendProfile:
         self.site_ids = {"imu": 3}
         self.geom_names = ("floor", "base_collision", "foot_collision")
         self.actuator_names = ("knee", "unused", "hip", "unused_2", "ankle")
+        self.actuator_joint_names = (
+            "knee",
+            "unused_joint",
+            "hip",
+            "unused_2_joint",
+            "ankle",
+        )
         self.dof_pos = np.arange(self.num_envs * 5, dtype=np.float32).reshape(self.num_envs, 5)
         self.dof_vel = self.dof_pos + 100.0
         base = np.arange(self.num_envs * 10 * 3, dtype=np.float32)
@@ -70,6 +77,10 @@ class _StrictBackendProfile:
         self._check("actuator names")
         return self.actuator_names
 
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        self._check("actuator target joints")
+        return self.actuator_joint_names
+
     def get_actuator_ctrl_range(self) -> np.ndarray:
         self.calls["actuator range"] += 1
         return np.arange(10, dtype=np.float32).reshape(5, 2)
@@ -77,6 +88,10 @@ class _StrictBackendProfile:
     def get_dof_pos(self) -> np.ndarray:
         self._check("joint position state")
         return self.dof_pos
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        self._check("default joint position")
+        return np.arange(5, dtype=np.float32) + 10.0
 
     def get_dof_vel(self) -> np.ndarray:
         self._check("joint velocity state")
@@ -204,6 +219,74 @@ def test_entity_control_write_uses_cached_actuator_columns_and_fails_closed() ->
     _, read_only_scene = _scene()
     with pytest.raises(NotImplementedError, match="actuator control write.*not materialized"):
         read_only_scene["robot"].data.write_ctrl(np.zeros((backend.num_envs, 2), dtype=np.float32))
+
+
+def test_entity_joint_position_target_maps_natural_joint_order_to_control_order() -> None:
+    backend = _StrictBackendProfile("mujoco")
+    control = np.zeros((backend.num_envs, backend.num_actuators), dtype=np.float32)
+    scene = EntityScene(
+        {
+            "robot": EntityCfg(
+                joint_names=("ankle", "hip", "knee"),
+                actuator_names=("ankle", "hip"),
+            )
+        },
+        cast(SimBackend, backend),
+        control,
+    )
+    robot = scene["robot"]
+
+    ids, names = robot.find_joints_by_actuator_names(".*")
+    assert ids == [0, 1]
+    assert names == ["ankle", "hip"]
+    np.testing.assert_array_equal(
+        robot.data.default_joint_pos,
+        np.asarray([[14.0, 12.0, 10.0]] * backend.num_envs, dtype=np.float32),
+    )
+    np.testing.assert_array_equal(robot.data.encoder_bias, 0.0)
+
+    targets = np.asarray([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32)
+    robot.set_joint_position_target(targets, joint_ids=np.asarray(ids, dtype=np.int32))
+    np.testing.assert_array_equal(control[:, 4], targets[:, 0])
+    np.testing.assert_array_equal(control[:, 2], targets[:, 1])
+    np.testing.assert_array_equal(control[:, [0, 1, 3]], 0.0)
+
+    with pytest.raises(NotImplementedError, match="passive joints.*knee"):
+        robot.set_joint_position_target(
+            np.ones((backend.num_envs, 1), dtype=np.float32),
+            joint_ids=np.asarray([2], dtype=np.int32),
+        )
+
+
+@pytest.mark.parametrize(
+    ("actuator_joint_names", "joint_names", "message"),
+    [
+        (("hip", "unused", "hip", "unused_2", "knee"), ("hip",), "must be unique"),
+        (
+            ("knee", "unused_joint", "hip", "unused_2_joint", "ankle"),
+            ("hip",),
+            "outside its declared joint partition.*knee",
+        ),
+    ],
+)
+def test_entity_joint_actuator_mapping_rejects_ambiguous_or_missing_targets(
+    actuator_joint_names: tuple[str, ...],
+    joint_names: tuple[str, ...],
+    message: str,
+) -> None:
+    backend = _StrictBackendProfile("mujoco")
+    backend.actuator_joint_names = actuator_joint_names
+
+    with pytest.raises(ValueError, match=message):
+        EntityScene(
+            {
+                "robot": EntityCfg(
+                    joint_names=joint_names,
+                    actuator_names=("knee", "hip"),
+                )
+            },
+            cast(SimBackend, backend),
+        )
 
 
 @pytest.mark.parametrize(

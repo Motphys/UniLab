@@ -139,6 +139,7 @@ class EntityData:
         root_body_ids: np.ndarray | None,
         joint_pos_ids: np.ndarray | None,
         joint_vel_ids: np.ndarray | None,
+        default_joint_pos: np.ndarray | None,
         body_ids: np.ndarray | None,
         actuator_ids: np.ndarray | None,
         actuator_ctrl_range: np.ndarray | None,
@@ -152,8 +153,14 @@ class EntityData:
         self._root_body_ids = root_body_ids
         self._joint_pos_index = None if joint_pos_ids is None else _as_column_index(joint_pos_ids)
         self._joint_vel_index = None if joint_vel_ids is None else _as_column_index(joint_vel_ids)
+        self._default_joint_pos = default_joint_pos
+        self._encoder_bias = (
+            None
+            if default_joint_pos is None
+            else np.zeros(default_joint_pos.shape, dtype=default_joint_pos.dtype)
+        )
         self._body_ids = body_ids
-        self._actuator_index = None if actuator_ids is None else _as_column_index(actuator_ids)
+        self._actuator_ids = actuator_ids
         self._actuator_ctrl_range = actuator_ctrl_range
         self._control_buffer = control_buffer
 
@@ -204,6 +211,16 @@ class EntityData:
         return self._backend.get_dof_vel()[:, index]
 
     @property
+    def default_joint_pos(self) -> np.ndarray:
+        """Read-only per-environment default joint positions."""
+        return self._require(self._default_joint_pos, "default joint position")
+
+    @property
+    def encoder_bias(self) -> np.ndarray:
+        """Mutable per-environment joint encoder bias used by position actions."""
+        return self._require(self._encoder_bias, "joint encoder bias")
+
+    @property
     def body_link_pos_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
         return self._backend.get_body_pos_w(ids)
@@ -239,6 +256,8 @@ class EntityData:
         self,
         values: np.ndarray,
         env_ids: np.ndarray | slice | None = None,
+        *,
+        actuator_ids: np.ndarray | Sequence[int] | slice | None = None,
     ) -> None:
         """Write entity-local actuator controls into the env-owned control buffer.
 
@@ -246,7 +265,7 @@ class EntityData:
         entity target buffers.  Physics remains owned by ``NpEnv``/``SimBackend``;
         this method never steps or calls a backend-private API.
         """
-        actuator_index = self._require(self._actuator_index, "actuator control write")
+        entity_actuator_ids = self._require(self._actuator_ids, "actuator control write")
         control = self._require(self._control_buffer, "actuator control write")
         if not isinstance(values, np.ndarray):
             raise TypeError(
@@ -284,7 +303,38 @@ class EntityData:
                 )
             row_count = len(row_index)
 
-        actuator_count = len(self._require(self._actuator_ctrl_range, "actuator control write"))
+        if actuator_ids is None:
+            selected_actuator_ids = entity_actuator_ids
+        elif isinstance(actuator_ids, slice):
+            selected_actuator_ids = entity_actuator_ids[actuator_ids]
+        else:
+            raw_actuator_ids = np.asarray(actuator_ids)
+            if (
+                raw_actuator_ids.ndim != 1
+                or not np.issubdtype(raw_actuator_ids.dtype, np.integer)
+                or np.issubdtype(raw_actuator_ids.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self._entity_name}' write_ctrl actuator_ids must be a 1-D "
+                    "integer array or slice"
+                )
+            local_actuator_ids = np.asarray(raw_actuator_ids, dtype=np.intp)
+            if np.any(local_actuator_ids < 0) or np.any(
+                local_actuator_ids >= len(entity_actuator_ids)
+            ):
+                raise IndexError(
+                    f"Entity '{self._entity_name}' write_ctrl actuator_ids out of range for "
+                    f"{len(entity_actuator_ids)} entity actuators: {local_actuator_ids.tolist()}"
+                )
+            if np.unique(local_actuator_ids).size != local_actuator_ids.size:
+                raise ValueError(
+                    f"Entity '{self._entity_name}' write_ctrl actuator_ids contain duplicates: "
+                    f"{local_actuator_ids.tolist()}"
+                )
+            selected_actuator_ids = entity_actuator_ids[local_actuator_ids]
+
+        actuator_index = _as_column_index(np.asarray(selected_actuator_ids, dtype=np.int32))
+        actuator_count = len(selected_actuator_ids)
         expected = (row_count, actuator_count)
         if values.shape != expected:
             raise ValueError(
@@ -366,7 +416,12 @@ class Entity:
 
         self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
         self._validate_body_state(backend, root_body_ids, body_ids)
+        default_joint_pos = self._materialize_default_joint_pos(backend, joint_pos_ids)
         actuator_ctrl_range = self._materialize_actuator_ctrl_range(backend, actuator_ids)
+        (
+            self._actuator_target_joint_names,
+            self._joint_to_actuator_local,
+        ) = self._materialize_joint_actuator_mapping(backend, actuator_ids)
         if control_buffer is not None:
             expected_control_shape = (backend.num_envs, backend.num_actuators)
             if control_buffer.shape != expected_control_shape:
@@ -385,6 +440,7 @@ class Entity:
             root_body_ids=root_body_ids,
             joint_pos_ids=joint_pos_ids,
             joint_vel_ids=joint_vel_ids,
+            default_joint_pos=default_joint_pos,
             body_ids=body_ids,
             actuator_ids=actuator_ids,
             actuator_ctrl_range=actuator_ctrl_range,
@@ -519,6 +575,63 @@ class Entity:
         selected.setflags(write=False)
         return selected
 
+    def _materialize_default_joint_pos(
+        self, backend: SimBackend, joint_pos_ids: np.ndarray | None
+    ) -> np.ndarray | None:
+        if joint_pos_ids is None:
+            return None
+        defaults = self._read_state("default joint position", backend.get_default_dof_pos)
+        current = self._read_state("joint position state", backend.get_dof_pos)
+        if defaults.shape != current.shape[1:]:
+            raise ValueError(
+                f"Entity '{self.name}' capability 'default joint position' on backend "
+                f"'{self._backend_type}' returned shape {defaults.shape}; expected "
+                f"{current.shape[1:]} to match get_dof_pos()"
+            )
+        selected = np.asarray(defaults[_as_column_index(joint_pos_ids)])
+        materialized = np.broadcast_to(selected, (backend.num_envs, len(joint_pos_ids))).copy()
+        materialized.setflags(write=False)
+        return materialized
+
+    def _materialize_joint_actuator_mapping(
+        self, backend: SimBackend, actuator_ids: np.ndarray | None
+    ) -> tuple[tuple[str, ...] | None, np.ndarray | None]:
+        if actuator_ids is None or self._joint_names is None:
+            return None, None
+        try:
+            all_target_names = tuple(backend.get_actuator_joint_names())
+        except NotImplementedError as exc:
+            raise self._capability_error("actuator target joint", str(exc)) from exc
+        if len(all_target_names) != backend.num_actuators:
+            raise ValueError(
+                f"Entity '{self.name}' capability 'actuator target joint' on backend "
+                f"'{self._backend_type}' returned {len(all_target_names)} names for "
+                f"{backend.num_actuators} actuators"
+            )
+        target_names = tuple(all_target_names[int(index)] for index in actuator_ids)
+        if any(not isinstance(name, str) or not name for name in target_names):
+            raise ValueError(
+                f"Entity '{self.name}' actuator target joint names must be non-empty strings; "
+                f"got {target_names}"
+            )
+        if len(set(target_names)) != len(target_names):
+            raise ValueError(
+                f"Entity '{self.name}' actuator target joints must be unique for position "
+                f"control; got {target_names}"
+            )
+        joint_index_by_name = {name: index for index, name in enumerate(self._joint_names)}
+        missing = [name for name in target_names if name not in joint_index_by_name]
+        if missing:
+            raise ValueError(
+                f"Entity '{self.name}' actuators target joints outside its declared joint "
+                f"partition on backend '{self._backend_type}': {missing}"
+            )
+        joint_to_actuator = np.full(len(self._joint_names), -1, dtype=np.int32)
+        for actuator_local_id, joint_name in enumerate(target_names):
+            joint_to_actuator[joint_index_by_name[joint_name]] = actuator_local_id
+        joint_to_actuator.setflags(write=False)
+        return target_names, joint_to_actuator
+
     def _require_names(self, kind: str, names: tuple[str, ...] | None) -> tuple[str, ...]:
         if names is None:
             raise self._capability_error(kind, "the namespace was not declared in EntityCfg")
@@ -628,6 +741,72 @@ class Entity:
         self, keys: str | Sequence[str], preserve_order: bool = False
     ) -> tuple[list[int], list[str]]:
         return self._find("joint", self._joint_names, keys, preserve_order)
+
+    def find_joints_by_actuator_names(
+        self, keys: str | Sequence[str]
+    ) -> tuple[list[int], list[str]]:
+        """Resolve actuator-target joint patterns in natural entity joint order."""
+        target_names = self._actuator_target_joint_names
+        if target_names is None:
+            raise self._capability_error(
+                "actuator target joint",
+                "joint_names and actuator_names must both be declared in EntityCfg",
+            )
+        target_set = set(target_names)
+        natural_ids = [index for index, name in enumerate(self.joint_names) if name in target_set]
+        natural_names = [self.joint_names[index] for index in natural_ids]
+        matched_ids, matched_names = _resolve_matching_names(keys, natural_names, False)
+        return [natural_ids[index] for index in matched_ids], matched_names
+
+    def set_joint_position_target(
+        self,
+        target: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Map entity-local joint targets to the env-owned actuator control buffer."""
+        joint_to_actuator = self._joint_to_actuator_local
+        if joint_to_actuator is None:
+            raise self._capability_error(
+                "joint position target",
+                "joint-to-actuator metadata was not materialized",
+            )
+        if joint_ids is None:
+            local_joint_ids = np.arange(self.num_joints, dtype=np.intp)
+        elif isinstance(joint_ids, slice):
+            local_joint_ids = np.arange(self.num_joints, dtype=np.intp)[joint_ids]
+        else:
+            raw_joint_ids = np.asarray(joint_ids)
+            if (
+                raw_joint_ids.ndim != 1
+                or not np.issubdtype(raw_joint_ids.dtype, np.integer)
+                or np.issubdtype(raw_joint_ids.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self.name}' joint position target joint_ids must be a 1-D "
+                    "integer array or slice"
+                )
+            local_joint_ids = np.asarray(raw_joint_ids, dtype=np.intp)
+        if np.any(local_joint_ids < 0) or np.any(local_joint_ids >= self.num_joints):
+            raise IndexError(
+                f"Entity '{self.name}' joint position target joint_ids out of range for "
+                f"{self.num_joints} joints: {local_joint_ids.tolist()}"
+            )
+        if np.unique(local_joint_ids).size != local_joint_ids.size:
+            raise ValueError(
+                f"Entity '{self.name}' joint position target joint_ids contain duplicates: "
+                f"{local_joint_ids.tolist()}"
+            )
+        actuator_ids = joint_to_actuator[local_joint_ids]
+        if np.any(actuator_ids < 0):
+            passive_names = [
+                self.joint_names[int(index)] for index in local_joint_ids[actuator_ids < 0]
+            ]
+            raise NotImplementedError(
+                f"Entity '{self.name}' capability 'joint position target' is unavailable "
+                f"for passive joints on backend '{self._backend_type}': {passive_names}"
+            )
+        self.data.write_ctrl(target, env_ids, actuator_ids=actuator_ids)
 
     def find_bodies(
         self, keys: str | Sequence[str], preserve_order: bool = False
