@@ -33,24 +33,6 @@ def resolve_hora_ppo_runtime(
     return HoraRslRlPPORuntime(wrapper_cls=HoraRslRlVecEnvWrapper)
 
 
-def resolve_hora_ppo_wrapper_cls(
-    rl_cfg: dict[str, Any],
-) -> type[RslRlVecEnvWrapper] | None:
-    """Return the HORA-specific PPO wrapper class when the config selects it.
-
-    Args:
-        rl_cfg: Resolved algorithm config dictionary from Hydra composition.
-
-    Returns:
-        ``HoraRslRlVecEnvWrapper`` when the owner config selects HORA PPO, otherwise
-        ``None``.
-    """
-    runtime = resolve_hora_ppo_runtime(rl_cfg)
-    if runtime is None:
-        return None
-    return runtime.wrapper_cls
-
-
 class HoraRslRlVecEnvWrapper(RslRlVecEnvWrapper):
     """RSL-RL adapter that preserves HORA teacher-policy observation payloads."""
 
