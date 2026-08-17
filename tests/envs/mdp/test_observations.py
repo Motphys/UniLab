@@ -1,0 +1,247 @@
+"""Upstream-derived NumPy tests for basic manager observation terms."""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
+
+import numpy as np
+import pytest
+
+from unilab.base.backend.base import SimBackend
+from unilab.base.entity import EntityCfg, EntityScene
+from unilab.envs import mdp
+from unilab.managers import ObservationGroupCfg, ObservationManager, ObservationTermCfg
+from unilab.managers._types import ManagerBasedRlEnv
+from unilab.managers.scene_entity_config import SceneEntityCfg
+
+
+class _Backend:
+    backend_type = "fake"
+    num_envs = 2
+    num_actuators = 0
+
+    def __init__(self) -> None:
+        self.joint_names = ("hip", "knee", "ankle")
+        self.dof_pos = np.asarray(
+            [[0.4, 0.1, -0.2], [0.0, 0.3, 0.7]],
+            dtype=np.float32,
+        )
+        self.dof_vel = np.asarray(
+            [[1.0, 2.0, 3.0], [-1.0, -2.0, -3.0]],
+            dtype=np.float32,
+        )
+        self.body_pos = np.zeros((2, 1, 3), dtype=np.float32)
+        self.body_quat = np.zeros((2, 1, 4), dtype=np.float32)
+        self.body_quat[0, 0, 0] = 1.0
+        half = np.sqrt(0.5)
+        self.body_quat[1, 0] = [half, half, 0.0, 0.0]
+        self.body_lin_vel_w = np.zeros((2, 1, 3), dtype=np.float32)
+        self.body_ang_vel_w = np.zeros((2, 1, 3), dtype=np.float32)
+        self.body_lin_vel_b = np.asarray(
+            [[[0.5, 0.25, 0.0]], [[-0.5, -0.25, 0.1]]], dtype=np.float32
+        )
+        self.body_ang_vel_b = np.asarray(
+            [[[0.1, 0.2, 0.3]], [[-0.1, -0.2, -0.3]]], dtype=np.float32
+        )
+
+    def get_joint_dof_pos_indices(self, names) -> np.ndarray:
+        return np.asarray([self.joint_names.index(name) for name in names], dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names) -> np.ndarray:
+        return self.get_joint_dof_pos_indices(names)
+
+    def get_body_ids(self, names) -> np.ndarray:
+        if tuple(names) != ("base",):
+            raise KeyError(names)
+        return np.asarray([0], dtype=np.int32)
+
+    def get_dof_pos(self) -> np.ndarray:
+        return self.dof_pos
+
+    def get_dof_vel(self) -> np.ndarray:
+        return self.dof_vel
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        return np.asarray([0.1, 0.2, 0.3], dtype=np.float32)
+
+    def get_body_pos_w(self, ids: np.ndarray) -> np.ndarray:
+        return self.body_pos[:, ids]
+
+    def get_body_quat_w(self, ids: np.ndarray) -> np.ndarray:
+        return self.body_quat[:, ids]
+
+    def get_body_lin_vel_w(self, ids: np.ndarray) -> np.ndarray:
+        return self.body_lin_vel_w[:, ids]
+
+    def get_body_ang_vel_w(self, ids: np.ndarray) -> np.ndarray:
+        return self.body_ang_vel_w[:, ids]
+
+    def get_body_lin_vel_b(self, ids: np.ndarray) -> np.ndarray:
+        return self.body_lin_vel_b[:, ids]
+
+    def get_body_ang_vel_b(self, ids: np.ndarray) -> np.ndarray:
+        return self.body_ang_vel_b[:, ids]
+
+
+class _ActionManager:
+    def __init__(self) -> None:
+        self.action = np.arange(6, dtype=np.float32).reshape(2, 3)
+        self._terms = {
+            "legs": SimpleNamespace(raw_action=self.action[:, [0, 2]]),
+        }
+
+    def get_term(self, name: str):
+        return self._terms[name]
+
+
+class _CommandManager:
+    def __init__(self) -> None:
+        self.command = np.asarray([[1.0, 0.0, 0.2], [0.5, -0.1, -0.2]], dtype=np.float32)
+
+    def get_command(self, name: str) -> np.ndarray:
+        if name != "twist":
+            raise KeyError(name)
+        return self.command
+
+
+def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
+    backend = _Backend()
+    scene = EntityScene(
+        {
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=backend.joint_names,
+            )
+        },
+        cast(SimBackend, backend),
+    )
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=backend.num_envs,
+            scene=scene,
+            action_manager=_ActionManager(),
+            command_manager=_CommandManager(),
+            rng=np.random.default_rng(4),
+        ),
+    )
+    return env, backend
+
+
+def test_root_joint_action_and_command_terms_match_numpy_contract() -> None:
+    env, backend = _env()
+    robot = cast(Any, env.scene["robot"])
+    robot.data.encoder_bias[:] = [[0.01, 0.02, 0.03], [-0.01, -0.02, -0.03]]
+
+    np.testing.assert_array_equal(mdp.base_lin_vel(env), backend.body_lin_vel_b[:, 0])
+    np.testing.assert_array_equal(mdp.base_ang_vel(env), backend.body_ang_vel_b[:, 0])
+    np.testing.assert_allclose(
+        mdp.projected_gravity(env),
+        [[0.0, 0.0, -1.0], [0.0, -1.0, 0.0]],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        mdp.joint_pos_rel(env),
+        backend.dof_pos - [0.1, 0.2, 0.3],
+    )
+    np.testing.assert_allclose(
+        mdp.joint_pos_rel(env, biased=True),
+        backend.dof_pos + robot.data.encoder_bias - [0.1, 0.2, 0.3],
+    )
+    np.testing.assert_array_equal(mdp.joint_vel_rel(env), backend.dof_vel)
+    np.testing.assert_array_equal(mdp.last_action(env), env.action_manager.action)
+    np.testing.assert_array_equal(
+        mdp.last_action(env, "legs"), env.action_manager.get_term("legs").raw_action
+    )
+    np.testing.assert_array_equal(
+        mdp.generated_commands(env, "twist"), env.command_manager.get_command("twist")
+    )
+
+
+def test_scene_entity_selector_is_resolved_once_by_observation_manager() -> None:
+    env, backend = _env()
+    selector = SceneEntityCfg("robot", joint_names=("ankle", "hip"), preserve_order=True)
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "joint_pos": ObservationTermCfg(
+                        func=mdp.joint_pos_rel,
+                        params={"asset_cfg": selector},
+                    ),
+                    "joint_vel": ObservationTermCfg(
+                        func=mdp.joint_vel_rel,
+                        params={"asset_cfg": selector},
+                    ),
+                    "command": ObservationTermCfg(
+                        func=mdp.generated_commands,
+                        params={"command_name": "twist"},
+                    ),
+                }
+            )
+        },
+        env,
+    )
+
+    result = manager.compute()["policy"]
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (2, 7)
+    np.testing.assert_allclose(result[:, :2], backend.dof_pos[:, [2, 0]] - [0.3, 0.1])
+    np.testing.assert_array_equal(result[:, 2:4], backend.dof_vel[:, [2, 0]])
+    assert selector.joint_ids == slice(None)
+    resolved = manager.get_term_cfg("policy", "joint_pos").params["asset_cfg"]
+    assert resolved.joint_ids == [2, 0]
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda env: mdp.last_action(env, "missing"), "Action term 'missing' not found"),
+        (
+            lambda env: mdp.generated_commands(env, "missing"),
+            "Command term 'missing' not found",
+        ),
+        (lambda env: mdp.joint_pos_rel(env, biased=1), "biased must be bool"),
+    ],
+)
+def test_invalid_term_requests_fail_explicitly(call, message: str) -> None:
+    env, _ = _env()
+    with pytest.raises((KeyError, TypeError), match=message):
+        call(env)
+
+
+def test_missing_entity_capability_fails_instead_of_returning_zeros() -> None:
+    backend = _Backend()
+    scene = EntityScene(
+        {"robot": EntityCfg(joint_names=backend.joint_names)},
+        cast(SimBackend, backend),
+    )
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=2,
+            scene=scene,
+            action_manager=_ActionManager(),
+            command_manager=_CommandManager(),
+        ),
+    )
+    with pytest.raises(NotImplementedError, match="projected gravity.*not materialized"):
+        mdp.projected_gravity(env)
+
+
+def test_observation_module_has_no_forbidden_runtime_dependencies() -> None:
+    path = (
+        Path(__file__).resolve().parents[3] / "src" / "unilab" / "envs" / "mdp" / "observations.py"
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    forbidden = ("torch", "unilab.ipc", "unilab.algos", "unilab.training", "unilab.base.backend")
+    imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)] + [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    ]
+    assert not [name for name in imports if name.startswith(forbidden)]

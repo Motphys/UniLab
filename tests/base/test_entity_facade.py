@@ -151,11 +151,14 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
     assert robot.body_names == ("foot", "base")
     np.testing.assert_array_equal(robot.data.joint_pos, backend.dof_pos[:, [4, 2]])
     np.testing.assert_array_equal(robot.data.joint_vel, backend.dof_vel[:, [4, 2]])
+    np.testing.assert_array_equal(robot.data.default_joint_vel, 0.0)
+    np.testing.assert_array_equal(robot.data.joint_pos_biased, backend.dof_pos[:, [4, 2]])
     np.testing.assert_array_equal(robot.data.body_link_pos_w, backend.body_pos[:, [7, 4]])
     np.testing.assert_array_equal(robot.data.root_link_pos_w, backend.body_pos[:, 4])
     np.testing.assert_array_equal(robot.data.root_link_lin_vel_b, backend.body_lin_vel_b[:, 4])
     np.testing.assert_array_equal(robot.data.root_link_ang_vel_b, backend.body_ang_vel_b[:, 4])
     np.testing.assert_array_equal(robot.data.heading_w, 0.0)
+    np.testing.assert_array_equal(robot.data.projected_gravity_b, [[0.0, 0.0, -1.0]] * 3)
     np.testing.assert_array_equal(
         robot.data.actuator_ctrl_range,
         np.arange(10, dtype=np.float32).reshape(5, 2)[[4, 2]],
@@ -477,9 +480,13 @@ def test_real_mujoco_entity_selector_and_numpy_state_smoke() -> None:
     assert scene["robot"].data.root_link_lin_vel_b.shape == (2, 3)
     assert scene["robot"].data.root_link_ang_vel_b.shape == (2, 3)
     assert scene["robot"].data.heading_w.shape == (2,)
+    assert scene["robot"].data.projected_gravity_b.shape == (2, 3)
+    assert scene["robot"].data.default_joint_vel.shape == (2, 12)
     assert np.isfinite(scene["robot"].data.root_link_lin_vel_b).all()
     assert np.isfinite(scene["robot"].data.root_link_ang_vel_b).all()
     assert np.isfinite(scene["robot"].data.heading_w).all()
+    assert np.isfinite(scene["robot"].data.projected_gravity_b).all()
+    np.testing.assert_array_equal(scene["robot"].data.default_joint_vel, 0.0)
 
 
 def test_scene_cfg_entity_defaults_are_not_shared() -> None:

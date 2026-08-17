@@ -138,6 +138,15 @@ class ManagerBasedRlEnv(NpEnv):
 
     is_vector_env = True
     _cfg: ManagerBasedRlEnvCfg
+    event_manager: EventManager
+    command_manager: CommandManager | NullCommandManager
+    action_manager: ActionManager
+    observation_manager: ObservationManager
+    termination_manager: TerminationManager
+    reward_manager: RewardManager
+    curriculum_manager: CurriculumManager | NullCurriculumManager
+    metrics_manager: MetricsManager | NullMetricsManager
+    recorder_manager: RecorderManager | NullRecorderManager
 
     def __init__(self, cfg: ManagerBasedRlEnvCfg, backend: SimBackend, num_envs: int):
         if not isinstance(cfg, ManagerBasedRlEnvCfg):
