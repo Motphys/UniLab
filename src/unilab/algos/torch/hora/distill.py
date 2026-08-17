@@ -295,6 +295,57 @@ def load_distilled_checkpoint(
     return cast(dict[str, Any], checkpoint)
 
 
+def cfg_with_checkpoint_runtime(cfg: DictConfig, checkpoint: dict[str, Any]) -> DictConfig:
+    """Merge model-side runtime config stored in a stage-2 checkpoint.
+
+    Args:
+        cfg: Hydra-composed distillation config supplied to play mode.
+        checkpoint: Loaded stage-2 checkpoint dictionary.
+
+    Returns:
+        Config using the current owner env/reward settings and checkpoint model
+        construction fields.
+    """
+    from unilab.algos.torch.hora.distill_config import apply_teacher_defaults
+
+    cfg_with_owner_defaults = apply_teacher_defaults(cfg)
+    cfg_clone = OmegaConf.create(OmegaConf.to_container(cfg_with_owner_defaults, resolve=False))
+    runtime_cfg = checkpoint.get("distill_runtime_cfg")
+    if runtime_cfg is None:
+        return cast(DictConfig, cfg_clone)
+
+    runtime_model_cfg = OmegaConf.select(OmegaConf.create(runtime_cfg), "algo.model")
+    if runtime_model_cfg is None:
+        return cast(DictConfig, cfg_clone)
+    OmegaConf.update(
+        cfg_clone,
+        "algo.model",
+        OmegaConf.to_container(runtime_model_cfg, resolve=True),
+        merge=False,
+    )
+    return cast(DictConfig, cfg_clone)
+
+
+def student_policy(
+    actor: nn.Module,
+    hist_normalizer: EmpiricalNormalization,
+    obs: TensorDict,
+    *,
+    device: torch.device,
+) -> torch.Tensor:
+    """Run the distilled student actor on wrapped-env observations."""
+    proprio_hist = hist_normalizer(obs["proprio_hist"].to(device), update=False)
+    policy_obs = TensorDict(
+        {
+            "actor": obs["actor"].to(device),
+            "proprio_hist": proprio_hist,
+        },
+        batch_size=obs.batch_size,
+        device=device,
+    )
+    return actor(policy_obs, stochastic_output=False).clamp_(-1.0, 1.0)
+
+
 class HoraDistillationTrainer:
     """Stage-2 HORA latent distillation trainer."""
 

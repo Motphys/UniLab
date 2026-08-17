@@ -695,6 +695,9 @@ class MuJoCoBackend(SimBackend):
     def get_scene_model_file(self) -> str | None:
         return str(self.scene_model_file) if self.scene_model_file else None
 
+    def get_scene_visual_model_file(self) -> str | None:
+        return str(self.scene_visual_model_file) if self.scene_visual_model_file else None
+
     def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
         return self._terrain_spawn_data
 

@@ -24,6 +24,7 @@ from unilab.training import (
     ensure_registries,
     get_log_root,
     log_playback_plan,
+    resolve_appo_checkpoint_path,
     should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
@@ -131,23 +132,6 @@ def run_motrix_play_loop(
                 dtype=np.float32,
             ),
         )
-
-
-def resolve_appo_checkpoint_path(
-    base_log_dir: str | Path,
-    load_run: str | int,
-) -> tuple[str | None, str | None]:
-    from unilab.training import resolve_checkpoint_path
-
-    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(
-        base_log_dir,
-        str(load_run),
-        suffix=".pt",
-    )
-    return (
-        str(checkpoint_path) if checkpoint_path is not None else None,
-        str(checkpoint_dir) if checkpoint_dir is not None else None,
-    )
 
 
 def _get_log_root(cfg: DictConfig) -> str:

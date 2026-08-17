@@ -27,7 +27,6 @@ from unilab.ipc.dp_launcher import (
     validate_dp_launchable,
 )
 from unilab.training import (
-    BackendAdapter,
     apply_configured_training_seed,
     assert_offpolicy_task_choice_matches_algo,
     create_env,
@@ -36,10 +35,21 @@ from unilab.training import (
     log_playback_plan,
     should_run_playback,
 )
-from unilab.training import (
-    resolve_checkpoint_path as resolve_checkpoint_path_common,
-)
 from unilab.training.experiment import ExperimentTracker
+from unilab.training.offpolicy import (
+    build_offpolicy_env_cfg_override as _build_offpolicy_env_cfg_override,
+)
+from unilab.training.offpolicy import (
+    default_device,
+    extract_play_obs,
+    extract_reset_obs,
+    resolve_play_actor_spec,
+    resolve_play_obs_dim,
+    resolve_play_obs_dims,
+)
+from unilab.training.run import (
+    resolve_offpolicy_checkpoint_path as resolve_checkpoint_path,
+)
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.nan_guard import NanGuardCfg
 
@@ -73,95 +83,8 @@ def build_run_dir_name(timestamp: str, sim_backend: str, *, world_size: int = 1)
     return f"{timestamp}_{sim_backend}{gpu_suffix}"
 
 
-def default_device(torch_module, preferred: str | None = None) -> str:
-    """Resolve runtime device with optional user override."""
-    if preferred:
-        return preferred
-    if torch_module.cuda.is_available():
-        return "cuda"
-    xpu = getattr(torch_module, "xpu", None)
-    xpu_is_available = getattr(xpu, "is_available", None)
-    if callable(xpu_is_available) and xpu_is_available():
-        return "xpu"
-    if torch_module.backends.mps.is_available():
-        return "mps"
-    return "cpu"
-
-
-def resolve_checkpoint_path(
-    root_dir: Path, algo_log_name: str, task: str, load_run: str | int
-) -> tuple[str | None, str | None]:
-    checkpoint_path, checkpoint_dir = resolve_checkpoint_path_common(
-        Path(root_dir) / "logs" / algo_log_name / task,
-        load_run,
-        suffix=".pt",
-    )
-    return (
-        str(checkpoint_path) if checkpoint_path is not None else None,
-        str(checkpoint_dir) if checkpoint_dir is not None else None,
-    )
-
-
-def extract_reset_obs(reset_result):
-    """Extract obs_dict from env.reset(...) using the current (obs_dict, info_dict) contract."""
-    if isinstance(reset_result, tuple):
-        if len(reset_result) == 2:
-            obs_out, _ = reset_result
-            return obs_out
-    raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
-
-
-def resolve_play_obs_dim(obs_groups_spec: dict[str, int]) -> int:
-    obs_dim, _ = resolve_play_obs_dims(obs_groups_spec)
-    return obs_dim
-
-
-def resolve_play_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
-    from unilab.base.observations import get_obs_dims
-
-    obs_dim, critic_obs_dim = get_obs_dims(obs_groups_spec)
-    return int(obs_dim), int(critic_obs_dim)
-
-
-def extract_play_obs(obs_dict):
-    from unilab.base.observations import split_obs_dict
-
-    obs_out, _ = split_obs_dict(obs_dict)
-    return obs_out
-
-
-def resolve_play_actor_spec(
-    algo_name: str,
-    cfg: DictConfig,
-    *,
-    obs_dim: int,
-    critic_obs_dim: int,
-) -> tuple[str, dict[str, Any]]:
-    """Resolve the actor implementation and model kwargs used by off-policy play."""
-    if algo_name != "sac":
-        return algo_name, {}
-
-    from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
-
-    rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
-    custom_runtime = resolve_custom_offpolicy_runtime(rl_cfg)
-    if custom_runtime is None:
-        return "sac", {}
-
-    actor_algo_type = str(custom_runtime.algo_type or algo_name)
-    actor_kwargs = custom_runtime.build_model_kwargs(
-        obs_dim=int(obs_dim),
-        critic_obs_dim=int(critic_obs_dim),
-    )
-    return actor_algo_type, actor_kwargs
-
-
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
-    assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
-    return cast(
-        dict[str, Any] | None,
-        BackendAdapter(cfg, root_dir=ROOT_DIR, algo_name=algo_name).build_task_env_cfg_override(),
-    )
+    return _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=ROOT_DIR)
 
 
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):

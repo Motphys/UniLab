@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,13 +11,9 @@ from typing import Any, ClassVar, Protocol
 import numpy as np
 import torch
 
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+
 LogFn = Callable[[str], None]
-
-
-def _ensure_scripts_dir(root_dir: str | Path) -> None:
-    scripts_dir = Path(root_dir) / "scripts"
-    if scripts_dir.is_dir() and str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
 
 
 @dataclass(frozen=True)
@@ -330,6 +325,31 @@ class OffPolicyPlaybackSession:
 _HORA_DISTILL_CHECKPOINT_UNAVAILABLE = "hora_distill_checkpoint_unavailable"
 
 
+def make_sim2sim_preflight(
+    cfg: Any,
+    *,
+    algo_name: str,
+) -> Callable[[str | None], Any] | None:
+    """Build a sim2sim contract preflight closure for interactive playback entrypoints.
+
+    Returns ``None`` when no Hydra config is available (legacy non-Hydra path).
+    Old runs without a contract snapshot keep the fallback + warning semantics of
+    :func:`resolve_sim2sim_config`.
+    """
+    if cfg is None:
+        return None
+
+    def _preflight(source_run_dir: str | None) -> Any:
+        return resolve_sim2sim_config(
+            source_run_dir,
+            cfg,
+            algo_name=algo_name,
+            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+        )
+
+    return _preflight
+
+
 def select_torch_device() -> str:
     if torch.cuda.is_available():
         return "cuda"
@@ -352,6 +372,7 @@ def create_rsl_rl_playback_session(
     runner_cls: Any,
     policy_obs_dims_getter: Callable[[Any], tuple[int, int]],
     train_cfg_normalizer: Callable[[dict[str, Any]], dict[str, Any]],
+    sim2sim_preflight: Callable[[str | None], Any] | None = None,
     log: LogFn = print,
 ) -> tuple[RslRlPlaybackSession, str, str | None]:
     """Create a playback session and load the selected policy checkpoint."""
@@ -400,6 +421,8 @@ def create_rsl_rl_playback_session(
         if checkpoint_path is None:
             log("WARNING: no checkpoint found - falling back to zero actions.")
         else:
+            if sim2sim_preflight is not None:
+                sim2sim_preflight(str(Path(checkpoint_path).parent))
             log_dir = str(
                 entrypoint_log_root(
                     Path(root_dir),
@@ -410,16 +433,24 @@ def create_rsl_rl_playback_session(
                 / "play_temp"
             )
             runner = runner_cls(wrapped_env, train_cfg, log_dir=log_dir, device=device_name)
-            runner.load(
-                checkpoint_path,
-                load_cfg={
-                    "actor": True,
-                    "critic": False,
-                    "optimizer": False,
-                    "iteration": False,
-                    "rnd": False,
-                },
-            )
+            policy_obs_dim = actor_obs_dim if policy_obs_mode == "actor" else flat_obs_dim
+            action_shape = env.action_space.shape
+            policy_action_dim = int(action_shape[0]) if action_shape is not None else None
+            with policy_load_dim_guard(
+                env_obs_dim=policy_obs_dim,
+                env_action_dim=policy_action_dim,
+                algo_name=playback_cfg.algo_log_name,
+            ):
+                runner.load(
+                    checkpoint_path,
+                    load_cfg={
+                        "actor": True,
+                        "critic": False,
+                        "optimizer": False,
+                        "iteration": False,
+                        "rnd": False,
+                    },
+                )
             policy = runner.get_inference_policy(device=device_name)
 
     log(f"Action mode: {playback_cfg.action_mode}")
@@ -452,12 +483,15 @@ def _resolve_appo_checkpoint_from_cfg(
     *,
     root_dir: str | Path,
 ) -> tuple[str | None, str | None]:
-    _ensure_scripts_dir(root_dir)
-    from unilab.training import get_log_root, resolve_task_checkpoint_path
+    from unilab.training import (
+        get_log_root,
+        resolve_appo_checkpoint_path,
+        resolve_task_checkpoint_path,
+    )
 
     selected_checkpoint = _cfg_checkpoint_value(cfg)
     if selected_checkpoint is not None:
-        checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        selected_path, selected_dir = resolve_task_checkpoint_path(
             root_dir,
             task_name=str(cfg.training.task_name),
             load_run=str(cfg.algo.load_run),
@@ -466,11 +500,9 @@ def _resolve_appo_checkpoint_from_cfg(
             log_root=getattr(cfg.training, "log_root", None),
         )
         return (
-            str(checkpoint_path) if checkpoint_path is not None else None,
-            str(checkpoint_dir) if checkpoint_dir is not None else None,
+            str(selected_path) if selected_path is not None else None,
+            str(selected_dir) if selected_dir is not None else None,
         )
-
-    from train_appo import resolve_appo_checkpoint_path
 
     base_log_dir = get_log_root(root_dir, cfg) / str(cfg.training.task_name)
     checkpoint_path, checkpoint_dir = resolve_appo_checkpoint_path(base_log_dir, cfg.algo.load_run)
@@ -488,7 +520,8 @@ def _build_appo_actor(
     rl_cfg: dict[str, Any],
     device: str,
     is_hora: bool,
-) -> Any:
+) -> tuple[Any, int, int]:
+    """Build the APPO actor and return it with ``(obs_dim, action_dim)``."""
     from copy import deepcopy
 
     from rsl_rl.utils import resolve_callable
@@ -555,7 +588,7 @@ def _build_appo_actor(
             shared_model=shared_model,
             **actor_cfg,
         )
-        return actor.to(device).eval()
+        return actor.to(device).eval(), obs_dim, action_dim
 
     obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
     num_envs = int(getattr(wrapped_env, "num_envs", getattr(env, "num_envs", 1)))
@@ -581,7 +614,7 @@ def _build_appo_actor(
     actor_cls = resolve_callable(actor_cfg.pop("class_name"))
     actor_cfg.pop("num_actions", None)
     actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
-    return actor.to(device).eval()
+    return actor.to(device).eval(), obs_dim, action_dim
 
 
 def create_appo_playback_session(
@@ -617,14 +650,20 @@ def create_appo_playback_session(
     policy = None
     checkpoint_path: str | None = None
     if playback_cfg.action_mode == "policy":
-        checkpoint_path, _checkpoint_dir = _resolve_appo_checkpoint_from_cfg(cfg, root_dir=root_dir)
+        checkpoint_path, checkpoint_dir = _resolve_appo_checkpoint_from_cfg(cfg, root_dir=root_dir)
         if checkpoint_path is None or not Path(checkpoint_path).exists():
             log(
                 "WARNING: no APPO checkpoint found for "
                 f"load_run={cfg.algo.load_run} - falling back to zero actions."
             )
         else:
-            actor = _build_appo_actor(
+            resolve_sim2sim_config(
+                checkpoint_dir,
+                cfg,
+                algo_name="appo",
+                strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+            )
+            actor, actor_obs_dim, action_dim = _build_appo_actor(
                 env=env,
                 wrapped_env=wrapped_env,
                 cfg=cfg,
@@ -633,7 +672,12 @@ def create_appo_playback_session(
                 is_hora=is_hora,
             )
             checkpoint = torch.load(checkpoint_path, map_location=device_name, weights_only=True)
-            actor.load_state_dict(checkpoint["actor"])
+            with policy_load_dim_guard(
+                env_obs_dim=actor_obs_dim,
+                env_action_dim=action_dim,
+                algo_name="appo",
+            ):
+                actor.load_state_dict(checkpoint["actor"])
             policy = actor
             log(f"Loading APPO checkpoint: {checkpoint_path}")
 
@@ -666,18 +710,15 @@ def create_sac_playback_session(
 
     import os
 
-    _ensure_scripts_dir(root_dir)
-
-    from train_offpolicy import (
+    from unilab.algos.torch.common.actor_factory import build_actor
+    from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
+    from unilab.training.offpolicy import (
         default_device,
         extract_play_obs,
-        resolve_checkpoint_path,
         resolve_play_actor_spec,
         resolve_play_obs_dims,
     )
-
-    from unilab.algos.torch.common.actor_factory import build_actor
-    from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
+    from unilab.training.run import resolve_offpolicy_checkpoint_path
 
     device_name = default_device(torch, str(device) if device is not None else None)
     env = env_factory(int(playback_cfg.num_envs))
@@ -722,7 +763,7 @@ def create_sac_playback_session(
             **actor_kwargs,
         )
         actor.eval()
-        checkpoint_path, _checkpoint_dir = resolve_checkpoint_path(
+        checkpoint_path, checkpoint_dir = resolve_offpolicy_checkpoint_path(
             Path(root_dir),
             cfg.algo.algo_log_name,
             cfg.training.task_name,
@@ -735,11 +776,22 @@ def create_sac_playback_session(
             )
             actor = None
         else:
+            resolve_sim2sim_config(
+                checkpoint_dir,
+                cfg,
+                algo_name=algo_name,
+                strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+            )
             checkpoint = torch.load(checkpoint_path, map_location=device_name, weights_only=True)
-            actor.load_state_dict(checkpoint["actor"])
-            if normalizer is not None and checkpoint.get("obs_normalizer"):
-                normalizer.load_state_dict(checkpoint["obs_normalizer"])
-                normalizer.eval()
+            with policy_load_dim_guard(
+                env_obs_dim=obs_dim,
+                env_action_dim=action_dim,
+                algo_name=algo_name,
+            ):
+                actor.load_state_dict(checkpoint["actor"])
+                if normalizer is not None and checkpoint.get("obs_normalizer"):
+                    normalizer.load_state_dict(checkpoint["obs_normalizer"])
+                    normalizer.eval()
             log(f"Loading {algo_name} checkpoint: {checkpoint_path}")
 
     log(f"Action mode: {playback_cfg.action_mode}")
@@ -761,34 +813,42 @@ def create_sac_playback_session(
 
 
 def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
-    _ensure_scripts_dir(root_dir)
-    from train_hora_distill import (
-        _apply_teacher_defaults,
-        _build_play_env_cfg_override,
-        _cfg_with_checkpoint_runtime,
-        _format_stage2_play_checkpoint_error,
-        _resolve_stage2_checkpoint_path,
-        _student_policy,
-    )
-
     from unilab.algos.torch.hora.distill import (
         build_student_actor_and_normalizer,
+        cfg_with_checkpoint_runtime,
         load_distilled_checkpoint,
+        student_policy,
     )
+    from unilab.algos.torch.hora.distill_config import apply_teacher_defaults
     from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
-    from unilab.training import create_env, get_log_root
+    from unilab.base.backend import materialize_scene_visual_override
+    from unilab.training import (
+        BackendAdapter,
+        create_env,
+        format_hora_stage2_checkpoint_error,
+        get_log_root,
+        resolve_hora_stage2_checkpoint_path,
+    )
 
     return {
-        "apply_teacher_defaults": _apply_teacher_defaults,
-        "build_play_env_cfg_override": _build_play_env_cfg_override,
+        "apply_teacher_defaults": apply_teacher_defaults,
+        "build_play_env_cfg_override": lambda cfg: BackendAdapter(
+            cfg,
+            root_dir=root_dir,
+            algo_name="hora_distill",
+            scene_materializer=materialize_scene_visual_override,
+        ).build_play_env_cfg_override(),
         "build_student_actor_and_normalizer": build_student_actor_and_normalizer,
-        "cfg_with_checkpoint_runtime": _cfg_with_checkpoint_runtime,
+        "cfg_with_checkpoint_runtime": cfg_with_checkpoint_runtime,
         "create_env": create_env,
-        "format_stage2_play_checkpoint_error": _format_stage2_play_checkpoint_error,
+        "format_stage2_play_checkpoint_error": format_hora_stage2_checkpoint_error,
         "get_log_root": get_log_root,
         "load_distilled_checkpoint": load_distilled_checkpoint,
-        "resolve_stage2_checkpoint_path": _resolve_stage2_checkpoint_path,
-        "student_policy": _student_policy,
+        "resolve_stage2_checkpoint_path": lambda cfg: resolve_hora_stage2_checkpoint_path(
+            cfg,
+            root_dir=root_dir,
+        ),
+        "student_policy": student_policy,
         "wrapper_cls": HoraRslRlVecEnvWrapper,
         "checkpoint_reader": torch.load,
     }
@@ -827,6 +887,12 @@ def create_hora_distill_playback_session(
             log("WARNING: falling back to zero actions.")
             runtime_cfg = resolved_deps["apply_teacher_defaults"](cfg)
         else:
+            resolve_sim2sim_config(
+                load_path_dir,
+                cfg,
+                algo_name="hora_distill",
+                strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+            )
             log(f"Loading distilled checkpoint: {load_path}")
             checkpoint = resolved_deps["checkpoint_reader"](
                 load_path, map_location="cpu", weights_only=False
@@ -872,12 +938,13 @@ def create_hora_distill_playback_session(
             runtime_cfg,
             device=torch_device,
         )
-        resolved_deps["load_distilled_checkpoint"](
-            actor,
-            hist_normalizer,
-            load_path,
-            device=torch_device,
-        )
+        with policy_load_dim_guard(algo_name="hora_distill"):
+            resolved_deps["load_distilled_checkpoint"](
+                actor,
+                hist_normalizer,
+                load_path,
+                device=torch_device,
+            )
         actor.eval()
         hist_normalizer.eval()
         student_policy = resolved_deps["student_policy"]
@@ -963,6 +1030,7 @@ __all__ = [
     "create_hora_distill_playback_session",
     "create_rsl_rl_playback_session",
     "create_sac_playback_session",
+    "make_sim2sim_preflight",
     "prepare_motion_overlay_selection",
     "select_torch_device",
 ]

@@ -87,6 +87,8 @@ def test_mujoco_backend_smoke_contract(robot):
 
     bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)), nsteps=2)
 
+    assert bkd.get_scene_visual_model_file() == str(bkd.scene_visual_model_file)
+
     qpos = _identity_qpos_mujoco(bkd.model.nq, xyz=(1.0, 2.0, 0.8))
     bkd.set_state(np.array([0]), qpos, np.zeros((1, bkd.model.nv)))
     np.testing.assert_allclose(bkd.get_base_pos()[0], (1.0, 2.0, 0.8), atol=1e-5)
