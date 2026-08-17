@@ -13,8 +13,6 @@ import textwrap
 from collections.abc import Sequence
 from typing import Any
 
-import imageio
-
 _USER_MUJOCO_GL = os.environ.get("MUJOCO_GL")
 
 # Backend-agnostic probe: build a tiny off-screen scene and render one frame.
@@ -780,42 +778,3 @@ def render_states_get_frames_tracking(
         _close_worker()
 
     return frames
-
-
-def render_states_to_video(
-    state_list,
-    model_path,
-    output_path,
-    fps=30,
-    width=1280,
-    height=720,
-    num_processes=8,
-    cam_distance=2.0,
-    cam_elevation=-20,
-    cam_azimuth=90,
-    cam_lookat=None,
-    render_spacing=1.0,
-):
-    """
-    Render a list of physics states to a video file using parallel processing.
-    """
-    frames = render_states_get_frames(
-        state_list,
-        model_path,
-        width,
-        height,
-        num_processes,
-        cam_distance=cam_distance,
-        cam_elevation=cam_elevation,
-        cam_azimuth=cam_azimuth,
-        cam_lookat=cam_lookat,
-        render_spacing=render_spacing,
-    )
-
-    if not frames:
-        print(f"No frames rendered; skipping video write to {output_path}.")
-        return
-
-    print(f"Saving video to {output_path}...")
-    imageio.mimsave(output_path, frames, fps=fps)
-    print("Done!")

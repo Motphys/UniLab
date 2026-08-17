@@ -14,24 +14,6 @@ from unilab.envs.locomotion.common.base import (
 from unilab.utils.geometry import np_quat_orientation_error_local
 from unilab.utils.rotation import np_matrix_from_quat
 
-DEFAULT_LEG_ANGLES = np.asarray(
-    [
-        0.1,
-        0.8,
-        -1.5,
-        -0.1,
-        0.8,
-        -1.5,
-        0.1,
-        0.8,
-        -1.5,
-        -0.1,
-        0.8,
-        -1.5,
-    ],
-    dtype=np.float64,
-)
-
 
 @dataclass
 class NoiseConfig:
@@ -157,9 +139,6 @@ class Go2ArmBaseEnv(LocomotionBaseEnv):
         self._arm_dof_pos_indices = self._backend.get_joint_dof_pos_indices(
             cfg.asset.arm_joint_names
         )
-        self._arm_dof_vel_indices = self._backend.get_joint_dof_vel_indices(
-            cfg.asset.arm_joint_names
-        )
 
     @property
     def arm_dof_pos_indices(self) -> np.ndarray:
@@ -200,9 +179,6 @@ class Go2ArmBaseEnv(LocomotionBaseEnv):
 
     def get_arm_dof_pos(self) -> np.ndarray:
         return self.get_dof_pos()[:, self._arm_dof_pos_indices]
-
-    def get_arm_dof_vel(self) -> np.ndarray:
-        return self.get_dof_vel()[:, self._arm_dof_vel_indices]
 
     def compute_arm_ik_delta(
         self,
