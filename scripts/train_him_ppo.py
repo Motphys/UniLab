@@ -19,7 +19,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.algos.torch.him_ppo.runner import HIMOnPolicyRunner
-from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
+from unilab.base.backend import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,

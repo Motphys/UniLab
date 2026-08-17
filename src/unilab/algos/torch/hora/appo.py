@@ -19,6 +19,7 @@ from unilab.algos.torch.hora.rsl_rl_compat import (
 )
 from unilab.base.observations import get_obs_dims
 from unilab.training import BackendAdapter, create_env, log_playback_plan
+from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 from .models import build_hora_shared_actor_critic
 from .observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
@@ -183,9 +184,17 @@ def play_hora_appo(
         print(f"Could not find run to load. load_path={load_path}")
         return None
 
+    resolve_sim2sim_config(
+        load_path_dir,
+        cfg,
+        algo_name="appo",
+        strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
+    )
+
     print(f"Loading model: {load_path}")
     checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-    actor.load_state_dict(checkpoint["actor"])
+    with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name="appo"):
+        actor.load_state_dict(checkpoint["actor"])
 
     current_priv_info: np.ndarray | None = None
 

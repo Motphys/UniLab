@@ -146,7 +146,18 @@ def test_non_cuda_training_devices_fail_before_env_materialization(
         env_calls += 1
         raise AssertionError("unsupported replay device must fail before env creation")
 
-    monkeypatch.setattr(module, "create_env", reject_env)
+    if algo == "sac":
+        import unilab.algos.torch.fast_sac.double_buffer as owner_module
+
+        monkeypatch.setattr(owner_module, "create_env", reject_env)
+    elif algo == "td3":
+        import unilab.algos.torch.fast_td3.double_buffer as owner_module
+
+        monkeypatch.setattr(owner_module, "get_env_dims", reject_env)
+    else:
+        import unilab.algos.torch.flash_sac.double_buffer as owner_module
+
+        monkeypatch.setattr(owner_module, "create_env", reject_env)
     with pytest.raises(ValueError, match="training.devices entries"):
         module.build_runner(algo, cfg)
     assert env_calls == 0
@@ -155,14 +166,13 @@ def test_non_cuda_training_devices_fail_before_env_materialization(
 def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
     cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false"])
-    monkeypatch.setattr(module, "ensure_registries", lambda: None)
-    monkeypatch.setattr(module, "create_env", lambda *args, **kwargs: _FakeEnv())
 
-    import unilab.algos.torch.fast_sac.learner as learner_module
-    import unilab.algos.torch.offpolicy.double_buffer_runner as runner_module
+    import unilab.algos.torch.fast_sac.double_buffer as owner_module
 
-    monkeypatch.setattr(learner_module, "FastSACLearner", _FakeLearner)
-    monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(owner_module, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
 
     runner = module.build_runner("sac", cfg)
     assert isinstance(runner, _FakeRunner)
@@ -174,19 +184,173 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert "sync_collection" not in runner.kwargs
     assert "replay_pipeline" not in runner.kwargs
     assert "verbose_metrics" not in runner.kwargs
+    assert runner.kwargs["learner"].kwargs == {
+        "device": "cuda:0",
+        "obs_dim": 4,
+        "action_dim": 2,
+        "gamma": cfg.algo.gamma,
+        "tau": cfg.algo.tau,
+        "actor_lr": cfg.algo.actor_lr,
+        "critic_lr": cfg.algo.critic_lr,
+        "alpha_lr": cfg.algo.algo_params.alpha_lr,
+        "alpha_init": cfg.algo.algo_params.alpha_init,
+        "target_entropy_ratio": cfg.algo.algo_params.target_entropy_ratio,
+        "actor_hidden_dim": cfg.algo.actor_hidden_dim,
+        "critic_hidden_dim": cfg.algo.critic_hidden_dim,
+        "num_atoms": cfg.algo.num_atoms,
+        "use_layer_norm": cfg.algo.use_layer_norm,
+        "max_grad_norm": cfg.algo.algo_params.max_grad_norm,
+        "use_amp": cfg.training.use_amp,
+        "amp_dtype": cfg.algo.algo_params.amp_dtype,
+        "use_compile": cfg.algo.algo_params.use_compile,
+        "obs_normalization": cfg.algo.obs_normalization,
+        "use_cuda_graph_critic": cfg.algo.algo_params.use_cuda_graph_critic,
+        "use_cuda_graph_actor": cfg.algo.algo_params.use_cuda_graph_actor,
+        "use_cuda_graph_critic_packed_staging": (
+            cfg.algo.algo_params.use_cuda_graph_critic_packed_staging
+        ),
+        "use_cuda_graph_actor_packed_staging": (
+            cfg.algo.algo_params.use_cuda_graph_actor_packed_staging
+        ),
+        "nvtx_profile_ranges": cfg.training.nvtx_profile_ranges,
+        "use_symmetry": False,
+        "symmetry_augmentation": None,
+        "critic_obs_dim": 6,
+    }
+
+
+def test_sac_owner_custom_runtime_can_override_base_learner_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from unilab.algos.torch.fast_sac import double_buffer as owner_module
+    from unilab.algos.torch.offpolicy.runtime import OffPolicyRuntime
+
+    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false"])
+    custom_runtime = OffPolicyRuntime(
+        learner_cls=_FakeLearner,
+        algo_type="custom_sac",
+        actor_kwargs={"gamma": 0.123, "critic_obs_dim": 17},
+    )
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(
+        owner_module,
+        "resolve_custom_offpolicy_runtime",
+        lambda _cfg: custom_runtime,
+    )
+    monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = owner_module.build_sac_double_buffer_runner(
+        cfg,
+        env_cfg_override={},
+        replay_prefetch_mode="one_tick",
+        device="cuda:0",
+    )
+
+    assert runner.kwargs["algo_type"] == "custom_sac"
+    assert runner.kwargs["learner"].kwargs["gamma"] == pytest.approx(0.123)
+    assert runner.kwargs["learner"].kwargs["critic_obs_dim"] == 17
+    assert runner.kwargs["learner"].kwargs["tau"] == cfg.algo.tau
+
+
+def test_sac_owner_rejects_custom_runtime_without_symmetry_support(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from unilab.algos.torch.fast_sac import double_buffer as owner_module
+    from unilab.algos.torch.offpolicy.runtime import OffPolicyRuntime
+
+    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true"])
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: _FakeEnv())
+    monkeypatch.setattr(
+        owner_module,
+        "resolve_custom_offpolicy_runtime",
+        lambda _cfg: OffPolicyRuntime(supports_symmetry=False),
+    )
+
+    with pytest.raises(ValueError, match="does not support symmetry"):
+        owner_module.build_sac_double_buffer_runner(
+            cfg,
+            env_cfg_override={},
+            replay_prefetch_mode="one_tick",
+            device="cuda:0",
+        )
+
+
+def test_sac_owner_preserves_symmetry_batch_and_learner_contract(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+
+    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true"])
+    symmetry = MagicMock(batch_multiplier=4)
+
+    class SymmetricEnv(_FakeEnv):
+        def build_symmetry_augmentation(self, device=None):
+            assert device == "cuda:0"
+            return symmetry
+
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: SymmetricEnv())
+    monkeypatch.setattr(owner_module, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+
+    runner = owner_module.build_sac_double_buffer_runner(
+        cfg,
+        env_cfg_override={},
+        replay_prefetch_mode="one_tick",
+        device="cuda:0",
+    )
+
+    assert runner.kwargs["batch_size"] == cfg.algo.batch_size // 4
+    learner_kwargs = runner.kwargs["learner"].kwargs
+    assert learner_kwargs["use_symmetry"] is True
+    assert learner_kwargs["symmetry_augmentation"] is symmetry
+
+
+@pytest.mark.parametrize(
+    ("batch_size", "symmetry", "match"),
+    [
+        (512, None, "does not provide symmetry augmentation"),
+        (10, MagicMock(batch_multiplier=4), "batch_size divisible by 4"),
+    ],
+)
+def test_sac_owner_preserves_symmetry_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    batch_size: int,
+    symmetry: MagicMock | None,
+    match: str,
+):
+    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+
+    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true", f"algo.batch_size={batch_size}"])
+
+    class SymmetricEnv(_FakeEnv):
+        def build_symmetry_augmentation(self, device=None):
+            del device
+            return symmetry
+
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: SymmetricEnv())
+
+    with pytest.raises(ValueError, match=match):
+        owner_module.build_sac_double_buffer_runner(
+            cfg,
+            env_cfg_override={},
+            replay_prefetch_mode="one_tick",
+            device="cuda:0",
+        )
 
 
 def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
     cfg = _offpolicy_cfg(["algo=td3"])
 
-    import unilab.algos.torch.common.device as device_module
-    import unilab.algos.torch.fast_td3.learner as learner_module
-    import unilab.algos.torch.offpolicy.double_buffer_runner as runner_module
+    import unilab.algos.torch.fast_td3.double_buffer as owner_module
 
-    monkeypatch.setattr(device_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 6))
-    monkeypatch.setattr(learner_module, "FastTD3Learner", _FakeLearner)
-    monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+    monkeypatch.setattr(owner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 6))
+    monkeypatch.setattr(owner_module, "FastTD3Learner", _FakeLearner)
+    monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
 
     runner = module.build_runner("td3", cfg)
     assert isinstance(runner, _FakeRunner)
@@ -196,6 +360,58 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert "collector_infer_device" not in runner.kwargs
     assert "sync_collection" not in runner.kwargs
     assert "replay_pipeline" not in runner.kwargs
+    assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
+    nan_guard_cfg = runner.kwargs["nan_guard_cfg"]
+    assert nan_guard_cfg.enabled is True
+    assert nan_guard_cfg.buffer_size == cfg.training.nan_guard.buffer_size
+    assert nan_guard_cfg.max_envs_to_dump == cfg.training.nan_guard.max_envs_to_dump
+    assert nan_guard_cfg.output_dir == cfg.training.nan_guard.output_dir
+    assert runner.kwargs["torch_thread_runtime"] is not None
+    assert runner.kwargs["collector_cpu_ids"] is None
+    assert runner.kwargs["dp_sync"] is None
+    assert runner.kwargs["learner"].kwargs == {
+        "obs_dim": 4,
+        "action_dim": 2,
+        "critic_obs_dim": 6,
+        "num_envs": cfg.algo.num_envs,
+        "device": "cuda:0",
+        "gamma": cfg.algo.gamma,
+        "tau": cfg.algo.tau,
+        "actor_lr": cfg.algo.actor_lr,
+        "critic_lr": cfg.algo.critic_lr,
+        "actor_hidden_dim": cfg.algo.actor_hidden_dim,
+        "critic_hidden_dim": cfg.algo.critic_hidden_dim,
+        "num_atoms": cfg.algo.num_atoms,
+        "v_min": cfg.algo.algo_params.v_min,
+        "v_max": cfg.algo.algo_params.v_max,
+        "init_scale": cfg.algo.algo_params.init_scale,
+        "log_std_min": cfg.algo.algo_params.log_std_min,
+        "log_std_max": cfg.algo.algo_params.log_std_max,
+        "weight_decay": cfg.algo.algo_params.weight_decay,
+        "use_cdq": cfg.algo.algo_params.use_cdq,
+        "policy_noise": cfg.algo.algo_params.policy_noise,
+        "noise_clip": cfg.algo.algo_params.noise_clip,
+        "policy_frequency": cfg.algo.policy_frequency,
+        "obs_normalization": cfg.algo.obs_normalization,
+    }
+
+    nan_guard = MagicMock()
+    thread_runtime = {"marker": "threads"}
+    dp_sync = MagicMock()
+    forwarded = owner_module.build_td3_double_buffer_runner(
+        cfg,
+        env_cfg_override={},
+        replay_prefetch_mode="one_tick",
+        device="cuda:0",
+        nan_guard_cfg=nan_guard,
+        torch_thread_runtime=thread_runtime,
+        collector_cpu_ids=[2, 3],
+        dp_sync=dp_sync,
+    )
+    assert forwarded.kwargs["nan_guard_cfg"] is nan_guard
+    assert forwarded.kwargs["torch_thread_runtime"] is thread_runtime
+    assert forwarded.kwargs["collector_cpu_ids"] == [2, 3]
+    assert forwarded.kwargs["dp_sync"] is dp_sync
 
 
 def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
@@ -258,15 +474,14 @@ def _build_sac_runner_with_fakes(
         probe_env_calls.append(kwargs)
         return _FakeEnv()
 
-    monkeypatch.setattr(module, "ensure_registries", lambda: None)
-    monkeypatch.setattr(module, "create_env", fake_create_env)
     monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
 
-    import unilab.algos.torch.fast_sac.learner as learner_module
-    import unilab.algos.torch.offpolicy.double_buffer_runner as runner_module
+    import unilab.algos.torch.fast_sac.double_buffer as owner_module
 
-    monkeypatch.setattr(learner_module, "FastSACLearner", _FakeLearner)
-    monkeypatch.setattr(runner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
+    monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(owner_module, "create_env", fake_create_env)
+    monkeypatch.setattr(owner_module, "FastSACLearner", _FakeLearner)
+    monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
 
     runner = module.build_runner("sac", cfg, log_dir="/tmp/offpolicy_test_run")
     return runner, probe_env_calls

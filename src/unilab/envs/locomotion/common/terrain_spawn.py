@@ -14,6 +14,7 @@ land on the correct surface height.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -66,7 +67,7 @@ class TerrainSpawnManager(BaseSpawnManager):
         terrain_origins: np.ndarray,
         cell_size: float,
         cfg: TerrainCurriculumCfg,
-        terrain_surface_sampler: object | None = None,
+        sample_height: Callable[[np.ndarray], np.ndarray] | None = None,
         spawn_height_points: np.ndarray | None = None,
     ) -> None:
         if terrain_origins.ndim != 3 or terrain_origins.shape[2] != 3:
@@ -85,7 +86,9 @@ class TerrainSpawnManager(BaseSpawnManager):
         self._num_cols = num_cols
         self._cell_size = float(cell_size)
         self._cfg = cfg
-        self._terrain_surface_sampler = terrain_surface_sampler
+        if sample_height is not None and not callable(sample_height):
+            raise TypeError("sample_height must be callable")
+        self._sample_height = sample_height
         if spawn_height_points is None:
             self._spawn_height_points = np.zeros((1, 3), dtype=np.float64)
         else:
@@ -130,7 +133,8 @@ class TerrainSpawnManager(BaseSpawnManager):
         out = np.asarray(qpos_xyz, dtype=np.float64).copy()
         base_height = out[:, 2].copy()
         out[:, 0:2] += origins[:, 0:2]
-        if self._terrain_surface_sampler is None:
+        sample_height = self._sample_height
+        if sample_height is None:
             out[:, 2] += origins[:, 2] + self._cfg.spawn_height_margin
             return out
 
@@ -138,6 +142,7 @@ class TerrainSpawnManager(BaseSpawnManager):
             out[:, 0:2],
             base_height=base_height,
             yaw=yaw,
+            sample_height=sample_height,
         )
         out[:, 2] = required_base_z + self._cfg.spawn_height_margin
         return out
@@ -148,12 +153,8 @@ class TerrainSpawnManager(BaseSpawnManager):
         *,
         base_height: np.ndarray,
         yaw: np.ndarray | None,
+        sample_height: Callable[[np.ndarray], np.ndarray],
     ) -> np.ndarray:
-        sampler = self._terrain_surface_sampler
-        sample_height = getattr(sampler, "sample_height", None)
-        if not callable(sample_height):
-            raise TypeError("terrain_surface_sampler must expose sample_height(xy)")
-
         points = self._spawn_height_points
         local_xy = points[:, :2]
         local_z = points[:, 2]

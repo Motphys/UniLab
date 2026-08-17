@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -115,26 +114,25 @@ class Go2WalkTask(Go2BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains=cfg.control_config.position_gains(),
             **env_backend_kwargs(cfg),
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
         )
-        self._terrain_surface_sampler = getattr(backend, "terrain_surface_sampler", None)
-        self._terrain_surface_sample_height = self._resolve_terrain_surface_sample_height()
-        terrain_origins = getattr(backend, "terrain_origins", None)
-        if terrain_origins is not None:
-            self._scene_terrain_origins = terrain_origins
+        terrain_spawn_data = backend.get_terrain_spawn_data()
+        self._terrain_surface_sample_height = (
+            None if terrain_spawn_data is None else terrain_spawn_data.sample_height
+        )
+        if terrain_spawn_data is not None:
+            self._scene_terrain_origins = terrain_spawn_data.terrain_origins
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
         self._reward_cfg = cfg.reward_config
         self._init_reward_functions()
         self._init_domain_randomization(self._make_dr_provider())
-        if self._scene_terrain_origins is not None and terrain_generator is not None:
+        if terrain_spawn_data is not None and terrain_generator is not None:
             self._spawn = TerrainSpawnManager(
                 num_envs,
-                self._scene_terrain_origins,
+                terrain_spawn_data.terrain_origins,
                 cell_size=float(terrain_generator.size[0]),
                 cfg=cfg.terrain_curriculum,
-                terrain_surface_sampler=self._terrain_surface_sampler,
+                sample_height=self._terrain_surface_sample_height,
             )
         self.phase = np.zeros((num_envs,), dtype=np.float32)
         self.feet_phase = np.zeros((num_envs, len(cfg.sensor.feet_force)), dtype=np.float32)
@@ -153,18 +151,6 @@ class Go2WalkTask(Go2BaseEnv):
 
     def get_playback_model(self, env_index: int | None = None) -> Any:
         return super().get_playback_model(env_index)
-
-    def _resolve_terrain_surface_sample_height(
-        self,
-    ) -> Callable[[np.ndarray], np.ndarray] | None:
-        sampler = self._terrain_surface_sampler
-        if sampler is None:
-            return None
-
-        sample_height = getattr(sampler, "sample_height", None)
-        if not callable(sample_height):
-            raise TypeError("terrain_surface_sampler must expose sample_height(xy)")
-        return cast(Callable[[np.ndarray], np.ndarray], sample_height)
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:

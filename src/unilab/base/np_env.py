@@ -117,6 +117,7 @@ class NpEnv(ABEnv):
         self._init_randomization_applied = False
         self._nan_guard: NanGuard | None = None
         self._autoreset = True
+        self._nan_guard_model_file = self._resolve_nan_guard_model_file()
 
     @property
     def cfg(self) -> EnvCfg:
@@ -190,7 +191,7 @@ class NpEnv(ABEnv):
             if bad_ctrl_ids is not None:
                 self._nan_guard.dump(
                     bad_ctrl_ids,
-                    self._nan_guard_model_file(),
+                    self._nan_guard_model_file,
                     self.step_counter,
                 )
 
@@ -238,7 +239,7 @@ class NpEnv(ABEnv):
                 self._state.obs, self._state.reward, step=self.step_counter
             )
             if nan_ids is not None:
-                self._nan_guard.dump(nan_ids, self._nan_guard_model_file(), self.step_counter)
+                self._nan_guard.dump(nan_ids, self._nan_guard_model_file, self.step_counter)
 
         np.nan_to_num(self._state.reward, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -313,7 +314,7 @@ class NpEnv(ABEnv):
         for key in RESET_DONE_DETAIL_TIMING_KEYS:
             timing[key] = 0.0
 
-    def _nan_guard_model_file(self) -> str:
+    def _resolve_nan_guard_model_file(self) -> str:
         scene = getattr(self._cfg, "scene", None)
         if isinstance(scene, SceneCfg) and scene.model_file:
             return str(scene.model_file)
@@ -549,6 +550,10 @@ class NpEnv(ABEnv):
             The backend-specific playback model.
         """
         return self._backend.get_playback_model(env_index)
+
+    def get_scene_visual_model_file(self) -> str | None:
+        """Return the backend scene visual model file on the cold path, when available."""
+        return self._backend.get_scene_visual_model_file()
 
     def set_nan_guard(self, guard: "NanGuard") -> None:
         self._nan_guard = guard

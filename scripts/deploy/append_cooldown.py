@@ -24,7 +24,7 @@ What this does NOT change
   duration so the cooldown plays automatically).
 - The original dance frames (they are preserved verbatim before the cooldown).
 
-Interpolation scheme — identical primitives as prepend_warmup.py, run in
+Interpolation scheme — shared primitives from motion_primitives.py, run in
 reverse direction:
 - joint_pos (J=29): cubic Hermite per joint with boundaries
     (orig.jp[-1], orig.jv[-1]) -> (default_angles, 0)
@@ -54,13 +54,19 @@ Validate in sim BEFORE swapping on the real robot:
 from __future__ import annotations
 
 import argparse
-import struct
 import sys
 from pathlib import Path
 
-import mujoco
 import numpy as np
 import yaml
+from motion_primitives import (
+    compute_fixstand_body_states,
+    hermite,
+    load_motion_bin,
+    quat_seq_ang_vel,
+    save_motion_bin,
+    slerp_smoothstep,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_WS = REPO_ROOT.parent / "deploy_ws"
@@ -70,141 +76,6 @@ DEFAULT_IN = DEPLOY_WS / "assets/dance1.bin"
 DEFAULT_OUT = DEPLOY_WS / "assets/dance1_cooldown.bin"
 DEFAULT_COOLDOWN_SEC = 3.0
 DEFAULT_HOLD_SEC = 0.5
-
-
-# ----------------------------------------------------------------------------
-# bin I/O — same layout State_WBT.cpp / sim_prototype.py / export_motion_bin.py
-# all use: header (4 int32: fps, F, J, B) then six float32 blocks.
-# ----------------------------------------------------------------------------
-
-
-def load_motion_bin(path: Path) -> dict:
-    with open(path, "rb") as f:
-        fps, nf, nj, nb = struct.unpack("<iiii", f.read(16))
-        jp = np.frombuffer(f.read(nf * nj * 4), "<f4").reshape(nf, nj).copy()
-        jv = np.frombuffer(f.read(nf * nj * 4), "<f4").reshape(nf, nj).copy()
-        bp = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
-        bq = np.frombuffer(f.read(nf * nb * 4 * 4), "<f4").reshape(nf, nb, 4).copy()
-        bv = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
-        bav = np.frombuffer(f.read(nf * nb * 3 * 4), "<f4").reshape(nf, nb, 3).copy()
-    return dict(fps=fps, nf=nf, nj=nj, nb=nb, jp=jp, jv=jv, bp=bp, bq=bq, bv=bv, bav=bav)
-
-
-def save_motion_bin(path: Path, fps: int, jp, jv, bp, bq, bv, bav) -> None:
-    nf, nj = jp.shape
-    nb = bp.shape[1]
-    assert jv.shape == jp.shape, "jv shape mismatch"
-    assert bp.shape == (nf, nb, 3) and bq.shape == (nf, nb, 4), "body shape mismatch"
-    assert bv.shape == (nf, nb, 3) and bav.shape == (nf, nb, 3), "body vel shape mismatch"
-    with open(path, "wb") as f:
-        f.write(struct.pack("<iiii", fps, nf, nj, nb))
-        for arr in (jp, jv, bp, bq, bv, bav):
-            f.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
-
-
-# ----------------------------------------------------------------------------
-# FixStand FK — compute body world states at the 'stand' keyframe.
-# ----------------------------------------------------------------------------
-
-
-def compute_fixstand_body_states(
-    scene: Path, tracked_ids: list[int]
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    model = mujoco.MjModel.from_xml_path(str(scene))
-    data = mujoco.MjData(model)
-    key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "stand")
-    if key_id < 0:
-        raise SystemExit(f"'stand' keyframe not found in {scene}")
-    mujoco.mj_resetDataKeyframe(model, data, key_id)
-    mujoco.mj_forward(model, data)
-    jp = np.asarray(data.qpos[7:], dtype=np.float64).copy()
-    bp = np.stack([np.asarray(data.xpos[i], dtype=np.float64).copy() for i in tracked_ids])
-    bq = np.stack(
-        [
-            np.asarray(data.xquat[i], dtype=np.float64).copy()  # wxyz
-            for i in tracked_ids
-        ]
-    )
-    return jp, bp, bq
-
-
-# ----------------------------------------------------------------------------
-# Cubic Hermite — same primitive as prepend_warmup.py.
-# ----------------------------------------------------------------------------
-
-
-def hermite(p0, v0, p1, v1, t, T):
-    s = t / T
-    s2, s3 = s * s, s * s * s
-    h00 = 2 * s3 - 3 * s2 + 1
-    h10 = s3 - 2 * s2 + s
-    h01 = -2 * s3 + 3 * s2
-    h11 = s3 - s2
-    h00d = 6 * s2 - 6 * s
-    h10d = 3 * s2 - 4 * s + 1
-    h01d = -6 * s2 + 6 * s
-    h11d = 3 * s2 - 2 * s
-
-    def _r(a):
-        return a.reshape(a.shape + (1,) * (np.ndim(p0)))
-
-    p = _r(h00) * p0 + _r(h10) * T * v0 + _r(h01) * p1 + _r(h11) * T * v1
-    pd = _r(h00d / T) * p0 + _r(h10d) * v0 + _r(h01d / T) * p1 + _r(h11d) * v1
-    return p, pd
-
-
-# ----------------------------------------------------------------------------
-# Quaternion SLERP along quintic smoothstep.
-# ----------------------------------------------------------------------------
-
-
-def slerp_smoothstep(q0: np.ndarray, q1: np.ndarray, u: np.ndarray) -> np.ndarray:
-    q0 = q0 / np.linalg.norm(q0)
-    q1 = q1 / np.linalg.norm(q1)
-    dot = float(np.dot(q0, q1))
-    if dot < 0.0:
-        q1 = -q1
-        dot = -dot
-    s = 6 * u**5 - 15 * u**4 + 10 * u**3
-    if dot > 0.9995:
-        out = (1 - s)[:, None] * q0 + s[:, None] * q1
-        return out / np.linalg.norm(out, axis=-1, keepdims=True)
-    theta_0 = np.arccos(np.clip(dot, -1.0, 1.0))
-    sin_theta_0 = np.sin(theta_0)
-    theta = theta_0 * s
-    a = np.cos(theta) - dot * np.sin(theta) / sin_theta_0
-    b = np.sin(theta) / sin_theta_0
-    return a[:, None] * q0 + b[:, None] * q1
-
-
-# ----------------------------------------------------------------------------
-# World-frame angular velocity from a quaternion sequence by finite difference.
-# ----------------------------------------------------------------------------
-
-
-def quat_seq_ang_vel(q_seq: np.ndarray, dt: float) -> np.ndarray:
-    n = q_seq.shape[0]
-    out = np.zeros((n, 3), dtype=np.float64)
-
-    def diff(q_a, q_b, h):
-        aw, ax, ay, az = q_a
-        bw, bx, by, bz = q_b
-        dw = bw * aw + bx * ax + by * ay + bz * az
-        dx = -bw * ax + bx * aw - by * az + bz * ay
-        dy = -bw * ay + bx * az + by * aw - bz * ax
-        dz = -bw * az - bx * ay + by * ax + bz * aw
-        if dw < 0.0:
-            dw, dx, dy, dz = -dw, -dx, -dy, -dz
-        return np.array([2 * dx / h, 2 * dy / h, 2 * dz / h])
-
-    for i in range(n):
-        if i == 0:
-            out[i] = diff(q_seq[0], q_seq[1], dt)
-        elif i == n - 1:
-            out[i] = diff(q_seq[n - 2], q_seq[n - 1], dt)
-        else:
-            out[i] = diff(q_seq[i - 1], q_seq[i + 1], 2 * dt)
-    return out
 
 
 # ----------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import logging
 import shutil
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import torch
 
@@ -117,11 +117,6 @@ def get_diagnostic() -> str:
     if _NATIVE_AVAILABLE is None:
         _try_load_extension()
     return _DIAGNOSTIC
-
-
-def ensure_available() -> bool:
-    """Attempt to load native extension. Returns True if available."""
-    return is_available()
 
 
 def submit_h2d(

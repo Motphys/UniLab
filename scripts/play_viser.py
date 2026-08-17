@@ -58,6 +58,7 @@ from unilab.training.rsl_rl import (
 from unilab.visualization.interactive_playback import (
     PlaybackControls,
     create_rsl_rl_playback_session,
+    make_sim2sim_preflight,
     select_torch_device,
 )
 from unilab.visualization.render_many import get_grid_offsets
@@ -256,6 +257,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
         runner_cls=OnPolicyRunner,
         policy_obs_dims_getter=get_policy_obs_dims,
         train_cfg_normalizer=normalize_ppo_train_cfg,
+        sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),
         log=lambda message: print(f"[play_viser] {message}"),
     )
     env = playback_session.env

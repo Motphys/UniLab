@@ -6,10 +6,7 @@ import sys
 from collections import deque
 from typing import Any
 
-import torch
-
 from unilab.algos.torch.common.device import get_env_dims
-from unilab.algos.torch.offpolicy.worker import off_policy_collector_fn
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.logging import OffPolicyLogger
 from unilab.training.seed import apply_training_seed
@@ -194,9 +191,6 @@ class OffPolicyRunner(AsyncRunner):
 
     def _build_learner(self):
         return self.learner
-
-    def _collector_fn(self, stop_event, **kwargs):
-        off_policy_collector_fn(stop_event=stop_event, **kwargs)
 
     @staticmethod
     def _sync_logger_replay_counters(logger, replay_buffer) -> None:

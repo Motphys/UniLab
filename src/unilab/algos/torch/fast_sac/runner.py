@@ -1,12 +1,14 @@
 """FastSAC runner using unified OffPolicyRunner."""
 
+import logging
 from typing import Any
 
-from unilab.algos.torch.common.device import get_env_dims
 from unilab.algos.torch.fast_sac.learner import FastSACLearner
 from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 from unilab.utils.device import get_default_device
+
+logger = logging.getLogger(__name__)
 
 
 class FastSACRunner(DoubleBufferOffPolicyRunner):
@@ -108,10 +110,10 @@ class FastSACRunner(DoubleBufferOffPolicyRunner):
                     f"{symmetry_augmentation.batch_multiplier}, got {batch_size}"
                 )
             batch_size = batch_size // symmetry_augmentation.batch_multiplier
-            print(
-                "[FastSAC] Symmetry enabled: "
-                f"batch_size adjusted to {batch_size} "
-                f"(effective: {batch_size * symmetry_augmentation.batch_multiplier})"
+            logger.info(
+                "[FastSAC] Symmetry enabled: batch_size adjusted to %d (effective: %d)",
+                batch_size,
+                batch_size * symmetry_augmentation.batch_multiplier,
             )
 
         super().__init__(

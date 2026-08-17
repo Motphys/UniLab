@@ -59,16 +59,7 @@ uv run scripts/deploy/sim_prototype.py \
 `obs_dim` in `deploy_config.yaml` and then drives the policy in MuJoCo with the
 same observation layout the deployment side expects.
 
-## ANE / Core ML Notes
-
-The repository contains experimental Core ML / Apple Neural Engine helpers under
-`src/unilab/algos/torch/common/ane_actor.py`,
-`src/unilab/algos/torch/common/ane_wrapper.py`, and
-`src/unilab/algos/torch/common/ane_inference.py`. The documented deployment
-path above stays on the committed ONNX export behavior in the training scripts.
-
 ## See Also
 
 - {doc}`8-latency_budget`
 - {doc}`7-safety_layers`
-- `unilab.algos.torch.common.ane_actor.ANEActor`

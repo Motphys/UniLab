@@ -222,12 +222,6 @@ def _ensure_robot_default_joint(root: ET.Element) -> None:
     joint.set("frictionloss", "0.2")
 
 
-def _parse_values(text: str | None) -> list[float]:
-    if text is None:
-        return []
-    return [float(part) for part in text.split()]
-
-
 def _format_float(value: float) -> str:
     return f"{value:.8g}"
 

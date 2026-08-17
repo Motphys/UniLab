@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 import torch
@@ -61,6 +63,88 @@ class TestToTorch:
         assert isinstance(result, torch.Tensor)
         assert result.device.type == "cpu"
         np.testing.assert_array_almost_equal(result.numpy(), x.numpy())
+
+    @pytest.mark.parametrize(
+        "error_type",
+        [
+            AttributeError,
+            BufferError,
+            NotImplementedError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+        ],
+    )
+    def test_dlpack_expected_failure_logs_and_falls_back(
+        self,
+        error_type: type[Exception],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class ArrayWithDLPackFallback:
+            def __dlpack__(self):
+                raise AssertionError("torch.from_dlpack should own protocol invocation")
+
+            def __array__(self, dtype=None, copy=None):
+                del copy
+                return np.asarray([1.0, 2.0], dtype=dtype)
+
+        failure = error_type("broken dlpack")
+
+        def fail_dlpack(_value):
+            raise failure
+
+        monkeypatch.setattr(torch, "from_dlpack", fail_dlpack)
+        with caplog.at_level(logging.WARNING, logger="unilab.utils.tensor"):
+            result = to_torch(ArrayWithDLPackFallback(), "cpu")
+
+        torch.testing.assert_close(result, torch.tensor([1.0, 2.0]))
+        assert result.dtype == torch.float32
+        assert "dlpack conversion failed" in caplog.text
+        assert "broken dlpack" in caplog.text
+
+    def test_partial_dlpack_protocol_uses_numpy_fallback(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class PartialDLPack:
+            def __dlpack__(self):
+                raise AssertionError("missing __dlpack_device__ must fail first")
+
+            def __array__(self, dtype=None, copy=None):
+                del copy
+                return np.asarray([1.0, 2.0], dtype=dtype)
+
+        with caplog.at_level(logging.WARNING, logger="unilab.utils.tensor"):
+            result = to_torch(PartialDLPack(), "cpu")
+
+        torch.testing.assert_close(result, torch.tensor([1.0, 2.0]))
+        assert "has no attribute '__dlpack_device__'" in caplog.text
+
+    def test_dlpack_unexpected_failure_propagates_without_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class DLPackOnly:
+            def __dlpack__(self):
+                raise AssertionError("torch.from_dlpack should own protocol invocation")
+
+            def __array__(self, dtype=None, copy=None):
+                del dtype, copy
+                raise AssertionError("unexpected errors must not enter the numpy fallback")
+
+        failure = OSError("unexpected dlpack failure")
+
+        def fail_dlpack(_value):
+            raise failure
+
+        monkeypatch.setattr(torch, "from_dlpack", fail_dlpack)
+        with pytest.raises(OSError) as caught:
+            to_torch(DLPackOnly(), "cpu")
+
+        assert caught.value is failure
+        assert not caplog.records
 
     def test_list_input(self) -> None:
         x = [1.0, 2.0, 3.0]

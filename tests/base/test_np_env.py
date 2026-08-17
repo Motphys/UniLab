@@ -13,8 +13,10 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
+from unilab.base.backend.base import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
+from unilab.base.scene import SceneCfg
 
 # ---------------------------------------------------------------------------
 # Fixtures: minimal concrete NpEnv
@@ -38,11 +40,22 @@ class _StubNpEnv(NpEnv):
 
     OBS_SPEC = {"obs": 5, "critic": 7}
 
-    def __init__(self, num_envs: int = 4):
-        cfg = _StubCfg()
-        backend = MagicMock()
+    def __init__(
+        self,
+        num_envs: int = 4,
+        *,
+        cfg: _StubCfg | None = None,
+        backend: MagicMock | None = None,
+    ):
+        cfg = cfg or _StubCfg()
+        if backend is None:
+            backend = MagicMock()
+            backend.get_scene_model_file.return_value = None
+            capabilities = MagicMock()
+            capabilities.supports_physics_state_playback = False
+            backend.get_play_capabilities.return_value = capabilities
         backend.backend_type = "mujoco"
-        backend.step = MagicMock()
+        backend.step.return_value = None
         super().__init__(cfg, backend, num_envs)
         self._reset_count = 0
 
@@ -77,6 +90,78 @@ class _StubNpEnv(NpEnv):
             "critic": np.zeros((n, 7), dtype=np.float32),
         }
         return obs, {}
+
+
+def _nan_dump_model_files(env: _StubNpEnv) -> list[str]:
+    guard = MagicMock()
+    bad_ids = np.array([0], dtype=np.int32)
+    guard.check_ctrl.return_value = bad_ids
+    guard.check.return_value = bad_ids
+    env.set_nan_guard(guard)
+    env.step(np.zeros((env.num_envs, 3), dtype=np.float32))
+    return [call.args[1] for call in guard.dump.call_args_list]
+
+
+class TestNanGuardModelPath:
+    def test_scene_model_file_is_cached_and_prioritized(self):
+        backend = MagicMock()
+        backend.backend_type = "mujoco"
+        backend.step.return_value = None
+        backend.get_scene_model_file.return_value = "/backend.xml"
+        capabilities = MagicMock()
+        capabilities.supports_physics_state_playback = False
+        backend.get_play_capabilities.return_value = capabilities
+
+        cfg = _StubCfg(scene=SceneCfg(model_file="/scene.xml"))
+        env = _StubNpEnv(cfg=cfg, backend=backend)
+        backend.get_scene_model_file.assert_not_called()
+
+        cfg.scene = SceneCfg(model_file="/changed.xml")
+        assert _nan_dump_model_files(env) == ["/scene.xml", "/scene.xml"]
+        backend.get_scene_model_file.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("backend_model_file", "expected"),
+        [("/backend.xml", "/backend.xml"), ("", ""), (None, "")],
+    )
+    def test_backend_model_file_is_cached_once(self, backend_model_file, expected):
+        backend = MagicMock()
+        backend.backend_type = "mujoco"
+        backend.step.return_value = None
+        backend.get_scene_model_file.return_value = backend_model_file
+        capabilities = MagicMock()
+        capabilities.supports_physics_state_playback = False
+        backend.get_play_capabilities.return_value = capabilities
+
+        cfg = _StubCfg(scene=SceneCfg(model_file=""))
+        env = _StubNpEnv(cfg=cfg, backend=backend)
+        assert backend.get_scene_model_file.call_count == 1
+
+        backend.get_scene_model_file.side_effect = AssertionError(
+            "diagnostic model getter must not run from step"
+        )
+        cfg.scene = SceneCfg(model_file="/changed.xml")
+        assert _nan_dump_model_files(env) == [expected, expected]
+        assert backend.get_scene_model_file.call_count == 1
+
+
+class TestSceneVisualModelFileContract:
+    def test_backend_default_is_none(self):
+        assert SimBackend.get_scene_visual_model_file(MagicMock()) is None
+
+    def test_env_passthrough_reads_backend_getter(self):
+        backend = MagicMock()
+        backend.backend_type = "mujoco"
+        backend.step.return_value = None
+        backend.get_scene_model_file.return_value = None
+        backend.get_scene_visual_model_file.return_value = "/visual.xml"
+        capabilities = MagicMock()
+        capabilities.supports_physics_state_playback = False
+        backend.get_play_capabilities.return_value = capabilities
+
+        env = _StubNpEnv(backend=backend)
+
+        assert env.get_scene_visual_model_file() == "/visual.xml"
 
 
 class _TerminatingStubEnv(_StubNpEnv):

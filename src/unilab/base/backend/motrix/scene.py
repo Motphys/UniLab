@@ -8,20 +8,12 @@ from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
 
+from unilab.base.scene import resolve_scene_fragment_path
 from unilab.terrains.terrain_generator import TerrainGeneratorCfg
 
 if TYPE_CHECKING:
     from motrixsim import SceneModel
     from motrixsim.msd import Link, World
-
-
-def _resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
-    path = Path(fragment_file)
-    if path.is_absolute():
-        return path
-    if path.is_file():
-        return path.resolve()
-    return (model_file.parent / path).resolve()
 
 
 def _extract_keyframes(fragment_file: Path) -> list[ET.Element]:
@@ -166,7 +158,7 @@ def materialize_motrix_scene(
 
     model_path = Path(model_file).resolve()
     fragment_paths = [
-        _resolve_scene_fragment_path(fragment_file, model_path) for fragment_file in fragment_files
+        resolve_scene_fragment_path(fragment_file, model_path) for fragment_file in fragment_files
     ]
     robot_path = _materialize_robot_with_fragment_keyframes(model_path, fragment_paths)
     try:
@@ -254,7 +246,7 @@ def materialize_motrix_hfield_attached_scene(
     world.hierarchy.geoms.append(terrain_geom)
 
     fragment_paths = [
-        _resolve_scene_fragment_path(fragment_file, robot_path) for fragment_file in fragment_files
+        resolve_scene_fragment_path(fragment_file, robot_path) for fragment_file in fragment_files
     ]
     merged_robot_path = _materialize_robot_with_fragment_keyframes(robot_path, fragment_paths)
     try:

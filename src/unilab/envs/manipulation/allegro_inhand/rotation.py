@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -33,6 +34,8 @@ from unilab.utils.geometry import (
 )
 
 from .base import AllegroBaseCfg, AllegroBaseEnv
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_grasp_cache_path(cache_path: str) -> epath.Path:
@@ -83,6 +86,33 @@ def sample_cached_grasps(
     idx = np.random.randint(0, len(grasp_cache), size=num_reset)
     sampled = grasp_cache[idx]
     return sampled[:, :16], sampled[:, 16:19], sampled[:, 19:23]
+
+
+def _materialize_grasp_cache(cfg: AllegroRotationPPOCfg) -> np.ndarray | None:
+    """Load the optional Allegro grasp cache on the env construction path."""
+    if cfg.gen_grasp:
+        return None
+
+    cache_path = resolve_grasp_cache_path(cfg.grasp_cache_path)
+    if not cache_path.exists():
+        logger.warning(
+            "[allegro_inhand] Grasp cache is missing; no Hugging Face download will be "
+            "attempted. Expected local cache: %s. Generate one with "
+            "`uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco "
+            "training.no_play=true`, or point `env.grasp_cache_path` at an existing "
+            "local cache.",
+            cache_path,
+        )
+        return None
+
+    grasp_cache = np.load(cache_path).astype(np.float64)
+    logger.info(
+        "[allegro_inhand] Loaded grasp cache: %s, shape=%s, dtype=%s",
+        cache_path,
+        grasp_cache.shape,
+        grasp_cache.dtype,
+    )
+    return grasp_cache
 
 
 @dataclass
@@ -138,39 +168,11 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
     ) -> IntervalRandomizationPlan | None:
         return build_interval_push_plan(env, step_counter)
 
-    def _load_grasp_cache(self, env: Any) -> np.ndarray | None:
-        if env._grasp_cache_loaded:
-            return cast(np.ndarray | None, env._grasp_cache)
-        if env.cfg.gen_grasp:
-            env._grasp_cache = None
-            env._grasp_cache_loaded = True
-            return None
-
-        cache_path = resolve_grasp_cache_path(env.cfg.grasp_cache_path)
-        if not cache_path.exists():
-            print(
-                "[allegro_inhand] Grasp cache is missing; no Hugging Face download will be "
-                f"attempted. Expected local cache: {cache_path}. Generate one with "
-                "`uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco "
-                "training.no_play=true`, or point `env.grasp_cache_path` at an existing "
-                "local cache."
-            )
-            env._grasp_cache = None
-            env._grasp_cache_loaded = True
-            return None
-        env._grasp_cache = np.load(cache_path).astype(np.float64)
-        env._grasp_cache_loaded = True
-        print(
-            "[allegro_inhand] Loaded grasp cache: "
-            f"{cache_path}, shape={env._grasp_cache.shape}, dtype={env._grasp_cache.dtype}"
-        )
-        return cast(np.ndarray | None, env._grasp_cache)
-
     def _sample_reset_state(
         self, env: Any, num_reset: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         dr = env.cfg.domain_rand
-        grasp_cache = self._load_grasp_cache(env)
+        grasp_cache = cast(np.ndarray | None, env._grasp_cache)
         if grasp_cache is not None:
             hand_qpos, ball_pos, ball_quat = sample_cached_grasps(grasp_cache, num_reset)
         else:
@@ -283,8 +285,6 @@ class AllegroRotationPPO(AllegroBaseEnv):
                 "actuator_ids": slice(0, 16),
             },
             **env_backend_kwargs(cfg),
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True
@@ -293,8 +293,7 @@ class AllegroRotationPPO(AllegroBaseEnv):
         self._dof_range = self._ctrl_upper - self._ctrl_lower
         self._dof_mid = (self._ctrl_upper + self._ctrl_lower) / 2.0
         self._rot_axis = normalize_rotation_axis(cfg.rotation_axis)
-        self._grasp_cache: np.ndarray | None = None
-        self._grasp_cache_loaded = False
+        self._grasp_cache = _materialize_grasp_cache(cfg)
 
         self._init_reward_functions()
         self._init_domain_randomization(AllegroRotationDomainRandomizationProvider())

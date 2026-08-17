@@ -4,11 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 import numpy as np
-from etils import epath
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import create_backend
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr import ResetPlan, ResetRandomizationPayload
@@ -133,19 +132,24 @@ class Go2HandStandTask(Go2BaseEnv):
     def __init__(self, cfg: Go2HandStandCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
             raise ValueError("reward_config must be provided via Hydra configuration")
+        # Footstand historically left the MuJoCo pool tuning knobs at the
+        # create_backend defaults; keep them pinned so this convergence does
+        # not silently enable adaptive chunk tuning for the task.
+        backend_kwargs: dict[str, Any] = {
+            "base_name": cfg.asset.base_name,
+            "push_body_name": cfg.domain_rand.push_body_name,
+            "add_body_sensors": bool(getattr(cfg, "add_body_sensors", False)),
+            "position_actuator_gains": {"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
+            **env_backend_kwargs(cfg),
+            "adaptive_chunk_size": False,
+            "bench_nsteps": 1,
+        }
         backend = create_backend(
             backend_type,
             cfg.scene,
             num_envs,
             cfg.sim_dt,
-            base_name=cfg.asset.base_name,
-            push_body_name=cfg.domain_rand.push_body_name,
-            add_body_sensors=bool(getattr(cfg, "add_body_sensors", False)),
-            position_actuator_gains={"kp": cfg.control_config.Kp, "kd": cfg.control_config.Kd},
-            motrix_max_iterations=cfg.motrix_max_iterations,
-            post_step_forward_sensor=cfg.post_step_forward_sensor,
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
+            **backend_kwargs,
         )
         super().__init__(cfg, backend, num_envs)
         self._enable_reward_log = True

@@ -7,7 +7,6 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
-from tensordict import TensorDict
 
 ROOT_DIR = Path(__file__).parent.parent
 SRC_DIR = ROOT_DIR / "src"
@@ -19,7 +18,9 @@ if str(ROOT_DIR) not in sys.path:
 from unilab.algos.torch.hora import HoraDistillationTrainer
 from unilab.algos.torch.hora.distill import (
     build_student_actor_and_normalizer,
+    cfg_with_checkpoint_runtime,
     load_distilled_checkpoint,
+    student_policy,
 )
 from unilab.algos.torch.hora.distill_config import (
     apply_teacher_defaults as _apply_teacher_defaults,
@@ -37,14 +38,15 @@ from unilab.algos.torch.hora.distill_config import (
     teacher_run_metadata as _teacher_run_metadata,
 )
 from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
-from unilab.base.backend.mujoco.xml import materialize_scene_visual_override
+from unilab.base.backend import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
     create_env,
     ensure_registries,
-    get_latest_run,
+    format_hora_stage2_checkpoint_error,
     get_log_root,
     log_playback_plan,
+    resolve_hora_stage2_checkpoint_path,
     setup_logger,
     should_run_playback,
 )
@@ -103,93 +105,6 @@ def _build_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], adapter.build_play_env_cfg_override())
 
 
-def _resolve_stage2_checkpoint_path(cfg: DictConfig) -> tuple[Path | None, Path | None]:
-    task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
-    load_run = str(OmegaConf.select(cfg, "algo.load_run", default="-1"))
-    selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
-
-    run_dir: Path | None
-    if load_run == "-1":
-        run_dir = get_latest_run(task_log_root)
-    else:
-        candidate = Path(load_run)
-        if not candidate.exists():
-            candidate = task_log_root / load_run
-        if candidate.is_file():
-            return candidate, candidate.parent
-        run_dir = candidate if candidate.is_dir() else None
-
-    if run_dir is None:
-        return None, None
-
-    if selected_checkpoint not in (None, "", -1, "-1"):
-        checkpoint_name = (
-            f"hora_stage2_{selected_checkpoint}.pt"
-            if str(selected_checkpoint).isdigit()
-            else str(selected_checkpoint)
-        )
-        checkpoint_path = run_dir / checkpoint_name
-        return (checkpoint_path, run_dir) if checkpoint_path.exists() else (None, run_dir)
-
-    last_path = run_dir / "hora_stage2_last.pt"
-    if last_path.exists():
-        return last_path, run_dir
-
-    numbered = [
-        path for path in run_dir.glob("hora_stage2_*.pt") if path.stem.split("_")[-1].isdigit()
-    ]
-    if not numbered:
-        return None, run_dir
-    return max(numbered, key=lambda path: int(path.stem.split("_")[-1])), run_dir
-
-
-def _format_stage2_play_checkpoint_error(
-    cfg: DictConfig,
-    *,
-    task_log_root: Path,
-    load_path: Path | None,
-    load_path_dir: Path | None,
-) -> str:
-    selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
-    checkpoint_hint = (
-        f" algo.checkpoint={selected_checkpoint!r}"
-        if selected_checkpoint not in (None, "", -1, "-1")
-        else ""
-    )
-    if load_path_dir is not None and load_path is None and checkpoint_hint:
-        reason = f"Requested stage-2 checkpoint was not found under resolved_run={load_path_dir}."
-    elif not task_log_root.exists():
-        reason = "Task log root does not exist."
-    else:
-        latest_run = get_latest_run(task_log_root)
-        if latest_run is None:
-            reason = "No run directories were found under the task log root."
-        else:
-            reason = "Requested run or stage-2 checkpoint could not be resolved."
-    return (
-        "Could not resolve a stage-2 HORA checkpoint for play mode. "
-        f"{reason} task={cfg.training.task_name} task_log_root={task_log_root} "
-        f"algo.load_run={cfg.algo.load_run!r}{checkpoint_hint}. "
-        "Use algo.load_run=<run-dir-or-checkpoint-path> and optionally "
-        "algo.checkpoint=<iteration-or-filename>."
-    )
-
-
-def _student_policy(
-    actor, hist_normalizer, obs: TensorDict, *, device: torch.device
-) -> torch.Tensor:
-    proprio_hist = hist_normalizer(obs["proprio_hist"].to(device), update=False)
-    policy_obs = TensorDict(
-        {
-            "actor": obs["actor"].to(device),
-            "proprio_hist": proprio_hist,
-        },
-        batch_size=obs.batch_size,
-        device=device,
-    )
-    return actor(policy_obs, stochastic_output=False).clamp_(-1.0, 1.0)
-
-
 def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
     camera_kwargs = {
         "cam_tracking": getattr(cfg.training, "cam_tracking", False),
@@ -203,41 +118,12 @@ def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
     return camera_kwargs
 
 
-def _cfg_with_checkpoint_runtime(cfg: DictConfig, checkpoint: dict[str, Any]) -> DictConfig:
-    """Merge model-side runtime config stored in a stage-2 checkpoint.
-
-    Args:
-        cfg: Hydra-composed distillation config supplied to play mode.
-        checkpoint: Loaded stage-2 checkpoint dictionary.
-
-    Returns:
-        Config using the current owner env/reward settings and checkpoint model
-        construction fields.
-    """
-    cfg_with_owner_defaults = _apply_teacher_defaults(cfg)
-    cfg_clone = OmegaConf.create(OmegaConf.to_container(cfg_with_owner_defaults, resolve=False))
-    runtime_cfg = checkpoint.get("distill_runtime_cfg")
-    if runtime_cfg is None:
-        return cast(DictConfig, cfg_clone)
-
-    runtime_model_cfg = OmegaConf.select(OmegaConf.create(runtime_cfg), "algo.model")
-    if runtime_model_cfg is None:
-        return cast(DictConfig, cfg_clone)
-    OmegaConf.update(
-        cfg_clone,
-        "algo.model",
-        OmegaConf.to_container(runtime_model_cfg, resolve=True),
-        merge=False,
-    )
-    return cast(DictConfig, cfg_clone)
-
-
 def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
-    load_path, load_path_dir = _resolve_stage2_checkpoint_path(cfg)
+    load_path, load_path_dir = resolve_hora_stage2_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
         print(
-            _format_stage2_play_checkpoint_error(
+            format_hora_stage2_checkpoint_error(
                 cfg,
                 task_log_root=task_log_root,
                 load_path=load_path,
@@ -255,7 +141,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = _cfg_with_checkpoint_runtime(cfg, checkpoint)
+    cfg = cfg_with_checkpoint_runtime(cfg, checkpoint)
     env = create_env(
         cfg,
         num_envs=int(cfg.training.play_env_num),
@@ -282,7 +168,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
             ),
             initialize=lambda: wrapped_env.reset()[0],
             step=lambda obs: wrapped_env.step(
-                _student_policy(actor, hist_normalizer, obs, device=torch_device)
+                student_policy(actor, hist_normalizer, obs, device=torch_device)
             )[0],
             camera_kwargs=_play_camera_kwargs(cfg),
             on_plan=log_playback_plan,

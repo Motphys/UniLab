@@ -31,16 +31,6 @@ class ExceptionWrapper:
         self.exc_msg = "".join(traceback.format_exception(*exc_info))
         self.where = where
 
-    def reraise(self) -> None:
-        exc_type = self.exc_type
-        if exc_type is None:
-            raise RuntimeError(f"Unknown exception {self.where}.\n{self.exc_msg}")
-        msg = f"Caught {exc_type.__name__} {self.where}.\nOriginal traceback:\n{self.exc_msg}"
-        try:
-            raise exc_type(msg)
-        except TypeError:
-            raise RuntimeError(msg) from None
-
 
 def create_error_pipe() -> tuple[Any, Any]:
     """Create a unidirectional pipe for error reporting.

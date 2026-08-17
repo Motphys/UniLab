@@ -18,17 +18,24 @@ def _class_path(obj) -> str:
     return f"{cls.__module__}.{cls.__name__}"
 
 
+def _configure_small_terrain(cfg, *, seed: int = 0) -> None:
+    assert cfg.scene.terrain is not None
+    generator = cfg.scene.terrain.generator
+    assert generator is not None
+    generator.num_rows = 3
+    generator.num_cols = 3
+    generator.border_width = 0.0
+    generator.add_lights = False
+    generator.seed = seed
+
+
 def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
     from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, RoughRewardConfig
 
     cfg = Go2JoystickRoughCfg(
         reward_config=RoughRewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
     )
-    cfg.scene.terrain.generator.num_rows = 3
-    cfg.scene.terrain.generator.num_cols = 3
-    cfg.scene.terrain.generator.border_width = 0.0
-    cfg.scene.terrain.generator.add_lights = False
-    cfg.scene.terrain.generator.seed = seed
+    _configure_small_terrain(cfg, seed=seed)
     cfg.terrain_curriculum = TerrainCurriculumCfg(enabled=curriculum_enabled, seed=seed)
     return cfg
 
@@ -39,6 +46,11 @@ def test_terrain_spawn_attached_when_rough():
     cfg = _rough_cfg()
     env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
     try:
+        terrain_data = env._backend.get_terrain_spawn_data()
+        assert terrain_data is not None
+        assert terrain_data.sample_height is not None
+        assert terrain_data.terrain_origins.shape == (3, 3, 3)
+        assert not terrain_data.terrain_origins.flags.writeable
         assert _class_path(env._spawn) == (
             "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
         )
@@ -58,6 +70,11 @@ def test_terrain_spawn_attached_when_rough_motrix():
     cfg.domain_rand.randomize_kd = False
     env = Go2WalkTask(cfg, num_envs=2, backend_type="motrix")
     try:
+        terrain_data = env._backend.get_terrain_spawn_data()
+        assert terrain_data is not None
+        assert terrain_data.sample_height is not None
+        assert terrain_data.terrain_origins.shape == (3, 3, 3)
+        assert not terrain_data.terrain_origins.flags.writeable
         assert _class_path(env._spawn) == (
             "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
         )
@@ -65,6 +82,59 @@ def test_terrain_spawn_attached_when_rough_motrix():
         assert env._scene_terrain_origins.shape == (3, 3, 3)
         state = env.init_state()
         assert state.obs["obs"].shape == (2, 49)
+    finally:
+        env.close()
+
+
+def test_go1_rough_initialization_and_reset_use_backend_terrain_contract():
+    from unilab.envs.locomotion.go1.rough import (
+        Go1JoystickRoughCfg,
+        Go1JoystickRoughEnv,
+        RoughRewardConfig,
+    )
+
+    cfg = Go1JoystickRoughCfg(
+        reward_config=RoughRewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
+    )
+    _configure_small_terrain(cfg)
+    cfg.terrain_scan.enabled = False
+    cfg.domain_rand.randomize_kp = False
+    cfg.domain_rand.randomize_kd = False
+
+    env = Go1JoystickRoughEnv(cfg, num_envs=2, backend_type="mujoco")
+    try:
+        terrain_data = env._backend.get_terrain_spawn_data()
+        assert terrain_data is not None
+        assert terrain_data.sample_height is not None
+        assert env._scene_terrain_origins is terrain_data.terrain_origins
+        assert env._spawn._sample_height is terrain_data.sample_height
+        state = env.init_state()
+        assert state.obs["obs"].shape == (2, 45)
+    finally:
+        env.close()
+
+
+def test_go2w_rough_initialization_and_reset_use_backend_terrain_contract():
+    from unilab.envs.locomotion.go2w.joystick import RewardConfig
+    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughCfg, Go2WJoystickRoughEnv
+
+    cfg = Go2WJoystickRoughCfg(
+        reward_config=RewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
+    )
+    _configure_small_terrain(cfg)
+    cfg.terrain_scan.enabled = False
+    cfg.domain_rand.randomize_kp = False
+    cfg.domain_rand.randomize_kd = False
+
+    env = Go2WJoystickRoughEnv(cfg, num_envs=2, backend_type="mujoco")
+    try:
+        terrain_data = env._backend.get_terrain_spawn_data()
+        assert terrain_data is not None
+        assert terrain_data.sample_height is not None
+        np.testing.assert_array_equal(env._spawn._terrain_origins, terrain_data.terrain_origins)
+        assert env._spawn._sample_height is terrain_data.sample_height
+        state = env.init_state()
+        assert state.obs["obs"].shape == (2, 53)
     finally:
         env.close()
 
@@ -77,13 +147,16 @@ def test_terrain_spawn_samples_height_after_xy_jitter():
 
     origins = np.zeros((1, 1, 3), dtype=np.float64)
     cfg = TerrainCurriculumCfg(spawn_height_margin=0.05)
+    surface = FakeSurface()
+    sample_height = surface.sample_height
     spawn = TerrainSpawnManager(
         1,
         origins,
         cell_size=1.0,
         cfg=cfg,
-        terrain_surface_sampler=FakeSurface(),
+        sample_height=sample_height,
     )
+    assert spawn._sample_height is sample_height
 
     qpos_xyz = np.asarray([[0.2, 0.4, 0.42]], dtype=np.float64)
     spawned = spawn.apply_spawn(np.asarray([0], dtype=np.int32), qpos_xyz)
@@ -91,6 +164,17 @@ def test_terrain_spawn_samples_height_after_xy_jitter():
     assert spawned[0, 0] == pytest.approx(0.2)
     assert spawned[0, 1] == pytest.approx(0.4)
     assert spawned[0, 2] == pytest.approx(0.2 * 0.5 + 0.4 * 0.25 + 0.42 + 0.05)
+
+
+def test_terrain_spawn_rejects_non_callable_height_sampler_on_init():
+    with pytest.raises(TypeError, match="sample_height must be callable"):
+        TerrainSpawnManager(
+            1,
+            np.zeros((1, 1, 3), dtype=np.float64),
+            cell_size=1.0,
+            cfg=TerrainCurriculumCfg(),
+            sample_height=object(),  # type: ignore[arg-type]
+        )
 
 
 def test_go2_rough_base_height_reward_uses_terrain_relative_height():
@@ -154,6 +238,7 @@ def test_default_spawn_used_when_flat():
     )
     env = Go2WalkTask(cfg, num_envs=4, backend_type="mujoco")
     try:
+        assert env._backend.get_terrain_spawn_data() is None
         assert _class_path(env._spawn) == (
             "unilab.envs.locomotion.common.terrain_spawn.BaseSpawnManager"
         )
