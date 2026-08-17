@@ -383,6 +383,45 @@ class MotrixBackend(SimBackend):
         result: np.ndarray = arr.T.copy()
         return result
 
+    def get_actuator_names(self) -> tuple[str, ...]:
+        actuators = sorted(self._model.actuators, key=lambda actuator: int(actuator.index))
+        names = tuple(str(actuator.name) for actuator in actuators)
+        if len(names) != self.num_actuators or any(not name for name in names):
+            raise NotImplementedError(
+                "backend 'motrix' capability 'actuator names' requires one non-empty name "
+                f"per control column; received {names}"
+            )
+        if len(set(names)) != len(names):
+            raise NotImplementedError(
+                "backend 'motrix' capability 'actuator names' requires unique names; "
+                f"received {names}"
+            )
+        return names
+
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        actuators = sorted(self._model.actuators, key=lambda actuator: int(actuator.index))
+        names: list[str] = []
+        for actuator in actuators:
+            if actuator.target_type != "joint":
+                raise NotImplementedError(
+                    "backend 'motrix' capability 'actuator target joint' requires a joint "
+                    f"transmission; actuator '{actuator.name}' targets '{actuator.target_type}'"
+                )
+            joint = self._model.get_joint(actuator.target_name)
+            if joint is None or int(joint.num_dof_pos) != 1 or int(joint.num_dof_vel) != 1:
+                raise NotImplementedError(
+                    "backend 'motrix' capability 'actuator target joint' requires a "
+                    f"single-DoF joint; actuator '{actuator.name}' targets "
+                    f"'{actuator.target_name}'"
+                )
+            names.append(str(actuator.target_name))
+        if len(names) != self.num_actuators:
+            raise NotImplementedError(
+                "backend 'motrix' capability 'actuator target joint' returned "
+                f"{len(names)} targets for {self.num_actuators} actuators"
+            )
+        return tuple(names)
+
     def get_terrain_spawn_data(self) -> BackendTerrainSpawnData | None:
         return self._terrain_spawn_data
 
@@ -396,6 +435,15 @@ class MotrixBackend(SimBackend):
     def get_default_qpos(self) -> np.ndarray:
         qpos = np.array(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
         return self._motrix_qpos_to_mujoco(qpos)
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        qpos = np.asarray(self._model.compute_init_dof_pos(), dtype=self._np_dtype)
+        indices = (
+            self._actuator_joint_pos_indices
+            if self._actuator_joint_pos_indices is not None
+            else self._joint_dof_pos_indices
+        )
+        return np.asarray(qpos[indices], dtype=self._np_dtype).copy()
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self._model.num_dof_vel,), dtype=self._np_dtype)

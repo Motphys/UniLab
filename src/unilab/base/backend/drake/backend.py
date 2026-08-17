@@ -222,6 +222,10 @@ class DrakeBackend(SimBackend):
         self._actuator_damping = model_info.actuator_damping.copy()
         self._actuator_qpos_adr = model_info.actuator_qpos_adr.astype(np.intp, copy=True)
         self._actuator_qvel_adr = model_info.actuator_qvel_adr.astype(np.intp, copy=True)
+        raw_actuator_names = getattr(model_info, "actuator_names", None)
+        self._actuator_names = (
+            None if raw_actuator_names is None else tuple(str(name) for name in raw_actuator_names)
+        )
         self._sensor_names = tuple(model_info.sensor_names)
         self._sensor_adr = model_info.sensor_adr.copy()
         self._sensor_dim = model_info.sensor_dim.copy()
@@ -253,6 +257,19 @@ class DrakeBackend(SimBackend):
                 strict=True,
             )
         }
+        joint_name_by_qpos_adr = {
+            int(adr): str(name)
+            for name, adr, dim in zip(
+                getattr(model_info, "joint_names", ()),
+                getattr(model_info, "joint_qpos_adr", ()),
+                getattr(model_info, "joint_qpos_dim", ()),
+                strict=True,
+            )
+            if int(dim) == 1
+        }
+        self._actuator_joint_names = tuple(
+            joint_name_by_qpos_adr.get(int(adr), "") for adr in self._actuator_qpos_adr
+        )
         self._root_qpos_dim = (
             int(np.min(self._actuator_qpos_adr)) if self._actuator_qpos_adr.size else 0
         )
@@ -311,6 +328,35 @@ class DrakeBackend(SimBackend):
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return self._ctrl_limits.copy()
 
+    def get_actuator_names(self) -> tuple[str, ...]:
+        names = self._actuator_names
+        if names is None:
+            raise NotImplementedError(
+                "backend 'drake' capability 'actuator names' is unavailable: "
+                "DrakeUni model_info does not expose actuator_names"
+            )
+        if len(names) != self.num_actuators or any(not name for name in names):
+            raise NotImplementedError(
+                "backend 'drake' capability 'actuator names' requires one non-empty name "
+                f"per control column; received {names}"
+            )
+        if len(set(names)) != len(names):
+            raise NotImplementedError(
+                "backend 'drake' capability 'actuator names' requires unique names; "
+                f"received {names}"
+            )
+        return names
+
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        names = self._actuator_joint_names
+        if len(names) != self.num_actuators or any(not name for name in names):
+            raise NotImplementedError(
+                "backend 'drake' capability 'actuator target joint' requires every "
+                "actuator_qpos_adr to resolve to one named single-DoF joint; "
+                f"received {names}"
+            )
+        return names
+
     def get_scene_model_file(self) -> str | None:
         return self._scene_model_file
 
@@ -324,6 +370,9 @@ class DrakeBackend(SimBackend):
 
     def get_default_qpos(self) -> np.ndarray:
         return self._home_qpos_mujoco.copy()
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        return np.asarray(self._home_qpos_mujoco[self._actuator_qpos_adr], dtype=np.float64).copy()
 
     def get_init_qvel(self) -> np.ndarray:
         return self._home_qvel_mujoco.copy()

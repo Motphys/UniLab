@@ -5,7 +5,9 @@ import json
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 
@@ -148,6 +150,34 @@ def test_drake_batch_thread_policy_matches_mujoco_auto(monkeypatch: pytest.Monke
     assert backend._resolve_batch_nthread(8, 0) == 8
     assert backend._resolve_batch_nthread(1024, 4) == 4
     assert backend._resolve_batch_nthread(2, 8) == 2
+
+
+def test_drake_actuation_metadata_is_detached_and_fails_closed() -> None:
+    from unilab.base.backend.drake.backend import DrakeBackend
+
+    backend = object.__new__(DrakeBackend)
+    backend._model = SimpleNamespace(nu=2)
+    backend._actuator_names = ("hip_motor", "knee_motor")
+    backend._actuator_joint_names = ("hip", "knee")
+    backend._actuator_qpos_adr = np.asarray([7, 8], dtype=np.intp)
+    backend._home_qpos_mujoco = np.arange(9, dtype=np.float64)
+
+    assert backend.get_actuator_names() == ("hip_motor", "knee_motor")
+    assert backend.get_actuator_joint_names() == ("hip", "knee")
+    default = backend.get_default_dof_pos()
+    np.testing.assert_array_equal(default, np.asarray([7.0, 8.0]))
+    default[:] = -1.0
+    np.testing.assert_array_equal(backend.get_default_dof_pos(), np.asarray([7.0, 8.0]))
+
+    backend._actuator_names = None
+    with pytest.raises(NotImplementedError, match="DrakeUni model_info.*actuator_names"):
+        backend.get_actuator_names()
+    backend._actuator_names = ("duplicate", "duplicate")
+    with pytest.raises(NotImplementedError, match="unique names"):
+        backend.get_actuator_names()
+    backend._actuator_joint_names = ("hip", "")
+    with pytest.raises(NotImplementedError, match="single-DoF joint"):
+        backend.get_actuator_joint_names()
 
 
 def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:

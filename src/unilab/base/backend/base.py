@@ -137,6 +137,18 @@ class SimBackend(abc.ABC):
         """Return actuator names in control-vector order on the cold path."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose actuator names")
 
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        """Return each actuator's target single-DoF joint in control-vector order.
+
+        Backends must fail closed when an actuator does not target exactly one
+        hinge/slide joint.  Manager action terms use this cold-path metadata to
+        map community joint selectors onto the backend control vector without
+        inspecting backend-private model objects.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose actuator target joints"
+        )
+
     def get_scene_model_file(self) -> str | None:
         """Return the materialized scene path for diagnostics, when available."""
         return None
@@ -171,6 +183,17 @@ class SimBackend(abc.ABC):
     def get_default_qpos(self) -> np.ndarray:
         """Return the backend/model default qpos through a stable contract."""
         raise NotImplementedError(f"{self.__class__.__name__} does not expose default qpos")
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        """Return default joint positions in the same column order as ``get_dof_pos``.
+
+        The returned array is detached, one-dimensional, and excludes floating
+        root coordinates.  Backends whose DoF view is actuator-indexed must use
+        that same actuator-target order here.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose default DoF positions"
+        )
 
     @abc.abstractmethod
     def get_init_qvel(self) -> np.ndarray:

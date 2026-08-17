@@ -292,6 +292,41 @@ class MjwarpBackend(SimBackend):
     def get_actuator_names(self) -> tuple[str, ...]:
         return self._actuator_names
 
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        supported_transmissions = {
+            int(self._mujoco.mjtTrn.mjTRN_JOINT),
+            int(self._mujoco.mjtTrn.mjTRN_JOINTINPARENT),
+        }
+        supported_joint_types = {
+            int(self._mujoco.mjtJoint.mjJNT_HINGE),
+            int(self._mujoco.mjtJoint.mjJNT_SLIDE),
+        }
+        names: list[str] = []
+        for actuator_id, actuator_name in enumerate(self._actuator_names):
+            transmission = int(self._cpu_model.actuator_trntype[actuator_id])
+            joint_id = int(self._cpu_model.actuator_trnid[actuator_id, 0])
+            if transmission not in supported_transmissions or joint_id < 0:
+                raise NotImplementedError(
+                    "backend 'mjwarp' capability 'actuator target joint' requires a "
+                    f"joint transmission; actuator '{actuator_name}' uses "
+                    f"transmission type {transmission}"
+                )
+            if int(self._cpu_model.jnt_type[joint_id]) not in supported_joint_types:
+                raise NotImplementedError(
+                    "backend 'mjwarp' capability 'actuator target joint' requires a "
+                    f"single-DoF joint; actuator '{actuator_name}' targets joint id {joint_id}"
+                )
+            joint_name = self._mujoco.mj_id2name(
+                self._cpu_model, self._mujoco.mjtObj.mjOBJ_JOINT, joint_id
+            )
+            if not joint_name:
+                raise NotImplementedError(
+                    "backend 'mjwarp' capability 'actuator target joint' requires named "
+                    f"joints; actuator '{actuator_name}' targets unnamed joint id {joint_id}"
+                )
+            names.append(str(joint_name))
+        return tuple(names)
+
     def get_scene_model_file(self) -> str | None:
         return self.scene_model_file
 
@@ -304,6 +339,9 @@ class MjwarpBackend(SimBackend):
 
     def get_default_qpos(self) -> np.ndarray:
         return np.asarray(self._cpu_model.qpos0, dtype=np.float32).copy()
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        return np.asarray(self._cpu_model.qpos0[self._root_qpos_dim :], dtype=np.float32).copy()
 
     def get_init_qvel(self) -> np.ndarray:
         return np.zeros((self._nv,), dtype=np.float32)
