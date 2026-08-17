@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, NoReturn
 import numpy as np
 
 from unilab.base.backend.base import SimBackend
+from unilab.utils.rotation import np_yaw_from_quat
 
 if TYPE_CHECKING:
     from unilab.base.scene import SceneCfg
@@ -191,6 +192,21 @@ class EntityData:
     def root_link_ang_vel_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
         return self._backend.get_body_ang_vel_w(ids)[:, 0]
+
+    @property
+    def root_link_lin_vel_b(self) -> np.ndarray:
+        ids = self._require(self._root_body_ids, "root body state")
+        return self._backend.get_body_lin_vel_b(ids)[:, 0]
+
+    @property
+    def root_link_ang_vel_b(self) -> np.ndarray:
+        ids = self._require(self._root_body_ids, "root body state")
+        return self._backend.get_body_ang_vel_b(ids)[:, 0]
+
+    @property
+    def heading_w(self) -> np.ndarray:
+        """Root yaw in the world frame, derived from the backend quaternion view."""
+        return np_yaw_from_quat(self.root_link_quat_w)
 
     @property
     def root_link_pose_w(self) -> np.ndarray:
@@ -557,6 +573,29 @@ class Entity:
                 raise ValueError(
                     f"Entity '{self.name}' capability '{capability}' on backend "
                     f"'{self._backend_type}' returned shape {value.shape}; expected {expected}"
+                )
+            if not np.isfinite(value).all():
+                raise ValueError(
+                    f"Entity '{self.name}' capability '{capability}' on backend "
+                    f"'{self._backend_type}' returned NaN or Inf"
+                )
+        if root_body_ids is None:
+            return
+        for capability, getter in (
+            ("body-frame linear velocity state", backend.get_body_lin_vel_b),
+            ("body-frame angular velocity state", backend.get_body_ang_vel_b),
+        ):
+            value = self._read_state(capability, getter, root_body_ids)
+            expected = (backend.num_envs, len(root_body_ids), 3)
+            if value.shape != expected:
+                raise ValueError(
+                    f"Entity '{self.name}' capability '{capability}' on backend "
+                    f"'{self._backend_type}' returned shape {value.shape}; expected {expected}"
+                )
+            if not np.isfinite(value).all():
+                raise ValueError(
+                    f"Entity '{self.name}' capability '{capability}' on backend "
+                    f"'{self._backend_type}' returned NaN or Inf"
                 )
 
     def _materialize_actuator_ctrl_range(
