@@ -114,8 +114,6 @@ class Go2WalkTask(Go2BaseEnv):
             push_body_name=cfg.domain_rand.push_body_name,
             position_actuator_gains=cfg.control_config.position_gains(),
             **env_backend_kwargs(cfg),
-            drake_backend_mode=cfg.drake_backend_mode,
-            drake_nthread=cfg.drake_nthread,
         )
         terrain_spawn_data = backend.get_terrain_spawn_data()
         self._terrain_surface_sample_height = (

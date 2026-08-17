@@ -8,6 +8,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
+from unilab.base.backend import RenderClosedError
 from unilab.base.backend.motrix.backend import MotrixBackend
 from unilab.base.backend.motrix.playback import run_motrix_playback
 from unilab.base.backend.mujoco.backend import MuJoCoBackend
@@ -491,9 +492,6 @@ def test_motrix_record_play_render_plan_is_headless(tmp_path: Path):
 
 
 def test_motrix_interactive_run_playback_treats_window_close_as_done(capsys):
-    class RenderClosedError(RuntimeError):
-        pass
-
     class FakeEnv:
         cfg = type("Cfg", (), {"render_spacing": 1.0, "ctrl_dt": 0.02})()
 
@@ -521,9 +519,6 @@ def test_motrix_interactive_run_playback_treats_window_close_as_done(capsys):
 
 
 def test_motrix_record_run_playback_does_not_swallow_render_closed(tmp_path: Path):
-    class RenderClosedError(RuntimeError):
-        pass
-
     class FakeEnv:
         cfg = type("Cfg", (), {"render_spacing": 1.0, "ctrl_dt": 0.02})()
 

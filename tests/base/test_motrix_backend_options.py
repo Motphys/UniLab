@@ -803,3 +803,100 @@ def test_create_backend_warns_when_mjwarp_ignores_non_default_mujoco_options(
     assert "post_step_forward_sensor" not in captured["kwargs"]
     assert "adaptive_chunk_size" not in captured["kwargs"]
     assert "bench_nsteps" not in captured["kwargs"]
+
+
+def test_create_backend_routes_iterations_to_mujoco(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMuJoCoBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_mujoco_backend", lambda: FakeMuJoCoBackend)
+
+    backend_factory.create_backend(
+        "mujoco",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        iterations=7,
+    )
+
+    assert captured["kwargs"]["iterations"] == 7
+
+
+def test_create_backend_does_not_route_iterations_to_motrix(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMotrixBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(
+        backend_factory,
+        "_load_motrix_backend",
+        lambda: (FakeMotrixBackend, True),
+    )
+
+    backend_factory.create_backend(
+        "motrix",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        iterations=7,
+    )
+
+    assert "iterations" not in captured["kwargs"]
+
+
+def test_create_backend_does_not_route_iterations_to_drake(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeDrakeBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_drake_backend", lambda: FakeDrakeBackend)
+
+    backend_factory.create_backend(
+        "drake",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        iterations=7,
+    )
+
+    assert "iterations" not in captured["kwargs"]
+
+
+def test_create_backend_warns_when_mjwarp_ignores_iterations(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMjwarpBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_mjwarp_backend", lambda: FakeMjwarpBackend)
+
+    with pytest.warns(UserWarning, match="iterations=7"):
+        backend_factory.create_backend(
+            "mjwarp",
+            SceneCfg(model_file="model.xml"),
+            num_envs=1,
+            sim_dt=0.01,
+            iterations=7,
+        )
+
+    assert "iterations" not in captured["kwargs"]
