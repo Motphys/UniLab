@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections import deque
@@ -14,9 +15,11 @@ import torch
 from unilab.algos.torch.him_ppo.actor_critic import HIMActorCritic
 from unilab.algos.torch.him_ppo.algorithm import HIMPPO
 
+logger = logging.getLogger(__name__)
 
-class _HIMLogger:
-    """Minimal logger compatible with train_rsl_rl.py summary extraction."""
+
+class _EpisodeStatsBuffer:
+    """Rolling episode-return/length buffers for training summary extraction."""
 
     def __init__(self) -> None:
         self.rewbuffer: deque[float] = deque(maxlen=100)
@@ -42,7 +45,9 @@ class HIMOnPolicyRunner:
         self.device = device
         self.log_dir = log_dir
         self.current_learning_iteration: int = 0
-        self.logger = _HIMLogger()
+        # Keep the established ``runner.logger`` access surface used by the
+        # training entrypoint; this object only owns rolling episode stats.
+        self.logger = _EpisodeStatsBuffer()
 
         # ── Parse config ────────────────────────────────────────────────────
         cfg: dict[str, Any] = dict(train_cfg)
@@ -157,7 +162,7 @@ class HIMOnPolicyRunner:
 
             # ── Logging ──────────────────────────────────────────────────────
             elapsed = time.time() - start_time
-            self._print_iter(
+            self._log_iter(
                 it + 1,
                 tot_iter,
                 value_loss,
@@ -279,7 +284,7 @@ class HIMOnPolicyRunner:
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
-    def _print_iter(
+    def _log_iter(
         self,
         it: int,
         tot: int,
@@ -304,18 +309,21 @@ class HIMOnPolicyRunner:
         time_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         eta = elapsed / it * (tot - it) if it > 0 else 0.0
         eta_str = time.strftime("%H:%M:%S", time.gmtime(eta))
-        print(sep)
-        print(f"{'Iteration':>40}: {it}/{tot}")
-        print(f"{'Mean value loss':>40}: {value_loss:.4f}")
-        print(f"{'Mean surrogate loss':>40}: {surrogate_loss:.4f}")
-        print(f"{'Mean estimation loss':>40}: {estimation_loss:.4f}")
-        print(f"{'Mean swap loss':>40}: {swap_loss:.4f}")
+        lines = [
+            sep,
+            f"{'Iteration':>40}: {it}/{tot}",
+            f"{'Mean value loss':>40}: {value_loss:.4f}",
+            f"{'Mean surrogate loss':>40}: {surrogate_loss:.4f}",
+            f"{'Mean estimation loss':>40}: {estimation_loss:.4f}",
+            f"{'Mean swap loss':>40}: {swap_loss:.4f}",
+        ]
         if mean_rew:
-            print(f"{'Mean episode reward':>40}: {mean_rew:.4f}")
+            lines.append(f"{'Mean episode reward':>40}: {mean_rew:.4f}")
         if mean_len:
-            print(f"{'Mean episode length':>40}: {mean_len:.1f}")
+            lines.append(f"{'Mean episode length':>40}: {mean_len:.1f}")
         for k, v in (infos.get("log") or {}).items():
-            print(f"{k:>40}: {v:.4f}")
-        print(f"{'Time elapsed':>40}: {time_str}")
-        print(f"{'ETA':>40}: {eta_str}")
-        print(sep)
+            lines.append(f"{k:>40}: {v:.4f}")
+        lines.append(f"{'Time elapsed':>40}: {time_str}")
+        lines.append(f"{'ETA':>40}: {eta_str}")
+        lines.append(sep)
+        logger.info("\n".join(lines))
