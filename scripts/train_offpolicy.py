@@ -47,6 +47,7 @@ from unilab.training.offpolicy import (
     resolve_play_obs_dim,
     resolve_play_obs_dims,
 )
+from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
 from unilab.training.run import (
     resolve_offpolicy_checkpoint_path as resolve_checkpoint_path,
 )
@@ -519,55 +520,27 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 dummy_input = normalizer(dummy_input, update=False)
             if algo_name in ("sac", "flashsac"):
                 export_module = actor.as_export_module()
-                output_names = ["action"]
             else:
                 export_module = actor
-                output_names = ["action"]
-            export_args = (
+            export_inputs = (
                 (dummy_input, dummy_priv_info) if dummy_priv_info is not None else (dummy_input,)
             )
-            input_names = ["obs", "priv_info"] if dummy_priv_info is not None else ["obs"]
-            torch.onnx.export(
-                export_module,
-                export_args,
-                onnx_path,
-                input_names=input_names,
-                output_names=output_names,
-                opset_version=17,
-            )
-        print(f"Exported actor ONNX to {onnx_path}")
+        input_names = ["obs", "priv_info"] if dummy_priv_info is not None else ["obs"]
+        export_policy_onnx(export_module, onnx_path, export_inputs, input_names=input_names)
 
         # Verify ONNX output matches PyTorch
-        import onnxruntime as ort
-
-        sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
         verify_input = torch.randn(1, obs_dim, device=device)
-        verify_priv_info = (
-            torch.zeros((1, int(actor_kwargs["priv_info_dim"])), device=device)
-            if actor_algo_type == "hora_sac"
-            else None
-        )
         with torch.inference_mode():
             onnx_feed = normalizer(verify_input, update=False) if normalizer else verify_input
-            pt_output = (
-                export_module(onnx_feed, verify_priv_info)
-                if verify_priv_info is not None
-                else export_module(onnx_feed)
+            verify_priv_info = (
+                torch.zeros((1, int(actor_kwargs["priv_info_dim"])), device=device)
+                if actor_algo_type == "hora_sac"
+                else None
             )
-            if isinstance(pt_output, tuple):
-                pt_output = pt_output[0]
-            pt_np = pt_output.cpu().numpy()
-        onnx_inputs = {"obs": onnx_feed.cpu().numpy().astype(np.float32)}
-        if verify_priv_info is not None:
-            onnx_inputs["priv_info"] = verify_priv_info.cpu().numpy().astype(np.float32)
-        onnx_output = sess.run(None, onnx_inputs)[0]
-        max_diff = np.max(np.abs(pt_np - onnx_output))
-        mean_diff = np.mean(np.abs(pt_np - onnx_output))
-        print(f"ONNX vs PyTorch — max_diff: {max_diff:.2e}, mean_diff: {mean_diff:.2e}")
-        if max_diff > 1e-4:
-            print("WARNING: ONNX output diverges from PyTorch!")
-        else:
-            print("ONNX export verified OK.")
+        verify_inputs = (
+            (onnx_feed, verify_priv_info) if verify_priv_info is not None else (onnx_feed,)
+        )
+        verify_policy_onnx(export_module, onnx_path, verify_inputs, input_names=input_names)
     elif load_path_dir is not None:
         print("Skipping ONNX export because training.export_onnx=false.")
 
