@@ -417,7 +417,9 @@ def main():
         default=",".join(_KERNEL_BUILDERS.keys()),
         help="Comma-separated list of kernels to benchmark.",
     )
-    parser.add_argument("--out", type=str, default="scripts/benchmark/outputs/mlx_compile/results.json")
+    parser.add_argument(
+        "--out", type=str, default="scripts/benchmark/outputs/mlx_compile/results.json"
+    )
     parser.add_argument("--plot-dir", type=str, default="scripts/benchmark/outputs/mlx_compile")
     args = parser.parse_args()
 

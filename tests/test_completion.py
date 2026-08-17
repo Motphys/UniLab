@@ -97,7 +97,9 @@ def test_uv_run_unknown_command_arguments_defer_to_shell_completion(tmp_path: Pa
     _write_completion_fixture(tmp_path)
     metadata = build_metadata(tmp_path)
 
-    assert complete_words(["uv", "run", "scripts/benchmark/benchmark_sim.py", ""], 3, metadata) == []
+    assert (
+        complete_words(["uv", "run", "scripts/benchmark/benchmark_sim.py", ""], 3, metadata) == []
+    )
 
 
 def test_eval_load_run_value_position_completes_latest_run_alias(tmp_path: Path) -> None:

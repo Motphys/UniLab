@@ -183,7 +183,9 @@ def main():
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--dtypes", type=str, default="float16,float32")
-    parser.add_argument("--out", type=str, default="scripts/benchmark/outputs/backends/results.json")
+    parser.add_argument(
+        "--out", type=str, default="scripts/benchmark/outputs/backends/results.json"
+    )
     args = parser.parse_args()
 
     sizes = parse_sizes(args.sizes)

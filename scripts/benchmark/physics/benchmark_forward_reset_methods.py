@@ -266,7 +266,9 @@ def main():
         "--out-json", type=str, default="scripts/benchmark/outputs/reset_forward_batch/results.json"
     )
     parser.add_argument(
-        "--out-png", type=str, default="scripts/benchmark/outputs/reset_forward_batch/speed_plot.png"
+        "--out-png",
+        type=str,
+        default="scripts/benchmark/outputs/reset_forward_batch/speed_plot.png",
     )
     args = parser.parse_args()
 
