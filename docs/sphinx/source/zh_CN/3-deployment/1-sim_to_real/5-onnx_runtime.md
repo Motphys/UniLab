@@ -55,16 +55,7 @@ uv run scripts/deploy/sim_prototype.py \
 `scripts/deploy/sim_prototype.py` 会检查 ONNX 输入宽度是否与 `deploy_config.yaml` 中的
 `obs_dim` 匹配，然后用部署侧期望的同一观测布局在 MuJoCo 中驱动策略。
 
-## ANE / Core ML 说明
-
-仓库中包含实验性的 Core ML / Apple Neural Engine 辅助工具，位于
-`src/unilab/algos/torch/common/ane_actor.py`、
-`src/unilab/algos/torch/common/ane_wrapper.py` 与
-`src/unilab/algos/torch/common/ane_inference.py`。上文记录的部署路径仍然沿用训练脚本中
-已提交的 ONNX 导出行为。
-
 ## 另请参阅
 
 - {doc}`8-latency_budget`
 - {doc}`7-safety_layers`
-- `unilab.algos.torch.common.ane_actor.ANEActor`
