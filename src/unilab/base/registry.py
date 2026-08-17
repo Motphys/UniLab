@@ -8,6 +8,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Literal,
     Optional,
     Type,
     TypeVar,
@@ -25,6 +26,7 @@ from .config_overrides import (
 )
 
 TEnvCfg = TypeVar("TEnvCfg", bound=EnvCfg)
+RewardOverrideField = Literal["reward_config", "rewards"]
 _SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake")
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
 _REGISTRY_MODULES_ATTR = "__unilab_registry_modules__"
@@ -139,6 +141,44 @@ def find_available_sim_backend(env_name: str) -> str:
     if backend is None:
         raise ValueError(f"Environment '{env_name}' does not support any simulation backend.")
     return backend
+
+
+def resolve_reward_override_field(env_name: str) -> RewardOverrideField:
+    """Resolve the Hydra root reward target declared by an env config owner.
+
+    Legacy configs own a ``reward_config`` field. Manager-Based configs opt in
+    through the explicit manager-term mapping metadata on ``rewards``. The
+    registry resolves this on the config class without constructing an env or
+    backend so training adapters do not branch on task names.
+    """
+    if env_name not in _envs:
+        raise ValueError(f"Environment '{env_name}' is not registered.")
+
+    config_cls = _envs[env_name].env_cfg_cls
+    config_fields = {
+        config_field.name: config_field for config_field in dataclasses.fields(config_cls)
+    }
+    rewards_field = config_fields.get("rewards")
+    has_manager_rewards = (
+        rewards_field is not None
+        and rewards_field.metadata.get(CONFIG_MAPPING_POLICY_KEY) == MANAGER_TERM_MAPPING_POLICY
+    )
+    has_legacy_rewards = "reward_config" in config_fields
+
+    if has_manager_rewards and has_legacy_rewards:
+        raise ValueError(
+            f"Environment '{env_name}' config owner '{config_cls.__name__}' declares both "
+            "Manager-Based 'rewards' and legacy 'reward_config' targets"
+        )
+    if has_manager_rewards:
+        return "rewards"
+    if has_legacy_rewards:
+        return "reward_config"
+    raise ValueError(
+        f"Environment '{env_name}' config owner '{config_cls.__name__}' declares no "
+        "supported Hydra root reward target; expected legacy 'reward_config' or an "
+        "explicitly marked Manager-Based 'rewards' field"
+    )
 
 
 def _resolve_dataclass_type(type_hint: Any) -> Optional[Type[Any]]:
