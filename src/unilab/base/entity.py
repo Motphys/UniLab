@@ -412,6 +412,8 @@ class Entity:
         backend: SimBackend,
         control_buffer: np.ndarray | None = None,
         reset_state: ResetStateTransaction | None = None,
+        *,
+        default_qpos: np.ndarray | None = None,
     ) -> None:
         if not name:
             raise ValueError("Entity name must be a non-empty string")
@@ -479,8 +481,12 @@ class Entity:
             self._reset_root_layout,
             default_root_state,
             self._reset_root_layout_error,
-        ) = self._materialize_root_state(backend, cfg.root_body_name)
-        default_joint_pos = self._materialize_default_joint_pos(backend, joint_pos_ids)
+        ) = self._materialize_root_state(backend, cfg.root_body_name, default_qpos)
+        default_joint_pos = self._materialize_default_joint_pos(
+            backend,
+            joint_pos_ids,
+            default_qpos,
+        )
         default_joint_vel = self._materialize_default_joint_vel(backend, joint_vel_ids)
         gravity_vec_w = self._materialize_gravity_vector(backend, root_body_ids)
         actuator_ctrl_range = self._materialize_actuator_ctrl_range(backend, actuator_ids)
@@ -669,20 +675,46 @@ class Entity:
         return selected
 
     def _materialize_default_joint_pos(
-        self, backend: SimBackend, joint_pos_ids: np.ndarray | None
+        self,
+        backend: SimBackend,
+        joint_pos_ids: np.ndarray | None,
+        default_qpos: np.ndarray | None,
     ) -> np.ndarray | None:
         if joint_pos_ids is None:
             return None
-        defaults = self._read_state("default joint position", backend.get_default_dof_pos)
         current = self._read_state("joint position state", backend.get_dof_pos)
-        if defaults.shape != current.shape[1:]:
-            raise ValueError(
-                f"Entity '{self.name}' capability 'default joint position' on backend "
-                f"'{self._backend_type}' returned shape {defaults.shape}; expected "
-                f"{current.shape[1:]} to match get_dof_pos()"
+        if default_qpos is None:
+            defaults = self._read_state("default joint position", backend.get_default_dof_pos)
+            if defaults.shape != current.shape[1:]:
+                raise ValueError(
+                    f"Entity '{self.name}' capability 'default joint position' on backend "
+                    f"'{self._backend_type}' returned shape {defaults.shape}; expected "
+                    f"{current.shape[1:]} to match get_dof_pos()"
+                )
+            selected = np.asarray(defaults[_as_column_index(joint_pos_ids)])
+        else:
+            assert self._joint_names is not None
+            defaults = self._validate_root_default_vector(default_qpos, "selected default qpos")
+            try:
+                state_qpos_ids = backend.get_joint_state_qpos_indices(self._joint_names)
+            except (AttributeError, NotImplementedError) as exc:
+                raise self._capability_error("default joint-state layout", str(exc)) from exc
+            resolved_qpos_ids = _readonly_ids(
+                state_qpos_ids,
+                expected=len(self._joint_names),
+                label=f"Entity '{self.name}' default qpos",
             )
-        selected = np.asarray(defaults[_as_column_index(joint_pos_ids)])
-        materialized = np.broadcast_to(selected, (backend.num_envs, len(joint_pos_ids))).copy()
+            if resolved_qpos_ids.size and int(np.max(resolved_qpos_ids)) >= defaults.size:
+                raise ValueError(
+                    f"Entity '{self.name}' default qpos layout exceeds backend "
+                    f"'{self._backend_type}' width {defaults.size}: {resolved_qpos_ids.tolist()}"
+                )
+            selected = np.asarray(defaults[_as_column_index(resolved_qpos_ids)])
+            self._reset_joint_qpos_ids = resolved_qpos_ids
+        materialized = np.broadcast_to(
+            selected,
+            (backend.num_envs, len(joint_pos_ids)),
+        ).astype(current.dtype, copy=True)
         materialized.setflags(write=False)
         return materialized
 
@@ -690,6 +722,7 @@ class Entity:
         self,
         backend: SimBackend,
         root_body_name: str | None,
+        default_qpos: np.ndarray | None,
     ) -> tuple[BackendRootStateLayout | None, np.ndarray | None, str | None]:
         if root_body_name is None:
             return None, None, "root_body_name was not declared in EntityCfg"
@@ -704,7 +737,7 @@ class Entity:
                 f"{type(layout).__name__}"
             )
         try:
-            qpos = backend.get_default_qpos()
+            qpos = backend.get_default_qpos() if default_qpos is None else default_qpos
             qvel = backend.get_init_qvel()
         except (AttributeError, NotImplementedError) as exc:
             return None, None, str(exc)
@@ -1071,11 +1104,15 @@ class Entity:
         )
 
     def _materialize_reset_joint_indices(self) -> None:
-        if self._reset_joint_qpos_ids is not None:
+        if self._reset_joint_qpos_ids is not None and self._reset_joint_qvel_ids is not None:
             return
         assert self._joint_names is not None
         try:
-            qpos_ids = self._backend.get_joint_state_qpos_indices(self._joint_names)
+            qpos_ids = (
+                self._reset_joint_qpos_ids
+                if self._reset_joint_qpos_ids is not None
+                else self._backend.get_joint_state_qpos_indices(self._joint_names)
+            )
             qvel_ids = self._backend.get_joint_state_qvel_indices(self._joint_names)
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error("reset joint-state layout", str(exc)) from exc
@@ -1197,6 +1234,7 @@ class EntityScene(Mapping[str, Entity]):
         control_buffer: np.ndarray | None = None,
         *,
         reset_state: ResetStateTransaction | None = None,
+        default_qpos: np.ndarray | None = None,
     ) -> None:
         self._backend = backend
         materialized: dict[str, Entity] = {}
@@ -1207,7 +1245,14 @@ class EntityScene(Mapping[str, Entity]):
                 raise TypeError(
                     f"Scene entity '{name}' must be EntityCfg, got {type(cfg).__name__}"
                 )
-            materialized[name] = Entity(name, cfg, backend, control_buffer, reset_state)
+            materialized[name] = Entity(
+                name,
+                cfg,
+                backend,
+                control_buffer,
+                reset_state,
+                default_qpos=default_qpos,
+            )
         self._entities = MappingProxyType(materialized)
         self._reset_state = reset_state
         env_origins = np.zeros((backend.num_envs, 3), dtype=np.float32)
@@ -1222,8 +1267,15 @@ class EntityScene(Mapping[str, Entity]):
         control_buffer: np.ndarray | None = None,
         *,
         reset_state: ResetStateTransaction | None = None,
+        default_qpos: np.ndarray | None = None,
     ) -> EntityScene:
-        return cls(cfg.entities, backend, control_buffer, reset_state=reset_state)
+        return cls(
+            cfg.entities,
+            backend,
+            control_buffer,
+            reset_state=reset_state,
+            default_qpos=default_qpos,
+        )
 
     @property
     def entities(self) -> Mapping[str, Entity]:

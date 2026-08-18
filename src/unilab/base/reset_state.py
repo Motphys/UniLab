@@ -19,9 +19,15 @@ from unilab.utils.rotation import np_quat_apply_inverse
 class ResetStateTransaction:
     """Reusable, fail-closed transaction for reset-mode state mutation."""
 
-    def __init__(self, backend: SimBackend) -> None:
+    def __init__(
+        self,
+        backend: SimBackend,
+        *,
+        default_qpos: np.ndarray | None = None,
+    ) -> None:
         self._backend = backend
         self._num_envs = backend.num_envs
+        self._selected_default_qpos = default_qpos
         self._active = False
         self._active_mask = np.zeros(self._num_envs, dtype=np.bool_)
         self._dirty_mask = np.zeros(self._num_envs, dtype=np.bool_)
@@ -260,10 +266,12 @@ class ResetStateTransaction:
     def _materialize_default_state(self, term_name: str) -> None:
         if self._default_qpos is not None:
             return
-        try:
-            qpos = self._backend.get_default_qpos()
-        except (AttributeError, NotImplementedError) as exc:
-            raise self._capability_error(term_name, "default qpos", exc) from exc
+        qpos = self._selected_default_qpos
+        if qpos is None:
+            try:
+                qpos = self._backend.get_default_qpos()
+            except (AttributeError, NotImplementedError) as exc:
+                raise self._capability_error(term_name, "default qpos", exc) from exc
         try:
             qvel = self._backend.get_init_qvel()
         except (AttributeError, NotImplementedError) as exc:

@@ -23,7 +23,7 @@ from unilab.base.config_overrides import (
 from unilab.base.entity import EntityScene
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.reset_state import ResetStateTransaction
-from unilab.base.scene import SceneCfg
+from unilab.base.scene import SceneCfg, resolve_scene_default_qpos
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import (
     ActionManager,
@@ -181,14 +181,16 @@ class ManagerBasedRlEnv(NpEnv):
         cfg.seed = actual_seed
         self.rng = np.random.default_rng(actual_seed)
 
-        self._control = np.zeros((num_envs, backend.num_actuators), dtype=get_global_dtype())
-        self._reset_state = ResetStateTransaction(backend)
         assert cfg.scene is not None
+        default_qpos = resolve_scene_default_qpos(cfg.scene, backend)
+        self._control = np.zeros((num_envs, backend.num_actuators), dtype=get_global_dtype())
+        self._reset_state = ResetStateTransaction(backend, default_qpos=default_qpos)
         self.scene = EntityScene.from_scene_cfg(
             cfg.scene,
             backend,
             self._control,
             reset_state=self._reset_state,
+            default_qpos=default_qpos,
         )
 
         self.common_step_counter = 0
