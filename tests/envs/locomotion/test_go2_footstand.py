@@ -7,7 +7,7 @@ from unilab.base import registry
 from unilab.base.np_env import NpEnvState
 from unilab.base.registry import ensure_registries
 from unilab.dr import ResetRandomizationPayload
-from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.tasks.locomotion.common.rewards import RewardContext
 from unilab.tasks.locomotion.go2.footstand import (
     FootstandControlConfig,
     FootstandSensor,

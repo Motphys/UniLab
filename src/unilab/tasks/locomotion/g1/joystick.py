@@ -16,8 +16,7 @@ from unilab.base.curriculum import EpisodeLengthTracker, PenaltyCurriculum
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.tasks.locomotion.common import rewards
 from unilab.tasks.locomotion.common.commands import (
     Commands,
     sample_heading_commands,
@@ -25,6 +24,7 @@ from unilab.tasks.locomotion.common.commands import (
 )
 from unilab.tasks.locomotion.common.domain_rand import DomainRandConfig
 from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.tasks.locomotion.common.rewards import RewardContext
 
 from .base import G1BaseCfg, G1BaseEnv
 

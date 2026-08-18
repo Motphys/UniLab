@@ -1,4 +1,4 @@
-"""Shared reward functions for locomotion environments.
+"""Shared reward functions for locomotion tasks.
 
 Introduces ``RewardContext`` — a dataclass that bundles all state any
 reward function might need.  Shared reward functions are plain

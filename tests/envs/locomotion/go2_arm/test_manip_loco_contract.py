@@ -183,7 +183,7 @@ def test_go2_arm_command_postprocess_can_force_zero_commands():
 
 def test_go2_arm_stand_still_reward_uses_same_command_mask():
     """stand_still should not penalize leg pose under lateral, yaw, or forward commands."""
-    from unilab.envs.locomotion.common.rewards import RewardContext
+    from unilab.tasks.locomotion.common.rewards import RewardContext
     from unilab.tasks.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
     env = object.__new__(Go2ArmManipLocoEnv)
