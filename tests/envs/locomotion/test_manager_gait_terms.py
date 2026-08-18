@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from unilab.base.backend.base import BackendSensorView
+from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import manager_terms
 from unilab.managers import (
     ObservationGroupCfg,
@@ -19,6 +20,7 @@ from unilab.managers import (
     RewardTermCfg,
 )
 from unilab.managers._types import ManagerBasedRlEnv
+from unilab.managers.scene_entity_config import SceneEntityCfg
 
 CONTACTS = ("fl_contact", "fr_contact", "rl_contact", "rr_contact")
 POSITIONS = ("fl_pos", "fr_pos", "rl_pos", "rr_pos")
@@ -50,6 +52,38 @@ class _Scene:
         view = BackendSensorView("fake", names, dimensions, 2, read)
         view.read()  # Mirror SimBackend.bind_sensor_data materialization validation.
         return view
+
+
+class _ParityScene:
+    def __init__(self) -> None:
+        self.robot = SimpleNamespace(
+            data=SimpleNamespace(
+                root_link_lin_vel_b=np.array(
+                    [[0.2, 0.1, -0.3], [0.3, -0.2, 0.5]], dtype=np.float32
+                ),
+                root_link_ang_vel_b=np.array(
+                    [[0.1, -0.2, 0.4], [-0.3, 0.2, -0.1]], dtype=np.float32
+                ),
+                root_link_pos_w=np.array([[1.0, 2.0, 0.4], [-1.0, 0.5, 0.2]], dtype=np.float32),
+                joint_pos=np.array([[0.2, -0.1, 0.5], [-0.4, 0.3, 0.1]], dtype=np.float32),
+                default_joint_pos=np.array([[0.1, -0.2, 0.5], [-0.1, 0.1, 0.0]], dtype=np.float32),
+            )
+        )
+
+    def __getitem__(self, name: str):
+        if name != "robot":
+            raise KeyError(name)
+        return self.robot
+
+
+class _Commands:
+    def __init__(self) -> None:
+        self.command = np.array([[0.5, -0.2, 0.3], [-0.1, 0.4, -0.2]], dtype=np.float32)
+
+    def get_command(self, name: str) -> np.ndarray:
+        if name != "twist":
+            raise KeyError(name)
+        return self.command
 
 
 def _env(counter: int = 0, scene: _Scene | None = None) -> ManagerBasedRlEnv:
@@ -87,6 +121,23 @@ def _rewards(env: ManagerBasedRlEnv) -> RewardManager:
         ),
     }
     return RewardManager(terms, env, scale_by_dt=False)
+
+
+def _parity_env() -> ManagerBasedRlEnv:
+    return cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=2,
+            scene=_ParityScene(),
+            command_manager=_Commands(),
+            max_episode_length_s=20.0,
+        ),
+    )
+
+
+def _reward_value(env: ManagerBasedRlEnv, func, **params: Any) -> np.ndarray:
+    cfg = RewardTermCfg(func=func, weight=1.0, params=params)
+    return RewardManager({"parity": cfg}, env, scale_by_dt=False).compute(dt=0.02)
 
 
 def test_gait_phase_matches_global_legacy_clock_and_ignores_episode_reset() -> None:
@@ -164,3 +215,75 @@ def test_runtime_nonfinite_sensor_data_reports_term_and_backend() -> None:
     scene.values["fl_contact"][1, 0] = np.nan
     with pytest.raises(ValueError, match="feet_phase_contact.*backend 'fake'.*NaN or Inf"):
         manager.compute(dt=0.02)
+
+
+def test_base_reward_terms_match_go2_flat_equations() -> None:
+    env = _parity_env()
+    asset = SceneEntityCfg("robot")
+    data = cast(Any, env).scene.robot.data
+    command = cast(Any, env).command_manager.command
+    std = 0.5
+    actual = {
+        "track_xy": _reward_value(
+            env,
+            manager_terms.track_lin_vel_xy_exp,
+            std=std,
+            command_name="twist",
+            asset_cfg=asset,
+        ),
+        "track_yaw": _reward_value(
+            env,
+            manager_terms.track_ang_vel_z_exp,
+            std=std,
+            command_name="twist",
+            asset_cfg=SceneEntityCfg("robot"),
+        ),
+        "lin_z": _reward_value(env, manager_terms.lin_vel_z_l2, asset_cfg=SceneEntityCfg("robot")),
+        "ang_xy": _reward_value(
+            env, manager_terms.ang_vel_xy_l2, asset_cfg=SceneEntityCfg("robot")
+        ),
+        "height": _reward_value(
+            env,
+            manager_terms.base_height_l2,
+            target_height=0.3,
+            asset_cfg=SceneEntityCfg("robot"),
+        ),
+        "pose": _reward_value(
+            env, manager_terms.joint_deviation_l1, asset_cfg=SceneEntityCfg("robot")
+        ),
+    }
+    expected = {
+        "track_xy": np.exp(
+            -np.sum(np.square(command[:, :2] - data.root_link_lin_vel_b[:, :2]), axis=1) / std**2
+        ),
+        "track_yaw": np.exp(-np.square(command[:, 2] - data.root_link_ang_vel_b[:, 2]) / std**2),
+        "lin_z": np.square(data.root_link_lin_vel_b[:, 2]),
+        "ang_xy": np.sum(np.square(data.root_link_ang_vel_b[:, :2]), axis=1),
+        "height": np.square(data.root_link_pos_w[:, 2] - 0.3),
+        "pose": np.sum(np.abs(data.joint_pos - data.default_joint_pos), axis=1),
+    }
+    for name in expected:
+        assert actual[name].shape == (2,)
+        assert actual[name].dtype == np.dtype(get_global_dtype())
+        np.testing.assert_allclose(actual[name], expected[name], rtol=1e-6, atol=1e-7)
+
+
+def test_base_reward_terms_fail_closed_at_nearest_boundary() -> None:
+    env = _parity_env()
+    with pytest.raises(ValueError, match="track_lin_vel_xy_exp std must be greater than 0.0"):
+        _reward_value(env, manager_terms.track_lin_vel_xy_exp, std=0.0, command_name="twist")
+    with pytest.raises(KeyError, match="track_ang_vel_z_exp command capability 'missing'"):
+        _reward_value(env, manager_terms.track_ang_vel_z_exp, std=0.5, command_name="missing")
+    with pytest.raises(ValueError, match="base_height_l2 target_height must be finite"):
+        _reward_value(env, manager_terms.base_height_l2, target_height=np.nan)
+
+    cast(Any, env).scene.robot.data.root_link_lin_vel_b[1, 2] = np.inf
+    with pytest.raises(ValueError, match="lin_vel_z_l2 root linear velocity contains NaN or Inf"):
+        _reward_value(env, manager_terms.lin_vel_z_l2)
+
+    with pytest.raises(KeyError, match="RewardManager term 'parity'.*asset_cfg.*missing"):
+        _reward_value(
+            _parity_env(),
+            manager_terms.joint_deviation_l1,
+            asset_cfg=SceneEntityCfg("missing"),
+        )
