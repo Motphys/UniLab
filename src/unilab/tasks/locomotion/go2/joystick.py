@@ -60,16 +60,18 @@ class JoystickSensor(Sensor):
 
 @dataclass
 class Go2JoystickCfg(Go2BaseCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
-    sensor: JoystickSensor = field(default_factory=JoystickSensor)
+    sensor: JoystickSensor = field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default_factory=JoystickSensor
+    )
     domain_rand: Go2DomainRandConfig = field(default_factory=Go2DomainRandConfig)
     terrain_curriculum: TerrainCurriculumCfg = field(default_factory=TerrainCurriculumCfg)
 
@@ -95,7 +97,7 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
 
 
 class Go2WalkTask(Go2BaseEnv):
-    _cfg: Go2JoystickCfg
+    _cfg: Go2JoystickCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: Go2JoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:

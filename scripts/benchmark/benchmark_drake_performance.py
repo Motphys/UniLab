@@ -111,12 +111,12 @@ def _task_specs() -> dict[str, TaskSpec]:
         return Go1WalkTask
 
     def go2_cfg() -> Any:
-        from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+        from unilab.tasks.locomotion.go2.joystick import Go2JoystickCfg
 
         return Go2JoystickCfg()
 
     def go2_env() -> type:
-        from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+        from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
 
         return Go2WalkTask
 

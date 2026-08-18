@@ -288,13 +288,13 @@ def _go1_env_cls() -> type:
 
 
 def _go2_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+    from unilab.tasks.locomotion.go2.joystick import Go2JoystickCfg
 
     return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg, config_overrides)
 
 
 def _go2_env_cls() -> type:
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
 
     return Go2WalkTask
 

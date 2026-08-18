@@ -30,7 +30,7 @@ from unilab.envs.locomotion.common.height_scan import (
 )
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.go2.base import ControlConfig
-from unilab.envs.locomotion.go2.joystick import (
+from unilab.tasks.locomotion.go2.joystick import (
     Commands,
     Go2JoystickCfg,
     Go2JoystickDomainRandomizationProvider,

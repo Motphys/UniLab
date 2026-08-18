@@ -894,12 +894,14 @@ def _state_has_velocity_commands(env: Any) -> bool:
     )
 
 
-def _is_locomotion_env(env: Any) -> bool:
-    return type(env).__module__.startswith("unilab.envs.locomotion")
+def _has_velocity_command_config(env: Any) -> bool:
+    cfg = getattr(env, "cfg", None)
+    commands_cfg = getattr(cfg, "commands", None) if cfg is not None else None
+    return getattr(commands_cfg, "vel_limit", None) is not None
 
 
 def _is_velocity_command_locomotion_task(env: Any) -> bool:
-    if not _is_locomotion_env(env):
+    if not _has_velocity_command_config(env):
         return False
     cfg = getattr(env, "cfg", None)
     candidate_names = [

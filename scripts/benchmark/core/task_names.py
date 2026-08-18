@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
 from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
-from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
 from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
+from unilab.tasks.locomotion.go2.joystick import Go2JoystickCfg
 
 
 @dataclass(frozen=True)

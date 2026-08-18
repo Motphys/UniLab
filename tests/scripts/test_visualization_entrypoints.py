@@ -201,7 +201,7 @@ def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
     joystick_env = _keyboard_env(
         env_cls_name="Go2WalkTask",
         cfg_cls_name="Go2JoystickCfg",
-        module="unilab.envs.locomotion.go2.joystick",
+        module="unilab.tasks.locomotion.go2.joystick",
         obs_contains_command=True,
     )
     manip_loco_env = _keyboard_env(
@@ -213,7 +213,7 @@ def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
     missing_obs_command_env = _keyboard_env(
         env_cls_name="Go2WalkTask",
         cfg_cls_name="Go2JoystickCfg",
-        module="unilab.envs.locomotion.go2.joystick",
+        module="unilab.tasks.locomotion.go2.joystick",
         obs_contains_command=False,
     )
 
