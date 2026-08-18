@@ -388,19 +388,10 @@ def test_public_names_are_spelling_only_aliases() -> None:
     assert make_manager_based_rl_env is manager_env_module.make_manager_based_rl_env
 
 
-@pytest.mark.parametrize(
-    ("backend_type", "expects_body_materialization"),
-    [
-        ("mujoco", True),
-        ("motrix", True),
-        ("mjwarp", False),
-        ("drake", False),
-    ],
-)
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix", "mjwarp", "drake"])
 def test_generic_factory_routes_only_public_backend_contract(
     monkeypatch: pytest.MonkeyPatch,
     backend_type: str,
-    expects_body_materialization: bool,
 ) -> None:
     cfg = _make_cfg(include_optional_managers=False)
     assert cfg.scene is not None
@@ -451,10 +442,8 @@ def test_generic_factory_routes_only_public_backend_contract(
     assert constructed["sim_dt"] == cfg.sim_dt
     kwargs = constructed["kwargs"]
     assert kwargs["base_name"] == "base"
-    if expects_body_materialization:
-        assert kwargs["add_body_sensors"] is True
-    else:
-        assert "add_body_sensors" not in kwargs
+    assert kwargs["body_state_required"] is True
+    assert "add_body_sensors" not in kwargs
     for key, value in env_backend_kwargs(cfg).items():
         assert kwargs[key] == value
 

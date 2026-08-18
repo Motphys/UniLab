@@ -98,6 +98,8 @@ def create_backend(
     scene: SceneCfg,
     num_envs: int,
     sim_dt: float,
+    *,
+    body_state_required: bool = False,
     **kwargs,
 ) -> SimBackend:
     """Create a simulation backend.
@@ -108,6 +110,9 @@ def create_backend(
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
+        body_state_required: Whether the caller requires public body-state views.
+            Backend adapters decide whether satisfying this request requires extra
+            cold-path scene materialization.
         **kwargs: Additional backend options such as ``position_actuator_gains``,
             ``iterations``, or ``motrix_max_iterations``.
 
@@ -116,6 +121,11 @@ def create_backend(
     """
     if scene is None:
         raise ValueError("SceneCfg must be provided")
+    if not isinstance(body_state_required, bool):
+        raise TypeError(
+            "create_backend body_state_required must be bool, "
+            f"got {type(body_state_required).__name__}"
+        )
 
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)
@@ -131,6 +141,8 @@ def create_backend(
     drake_nthread = kwargs.pop("drake_nthread", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
+        if body_state_required:
+            kwargs["add_body_sensors"] = True
         if position_actuator_gains is not None:
             kwargs["position_actuator_gains"] = position_actuator_gains
         if post_step_forward_sensor is not None:
@@ -177,6 +189,8 @@ def create_backend(
         MotrixBackend, motrix_available = _load_motrix_backend()
         if not motrix_available:
             raise ImportError("MotrixSim not available, install motrixsim package")
+        if body_state_required:
+            kwargs["add_body_sensors"] = True
         if motrix_max_iterations is not None:
             kwargs["max_iterations"] = motrix_max_iterations
         return cast(SimBackend, MotrixBackend(scene, num_envs, sim_dt, **kwargs))
