@@ -62,7 +62,7 @@ class StewartRewardConfig:
 @registry.envcfg("StewartBalance")
 @dataclass
 class StewartBalanceCfg(EnvCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "stewart" / "scene.xml")
         )
@@ -70,7 +70,7 @@ class StewartBalanceCfg(EnvCfg):
     # The XML model is stiff; do not raise sim_dt above ~0.005.
     sim_dt: float = 0.004
     ctrl_dt: float = 0.02
-    max_episode_seconds: float = 24.0
+    max_episode_seconds: float = 24.0  # pyright: ignore[reportIncompatibleVariableOverride]
     render_spacing: float = 4.5
 
     # Body the backend treats as the kinematic base for its base-pose accessors.

@@ -26,7 +26,7 @@ def _make_env(num_envs: int = 2):
 
 def test_stewart_env_uses_backend_contract() -> None:
     """The task must go through the backend contract, not raw sim internals."""
-    source = (_SRC_DIR / "unilab" / "envs" / "manipulation" / "stewart" / "balance.py").read_text(
+    source = (_SRC_DIR / "unilab" / "tasks" / "manipulation" / "stewart" / "balance.py").read_text(
         encoding="utf-8"
     )
     assert "import motrixsim" not in source
