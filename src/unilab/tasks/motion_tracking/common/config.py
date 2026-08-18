@@ -14,8 +14,7 @@ from typing import Literal
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
 from unilab.envs.locomotion.g1.base import G1BaseCfg
-
-from .rewards import RewardConfig
+from unilab.envs.motion_tracking.common.rewards import RewardConfig
 
 
 @dataclass
@@ -108,7 +107,7 @@ def _zero_velocity_randomization() -> VelocityRandomization:
 class MotionTrackingCfg(G1BaseCfg):
     """Configuration for the motion tracking environment."""
 
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
         )
@@ -141,7 +140,7 @@ class MotionTrackingCfg(G1BaseCfg):
     sampling_mode: Literal["start", "clip_start", "uniform", "adaptive", "mixed"] = "adaptive"
     sampling_start_ratio: float = 0.0
     truncate_on_clip_end: bool = False
-    max_episode_seconds: float = 10.0
+    max_episode_seconds: float = 10.0  # pyright: ignore[reportIncompatibleVariableOverride]
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     pose_randomization: PoseRandomization = field(default_factory=PoseRandomization)
     velocity_randomization: VelocityRandomization = field(default_factory=VelocityRandomization)

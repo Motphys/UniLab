@@ -22,8 +22,7 @@ from unilab.dr.dr_utils import (
 )
 from unilab.dr.types import RESET_TERM_GEOM_FRICTION, ResetRandomizationPayload
 from unilab.dtype_config import get_global_dtype
-
-from .reset import build_motion_reference_state
+from unilab.envs.motion_tracking.common.reset import build_motion_reference_state
 
 
 class MotionTrackingDomainRandomizationProvider(DomainRandomizationProvider):

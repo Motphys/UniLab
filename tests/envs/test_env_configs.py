@@ -1393,7 +1393,7 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
 
 def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
     from unilab.envs.locomotion.g1.base import G1BaseEnv
-    from unilab.envs.motion_tracking.common import tracking as tracking_module
+    from unilab.tasks.motion_tracking.common import tracking as tracking_module
     from unilab.tasks.motion_tracking.g1.tracking import (
         G1MotionTrackingCfg,
         G1MotionTrackingEnv,
