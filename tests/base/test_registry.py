@@ -104,6 +104,38 @@ def test_envcfg_decorator_registers():
     assert registry_mod.contains(_name)
 
 
+def test_envcfg_decorator_registers_plain_factory_and_returns_it_unchanged():
+    _name = "_TestDecoratorFactoryEnv"
+
+    def make_cfg() -> EnvCfg:
+        return _TestCfgA()
+
+    registered = registry_mod.envcfg(_name)(make_cfg)
+
+    assert registered is make_cfg
+    assert registry_mod.materialize_env_config(_name) == _TestCfgA()
+
+
+def test_materialize_env_config_rejects_invalid_factory_output():
+    _name = "_TestInvalidFactoryOutput"
+
+    def make_invalid_cfg():
+        return {"sim_dt": 0.01}
+
+    registry_mod.register_env_config(_name, make_invalid_cfg)
+
+    with pytest.raises(
+        TypeError,
+        match=r"_TestInvalidFactoryOutput.*make_invalid_cfg.*dict.*EnvCfg",
+    ):
+        registry_mod.materialize_env_config(_name)
+
+
+def test_register_env_config_rejects_non_callable():
+    with pytest.raises(TypeError, match="config factory must be callable"):
+        registry_mod.register_env_config("_TestNonCallableFactory", None)  # type: ignore[arg-type]
+
+
 def test_env_decorator_registers():
     _name = "_TestDecoratorEnv2"
     if not registry_mod.contains(_name):
@@ -159,6 +191,7 @@ def test_make_unregistered_raises():
 def test_list_registered_envs_includes_registered():
     listed = registry_mod.list_registered_envs()
     assert _TEST_ENV_A in listed
+    assert listed[_TEST_ENV_A]["config_factory"] == "_TestCfgA"
     assert "mujoco" in listed[_TEST_ENV_A]["available_backends"]
 
 
@@ -238,6 +271,31 @@ def test_make_with_valid_cfg_override():
 
     env = registry_mod.make(_name, sim_backend="mujoco", env_cfg_override={"ctrl_dt": 0.05})
     assert env.cfg.ctrl_dt == 0.05
+
+
+def test_make_materializes_fresh_function_owned_config_for_each_call():
+    @dataclass
+    class _FactoryCfg(EnvCfg):
+        ctrl_dt: float = 0.02
+
+    _name = "_TestFunctionFactoryOverrideEnv"
+
+    def make_cfg() -> EnvCfg:
+        return _FactoryCfg()
+
+    registry_mod.register_env_config(_name, make_cfg)
+    registry_mod.register_env(_name, _TestEnvA, "mujoco")
+
+    overridden = registry_mod.make(
+        _name,
+        sim_backend="mujoco",
+        env_cfg_override={"ctrl_dt": 0.05},
+    )
+    default = registry_mod.make(_name, sim_backend="mujoco")
+
+    assert overridden.cfg.ctrl_dt == 0.05
+    assert default.cfg.ctrl_dt == 0.02
+    assert overridden.cfg is not default.cfg
 
 
 def test_make_with_invalid_cfg_override_raises():

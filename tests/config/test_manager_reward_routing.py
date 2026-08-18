@@ -19,6 +19,7 @@ from unilab.managers import RewardTermCfg
 from unilab.training.backend_adapter import BackendAdapter
 
 _MANAGER_ENV = "_TestManagerRewardRoute"
+_MANAGER_FACTORY_ENV = "_TestManagerFactoryRewardRoute"
 _LEGACY_ENV = "_TestLegacyRewardRoute"
 _MISSING_ENV = "_TestMissingRewardRoute"
 _AMBIGUOUS_ENV = "_TestAmbiguousRewardRoute"
@@ -43,14 +44,19 @@ class _AmbiguousCfg(EnvCfg):
     )
 
 
-for _name, _cfg_cls in (
+def _make_manager_cfg() -> ManagerBasedRlEnvCfg:
+    return ManagerBasedRlEnvCfg()
+
+
+for _name, _cfg_factory in (
     (_MANAGER_ENV, ManagerBasedRlEnvCfg),
+    (_MANAGER_FACTORY_ENV, _make_manager_cfg),
     (_LEGACY_ENV, _LegacyCfg),
     (_MISSING_ENV, _MissingCfg),
     (_AMBIGUOUS_ENV, _AmbiguousCfg),
 ):
     if not registry.contains(_name):
-        registry.register_env_config(_name, _cfg_cls)
+        registry.register_env_config(_name, _cfg_factory)
 
 
 def _reward(_env, *, std: float) -> np.ndarray:
@@ -77,9 +83,12 @@ def _cfg(task_name: str, *, env: dict[str, object] | None = None):
     )
 
 
-def test_backend_adapter_routes_manager_reward_and_preserves_factory_terms() -> None:
+@pytest.mark.parametrize("env_name", [_MANAGER_ENV, _MANAGER_FACTORY_ENV])
+def test_backend_adapter_routes_manager_reward_and_preserves_factory_terms(
+    env_name: str,
+) -> None:
     override = BackendAdapter(
-        _cfg(_MANAGER_ENV),
+        _cfg(env_name),
         root_dir=Path("."),
     ).build_task_env_cfg_override()
 
