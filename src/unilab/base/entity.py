@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, NoReturn
 import numpy as np
 
 from unilab.base.backend.base import BackendRootStateLayout, BackendSensorView, SimBackend
+from unilab.dr.types import IntervalRandomizationPlan
 from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_from_quat
 
 if TYPE_CHECKING:
@@ -441,6 +442,7 @@ class Entity:
                 (cfg.root_body_name,),
                 backend.get_body_ids,
             )
+        self._root_body_ids = root_body_ids
 
         joint_pos_ids = joint_vel_ids = None
         if self._joint_names is not None:
@@ -458,6 +460,7 @@ class Entity:
         body_ids = None
         if self._body_names is not None:
             body_ids = self._resolve_ids("body", self._body_names, backend.get_body_ids)
+        self._body_ids = body_ids
 
         self._geom_ids = None
         if self._geom_names is not None:
@@ -1088,6 +1091,144 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def bind_body_mass_write(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local body columns and immutable default masses."""
+        reset_state, local_ids, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-mass write",
+        )
+        _, defaults = reset_state.bind_body_mass_write(
+            backend_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_body_mass_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_mass",
+    ) -> None:
+        """Stage selected entity body masses in the active reset transaction."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-mass write",
+        )
+        reset_state.write_body_mass(
+            self._normalize_reset_env_ids(env_ids),
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_body_ipos_write(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local body columns and immutable inertial positions."""
+        reset_state, local_ids, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-ipos write",
+        )
+        _, defaults = reset_state.bind_body_ipos_write(
+            backend_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_body_ipos_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_com",
+    ) -> None:
+        """Stage selected entity body inertial positions in the reset transaction."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-ipos write",
+        )
+        reset_state.write_body_ipos(
+            self._normalize_reset_env_ids(env_ids),
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_root_linear_velocity_delta(self, *, term_name: str) -> None:
+        """Validate the interval root-velocity capability on the cold path."""
+        if self._root_body_ids is None:
+            raise self._capability_error(
+                "interval root velocity delta",
+                "root_body_name was not declared in EntityCfg",
+            )
+        try:
+            capabilities = self._backend.get_dr_capabilities()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error("interval root velocity delta", str(exc)) from exc
+        if not capabilities.supports_interval_body_velocity_delta:
+            raise self._capability_error(
+                "interval root velocity delta",
+                f"EventManager term '{term_name}' requested an unsupported backend capability",
+            )
+
+    def apply_root_linear_velocity_delta_to_sim(
+        self,
+        values: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "push_by_setting_velocity",
+    ) -> None:
+        """Dispatch a cached root linear-velocity delta through the formal interval plan."""
+        if self._root_body_ids is None:
+            raise self._capability_error(
+                "interval root velocity delta",
+                "root_body_name was not declared in EntityCfg",
+            )
+        ids = self._normalize_reset_env_ids(env_ids)
+        if not isinstance(values, np.ndarray):
+            raise TypeError(
+                f"EventManager term '{term_name}' root velocity delta must be np.ndarray, "
+                f"got {type(values).__name__}"
+            )
+        expected = (ids.size, 3)
+        if values.shape != expected:
+            raise ValueError(
+                f"EventManager term '{term_name}' root velocity delta has shape "
+                f"{values.shape}; expected {expected}"
+            )
+        if not np.issubdtype(values.dtype, np.floating) or not np.isfinite(values).all():
+            raise ValueError(
+                f"EventManager term '{term_name}' root velocity delta must be finite floating data"
+            )
+        delta = np.zeros(
+            (self._backend.num_envs, len(self._root_body_ids), 3),
+            dtype=values.dtype,
+        )
+        delta[ids, 0, :] = values
+        try:
+            self._backend.apply_interval_randomization(
+                IntervalRandomizationPlan(
+                    body_ids=self._root_body_ids,
+                    body_linear_velocity_delta=delta,
+                )
+            )
+        except NotImplementedError as exc:
+            raise self._capability_error(
+                "interval root velocity delta",
+                f"EventManager term '{term_name}': {exc}",
+            ) from exc
+
     def write_root_link_pose_to_sim(
         self,
         root_pose: np.ndarray,
@@ -1189,6 +1330,71 @@ class Entity:
             expected=len(self._joint_names),
             label=f"Entity '{self.name}' reset qvel",
         )
+
+    def _bind_body_randomization(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None,
+        *,
+        capability: str,
+    ) -> tuple[ResetStateTransaction, np.ndarray, np.ndarray]:
+        if self._reset_state is None:
+            raise self._capability_error(
+                capability,
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        if self._body_ids is None:
+            raise self._capability_error(
+                capability,
+                "body_names were not declared in EntityCfg",
+            )
+        local_ids = self._normalize_local_body_ids(body_ids, capability=capability)
+        if local_ids.size == 0:
+            raise ValueError(f"Entity '{self.name}' {capability} selected no bodies")
+        return self._reset_state, local_ids, self._body_ids[local_ids]
+
+    def _readonly_local_binding(
+        self,
+        local_ids: np.ndarray,
+        defaults: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        bound_ids = np.array(local_ids, copy=True)
+        bound_ids.setflags(write=False)
+        bound_defaults = np.array(defaults, copy=True)
+        bound_defaults.setflags(write=False)
+        return bound_ids, bound_defaults
+
+    def _normalize_local_body_ids(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None,
+        *,
+        capability: str,
+    ) -> np.ndarray:
+        if body_ids is None:
+            ids = np.arange(self.num_bodies, dtype=np.intp)
+        elif isinstance(body_ids, slice):
+            ids = np.arange(self.num_bodies, dtype=np.intp)[body_ids]
+        else:
+            raw = np.asarray(body_ids)
+            if (
+                raw.ndim != 1
+                or not np.issubdtype(raw.dtype, np.integer)
+                or np.issubdtype(raw.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self.name}' {capability} body_ids must be a 1-D integer "
+                    "array or slice"
+                )
+            ids = np.asarray(raw, dtype=np.intp)
+        if np.any(ids < 0) or np.any(ids >= self.num_bodies):
+            raise IndexError(
+                f"Entity '{self.name}' {capability} body_ids out of range for "
+                f"{self.num_bodies} bodies: {ids.tolist()}"
+            )
+        if np.unique(ids).size != ids.size:
+            raise ValueError(
+                f"Entity '{self.name}' {capability} body_ids contain duplicates: {ids.tolist()}"
+            )
+        return ids
 
     def _normalize_local_joint_ids(
         self,
@@ -1396,6 +1602,30 @@ class EntityScene(Mapping[str, Entity]):
                 "a formal backend root-state layout"
             )
         self._reset_state.reset_to_default(env_ids, term_name=term_name)
+
+    def bind_gravity_write(self, *, term_name: str) -> np.ndarray:
+        """Bind immutable backend gravity for a reset event on the cold path."""
+        if self._reset_state is None:
+            raise NotImplementedError(
+                f"EventManager term '{term_name}' gravity capability is unavailable: "
+                "EntityScene was materialized without an env-owned reset transaction"
+            )
+        return self._reset_state.bind_gravity_write(term_name=term_name)
+
+    def write_gravity_to_sim(
+        self,
+        values: np.ndarray,
+        env_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage gravity values in the exactly-once reset transaction."""
+        if self._reset_state is None:
+            raise NotImplementedError(
+                f"EventManager term '{term_name}' gravity capability is unavailable: "
+                "EntityScene was materialized without an env-owned reset transaction"
+            )
+        self._reset_state.write_gravity(env_ids, values, term_name=term_name)
 
     def bind_sensor_data(self, names: Sequence[str]) -> BackendSensorView:
         """Bind existing backend sensors for a manager term on the cold path.

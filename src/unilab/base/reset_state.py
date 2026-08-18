@@ -13,7 +13,14 @@ from contextlib import contextmanager
 import numpy as np
 
 from unilab.base.backend.base import BackendRootStateLayout, SimBackend
-from unilab.dr.types import RESET_TERM_KD, RESET_TERM_KP, ResetRandomizationPayload
+from unilab.dr.types import (
+    RESET_TERM_BODY_IPOS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GRAVITY,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
+    ResetRandomizationPayload,
+)
 from unilab.utils.rotation import np_quat_apply_inverse
 
 
@@ -41,6 +48,9 @@ class ResetStateTransaction:
         self._kp: np.ndarray | None = None
         self._kd: np.ndarray | None = None
         self._gain_dirty_mask = np.zeros(self._num_envs, dtype=np.bool_)
+        self._randomization_defaults: dict[str, np.ndarray] = {}
+        self._randomization_values: dict[str, np.ndarray] = {}
+        self._randomization_dirty_masks: dict[str, np.ndarray] = {}
         self._requesting_terms: set[str] = set()
 
     @property
@@ -69,8 +79,126 @@ class ResetStateTransaction:
         self._active_mask[ids] = True
         self._dirty_mask.fill(False)
         self._gain_dirty_mask.fill(False)
+        for mask in self._randomization_dirty_masks.values():
+            mask.fill(False)
         self._requesting_terms.clear()
         self._active = True
+
+    def bind_body_mass_write(
+        self,
+        body_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind body-mass columns and immutable backend defaults on the cold path."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_BODY_MASS,
+            getter=self._backend.get_body_mass,
+            expected_tail=None,
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            body_ids,
+            width=default.shape[0],
+            capability="body mass IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def bind_body_ipos_write(
+        self,
+        body_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind body inertial-position columns and immutable backend defaults."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_BODY_IPOS,
+            getter=self._backend.get_body_ipos,
+            expected_tail=(3,),
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            body_ids,
+            width=default.shape[0],
+            capability="body ipos IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def bind_gravity_write(self, *, term_name: str) -> np.ndarray:
+        """Bind the immutable backend gravity vector on the cold path."""
+        return self._materialize_randomization_default(
+            RESET_TERM_GRAVITY,
+            getter=self._backend.get_gravity,
+            expected_tail=(),
+            term_name=term_name,
+        )
+
+    def write_body_mass(
+        self,
+        env_ids: np.ndarray,
+        body_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected body masses in the exactly-once reset payload."""
+        self._write_body_randomization(
+            RESET_TERM_BODY_MASS,
+            env_ids,
+            body_ids,
+            values,
+            value_tail=(),
+            term_name=term_name,
+        )
+
+    def write_body_ipos(
+        self,
+        env_ids: np.ndarray,
+        body_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected body inertial positions in the reset payload."""
+        self._write_body_randomization(
+            RESET_TERM_BODY_IPOS,
+            env_ids,
+            body_ids,
+            values,
+            value_tail=(3,),
+            term_name=term_name,
+        )
+
+    def write_gravity(
+        self,
+        env_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage per-environment gravity vectors in the reset payload."""
+        ids = self._prepare_state_write(
+            env_ids,
+            capability="gravity",
+            term_name=term_name,
+        )
+        default = self._require_randomization_default(RESET_TERM_GRAVITY, term_name)
+        gravity = self._validate_values(
+            values,
+            shape=(ids.size, 3),
+            capability="gravity",
+            term_name=term_name,
+        )
+        buffer = self._randomization_values[RESET_TERM_GRAVITY]
+        mask = self._randomization_dirty_masks[RESET_TERM_GRAVITY]
+        uninitialized = ids[~mask[ids]]
+        if uninitialized.size:
+            buffer[uninitialized] = default
+        buffer[ids] = gravity
+        mask[ids] = True
+        self._dirty_mask[ids] = True
 
     def bind_actuator_gain_write(
         self,
@@ -399,27 +527,170 @@ class ResetStateTransaction:
             dtype=default_kd.dtype,
         )
 
+    def _materialize_randomization_default(
+        self,
+        field: str,
+        *,
+        getter,
+        expected_tail: tuple[int, ...] | None,
+        term_name: str,
+    ) -> np.ndarray:
+        cached = self._randomization_defaults.get(field)
+        if cached is not None:
+            return cached
+        try:
+            capabilities = self._backend.get_dr_capabilities()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error(term_name, f"{field} randomization", exc) from exc
+        unsupported = capabilities.get_unsupported_reset_terms(frozenset((field,)))
+        if unsupported:
+            raise self._capability_error(
+                term_name,
+                f"{field} randomization",
+                NotImplementedError(f"unsupported reset payload field: {field}"),
+            )
+        try:
+            value = getter()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error(term_name, f"default {field}", exc) from exc
+        if not isinstance(value, np.ndarray):
+            raise TypeError(
+                f"EventManager term '{term_name}' capability 'default {field}' on backend "
+                f"'{self._backend.backend_type}' must return np.ndarray, got "
+                f"{type(value).__name__}"
+            )
+        expected_ndim = 1 if expected_tail is None else 1 + len(expected_tail)
+        if value.ndim != expected_ndim:
+            raise ValueError(
+                f"EventManager term '{term_name}' capability 'default {field}' on backend "
+                f"'{self._backend.backend_type}' returned shape {value.shape}; expected "
+                f"{expected_ndim}-D"
+            )
+        if expected_tail is not None and value.shape[1:] != expected_tail:
+            raise ValueError(
+                f"EventManager term '{term_name}' capability 'default {field}' on backend "
+                f"'{self._backend.backend_type}' returned shape {value.shape}; expected tail "
+                f"{expected_tail}"
+            )
+        if not np.issubdtype(value.dtype, np.floating):
+            raise TypeError(
+                f"EventManager term '{term_name}' capability 'default {field}' on backend "
+                f"'{self._backend.backend_type}' must be floating, got {value.dtype}"
+            )
+        if not np.isfinite(value).all():
+            raise ValueError(
+                f"EventManager term '{term_name}' capability 'default {field}' on backend "
+                f"'{self._backend.backend_type}' returned NaN or Inf"
+            )
+        default = np.array(value, copy=True)
+        default.setflags(write=False)
+        self._randomization_defaults[field] = default
+        self._randomization_values[field] = np.empty(
+            (self._num_envs, *default.shape),
+            dtype=default.dtype,
+        )
+        self._randomization_dirty_masks[field] = np.zeros(self._num_envs, dtype=np.bool_)
+        return default
+
+    def _require_randomization_default(self, field: str, term_name: str) -> np.ndarray:
+        try:
+            return self._randomization_defaults[field]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"EventManager term '{term_name}' must bind reset field '{field}' "
+                "during manager construction before writing it"
+            ) from exc
+
+    def _readonly_binding(
+        self,
+        columns: np.ndarray,
+        selected_default: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        bound_columns = np.array(columns, copy=True)
+        bound_columns.setflags(write=False)
+        selected = np.array(selected_default, copy=True)
+        selected.setflags(write=False)
+        return bound_columns, selected
+
+    def _write_body_randomization(
+        self,
+        field: str,
+        env_ids: np.ndarray,
+        body_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        value_tail: tuple[int, ...],
+        term_name: str,
+    ) -> None:
+        ids = self._prepare_state_write(
+            env_ids,
+            capability=field,
+            term_name=term_name,
+        )
+        default = self._require_randomization_default(field, term_name)
+        columns = self._validate_columns(
+            body_ids,
+            width=default.shape[0],
+            capability=f"{field} body IDs",
+            term_name=term_name,
+        )
+        selected = self._validate_values(
+            values,
+            shape=(ids.size, columns.size, *value_tail),
+            capability=field,
+            term_name=term_name,
+        )
+        buffer = self._randomization_values[field]
+        mask = self._randomization_dirty_masks[field]
+        uninitialized = ids[~mask[ids]]
+        if uninitialized.size:
+            buffer[uninitialized] = default
+        if ids.size and columns.size:
+            buffer[ids[:, None], columns[None, :]] = selected
+        mask[ids] = True
+        self._dirty_mask[ids] = True
+
     def _build_randomization_payload(
         self,
         dirty_ids: np.ndarray,
     ) -> ResetRandomizationPayload | None:
+        payload = ResetRandomizationPayload()
+        for field in (RESET_TERM_BODY_MASS, RESET_TERM_BODY_IPOS, RESET_TERM_GRAVITY):
+            mask = self._randomization_dirty_masks.get(field)
+            if mask is None or not np.any(mask):
+                continue
+            self._require_dense_randomization_rows(field, mask, dirty_ids)
+            setattr(
+                payload,
+                field,
+                np.array(self._randomization_values[field][dirty_ids], copy=True),
+            )
+
         gain_ids = np.flatnonzero(self._gain_dirty_mask).astype(np.int32, copy=False)
-        if gain_ids.size == 0:
-            return None
-        missing = dirty_ids[~self._gain_dirty_mask[dirty_ids]]
+        if gain_ids.size:
+            self._require_dense_randomization_rows(
+                "actuator gains", self._gain_dirty_mask, dirty_ids
+            )
+            assert self._kp is not None
+            assert self._kd is not None
+            payload.kp = np.array(self._kp[dirty_ids], copy=True)
+            payload.kd = np.array(self._kd[dirty_ids], copy=True)
+        return None if payload.is_empty() else payload
+
+    def _require_dense_randomization_rows(
+        self,
+        field: str,
+        mask: np.ndarray,
+        dirty_ids: np.ndarray,
+    ) -> None:
+        missing = dirty_ids[~mask[dirty_ids]]
         if missing.size:
             terms = ", ".join(sorted(self._requesting_terms))
             raise RuntimeError(
-                "EventManager reset actuator-gain payload cannot represent sparse rows in "
-                f"one SimBackend.set_state call for term(s) [{terms}] on backend "
+                f"EventManager reset {field} payload cannot represent sparse rows in one "
+                f"SimBackend.set_state call for term(s) [{terms}] on backend "
                 f"'{self._backend.backend_type}'; missing env IDs {missing.tolist()}"
             )
-        assert self._kp is not None
-        assert self._kd is not None
-        return ResetRandomizationPayload(
-            kp=np.array(self._kp[dirty_ids], copy=True),
-            kd=np.array(self._kd[dirty_ids], copy=True),
-        )
 
     def _prepare_state_write(
         self,
@@ -595,7 +866,7 @@ class ResetStateTransaction:
         self,
         values: np.ndarray,
         *,
-        shape: tuple[int, int],
+        shape: tuple[int, ...],
         capability: str,
         term_name: str,
     ) -> np.ndarray:
@@ -637,6 +908,8 @@ class ResetStateTransaction:
         self._active_mask.fill(False)
         self._dirty_mask.fill(False)
         self._gain_dirty_mask.fill(False)
+        for mask in self._randomization_dirty_masks.values():
+            mask.fill(False)
         self._requesting_terms.clear()
 
 

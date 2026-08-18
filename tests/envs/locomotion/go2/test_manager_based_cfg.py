@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import math
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import numpy as np
 import pytest
 
 from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.entity import EntityCfg
 from unilab.base.np_env import NpEnvState
 from unilab.envs import ManagerBasedRlEnv, mdp
 from unilab.envs.locomotion.common import manager_terms
@@ -16,6 +17,7 @@ from unilab.envs.locomotion.go2.manager_based_cfg import (
     make_go2_joystick_flat_manager_cfg,
 )
 from unilab.envs.mdp import JointPositionAction, JointPositionActionCfg
+from unilab.managers import EventTermCfg, SceneEntityCfg
 
 _JOINT_NAMES = (
     "FL_hip_joint",
@@ -300,6 +302,72 @@ def test_go2_manager_factory_executes_on_real_mujoco() -> None:
             assert np.isfinite(value).all()
         assert state.terminated.dtype == np.bool_
         assert state.truncated.dtype == np.bool_
+    finally:
+        env.close()
+
+
+def test_go2_manager_reset_randomization_mutates_real_mujoco_payload() -> None:
+    cfg = make_go2_joystick_flat_manager_cfg()
+    assert cfg.scene is not None
+    robot = cfg.scene.entities["robot"]
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name=robot.root_body_name,
+        joint_names=robot.joint_names,
+        body_names=("base",),
+        actuator_names=robot.actuator_names,
+    )
+    asset_cfg = SceneEntityCfg("robot", body_names=("base",))
+    cfg.events.update(
+        {
+            "mass": EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode="reset",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "mass_distribution_params": (1.25, 1.25),
+                    "operation": "scale",
+                    "recompute_inertia": False,
+                },
+            ),
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="reset",
+                params={"asset_cfg": asset_cfg, "com_range": {"x": (0.02, 0.02)}},
+            ),
+            "gravity": EventTermCfg(
+                func=mdp.randomize_physics_scene_gravity,
+                mode="reset",
+                params={
+                    "gravity_distribution_params": ([0.0, 0.0, -9.7],) * 2,
+                    "operation": "abs",
+                },
+            ),
+        }
+    )
+    backend = create_backend(
+        "mujoco",
+        cfg.scene,
+        2,
+        cfg.sim_dt,
+        base_name="base",
+        add_body_sensors=True,
+        **env_backend_kwargs(cfg),
+    )
+    base_id = int(backend.get_body_ids(("base",))[0])
+    default_mass = backend.get_body_mass()
+    default_ipos = backend.get_body_ipos()
+    env = ManagerBasedRlEnv(cfg, backend, 2)
+    try:
+        env.reset(seed=31)
+        pool = cast(Any, backend)._pool
+        assert pool is not None
+        for env_id in range(2):
+            mass = pool.get_field(env_id, "body_mass")
+            ipos = pool.get_field(env_id, "body_ipos").reshape(-1, 3)
+            gravity = pool.get_field(env_id, "gravity")
+            assert mass[base_id] == pytest.approx(default_mass[base_id] * 1.25)
+            np.testing.assert_allclose(ipos[base_id], default_ipos[base_id] + [0.02, 0.0, 0.0])
+            np.testing.assert_allclose(gravity, [0.0, 0.0, -9.7])
     finally:
         env.close()
 
