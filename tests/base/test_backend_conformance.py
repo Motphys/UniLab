@@ -28,11 +28,15 @@ _FACTORY_FILE = SRC_ROOT / "unilab" / "base" / "backend" / "__init__.py"
 _BACKEND_CLASS_NAMES = frozenset(
     {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend"}
 )
-_TERRAIN_CONSUMER_FILES = (
-    SRC_ROOT / "unilab" / "envs" / "locomotion" / "common" / "terrain_spawn.py",
-    SRC_ROOT / "unilab" / "envs" / "locomotion" / "go1" / "joystick.py",
-    SRC_ROOT / "unilab" / "envs" / "locomotion" / "go2" / "joystick.py",
-    SRC_ROOT / "unilab" / "envs" / "locomotion" / "go2w" / "rough.py",
+_TASK_SOURCE_ROOTS = (
+    SRC_ROOT / "unilab" / "envs",
+    SRC_ROOT / "unilab" / "tasks",
+)
+_TERRAIN_CONSUMER_PATHS = (
+    Path("locomotion/common/terrain_spawn.py"),
+    Path("locomotion/go1/joystick.py"),
+    Path("locomotion/go2/joystick.py"),
+    Path("locomotion/go2w/rough.py"),
 )
 
 NUM_ENVS = 2
@@ -363,16 +367,23 @@ def test_drake_root_layout_is_explicitly_unsupported_without_runtime_metadata() 
 def test_terrain_spawn_consumers_do_not_probe_private_backend_capabilities() -> None:
     forbidden_names = {"terrain_origins", "terrain_surface_sampler", "sample_height"}
     offenders: list[str] = []
-    for path in _TERRAIN_CONSUMER_FILES:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                continue
-            if node.func.id not in {"getattr", "hasattr"}:
-                continue
-            for arg in node.args[1:]:
-                if isinstance(arg, ast.Constant) and arg.value in forbidden_names:
-                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {arg.value}")
+    for relative_path in _TERRAIN_CONSUMER_PATHS:
+        owner_paths = tuple(
+            root / relative_path for root in _TASK_SOURCE_ROOTS if (root / relative_path).is_file()
+        )
+        assert owner_paths, f"terrain consumer source not found: {relative_path}"
+        for path in owner_paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                if node.func.id not in {"getattr", "hasattr"}:
+                    continue
+                for arg in node.args[1:]:
+                    if isinstance(arg, ast.Constant) and arg.value in forbidden_names:
+                        offenders.append(
+                            f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {arg.value}"
+                        )
     assert not offenders, "private terrain capability probes:\n" + "\n".join(offenders)
 
 
