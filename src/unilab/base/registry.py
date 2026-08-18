@@ -42,11 +42,7 @@ RewardOverrideField = Literal["reward_config", "rewards"]
 _SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake")
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
 _REGISTRY_MODULES_ATTR = "__unilab_registry_modules__"
-_DEFAULT_REGISTRY_PACKAGES = (
-    "unilab.envs.locomotion",
-    "unilab.envs.manipulation",
-    "unilab.envs.motion_tracking",
-)
+_DEFAULT_REGISTRY_PACKAGES = ("unilab.tasks",)
 # Environment variable used to extend ensure_registries() with extra packages.
 # Mainly intended for test setups that need to ship a fixture-only registry into
 # spawn subprocesses (which do not inherit pytest conftest state).
