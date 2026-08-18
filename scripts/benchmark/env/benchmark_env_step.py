@@ -276,13 +276,13 @@ def _materialize_sharpa_motrix_scene() -> str:
 
 
 def _go1_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
+    from unilab.tasks.locomotion.go1.joystick import Go1JoystickCfg
 
     return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, Go1JoystickCfg, config_overrides)
 
 
 def _go1_env_cls() -> type:
-    from unilab.envs.locomotion.go1.joystick import Go1WalkTask
+    from unilab.tasks.locomotion.go1.joystick import Go1WalkTask
 
     return Go1WalkTask
 

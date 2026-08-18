@@ -12,7 +12,7 @@ def test_reward_override_go1():
     """Test Go1 reward config override."""
     ensure_registries()
 
-    from unilab.envs.locomotion.go1.joystick import RewardConfig
+    from unilab.tasks.locomotion.go1.joystick import RewardConfig
 
     override_config = RewardConfig(
         scales={"tracking_lin_vel": 999.0},

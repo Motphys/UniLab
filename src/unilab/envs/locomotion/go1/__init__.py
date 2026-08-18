@@ -1,1 +1,1 @@
-from .joystick import Go1JoystickCfg, Go1WalkTask
+"""Legacy Go1 shared base pending migration to :mod:`unilab.tasks`."""
