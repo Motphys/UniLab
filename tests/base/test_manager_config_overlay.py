@@ -1,19 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 
 import numpy as np
 import pytest
+from omegaconf import OmegaConf
 
 from unilab.base.registry import apply_cfg_overrides
 from unilab.envs.manager_based_rl_env import ManagerBasedRlEnvCfg
-from unilab.envs.mdp import JointPositionActionCfg
+from unilab.envs.mdp import JointPositionActionCfg, UniformVelocityCommandCfg
 from unilab.managers import (
+    CurriculumTermCfg,
     EventTermCfg,
+    MetricsTermCfg,
     ObservationGroupCfg,
     ObservationTermCfg,
+    RecorderTermCfg,
     RewardTermCfg,
     SceneEntityCfg,
+    TerminationTermCfg,
 )
 
 
@@ -68,7 +73,9 @@ def _manager_cfg() -> ManagerBasedRlEnvCfg:
 
 def test_manager_mapping_overlay_preserves_factory_terms_and_order() -> None:
     cfg = _manager_cfg()
-    reward_func = cfg.rewards["tracking"].func
+    initial_tracking = cfg.rewards["tracking"]
+    assert initial_tracking is not None
+    reward_func = initial_tracking.func
 
     apply_cfg_overrides(
         cfg,
@@ -100,7 +107,7 @@ def test_manager_mapping_overlay_preserves_factory_terms_and_order() -> None:
     assert reset.func is _first_term
     assert reset.min_step_count_between_reset == 3
     action = cfg.actions["joint_pos"]
-    assert action is not None
+    assert isinstance(action, JointPositionActionCfg)
     assert action.entity_name == "robot"
     assert action.actuator_names == (".*",)
     assert action.scale == pytest.approx(0.4)
@@ -132,19 +139,247 @@ def test_observation_group_and_term_overlay_preserve_siblings() -> None:
     assert list(policy.terms) == ["first", "second"]
 
 
+def _assert_no_omegaconf(value: object) -> None:
+    assert not OmegaConf.is_config(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        for config_field in fields(value):
+            _assert_no_omegaconf(getattr(value, config_field.name))
+    elif isinstance(value, dict):
+        for item in value.values():
+            _assert_no_omegaconf(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _assert_no_omegaconf(item)
+
+
+def test_hydra_mapping_fully_materializes_empty_manager_config() -> None:
+    cfg = ManagerBasedRlEnvCfg()
+    hydra_mapping = OmegaConf.create(
+        {
+            "scene": {
+                "model_file": "robot.xml",
+                "entities": {
+                    "robot": {
+                        "root_body_name": "base",
+                        "joint_names": ["joint"],
+                        "actuator_names": ["motor"],
+                    }
+                },
+            },
+            "sim_dt": 0.01,
+            "ctrl_dt": 0.02,
+            "max_episode_seconds": 20.0,
+            "observations": {
+                "policy": {
+                    "_target_": "unilab.managers.ObservationGroupCfg",
+                    "terms": {
+                        "joint_pos": {
+                            "_target_": "unilab.managers.ObservationTermCfg",
+                            "func": "unilab.envs.mdp.joint_pos_rel",
+                            "params": {
+                                "asset_cfg": {
+                                    "_target_": "unilab.managers.SceneEntityCfg",
+                                    "name": "robot",
+                                    "joint_names": ".*",
+                                }
+                            },
+                        },
+                        "disabled": None,
+                    },
+                }
+            },
+            "actions": {
+                "joint_pos": {
+                    "_target_": "unilab.envs.mdp.JointPositionActionCfg",
+                    "entity_name": "robot",
+                    "actuator_names": [".*"],
+                    "scale": 0.25,
+                }
+            },
+            "commands": {
+                "twist": {
+                    "_target_": "unilab.envs.mdp.UniformVelocityCommandCfg",
+                    "entity_name": "robot",
+                    "resampling_time_range": [1.0, 1.0],
+                    "ranges": {
+                        "lin_vel_x": [-1.0, 1.0],
+                        "lin_vel_y": [-0.5, 0.5],
+                        "ang_vel_z": [-1.0, 1.0],
+                    },
+                }
+            },
+            "events": {
+                "reset": {
+                    "_target_": "unilab.managers.EventTermCfg",
+                    "func": "unilab.envs.mdp.reset_scene_to_default",
+                    "mode": "reset",
+                }
+            },
+            "rewards": {
+                "alive": {
+                    "_target_": "unilab.managers.RewardTermCfg",
+                    "func": "unilab.envs.mdp.is_alive",
+                    "weight": 1.0,
+                }
+            },
+            "terminations": {
+                "time_out": {
+                    "_target_": "unilab.managers.TerminationTermCfg",
+                    "func": "unilab.envs.mdp.time_out",
+                    "time_out": True,
+                }
+            },
+            "curriculum": {
+                "difficulty": {
+                    "_target_": "unilab.managers.CurriculumTermCfg",
+                    "func": "unilab.envs.mdp.is_alive",
+                }
+            },
+            "metrics": {
+                "alive": {
+                    "_target_": "unilab.managers.MetricsTermCfg",
+                    "func": "unilab.envs.mdp.is_alive",
+                }
+            },
+            "recorders": {
+                "trace": {
+                    "_target_": "unilab.managers.RecorderTermCfg",
+                    "func": "unilab.managers.RecorderTerm",
+                }
+            },
+            "policy_observation_group": "policy",
+        }
+    )
+
+    apply_cfg_overrides(cfg, hydra_mapping)
+    cfg.validate()
+
+    assert cfg.scene is not None
+    assert cfg.scene.entities["robot"].joint_names == ["joint"]
+    assert list(cfg.observations) == ["policy"]
+    policy = cfg.observations["policy"]
+    assert isinstance(policy, ObservationGroupCfg)
+    assert list(policy.terms) == ["joint_pos", "disabled"]
+    joint_obs = policy.terms["joint_pos"]
+    assert isinstance(joint_obs, ObservationTermCfg)
+    assert joint_obs.func is not None and callable(joint_obs.func)
+    assert isinstance(joint_obs.params["asset_cfg"], SceneEntityCfg)
+    assert isinstance(cfg.actions["joint_pos"], JointPositionActionCfg)
+    twist = cfg.commands["twist"]
+    assert isinstance(twist, UniformVelocityCommandCfg)
+    assert isinstance(twist.ranges, UniformVelocityCommandCfg.Ranges)
+    assert isinstance(cfg.events["reset"], EventTermCfg)
+    assert isinstance(cfg.rewards["alive"], RewardTermCfg)
+    assert isinstance(cfg.terminations["time_out"], TerminationTermCfg)
+    assert isinstance(cfg.curriculum["difficulty"], CurriculumTermCfg)
+    assert isinstance(cfg.metrics["alive"], MetricsTermCfg)
+    assert isinstance(cfg.recorders["trace"], RecorderTermCfg)
+    _assert_no_omegaconf(cfg)
+
+
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
-        ({"rewards": {"missing": {"weight": 1.0}}}, "rewards.*missing"),
-        ({"rewards": {"disabled": {"weight": 1.0}}}, "disabled.*task Python factory"),
-        ({"rewards": {"tracking": _second_term}}, "tracking.*replacing"),
+        ({"rewards": {"missing": {"weight": 1.0}}}, "missing.*_target_"),
+        ({"rewards": {"disabled": {"weight": 1.0}}}, "disabled.*_target_"),
+        ({"rewards": {"tracking": _second_term}}, "tracking.*field mapping"),
         ({"rewards": []}, "rewards.*mapping"),
-        ({"rewards": {"tracking": {"func": _second_term}}}, "func.*factory-owned"),
+        ({"rewards": {"tracking": {"func": _second_term}}}, "func.*typed term"),
     ],
 )
 def test_manager_mapping_overlay_fails_closed(overrides: dict, match: str) -> None:
     with pytest.raises((TypeError, ValueError), match=match):
         apply_cfg_overrides(_manager_cfg(), overrides)
+
+
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [
+        (
+            {
+                "_target_": "unilab.managers.EventTermCfg",
+                "func": "unilab.envs.mdp.is_alive",
+                "mode": "reset",
+            },
+            "EventTermCfg.*RewardTermCfg",
+        ),
+        (
+            {"_target_": "unilab.envs.mdp.is_alive", "func": "unilab.envs.mdp.is_alive"},
+            "dataclass type",
+        ),
+        (
+            {"_target_": "unilab.managers.MissingCfg", "func": "unilab.envs.mdp.is_alive"},
+            "_target_.*could not resolve",
+        ),
+        (
+            {
+                "_target_": "unilab.managers.RewardTermCfg",
+                "func": "unilab.envs.mdp.missing",
+                "weight": 1.0,
+            },
+            "func.*could not resolve",
+        ),
+        (
+            {
+                "_target_": "unilab.managers.RewardTermCfg",
+                "func": "unilab.base.config_overrides.CONFIG_MAPPING_POLICY_KEY",
+                "weight": 1.0,
+            },
+            "expected a callable",
+        ),
+        (
+            {
+                "_target_": "unilab.managers.RewardTermCfg",
+                "func": "unilab.envs.mdp.is_alive",
+                "weight": 1.0,
+                "unknown": 1,
+            },
+            "has no fields.*unknown",
+        ),
+        (
+            {"_target_": "unilab.managers.RewardTermCfg", "func": "unilab.envs.mdp.is_alive"},
+            "could not construct",
+        ),
+    ],
+)
+def test_hydra_manager_materialization_fails_closed(entry: dict, match: str) -> None:
+    with pytest.raises((TypeError, ValueError), match=match):
+        apply_cfg_overrides(ManagerBasedRlEnvCfg(), {"rewards": {"term": entry}})
+
+
+def test_hydra_manager_materialization_rejects_abstract_action_config() -> None:
+    with pytest.raises(TypeError, match="abstract config.*ActionTermCfg"):
+        apply_cfg_overrides(
+            ManagerBasedRlEnvCfg(),
+            {
+                "actions": {
+                    "joint": {
+                        "_target_": "unilab.managers.ActionTermCfg",
+                        "entity_name": "robot",
+                    }
+                }
+            },
+        )
+
+
+def test_hydra_manager_materialization_rejects_wrong_nested_config_type() -> None:
+    with pytest.raises(TypeError, match="SceneCfg.*Ranges"):
+        apply_cfg_overrides(
+            ManagerBasedRlEnvCfg(),
+            {
+                "commands": {
+                    "twist": {
+                        "_target_": "unilab.envs.mdp.UniformVelocityCommandCfg",
+                        "entity_name": "robot",
+                        "resampling_time_range": [1.0, 1.0],
+                        "ranges": {
+                            "_target_": "unilab.base.scene.SceneCfg",
+                            "model_file": "robot.xml",
+                        },
+                    }
+                }
+            },
+        )
 
 
 @dataclass

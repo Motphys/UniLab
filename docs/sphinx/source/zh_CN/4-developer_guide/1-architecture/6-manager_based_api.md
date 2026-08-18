@@ -10,6 +10,11 @@ NumPy，并保留现有 `NpEnvState`、Hydra owner YAML、`SimBackend`、registr
 ## 不变量
 
 - 公共 manager 结构优先保持社区语义；不为局部性能制造 UniLab-only term API。
+- Production task 只从 Hydra owner YAML 配置：YAML 完整声明 manager/group/term、具体 cfg
+  `_target_`、dotted callable、params、weight 与 observation mapping；Registry 冷路径将其
+  物化为 plain typed cfg，Python 不保留 task config mirror。
+- 未知字段、无法解析的 target/callable、抽象或错误 cfg 类型直接报错；DictConfig 和解析
+  不进入 reset/step，scripts 不解释 task 业务规则。
 - manager buffer、term return、env ID 和 entity view 使用 `np.ndarray` / `slice`，core 不依赖
   Torch、Warp、runner、learner 或 IPC。
 - `SceneEntityCfg` 在冷路径通过 base scene/entity facade 解析；facade 只调用正式

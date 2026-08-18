@@ -89,9 +89,18 @@ Manager 内可以使用社区常见的 `policy` / `actor` / `critic` observation
 映射为 `NpEnvState.obs["critic"]`。runner、learner 与 IPC 不推断、不拼接 group。
 `reset() -> (obs_dict, info_dict)`、final observation 与 `obs_groups_spec` 保持现有 contract。
 
-Callable 和 typed config instance 由 task-owned Python factory 声明；Hydra owner YAML 只按
-manager/term 名覆盖可序列化字段。现有 CLI、registry、algorithm YAML 和
-`task=<task>/<backend>` owner compose 保持唯一配置入口。Scripts 不解释 term 业务规则。
+Production task 的唯一配置 source of truth 是 Hydra owner YAML。它完整声明 scene/backend
+tuning、manager/group/term 的顺序与启停、具体 cfg 类型、callable、params、weight 和
+observation group mapping；compose 后按以下冷路径进入现有 registry：
+
+`owner YAML -> DictConfig -> typed config materialization -> Registry factory -> ManagerBasedRlEnv`
+
+具体 cfg 类型使用 Hydra `_target_`，term callable 使用完整 dotted reference。通用
+materializer 将其解析为 plain dataclass instance，并在未知字段、target/callable 解析失败、
+抽象或错误 term cfg 类型及缺少必填字段时 fail-closed。Python 只拥有 term 实现、公共 cfg
+类型和通用 factory，不保存第二份 task-specific term 清单或默认值；直接构造 typed cfg
+只用于底层单测。DictConfig 与解析逻辑不能进入 reset/step 热路径，scripts 不解释 term
+业务规则。
 
 ### 4. Scene/entity owner boundary
 
@@ -165,7 +174,7 @@ fallback 到旧单体 env 的永久兼容路径。
 | observation groups、clip/scale/noise/delay/history | Adapted | 数值为 NumPy；group 在 env boundary 显式映射 |
 | manager buffers、env IDs、RNG | Adapted | Torch→NumPy；无 device API |
 | `ManagerBasedRlEnv` return | Adapted | 保留 `NpEnvState` 与 UniLab reset/final-observation contract |
-| config container | Adapted | plain instances + Hydra owner YAML overlay，不引入第二套 runtime |
+| config container | Adapted | Hydra owner YAML 唯一持有 task 配置，冷路径物化为 plain typed instances |
 | `SceneEntityCfg` selectors | Adapted | 语义保留；只解析 `SimBackend` 已声明能力 |
 | named sensor view | Adapted | 冷路径 bind；有序展平 NumPy batch；reader 由 backend 拥有 |
 | event/domain randomization | Adapted | 调度语义保留；mutation 走 backend DR/capability contract |
@@ -225,6 +234,8 @@ Apache-2.0 和 UniLab 的修改类别。实现 PR 分别报告：
 - 先设计 compiler、fused term protocol 或专用 fast path。拒绝：在 benchmark 证明瓶颈前
   增加结构复杂度，并可能牺牲社区 term 语义。
 - 缺失能力 warning + skip 或回退旧 env。拒绝：配置表面与真实执行不一致，不能用于生产。
+- task-owned Python factory 声明 callable/term，Hydra 只做字段 overlay。拒绝：会让同一 task
+  在 Python 和 YAML 中拥有两份配置，增加迁移 friction 和语义漂移。
 
 ## Consequences
 
@@ -233,6 +244,8 @@ Apache-2.0 和 UniLab 的修改类别。实现 PR 分别报告：
   compatibility matrix 中先记录。
 - Scene/entity 采用最小 base facade，#586 不再阻塞 manager port；真实 backend 能力仍按
   独立 child 和 conformance evidence 接入。
+- Config/Registry 永久维护一个通用 Hydra `_target_` / dotted callable 到 typed manager cfg
+  的冷路径 materializer；production task 不维护 Python config mirror。
 - 迁移初期允许 production 旧 task 与未接入的 manager package 同时存在，但 task 一旦迁移
   就必须删除对应旧实现；umbrella 结束时不能保留双 lifecycle。
 - 性能 gate 关注明显低效与实测瓶颈，不以复杂度换取未经证明的小收益。
@@ -243,7 +256,7 @@ Apache-2.0 和 UniLab 的修改类别。实现 PR 分别报告：
 - Backend contract: `src/unilab/base/backend/base.py`
 - Scene config owner: `src/unilab/base/scene.py`
 - Config schema and registry: `src/unilab/structured_configs.py`,
-  `src/unilab/base/registry.py`, `conf/`
+  `src/unilab/base/config_materialization.py`, `src/unilab/base/registry.py`, `conf/`
 - Observation/IPC contract: `docs/sphinx/source/adr/ADR-0005-unified-obs-critic-env-and-ipc-contract.md`
 - Layer boundary: `docs/sphinx/source/adr/ADR-0001-runtime-model-and-layer-boundaries.md`
 - Upstream checkout used for the decision:
