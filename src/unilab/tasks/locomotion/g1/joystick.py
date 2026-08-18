@@ -25,7 +25,8 @@ from unilab.envs.locomotion.common.commands import (
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.g1.base import G1BaseCfg, G1BaseEnv
+
+from .base import G1BaseCfg, G1BaseEnv
 
 
 @dataclass
