@@ -1,4 +1,4 @@
-"""Observation construction for motion tracking.
+"""Shared observation construction for motion tracking.
 
 Holds the robot-agnostic observation builders. The environment classes keep a
 thin polymorphic method surface (``_compute_obs`` / ``_build_actor_obs`` /

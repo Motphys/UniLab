@@ -44,8 +44,8 @@ from unilab.dr.dr_utils import (
 from unilab.dr.types import RESET_TERM_GEOM_FRICTION
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import NoiseConfig
-from unilab.envs.motion_tracking.common.rewards import RewardContext
 
+from ..common.rewards import RewardContext
 from .tracking import (
     Domain_Rand,
     G1MotionTrackingDomainRandomizationProvider,

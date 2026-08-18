@@ -13,7 +13,6 @@ from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.motion_tracking.common.rewards import RewardContext
 from unilab.utils.geometry import np_sample_uniform
 from unilab.utils.rotation import (
     np_matrix_from_quat,
@@ -25,6 +24,7 @@ from unilab.utils.rotation import (
     np_subtract_frame_transforms,
 )
 
+from ..common.rewards import RewardContext
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
 from .tracking import (
     G1MotionTrackingCfg,

@@ -1,4 +1,4 @@
-"""Termination computation for motion tracking."""
+"""Shared termination computation for motion tracking."""
 
 from __future__ import annotations
 
