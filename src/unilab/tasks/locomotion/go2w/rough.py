@@ -31,7 +31,7 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )
-from unilab.envs.locomotion.go2w.base import NUM_GO2W_ACTIONS, NUM_LEG_ACTIONS
+from unilab.tasks.locomotion.go2w.base import NUM_GO2W_ACTIONS, NUM_LEG_ACTIONS
 from unilab.tasks.locomotion.go2w.joystick import (
     Go2WJoystickCfg,
     Go2WJoystickDomainRandomizationProvider,

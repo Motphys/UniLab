@@ -117,7 +117,7 @@ def compute_go2w_motor_ctrl(
 
 
 class Go2WBaseEnv(LocomotionBaseEnv):
-    _cfg: Go2WBaseCfg
+    _cfg: Go2WBaseCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def _init_action_space(self) -> None:
         self._action_space = gym.spaces.Box(

@@ -29,7 +29,7 @@ from unilab.envs.locomotion.common.commands import (
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.go2w.base import (
+from unilab.tasks.locomotion.go2w.base import (
     DEFAULT_GO2W_ANGLES,
     NUM_GO2W_ACTIONS,
     NUM_LEG_ACTIONS,

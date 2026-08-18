@@ -367,7 +367,7 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
         pytest.importorskip("motrixsim")
 
     from unilab.base.backend import create_backend
-    from unilab.envs.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
+    from unilab.tasks.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
 
     bkd = create_backend(
         backend_type,
