@@ -275,6 +275,13 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
     np.testing.assert_allclose(bkd.get_sensor_data_batch(names), expected)
     _shape(bkd.get_sensor_data_batch(()), NUM_ENVS, 0)
 
+    view = bkd.bind_sensor_data(names)
+    assert view.names == names
+    assert view.dimensions == tuple(
+        int(np.asarray(bkd.get_sensor_data(name)).reshape(NUM_ENVS, -1).shape[1]) for name in names
+    )
+    np.testing.assert_allclose(view.read(), expected)
+
 
 def test_mujoco_model_properties_smoke():
     from unilab.base.backend.mujoco.backend import MuJoCoBackend

@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import PathLike
 from typing import Any
 
@@ -15,6 +15,7 @@ from unilab.dr.types import (
 
 PreStepControlFn = Callable[[Any, np.ndarray], np.ndarray]
 TerrainHeightSampleFn = Callable[[np.ndarray], np.ndarray]
+SensorReadFn = Callable[[], np.ndarray]
 
 
 class RenderClosedError(RuntimeError):
@@ -88,6 +89,88 @@ class BackendRootStateLayout:
             if len(set(normalized)) != expected:
                 raise ValueError(f"BackendRootStateLayout {name} must contain unique columns")
             object.__setattr__(self, name, normalized)
+
+
+@dataclass(frozen=True)
+class BackendSensorView:
+    """Validated batch view over one or more named backend sensors.
+
+    Sensor names and flattened per-sensor widths are resolved while the backend
+    is materialized.  Manager terms retain this view and only call ``read`` on
+    the hot path; they never inspect backend model objects or resolve XML names.
+    The reader is intentionally backend-owned so adapters can use cached
+    numeric slots, stable host slices, or an opaque native batch reader without
+    changing the manager-facing contract.
+    """
+
+    backend_type: str
+    names: tuple[str, ...]
+    dimensions: tuple[int, ...]
+    num_envs: int
+    _reader: SensorReadFn = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.backend_type, str) or not self.backend_type:
+            raise ValueError("BackendSensorView backend_type must be a non-empty string")
+        if not isinstance(self.names, tuple) or not self.names:
+            raise ValueError("BackendSensorView names must be a non-empty tuple")
+        if any(not isinstance(name, str) or not name for name in self.names):
+            raise ValueError("BackendSensorView names must contain non-empty strings")
+        if len(set(self.names)) != len(self.names):
+            raise ValueError(f"BackendSensorView names must be unique: {self.names}")
+        if not isinstance(self.dimensions, tuple) or len(self.dimensions) != len(self.names):
+            raise ValueError("BackendSensorView dimensions must contain one entry per sensor name")
+        if any(
+            isinstance(value, (bool, np.bool_))
+            or not isinstance(value, (int, np.integer))
+            or int(value) <= 0
+            for value in self.dimensions
+        ):
+            raise ValueError("BackendSensorView dimensions must be positive integers")
+        if (
+            isinstance(self.num_envs, (bool, np.bool_))
+            or not isinstance(self.num_envs, (int, np.integer))
+            or int(self.num_envs) <= 0
+        ):
+            raise ValueError("BackendSensorView num_envs must be a positive integer")
+        if not callable(self._reader):
+            raise TypeError("BackendSensorView reader must be callable")
+        object.__setattr__(self, "dimensions", tuple(int(value) for value in self.dimensions))
+        object.__setattr__(self, "num_envs", int(self.num_envs))
+
+    @property
+    def width(self) -> int:
+        """Total flattened sensor width in the configured name order."""
+        return int(sum(self.dimensions))
+
+    def read(self) -> np.ndarray:
+        """Read the current sensor batch and enforce the stable view contract."""
+        try:
+            value = np.asarray(self._reader())
+        except (KeyError, NotImplementedError, ValueError) as exc:
+            raise type(exc)(
+                f"Backend '{self.backend_type}' sensor view {self.names} could not be read: {exc}"
+            ) from exc
+        if value.ndim != 2 or value.shape != (self.num_envs, self.width):
+            raise ValueError(
+                f"Backend '{self.backend_type}' sensor view {self.names} returned shape "
+                f"{value.shape}; expected ({self.num_envs}, {self.width})"
+            )
+        if not np.issubdtype(value.dtype, np.number) and not np.issubdtype(value.dtype, np.bool_):
+            raise TypeError(
+                f"Backend '{self.backend_type}' sensor view {self.names} returned non-numeric "
+                f"dtype {value.dtype}"
+            )
+        if not np.isfinite(value).all():
+            raise ValueError(
+                f"Backend '{self.backend_type}' sensor view {self.names} returned NaN or Inf"
+            )
+        return value
+
+    @property
+    def data(self) -> np.ndarray:
+        """Community-style spelling for a current sensor read."""
+        return self.read()
 
 
 @dataclass(frozen=True)
@@ -898,3 +981,75 @@ class SimBackend(abc.ABC):
         values = [np.asarray(self.get_sensor_data(name)) for name in sensor_names]
         flat_values = [value.reshape(value.shape[0], -1) for value in values]
         return np.concatenate(flat_values, axis=1)
+
+    def bind_sensor_data(self, names: Sequence[str]) -> BackendSensorView:
+        """Materialize a validated view over named sensors on the cold path.
+
+        The existing sensor getters remain the sole backend adapter surface.  This
+        method validates each requested sensor once, records its flattened width,
+        and returns a stable view for manager terms.  Backends override the
+        protected reader hook when numeric slots or stable cache slices are
+        available; callers do not depend on that implementation detail.
+        """
+        if isinstance(names, (str, bytes)):
+            raise TypeError(
+                f"Backend '{self.backend_type}' sensor view names must be a sequence of strings, "
+                "not one string"
+            )
+        sensor_names = tuple(names)
+        if not sensor_names:
+            raise ValueError(
+                f"Backend '{self.backend_type}' sensor view requires at least one name"
+            )
+        if any(not isinstance(name, str) or not name for name in sensor_names):
+            raise ValueError(
+                f"Backend '{self.backend_type}' sensor view names must be non-empty strings"
+            )
+        if len(set(sensor_names)) != len(sensor_names):
+            raise ValueError(
+                f"Backend '{self.backend_type}' sensor view names must be unique: {sensor_names}"
+            )
+
+        dimensions: list[int] = []
+        for name in sensor_names:
+            try:
+                value = np.asarray(self.get_sensor_data(name))
+            except (KeyError, NotImplementedError, ValueError) as exc:
+                raise type(exc)(
+                    f"Backend '{self.backend_type}' cannot bind sensor '{name}': {exc}"
+                ) from exc
+            if value.ndim < 1 or value.shape[0] != self.num_envs:
+                raise ValueError(
+                    f"Backend '{self.backend_type}' sensor '{name}' returned shape "
+                    f"{value.shape}; expected leading dimension {self.num_envs}"
+                )
+            width = int(np.prod(value.shape[1:], dtype=np.int64)) if value.ndim > 1 else 1
+            if width <= 0:
+                raise ValueError(
+                    f"Backend '{self.backend_type}' sensor '{name}' has empty data shape "
+                    f"{value.shape}"
+                )
+            dimensions.append(width)
+
+        view = BackendSensorView(
+            backend_type=self.backend_type,
+            names=sensor_names,
+            dimensions=tuple(dimensions),
+            num_envs=self.num_envs,
+            _reader=self._bind_sensor_data_reader(sensor_names),
+        )
+        # Validate the batch implementation at materialization as well.  This
+        # catches adapters whose individual and batch sensor contracts disagree.
+        view.read()
+        return view
+
+    def _bind_sensor_data_reader(self, names: tuple[str, ...]) -> SensorReadFn:
+        """Create the backend-owned reader retained by a materialized sensor view.
+
+        The default keeps the existing batch getter as the compatibility path
+        for lightweight adapters and test doubles.  Concrete backends that
+        expose stable numeric slots or host-cache slices override this hook so
+        manager hot paths never resolve model metadata.
+        """
+        batch_reader = self.get_sensor_data_batch
+        return lambda: batch_reader(names)

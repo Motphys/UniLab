@@ -10,7 +10,7 @@ transfer.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from os import PathLike
 from typing import Any
 
@@ -816,3 +816,15 @@ class MjwarpBackend(SimBackend):
             available = ", ".join(sorted(self._sensor_slots))
             raise ValueError(f"Sensor {name!r} not found; available: {available}") from exc
         return self._sensor_cache[:, address : address + dimension]
+
+    def _bind_sensor_data_reader(self, names: tuple[str, ...]) -> Callable[[], np.ndarray]:
+        """Capture numeric host-cache slots for a zero-metadata hot-path view."""
+        slots = tuple(self._sensor_slots[name] for name in names)
+
+        def read() -> np.ndarray:
+            values = [
+                self._sensor_cache[:, address : address + dimension] for address, dimension in slots
+            ]
+            return np.concatenate(values, axis=1)
+
+        return read

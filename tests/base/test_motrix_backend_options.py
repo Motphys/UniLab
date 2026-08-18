@@ -245,7 +245,11 @@ def _install_fake_motrix(monkeypatch, tmp_path):
         ),
         raising=False,
     )
-    monkeypatch.setattr(scene_mod, "materialize_motrix_scene", lambda **kwargs: fake_model)
+    monkeypatch.setattr(
+        scene_mod,
+        "_materialize_motrix_scene_with_sensor_names",
+        lambda **kwargs: (fake_model, ()),
+    )
     return mod, fake_model
 
 

@@ -733,6 +733,25 @@ class DrakeBackend(SimBackend):
             return self._sensor_views[name].copy()
         raise KeyError(f"Unknown DrakeUni sensor: {name}")
 
+    def _bind_sensor_data_reader(self, names: tuple[str, ...]) -> Callable[[], np.ndarray]:
+        """Capture DrakeUni sensor addresses; read only the refreshed host cache."""
+        name_to_index = {name: index for index, name in enumerate(self._sensor_names)}
+        slots = tuple(
+            (
+                int(self._sensor_adr[name_to_index[name]]),
+                int(self._sensor_dim[name_to_index[name]]),
+            )
+            for name in names
+        )
+
+        def read() -> np.ndarray:
+            values = [
+                self._sensor_data[:, address : address + dimension] for address, dimension in slots
+            ]
+            return np.concatenate(values, axis=1)
+
+        return read
+
     # Internal helpers.
     def _sync_runtime_state(self, output: dict[str, Any] | None = None) -> None:
         # Keep UniLab's cached state/sensor views aligned after every DrakeUni update.
