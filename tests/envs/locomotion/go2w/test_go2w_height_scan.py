@@ -21,7 +21,7 @@ if not hasattr(BatchEnvPool, "sample_hfield_height"):
         allow_module_level=True,
     )
 
-from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughEnv
+from unilab.tasks.locomotion.go2w.rough import Go2WJoystickRoughEnv
 
 
 def test_go2w_rough_height_scan_uses_backend_native_sampling() -> None:
