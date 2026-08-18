@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
-from unilab.envs.motion_tracking.common.reset import build_motion_reference_state
 from unilab.envs.motion_tracking.common.rewards import RewardConfig
 
 from ..common.config import (
@@ -30,6 +29,7 @@ from ..common.config import (
 from ..common.domain_randomization import (
     MotionTrackingDomainRandomizationProvider,
 )
+from ..common.reset import build_motion_reference_state
 from ..common.tracking import (
     MotionTrackingDeployEnv,
     MotionTrackingEnv,
