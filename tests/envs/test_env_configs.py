@@ -2049,7 +2049,6 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 _STANDARD_ENVS = [
     "Go1JoystickFlat",
     "Go1JoystickRough",
-    "Go2JoystickFlat",
     "Go2WJoystickFlat",
     "Go2WJoystickRough",
     "G1WalkFlat",
@@ -2163,42 +2162,6 @@ def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
     )
     try:
         _assert_mujoco_position_gains(env, kp=12.0, kd=0.7)
-    finally:
-        env.close()
-
-
-def test_go2_env_initializes_kp_kd_into_pool():
-    _require_mujoco_runtime()
-    ensure_registries()
-    from unilab.base import registry
-    from unilab.envs.locomotion.go2.joystick import RewardConfig
-
-    env = cast(
-        Any,
-        registry.make(
-            "Go2JoystickFlat",
-            num_envs=2,
-            sim_backend="mujoco",
-            env_cfg_override={
-                "reward_config": RewardConfig(
-                    scales={
-                        "tracking_lin_vel": 1.0,
-                        "tracking_ang_vel": 0.2,
-                        "lin_vel_z": -5.0,
-                        "ang_vel_xy": -0.02,
-                        "base_height": -100.0,
-                        "action_rate": -0.005,
-                        "similar_to_default": -0.1,
-                    },
-                    tracking_sigma=0.25,
-                    base_height_target=0.3,
-                ),
-                "control_config": {"Kp": 18.0, "Kd": 0.9},
-            },
-        ),
-    )
-    try:
-        _assert_mujoco_position_gains(env, kp=18.0, kd=0.9)
     finally:
         env.close()
 
@@ -2324,41 +2287,6 @@ def test_g1_motion_tracking_deploy_reset_and_step_mujoco():
         state = env.step(np.zeros((2, action_shape[0])))
         assert state.obs["obs"].shape == (2, 154)
         assert state.obs["critic"].shape == (2, 286)
-    finally:
-        env.close()
-
-
-def test_go2_mujoco_reset_applies_kp_kd_domain_randomization(default_go2_reward_config):
-    _require_mujoco_runtime()
-    ensure_registries()
-
-    from unilab.base import registry
-
-    env = cast(
-        Any,
-        registry.make(
-            "Go2JoystickFlat",
-            num_envs=4,
-            sim_backend="mujoco",
-            env_cfg_override={"reward_config": default_go2_reward_config},
-        ),
-    )
-    try:
-        env.init_state()
-        backend = env._backend
-        kp = np.stack([backend._pool.get_field(i, "kp") for i in range(env.num_envs)])
-        kd = np.stack([backend._pool.get_field(i, "kd") for i in range(env.num_envs)])
-        base_kp = float(env.cfg.control_config.Kp)
-        base_kd = float(env.cfg.control_config.Kd)
-
-        assert np.unique(np.round(kp[:, 0], 6)).size > 1
-        assert np.unique(np.round(kd[:, 0], 6)).size > 1
-        np.testing.assert_allclose(kp / base_kp, np.broadcast_to(kp[:, :1] / base_kp, kp.shape))
-        np.testing.assert_allclose(kd / base_kd, np.broadcast_to(kd[:, :1] / base_kd, kd.shape))
-        assert np.all(kp >= base_kp * 0.9)
-        assert np.all(kp <= base_kp * 1.1)
-        assert np.all(kd >= base_kd * 0.9)
-        assert np.all(kd <= base_kd * 1.1)
     finally:
         env.close()
 

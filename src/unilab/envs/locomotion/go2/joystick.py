@@ -22,6 +22,10 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainSpawnManager,
 )
 from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
+from unilab.envs.manager_based_rl_env import (
+    ManagerBasedRlEnvCfg,
+    make_manager_based_rl_env,
+)
 
 
 @dataclass
@@ -54,7 +58,6 @@ class JoystickSensor(Sensor):
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
 
 
-@registry.envcfg("Go2JoystickFlat")
 @dataclass
 class Go2JoystickCfg(Go2BaseCfg):
     scene: SceneCfg = field(
@@ -91,9 +94,6 @@ class Go2JoystickDomainRandomizationProvider(LocomotionDRProvider):
         )
 
 
-@registry.env("Go2JoystickFlat", sim_backend="mujoco")
-@registry.env("Go2JoystickFlat", sim_backend="motrix")
-@registry.env("Go2JoystickFlat", sim_backend="drake")
 class Go2WalkTask(Go2BaseEnv):
     _cfg: Go2JoystickCfg
 
@@ -316,3 +316,12 @@ class Go2WalkTask(Go2BaseEnv):
             is_contact = (self.feet_phase[:, i] < 0.6) | (self.gait_frequency < 1.0e-8)
             res += (contact[:, i] == is_contact).astype(np.float32)
         return res / len(self._cfg.sensor.feet_force)
+
+
+# Go2JoystickCfg and Go2WalkTask remain as implementation bases for legacy rough
+# and A2 tasks. The flat production identity is Hydra-owned and uses only the
+# generic Manager-Based config/runtime factories.
+registry.register_env_config("Go2JoystickFlat", ManagerBasedRlEnvCfg)
+registry.register_env("Go2JoystickFlat", make_manager_based_rl_env, sim_backend="mujoco")
+registry.register_env("Go2JoystickFlat", make_manager_based_rl_env, sim_backend="motrix")
+registry.register_env("Go2JoystickFlat", make_manager_based_rl_env, sim_backend="drake")

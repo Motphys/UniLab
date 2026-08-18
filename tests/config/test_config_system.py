@@ -64,8 +64,16 @@ def _assert_reward_populated(cfg, label: str):
     assert hasattr(cfg, "reward"), f"{label} missing cfg.reward"
     reward_dict = OmegaConf.to_container(cfg.reward, resolve=True)
     assert isinstance(reward_dict, dict), f"{label} reward must resolve to mapping"
-    assert "scales" in reward_dict, f"{label} reward must contain scales"
-    assert len(reward_dict["scales"]) > 0, f"{label} reward.scales must be non-empty"
+    if "scales" in reward_dict:
+        assert len(reward_dict["scales"]) > 0, f"{label} reward.scales must be non-empty"
+        return
+
+    assert reward_dict, f"{label} Manager-Based reward terms must be non-empty"
+    for term_name, term in reward_dict.items():
+        assert isinstance(term, dict), f"{label} reward.{term_name} must be a mapping"
+        assert "_target_" in term, f"{label} reward.{term_name} must declare _target_"
+        assert "func" in term, f"{label} reward.{term_name} must declare func"
+        assert "weight" in term, f"{label} reward.{term_name} must declare weight"
 
 
 def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
@@ -237,8 +245,8 @@ def test_offpolicy_td3_go2_joystick_flat_motrix_composes():
     assert cfg.algo.tau == pytest.approx(0.1)
     assert cfg.algo.algo_params.weight_decay == pytest.approx(0.1)
     assert cfg.algo.algo_params.policy_noise == pytest.approx(0.2)
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
-    assert cfg.reward.base_height_target == pytest.approx(0.3)
+    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
+    assert cfg.reward.base_height.params.target_height == pytest.approx(0.3)
 
 
 def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
@@ -402,8 +410,10 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
 
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.empirical_normalization is True
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
+    assert cfg.env.events.pd_gains is None
+    assert cfg.env.commands.twist.ranges.lin_vel_x == [0.5, 0.5]
+    assert cfg.env.commands.twist.ranges.lin_vel_y == [0.0, 0.0]
+    assert cfg.env.commands.twist.ranges.ang_vel_z == [0.0, 0.0]
 
 
 def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
@@ -523,13 +533,28 @@ def test_offpolicy_flashsac_go2_joystick_mujoco_enables_full_dr_stack():
     assert mujoco_cfg.training.task_name == "Go2JoystickFlat"
     assert mujoco_cfg.training.sim_backend == "mujoco"
 
-    assert mujoco_cfg.env.domain_rand.randomize_kp is True
-    assert mujoco_cfg.env.domain_rand.randomize_kd is True
-    assert mujoco_cfg.env.domain_rand.randomize_base_mass is True
-    assert mujoco_cfg.env.domain_rand.random_com is True
-    assert mujoco_cfg.env.domain_rand.randomize_gravity is True
-    assert mujoco_cfg.env.domain_rand.push_robots is True
-    assert mujoco_cfg.env.noise_config.level == pytest.approx(1.0)
+    assert mujoco_cfg.env.events.pd_gains.func == "unilab.envs.mdp.pd_gains"
+    assert (
+        mujoco_cfg.env.events.randomize_rigid_body_mass.func
+        == "unilab.envs.mdp.randomize_rigid_body_mass"
+    )
+    assert (
+        mujoco_cfg.env.events.randomize_rigid_body_com.func
+        == "unilab.envs.mdp.randomize_rigid_body_com"
+    )
+    assert (
+        mujoco_cfg.env.events.randomize_physics_scene_gravity.func
+        == "unilab.envs.mdp.randomize_physics_scene_gravity"
+    )
+    assert (
+        mujoco_cfg.env.events.push_by_setting_velocity.func
+        == "unilab.envs.mdp.push_by_setting_velocity"
+    )
+    assert mujoco_cfg.env.events.push_by_setting_velocity.mode == "interval"
+    assert mujoco_cfg.env.events.push_by_setting_velocity.is_global_time is True
+    assert mujoco_cfg.env.observations.policy.enable_corruption is True
+    assert mujoco_cfg.env.observations.policy.terms.joint_pos.noise.n_min == pytest.approx(-0.01)
+    assert mujoco_cfg.env.observations.policy.terms.joint_vel.noise.n_min == pytest.approx(-0.1)
 
 
 def test_cli_override_beats_task_defaults():
