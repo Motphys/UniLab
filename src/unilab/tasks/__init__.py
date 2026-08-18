@@ -1,0 +1,24 @@
+"""Production task registry bootstrap.
+
+Concrete task implementations are moving from :mod:`unilab.envs` into this
+package under issue #1112.  Until each task family moves, this explicit list
+records its legacy module as the last remaining consumer of that path.  The
+registry imports these leaf modules directly, so registration stays explicit
+and deterministic throughout the migration.
+"""
+
+__unilab_registry_modules__ = (
+    "unilab.envs.locomotion.go1",
+    "unilab.envs.locomotion.go2",
+    "unilab.envs.locomotion.go2w",
+    "unilab.envs.locomotion.g1",
+    "unilab.envs.locomotion.go2_arm",
+    "unilab.envs.locomotion.a2",
+    "unilab.envs.manipulation.allegro_inhand",
+    "unilab.envs.manipulation.sharpa_inhand",
+    "unilab.envs.manipulation.stewart",
+    "unilab.envs.motion_tracking.g1",
+    "unilab.envs.motion_tracking.x2",
+)
+
+__all__ = ["__unilab_registry_modules__"]
