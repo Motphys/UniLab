@@ -692,7 +692,11 @@ def test_ppo_go1_drake_batch_config_matches_current_contact_support():
 
     assert cfg.env.drake_backend_mode == "batch"
     assert cfg.env.drake_nthread == 0
-    assert "contact" not in cfg.reward.scales
+    assert cfg.reward.contact is None
+    assert cfg.env.events.base_mass is None
+    assert cfg.env.events.base_com is None
+    assert cfg.env.events.pd_gains is None
+    assert cfg.env.events.push_robot is None
 
 
 def test_ppo_go2_drake_batch_config_matches_go2_training_defaults():
@@ -721,9 +725,14 @@ def test_build_ppo_env_cfg_override_go1_motrix(
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
-    # env_cfg_override has reward + env preset commands
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
-    assert env_cfg_override["commands"]["vel_limit"] == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(1.0)
+    assert env_cfg_override["rewards"]["contact"] is None
+    assert env_cfg_override["commands"]["twist"]["ranges"] == {
+        "lin_vel_x": [0.5, 0.5],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [0.0, 0.0],
+    }
+    assert env_cfg_override["events"]["push_robot"] is None
 
 
 def test_build_ppo_env_cfg_override_g1_motrix(
