@@ -57,7 +57,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
             G1MotionTrackingCfg,
             G1MotionTrackingDeployEnvCfg,
         )
-        from unilab.envs.motion_tracking.x2 import X2WallFlipTrackingCfg
+        from unilab.tasks.motion_tracking.x2 import X2WallFlipTrackingCfg
         from unilab.base.registry import ensure_registries
 
         ensure_registries()
@@ -1749,7 +1749,7 @@ def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
 
 
 def test_x2_wall_flip_tracking_cfg_uses_x2_wall_flip_profile():
-    from unilab.envs.motion_tracking.x2 import X2WallFlipTrackingCfg
+    from unilab.tasks.motion_tracking.x2 import X2WallFlipTrackingCfg
 
     cfg = X2WallFlipTrackingCfg()
 

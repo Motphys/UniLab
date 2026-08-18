@@ -122,7 +122,7 @@ class X2WallFlipTrackingEnvCfg(X2WallFlipTrackingCfg):
 class X2WallFlipTrackingEnv(MotionTrackingDeployEnv):
     """X2 wall flip-tracking environment implementation."""
 
-    _cfg: X2WallFlipTrackingCfg
+    _cfg: X2WallFlipTrackingCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _keyframe_name = "home"
 
     def __init__(self, cfg: X2WallFlipTrackingCfg, num_envs: int = 1, backend_type: str = "mujoco"):

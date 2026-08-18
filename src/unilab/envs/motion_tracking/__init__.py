@@ -1,9 +1,6 @@
 """Motion tracking environments."""
 
-__unilab_registry_modules__ = (
-    "unilab.envs.motion_tracking.g1",
-    "unilab.envs.motion_tracking.x2",
-)
+__unilab_registry_modules__ = ("unilab.envs.motion_tracking.g1",)
 
 from .g1 import (
     BoxMotionData,
@@ -44,12 +41,6 @@ from .g1 import (
     G1WBTObsCfg,
     G1WBTObsEnv,
 )
-from .x2 import (
-    X2MotionTrackingCfg,
-    X2WallFlipTrackingCfg,
-    X2WallFlipTrackingEnv,
-    X2WallFlipTrackingEnvCfg,
-)
 
 __all__ = [
     "G1MotionTrackingCfg",
@@ -73,10 +64,6 @@ __all__ = [
     "G1BoxTrackingEnvCfg",
     "BoxMotionData",
     "BoxMotionLoader",
-    "X2MotionTrackingCfg",
-    "X2WallFlipTrackingCfg",
-    "X2WallFlipTrackingEnv",
-    "X2WallFlipTrackingEnvCfg",
     # 23-DoF variants (from parent UniLab/, under testing)
     "G1MotionTracking23DofCfg",
     "G1MotionTracking23DofDeployEnvCfg",

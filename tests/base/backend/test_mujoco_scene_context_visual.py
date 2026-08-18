@@ -35,7 +35,7 @@ def test_visual_model_file_override_is_render_only() -> None:
 
 
 def test_x2_wall_flip_wires_render_only_visual_twin() -> None:
-    from unilab.envs.motion_tracking.x2.flip_tracking import X2WallFlipTrackingEnvCfg
+    from unilab.tasks.motion_tracking.x2.flip_tracking import X2WallFlipTrackingEnvCfg
 
     cfg = X2WallFlipTrackingEnvCfg()
 
