@@ -1,4 +1,4 @@
 from . import (
-    grasp_gen,  # registers AllegroInhandRotationGrasp via @registry decorators
-    rotation,  # registers AllegroInhandRotation via @registry decorators
+    grasp_gen,  # registers the Manager-Based grasp-generation identity
+    rotation,  # registers the Manager-Based rotation identity
 )

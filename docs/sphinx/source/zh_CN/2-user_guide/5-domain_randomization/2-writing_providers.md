@@ -29,7 +29,7 @@
 - `src/unilab/tasks/locomotion/go1/joystick.py`
 - `src/unilab/tasks/locomotion/g1/joystick.py`
 - `src/unilab/tasks/motion_tracking/g1/tracking.py`
-- `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`
+- `src/unilab/tasks/locomotion/go2/footstand.py`
 - `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
 
 开发者 contract 详情见
