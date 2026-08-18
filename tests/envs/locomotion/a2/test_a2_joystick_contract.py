@@ -126,7 +126,7 @@ def test_a2_home_keyframe_matches_mjlab_pose():
 def test_a2_control_config_per_joint_gains():
     """A2JoystickControlConfig.position_gains() yields per-joint arrays matching
     mjlab (calf 150/6, hip/thigh 100/4) in actuator order."""
-    from unilab.envs.locomotion.a2.joystick import A2JoystickControlConfig
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickControlConfig
 
     gains = A2JoystickControlConfig().position_gains()
     np.testing.assert_allclose(np.asarray(gains["kp"]), _MJLAB_KP)
@@ -144,7 +144,7 @@ def test_pd_control_config_position_gains_default_is_scalar():
 def test_a2_dr_provider_returns_per_joint_base_gains():
     """The A2 DR provider exposes per-joint base kp/kd so randomize_kp/kd scales
     each joint off the correct baseline (calf off 150, not 100)."""
-    from unilab.envs.locomotion.a2.joystick import (
+    from unilab.tasks.locomotion.a2.joystick import (
         A2JoystickControlConfig,
         A2JoystickDomainRandomizationProvider,
     )
@@ -179,7 +179,7 @@ def test_a2_dr_provider_caches_friction_and_armature_baselines():
     (and the floor geom id) from the backend so randomize_ground_friction /
     randomize_dof_armature can multiply against them. body_mass stays uncached."""
     mujoco = pytest.importorskip("mujoco")
-    from unilab.envs.locomotion.a2.joystick import A2JoystickDomainRandomizationProvider
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickDomainRandomizationProvider
 
     xml = ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"
     model = mujoco.MjModel.from_xml_path(str(xml))
@@ -215,7 +215,7 @@ def _ensure_registered() -> None:
 
     registry.ensure_registries()
     if not registry.contains("A2JoystickFlat"):
-        importlib.import_module("unilab.envs.locomotion.a2.joystick")
+        importlib.import_module("unilab.tasks.locomotion.a2.joystick")
 
 
 def test_a2_joystick_registered():
@@ -239,7 +239,7 @@ def test_a2_joystick_yaml_composes_and_targets_a2():
 
 
 def _default_reward_cfg():
-    from unilab.envs.locomotion.a2.joystick import A2RewardConfig
+    from unilab.tasks.locomotion.a2.joystick import A2RewardConfig
 
     return A2RewardConfig(
         scales={
@@ -340,7 +340,7 @@ def test_a2_joystick_dr_on_constructs_and_steps_finite():
     randomize_body_mass stays off (base_body_mass baseline not cached). The
     YAML-surface is covered by test_a2_joystick_domain_rand_fully_configured."""
     _skip_if_no_mujoco()
-    from unilab.envs.locomotion.a2.joystick import A2JoystickDomainRandConfig
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickDomainRandConfig
 
     dr_on = A2JoystickDomainRandConfig(
         randomize_base_mass=True,
@@ -423,7 +423,7 @@ def test_a2_joystick_domain_rand_fully_configured():
 def test_a2_reward_config_declares_command_threshold():
     import dataclasses
 
-    from unilab.envs.locomotion.a2.joystick import A2RewardConfig
+    from unilab.tasks.locomotion.a2.joystick import A2RewardConfig
 
     names = {f.name for f in dataclasses.fields(A2RewardConfig)}
     assert "command_threshold" in names
@@ -433,7 +433,7 @@ def test_a2_reward_config_declares_command_threshold():
 def test_a2_cfg_reward_config_annotation_is_a2_type():
     from typing import get_type_hints
 
-    from unilab.envs.locomotion.a2.joystick import A2JoystickCfg, A2RewardConfig
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickCfg, A2RewardConfig
 
     hints = get_type_hints(A2JoystickCfg)
     assert A2RewardConfig in getattr(hints["reward_config"], "__args__", (hints["reward_config"],))
@@ -457,7 +457,7 @@ def _a2_ctx(commands, dof_pos=None):
 
 
 def test_a2_advance_phase_freezes_standing_envs():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickFlatEnv
 
     stub = SimpleNamespace(
         _cfg=SimpleNamespace(ctrl_dt=0.02),
@@ -472,7 +472,7 @@ def test_a2_advance_phase_freezes_standing_envs():
 
 
 def test_a2_hip_deviation_l1_over_hip_indices():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickFlatEnv
 
     dof_pos = np.zeros((1, 12))
     dof_pos[0, [0, 3, 6, 9]] = [0.1, -0.2, 0.3, -0.4]
@@ -482,7 +482,7 @@ def test_a2_hip_deviation_l1_over_hip_indices():
 
 
 def test_a2_stand_feet_air_counts_lifted_feet_when_standing():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickFlatEnv
 
     stub = SimpleNamespace(
         _reward_cfg=SimpleNamespace(command_threshold=0.1),
@@ -493,7 +493,7 @@ def test_a2_stand_feet_air_counts_lifted_feet_when_standing():
 
 
 def test_a2_stand_feet_air_inactive_during_locomotion():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
+    from unilab.tasks.locomotion.a2.joystick import A2JoystickFlatEnv
 
     stub = SimpleNamespace(
         _reward_cfg=SimpleNamespace(command_threshold=0.1),

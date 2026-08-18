@@ -11,13 +11,13 @@ from unilab.tasks import __unilab_registry_modules__
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ENV_PACKAGE = _REPO_ROOT / "src" / "unilab" / "envs"
 
-_LEGACY_TASK_MODULES = (
+_TASK_REGISTRY_MODULES = (
     "unilab.envs.locomotion.go1",
     "unilab.envs.locomotion.go2",
     "unilab.envs.locomotion.go2w",
     "unilab.envs.locomotion.g1",
     "unilab.envs.locomotion.go2_arm",
-    "unilab.envs.locomotion.a2",
+    "unilab.tasks.locomotion.a2",
     "unilab.envs.manipulation.allegro_inhand",
     "unilab.envs.manipulation.sharpa_inhand",
     "unilab.envs.manipulation.stewart",
@@ -39,7 +39,7 @@ def _imports(path: Path) -> set[str]:
 
 def test_tasks_is_the_only_default_registry_bootstrap() -> None:
     assert registry._DEFAULT_REGISTRY_PACKAGES == ("unilab.tasks",)
-    assert __unilab_registry_modules__ == _LEGACY_TASK_MODULES
+    assert __unilab_registry_modules__ == _TASK_REGISTRY_MODULES
 
 
 def test_env_runtime_does_not_depend_on_tasks() -> None:
