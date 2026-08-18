@@ -29,7 +29,7 @@ from unilab.envs.locomotion.common.height_scan import (
     terrain_out_of_bounds,
 )
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.go2.base import ControlConfig
+from unilab.tasks.locomotion.go2.base import ControlConfig
 from unilab.tasks.locomotion.go2.joystick import (
     Commands,
     Go2JoystickCfg,
