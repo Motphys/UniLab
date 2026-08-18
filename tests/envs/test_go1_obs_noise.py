@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv, NoiseConfig
+from unilab.tasks.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv, NoiseConfig
 
 
 class _ConcreteGo1Env(Go1BaseEnv):

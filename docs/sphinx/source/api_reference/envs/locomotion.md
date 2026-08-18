@@ -8,7 +8,7 @@
 
    unilab.envs.locomotion.common
    unilab.envs.locomotion.g1
-   unilab.envs.locomotion.go1
+   unilab.tasks.locomotion.go1
    unilab.tasks.locomotion.go2
    unilab.envs.locomotion.go2_arm
    unilab.envs.locomotion.go2w
