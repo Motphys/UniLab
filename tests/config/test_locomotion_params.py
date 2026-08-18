@@ -220,8 +220,8 @@ def test_offpolicy_flashsac_go2_task_overrides():
     assert cfg.algo.tau == pytest.approx(0.05)
     assert cfg.algo.replay_buffer_n == 4096
     assert cfg.algo.updates_per_step == 2
-    assert cfg.reward.scales.swing_feet_z == pytest.approx(4.0)
-    assert cfg.env.control_config.action_scale == pytest.approx(0.4)
+    assert cfg.reward.swing_feet_z.weight == pytest.approx(4.0)
+    assert cfg.env.actions.joint_pos.scale == pytest.approx(0.4)
 
 
 def test_go2_joystick_rough_uses_terrain_generator():

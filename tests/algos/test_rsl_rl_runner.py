@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import sys
 import tempfile
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 
 pytest.importorskip("mujoco")
 rsl_rl = pytest.importorskip("rsl_rl")
@@ -22,6 +25,7 @@ from tensordict import TensorDict
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
 from unilab.structured_configs import PPOConfig
+from unilab.training.backend_adapter import BackendAdapter
 from unilab.training.rsl_rl import normalize_ppo_train_cfg
 from unilab.utils.tensor import to_torch
 
@@ -114,7 +118,6 @@ class _RslRlVecEnvWrapper:
 )
 def test_rsl_rl_ppo_one_iteration(
     env_name: str,
-    default_go2_reward_config,
     default_g1_reward_config,
     default_allegro_reward_config,
 ):
@@ -122,26 +125,36 @@ def test_rsl_rl_ppo_one_iteration(
     from rsl_rl.runners import OnPolicyRunner
 
     if "Go2" in env_name:
-        reward_cfg = default_go2_reward_config
         num_envs = 256
+        root_dir = Path(__file__).parents[2]
+        GlobalHydra.instance().clear()
+        with initialize_config_dir(config_dir=str(root_dir / "conf" / "ppo"), version_base="1.3"):
+            hydra_cfg = compose("config", overrides=["task=go2_joystick_flat/mujoco"])
+        env_cfg_override = BackendAdapter(
+            hydra_cfg, root_dir=root_dir
+        ).build_task_env_cfg_override()
     elif "G1" in env_name:
         reward_cfg = default_g1_reward_config
         num_envs = 256
+        env_cfg_override = {"reward_config": reward_cfg}
     else:
         reward_cfg = default_allegro_reward_config
         num_envs = 128
+        env_cfg_override = {"reward_config": reward_cfg}
 
     env = registry.make(
         env_name,
         num_envs=num_envs,
         sim_backend="mujoco",
-        env_cfg_override={"reward_config": reward_cfg},
+        env_cfg_override=env_cfg_override,
     )
     wrapped = _RslRlVecEnvWrapper(env, device="cpu")
 
     cfg = PPOConfig()
     train_cfg = cfg.to_dict()
     train_cfg["runner"] = {"logger": "none"}
+    if env_name == "Go2JoystickFlat":
+        train_cfg["obs_groups"] = {"actor": ["actor"], "critic": ["critic"]}
     # Small network + short loop; large num_envs to saturate CPU
     train_cfg["num_steps_per_env"] = 8
     train_cfg["policy"] = {

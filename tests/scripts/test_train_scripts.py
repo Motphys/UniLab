@@ -675,11 +675,13 @@ def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
     cfg = _ppo_cfg(["task=go2_joystick_flat/mujoco"])
 
     assert cfg.algo.num_envs == 1024
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
-    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.2)
-    assert cfg.reward.scales.lin_vel_z == pytest.approx(-5.0)
-    assert cfg.reward.scales.ang_vel_xy == pytest.approx(-0.1)
+    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
+    assert cfg.reward.tracking_ang_vel.weight == pytest.approx(0.2)
+    assert cfg.reward.lin_vel_z.weight == pytest.approx(-5.0)
+    assert cfg.reward.ang_vel_xy.weight == pytest.approx(-0.1)
     assert cfg.algo.empirical_normalization is True
+    assert cfg.algo.obs_groups.actor == ["actor"]
+    assert cfg.algo.obs_groups.critic == ["critic"]
     assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
     assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
@@ -707,9 +709,8 @@ def test_ppo_go2_drake_batch_config_matches_go2_training_defaults():
     assert cfg.env.drake_backend_mode == "batch"
     assert cfg.env.drake_nthread == 0
     assert cfg.env.scene.model_file == "src/unilab/assets/robots/go2/scene_flat.xml"
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
-    assert cfg.reward.scales.contact == pytest.approx(0.24)
+    assert cfg.env.events.pd_gains is None
+    assert cfg.reward.contact.weight == pytest.approx(0.24)
 
 
 def test_build_ppo_env_cfg_override_go1_motrix(
@@ -790,12 +791,11 @@ def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
+    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
     assert cfg.algo.num_envs == 1024
-    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
-    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(1.0)
-    assert env_cfg_override["reward_config"]["scales"]["tracking_ang_vel"] == pytest.approx(0.2)
+    assert env_cfg_override["events"]["pd_gains"] is None
+    assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(1.0)
+    assert env_cfg_override["rewards"]["tracking_ang_vel"]["weight"] == pytest.approx(0.2)
 
 
 def test_build_ppo_env_cfg_override_allegro_mujoco(

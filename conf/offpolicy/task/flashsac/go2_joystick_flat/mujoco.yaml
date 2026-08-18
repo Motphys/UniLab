@@ -1,4 +1,8 @@
 # @package _global_
+defaults:
+  - /task/go2_joystick_flat/base
+  - _self_
+
 training:
   task_name: Go2JoystickFlat
   sim_backend: mujoco
@@ -12,32 +16,107 @@ algo:
   replay_buffer_n: 4096
   tau: 0.05
 env:
-  control_config:
-    action_scale: 0.4
-  domain_rand:
-    randomize_kp: true
-    randomize_kd: true
-    randomize_base_mass: true
-    random_com: true
-    randomize_gravity: true
-    push_robots: true
-  noise_config:
-    level: 1.0
-    scale_joint_angle: 0.01
-    scale_joint_vel: 0.1
-    scale_gyro: 0.0
-    scale_gravity: 0.0
-    scale_linvel: 0.0
+  scene:
+    entities:
+      robot:
+        body_names: [base]
+  actions:
+    joint_pos:
+      scale: 0.4
+  observations:
+    policy:
+      enable_corruption: true
+      terms:
+        joint_pos:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+        joint_vel:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.1
+            n_max: 0.1
+    critic:
+      enable_corruption: true
+      terms:
+        joint_pos:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+        joint_vel:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.1
+            n_max: 0.1
+  events:
+    randomize_rigid_body_mass:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: base
+        mass_distribution_params: [-1.5, 1.5]
+        operation: add
+        recompute_inertia: false
+    randomize_rigid_body_com:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: base
+        com_range:
+          x: [-0.05, 0.05]
+    randomize_physics_scene_gravity:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.randomize_physics_scene_gravity
+      mode: reset
+      params:
+        gravity_distribution_params:
+          - [0.0, 0.0, -9.81]
+          - [0.0, 0.0, -9.81]
+        operation: abs
+    push_by_setting_velocity:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [15.0, 15.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-1.0, 1.0]
+          y: [-1.0, 1.0]
+          z: [-0.5, 0.5]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
 reward:
-  scales:
-    tracking_lin_vel: 1.0
-    tracking_ang_vel: 0.2
-    lin_vel_z: -5.0
-    ang_vel_xy: -0.1
-    base_height: -20.0
-    action_rate: -0.02
-    similar_to_default: -0.4
-    contact: 1.5
-    swing_feet_z: 4.0
-  tracking_sigma: 0.4
-  base_height_target: 0.3
+  tracking_lin_vel:
+    weight: 1.0
+    params:
+      std: 0.6324555320336759
+  tracking_ang_vel:
+    weight: 0.2
+    params:
+      std: 0.6324555320336759
+  lin_vel_z:
+    weight: -5.0
+  ang_vel_xy:
+    weight: -0.1
+  base_height:
+    weight: -20.0
+  action_rate:
+    weight: -0.02
+  similar_to_default:
+    weight: -0.4
+  contact:
+    weight: 1.5
+  swing_feet_z:
+    weight: 4.0

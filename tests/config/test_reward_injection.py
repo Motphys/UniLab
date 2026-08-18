@@ -38,8 +38,9 @@ def test_resolve_reward_dict_reads_task_reward():
 
     reward_dict = resolve_reward_dict(cfg)
 
-    assert reward_dict["scales"]["tracking_lin_vel"] == 1.0
-    assert reward_dict["scales"]["tracking_ang_vel"] == 0.2
+    assert reward_dict["tracking_lin_vel"]["weight"] == 1.0
+    assert reward_dict["tracking_ang_vel"]["weight"] == 0.2
+    assert reward_dict["tracking_lin_vel"]["func"].endswith("track_lin_vel_xy_exp")
 
 
 def test_reward_config_conversion():
