@@ -17,13 +17,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from unilab.base import registry
-
-from .flip_tracking import (
+from unilab.envs.motion_tracking.g1.flip_tracking import (
     G1FlipTracking23DofEnvCfg,
     G1FlipTrackingCfg,
     G1WallFlipTracking23DofEnvCfg,
     G1WallFlipTrackingCfg,
 )
+
 from .tracking_sac import G1MotionTrackingSACEnv
 
 
@@ -41,7 +41,7 @@ class G1FlipTrackingSACEnv(G1MotionTrackingSACEnv):
     The motrix backend is registered for sim2sim eval/playback only.
     """
 
-    _cfg: G1FlipTrackingSACCfg
+    _cfg: G1FlipTrackingSACCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @registry.envcfg("G1WallFlipTrackingSAC")
@@ -58,7 +58,7 @@ class G1WallFlipTrackingSACEnv(G1MotionTrackingSACEnv):
     The motrix backend is registered for sim2sim eval/playback only.
     """
 
-    _cfg: G1WallFlipTrackingSACCfg
+    _cfg: G1WallFlipTrackingSACCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @registry.envcfg("G1FlipTrackingSAC23Dof")
@@ -70,7 +70,7 @@ class G1FlipTrackingSAC23DofCfg(G1FlipTracking23DofEnvCfg):
 @registry.env("G1FlipTrackingSAC23Dof", sim_backend="mujoco")
 @registry.env("G1FlipTrackingSAC23Dof", sim_backend="motrix")
 class G1FlipTrackingSAC23DofEnv(G1MotionTrackingSACEnv):
-    _cfg: G1FlipTrackingSAC23DofCfg
+    _cfg: G1FlipTrackingSAC23DofCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @registry.envcfg("G1WallFlipTrackingSAC23Dof")
@@ -82,4 +82,4 @@ class G1WallFlipTrackingSAC23DofCfg(G1WallFlipTracking23DofEnvCfg):
 @registry.env("G1WallFlipTrackingSAC23Dof", sim_backend="mujoco")
 @registry.env("G1WallFlipTrackingSAC23Dof", sim_backend="motrix")
 class G1WallFlipTrackingSAC23DofEnv(G1MotionTrackingSACEnv):
-    _cfg: G1WallFlipTrackingSAC23DofCfg
+    _cfg: G1WallFlipTrackingSAC23DofCfg  # pyright: ignore[reportIncompatibleVariableOverride]

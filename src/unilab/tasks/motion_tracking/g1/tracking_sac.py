@@ -15,8 +15,11 @@ import numpy as np
 
 from unilab.base import registry
 from unilab.dtype_config import get_global_dtype
-
-from .tracking import G1MotionTracking23DofCfg, G1MotionTrackingCfg, G1MotionTrackingEnv
+from unilab.envs.motion_tracking.g1.tracking import (
+    G1MotionTracking23DofCfg,
+    G1MotionTrackingCfg,
+    G1MotionTrackingEnv,
+)
 
 
 @registry.envcfg("G1MotionTrackingSAC")
@@ -80,4 +83,4 @@ class G1MotionTrackingSAC23DofCfg(G1MotionTracking23DofCfg):
 @registry.env("G1MotionTrackingSAC23Dof", sim_backend="mujoco")
 @registry.env("G1MotionTrackingSAC23Dof", sim_backend="motrix")
 class G1MotionTrackingSAC23DofEnv(G1MotionTrackingSACEnv):
-    _cfg: G1MotionTrackingSAC23DofCfg
+    _cfg: G1MotionTrackingSAC23DofCfg  # pyright: ignore[reportIncompatibleVariableOverride]
