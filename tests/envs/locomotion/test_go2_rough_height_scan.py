@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from unilab.envs.locomotion.common.height_scan import height_scan_offsets as _height_scan_offsets
+from unilab.tasks.locomotion.common.height_scan import height_scan_offsets as _height_scan_offsets
 from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
 

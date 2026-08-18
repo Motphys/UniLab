@@ -35,4 +35,4 @@
 - 地形配置与 preset：`src/unilab/terrains/config.py`
 - 地形生成器：`src/unilab/terrains/terrain_generator.py`
 - Heightfield 地形类型：`src/unilab/terrains/heightfield_terrains.py`
-- 高度扫描辅助工具：`src/unilab/envs/locomotion/common/height_scan.py`
+- 高度扫描辅助工具：`src/unilab/tasks/locomotion/common/height_scan.py`
