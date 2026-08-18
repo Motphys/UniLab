@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..common.motion_loader import MotionData, MotionLoader
+from unilab.envs.motion_tracking.common.motion_loader import MotionData, MotionLoader
 
 
 @dataclass

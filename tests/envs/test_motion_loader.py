@@ -185,7 +185,7 @@ def test_motion_sampler_step_respects_current_clip_end(tmp_path):
 
 
 def test_box_motion_loader_reads_object_state_and_trims_robot_joints(tmp_path):
-    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionLoader
+    from unilab.tasks.motion_tracking.g1.motion_box_loader import BoxMotionLoader
 
     motion = tmp_path / "motion_box.npz"
     _write_box_motion_npz(motion, base_value=1.0, num_frames=2, num_joints=2)
@@ -207,7 +207,7 @@ def test_box_motion_loader_reads_object_state_and_trims_robot_joints(tmp_path):
 
 
 def test_box_motion_loader_rejects_partial_object_key_sets(tmp_path):
-    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionLoader
+    from unilab.tasks.motion_tracking.g1.motion_box_loader import BoxMotionLoader
 
     motion = tmp_path / "motion_box_missing_keys.npz"
     _write_box_motion_npz(motion, base_value=1.0, num_frames=2, num_joints=2)
@@ -221,7 +221,7 @@ def test_box_motion_loader_rejects_partial_object_key_sets(tmp_path):
 
 
 def test_box_motion_loader_rejects_multi_clip_object_presence_mismatch(tmp_path):
-    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionLoader
+    from unilab.tasks.motion_tracking.g1.motion_box_loader import BoxMotionLoader
 
     motion_without_object = tmp_path / "motion_without_object.npz"
     motion_with_object = tmp_path / "motion_with_object.npz"

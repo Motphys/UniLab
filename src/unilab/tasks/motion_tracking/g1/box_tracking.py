@@ -13,6 +13,13 @@ from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
+from unilab.envs.motion_tracking.common.rewards import RewardContext
+from unilab.envs.motion_tracking.g1.tracking import (
+    G1MotionTrackingCfg,
+    G1MotionTrackingDomainRandomizationProvider,
+    G1MotionTrackingEnv,
+    RewardConfig,
+)
 from unilab.utils.geometry import np_sample_uniform
 from unilab.utils.rotation import (
     np_matrix_from_quat,
@@ -24,14 +31,7 @@ from unilab.utils.rotation import (
     np_subtract_frame_transforms,
 )
 
-from ..common.rewards import RewardContext
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
-from .tracking import (
-    G1MotionTrackingCfg,
-    G1MotionTrackingDomainRandomizationProvider,
-    G1MotionTrackingEnv,
-    RewardConfig,
-)
 
 
 @dataclass
@@ -65,7 +65,9 @@ class G1BoxTrackingCfg(G1MotionTrackingCfg):
     object_body_name: str = "largebox"
     object_pos_threshold: float = 0.25
     object_ori_threshold: float = 0.8
-    reward_config: BoxRewardConfig = field(default_factory=BoxRewardConfig)
+    reward_config: BoxRewardConfig = field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default_factory=BoxRewardConfig
+    )
 
 
 @registry.envcfg("G1BoxTracking")
@@ -227,7 +229,7 @@ class G1BoxTrackingDomainRandomizationProvider(G1MotionTrackingDomainRandomizati
 class G1BoxTrackingEnv(G1MotionTrackingEnv):
     """Motion tracking env extended with large-box state and rewards."""
 
-    _cfg: G1BoxTrackingCfg
+    _cfg: G1BoxTrackingCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: G1BoxTrackingCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs, backend_type)
