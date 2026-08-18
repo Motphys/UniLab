@@ -111,6 +111,19 @@ scene composer 或通用 asset hierarchy。
 - 新 backend 能力必须作为独立 child 扩展 `SimBackend` 并补 conformance tests，不能在
   manager 或 env 中用 `getattr` / `hasattr` 探测私有实现。
 
+Named sensor 使用 `SimBackend.bind_sensor_data(names)` 在 materialization 冷路径校验名称、
+每个 sensor 的展平宽度、batch shape 与 finite 值，并返回 immutable
+`BackendSensorView`。term 热路径只调用 `view.read()`；MuJoCo、Drake 和 MJWarp adapter
+分别保留已解析的 host-cache slice 或数值 slot。MotrixSim 当前公开接口只提供 named
+sensor accessor、没有数值 sensor ID，因此 Motrix adapter 在 scene materialization 时缓存
+可用名称，并把原生批量 accessor 与 immutable 名称 tuple 封装为 backend-owned opaque
+reader；term 不接触名称解析、XML 或 model metadata，未知名称在进入原生调用前 fail-closed。
+
+这是 pinned mjlab sensor-facing 语义的 intentional NumPy/backend adaptation：社区侧的
+tensor/device view 在 UniLab 表达为按请求名称顺序拼接的二维 NumPy batch
+`(num_envs, sum(sensor_widths))`。名称顺序、单 sensor 宽度和当前值可见，Torch device、
+backend model/data 与原生 handle 不属于 manager contract。
+
 ### 5. Fail-closed capability rule
 
 用户显式禁用与实现缺失是两种不同状态。前者允许 Null manager；后者必须失败：
@@ -154,6 +167,7 @@ fallback 到旧单体 env 的永久兼容路径。
 | `ManagerBasedRlEnv` return | Adapted | 保留 `NpEnvState` 与 UniLab reset/final-observation contract |
 | config container | Adapted | plain instances + Hydra owner YAML overlay，不引入第二套 runtime |
 | `SceneEntityCfg` selectors | Adapted | 语义保留；只解析 `SimBackend` 已声明能力 |
+| named sensor view | Adapted | 冷路径 bind；有序展平 NumPy batch；reader 由 backend 拥有 |
 | event/domain randomization | Adapted | 调度语义保留；mutation 走 backend DR/capability contract |
 | Metrics/Recorder | Adapted | lifecycle hook 存在时启用；缺失时显式失败或显式空配置 |
 | Torch device、Warp mutation、viewer glue | Unsupported | 不进入 manager core，不提供静默替代 |

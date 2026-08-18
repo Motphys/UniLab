@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from unilab.base.scene import SceneCfg
 
-from .base import BackendRootStateLayout, RenderClosedError, SimBackend
+from .base import BackendRootStateLayout, BackendSensorView, RenderClosedError, SimBackend
 
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
@@ -221,6 +221,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "SimBackend",
+    "BackendSensorView",
     "RenderClosedError",
     "MuJoCoBackend",
     "MjwarpBackend",

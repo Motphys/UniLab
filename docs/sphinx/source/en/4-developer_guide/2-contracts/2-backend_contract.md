@@ -17,6 +17,9 @@ Optional capabilities are explicit:
   physics-state playback, and native video capture support.
 - `BackendHeightScanner` and `create_hfield_scanner(...)` expose terrain scan
   support through a reusable backend-owned object.
+- `BackendSensorView` and `bind_sensor_data(...)` validate ordered named sensors
+  on the cold path and retain a backend-owned reader for finite, shape-stable
+  NumPy batches. Manager hot paths do not inspect XML or model metadata.
 - Domain randomization support is surfaced through `get_dr_capabilities()` and
   the init, reset, and interval randomization methods.
 - Unsupported optional methods raise `NotImplementedError` from the base class.
@@ -37,5 +40,6 @@ Optional capabilities are explicit:
 - Backend factory: `src/unilab/base/backend/__init__.py`
 - MuJoCo backend: `src/unilab/base/backend/mujoco/backend.py`
 - Motrix backend: `src/unilab/base/backend/motrix/backend.py`
-- Backend contract tests: `tests/base/test_sim_backend.py`,
+- Backend contract tests: `tests/base/test_backend_sensor_view.py`,
+  `tests/base/test_backend_conformance.py`, `tests/base/test_sim_backend.py`,
   `tests/base/test_backend_imports.py`, `tests/base/test_motrix_backend_options.py`

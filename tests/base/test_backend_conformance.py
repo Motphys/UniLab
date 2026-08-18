@@ -220,6 +220,41 @@ def test_actuation_metadata_contract(backend_type: str) -> None:
 
 
 @pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
+def test_named_sensor_view_contract(backend_type: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """All available adapters expose the same ordered, finite sensor view."""
+    _require_backend(backend_type)
+
+    backend = create_backend(
+        backend_type,
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="pelvis",
+    )
+    backend.materialize()
+    names = ("pelvis_gyro", "pelvis_local_linvel")
+
+    view = backend.bind_sensor_data(names)
+    assert view.backend_type == backend.backend_type
+    assert view.names == names
+    assert view.dimensions == (3, 3)
+    assert view.width == 6
+    values = view.read()
+    assert values.shape == (NUM_ENVS, 6)
+    assert np.isfinite(values).all()
+    np.testing.assert_allclose(values, backend.get_sensor_data_batch(names))
+
+    def fail_if_public_batch_getter_is_used(*_args, **_kwargs):
+        raise AssertionError("materialized sensor view called the public batch getter")
+
+    monkeypatch.setattr(backend, "get_sensor_data_batch", fail_if_public_batch_getter_is_used)
+    np.testing.assert_allclose(view.read(), values)
+
+    with pytest.raises((KeyError, ValueError), match="missing_sensor|Missing|missing"):
+        backend.bind_sensor_data(("missing_sensor",))
+
+
+@pytest.mark.parametrize("backend_type", _BACKEND_PARAMS)
 def test_root_state_layout_contract(backend_type: str) -> None:
     _require_backend(backend_type)
 

@@ -2,7 +2,7 @@ import os
 import tempfile
 import time
 import weakref
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from multiprocessing import cpu_count, current_process, get_context
@@ -1349,6 +1349,15 @@ class MuJoCoBackend(SimBackend):
             return np.empty((self._num_envs, 0), dtype=self._np_dtype)
         values = [self._sensor_views[name].reshape(self._num_envs, -1) for name in sensor_names]
         return np.concatenate(values, axis=1)
+
+    def _bind_sensor_data_reader(self, names: tuple[str, ...]) -> Callable[[], np.ndarray]:
+        """Capture MuJoCo's materialized sensor slices for hot-path reads."""
+        sensor_views = tuple(self._sensor_views[name].reshape(self._num_envs, -1) for name in names)
+
+        def read() -> np.ndarray:
+            return np.concatenate(sensor_views, axis=1)
+
+        return read
 
     def get_site_jacobian_w(
         self,

@@ -16,6 +16,21 @@ if TYPE_CHECKING:
     from motrixsim.msd import Link, World
 
 
+def _motrix_sensor_names(world: "World") -> tuple[str, ...]:
+    """Collect the names accepted by Motrix's native sensor accessor once."""
+    groups = (
+        world.sensors.contact,
+        world.sensors.frame,
+        world.sensors.joint,
+        world.sensors.subtree,
+        world.sensors.touch,
+    )
+    names = tuple(str(sensor.name) for group in groups for sensor in group if sensor.name)
+    if len(set(names)) != len(names):
+        raise ValueError(f"Motrix scene contains duplicate sensor names: {names}")
+    return names
+
+
 def _extract_keyframes(fragment_file: Path) -> list[ET.Element]:
     """Return ``<keyframe>`` child elements declared inside ``fragment_file``."""
     root = ET.parse(fragment_file).getroot()
@@ -146,14 +161,14 @@ def add_motrix_tracking_frame_sensors(world: World, *, base_name: str) -> None:
             world.sensors.frame.append(sensor)
 
 
-def materialize_motrix_scene(
+def _materialize_motrix_scene_with_sensor_names(
     *,
     model_file: str,
     fragment_files: Sequence[str] = (),
     add_body_sensors: bool = False,
     base_name: str = "base",
-) -> SceneModel:
-    """Build a MotrixSim model through MSD scene composition."""
+) -> tuple["SceneModel", tuple[str, ...]]:
+    """Build a Motrix model and return its validated cold-path sensor names."""
     import motrixsim.msd as msd
 
     model_path = Path(model_file).resolve()
@@ -167,40 +182,29 @@ def materialize_motrix_scene(
             _attach_motrix_scene_fragment(world, fragment_path)
         if add_body_sensors:
             add_motrix_tracking_frame_sensors(world, base_name=base_name)
-        return msd.build(world)
+        model = msd.build(world)
+        return model, _motrix_sensor_names(world)
     finally:
         _cleanup_temp_xml(robot_path, model_path)
 
 
-@overload
-def materialize_motrix_hfield_attached_scene(
+def materialize_motrix_scene(
     *,
     model_file: str,
-    terrain_cfg: TerrainGeneratorCfg,
     fragment_files: Sequence[str] = (),
-    hfield_name: str = "terrain_hfield",
-    geom_name: str = "floor",
     add_body_sensors: bool = False,
     base_name: str = "base",
-    return_surface_sampler: Literal[False] = False,
-) -> tuple[SceneModel, np.ndarray]: ...
+) -> "SceneModel":
+    """Build a MotrixSim model through MSD scene composition."""
+    return _materialize_motrix_scene_with_sensor_names(
+        model_file=model_file,
+        fragment_files=fragment_files,
+        add_body_sensors=add_body_sensors,
+        base_name=base_name,
+    )[0]
 
 
-@overload
-def materialize_motrix_hfield_attached_scene(
-    *,
-    model_file: str,
-    terrain_cfg: TerrainGeneratorCfg,
-    fragment_files: Sequence[str] = (),
-    hfield_name: str = "terrain_hfield",
-    geom_name: str = "floor",
-    add_body_sensors: bool = False,
-    base_name: str = "base",
-    return_surface_sampler: Literal[True],
-) -> tuple[SceneModel, np.ndarray, object]: ...
-
-
-def materialize_motrix_hfield_attached_scene(
+def _materialize_motrix_hfield_attached_scene_with_sensor_names(
     *,
     model_file: str,
     terrain_cfg: TerrainGeneratorCfg,
@@ -210,8 +214,8 @@ def materialize_motrix_hfield_attached_scene(
     add_body_sensors: bool = False,
     base_name: str = "base",
     return_surface_sampler: bool = False,
-) -> tuple[SceneModel, np.ndarray] | tuple[SceneModel, np.ndarray, object]:
-    """Build a MotrixSim model with generated hfield terrain and attached robot."""
+) -> tuple[SceneModel, np.ndarray, object | None, tuple[str, ...]]:
+    """Build a Motrix terrain model and return its cold-path sensor names."""
     import motrixsim.msd as msd
 
     from unilab.terrains import TerrainGenerator
@@ -262,6 +266,63 @@ def materialize_motrix_hfield_attached_scene(
     if add_body_sensors:
         add_motrix_tracking_frame_sensors(world, base_name=base_name)
 
+    model = msd.build(world)
+    sampler = generated.surface_sampler() if return_surface_sampler else None
+    return model, generated.terrain_origins, sampler, _motrix_sensor_names(world)
+
+
+@overload
+def materialize_motrix_hfield_attached_scene(
+    *,
+    model_file: str,
+    terrain_cfg: TerrainGeneratorCfg,
+    fragment_files: Sequence[str] = (),
+    hfield_name: str = "terrain_hfield",
+    geom_name: str = "floor",
+    add_body_sensors: bool = False,
+    base_name: str = "base",
+    return_surface_sampler: Literal[False] = False,
+) -> tuple[SceneModel, np.ndarray]: ...
+
+
+@overload
+def materialize_motrix_hfield_attached_scene(
+    *,
+    model_file: str,
+    terrain_cfg: TerrainGeneratorCfg,
+    fragment_files: Sequence[str] = (),
+    hfield_name: str = "terrain_hfield",
+    geom_name: str = "floor",
+    add_body_sensors: bool = False,
+    base_name: str = "base",
+    return_surface_sampler: Literal[True],
+) -> tuple[SceneModel, np.ndarray, object]: ...
+
+
+def materialize_motrix_hfield_attached_scene(
+    *,
+    model_file: str,
+    terrain_cfg: TerrainGeneratorCfg,
+    fragment_files: Sequence[str] = (),
+    hfield_name: str = "terrain_hfield",
+    geom_name: str = "floor",
+    add_body_sensors: bool = False,
+    base_name: str = "base",
+    return_surface_sampler: bool = False,
+) -> tuple[SceneModel, np.ndarray] | tuple[SceneModel, np.ndarray, object]:
+    """Build a MotrixSim model with generated hfield terrain and attached robot."""
+    model, origins, sampler, _ = _materialize_motrix_hfield_attached_scene_with_sensor_names(
+        model_file=model_file,
+        terrain_cfg=terrain_cfg,
+        fragment_files=fragment_files,
+        hfield_name=hfield_name,
+        geom_name=geom_name,
+        add_body_sensors=add_body_sensors,
+        base_name=base_name,
+        return_surface_sampler=return_surface_sampler,
+    )
     if return_surface_sampler:
-        return msd.build(world), generated.terrain_origins, generated.surface_sampler()
-    return msd.build(world), generated.terrain_origins
+        if sampler is None:
+            raise RuntimeError("Motrix terrain materialization did not produce a surface sampler")
+        return model, origins, sampler
+    return model, origins

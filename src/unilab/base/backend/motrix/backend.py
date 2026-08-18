@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
@@ -84,6 +84,7 @@ def _contiguous_slice(indices: np.ndarray) -> slice | None:
 @dataclass
 class _MotrixSceneContext:
     model: "mtx.SceneModel"
+    sensor_names: tuple[str, ...]
     terrain_origins: np.ndarray | None = None
     terrain_surface_sampler: object | None = None
     cleanup_handle: object | None = None
@@ -112,8 +113,8 @@ def _build_motrix_scene_context(
     base_name: str,
 ) -> _MotrixSceneContext:
     from unilab.base.backend.motrix.scene import (
-        materialize_motrix_hfield_attached_scene,
-        materialize_motrix_scene,
+        _materialize_motrix_hfield_attached_scene_with_sensor_names,
+        _materialize_motrix_scene_with_sensor_names,
     )
 
     if scene is None:
@@ -122,29 +123,32 @@ def _build_motrix_scene_context(
         raise ValueError("SceneCfg.model_file must be provided")
 
     if scene.terrain is None:
-        model = materialize_motrix_scene(
+        model, sensor_names = _materialize_motrix_scene_with_sensor_names(
             model_file=scene.model_file,
             fragment_files=scene.fragment_files,
             add_body_sensors=add_body_sensors,
             base_name=base_name,
         )
-        return _MotrixSceneContext(model=model)
+        return _MotrixSceneContext(model=model, sensor_names=sensor_names)
 
     if scene.terrain.generator is None:
         raise ValueError("SceneCfg.terrain.generator must be configured for terrain scenes")
 
-    model, terrain_origins, terrain_surface_sampler = materialize_motrix_hfield_attached_scene(
-        model_file=scene.model_file,
-        terrain_cfg=scene.terrain.generator,
-        fragment_files=scene.fragment_files,
-        hfield_name=scene.terrain.hfield_name,
-        geom_name=scene.terrain.geom_name or "floor",
-        add_body_sensors=add_body_sensors,
-        base_name=base_name,
-        return_surface_sampler=True,
+    model, terrain_origins, terrain_surface_sampler, sensor_names = (
+        _materialize_motrix_hfield_attached_scene_with_sensor_names(
+            model_file=scene.model_file,
+            terrain_cfg=scene.terrain.generator,
+            fragment_files=scene.fragment_files,
+            hfield_name=scene.terrain.hfield_name,
+            geom_name=scene.terrain.geom_name or "floor",
+            add_body_sensors=add_body_sensors,
+            base_name=base_name,
+            return_surface_sampler=True,
+        )
     )
     return _MotrixSceneContext(
         model=model,
+        sensor_names=sensor_names,
         terrain_origins=terrain_origins,
         terrain_surface_sampler=terrain_surface_sampler,
     )
@@ -192,6 +196,7 @@ class MotrixBackend(SimBackend):
         self._base_name = base_name
 
         self._model = scene_context.model
+        self._sensor_names = frozenset(scene_context.sensor_names)
         self._body_id_to_name = {  # type: ignore[assignment]
             link.index: link.name for link in self._model.links if link.name
         }
@@ -1166,10 +1171,20 @@ class MotrixBackend(SimBackend):
     # Sensors                                                            #
     # ------------------------------------------------------------------ #
 
+    def _validate_sensor_names(self, names: Sequence[str]) -> tuple[str, ...]:
+        sensor_names = tuple(names)
+        missing = tuple(name for name in sensor_names if name not in self._sensor_names)
+        if missing:
+            available = ", ".join(sorted(self._sensor_names))
+            raise KeyError(f"Unknown Motrix sensor(s) {missing}; available sensors: {available}")
+        return sensor_names
+
     def get_sensor_data(self, name: str) -> np.ndarray:
+        self._validate_sensor_names((name,))
         return self._model.get_sensor_value(name, self._data)  # type: ignore[no-any-return]
 
     def get_sensor_data_rows(self, name: str, env_ids: np.ndarray) -> np.ndarray:
+        self._validate_sensor_names((name,))
         rows = np.asarray(env_ids, dtype=np.intp)
         mask = np.zeros(self._num_envs, dtype=bool)
         mask[rows] = True
@@ -1178,11 +1193,25 @@ class MotrixBackend(SimBackend):
         return selected_values[np.searchsorted(selected_rows, rows)]  # type: ignore[no-any-return]
 
     def get_sensor_data_batch(self, names: Sequence[str]) -> np.ndarray:
-        sensor_names = tuple(names)
+        sensor_names = self._validate_sensor_names(names)
         if not sensor_names:
             return np.empty((self._num_envs, 0), dtype=self._np_dtype)
         values = self._model.get_sensor_values(sensor_names, self._data)
         return np.asarray(values, dtype=self._np_dtype)
+
+    def _bind_sensor_data_reader(self, names: tuple[str, ...]) -> Callable[[], np.ndarray]:
+        """Retain Motrix's opaque native reader after cold-path name validation.
+
+        MotrixSim exposes named sensor access but no public numeric sensor ID;
+        the bound callable is therefore the narrowest backend-owned reader.
+        It does not inspect XML or model metadata on the manager hot path.
+        """
+        native_reader = self._model.get_sensor_values
+
+        def read() -> np.ndarray:
+            return np.asarray(native_reader(names, self._data), dtype=self._np_dtype)
+
+        return read
 
     # ------------------------------------------------------------------ #
     # MotrixSim-specific                                                 #
