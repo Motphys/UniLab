@@ -227,7 +227,7 @@ def test_offpolicy_flashsac_go2_task_overrides():
 def test_go2_joystick_rough_uses_terrain_generator():
     from unilab.assets import ASSETS_ROOT_PATH
     from unilab.base.scene import SceneCfg, TerrainSceneCfg
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg
     from unilab.terrains import TerrainGeneratorCfg
 
     cfg = Go2JoystickRoughCfg()
@@ -245,7 +245,7 @@ def test_go2_joystick_rough_uses_terrain_generator():
 
 def test_go2_joystick_rough_terrain_cfg_is_independent_per_instance():
     """Confirm rough terrain cfg defaults are not shared across instances."""
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg
 
     a = Go2JoystickRoughCfg()
     b = Go2JoystickRoughCfg()
@@ -260,7 +260,7 @@ def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
     import mujoco
 
     from unilab.envs.locomotion.go2.joystick import RewardConfig
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg, Go2JoystickRoughEnv
     from unilab.visualization.playback import _resolve_render_play_model_files
 
     cfg = Go2JoystickRoughCfg(
@@ -348,7 +348,7 @@ def test_ppo_go2_joystick_rough_motrix_task_compose():
 
 def test_go2_joystick_rough_motrix_registers_rough_env():
     from unilab.base import registry
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     assert registry._envs["Go2JoystickRough"].env_factory_dict["motrix"] is Go2JoystickRoughEnv
 
@@ -659,7 +659,7 @@ def test_apply_cfg_overrides_deep_merges_dataclass_field():
     instances rather than re-instantiating them, so partial overrides like
     `scene.terrain.generator.num_rows=4` keep `sub_terrains` and other defaults."""
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg
 
     cfg = Go2JoystickRoughCfg()
     cfg.scene.terrain.generator.num_cols = 3
@@ -693,7 +693,7 @@ def test_ppo_go2_joystick_rough_hydra_terrain_override():
     from hydra.core.global_hydra import GlobalHydra
 
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg
     from unilab.training.backend_adapter import BackendAdapter
 
     GlobalHydra.instance().clear()

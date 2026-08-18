@@ -30,7 +30,7 @@ def _configure_small_terrain(cfg, *, seed: int = 0) -> None:
 
 
 def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg, RoughRewardConfig
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg, RoughRewardConfig
 
     cfg = Go2JoystickRoughCfg(
         reward_config=RoughRewardConfig(scales={}, tracking_sigma=0.25, base_height_target=0.3)
@@ -41,7 +41,7 @@ def _rough_cfg(*, curriculum_enabled: bool = False, seed: int = 0):
 
 
 def test_terrain_spawn_attached_when_rough():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg()
     env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
@@ -204,7 +204,7 @@ def test_go2_rough_base_height_reward_uses_terrain_relative_height():
 
 
 def test_go2_rough_pd_torque_estimate_returns_dof_order():
-    from unilab.envs.locomotion.go2.rough import (
+    from unilab.tasks.locomotion.go2.rough import (
         GO2_ACTUATOR_TO_DOF_INDICES,
         Go2JoystickRoughEnv,
     )
@@ -250,7 +250,7 @@ def test_default_spawn_used_when_flat():
 
 
 def test_curriculum_disabled_distributes_levels_uniformly():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
     env = Go2JoystickRoughEnv(cfg, num_envs=64, backend_type="mujoco")
@@ -266,7 +266,7 @@ def test_curriculum_disabled_distributes_levels_uniformly():
 
 
 def test_curriculum_enabled_levels_start_at_zero():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=True, seed=0)
     env = Go2JoystickRoughEnv(cfg, num_envs=8, backend_type="mujoco")
@@ -279,7 +279,7 @@ def test_curriculum_enabled_levels_start_at_zero():
 
 
 def test_reset_qpos_xy_matches_terrain_origins():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
     env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
@@ -299,7 +299,7 @@ def test_reset_qpos_xy_matches_terrain_origins():
 
 
 def test_rough_reset_spawns_above_sampled_terrain():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=False, seed=0)
     env = Go2JoystickRoughEnv(cfg, num_envs=64, backend_type="mujoco")
@@ -315,7 +315,7 @@ def test_rough_reset_spawns_above_sampled_terrain():
 
 
 def test_curriculum_logs_appear_after_done():
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     cfg = _rough_cfg(curriculum_enabled=True, seed=0)
     env = Go2JoystickRoughEnv(cfg, num_envs=4, backend_type="mujoco")
@@ -345,7 +345,7 @@ def test_episode_start_recorded_after_reset(preset):
         Go2WalkTask,
         RewardConfig,
     )
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     if preset == "flat":
         cfg = Go2JoystickCfg(

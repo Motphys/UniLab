@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from unilab.envs.locomotion.common.height_scan import height_scan_offsets as _height_scan_offsets
-from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
 
 def test_go2_rough_height_scan_uses_backend_native_sampling() -> None:
