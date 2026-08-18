@@ -654,14 +654,13 @@ def make_manager_based_rl_env(
     base_name, body_state_requested = _resolve_backend_entity_contract(cfg)
     backend_kwargs = env_backend_kwargs(cfg)
     backend_kwargs["base_name"] = base_name
-    if backend_type in {"mujoco", "motrix"}:
-        backend_kwargs["add_body_sensors"] = body_state_requested
 
     backend = create_backend(
         backend_type,
         cfg.scene,
         num_envs,
         cfg.sim_dt,
+        body_state_required=body_state_requested,
         **backend_kwargs,
     )
     try:

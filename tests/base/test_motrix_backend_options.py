@@ -772,6 +772,106 @@ def test_create_backend_routes_post_step_forward_sensor_to_mujoco(monkeypatch) -
     assert captured["kwargs"]["post_step_forward_sensor"] is False
 
 
+@pytest.mark.parametrize("body_state_required", [False, True])
+def test_create_backend_maps_body_state_request_inside_mujoco_adapter(
+    monkeypatch, body_state_required: bool
+) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMuJoCoBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_mujoco_backend", lambda: FakeMuJoCoBackend)
+
+    backend_factory.create_backend(
+        "mujoco",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        body_state_required=body_state_required,
+    )
+
+    if body_state_required:
+        assert captured["kwargs"]["add_body_sensors"] is True
+    else:
+        assert "add_body_sensors" not in captured["kwargs"]
+
+
+def test_create_backend_maps_body_state_request_inside_motrix_adapter(monkeypatch) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMotrixBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(
+        backend_factory,
+        "_load_motrix_backend",
+        lambda: (FakeMotrixBackend, True),
+    )
+
+    backend_factory.create_backend(
+        "motrix",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        body_state_required=True,
+    )
+
+    assert captured["kwargs"]["add_body_sensors"] is True
+
+
+@pytest.mark.parametrize("backend_type", ["drake", "mjwarp"])
+def test_create_backend_keeps_body_state_request_out_of_native_state_adapters(
+    monkeypatch, backend_type: str
+) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    if backend_type == "drake":
+        monkeypatch.setattr(backend_factory, "_load_drake_backend", lambda: FakeBackend)
+    else:
+        monkeypatch.setattr(backend_factory, "_load_mjwarp_backend", lambda: FakeBackend)
+
+    backend_factory.create_backend(
+        backend_type,
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        body_state_required=True,
+    )
+
+    assert "body_state_required" not in captured["kwargs"]
+    assert "add_body_sensors" not in captured["kwargs"]
+
+
+def test_create_backend_rejects_non_bool_body_state_request() -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    with pytest.raises(TypeError, match="body_state_required must be bool"):
+        backend_factory.create_backend(
+            "mujoco",
+            SceneCfg(model_file="model.xml"),
+            num_envs=1,
+            sim_dt=0.01,
+            body_state_required=1,  # type: ignore[arg-type]
+        )
+
+
 def test_create_backend_does_not_route_post_step_forward_sensor_to_motrix(monkeypatch) -> None:
     import unilab.base.backend as backend_factory
     from unilab.base.scene import SceneCfg
