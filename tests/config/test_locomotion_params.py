@@ -259,7 +259,7 @@ def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
     """Offline playback / video rendering must reuse the backend-compiled scene model."""
     import mujoco
 
-    from unilab.envs.locomotion.go2.joystick import RewardConfig
+    from unilab.tasks.locomotion.go2.joystick import RewardConfig
     from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg, Go2JoystickRoughEnv
     from unilab.visualization.playback import _resolve_render_play_model_files
 
@@ -296,7 +296,7 @@ def test_go2_joystick_rough_playback_model_uses_backend_scene(tmp_path):
 
 def test_go2_joystick_flat_no_terrain_materialized():
     """Flat task keeps the static scene source and has no terrain origins."""
-    from unilab.envs.locomotion.go2.joystick import (
+    from unilab.tasks.locomotion.go2.joystick import (
         Go2JoystickCfg,
         Go2WalkTask,
         RewardConfig,

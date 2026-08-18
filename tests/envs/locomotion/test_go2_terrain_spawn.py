@@ -63,7 +63,7 @@ def test_terrain_spawn_attached_when_rough():
 def test_terrain_spawn_attached_when_rough_motrix():
     pytest.importorskip("motrixsim")
 
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
 
     cfg = _rough_cfg()
     cfg.domain_rand.randomize_kp = False
@@ -178,7 +178,7 @@ def test_terrain_spawn_rejects_non_callable_height_sampler_on_init():
 
 
 def test_go2_rough_base_height_reward_uses_terrain_relative_height():
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
 
     class FakeBackend:
         def get_base_pos(self):
@@ -227,7 +227,7 @@ def test_go2_rough_pd_torque_estimate_returns_dof_order():
 
 
 def test_default_spawn_used_when_flat():
-    from unilab.envs.locomotion.go2.joystick import (
+    from unilab.tasks.locomotion.go2.joystick import (
         Go2JoystickCfg,
         Go2WalkTask,
         RewardConfig,
@@ -340,7 +340,7 @@ def test_curriculum_logs_appear_after_done():
 
 @pytest.mark.parametrize("preset", ["flat", "rough"])
 def test_episode_start_recorded_after_reset(preset):
-    from unilab.envs.locomotion.go2.joystick import (
+    from unilab.tasks.locomotion.go2.joystick import (
         Go2JoystickCfg,
         Go2WalkTask,
         RewardConfig,

@@ -67,7 +67,7 @@ def test_sample_commands_with_standing_matches_rough_block():
 def test_go2_advance_phase_is_unconditional():
     """Go2WalkTask advances the gait clock every step regardless of command —
     the A2 standing freeze must not have leaked into the Go2 owner."""
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
+    from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
 
     stub = SimpleNamespace(_cfg=SimpleNamespace(ctrl_dt=0.02), gait_frequency=2.0)
     phase = np.array([0.3, 0.3])
@@ -81,7 +81,7 @@ def test_go2_reward_config_has_no_command_threshold():
     must not declare it."""
     import dataclasses
 
-    from unilab.envs.locomotion.go2.joystick import RewardConfig
+    from unilab.tasks.locomotion.go2.joystick import RewardConfig
 
     names = {f.name for f in dataclasses.fields(RewardConfig)}
     assert "command_threshold" not in names
