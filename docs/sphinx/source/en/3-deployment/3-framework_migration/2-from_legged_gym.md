@@ -32,7 +32,7 @@ mostly mechanical.
 ## Migration checklist
 
 1. Copy your URDF / MJCF assets under `src/unilab/assets/robots/<robot>/`.
-2. Create a task module under `src/unilab/envs/locomotion/<robot>/`.
+2. Create a task module under `src/unilab/tasks/locomotion/<robot>/`.
 3. Mirror your reward terms; keep the same names so reward parity is
    diff-able.
 4. Translate command sampling — Legged Gym's `_resample_commands` becomes

@@ -36,7 +36,7 @@ visual mesh 作为 collision mesh，尽量把碰撞体简化为 box / capsule / 
 
 - 默认自动导入会把 actuator 写成 `position`，这只适合位置控制 owner。
   - 如果机器人必须保留 torque/motor actuator 语义，后续扩展任务时，需要参考
-    `src/unilab/envs/locomotion/go2w/` 的控制方式，把 action 解释、PD/力矩控制和
+    `src/unilab/tasks/locomotion/go2w/` 的控制方式，把 action 解释、PD/力矩控制和
     actuator contract 放在机器人 owner 的控制边界内。
 - 转换完成后，会自动弹出 `mujoco.viewer` 可视化界面展示转换结果，并进行下一步调整
   Keyframe。

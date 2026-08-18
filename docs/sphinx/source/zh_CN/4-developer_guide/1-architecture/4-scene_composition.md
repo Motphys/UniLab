@@ -98,7 +98,7 @@ materializer。
 
 当前面向用户的程序化地形路径是 Go2 崎岖地形：
 
-- Env owner：`src/unilab/envs/locomotion/go2/rough.py`
+- Task owner：`src/unilab/tasks/locomotion/go2/rough.py`
 - 地形生成器：`src/unilab/terrains/terrain_generator.py`
 - MuJoCo materializer：`src/unilab/base/backend/mujoco/xml.py`
 - Motrix materializer：`src/unilab/base/backend/motrix/scene.py`

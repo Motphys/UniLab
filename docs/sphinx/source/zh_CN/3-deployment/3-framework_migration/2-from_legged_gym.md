@@ -29,7 +29,7 @@ Legged Gym 曾是那套 GPU 常驻的 PPO 模板，教会了整个领域如何�
 ## 迁移清单
 
 1. 把你的 URDF / MJCF asset 复制到 `src/unilab/assets/robots/<robot>/` 下。
-2. 在 `src/unilab/envs/locomotion/<robot>/` 下创建一个任务模块。
+2. 在 `src/unilab/tasks/locomotion/<robot>/` 下创建一个任务模块。
 3. 镜像你的 reward 项；保持名称相同，以便 reward 一致性可被 diff。
 4. 翻译命令采样 —— Legged Gym 的 `_resample_commands` 在 UniLab 中变成一个
    curriculum provider。

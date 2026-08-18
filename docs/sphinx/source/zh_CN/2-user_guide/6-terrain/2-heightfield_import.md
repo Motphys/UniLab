@@ -6,7 +6,7 @@
 
 - `src/unilab/terrains/heightfield_terrains.py`
 - `src/unilab/terrains/terrain_generator.py`
-- `src/unilab/envs/locomotion/go2/rough.py`
+- `src/unilab/tasks/locomotion/go2/rough.py`
 - `src/unilab/base/backend/mujoco/xml.py`
 - `src/unilab/base/backend/motrix/scene.py`
 

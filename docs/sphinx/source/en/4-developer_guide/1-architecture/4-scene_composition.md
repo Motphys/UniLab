@@ -105,7 +105,7 @@ Disallowed on hot paths:
 
 The current procedural terrain user-facing path is Go2 rough terrain:
 
-- Env owner: `src/unilab/envs/locomotion/go2/rough.py`
+- Task owner: `src/unilab/tasks/locomotion/go2/rough.py`
 - Terrain generator: `src/unilab/terrains/terrain_generator.py`
 - MuJoCo materializer: `src/unilab/base/backend/mujoco/xml.py`
 - Motrix materializer: `src/unilab/base/backend/motrix/scene.py`
