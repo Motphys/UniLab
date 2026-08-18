@@ -1,4 +1,4 @@
-"""Shared height-scan and terrain-bound helpers for rough locomotion envs.
+"""Shared height-scan and terrain-bound helpers for rough locomotion tasks.
 
 These functions and the ``HeightScanConfig`` dataclass are consumed by Go2,
 Go2W, Go1, and G1 rough environments — anywhere the policy / critic ingests
