@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -247,6 +248,340 @@ def resolve_env_ids(env: ManagerBasedRlEnv, env_ids: np.ndarray | None) -> np.nd
     if env_ids is None:
         return np.arange(env.num_envs, dtype=np.int32)
     return env_ids
+
+
+class _ModelFieldRandomizer(ManagerTermBase):
+    """Cold-path-bound NumPy adapter for pinned mjlab model-field DR terms."""
+
+    _term_name = "model_field"
+    _field_width = 1
+    _default_axes: tuple[int, ...] = (0,)
+    _valid_axes: tuple[int, ...] = (0,)
+    _PARAMS = frozenset(
+        ("ranges", "asset_cfg", "distribution", "operation", "axes", "shared_random")
+    )
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        _validate_event_term(
+            cfg,
+            term_name=self._term_name,
+            mode="reset",
+            allowed_params=self._PARAMS,
+            required_params=("ranges",),
+        )
+        self._distribution = _event_choice(
+            cfg.params.get("distribution", "uniform"),
+            term_name=self._term_name,
+            name="distribution",
+            choices=_DISTRIBUTIONS,
+        )
+        self._operation = _event_choice(
+            cfg.params.get("operation", "abs"),
+            term_name=self._term_name,
+            name="operation",
+            choices=_OPERATIONS,
+        )
+        shared_random = cfg.params.get("shared_random", False)
+        if not isinstance(shared_random, bool):
+            raise TypeError(
+                f"EventManager term '{self._term_name}' parameter 'shared_random' must be bool"
+            )
+        self._shared_random = shared_random
+        asset_cfg = cfg.params.get("asset_cfg", _DEFAULT_ASSET_CFG)
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(
+                f"EventManager term '{self._term_name}' asset_cfg must be SceneEntityCfg, "
+                f"got {type(asset_cfg).__name__}"
+            )
+        entity = cast("Entity", env.scene[asset_cfg.name])
+        local_ids, defaults, names = self._bind(entity, asset_cfg)
+        ranges = cfg.params["ranges"]
+        local_ids, defaults, names, ranges = self._select_string_ranges(
+            local_ids,
+            defaults,
+            names,
+            ranges,
+        )
+        self._entity = entity
+        self._local_ids = local_ids
+        self._defaults = defaults
+        self._axes = self._resolve_axes(cfg.params.get("axes"), ranges)
+        self._ranges = self._resolve_ranges(ranges, names)
+
+    def _bind(
+        self,
+        entity: Entity,
+        asset_cfg: SceneEntityCfg,
+    ) -> tuple[np.ndarray, np.ndarray, tuple[str, ...]]:
+        raise NotImplementedError
+
+    def _write(
+        self,
+        values: np.ndarray,
+        env_ids: np.ndarray,
+    ) -> None:
+        raise NotImplementedError
+
+    def _select_string_ranges(
+        self,
+        local_ids: np.ndarray,
+        defaults: np.ndarray,
+        names: tuple[str, ...],
+        ranges: Any,
+    ) -> tuple[np.ndarray, np.ndarray, tuple[str, ...], Any]:
+        if not isinstance(ranges, dict) or not ranges:
+            return local_ids, defaults, names, ranges
+        keys = tuple(ranges)
+        if not all(isinstance(key, str) for key in keys):
+            if any(isinstance(key, str) for key in keys):
+                raise TypeError(
+                    f"EventManager term '{self._term_name}' ranges cannot mix string and integer keys"
+                )
+            return local_ids, defaults, names, ranges
+
+        assigned: list[Any | None] = [None] * len(names)
+        for pattern, bounds in ranges.items():
+            try:
+                matched = [index for index, name in enumerate(names) if re.fullmatch(pattern, name)]
+            except re.error as exc:
+                raise ValueError(
+                    f"EventManager term '{self._term_name}' ranges contains invalid regex "
+                    f"{pattern!r}: {exc}"
+                ) from exc
+            if not matched:
+                raise ValueError(
+                    f"EventManager term '{self._term_name}' ranges pattern {pattern!r} "
+                    f"matched no selected names; available={list(names)}"
+                )
+            for index in matched:
+                if assigned[index] is not None:
+                    raise ValueError(
+                        f"EventManager term '{self._term_name}' ranges patterns overlap for "
+                        f"selected name '{names[index]}'"
+                    )
+                assigned[index] = bounds
+        selected = np.asarray(
+            [index for index, value in enumerate(assigned) if value is not None],
+            dtype=np.intp,
+        )
+        return (
+            local_ids[selected],
+            defaults[selected],
+            tuple(names[index] for index in selected),
+            [assigned[index] for index in selected],
+        )
+
+    def _resolve_axes(self, value: Any, ranges: Any) -> tuple[int, ...]:
+        if value is None and isinstance(ranges, dict) and ranges:
+            value = list(ranges)
+        if value is None:
+            axes = self._default_axes
+        else:
+            if not isinstance(value, (list, tuple)):
+                raise TypeError(
+                    f"EventManager term '{self._term_name}' parameter 'axes' must be a sequence"
+                )
+            if any(
+                isinstance(axis, bool) or not isinstance(axis, (int, np.integer)) for axis in value
+            ):
+                raise TypeError(
+                    f"EventManager term '{self._term_name}' parameter 'axes' must contain integers"
+                )
+            axes = tuple(int(axis) for axis in value)
+        if not axes:
+            raise ValueError(
+                f"EventManager term '{self._term_name}' parameter 'axes' cannot be empty"
+            )
+        if len(set(axes)) != len(axes):
+            raise ValueError(
+                f"EventManager term '{self._term_name}' parameter 'axes' contains duplicates"
+            )
+        invalid = sorted(set(axes) - set(self._valid_axes))
+        if invalid:
+            raise ValueError(
+                f"EventManager term '{self._term_name}' has invalid axes {invalid}; "
+                f"valid axes are {list(self._valid_axes)}"
+            )
+        return axes
+
+    def _resolve_ranges(self, value: Any, names: tuple[str, ...]) -> np.ndarray:
+        per_entity: list[Any]
+        if (
+            isinstance(value, list)
+            and len(value) == len(names)
+            and any(isinstance(item, (tuple, list, np.ndarray)) for item in value)
+        ):
+            per_entity = list(value)
+            value = None
+        else:
+            per_entity = []
+
+        result = np.empty((len(names), self._field_width, 2), dtype=np.float64)
+        result[:] = np.nan
+        if per_entity:
+            if len(self._axes) != 1:
+                raise ValueError(
+                    f"EventManager term '{self._term_name}' string-keyed ranges require one axis"
+                )
+            for index, bounds in enumerate(per_entity):
+                result[index, self._axes[0]] = _distribution_parameters(
+                    bounds,
+                    term_name=self._term_name,
+                    name=f"ranges[{names[index]}]",
+                    distribution=self._distribution,
+                )
+        elif isinstance(value, dict):
+            unknown = sorted(set(value) - set(self._axes))
+            missing = sorted(set(self._axes) - set(value))
+            if unknown or missing:
+                raise ValueError(
+                    f"EventManager term '{self._term_name}' ranges axes mismatch; "
+                    f"missing={missing}, unknown={unknown}"
+                )
+            for axis in self._axes:
+                result[:, axis] = _distribution_parameters(
+                    value[axis],
+                    term_name=self._term_name,
+                    name=f"ranges[{axis}]",
+                    distribution=self._distribution,
+                )
+        else:
+            parameters = _distribution_parameters(
+                value,
+                term_name=self._term_name,
+                name="ranges",
+                distribution=self._distribution,
+            )
+            for axis in self._axes:
+                result[:, axis] = parameters
+        result.setflags(write=False)
+        return result
+
+    def _sample_axis(self, env: ManagerBasedRlEnv, axis: int, count: int) -> np.ndarray:
+        parameters = self._ranges[:, axis]
+        if self._shared_random:
+            samples = np.empty((count, len(parameters)), dtype=np.float64)
+            groups: dict[tuple[float, float], list[int]] = {}
+            for index, pair in enumerate(parameters):
+                groups.setdefault((float(pair[0]), float(pair[1])), []).append(index)
+            for (first, second), indices in groups.items():
+                if self._distribution == "gaussian":
+                    shared = env.rng.normal(first, second, size=(count, 1))
+                elif self._distribution == "log_uniform":
+                    shared = np.exp(env.rng.uniform(np.log(first), np.log(second), size=(count, 1)))
+                else:
+                    shared = env.rng.uniform(first, second, size=(count, 1))
+                samples[:, indices] = shared
+            return samples
+        if self._distribution == "gaussian":
+            return env.rng.normal(parameters[:, 0], parameters[:, 1], size=(count, len(parameters)))
+        if self._distribution == "log_uniform":
+            return np.exp(
+                env.rng.uniform(
+                    np.log(parameters[:, 0]),
+                    np.log(parameters[:, 1]),
+                    size=(count, len(parameters)),
+                )
+            )
+        return env.rng.uniform(
+            parameters[:, 0],
+            parameters[:, 1],
+            size=(count, len(parameters)),
+        )
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: np.ndarray | None,
+        ranges: Any,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+        distribution: str = "uniform",
+        operation: str = "abs",
+        axes: list[int] | None = None,
+        shared_random: bool = False,
+    ) -> None:
+        del ranges, asset_cfg, distribution, operation, axes, shared_random
+        ids = resolve_env_ids(env, env_ids)
+        defaults = self._defaults
+        scalar = defaults.ndim == 1
+        default_values = defaults[:, None] if scalar else defaults
+        values = np.broadcast_to(
+            default_values,
+            (len(ids), *default_values.shape),
+        ).copy()
+        for axis in self._axes:
+            samples = self._sample_axis(env, axis, len(ids))
+            values[:, :, axis] = _apply_randomization_operation(
+                default_values[None, :, axis],
+                samples,
+                self._operation,
+            )
+        if np.any(values < 0.0) or not np.isfinite(values).all():
+            raise ValueError(
+                f"EventManager term '{self._term_name}' produced negative, NaN, or Inf values"
+            )
+        self._write(values[:, :, 0] if scalar else values, ids)
+
+
+class GeomFriction(_ModelFieldRandomizer):
+    """Pinned mjlab-style geom friction randomization through the reset payload."""
+
+    _term_name = "geom_friction"
+    _field_width = 3
+    _default_axes = (0,)
+    _valid_axes = (0, 1, 2)
+
+    def _bind(
+        self,
+        entity: Entity,
+        asset_cfg: SceneEntityCfg,
+    ) -> tuple[np.ndarray, np.ndarray, tuple[str, ...]]:
+        local_ids, defaults = entity.bind_geom_friction_write(
+            asset_cfg.geom_ids,
+            term_name=self._term_name,
+        )
+        names = tuple(entity.geom_names[int(index)] for index in local_ids)
+        return local_ids, defaults, names
+
+    def _write(self, values: np.ndarray, env_ids: np.ndarray) -> None:
+        self._entity.write_geom_friction_to_sim(
+            values,
+            self._local_ids,
+            env_ids,
+            term_name=self._term_name,
+        )
+
+
+class JointArmature(_ModelFieldRandomizer):
+    """Pinned mjlab-style joint armature randomization through the reset payload."""
+
+    _term_name = "joint_armature"
+
+    def _bind(
+        self,
+        entity: Entity,
+        asset_cfg: SceneEntityCfg,
+    ) -> tuple[np.ndarray, np.ndarray, tuple[str, ...]]:
+        local_ids, defaults = entity.bind_joint_armature_write(
+            asset_cfg.joint_ids,
+            term_name=self._term_name,
+        )
+        names = tuple(entity.joint_names[int(index)] for index in local_ids)
+        return local_ids, defaults, names
+
+    def _write(self, values: np.ndarray, env_ids: np.ndarray) -> None:
+        self._entity.write_joint_armature_to_sim(
+            values,
+            self._local_ids,
+            env_ids,
+            term_name=self._term_name,
+        )
+
+
+geom_friction = GeomFriction
+joint_armature = JointArmature
+dof_armature = joint_armature
 
 
 class PdGains(ManagerTermBase):
@@ -682,6 +1017,9 @@ def reset_root_state_uniform(
 
 
 __all__ = [
+    "dof_armature",
+    "geom_friction",
+    "joint_armature",
     "pd_gains",
     "push_by_setting_velocity",
     "randomize_physics_scene_gravity",
