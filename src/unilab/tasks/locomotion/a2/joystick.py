@@ -169,7 +169,6 @@ class A2JoystickFlatEnv(Go2WalkTask):
     zero-command standstill (phase freeze + gated gait rewards + standing
     resample) gated by A2RewardConfig.command_threshold."""
 
-    _cfg: A2JoystickCfg
     _reward_cfg: A2RewardConfig
 
     def _make_dr_provider(self) -> LocomotionDRProvider:
