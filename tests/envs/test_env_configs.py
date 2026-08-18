@@ -619,7 +619,7 @@ def test_g1_motion_tracking_uses_combined_body_pose_query():
 
 
 def test_g1_motion_tracking_reset_observation_uses_sparse_body_pose_rows():
-    from unilab.envs.motion_tracking.common.motion_loader import MotionData
+    from unilab.tasks.motion_tracking.common.motion_loader import MotionData
     from unilab.tasks.motion_tracking.g1.tracking import (
         G1MotionTrackingDomainRandomizationProvider,
     )
@@ -700,7 +700,7 @@ def test_g1_motion_tracking_reset_observation_uses_sparse_body_pose_rows():
 
 
 def _compute_g1_motion_tracking_obs_stub(env_cls: type):
-    from unilab.envs.motion_tracking.common.motion_loader import MotionData
+    from unilab.tasks.motion_tracking.common.motion_loader import MotionData
 
     env = cast(Any, object.__new__(env_cls))
     env._num_envs = 1
@@ -904,7 +904,7 @@ def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
 
 
 def test_g1_motion_tracking_reward_fast_path_matches_reference():
-    from unilab.envs.motion_tracking.common.motion_loader import MotionData
+    from unilab.tasks.motion_tracking.common.motion_loader import MotionData
     from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
     from unilab.utils.rotation import np_quat_error_magnitude
 
@@ -1804,7 +1804,7 @@ def _make_g1_motion_tracking_clip_end_stub(
     step_env_ids: np.ndarray | None = None,
 ):
     from unilab.base.np_env import NpEnvState
-    from unilab.envs.motion_tracking.common.motion_loader import MotionData
+    from unilab.tasks.motion_tracking.common.motion_loader import MotionData
     from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:

@@ -19,8 +19,6 @@ from unilab.base.np_env import NpEnvState
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import G1BaseEnv
 from unilab.envs.motion_tracking.common import observations
-from unilab.envs.motion_tracking.common.motion_loader import MotionData, MotionLoader, MotionSampler
-from unilab.envs.motion_tracking.common.reset import build_motion_reference_state
 from unilab.envs.motion_tracking.common.rewards import (
     RewardContext,
     build_reward_functions,
@@ -31,6 +29,8 @@ from unilab.envs.motion_tracking.common.transforms import update_relative_transf
 
 from .config import MotionTrackingCfg, MotionTrackingDeployEnvCfg
 from .domain_randomization import MotionTrackingDomainRandomizationProvider
+from .motion_loader import MotionData, MotionLoader, MotionSampler
+from .reset import build_motion_reference_state
 
 
 class MotionTrackingEnv(G1BaseEnv):

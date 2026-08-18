@@ -1,4 +1,4 @@
-"""Reset-state construction for motion tracking."""
+"""Shared reset-state construction for motion tracking."""
 
 from __future__ import annotations
 

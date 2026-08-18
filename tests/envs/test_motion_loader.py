@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from unilab.envs.motion_tracking.common.motion_loader import MotionLoader, MotionSampler
+from unilab.tasks.motion_tracking.common.motion_loader import MotionLoader, MotionSampler
 
 
 def _write_motion_npz(

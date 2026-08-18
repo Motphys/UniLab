@@ -1,4 +1,4 @@
-"""Motion loading and sampling for motion tracking tasks."""
+"""Shared motion loading and sampling for motion-tracking tasks."""
 
 from __future__ import annotations
 
