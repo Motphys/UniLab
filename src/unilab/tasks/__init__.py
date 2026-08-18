@@ -18,7 +18,7 @@ __unilab_registry_modules__ = (
     "unilab.tasks.manipulation.sharpa_inhand",
     "unilab.tasks.manipulation.stewart",
     "unilab.envs.motion_tracking.g1",
-    "unilab.envs.motion_tracking.x2",
+    "unilab.tasks.motion_tracking.x2",
 )
 
 __all__ = ["__unilab_registry_modules__"]
