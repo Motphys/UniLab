@@ -12,9 +12,11 @@ from typing import Literal
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
-
-from ..common.config import _zero_pose_randomization, _zero_velocity_randomization
-from .tracking import (
+from unilab.envs.motion_tracking.common.config import (
+    _zero_pose_randomization,
+    _zero_velocity_randomization,
+)
+from unilab.envs.motion_tracking.g1.tracking import (
     G1MotionTrackingCfg,
     G1MotionTrackingEnv,
     PoseRandomization,
@@ -58,7 +60,7 @@ class G1FlipTrackingEnvCfg(G1FlipTrackingCfg):
 class G1FlipTrackingEnv(G1MotionTrackingEnv):
     """G1 flip-tracking environment implementation."""
 
-    _cfg: G1FlipTrackingCfg
+    _cfg: G1FlipTrackingCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @dataclass
@@ -91,7 +93,7 @@ class G1WallFlipTrackingEnvCfg(G1WallFlipTrackingCfg):
 class G1WallFlipTrackingEnv(G1MotionTrackingEnv):
     """G1 wall flip-tracking environment implementation."""
 
-    _cfg: G1WallFlipTrackingCfg
+    _cfg: G1WallFlipTrackingCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @dataclass
@@ -124,7 +126,7 @@ class G1ClimbTrackingEnvCfg(G1ClimbTrackingCfg):
 class G1ClimbTrackingEnv(G1MotionTrackingEnv):
     """G1 climb-tracking environment implementation."""
 
-    _cfg: G1ClimbTrackingCfg
+    _cfg: G1ClimbTrackingCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @dataclass

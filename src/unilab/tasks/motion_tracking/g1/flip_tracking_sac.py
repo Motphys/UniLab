@@ -17,13 +17,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from unilab.base import registry
-from unilab.envs.motion_tracking.g1.flip_tracking import (
+
+from .flip_tracking import (
     G1FlipTracking23DofEnvCfg,
     G1FlipTrackingCfg,
     G1WallFlipTracking23DofEnvCfg,
     G1WallFlipTrackingCfg,
 )
-
 from .tracking_sac import G1MotionTrackingSACEnv
 
 
