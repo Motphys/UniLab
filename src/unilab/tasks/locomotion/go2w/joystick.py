@@ -18,7 +18,6 @@ from unilab.dr.dr_utils import (
 )
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.tasks.locomotion.common.commands import (
@@ -29,6 +28,7 @@ from unilab.tasks.locomotion.common.commands import (
 from unilab.tasks.locomotion.common.commands import (
     sample_heading_commands as sample_go2w_heading_commands,
 )
+from unilab.tasks.locomotion.common.domain_rand import DomainRandConfig
 from unilab.tasks.locomotion.go2w.base import (
     DEFAULT_GO2W_ANGLES,
     NUM_GO2W_ACTIONS,

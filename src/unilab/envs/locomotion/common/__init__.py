@@ -6,7 +6,6 @@ from .base import (
     PdControlConfig,
     Sensor,
 )
-from .domain_rand import DomainRandConfig
 from .dr_provider import LocomotionDRProvider
 from .height_scan import (
     DEFAULT_SCAN_POINTS_X,
@@ -20,7 +19,6 @@ __all__ = [
     "ControlConfigBase",
     "DEFAULT_SCAN_POINTS_X",
     "DEFAULT_SCAN_POINTS_Y",
-    "DomainRandConfig",
     "HeightScanConfig",
     "LocomotionBaseCfg",
     "LocomotionBaseEnv",
