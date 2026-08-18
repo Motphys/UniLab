@@ -30,6 +30,23 @@ def _require_mujoco_runtime() -> None:
         pytest.skip("mujoco_uni.batch_env not available (platform/libstdc++ issue)")
 
 
+def _allegro_manager_override(
+    backend: str = "mujoco", *, config_root: str = "ppo"
+) -> dict[str, Any]:
+    from hydra import compose, initialize_config_dir
+
+    from unilab.training.backend_adapter import BackendAdapter
+
+    repo_root = Path(__file__).parents[2]
+    with initialize_config_dir(
+        config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
+    ):
+        cfg = compose("config", overrides=[f"task=allegro_inhand/{backend}"])
+    return BackendAdapter(
+        cfg, root_dir=repo_root, algo_name=config_root
+    ).build_task_env_cfg_override()
+
+
 # ---------------------------------------------------------------------------
 # Non-slow: config attribute completeness (no env.step(), no MuJoCo sim)
 # ---------------------------------------------------------------------------
@@ -394,14 +411,64 @@ def test_g1_box_tracking_scene_uses_sphere_hand_and_box_tracking_mesh():
         assert name in scene_text
 
 
-def test_allegro_rotation_obs_groups_spec_dims():
-    """Allegro rotation obs_groups_spec should expose single actor obs group."""
-    from unilab.tasks.manipulation.allegro_inhand.rotation import AllegroRotationPPO
+def test_allegro_rotation_registry_is_manager_only_and_grasp_owns_legacy_bridge():
+    from unilab.base import registry
+    from unilab.base.config_materialization import apply_cfg_overrides
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    env = cast(Any, object.__new__(AllegroRotationPPO))
-    spec = env.obs_groups_spec
+    ensure_registries()
+    metadata = registry.list_registered_envs()
+    assert metadata["AllegroInhandRotation"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix", "drake"],
+    }
+    assert metadata["AllegroInhandRotationGrasp"]["config_factory"] == ("AllegroRotationGraspCfg")
 
-    assert spec == {"obs": 105}
+    cfg = registry.materialize_env_config("AllegroInhandRotation")
+    assert isinstance(cfg, ManagerBasedRlEnvCfg)
+    apply_cfg_overrides(cfg, _allegro_manager_override())
+    assert cfg.policy_observation_group == "policy"
+    assert cfg.critic_observation_group is None
+    assert cfg.observations["policy"].history_length == 3
+    assert list(cfg.actions) == ["hand"]
+    assert list(cfg.terminations) == ["dropped", "time_out"]
+    assert list(cfg.rewards) == [
+        "rotate",
+        "obj_linvel",
+        "pose_diff",
+        "torque",
+        "work",
+        "drop",
+    ]
+    assert not hasattr(cfg, "reward_config")
+
+
+def test_allegro_manager_configured_missing_grasp_cache_fails_closed(tmp_path: Path):
+    from unilab.managers import EventTermCfg
+    from unilab.tasks.manipulation.allegro_inhand.manager_terms import AllegroHandBallReset
+
+    entity = SimpleNamespace(
+        num_joints=16,
+        data=SimpleNamespace(
+            default_root_state=np.zeros((2, 13), dtype=np.float32),
+            actuator_ctrl_range=np.tile([-1.0, 1.0], (16, 1)),
+        ),
+    )
+    env = SimpleNamespace(num_envs=2, scene={"robot": entity})
+    cfg = EventTermCfg(
+        func=AllegroHandBallReset,
+        mode="reset",
+        params={
+            "entity_name": "robot",
+            "grasp_cache_path": str(tmp_path / "missing.npy"),
+            "joint_noise": 0.0,
+            "ball_velocity_noise": 0.0,
+            "ball_z_offset": 0.0,
+        },
+    )
+
+    with pytest.raises(FileNotFoundError, match="configured grasp cache does not exist"):
+        AllegroHandBallReset(cfg, cast(Any, env))
 
 
 def test_allegro_grasp_obs_groups_spec_dims():
@@ -2092,7 +2159,9 @@ def test_env_reset_and_step(
         env_cfg_override = {"reward_config": default_g1_walk_flat_reward_config}
     elif "G1" in env_name:
         env_cfg_override = {"reward_config": default_g1_reward_config}
-    elif "Allegro" in env_name:
+    elif env_name == "AllegroInhandRotation":
+        env_cfg_override = _allegro_manager_override()
+    elif env_name == "AllegroInhandRotationGrasp":
         env_cfg_override = {"reward_config": default_allegro_reward_config}
 
     env = cast(
@@ -2135,39 +2204,60 @@ def test_env_reset_and_step(
         env.close()
 
 
-def _assert_mujoco_position_gains(
-    env: Any, *, kp: float, kd: float, actuator_ids=slice(None)
-) -> None:
-    model = env._backend.model
-    pool = env._backend._pool
-    np.testing.assert_allclose(model.actuator_gainprm[actuator_ids, 0], kp)
-    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 1], -kp)
-    np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
-    np.testing.assert_allclose(pool.get_field(0, "kp")[actuator_ids], kp)
-    np.testing.assert_allclose(pool.get_field(0, "kd")[actuator_ids], kd)
-
-
-def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):
+def test_allegro_manager_runtime_matches_legacy_rotation_transition(
+    default_allegro_reward_config,
+):
     _require_mujoco_runtime()
     ensure_registries()
     from unilab.base import registry
-
-    env = cast(
-        Any,
-        registry.make(
-            "AllegroInhandRotation",
-            num_envs=2,
-            sim_backend="mujoco",
-            env_cfg_override={
-                "reward_config": default_allegro_reward_config,
-                "control_config": {"kp": 2.5, "kd": 0.4},
-            },
-        ),
+    from unilab.envs import ManagerBasedRlEnv
+    from unilab.tasks.manipulation.allegro_inhand.manager_terms import (
+        AllegroIncrementalPositionAction,
     )
+    from unilab.tasks.manipulation.allegro_inhand.rotation import (
+        AllegroRotationPPO,
+        AllegroRotationPPOCfg,
+        RewardConfigPPO,
+    )
+
+    legacy_cfg = AllegroRotationPPOCfg(
+        reward_config=RewardConfigPPO(**default_allegro_reward_config)
+    )
+    legacy_cfg.noise_config.level = 0.0
+    legacy = AllegroRotationPPO(legacy_cfg, num_envs=2, backend_type="mujoco")
+
+    manager_override = _allegro_manager_override()
+    manager_override["observations"]["policy"]["terms"]["rotation"]["params"]["joint_noise"] = 0.0
+    env = registry.make(
+        "AllegroInhandRotation",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override=manager_override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
     try:
-        _assert_mujoco_position_gains(env, kp=2.5, kd=0.4, actuator_ids=slice(0, 16))
+        legacy_initial = legacy.init_state()
+        manager_initial = env.init_state()
+        np.testing.assert_allclose(manager_initial.obs["obs"], legacy_initial.obs["obs"])
+
+        actions = np.full((2, 16), 0.25, dtype=np.float32)
+        legacy_state = legacy.step(actions)
+        manager_state = env.step(actions)
+        np.testing.assert_allclose(
+            manager_state.obs["obs"], legacy_state.obs["obs"], rtol=1.0e-5, atol=2.0e-6
+        )
+        np.testing.assert_allclose(
+            manager_state.reward, legacy_state.reward, rtol=1.0e-5, atol=2.0e-8
+        )
+        np.testing.assert_array_equal(manager_state.terminated, legacy_state.terminated)
+
+        action = env.action_manager.get_term("hand")
+        assert isinstance(action, AllegroIncrementalPositionAction)
+        assert action.action_dim == 16
+        assert env.obs_groups_spec == {"obs": 105}
     finally:
         env.close()
+        legacy.close()
 
 
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
