@@ -151,6 +151,32 @@ class _ResetBackend(_FakeBackend):
         self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
 
+class _KeyframeBackend(_ResetBackend):
+    def __init__(
+        self,
+        num_envs: int,
+        *,
+        keyframe_qpos: Any = None,
+        keyframe_error: Exception | None = None,
+    ) -> None:
+        super().__init__(num_envs)
+        self.keyframe_qpos = (
+            np.array([0.0, 0.0, 0.3, 0.75], dtype=np.float64)
+            if keyframe_qpos is None
+            else keyframe_qpos
+        )
+        self.keyframe_error = keyframe_error
+        self.keyframe_qpos_calls = 0
+
+    def get_keyframe_qpos(self, name: str) -> Any:
+        self.keyframe_qpos_calls += 1
+        if self.keyframe_error is not None:
+            raise self.keyframe_error
+        if name != "home":
+            raise ValueError(f"unknown keyframe {name!r}")
+        return self.keyframe_qpos
+
+
 @dataclass(kw_only=True)
 class _DriveCfg(ActionTermCfg):
     gain: float = 1.0
@@ -437,6 +463,121 @@ def test_backend_materialization_failure_has_lifecycle_context() -> None:
         _make_env(reject_materialize=True)
 
 
+@pytest.mark.parametrize(
+    ("selector", "error"),
+    [
+        (1, TypeError),
+        ("", ValueError),
+    ],
+)
+def test_default_keyframe_selector_fails_at_env_initialization(
+    selector: Any,
+    error: type[Exception],
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.scene.default_keyframe_name = selector
+    backend = _KeyframeBackend(2)
+
+    with pytest.raises(error, match="default_keyframe_name.*non-empty string or None"):
+        _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    assert backend.keyframe_qpos_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("value", "error", "match"),
+    [
+        ([0.0], TypeError, "must return np.ndarray"),
+        (np.zeros((1, 1), dtype=np.float32), ValueError, "expected 1-D"),
+        (np.zeros(1, dtype=np.int32), TypeError, "must be floating"),
+        (np.array([np.nan], dtype=np.float32), ValueError, "NaN or Inf"),
+    ],
+)
+def test_default_keyframe_qpos_contract_fails_at_env_initialization(
+    value: Any,
+    error: type[Exception],
+    match: str,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.scene.default_keyframe_name = "home"
+    backend = _KeyframeBackend(2, keyframe_qpos=value)
+
+    with pytest.raises(error, match=f"default keyframe 'home'.*backend 'fake'.*{match}"):
+        _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    assert backend.keyframe_qpos_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("failure", "error", "match"),
+    [
+        (
+            NotImplementedError("named keyframes disabled"),
+            NotImplementedError,
+            "default keyframe 'home'.*backend 'fake'.*named keyframes disabled",
+        ),
+        (
+            ValueError("keyframe missing"),
+            ValueError,
+            "resolve default keyframe 'home'.*backend 'fake'.*keyframe missing",
+        ),
+    ],
+)
+def test_default_keyframe_resolution_names_backend_and_keyframe(
+    failure: Exception,
+    error: type[Exception],
+    match: str,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.scene.default_keyframe_name = "home"
+    backend = _KeyframeBackend(2, keyframe_error=failure)
+
+    with pytest.raises(error, match=match):
+        _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    assert backend.keyframe_qpos_calls == 1
+
+
+def test_named_keyframe_snapshot_is_shared_by_entity_and_reset_cold_path() -> None:
+    source_qpos = np.array([0.0, 0.0, 0.3, 0.75], dtype=np.float64)
+    backend = _KeyframeBackend(2, keyframe_qpos=source_qpos)
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.scene.default_keyframe_name = "home"
+    cfg.scene.entities["robot"] = EntityCfg(
+        joint_names=("joint",),
+        actuator_names=("motor",),
+    )
+    cfg.events = {
+        "reset_default": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset"),
+    }
+
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    selected_qpos = env._reset_state._selected_default_qpos
+
+    assert backend.keyframe_qpos_calls == 1
+    assert backend.default_qpos_calls == 0
+    assert backend.joint_layout_calls == 1
+    assert selected_qpos is not source_qpos
+    assert selected_qpos is not None
+    assert not selected_qpos.flags.writeable
+    np.testing.assert_array_equal(env.scene["robot"].data.default_joint_pos, 0.75)
+    assert not env.scene["robot"].data.default_joint_pos.flags.writeable
+
+    source_qpos[:] = 9.0
+    env.reset()
+    env.reset(env_ids=np.array([1], dtype=np.int32))
+
+    assert backend.keyframe_qpos_calls == 1
+    assert backend.default_qpos_calls == 0
+    assert backend.joint_layout_calls == 1
+    assert len(backend.set_state_calls) == 2
+    np.testing.assert_array_equal(
+        backend.set_state_calls[0][1],
+        [[0.0, 0.0, 0.3, 0.75], [0.0, 0.0, 0.3, 0.75]],
+    )
+    np.testing.assert_array_equal(backend.set_state_calls[1][1], [[0.0, 0.0, 0.3, 0.75]])
+
+
 def test_real_mujoco_backend_is_materialized_before_first_reset() -> None:
     scene = SceneCfg(
         model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"),
@@ -475,6 +616,89 @@ def test_real_mujoco_backend_is_materialized_before_first_reset() -> None:
         state = env.step(np.empty((2, 0), dtype=np.float32))
         assert np.isfinite(state.obs["obs"]).all()
         assert np.isfinite(state.reward).all()
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize(
+    ("default_keyframe_name", "expected_root_z", "expected_joint_pos"),
+    [
+        (None, 0.445, np.zeros(12, dtype=np.float32)),
+        (
+            "home",
+            0.3,
+            np.array(
+                [0.0, 0.8, -1.5, 0.0, 0.8, -1.5, 0.0, 1.0, -1.5, 0.0, 1.0, -1.5],
+                dtype=np.float32,
+            ),
+        ),
+    ],
+)
+def test_real_mujoco_default_state_matches_qpos0_or_named_home(
+    default_keyframe_name: str | None,
+    expected_root_z: float,
+    expected_joint_pos: np.ndarray,
+) -> None:
+    joint_names = (
+        "FL_hip_joint",
+        "FL_thigh_joint",
+        "FL_calf_joint",
+        "FR_hip_joint",
+        "FR_thigh_joint",
+        "FR_calf_joint",
+        "RL_hip_joint",
+        "RL_thigh_joint",
+        "RL_calf_joint",
+        "RR_hip_joint",
+        "RR_thigh_joint",
+        "RR_calf_joint",
+    )
+    scene = SceneCfg(
+        model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"),
+        entities={
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=joint_names,
+            )
+        },
+        default_keyframe_name=default_keyframe_name,
+    )
+    cfg = ManagerBasedRlEnvCfg(
+        scene=scene,
+        sim_dt=0.01,
+        ctrl_dt=0.02,
+        max_episode_seconds=1.0,
+        observations={
+            "actor": ObservationGroupCfg(
+                terms={"state": ObservationTermCfg(func=_episode_step_observation)}
+            )
+        },
+        actions={},
+        events={"reset_default": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset")},
+        rewards={"alive": RewardTermCfg(func=mdp.is_alive, weight=1.0)},
+        terminations={"time_out": TerminationTermCfg(func=mdp.time_out, time_out=True)},
+        policy_observation_group="actor",
+    )
+    backend = create_backend(
+        "mujoco",
+        scene,
+        2,
+        cfg.sim_dt,
+        base_name="base",
+        add_body_sensors=True,
+        **env_backend_kwargs(cfg),
+    )
+    env = ManagerBasedRlEnv(cfg, backend, 2)
+    try:
+        robot = env.scene["robot"]
+        np.testing.assert_allclose(robot.data.default_root_state[:, 2], expected_root_z)
+        expected_batch = np.broadcast_to(expected_joint_pos, (2, expected_joint_pos.size))
+        np.testing.assert_allclose(robot.data.default_joint_pos, expected_batch)
+
+        env.init_state()
+
+        np.testing.assert_allclose(robot.data.root_link_pos_w[:, 2], expected_root_z)
+        np.testing.assert_allclose(robot.data.joint_pos, expected_batch)
     finally:
         env.close()
 
