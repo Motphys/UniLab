@@ -56,6 +56,47 @@ def _mujoco_cfg() -> Any:
     )
 
 
+def _manager_cfg() -> Any:
+    return OmegaConf.create(
+        {
+            "training": {"sim_backend": "mujoco"},
+            "algo": {"obs_groups": {"actor": ["actor"]}},
+            "env": {
+                "observations": {
+                    "policy": {
+                        "_target_": "unilab.managers.ObservationGroupCfg",
+                        "terms": {
+                            "joint_pos": {
+                                "_target_": "unilab.managers.ObservationTermCfg",
+                                "func": "unilab.envs.mdp.joint_pos_rel",
+                            }
+                        },
+                    },
+                    "critic": {
+                        "_target_": "unilab.managers.ObservationGroupCfg",
+                        "terms": {
+                            "joint_pos": {
+                                "_target_": "unilab.managers.ObservationTermCfg",
+                                "func": "unilab.envs.mdp.joint_pos_rel",
+                            }
+                        },
+                    },
+                },
+                "actions": {
+                    "joint_pos": {
+                        "_target_": "unilab.envs.mdp.JointPositionActionCfg",
+                        "entity_name": "robot",
+                        "actuator_names": [".*"],
+                        "scale": 0.25,
+                    }
+                },
+                "policy_observation_group": "policy",
+                "critic_observation_group": "critic",
+            },
+        }
+    )
+
+
 def test_field_lists_are_disjoint():
     deny, warn, allow = set(DENYLIST), set(WARNING_LIST), set(ALLOWLIST)
     assert deny.isdisjoint(warn)
@@ -81,6 +122,46 @@ def test_extract_snapshot_includes_only_present_contract_fields():
 def test_snapshot_json_round_trips():
     snapshot = extract_contract_snapshot(_mujoco_cfg())
     assert json.loads(json.dumps(snapshot)) == snapshot
+
+
+def test_extract_snapshot_captures_manager_policy_io_contract() -> None:
+    cfg = _manager_cfg()
+
+    snapshot = extract_contract_snapshot(cfg)
+
+    assert snapshot["env.actions"]["joint_pos"]["scale"] == pytest.approx(0.25)
+    assert snapshot["env.observations"]["policy"]["terms"]["joint_pos"]["func"] == (
+        "unilab.envs.mdp.joint_pos_rel"
+    )
+    assert snapshot["env.policy_observation_group"] == "policy"
+    assert snapshot["env.critic_observation_group"] == "critic"
+    assert "env.control_config.action_scale" not in snapshot
+
+
+def test_matching_manager_policy_io_contract_passes(tmp_path: Path) -> None:
+    _write_sidecar(tmp_path, extract_contract_snapshot(_manager_cfg()))
+    target = _manager_cfg()
+
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("env.actions.joint_pos.scale", 0.5),
+        ("env.observations.policy.terms.joint_pos.func", "unilab.envs.mdp.joint_vel_rel"),
+        ("env.policy_observation_group", "critic"),
+        ("env.critic_observation_group", "policy"),
+    ],
+)
+def test_manager_policy_io_mismatch_fails_closed(tmp_path: Path, path: str, value: object) -> None:
+    source = _manager_cfg()
+    _write_sidecar(tmp_path, extract_contract_snapshot(source))
+    target = _manager_cfg()
+    OmegaConf.update(target, path, value, merge=False)
+
+    with pytest.raises(CrossBackendIncompatibleError, match="env\\."):
+        resolve_sim2sim_config(tmp_path, target)
 
 
 def test_matching_contract_returns_same_cfg(tmp_path):
@@ -185,7 +266,14 @@ def test_action_scale_list_form(tmp_path):
 
 
 def test_env_structural_denylist_is_the_env_subset():
-    assert ENV_STRUCTURAL_DENYLIST == ["env.control_config.action_scale", "env.sampling_mode"]
+    assert ENV_STRUCTURAL_DENYLIST == [
+        "env.control_config.action_scale",
+        "env.observations",
+        "env.actions",
+        "env.policy_observation_group",
+        "env.critic_observation_group",
+        "env.sampling_mode",
+    ]
     assert set(ENV_STRUCTURAL_DENYLIST) <= set(DENYLIST)
 
 

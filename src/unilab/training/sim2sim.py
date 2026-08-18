@@ -36,6 +36,10 @@ WARNING_LIST: list[str] = [
 DENYLIST: list[str] = [
     "algo.obs_groups",
     "env.control_config.action_scale",
+    "env.observations",
+    "env.actions",
+    "env.policy_observation_group",
+    "env.critic_observation_group",
     "algo.policy.actor_hidden_dims",
     "algo.policy.critic_hidden_dims",
     "algo.empirical_normalization",
