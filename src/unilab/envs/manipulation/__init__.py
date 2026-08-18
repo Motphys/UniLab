@@ -1,3 +1,3 @@
-"""Manipulation env registry bootstrap contract."""
+"""Generic manipulation environment components."""
 
-__unilab_registry_modules__ = ("unilab.envs.manipulation.sharpa_inhand",)
+__unilab_registry_modules__: tuple[str, ...] = ()

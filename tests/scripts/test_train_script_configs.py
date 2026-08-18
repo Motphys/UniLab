@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 def _write_sharpa_smoke_cache(cache_prefix, scale_values: list[float]) -> None:
-    from unilab.envs.manipulation.sharpa_inhand.base import (
+    from unilab.tasks.manipulation.sharpa_inhand.base import (
         SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
         resolve_grasp_cache_file,
     )

@@ -30,7 +30,7 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.manipulation.sharpa_inhand.base import (
+from unilab.tasks.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
     repeat_obs_history,
@@ -444,7 +444,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
 @registry.env("SharpaInhandRotation", sim_backend="mujoco")
 @registry.env("SharpaInhandRotation", sim_backend="motrix")
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
-    _cfg: SharpaInhandRotationCfg
+    _cfg: SharpaInhandRotationCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _reward_cfg: RewardConfig
     _MATERIALIZE_ROTATION_GRASP_CACHE = True
     _OBS_MODE_ALIASES: dict[str, str] = {

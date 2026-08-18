@@ -152,12 +152,12 @@ class SharpaDomainRandConfig:
 
 @dataclass
 class SharpaInhandBaseCfg(EnvCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "sharpa_wave" / "scene.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
     sim_dt: float = 1.0 / 240.0
     ctrl_dt: float = 12.0 / 240.0
 

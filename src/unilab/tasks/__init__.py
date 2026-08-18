@@ -15,7 +15,7 @@ __unilab_registry_modules__ = (
     "unilab.tasks.locomotion.go2_arm",
     "unilab.tasks.locomotion.a2",
     "unilab.tasks.manipulation.allegro_inhand",
-    "unilab.envs.manipulation.sharpa_inhand",
+    "unilab.tasks.manipulation.sharpa_inhand",
     "unilab.tasks.manipulation.stewart",
     "unilab.envs.motion_tracking.g1",
     "unilab.envs.motion_tracking.x2",

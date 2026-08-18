@@ -365,7 +365,7 @@ def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
     from hydra.core.global_hydra import GlobalHydra
 
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
     from unilab.training import BackendAdapter
 
     yaml_backend = _hydra_yaml_backend(backend)
@@ -396,7 +396,7 @@ def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
 
 
 def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
-    from unilab.envs.manipulation.sharpa_inhand.base import (
+    from unilab.tasks.manipulation.sharpa_inhand.base import (
         SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
         resolve_grasp_cache_file,
     )
@@ -428,7 +428,7 @@ def _g1_motion_tracking_env_cls() -> type:
 
 
 def _sharpa_inhand_env_cls() -> type:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
 
     return SharpaInhandRotationEnv
 
