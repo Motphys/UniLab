@@ -78,7 +78,7 @@ save_json = _OUTPUT.save_json
 def _install_mjwarp_patch() -> bool:
     """Route ``backend_type == "mjwarp"`` to ``scripts/benchmark/mjwarp`` via factory patch.
 
-    Must run before any task env module (e.g. ``unilab.envs.locomotion.g1.joystick``)
+    Must run before any task env module (e.g. ``unilab.tasks.locomotion.g1.joystick``)
     is imported, because those modules bind ``create_backend`` at module load
     time via ``from unilab.base.backend import create_backend``.
 

@@ -3,7 +3,7 @@
 Faithful xp-port of the NumPy computation in the collector-timed sections of
 `uv run train --algo sac --task g1_walk_flat --sim mujoco` (num_envs=2048):
 
-- `G1WalkEnv.update_state` (src/unilab/envs/locomotion/g1/joystick.py):
+- `G1WalkEnv.update_state` (src/unilab/tasks/locomotion/g1/joystick.py):
   termination, `_compute_reward` (9 active terms under the SAC scales incl.
   per-term logging every 4 steps), `_compute_obs` (noise + concat, walk
   profile), and the done-triggered curriculum bookkeeping.
