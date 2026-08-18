@@ -10,6 +10,6 @@
    unilab.envs.locomotion.g1
    unilab.tasks.locomotion.go1
    unilab.tasks.locomotion.go2
-   unilab.envs.locomotion.go2_arm
+   unilab.tasks.locomotion.go2_arm
    unilab.tasks.locomotion.go2w
 ```

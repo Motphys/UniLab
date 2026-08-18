@@ -1,6 +1,3 @@
 """Locomotion env registry bootstrap contract."""
 
-__unilab_registry_modules__ = (
-    "unilab.envs.locomotion.g1",
-    "unilab.envs.locomotion.go2_arm",
-)
+__unilab_registry_modules__ = ("unilab.envs.locomotion.g1",)

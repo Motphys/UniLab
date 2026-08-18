@@ -128,7 +128,7 @@ def build_go2_arm_position_gains(cfg: ControlConfig) -> dict[str, np.ndarray]:
 
 
 class Go2ArmBaseEnv(LocomotionBaseEnv):
-    _cfg: Go2ArmBaseCfg
+    _cfg: Go2ArmBaseCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: Go2ArmBaseCfg, backend: SimBackend, num_envs: int = 1):
         super().__init__(cfg, backend, num_envs)

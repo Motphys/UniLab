@@ -17,7 +17,7 @@ from unilab.envs.locomotion.common.commands import Commands
 from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.go2_arm.base import (
+from unilab.tasks.locomotion.go2_arm.base import (
     Go2ArmBaseCfg,
     Go2ArmBaseEnv,
     Go2ArmSensor,
