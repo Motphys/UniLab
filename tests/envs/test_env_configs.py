@@ -1086,7 +1086,7 @@ def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
 
 
 def test_g1_box_tracking_cfg_uses_largebox_scene_and_motion_defaults():
-    from unilab.envs.motion_tracking.g1.box_tracking import BoxRewardConfig, G1BoxTrackingCfg
+    from unilab.tasks.motion_tracking.g1.box_tracking import BoxRewardConfig, G1BoxTrackingCfg
 
     cfg = G1BoxTrackingCfg()
 
@@ -1101,22 +1101,22 @@ def test_g1_box_tracking_cfg_uses_largebox_scene_and_motion_defaults():
 
 
 def test_g1_box_tracking_is_exported_from_g1_and_motion_tracking_packages():
-    from unilab.envs.motion_tracking import (
+    from unilab.tasks.motion_tracking import (
         G1BoxTrackingCfg as TopLevelCfg,
     )
-    from unilab.envs.motion_tracking import (
+    from unilab.tasks.motion_tracking import (
         G1BoxTrackingEnv as TopLevelEnv,
     )
-    from unilab.envs.motion_tracking import (
+    from unilab.tasks.motion_tracking import (
         G1BoxTrackingEnvCfg as TopLevelEnvCfg,
     )
-    from unilab.envs.motion_tracking.g1 import (
+    from unilab.tasks.motion_tracking.g1 import (
         G1BoxTrackingCfg as G1PkgCfg,
     )
-    from unilab.envs.motion_tracking.g1 import (
+    from unilab.tasks.motion_tracking.g1 import (
         G1BoxTrackingEnv as G1PkgEnv,
     )
-    from unilab.envs.motion_tracking.g1 import (
+    from unilab.tasks.motion_tracking.g1 import (
         G1BoxTrackingEnvCfg as G1PkgEnvCfg,
     )
 
@@ -1126,8 +1126,8 @@ def test_g1_box_tracking_is_exported_from_g1_and_motion_tracking_packages():
 
 
 def _compute_g1_box_tracking_obs_stub():
-    from unilab.envs.motion_tracking.g1.box_tracking import G1BoxTrackingEnv
-    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionData
+    from unilab.tasks.motion_tracking.g1.box_tracking import G1BoxTrackingEnv
+    from unilab.tasks.motion_tracking.g1.motion_box_loader import BoxMotionData
 
     env = cast(Any, object.__new__(G1BoxTrackingEnv))
     env._num_envs = 1
@@ -1219,8 +1219,8 @@ def test_g1_box_tracking_actor_matches_deploy_and_critic_adds_object_state():
 
 
 def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
-    from unilab.envs.motion_tracking.g1.box_tracking import G1BoxTrackingEnv
-    from unilab.envs.motion_tracking.g1.motion_box_loader import BoxMotionData
+    from unilab.tasks.motion_tracking.g1.box_tracking import G1BoxTrackingEnv
+    from unilab.tasks.motion_tracking.g1.motion_box_loader import BoxMotionData
 
     env = cast(Any, object.__new__(G1BoxTrackingEnv))
     env._num_envs = 4
