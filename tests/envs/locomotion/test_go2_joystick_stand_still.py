@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from unilab.envs.locomotion.common.commands import (
+from unilab.tasks.locomotion.common.commands import (
     sample_commands_with_standing,
     zero_small_xy_commands,
 )
