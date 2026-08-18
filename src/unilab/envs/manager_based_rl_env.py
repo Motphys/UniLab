@@ -14,13 +14,13 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from unilab.base.backend import SimBackend
+from unilab.base.backend import SimBackend, create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
 from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
 )
-from unilab.base.entity import EntityScene
+from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg, resolve_scene_default_qpos
@@ -144,6 +144,43 @@ class ManagerBasedRlEnvCfg(EnvCfg):
                 "ManagerBasedRlEnvCfg scene must be a SceneCfg instance, "
                 f"got {type(self.scene).__name__}"
             )
+
+
+def _resolve_backend_entity_contract(cfg: ManagerBasedRlEnvCfg) -> tuple[str, bool]:
+    """Resolve task-independent backend inputs from declared scene entities."""
+    assert cfg.scene is not None
+    root_entities: list[tuple[str, str]] = []
+    body_state_requested = False
+    for entity_name, entity_cfg in cfg.scene.entities.items():
+        if not isinstance(entity_name, str) or not entity_name:
+            raise TypeError(
+                f"ManagerBasedRlEnv scene entity names must be non-empty strings; "
+                f"got {entity_name!r}"
+            )
+        if not isinstance(entity_cfg, EntityCfg):
+            raise TypeError(
+                f"ManagerBasedRlEnv scene entity '{entity_name}' must be EntityCfg, "
+                f"got {type(entity_cfg).__name__}"
+            )
+        root_body_name = entity_cfg.root_body_name
+        if root_body_name is not None:
+            if not isinstance(root_body_name, str) or not root_body_name:
+                raise TypeError(
+                    f"ManagerBasedRlEnv root entity '{entity_name}' root_body_name must be "
+                    "a non-empty string"
+                )
+            root_entities.append((entity_name, root_body_name))
+            body_state_requested = True
+        if entity_cfg.body_names is not None:
+            body_state_requested = True
+
+    if len(root_entities) != 1:
+        declared = [name for name, _ in root_entities]
+        raise ValueError(
+            "ManagerBasedRlEnv factory requires exactly one scene entity with an explicit "
+            f"root_body_name; found {len(root_entities)} root entities {declared}"
+        )
+    return root_entities[0][1], body_state_requested
 
 
 class ManagerBasedRlEnv(NpEnv):
@@ -591,6 +628,49 @@ class ManagerBasedRlEnv(NpEnv):
         super().close()
 
 
+def make_manager_based_rl_env(
+    cfg: ManagerBasedRlEnvCfg,
+    num_envs: int = 1,
+    backend_type: str = "mujoco",
+) -> ManagerBasedRlEnv:
+    """Construct the generic Registry-owned Manager-Based production runtime."""
+    if not isinstance(cfg, ManagerBasedRlEnvCfg):
+        raise TypeError(
+            "make_manager_based_rl_env expected ManagerBasedRlEnvCfg, "
+            f"received {type(cfg).__name__}"
+        )
+    if isinstance(num_envs, bool) or not isinstance(num_envs, int) or num_envs <= 0:
+        raise ValueError(
+            f"make_manager_based_rl_env num_envs must be a positive integer, got {num_envs!r}"
+        )
+    if not isinstance(backend_type, str) or not backend_type:
+        raise ValueError(
+            "make_manager_based_rl_env backend_type must be a non-empty string, "
+            f"got {backend_type!r}"
+        )
+
+    cfg.validate()
+    assert cfg.scene is not None
+    base_name, body_state_requested = _resolve_backend_entity_contract(cfg)
+    backend_kwargs = env_backend_kwargs(cfg)
+    backend_kwargs["base_name"] = base_name
+    if backend_type in {"mujoco", "motrix"}:
+        backend_kwargs["add_body_sensors"] = body_state_requested
+
+    backend = create_backend(
+        backend_type,
+        cfg.scene,
+        num_envs,
+        cfg.sim_dt,
+        **backend_kwargs,
+    )
+    try:
+        return ManagerBasedRlEnv(cfg, backend, num_envs)
+    except Exception:
+        backend.cleanup_scene_assets()
+        raise
+
+
 # Isaac Lab capitalization is a spelling-only alias.  There is one implementation.
 ManagerBasedRLEnv = ManagerBasedRlEnv
 ManagerBasedRLEnvCfg = ManagerBasedRlEnvCfg
@@ -600,4 +680,5 @@ __all__ = [
     "ManagerBasedRLEnvCfg",
     "ManagerBasedRlEnv",
     "ManagerBasedRlEnvCfg",
+    "make_manager_based_rl_env",
 ]
