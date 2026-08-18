@@ -1,4 +1,8 @@
 # @package _global_
+defaults:
+  - /task/stewart_balance/base
+  - _self_
+
 training:
   task_name: StewartBalance
   sim_backend: drake
@@ -29,10 +33,3 @@ algo:
 env:
   drake_backend_mode: batch
   drake_nthread: 20
-
-reward:
-  scales:
-    center: 0.7
-    progress: 0.6
-    still: 3.0
-  fall_penalty: -6.0

@@ -445,11 +445,29 @@ class MuJoCoBackend(SimBackend):
             for tmp_path in reversed(tmp_paths):
                 os.remove(tmp_path)
 
-        self._tracked_body_ids = tracked_body_ids
         if self.add_body_sensors:
+            # MjSpec compilation can reorder bodies expanded from <replicate>.
+            # Sensor columns follow ``valid_bnames`` insertion order, so rebuild
+            # the name-to-column map from the final compiled model instead of
+            # retaining IDs from the pre-injection source model.
+            self._tracked_body_ids = [
+                mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name) for name in valid_bnames
+            ]
+            missing = [
+                name
+                for name, body_id in zip(valid_bnames, self._tracked_body_ids, strict=True)
+                if body_id < 0
+            ]
+            if missing:
+                raise ValueError(
+                    "Injected MuJoCo body tracking sensors reference bodies missing from "
+                    f"the compiled model: {missing}"
+                )
             self._body_id_to_tracked_idx = np.full(model.nbody, -1, dtype=int)
             for idx, bid in enumerate(self._tracked_body_ids):
                 self._body_id_to_tracked_idx[bid] = idx
+        else:
+            self._tracked_body_ids = tracked_body_ids
         self._valid_bnames = valid_bnames
         self._configure_model(model)
         return model
