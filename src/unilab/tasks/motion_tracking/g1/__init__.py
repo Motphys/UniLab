@@ -33,6 +33,16 @@ from .flip_tracking_sac import (
     G1WallFlipTrackingSACEnv,
 )
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
+from .tracking import (
+    G1MotionTracking23DofCfg,
+    G1MotionTracking23DofDeployEnvCfg,
+    G1MotionTracking23DofEnvCfg,
+    G1MotionTrackingCfg,
+    G1MotionTrackingDeployEnv,
+    G1MotionTrackingDeployEnvCfg,
+    G1MotionTrackingEnv,
+    G1MotionTrackingEnvCfg,
+)
 from .tracking_obs import G1WBTObs23DofCfg, G1WBTObsCfg, G1WBTObsEnv
 from .tracking_sac import (
     G1MotionTrackingSAC23DofCfg,
@@ -61,6 +71,14 @@ __all__ = [
     "G1FlipTrackingSAC23DofEnv",
     "G1FlipTrackingSACCfg",
     "G1FlipTrackingSACEnv",
+    "G1MotionTracking23DofCfg",
+    "G1MotionTracking23DofDeployEnvCfg",
+    "G1MotionTracking23DofEnvCfg",
+    "G1MotionTrackingCfg",
+    "G1MotionTrackingDeployEnv",
+    "G1MotionTrackingDeployEnvCfg",
+    "G1MotionTrackingEnv",
+    "G1MotionTrackingEnvCfg",
     "G1MotionTrackingSAC23DofCfg",
     "G1MotionTrackingSAC23DofEnv",
     "G1MotionTrackingSACCfg",

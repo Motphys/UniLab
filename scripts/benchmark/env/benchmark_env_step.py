@@ -350,7 +350,7 @@ def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
 
 
 def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
 
     return _ppo_owner_yaml_cfg(
         "g1_motion_tracking",
@@ -422,7 +422,7 @@ def _g1_walk_env_cls() -> type:
 
 
 def _g1_motion_tracking_env_cls() -> type:
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     return G1MotionTrackingEnv
 
