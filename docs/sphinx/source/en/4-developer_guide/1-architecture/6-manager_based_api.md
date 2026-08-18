@@ -17,6 +17,9 @@ The normative compatibility matrix and mechanical migration example are in
 - `SceneEntityCfg` resolves through a base-owned scene/entity facade on the cold path.
   The facade uses only the public `SimBackend` contract, and hot paths reuse cached IDs
   and views.
+- Named-sensor observation terms bind a backend-owned view through
+  `EntityScene.bind_sensor_data(...)` during construction; their hot path only reads
+  that view and never re-resolves sensor names or XML/model metadata.
 - Explicitly empty configuration may use a Null manager. A requested capability that
   is unavailable fails at the nearest boundary; it is never skipped, zero-filled, or
   routed back to a legacy environment.

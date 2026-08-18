@@ -14,6 +14,8 @@ NumPy，并保留现有 `NpEnvState`、Hydra owner YAML、`SimBackend`、registr
   Torch、Warp、runner、learner 或 IPC。
 - `SceneEntityCfg` 在冷路径通过 base scene/entity facade 解析；facade 只调用正式
   `SimBackend` contract，热路径复用缓存 ID/view。
+- named-sensor observation term 在构造时通过 `EntityScene.bind_sensor_data(...)` 绑定
+  backend-owned view；热路径只读该 view，不重复解析 sensor 名称或 XML/model metadata。
 - 用户显式空配置可以使用 Null manager；配置请求但 runtime/backend 不支持的能力必须在
   最近边界报错，不能 warning、skip、返回零或回退旧 env。
 - 热路径避免明显的重复解析、逐环境 Python 循环、复制和临时分配；进一步优化需要

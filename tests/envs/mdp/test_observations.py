@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -24,6 +25,11 @@ class _Backend:
     num_actuators = 0
 
     def __init__(self) -> None:
+        self.sensor_calls: Counter[str] = Counter()
+        self.sensor_values = {
+            "gyro": np.asarray([[0.1, 0.2, 0.3], [-0.1, -0.2, -0.3]], dtype=np.float32),
+            "upvector": np.asarray([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0]], dtype=np.float32),
+        }
         self.joint_names = ("hip", "knee", "ankle")
         self.dof_pos = np.asarray(
             [[0.4, 0.1, -0.2], [0.0, 0.3, 0.7]],
@@ -84,6 +90,25 @@ class _Backend:
 
     def get_body_ang_vel_b(self, ids: np.ndarray) -> np.ndarray:
         return self.body_ang_vel_b[:, ids]
+
+    def get_sensor_data(self, name: str) -> np.ndarray:
+        self.sensor_calls["single"] += 1
+        try:
+            return self.sensor_values[name]
+        except KeyError as exc:
+            raise KeyError(f"unknown sensor {name!r}") from exc
+
+    def get_sensor_data_batch(self, names: tuple[str, ...]) -> np.ndarray:
+        self.sensor_calls["batch"] += 1
+        values = [self.sensor_values[name].reshape(self.num_envs, -1) for name in names]
+        return np.concatenate(values, axis=1)
+
+    def _bind_sensor_data_reader(self, names: tuple[str, ...]):
+        return lambda: self.get_sensor_data_batch(names)
+
+    def bind_sensor_data(self, names):
+        self.sensor_calls["bind"] += 1
+        return SimBackend.bind_sensor_data(self, names)  # type: ignore[arg-type]
 
 
 class _ActionManager:
@@ -196,6 +221,128 @@ def test_scene_entity_selector_is_resolved_once_by_observation_manager() -> None
     assert resolved.joint_ids == [2, 0]
 
 
+def _sensor_manager(env: ManagerBasedRlEnv) -> ObservationManager:
+    return ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "gyro": ObservationTermCfg(
+                        func=mdp.builtin_sensor,
+                        params={"sensor_name": "gyro"},
+                    ),
+                    "gravity": ObservationTermCfg(
+                        func=mdp.projected_gravity_from_sensor,
+                        params={"sensor_name": "upvector"},
+                    ),
+                }
+            )
+        },
+        env,
+    )
+
+
+def test_named_sensor_terms_bind_once_and_only_read_cached_views() -> None:
+    env, backend = _env()
+
+    manager = _sensor_manager(env)
+
+    assert manager.group_obs_dim == {"policy": (6,)}
+    assert backend.sensor_calls == {"bind": 2, "single": 2, "batch": 4}
+
+    first = manager.compute_group("policy")
+    second = manager.compute_group("policy")
+    assert isinstance(first, np.ndarray)
+    assert isinstance(second, np.ndarray)
+    expected = np.concatenate(
+        [backend.sensor_values["gyro"], -backend.sensor_values["upvector"]], axis=1
+    )
+    np.testing.assert_array_equal(first, expected)
+    np.testing.assert_array_equal(second, expected)
+    assert backend.sensor_calls == {"bind": 2, "single": 2, "batch": 8}
+
+    gyro_term = manager.get_term_cfg("policy", "gyro").func
+    gravity_term = manager.get_term_cfg("policy", "gravity").func
+    assert isinstance(gyro_term, mdp.builtin_sensor)
+    assert isinstance(gravity_term, mdp.projected_gravity_from_sensor)
+
+
+@pytest.mark.parametrize(
+    ("sensor_name", "error", "message"),
+    [
+        ("", ValueError, "builtin_sensor.*non-empty sensor_name"),
+        ("missing", KeyError, "builtin_sensor.*missing.*backend.*fake"),
+    ],
+)
+def test_named_sensor_term_materialization_fails_closed(
+    sensor_name: str, error: type[Exception], message: str
+) -> None:
+    env, _ = _env()
+    with pytest.raises(error, match=message):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "sensor": ObservationTermCfg(
+                            func=mdp.builtin_sensor,
+                            params={"sensor_name": sensor_name},
+                        )
+                    }
+                )
+            },
+            env,
+        )
+
+
+def test_named_sensor_scene_seam_rejects_duplicate_names() -> None:
+    env, _ = _env()
+    with pytest.raises(ValueError, match="named-sensor.*unique"):
+        env.scene.bind_sensor_data(("gyro", "gyro"))
+
+
+def test_projected_gravity_sensor_requires_one_three_dimensional_view() -> None:
+    env, backend = _env()
+    backend.sensor_values["upvector"] = np.zeros((2, 2), dtype=np.float32)
+
+    with pytest.raises(
+        ValueError,
+        match=r"projected_gravity_from_sensor.*3-D.*dimensions \(2,\).*backend 'fake'",
+    ):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "gravity": ObservationTermCfg(
+                            func=mdp.projected_gravity_from_sensor,
+                            params={"sensor_name": "upvector"},
+                        )
+                    }
+                )
+            },
+            env,
+        )
+
+
+def test_named_sensor_runtime_drift_reports_term_and_backend() -> None:
+    env, backend = _env()
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "gyro": ObservationTermCfg(
+                        func=mdp.builtin_sensor,
+                        params={"sensor_name": "gyro"},
+                    )
+                }
+            )
+        },
+        env,
+    )
+    backend.sensor_values["gyro"] = np.full((2, 3), np.nan, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="builtin_sensor.*gyro.*backend 'fake'.*NaN or Inf"):
+        manager.compute_group("policy")
+
+
 @pytest.mark.parametrize(
     ("call", "message"),
     [
@@ -204,7 +351,10 @@ def test_scene_entity_selector_is_resolved_once_by_observation_manager() -> None
             lambda env: mdp.generated_commands(env, "missing"),
             "Command term 'missing' not found",
         ),
-        (lambda env: mdp.joint_pos_rel(env, biased=1), "biased must be bool"),
+        (
+            lambda env: mdp.joint_pos_rel(env, biased=1),  # type: ignore[arg-type]
+            "biased must be bool",
+        ),
     ],
 )
 def test_invalid_term_requests_fail_explicitly(call, message: str) -> None:
