@@ -207,7 +207,7 @@ def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
     manip_loco_env = _keyboard_env(
         env_cls_name="Go2ArmManipLocoEnv",
         cfg_cls_name="Go2ArmManipLocoCfg",
-        module="unilab.envs.locomotion.go2_arm.manip_loco",
+        module="unilab.tasks.locomotion.go2_arm.manip_loco",
         obs_contains_command=True,
     )
     missing_obs_command_env = _keyboard_env(

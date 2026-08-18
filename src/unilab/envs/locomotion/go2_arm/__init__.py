@@ -1,1 +1,1 @@
-from .manip_loco import Go2ArmManipLocoCfg, Go2ArmManipLocoEnv
+"""Legacy Go2 Arm shared base pending migration to :mod:`unilab.tasks`."""
