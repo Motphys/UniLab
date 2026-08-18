@@ -9,7 +9,7 @@ mostly mechanical.
 
 | Legged Gym | UniLab |
 |---|---|
-| `LeggedRobot` env class | `unilab.envs.locomotion.common.base` |
+| `LeggedRobot` env class | `unilab.tasks.locomotion.common.base` |
 | `compute_observations()` | env-side obs builder + `unilab.base.observations` |
 | `_reward_*` methods | env's `compute_reward()` + reward term registry |
 | `command_ranges` | task owner YAML's `commands` block |

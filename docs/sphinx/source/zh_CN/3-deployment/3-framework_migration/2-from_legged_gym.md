@@ -8,7 +8,7 @@ Legged Gym 曾是那套 GPU 常驻的 PPO 模板，教会了整个领域如何�
 
 | Legged Gym | UniLab |
 |---|---|
-| `LeggedRobot` env 类 | `unilab.envs.locomotion.common.base` |
+| `LeggedRobot` env 类 | `unilab.tasks.locomotion.common.base` |
 | `compute_observations()` | env 侧 obs 构建器 + `unilab.base.observations` |
 | `_reward_*` 方法 | env 的 `compute_reward()` + reward 项 registry |
 | `command_ranges` | 任务 owner YAML 的 `commands` 块 |

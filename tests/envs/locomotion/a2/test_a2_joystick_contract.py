@@ -135,7 +135,7 @@ def test_a2_control_config_per_joint_gains():
 
 def test_pd_control_config_position_gains_default_is_scalar():
     """Base PdControlConfig keeps the scalar gain contract (Go2 path unchanged)."""
-    from unilab.envs.locomotion.common.base import PdControlConfig
+    from unilab.tasks.locomotion.common.base import PdControlConfig
 
     gains = PdControlConfig(Kp=35.0, Kd=0.5).position_gains()
     assert gains == {"kp": 35.0, "kd": 0.5}
