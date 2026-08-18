@@ -306,7 +306,7 @@ def _print_manual_recipe():
         To exercise NaN detection end-to-end inside a collector subprocess:
 
         1. Pick a task env file, e.g.
-           src/unilab/envs/locomotion/go1/go1_joystick.py
+           src/unilab/tasks/locomotion/go1/joystick.py
         2. Inside the env's update_state or apply_action, add a temporary
            one-shot NaN raise guarded by an env-counter, for example:
 
