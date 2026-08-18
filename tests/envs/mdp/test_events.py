@@ -14,9 +14,13 @@ from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.dr.types import (
+    RESET_TERM_BODY_IPOS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
+    IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
 from unilab.envs import mdp
@@ -160,9 +164,13 @@ class _Backend:
         *,
         root_layout_supported: bool = True,
         gain_supported: bool = True,
+        randomization_supported: bool = True,
+        interval_velocity_supported: bool = True,
     ) -> None:
         self.root_layout_supported = root_layout_supported
         self.gain_supported = gain_supported
+        self.randomization_supported = randomization_supported
+        self.interval_velocity_supported = interval_velocity_supported
         self.default_qpos = np.asarray([0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
         self.init_qvel = np.zeros(6)
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
@@ -171,6 +179,10 @@ class _Backend:
         self.body_quat = np.zeros((self.num_envs, 1, 4))
         self.body_quat[:, :, 0] = 1.0
         self.body_velocity = np.zeros((self.num_envs, 1, 3))
+        self.body_mass = np.array([10.0])
+        self.body_ipos = np.array([[0.0, 0.0, 0.0]])
+        self.gravity = np.array([0.0, 0.0, -9.81])
+        self.interval_plans: list[IntervalRandomizationPlan] = []
 
     def get_body_ids(self, names) -> np.ndarray:
         if tuple(names) != ("base",):
@@ -203,11 +215,28 @@ class _Backend:
         return np.tile([-1.0, 1.0], (self.num_actuators, 1))
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        terms = frozenset((RESET_TERM_KP, RESET_TERM_KD)) if self.gain_supported else frozenset()
-        return DomainRandomizationCapabilities(supported_reset_terms=terms)
+        terms: set[str] = set((RESET_TERM_KP, RESET_TERM_KD)) if self.gain_supported else set()
+        if self.randomization_supported:
+            terms.update((RESET_TERM_BODY_MASS, RESET_TERM_BODY_IPOS, RESET_TERM_GRAVITY))
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset(terms),
+            supports_interval_body_velocity_delta=self.interval_velocity_supported,
+        )
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         return np.array([10.0, 20.0, 30.0]), np.array([1.0, 2.0, 3.0])
+
+    def get_body_mass(self) -> np.ndarray:
+        return self.body_mass.copy()
+
+    def get_body_ipos(self) -> np.ndarray:
+        return self.body_ipos.copy()
+
+    def get_gravity(self) -> np.ndarray:
+        return self.gravity.copy()
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        self.interval_plans.append(plan)
 
     def get_body_pos_w(self, ids: np.ndarray) -> np.ndarray:
         return self.body_pos[:, ids]
@@ -239,15 +268,29 @@ class _Backend:
 
 
 def _transaction_env(
-    *, root_layout_supported: bool = True, gain_supported: bool = True, rng_seed: int = 5
+    *,
+    root_layout_supported: bool = True,
+    gain_supported: bool = True,
+    randomization_supported: bool = True,
+    interval_velocity_supported: bool = True,
+    body_names: tuple[str, ...] | None = ("base",),
+    rng_seed: int = 5,
 ) -> tuple[ManagerBasedRlEnv, _Backend, ResetStateTransaction]:
     backend = _Backend(
         root_layout_supported=root_layout_supported,
         gain_supported=gain_supported,
+        randomization_supported=randomization_supported,
+        interval_velocity_supported=interval_velocity_supported,
     )
     transaction = ResetStateTransaction(cast(SimBackend, backend))
     scene = EntityScene(
-        {"robot": EntityCfg(root_body_name="base", actuator_names=("a0", "a1", "a2"))},
+        {
+            "robot": EntityCfg(
+                root_body_name="base",
+                body_names=body_names,
+                actuator_names=("a0", "a1", "a2"),
+            )
+        },
         cast(SimBackend, backend),
         reset_state=transaction,
     )
@@ -385,6 +428,192 @@ def test_pd_gains_missing_backend_capability_fails_during_manager_construction()
     ):
         EventManager({"gain": cfg}, env)
     assert backend.set_state_calls == []
+
+
+def test_reset_randomization_terms_compose_with_state_and_gains_exactly_once() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=13)
+    asset_cfg = SceneEntityCfg("robot", body_names=("base",))
+    manager = EventManager(
+        {
+            "mass": EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode="reset",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "mass_distribution_params": (1.5, 1.5),
+                    "operation": "scale",
+                    "recompute_inertia": False,
+                },
+            ),
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="reset",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "com_range": {"x": (0.1, 0.1), "z": (-0.2, -0.2)},
+                },
+            ),
+            "gravity": EventTermCfg(
+                func=mdp.randomize_physics_scene_gravity,
+                mode="reset",
+                params={
+                    "gravity_distribution_params": (
+                        [0.0, 0.0, -10.0],
+                        [0.0, 0.0, -10.0],
+                    ),
+                    "operation": "abs",
+                },
+            ),
+            "gains": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                params={"kp_range": (2.0, 2.0), "kd_range": (3.0, 3.0)},
+            ),
+        },
+        env,
+    )
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    assert payload.body_mass is not None
+    assert payload.body_ipos is not None
+    assert payload.gravity is not None
+    assert payload.kp is not None
+    assert payload.kd is not None
+    np.testing.assert_allclose(payload.body_mass, [[15.0], [15.0]])
+    np.testing.assert_allclose(payload.body_ipos, [[[0.1, 0.0, -0.2]]] * 2)
+    np.testing.assert_allclose(payload.gravity, [[0.0, 0.0, -10.0]] * 2)
+    np.testing.assert_allclose(payload.kp, [[20.0, 40.0, 60.0]] * 2)
+    np.testing.assert_allclose(payload.kd, [[3.0, 6.0, 9.0]] * 2)
+
+
+@pytest.mark.parametrize(
+    ("func", "params", "match"),
+    [
+        (
+            mdp.randomize_rigid_body_mass,
+            {
+                "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                "mass_distribution_params": (0.9, 1.1),
+                "operation": "scale",
+            },
+            "recompute_inertia=True",
+        ),
+        (
+            mdp.randomize_rigid_body_mass,
+            {
+                "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                "mass_distribution_params": (0.9, 1.1),
+                "operation": "scale",
+                "recompute_inertia": False,
+            },
+            "body_mass randomization.*unsupported",
+        ),
+    ],
+)
+def test_mass_randomization_capability_gaps_fail_during_construction(
+    func, params: dict[str, Any], match: str
+) -> None:
+    env, backend, _ = _transaction_env(randomization_supported=False)
+    with pytest.raises(NotImplementedError, match=match):
+        EventManager(
+            {"mass": EventTermCfg(func=func, mode="reset", params=params)},
+            env,
+        )
+    assert backend.set_state_calls == []
+
+
+def test_reset_randomization_sparse_rows_abort_without_backend_mutation() -> None:
+    env, backend, transaction = _transaction_env()
+    manager = EventManager(
+        {
+            "gravity": EventTermCfg(
+                func=mdp.randomize_physics_scene_gravity,
+                mode="reset",
+                params={
+                    "gravity_distribution_params": ([0.0, 0.0, -10.0],) * 2,
+                    "operation": "abs",
+                },
+            )
+        },
+        env,
+    )
+    cfg = manager.get_term_cfg("gravity")
+    ids = np.array([0, 1], dtype=np.int32)
+
+    with pytest.raises(RuntimeError, match=r"gravity payload.*sparse rows.*missing env IDs \[1\]"):
+        with transaction.scoped(ids):
+            mdp.reset_scene_to_default(env, ids)
+            cfg.func(env, np.array([0], dtype=np.int32), **cfg.params)
+    assert backend.set_state_calls == []
+
+
+def test_velocity_push_uses_env_rng_and_interval_subset_plan() -> None:
+    env, backend, _ = _transaction_env(rng_seed=19)
+    manager = EventManager(
+        {
+            "push": EventTermCfg(
+                func=mdp.push_by_setting_velocity,
+                mode="interval",
+                interval_range_s=(1.0, 1.0),
+                params={
+                    "velocity_range": {
+                        "x": (0.2, 0.2),
+                        "y": (-0.3, -0.3),
+                        "z": (0.4, 0.4),
+                    }
+                },
+            )
+        },
+        env,
+    )
+    manager._interval_term_time_left[0][:] = [0.0, 1.0, 0.0]
+
+    manager.apply(mode="interval", dt=0.1)
+
+    assert len(backend.interval_plans) == 1
+    plan = backend.interval_plans[0]
+    np.testing.assert_array_equal(plan.body_ids, [0])
+    assert plan.body_linear_velocity_delta is not None
+    np.testing.assert_allclose(
+        plan.body_linear_velocity_delta[:, 0],
+        [[0.2, -0.3, 0.4], [0.0, 0.0, 0.0], [0.2, -0.3, 0.4]],
+    )
+
+
+@pytest.mark.parametrize(
+    ("supported", "velocity_range", "match"),
+    [
+        (False, {"x": (-0.1, 0.1)}, "unsupported backend capability"),
+        (True, {"yaw": (-0.1, 0.1)}, "angular velocity ranges are unsupported"),
+    ],
+)
+def test_velocity_push_capability_gaps_fail_during_construction(
+    supported: bool,
+    velocity_range: dict[str, tuple[float, float]],
+    match: str,
+) -> None:
+    env, backend, _ = _transaction_env(interval_velocity_supported=supported)
+    with pytest.raises(NotImplementedError, match=match):
+        EventManager(
+            {
+                "push": EventTermCfg(
+                    func=mdp.push_by_setting_velocity,
+                    mode="interval",
+                    interval_range_s=(1.0, 1.0),
+                    params={"velocity_range": velocity_range},
+                )
+            },
+            env,
+        )
+    assert backend.interval_plans == []
 
 
 def test_uniform_root_state_fixed_or_mocap_capability_fails_closed() -> None:

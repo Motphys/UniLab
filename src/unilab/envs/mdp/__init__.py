@@ -5,6 +5,12 @@ from unilab.envs.mdp.actions import JointPositionActionCfg as JointPositionActio
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
 from unilab.envs.mdp.events import pd_gains as pd_gains
+from unilab.envs.mdp.events import push_by_setting_velocity as push_by_setting_velocity
+from unilab.envs.mdp.events import (
+    randomize_physics_scene_gravity as randomize_physics_scene_gravity,
+)
+from unilab.envs.mdp.events import randomize_rigid_body_com as randomize_rigid_body_com
+from unilab.envs.mdp.events import randomize_rigid_body_mass as randomize_rigid_body_mass
 from unilab.envs.mdp.events import reset_root_state_uniform as reset_root_state_uniform
 from unilab.envs.mdp.events import reset_scene_to_default as reset_scene_to_default
 from unilab.envs.mdp.events import resolve_env_ids as resolve_env_ids
@@ -55,6 +61,10 @@ __all__ = [
     "joint_vel_l2",
     "last_action",
     "pd_gains",
+    "push_by_setting_velocity",
+    "randomize_physics_scene_gravity",
+    "randomize_rigid_body_com",
+    "randomize_rigid_body_mass",
     "is_alive",
     "is_terminated",
     "projected_gravity",

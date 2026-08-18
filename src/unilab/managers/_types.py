@@ -168,6 +168,12 @@ class ManagerScene(Protocol):
 
     def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None: ...
 
+    def bind_gravity_write(self, *, term_name: str) -> np.ndarray: ...
+
+    def write_gravity_to_sim(
+        self, values: np.ndarray, env_ids: np.ndarray, *, term_name: str
+    ) -> None: ...
+
 
 class ManagerActionTerm(Protocol):
     @property
