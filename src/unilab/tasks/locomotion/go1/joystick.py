@@ -13,13 +13,13 @@ from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
 from unilab.envs.locomotion.common.rewards import RewardContext
-from unilab.envs.locomotion.common.terrain_spawn import (
-    TerrainCurriculumCfg,
-    TerrainSpawnManager,
-)
 from unilab.tasks.locomotion.common.commands import Commands
 from unilab.tasks.locomotion.common.domain_rand import DomainRandConfig
 from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.tasks.locomotion.common.terrain_spawn import (
+    TerrainCurriculumCfg,
+    TerrainSpawnManager,
+)
 from unilab.tasks.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
 
 

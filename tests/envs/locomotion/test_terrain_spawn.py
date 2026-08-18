@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from unilab.envs.locomotion.common.terrain_spawn import (
+from unilab.tasks.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )

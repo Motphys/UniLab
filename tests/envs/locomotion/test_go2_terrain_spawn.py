@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from unilab.envs.locomotion.common.terrain_spawn import (
+from unilab.tasks.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )
@@ -52,7 +52,7 @@ def test_terrain_spawn_attached_when_rough():
         assert terrain_data.terrain_origins.shape == (3, 3, 3)
         assert not terrain_data.terrain_origins.flags.writeable
         assert _class_path(env._spawn) == (
-            "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
+            "unilab.tasks.locomotion.common.terrain_spawn.TerrainSpawnManager"
         )
         assert env._scene_terrain_origins is not None
         assert env._scene_terrain_origins.shape == (3, 3, 3)
@@ -76,7 +76,7 @@ def test_terrain_spawn_attached_when_rough_motrix():
         assert terrain_data.terrain_origins.shape == (3, 3, 3)
         assert not terrain_data.terrain_origins.flags.writeable
         assert _class_path(env._spawn) == (
-            "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager"
+            "unilab.tasks.locomotion.common.terrain_spawn.TerrainSpawnManager"
         )
         assert env._scene_terrain_origins is not None
         assert env._scene_terrain_origins.shape == (3, 3, 3)
@@ -240,7 +240,7 @@ def test_default_spawn_used_when_flat():
     try:
         assert env._backend.get_terrain_spawn_data() is None
         assert _class_path(env._spawn) == (
-            "unilab.envs.locomotion.common.terrain_spawn.BaseSpawnManager"
+            "unilab.tasks.locomotion.common.terrain_spawn.BaseSpawnManager"
         )
         assert env._scene_terrain_origins is None
         # Origins are zeros (flat scene needs no spread; per-env xy jitter still applies).
@@ -359,7 +359,7 @@ def test_episode_start_recorded_after_reset(preset):
     try:
         env.init_state()
         sm = env._spawn
-        if _class_path(sm) == "unilab.envs.locomotion.common.terrain_spawn.TerrainSpawnManager":
+        if _class_path(sm) == "unilab.tasks.locomotion.common.terrain_spawn.TerrainSpawnManager":
             assert np.all(sm._has_started)
     finally:
         env.close()
