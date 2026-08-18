@@ -44,13 +44,13 @@ from unilab.dr.dr_utils import (
 from unilab.dr.types import RESET_TERM_GEOM_FRICTION
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.g1.base import NoiseConfig
-
-from ..common.rewards import RewardContext
-from .tracking import (
+from unilab.envs.motion_tracking.common.rewards import RewardContext
+from unilab.envs.motion_tracking.g1.tracking import (
     Domain_Rand,
     G1MotionTrackingDomainRandomizationProvider,
     _build_motion_reference_state,
 )
+
 from .tracking_sac import G1MotionTrackingSACCfg, G1MotionTrackingSACEnv
 
 # --------------------------------------------------------------------------- #
@@ -230,7 +230,7 @@ class G1WBTObsEnv(G1MotionTrackingSACEnv):
     on ``G1WBTObsCfg`` are toggled from the task yaml.
     """
 
-    _cfg: G1WBTObsCfg
+    _cfg: G1WBTObsCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: G1WBTObsCfg, num_envs: int = 1, backend_type: str = "mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)

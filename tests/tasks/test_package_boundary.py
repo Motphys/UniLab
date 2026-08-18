@@ -22,7 +22,7 @@ _TASK_REGISTRY_MODULES = (
     "unilab.tasks.manipulation.sharpa_inhand",
     "unilab.tasks.manipulation.stewart",
     "unilab.envs.motion_tracking.g1",
-    "unilab.tasks.motion_tracking.g1.box_tracking",
+    "unilab.tasks.motion_tracking.g1",
     "unilab.tasks.motion_tracking.x2",
 )
 
