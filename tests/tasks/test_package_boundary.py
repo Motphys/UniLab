@@ -12,8 +12,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ENV_PACKAGE = _REPO_ROOT / "src" / "unilab" / "envs"
 
 _TASK_REGISTRY_MODULES = (
-    "unilab.envs.locomotion.go1",
-    "unilab.tasks.locomotion.go1.rough",
+    "unilab.tasks.locomotion.go1",
     "unilab.tasks.locomotion.go2",
     "unilab.envs.locomotion.go2w",
     "unilab.envs.locomotion.g1",

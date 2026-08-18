@@ -35,7 +35,7 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
 )
 from unilab.envs.locomotion.go1.base import ControlConfig
-from unilab.envs.locomotion.go1.joystick import (
+from unilab.tasks.locomotion.go1.joystick import (
     Go1JoystickCfg,
     Go1JoystickDomainRandomizationProvider,
     Go1WalkTask,

@@ -101,12 +101,12 @@ class StepProfiler:
 
 def _task_specs() -> dict[str, TaskSpec]:
     def go1_cfg() -> Any:
-        from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
+        from unilab.tasks.locomotion.go1.joystick import Go1JoystickCfg
 
         return Go1JoystickCfg()
 
     def go1_env() -> type:
-        from unilab.envs.locomotion.go1.joystick import Go1WalkTask
+        from unilab.tasks.locomotion.go1.joystick import Go1WalkTask
 
         return Go1WalkTask
 

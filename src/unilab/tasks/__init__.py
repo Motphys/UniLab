@@ -8,8 +8,7 @@ and deterministic throughout the migration.
 """
 
 __unilab_registry_modules__ = (
-    "unilab.envs.locomotion.go1",
-    "unilab.tasks.locomotion.go1.rough",
+    "unilab.tasks.locomotion.go1",
     "unilab.tasks.locomotion.go2",
     "unilab.envs.locomotion.go2w",
     "unilab.envs.locomotion.g1",

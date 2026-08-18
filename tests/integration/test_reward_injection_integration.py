@@ -38,7 +38,7 @@ def test_reward_override_propagation():
     """Test reward override propagates through multiprocess collector."""
     from unilab.base import registry
     from unilab.base.registry import ensure_registries
-    from unilab.envs.locomotion.go1.joystick import RewardConfig
+    from unilab.tasks.locomotion.go1.joystick import RewardConfig
 
     ensure_registries()
 
@@ -102,7 +102,7 @@ def test_zero_scale_skips_computation():
     """Test that reward functions with scale=0 are skipped."""
     from unilab.base import registry
     from unilab.base.registry import ensure_registries
-    from unilab.envs.locomotion.go1.joystick import RewardConfig
+    from unilab.tasks.locomotion.go1.joystick import RewardConfig
 
     ensure_registries()
 
