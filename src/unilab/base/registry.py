@@ -25,7 +25,8 @@ from .config_overrides import (
     MANAGER_TERM_MAPPING_POLICY,
 )
 
-TEnvCfg = TypeVar("TEnvCfg", bound=EnvCfg)
+EnvCfgFactory = Callable[[], EnvCfg]
+TEnvCfgFactory = TypeVar("TEnvCfgFactory", bound=EnvCfgFactory)
 RewardOverrideField = Literal["reward_config", "rewards"]
 _SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake")
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EnvMeta:
-    env_cfg_cls: Type[EnvCfg]
+    env_cfg_factory: EnvCfgFactory
     env_cls_dict: Dict[str, Type[ABEnv]] = field(default_factory=dict)
 
     def available_sim_backend(self) -> Optional[str]:
@@ -68,29 +69,57 @@ def contains(name: str) -> bool:
     return name in _envs
 
 
-def register_env_config(name: str, env_cfg_cls: Type[EnvCfg]):
-    """Register an environment configuration class with a name."""
+def _config_factory_name(factory: EnvCfgFactory) -> str:
+    return str(getattr(factory, "__qualname__", type(factory).__qualname__))
+
+
+def register_env_config(name: str, env_cfg_factory: EnvCfgFactory) -> None:
+    """Register a zero-argument environment configuration factory."""
     if name in _envs.keys():
         raise ValueError(f"Environment '{name}' is already registered.")
-    _envs[name] = EnvMeta(env_cfg_cls=env_cfg_cls)
+    if not callable(env_cfg_factory):
+        raise TypeError(
+            f"Environment '{name}' config factory must be callable, got "
+            f"{type(env_cfg_factory).__name__}"
+        )
+    _envs[name] = EnvMeta(env_cfg_factory=env_cfg_factory)
 
 
-def envcfg(name: str) -> Callable[[Type[TEnvCfg]], Type[TEnvCfg]]:
+def envcfg(name: str) -> Callable[[TEnvCfgFactory], TEnvCfgFactory]:
     """
-    Decorator to register an environment configuration class with a name.
+    Decorator to register an environment configuration class or factory.
 
     Usage:
-        @register_env_config_decorator("my-env")
+        @envcfg("my-env")
         @dataclass
         class MyEnvCfg(EnvCfg):
             ...
+
+        @envcfg("my-manager-env")
+        def make_my_env_cfg() -> EnvCfg:
+            ...
     """
 
-    def decorator(cls: Type[TEnvCfg]) -> Type[TEnvCfg]:
-        register_env_config(name, cls)
-        return cls
+    def decorator(factory: TEnvCfgFactory) -> TEnvCfgFactory:
+        register_env_config(name, factory)
+        return factory
 
     return decorator
+
+
+def materialize_env_config(name: str) -> EnvCfg:
+    """Construct one config instance from the registered cold-path factory."""
+    if name not in _envs:
+        raise ValueError(f"Environment '{name}' is not registered.")
+
+    factory = _envs[name].env_cfg_factory
+    env_cfg = factory()
+    if not isinstance(env_cfg, EnvCfg):
+        raise TypeError(
+            f"Environment '{name}' config factory '{_config_factory_name(factory)}' returned "
+            f"{type(env_cfg).__name__}, expected an EnvCfg instance"
+        )
+    return env_cfg
 
 
 def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
@@ -154,20 +183,19 @@ def resolve_reward_override_field(env_name: str) -> RewardOverrideField:
     if env_name not in _envs:
         raise ValueError(f"Environment '{env_name}' is not registered.")
 
-    config_cls = _envs[env_name].env_cfg_cls
-    config_fields = {
-        config_field.name: config_field for config_field in dataclasses.fields(config_cls)
-    }
+    config = materialize_env_config(env_name)
+    config_fields = {config_field.name: config_field for config_field in dataclasses.fields(config)}
     rewards_field = config_fields.get("rewards")
     has_manager_rewards = (
         rewards_field is not None
         and rewards_field.metadata.get(CONFIG_MAPPING_POLICY_KEY) == MANAGER_TERM_MAPPING_POLICY
     )
     has_legacy_rewards = "reward_config" in config_fields
+    config_owner = type(config).__name__
 
     if has_manager_rewards and has_legacy_rewards:
         raise ValueError(
-            f"Environment '{env_name}' config owner '{config_cls.__name__}' declares both "
+            f"Environment '{env_name}' config owner '{config_owner}' declares both "
             "Manager-Based 'rewards' and legacy 'reward_config' targets"
         )
     if has_manager_rewards:
@@ -175,7 +203,7 @@ def resolve_reward_override_field(env_name: str) -> RewardOverrideField:
     if has_legacy_rewards:
         return "reward_config"
     raise ValueError(
-        f"Environment '{env_name}' config owner '{config_cls.__name__}' declares no "
+        f"Environment '{env_name}' config owner '{config_owner}' declares no "
         "supported Hydra root reward target; expected legacy 'reward_config' or an "
         "explicitly marked Manager-Based 'rewards' field"
     )
@@ -366,7 +394,7 @@ def make(
     meta: EnvMeta = _envs[name]
 
     # Create environment config
-    env_cfg = meta.env_cfg_cls()
+    env_cfg = materialize_env_config(name)
     if env_cfg_override is not None:
         apply_cfg_overrides(env_cfg, env_cfg_override)
 
@@ -395,7 +423,7 @@ def list_registered_envs() -> Dict[str, Dict[str, Any]]:
     result = {}
     for name, meta in _envs.items():
         result[name] = {
-            "config_class": meta.env_cfg_cls.__name__,
+            "config_factory": _config_factory_name(meta.env_cfg_factory),
             "available_backends": list(meta.env_cls_dict.keys()),
         }
     return result

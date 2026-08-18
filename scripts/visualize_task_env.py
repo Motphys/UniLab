@@ -284,13 +284,14 @@ def _run_mujoco(env, num_envs: int) -> None:
 
 def _build_env_cfg_override(task_name: str) -> dict[str, Any]:
     """Build the env_cfg_override dict from CLI args alone — no Hydra."""
-    if task_name not in registry._envs:
+    if not registry.contains(task_name):
         raise SystemExit(
-            f"Task '{task_name}' is not registered. Available: {sorted(registry._envs.keys())}"
+            f"Task '{task_name}' is not registered. "
+            f"Available: {sorted(registry.list_registered_envs())}"
         )
-    env_cfg_cls = registry._envs[task_name].env_cfg_cls
+    env_cfg = registry.materialize_env_config(task_name)
     override: dict[str, Any] = {}
-    reward_stub = _build_reward_stub(env_cfg_cls)
+    reward_stub = _build_reward_stub(type(env_cfg))
     if reward_stub is not None:
         override["reward_config"] = reward_stub
     return override
