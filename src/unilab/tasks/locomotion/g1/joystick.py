@@ -174,7 +174,7 @@ class CurriculumConfig:
 
 @dataclass
 class G1WalkEnvCfg(G1BaseCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
         )
@@ -254,7 +254,7 @@ class G1WalkDomainRandomizationProvider(LocomotionDRProvider):
 
 
 class G1WalkEnv(G1BaseEnv):
-    _cfg: G1WalkEnvCfg
+    _cfg: G1WalkEnvCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _reward_cfg: Any
 
     def __init__(self, cfg: G1WalkEnvCfg, num_envs=1, backend_type="mujoco"):
@@ -485,7 +485,7 @@ class G1WalkEnv(G1BaseEnv):
             actuator_names = self._backend.get_actuator_names()
         except NotImplementedError:
             return None
-        from unilab.envs.locomotion.g1.symmetry import G1SymmetryAugmentation
+        from unilab.tasks.locomotion.g1.symmetry import G1SymmetryAugmentation
 
         return G1SymmetryAugmentation(
             actuator_names,
@@ -656,7 +656,7 @@ class G1WalkRewardConfig(G1RewardConfig):
 @registry.envcfg("G1WalkFlat")
 @dataclass
 class G1WalkFlatCfg(G1WalkEnvCfg):
-    reward_config: G1WalkRewardConfig | None = None
+    reward_config: G1WalkRewardConfig | None = None  # pyright: ignore[reportIncompatibleVariableOverride]
     scene: SceneCfg = field(
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")

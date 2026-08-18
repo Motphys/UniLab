@@ -338,13 +338,13 @@ def _go2w_rough_env_cls() -> type:
 
 
 def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg
 
     return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg, config_overrides)
 
 
 def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkRoughCfg
 
     return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg, config_overrides)
 
@@ -416,7 +416,7 @@ def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
 
 
 def _g1_walk_env_cls() -> type:
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     return G1WalkEnv
 
