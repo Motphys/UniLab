@@ -1,4 +1,4 @@
-"""Reward configuration and reward functions for motion tracking.
+"""Shared reward configuration and functions for motion tracking.
 
 Reward terms are plain module-level callables ``fn(ctx: RewardContext) -> np.ndarray``
 mirroring :mod:`unilab.envs.locomotion.common.rewards`. Robot-specific terms that

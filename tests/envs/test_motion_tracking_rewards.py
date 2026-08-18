@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from unilab.envs.motion_tracking.common import rewards
-from unilab.envs.motion_tracking.common.rewards import RewardConfig, RewardContext
+from unilab.tasks.motion_tracking.common import rewards
+from unilab.tasks.motion_tracking.common.rewards import RewardConfig, RewardContext
 
 
 def _make_ctx(*, scales: dict[str, float] | None = None) -> RewardContext:

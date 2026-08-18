@@ -1,4 +1,4 @@
-"""Relative body-transform computation for motion tracking.
+"""Shared relative body-transform computation for motion tracking.
 
 Fills the environment's ``body_pos_relative_w`` / ``body_quat_relative_w``
 reference buffers each step. The op order and in-place ``out=`` usage are

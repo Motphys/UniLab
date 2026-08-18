@@ -14,7 +14,8 @@ from typing import Literal
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
 from unilab.envs.locomotion.g1.base import G1BaseCfg
-from unilab.envs.motion_tracking.common.rewards import RewardConfig
+
+from .rewards import RewardConfig
 
 
 @dataclass
