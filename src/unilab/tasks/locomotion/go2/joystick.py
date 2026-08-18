@@ -21,11 +21,11 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )
-from unilab.envs.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 from unilab.envs.manager_based_rl_env import (
     ManagerBasedRlEnvCfg,
     make_manager_based_rl_env,
 )
+from unilab.tasks.locomotion.go2.base import Go2BaseCfg, Go2BaseEnv
 
 
 @dataclass

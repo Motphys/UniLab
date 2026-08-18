@@ -39,7 +39,7 @@ class Go2BaseCfg(LocomotionBaseCfg):
 
 
 class Go2BaseEnv(LocomotionBaseEnv):
-    _cfg: Go2BaseCfg
+    _cfg: Go2BaseCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def get_foot_pos(self) -> np.ndarray:
         """Get foot positions. Returns shape (num_envs, 4, 3)"""
