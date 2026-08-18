@@ -214,6 +214,22 @@ class ManagerBasedRlEnv(NpEnv):
 
         if "startup" in self.event_manager.available_modes:
             self.event_manager.apply(mode="startup")
+        self._materialize_backend()
+
+    def _materialize_backend(self) -> None:
+        """Finalize backend runtime resources before the first reset or step."""
+        try:
+            self._backend.materialize()
+        except NotImplementedError as exc:
+            raise NotImplementedError(
+                "ManagerBasedRlEnv lifecycle capability 'SimBackend.materialize' is "
+                f"unavailable on backend '{self._backend.backend_type}': {exc}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                "ManagerBasedRlEnv failed to materialize backend "
+                f"'{self._backend.backend_type}' after startup events: {exc}"
+            ) from exc
 
     @property
     def physics_dt(self) -> float:

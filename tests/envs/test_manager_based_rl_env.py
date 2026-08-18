@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 
 import unilab.envs.manager_based_rl_env as manager_env_module
+from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.backend.base import SimBackend
 from unilab.base.entity import EntityCfg
 from unilab.base.scene import SceneCfg
@@ -39,13 +41,28 @@ from unilab.managers import (
 class _FakeBackend:
     backend_type = "fake"
 
-    def __init__(self, num_envs: int, *, reject_pre_step: bool = False) -> None:
+    def __init__(
+        self,
+        num_envs: int,
+        *,
+        reject_pre_step: bool = False,
+        reject_materialize: bool = False,
+    ) -> None:
         self.num_envs = num_envs
         self.num_actuators = 1
         self.reject_pre_step = reject_pre_step
+        self.reject_materialize = reject_materialize
         self.pre_step_control = None
         self.applied_controls: list[np.ndarray] = []
         self.cleanup_calls = 0
+        self.materialize_calls = 0
+        self.lifecycle: list[str] = []
+
+    def materialize(self) -> None:
+        if self.reject_materialize:
+            raise RuntimeError("pool construction failed")
+        self.materialize_calls += 1
+        self.lifecycle.append("materialize")
 
     def get_actuator_names(self) -> tuple[str, ...]:
         return ("motor",)
@@ -65,6 +82,7 @@ class _FakeBackend:
         self.pre_step_control = fn
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+        assert self.materialize_calls == 1
         native = ctrl
         for _ in range(nsteps):
             if self.pre_step_control is not None:
@@ -129,6 +147,7 @@ class _ResetBackend(_FakeBackend):
         randomization=None,
     ) -> None:
         assert randomization is None
+        assert self.materialize_calls == 1
         self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
 
@@ -220,6 +239,10 @@ def _critic_obs(env: _TestEnv) -> np.ndarray:
     return env.episode_length_buf[:, None].astype(np.float32)
 
 
+def _episode_step_observation(env: ManagerBasedRlEnv) -> np.ndarray:
+    return env.episode_length_buf[:, None].astype(np.float32)
+
+
 def _reward(env: _TestEnv) -> np.ndarray:
     return env.action_manager.action[:, 0].copy()
 
@@ -244,6 +267,12 @@ def _curriculum(env: _TestEnv, env_ids: np.ndarray | slice) -> float:
 def _event(env: _TestEnv, env_ids: np.ndarray | None) -> None:
     rendered_ids = None if env_ids is None else env_ids.tolist()
     env.trace.append(("event", rendered_ids))
+
+
+def _startup_event(env: _TestEnv, env_ids: np.ndarray | None) -> None:
+    assert env_ids is None
+    backend = cast(_FakeBackend, env._backend)
+    backend.lifecycle.append("startup")
 
 
 def _observe_uncommitted_reset(env: _TestEnv, env_ids: np.ndarray | None) -> None:
@@ -311,8 +340,13 @@ def _make_env(
     *,
     num_envs: int = 2,
     reject_pre_step: bool = False,
+    reject_materialize: bool = False,
 ) -> tuple[_TestEnv, _FakeBackend]:
-    backend = _FakeBackend(num_envs, reject_pre_step=reject_pre_step)
+    backend = _FakeBackend(
+        num_envs,
+        reject_pre_step=reject_pre_step,
+        reject_materialize=reject_materialize,
+    )
     env = _TestEnv(
         cfg or _make_cfg(),
         cast(SimBackend, backend),
@@ -375,6 +409,74 @@ def test_manager_construction_uses_pinned_order(monkeypatch: pytest.MonkeyPatch)
 
     _make_env(cfg)
     assert order == list(names)
+
+
+def test_backend_materializes_once_after_startup_and_before_runtime() -> None:
+    cfg = _make_cfg()
+    cfg.events = {
+        "startup": EventTermCfg(func=_startup_event, mode="startup"),
+        "reset": EventTermCfg(func=_event, mode="reset"),
+    }
+    env, backend = _make_env(cfg)
+
+    assert backend.lifecycle == ["startup", "materialize"]
+    assert backend.materialize_calls == 1
+
+    env.reset()
+    env.step(np.zeros((2, 1), dtype=np.float32))
+    env.reset()
+
+    assert backend.materialize_calls == 1
+
+
+def test_backend_materialization_failure_has_lifecycle_context() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="ManagerBasedRlEnv failed to materialize backend 'fake'.*pool construction failed",
+    ):
+        _make_env(reject_materialize=True)
+
+
+def test_real_mujoco_backend_is_materialized_before_first_reset() -> None:
+    scene = SceneCfg(
+        model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"),
+        entities={"robot": EntityCfg()},
+    )
+    cfg = ManagerBasedRlEnvCfg(
+        scene=scene,
+        sim_dt=0.01,
+        ctrl_dt=0.02,
+        max_episode_seconds=1.0,
+        observations={
+            "actor": ObservationGroupCfg(
+                terms={"state": ObservationTermCfg(func=_episode_step_observation)}
+            )
+        },
+        actions={},
+        events={"reset_default": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset")},
+        rewards={"alive": RewardTermCfg(func=mdp.is_alive, weight=1.0)},
+        terminations={"time_out": TerminationTermCfg(func=mdp.time_out, time_out=True)},
+        policy_observation_group="actor",
+    )
+    backend = create_backend(
+        "mujoco",
+        scene,
+        2,
+        cfg.sim_dt,
+        base_name="base",
+        **env_backend_kwargs(cfg),
+    )
+    env = ManagerBasedRlEnv(cfg, backend, 2)
+    try:
+        state = env.init_state()
+        assert state.obs["obs"].shape == (2, 1)
+        assert np.isfinite(state.obs["obs"]).all()
+
+        state = env.step(np.empty((2, 0), dtype=np.float32))
+        assert np.isfinite(state.obs["obs"]).all()
+        assert np.isfinite(state.reward).all()
+    finally:
+        env.close()
 
 
 def test_np_env_owns_substeps_autoreset_and_final_observation() -> None:

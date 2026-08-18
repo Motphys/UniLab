@@ -20,6 +20,9 @@ The normative compatibility matrix and mechanical migration example are in
 - Named-sensor observation terms bind a backend-owned view through
   `EntityScene.bind_sensor_data(...)` during construction; their hot path only reads
   that view and never re-resolves sensor names or XML/model metadata.
+- `ManagerBasedRlEnv` owns backend materialization exactly once: manager construction
+  and startup events run first, then `SimBackend.materialize()` completes before any
+  reset or step can execute.
 - Explicitly empty configuration may use a Null manager. A requested capability that
   is unavailable fails at the nearest boundary; it is never skipped, zero-filled, or
   routed back to a legacy environment.
