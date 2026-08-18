@@ -12,12 +12,12 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.run_control import RunComplete
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
-from unilab.envs.manipulation.sharpa_inhand.base import (
+from unilab.tasks.manipulation.sharpa_inhand.base import (
     SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
     SharpaDomainRandConfig,
     resolve_grasp_cache_file,
 )
-from unilab.envs.manipulation.sharpa_inhand.rotation import (
+from unilab.tasks.manipulation.sharpa_inhand.rotation import (
     RewardConfig,
     SharpaInhandRotationCfg,
     SharpaInhandRotationDRProvider,
@@ -57,7 +57,7 @@ class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
     grasp_cache_path: str = ""
     domain_rand: SharpaDomainRandConfig = field(default_factory=_default_sharpa_grasp_domain_rand)
 
-    reward_config: RewardConfig = field(
+    reward_config: RewardConfig = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: RewardConfig(
             scales={
                 "rotate": 0.0,
@@ -141,7 +141,7 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
 @registry.env("SharpaInhandRotationGrasp", sim_backend="mujoco")
 @registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
-    _cfg: SharpaInhandRotationGraspCfg
+    _cfg: SharpaInhandRotationGraspCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _MATERIALIZE_ROTATION_GRASP_CACHE = False
 
     def __init__(

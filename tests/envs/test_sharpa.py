@@ -12,12 +12,12 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 from unilab.base.registry import ensure_registries
-from unilab.envs.manipulation.sharpa_inhand.base import (
+from unilab.tasks.manipulation.sharpa_inhand.base import (
     SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
     SharpaInhandBaseEnv,
     resolve_grasp_cache_file,
 )
-from unilab.envs.manipulation.sharpa_inhand.rotation import (
+from unilab.tasks.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationDRProvider,
     _materialize_grasp_caches,
 )
@@ -29,7 +29,7 @@ _SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 def test_sharpa_env_uses_backend_contract_for_mujoco_metadata() -> None:
     """Sharpa env code should not read MuJoCo model internals directly."""
     source = "\n".join(
-        (_SRC_DIR / "unilab" / "envs" / "manipulation" / "sharpa_inhand" / path).read_text(
+        (_SRC_DIR / "unilab" / "tasks" / "manipulation" / "sharpa_inhand" / path).read_text(
             encoding="utf-8"
         )
         for path in ("base.py", "rotation.py")
@@ -193,7 +193,7 @@ def test_sharpa_grasp_cache_is_materialized_once_and_reset_samples_memory(
     scale_values = np.asarray([0.8, 1.0], dtype=np.float64)
     _write_sharpa_grasp_cache(cache_prefix, [0.8, 1.0])
 
-    from unilab.envs.manipulation.sharpa_inhand import rotation
+    from unilab.tasks.manipulation.sharpa_inhand import rotation
 
     path_resolve_calls: list[tuple[str, float]] = []
     hf_resolve_calls: list[str] = []

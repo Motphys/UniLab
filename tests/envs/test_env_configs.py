@@ -1480,8 +1480,8 @@ def _patch_sharpa_rotation_constructor(
     monkeypatch: pytest.MonkeyPatch,
     initialized_providers: list[Any],
 ) -> Any:
-    from unilab.envs.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
-    from unilab.envs.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
+    from unilab.tasks.manipulation.sharpa_inhand import rotation as sharpa_rotation_module
+    from unilab.tasks.manipulation.sharpa_inhand.base import SharpaInhandBaseEnv
 
     def fake_base_init(self, cfg, backend, num_envs):
         self._cfg = cfg
@@ -1529,7 +1529,7 @@ def _patch_sharpa_rotation_constructor(
 
 
 def test_sharpa_rotation_explicit_default_provider_materializes_cache(monkeypatch):
-    from unilab.envs.manipulation.sharpa_inhand.rotation import (
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import (
         RewardConfig,
         SharpaInhandRotationCfg,
         SharpaInhandRotationDRProvider,
@@ -1564,7 +1564,7 @@ def test_sharpa_rotation_explicit_default_provider_materializes_cache(monkeypatc
 
 
 def test_sharpa_grasp_env_initializes_dr_once_with_grasp_provider(monkeypatch):
-    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+    from unilab.tasks.manipulation.sharpa_inhand.grasp_gen import (
         SharpaInhandRotationGraspCfg,
         SharpaInhandRotationGraspEnv,
     )
@@ -1613,7 +1613,7 @@ def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     from unilab.base.run_control import RunComplete
-    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+    from unilab.tasks.manipulation.sharpa_inhand.grasp_gen import (
         SharpaInhandRotationGraspCfg,
         SharpaInhandRotationGraspEnv,
     )
@@ -1651,13 +1651,13 @@ def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
         real_save(path, values)
 
     monkeypatch.setattr(
-        "unilab.envs.manipulation.sharpa_inhand.grasp_gen.np.save",
+        "unilab.tasks.manipulation.sharpa_inhand.grasp_gen.np.save",
         save_once,
     )
 
     with caplog.at_level(
         logging.INFO,
-        logger="unilab.envs.manipulation.sharpa_inhand.grasp_gen",
+        logger="unilab.tasks.manipulation.sharpa_inhand.grasp_gen",
     ):
         with pytest.raises(RunComplete) as caught:
             env._collect_successful_grasps(np.asarray([0], dtype=np.int32))
@@ -1692,7 +1692,7 @@ def test_sharpa_grasp_target_saves_cache_then_raises_run_complete(
 
 def test_sharpa_run_complete_reports_effective_collection_target() -> None:
     from unilab.base.run_control import RunComplete
-    from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+    from unilab.tasks.manipulation.sharpa_inhand.grasp_gen import (
         SharpaInhandRotationGraspCfg,
         SharpaInhandRotationGraspEnv,
     )

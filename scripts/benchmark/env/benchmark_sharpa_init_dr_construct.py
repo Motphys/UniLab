@@ -140,7 +140,7 @@ def _compose_cfg(task: str, *, lower: float, upper: float, variant_count: int):
 
 @contextmanager
 def _init_dr_mode(enabled: bool) -> Iterator[None]:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 
     original = SharpaInhandRotationDRProvider.build_init_randomization_plan
     if enabled:
@@ -162,7 +162,7 @@ def _init_dr_mode(enabled: bool) -> Iterator[None]:
 
 @contextmanager
 def _synthetic_grasp_cache_mode(enabled: bool) -> Iterator[None]:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 
     original = SharpaInhandRotationDRProvider._load_grasp_cache
     if not enabled:
