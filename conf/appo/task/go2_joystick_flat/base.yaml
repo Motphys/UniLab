@@ -67,7 +67,7 @@ env:
             command_name: twist
         gait_phase:
           _target_: unilab.managers.ObservationTermCfg
-          func: unilab.envs.locomotion.common.manager_terms.quadruped_gait_phase
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
           params:
             frequency: 2.0
     critic:
@@ -99,7 +99,7 @@ env:
             command_name: twist
         gait_phase:
           _target_: unilab.managers.ObservationTermCfg
-          func: unilab.envs.locomotion.common.manager_terms.quadruped_gait_phase
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
           params:
             frequency: 2.0
         base_lin_vel:
@@ -178,29 +178,29 @@ env:
 reward:
   tracking_lin_vel:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
     weight: 1.0
     params:
       std: 0.5
       command_name: twist
   tracking_ang_vel:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.track_ang_vel_z_exp
+    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel_z_exp
     weight: 0.2
     params:
       std: 0.5
       command_name: twist
   lin_vel_z:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.lin_vel_z_l2
+    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z_l2
     weight: -5.0
   ang_vel_xy:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.ang_vel_xy_l2
+    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy_l2
     weight: -0.1
   base_height:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.base_height_l2
+    func: unilab.tasks.locomotion.common.manager_terms.base_height_l2
     weight: -100.0
     params:
       target_height: 0.3
@@ -210,7 +210,7 @@ reward:
     weight: -0.005
   similar_to_default:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.joint_deviation_l1
+    func: unilab.tasks.locomotion.common.manager_terms.joint_deviation_l1
     weight: -0.1
   alive:
     _target_: unilab.managers.RewardTermCfg
@@ -218,7 +218,7 @@ reward:
     weight: 0.0
   contact:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.feet_phase_contact
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_contact
     weight: 0.24
     params:
       frequency: 2.0
@@ -231,7 +231,7 @@ reward:
       stance_threshold: 0.6
   swing_feet_z:
     _target_: unilab.managers.RewardTermCfg
-    func: unilab.envs.locomotion.common.manager_terms.feet_phase_swing_height
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_swing_height
     weight: 4.0
     params:
       frequency: 2.0
