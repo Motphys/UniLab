@@ -8,10 +8,12 @@ from .commands import (
     zero_small_xy_commands,
 )
 from .domain_rand import DomainRandConfig
+from .dr_provider import LocomotionDRProvider
 
 __all__ = [
     "Commands",
     "DomainRandConfig",
+    "LocomotionDRProvider",
     "apply_heading_yaw_feedback",
     "sample_heading_commands",
     "sample_velocity_commands",
