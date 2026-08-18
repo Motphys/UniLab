@@ -33,7 +33,8 @@
 | `G1WalkFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | task 状态采样 + common payload | push | `g1/joystick.py` |
 | `G1WalkRough` | 是 | 是：复用 `G1WalkDomainRandomizationProvider` | task 状态采样 + common payload | push | `g1/joystick.py` |
 | `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量 task 专属的 reset 采样 + common payload | push | `motion_tracking/g1/tracking.py` |
-| `AllegroInhandRotation` | 是 | 是：`DomainRandConfig + Provider + ResetPlan` | task 专属的 reset 采样 + common payload | 无 | `allegro_inhand/rotation.py` |
+| `AllegroInhandRotation` | 是 | 是：Hydra `EventTermCfg` + Manager-Based reset term | entity 范围的手/球 reset | 无 | `allegro_inhand/manager_terms.py` |
+| `AllegroInhandRotationGrasp` | 是 | 是：复用 rotation reset event + `RecorderTermCfg` | 带噪声的手部 reset + grasp 收集 | 无 | `allegro_inhand/grasp_gen.py` |
 | `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache 采样 + common payload | 物体 `body_force` | `sharpa_inhand/rotation.py` |
 | `SharpaInhandRotationGrasp` | 是 | 是：复用 Sharpa rotation provider 并 override reset 采样 | grasp 收集 reset + common payload | 无 | `sharpa_inhand/grasp_gen.py` |
 
@@ -46,7 +47,8 @@
 | `G1WalkFlat` | base xy；base yaw；由 `reset_base_qvel_limit` 采样的 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认启用）；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | kp/kd 默认启用；common payload 和 push 默认禁用 |
 | `G1WalkRough` | 与 `G1WalkFlat` 相同，直接复用同一 provider | `push_robots` | kp/kd 默认启用；common payload 和 push 默认禁用 |
 | `G1MotionTracking` | 动作帧采样；root 位姿扰动 `x/y/z/roll/pitch/yaw`；root 速度扰动 `x/y/z/roll/pitch/yaw`；关节位置噪声；在 MuJoCo 下被关节范围 clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认禁用 |
-| `AllegroInhandRotation` | 若存在 grasp cache，则随机采样一个 grasp；否则对手部关节施加 `joint_noise` 并对球施加 `ball_z_offset`；始终对球的线速度施加 `ball_vel_noise`；可选 common reset 随机化 payload（含 `gravity`） | 无 | 若 grasp cache 路径可用则默认采样；`joint_noise`、`ball_vel_noise`、`ball_z_offset` 默认为 0；common payload 默认禁用 |
+| `AllegroInhandRotation` | entity 范围的手/球 reset；显式配置 grasp cache 时进行采样，否则以 `null` 显式选择模型 home pose；可选 `joint_noise`、`ball_velocity_noise` 与 `ball_z_offset` | 无 | owner YAML 显式选择 home pose 与零 reset 噪声；配置的 cache 缺失或格式错误时 fail-closed |
+| `AllegroInhandRotationGrasp` | 复用 rotation reset 并设置 `joint_noise=0.25`；Manager-Based termination 检查指尖距离、接触数和球高度；recorder 保存成功 timeout rows | 无 | 生成 5 万行 Allegro grasp cache，成功保存后抛出 `RunComplete` |
 | `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；物体位姿 / quat reset；可选 common reset 随机化 payload（含 `gravity`） | 物体 `body_force` 直接力扰动 | `domain_rand.scale_list` 默认值来自 owner YAML；在 MuJoCo 下，物体 geom 缩放在 init 期间 materialize；common payload 默认禁用；物体 force 通过 Sharpa owner YAML 默认启用 |
 | `SharpaInhandRotationGrasp` | 手部位姿 reset；物体位姿 / quat reset；收集成功的 grasp 并按 `scale_ids` 分桶存储；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | 无 | 默认用于生成 Sharpa grasp cache；cache 文件名包含单个 scale 值；common payload 默认禁用 |
 

@@ -886,16 +886,20 @@ def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
     assert cfg.algo.empirical_normalization is False
     assert cfg.algo.actor.obs_normalization is True
     assert cfg.algo.critic.obs_normalization is True
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.0)
-    assert env_cfg_override["gen_grasp"] is True
-    assert env_cfg_override["grasp_collection_target"] == 50000
-    assert env_cfg_override["grasp_quality_check"] is True
-    assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
-    assert env_cfg_override["domain_rand"]["random_com"] is False
-    assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
-    assert env_cfg_override["domain_rand"]["push_robots"] is False
-    assert env_cfg_override["domain_rand"]["ball_vel_noise"] == pytest.approx(0.0)
-    assert env_cfg_override["domain_rand"]["joint_noise"] == pytest.approx(0.25)
+    assert env_cfg_override["rewards"]["rotate"]["weight"] == pytest.approx(0.0)
+    assert env_cfg_override["actions"]["hand"]["action_scale"] == pytest.approx(0.0)
+    reset = env_cfg_override["events"]["reset_hand_ball"]["params"]
+    assert reset["grasp_cache_path"] is None
+    assert reset["ball_velocity_noise"] == pytest.approx(0.0)
+    assert reset["joint_noise"] == pytest.approx(0.25)
+    quality = env_cfg_override["terminations"]["invalid_grasp"]["params"]
+    assert quality["enabled"] is True
+    assert quality["minimum_contacts"] == 2
+    recorder = env_cfg_override["recorders"]["grasp_cache"]["params"]
+    assert recorder["collection_target"] == 50000
+    assert recorder["auto_save"] is True
+    assert "reward_config" not in env_cfg_override
+    assert "domain_rand" not in env_cfg_override
 
 
 def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
@@ -906,17 +910,16 @@ def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
         [
             "task=allegro_inhand_grasp/mujoco",
             "algo.max_iterations=1",
-            "env.grasp_collection_target=128",
-            "reward.scales.rotate=0.3",
+            "env.recorders.grasp_cache.params.collection_target=128",
+            "reward.rotate.weight=0.3",
         ]
     )
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert cfg.algo.max_iterations == 1
-    assert env_cfg_override["grasp_collection_target"] == 128
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
-    assert env_cfg_override["gen_grasp"] is True
+    assert env_cfg_override["recorders"]["grasp_cache"]["params"]["collection_target"] == 128
+    assert env_cfg_override["rewards"]["rotate"]["weight"] == pytest.approx(0.3)
 
 
 def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(

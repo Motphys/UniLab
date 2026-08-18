@@ -31,7 +31,10 @@ def _require_mujoco_runtime() -> None:
 
 
 def _allegro_manager_override(
-    backend: str = "mujoco", *, config_root: str = "ppo"
+    backend: str = "mujoco",
+    *,
+    config_root: str = "ppo",
+    task: str = "allegro_inhand",
 ) -> dict[str, Any]:
     from hydra import compose, initialize_config_dir
 
@@ -41,7 +44,7 @@ def _allegro_manager_override(
     with initialize_config_dir(
         config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
     ):
-        cfg = compose("config", overrides=[f"task=allegro_inhand/{backend}"])
+        cfg = compose("config", overrides=[f"task={task}/{backend}"])
     return BackendAdapter(
         cfg, root_dir=repo_root, algo_name=config_root
     ).build_task_env_cfg_override()
@@ -69,7 +72,6 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
         from unilab.base import registry
         from unilab.base.backend import create_backend
-        from unilab.tasks.manipulation.allegro_inhand.rotation import AllegroRotationCfg
         from unilab.tasks.motion_tracking.g1.tracking import (
             G1MotionTrackingCfg,
             G1MotionTrackingDeployEnvCfg,
@@ -86,7 +88,6 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
         G1MotionTrackingCfg()
         G1MotionTrackingDeployEnvCfg()
         X2WallFlipTrackingCfg()
-        AllegroRotationCfg()
         """
     )
 
@@ -411,7 +412,7 @@ def test_g1_box_tracking_scene_uses_sphere_hand_and_box_tracking_mesh():
         assert name in scene_text
 
 
-def test_allegro_rotation_registry_is_manager_only_and_grasp_owns_legacy_bridge():
+def test_allegro_rotation_and_grasp_registries_are_manager_only():
     from unilab.base import registry
     from unilab.base.config_materialization import apply_cfg_overrides
     from unilab.envs import ManagerBasedRlEnvCfg
@@ -422,7 +423,10 @@ def test_allegro_rotation_registry_is_manager_only_and_grasp_owns_legacy_bridge(
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix", "drake"],
     }
-    assert metadata["AllegroInhandRotationGrasp"]["config_factory"] == ("AllegroRotationGraspCfg")
+    assert metadata["AllegroInhandRotationGrasp"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix"],
+    }
 
     cfg = registry.materialize_env_config("AllegroInhandRotation")
     assert isinstance(cfg, ManagerBasedRlEnvCfg)
@@ -441,6 +445,23 @@ def test_allegro_rotation_registry_is_manager_only_and_grasp_owns_legacy_bridge(
         "drop",
     ]
     assert not hasattr(cfg, "reward_config")
+
+    grasp_cfg = registry.materialize_env_config("AllegroInhandRotationGrasp")
+    assert isinstance(grasp_cfg, ManagerBasedRlEnvCfg)
+    apply_cfg_overrides(
+        grasp_cfg,
+        _allegro_manager_override(task="allegro_inhand_grasp"),
+    )
+    assert grasp_cfg.observations["policy"].history_length == 3
+    assert grasp_cfg.actions["hand"].action_scale == 0.0
+    assert list(grasp_cfg.terminations) == ["dropped", "time_out", "invalid_grasp"]
+    assert list(grasp_cfg.metrics) == [
+        "fingertips_close",
+        "enough_contacts",
+        "ball_held",
+        "valid",
+    ]
+    assert list(grasp_cfg.recorders) == ["grasp_cache"]
 
 
 def test_allegro_manager_configured_missing_grasp_cache_fails_closed(tmp_path: Path):
@@ -471,88 +492,118 @@ def test_allegro_manager_configured_missing_grasp_cache_fails_closed(tmp_path: P
         AllegroHandBallReset(cfg, cast(Any, env))
 
 
-def test_allegro_grasp_obs_groups_spec_dims():
-    """Allegro grasp task inherits the same obs group layout as rotation."""
-    from unilab.tasks.manipulation.allegro_inhand.grasp_gen import AllegroRotationGrasp
-
-    env = cast(Any, object.__new__(AllegroRotationGrasp))
-    spec = env.obs_groups_spec
-
-    assert spec == {"obs": 105}
-
-
-def test_allegro_missing_grasp_cache_logs_local_generation_notice(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    from unilab.tasks.manipulation.allegro_inhand.rotation import (
-        AllegroRotationPPOCfg,
-        _materialize_grasp_cache,
+def _allegro_grasp_term_fixture() -> tuple[Any, Any, np.ndarray]:
+    from unilab.managers import TerminationTermCfg
+    from unilab.tasks.manipulation.allegro_inhand.grasp_gen import (
+        AllegroGraspQualityTermination,
+    )
+    from unilab.tasks.manipulation.allegro_inhand.manager_terms import (
+        AllegroRotationObservation,
     )
 
-    missing_cache = tmp_path / "missing_allegro_cache.npy"
-    cfg = AllegroRotationPPOCfg(
-        grasp_cache_path=str(missing_cache),
-        gen_grasp=False,
+    num_envs = 3
+    states = np.arange(num_envs * 23, dtype=np.float32).reshape(num_envs, 23)
+    observation = object.__new__(AllegroRotationObservation)
+    observation.dof_pos = states[:, :16]
+    observation.ball_pos = np.array(
+        [[0.0, 0.0, 0.2], [0.0, 0.0, 0.2], [0.0, 0.0, 0.1]], dtype=np.float32
+    )
+    observation.ball_quat = states[:, 19:23]
+    observation._last_counter = 1
+
+    body_pos = np.repeat(observation.ball_pos[:, None, :], 4, axis=1)
+    body_pos[:, :, 0] += 0.05
+    body_pos[1, 0, 0] += 0.2
+    contacts = np.array(
+        [[1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0], [1.0, 0.0, 0.0, 0.0]],
+        dtype=np.float32,
+    )
+    entity = SimpleNamespace(
+        data=SimpleNamespace(body_link_pos_w=body_pos),
+        find_bodies=lambda names, preserve_order: (list(range(4)), list(names)),
     )
 
-    with caplog.at_level(
-        logging.WARNING, logger="unilab.tasks.manipulation.allegro_inhand.rotation"
-    ):
-        assert _materialize_grasp_cache(cfg) is None
-    notice = caplog.text
+    class _Scene(dict):
+        def bind_sensor_data(self, names):
+            assert tuple(names) == ("ff_contact", "mf_contact", "rf_contact", "th_contact")
+            return SimpleNamespace(dimensions=(1, 1, 1, 1), read=lambda: contacts)
 
-    assert str(missing_cache) in notice
-    assert "no Hugging Face download will be attempted" in notice
-    assert "uv run train --algo ppo --task allegro_inhand_grasp --sim mujoco" in notice
-    assert "env.grasp_cache_path" in notice
+    env = SimpleNamespace(
+        num_envs=num_envs,
+        common_step_counter=1,
+        scene=_Scene(robot=entity),
+        observation_manager=SimpleNamespace(
+            get_term_cfg=lambda group, name: SimpleNamespace(func=observation)
+        ),
+        action_manager=SimpleNamespace(),
+        reset_time_outs=np.ones(num_envs, dtype=np.bool_),
+        reset_terminated=np.zeros(num_envs, dtype=np.bool_),
+        extras={"log": {}},
+    )
+    cfg = TerminationTermCfg(
+        func=AllegroGraspQualityTermination,
+        params={
+            "entity_name": "robot",
+            "observation_group": "policy",
+            "observation_term": "rotation",
+            "fingertip_body_names": ["ff_tip", "mf_tip", "rf_tip", "th_tip"],
+            "contact_sensor_names": [
+                "ff_contact",
+                "mf_contact",
+                "rf_contact",
+                "th_contact",
+            ],
+            "max_fingertip_distance": 0.1,
+            "minimum_contacts": 2,
+            "minimum_ball_height": 0.125,
+            "enabled": True,
+        },
+    )
+    term = AllegroGraspQualityTermination(cfg, cast(Any, env))
+    env.termination_manager = SimpleNamespace(get_term_cfg=lambda name: SimpleNamespace(func=term))
+    return env, term, states
 
 
-def test_allegro_grasp_generation_skips_cache_materialization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from unilab.tasks.manipulation.allegro_inhand import rotation
+def test_allegro_grasp_quality_term_matches_legacy_conditions():
+    from unilab.managers import MetricsTermCfg
+    from unilab.tasks.manipulation.allegro_inhand.grasp_gen import AllegroGraspQualityMetric
 
-    def fail_io(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("grasp generation must not resolve or load a rotation cache")
+    env, term, _ = _allegro_grasp_term_fixture()
 
-    monkeypatch.setattr(rotation, "resolve_grasp_cache_path", fail_io)
-    monkeypatch.setattr(rotation.np, "load", fail_io)
+    np.testing.assert_array_equal(term(cast(Any, env)), [False, True, True])
+    np.testing.assert_array_equal(term.fingertips_close, [True, False, True])
+    np.testing.assert_array_equal(term.enough_contacts, [True, True, False])
+    np.testing.assert_array_equal(term.ball_held, [True, True, False])
+    metric = AllegroGraspQualityMetric(
+        MetricsTermCfg(
+            func=AllegroGraspQualityMetric,
+            params={"quality_term_name": "invalid_grasp", "condition": "valid"},
+        ),
+        cast(Any, env),
+    )
+    np.testing.assert_array_equal(metric(cast(Any, env)), [1.0, 0.0, 0.0])
 
-    cfg = rotation.AllegroRotationPPOCfg(gen_grasp=True)
-    assert rotation._materialize_grasp_cache(cfg) is None
 
-
-def test_allegro_grasp_target_raises_run_complete_without_resaving_on_close(
+def test_allegro_grasp_recorder_saves_target_and_raises_run_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from unilab.base.run_control import RunComplete
+    from unilab.managers import RecorderTermCfg
     from unilab.tasks.manipulation.allegro_inhand import grasp_gen
 
+    env, term, states = _allegro_grasp_term_fixture()
+    term(cast(Any, env))
     cache_path = tmp_path / "allegro.npy"
-    env = cast(Any, object.__new__(grasp_gen.AllegroRotationGrasp))
-    env._cfg = grasp_gen.AllegroRotationGraspCfg(
-        grasp_collection_target=2,
-        grasp_cache_path=str(cache_path),
-        grasp_auto_save=True,
-        grasp_quality_check=False,
-    )
-    states = np.arange(3 * 23, dtype=np.float64).reshape(3, 23)
-    env._saved_grasping_states = []
-    env._grasp_cache_saved = False
-    env._grasp_target_reached_notified = False
-    env._state = SimpleNamespace(
-        truncated=np.ones((3,), dtype=bool),
-        terminated=np.zeros((3,), dtype=bool),
-        info={
-            "curr_dof_pos": states[:, :16],
-            "curr_ball_pos": states[:, 16:19],
-            "curr_ball_quat": states[:, 19:23],
+    cfg = RecorderTermCfg(
+        func=grasp_gen.AllegroGraspRecorder,
+        params={
+            "quality_term_name": "invalid_grasp",
+            "output_path": str(cache_path),
+            "collection_target": 2,
+            "auto_save": True,
         },
     )
-    env.get_hand_dof_pos = lambda: states[:, :16]
-    env.get_ball_pos = lambda: states[:, 16:19]
-    env.get_ball_quat = lambda: states[:, 19:23]
-
+    recorder = grasp_gen.AllegroGraspRecorder(cfg, cast(Any, env))
     save_calls: list[Path] = []
     real_save = grasp_gen.np.save
 
@@ -560,22 +611,16 @@ def test_allegro_grasp_target_raises_run_complete_without_resaving_on_close(
         save_calls.append(Path(path))
         real_save(path, values)
 
-    parent_closes: list[Any] = []
     monkeypatch.setattr(grasp_gen.np, "save", save_once)
-    monkeypatch.setattr(
-        grasp_gen.AllegroRotationPPO,
-        "close",
-        lambda instance: parent_closes.append(instance),
-    )
-
     with pytest.raises(RunComplete) as caught:
-        env._collect_successful_grasps(np.arange(3, dtype=np.int32))
+        recorder.record_pre_reset(np.arange(3, dtype=np.int32))
 
-    saved = np.load(cache_path)
-    np.testing.assert_array_equal(saved, states[:2].astype(np.float32))
-    assert saved.dtype == np.float32
+    expected = np.concatenate(
+        (states[:, :16], term.observation.ball_pos, states[:, 19:23]), axis=1, dtype=np.float32
+    )
+    np.testing.assert_array_equal(np.load(cache_path), expected[:2])
     assert save_calls == [cache_path]
-    assert env.state.info["log"] == {
+    assert env.extras["log"] == {
         "grasp_cache/saved": 1.0,
         "grasp_cache/num_states": 2.0,
         "grasp/target_reached": 1.0,
@@ -586,79 +631,55 @@ def test_allegro_grasp_target_raises_run_complete_without_resaving_on_close(
         "grasp_collection_target": 2,
     }
 
-    env.close()
-    env._stop_collection()
+    recorder.close()
     assert save_calls == [cache_path]
-    assert parent_closes == [env]
 
 
-def test_allegro_grasp_save_failure_does_not_signal_completion(
+def test_allegro_grasp_recorder_close_autosaves_and_io_failure_is_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from unilab.managers import RecorderTermCfg
     from unilab.tasks.manipulation.allegro_inhand import grasp_gen
 
-    env = cast(Any, object.__new__(grasp_gen.AllegroRotationGrasp))
-    env._cfg = grasp_gen.AllegroRotationGraspCfg(
-        grasp_collection_target=1,
-        grasp_cache_path=str(tmp_path / "allegro.npy"),
+    env, term, _ = _allegro_grasp_term_fixture()
+    term(cast(Any, env))
+    cache_path = tmp_path / "allegro.npy"
+    cfg = RecorderTermCfg(
+        func=grasp_gen.AllegroGraspRecorder,
+        params={
+            "quality_term_name": "invalid_grasp",
+            "output_path": str(cache_path),
+            "collection_target": 3,
+            "auto_save": True,
+        },
     )
-    env._saved_grasping_states = [np.zeros((1, 23), dtype=np.float32)]
-    env._grasp_cache_saved = False
-    env._grasp_target_reached_notified = False
-    env._state = SimpleNamespace(info={})
+    recorder = grasp_gen.AllegroGraspRecorder(cfg, cast(Any, env))
+    env.reset_terminated[1] = True
+    recorder.record_pre_reset(np.array([0, 1], dtype=np.int32))
+    assert recorder.total_saved_grasps == 1
+    assert not cache_path.exists()
+    recorder.close()
+    assert np.load(cache_path).shape == (1, 23)
+
+    failed_path = tmp_path / "failed.npy"
+    failed_cfg = RecorderTermCfg(
+        func=grasp_gen.AllegroGraspRecorder,
+        params={
+            "quality_term_name": "invalid_grasp",
+            "output_path": str(failed_path),
+            "collection_target": 1,
+            "auto_save": True,
+        },
+    )
+    failed = grasp_gen.AllegroGraspRecorder(failed_cfg, cast(Any, env))
     sentinel = OSError("disk full")
     monkeypatch.setattr(
         grasp_gen.np, "save", lambda *_args, **_kwargs: (_ for _ in ()).throw(sentinel)
     )
-
     with pytest.raises(OSError) as caught:
-        env._save_grasp_cache()
-
+        failed.record_pre_reset(np.array([0], dtype=np.int32))
     assert caught.value is sentinel
-    assert env._grasp_cache_saved is False
-    assert env._grasp_target_reached_notified is False
-
-
-def test_allegro_reset_samples_materialized_cache_without_file_io(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from unilab.tasks.manipulation.allegro_inhand import rotation
-
-    cache_path = tmp_path / "allegro.npy"
-    cache = np.zeros((4, 23), dtype=np.float64)
-    cache[:, 16] = 0.1
-    cache[:, 19] = 1.0
-    np.save(cache_path, cache)
-    cfg = rotation.AllegroRotationPPOCfg(grasp_cache_path=str(cache_path))
-    materialized = rotation._materialize_grasp_cache(cfg)
-    assert materialized is not None
-
-    monkeypatch.setattr(
-        rotation, "resolve_grasp_cache_path", lambda _: (_ for _ in ()).throw(AssertionError)
-    )
-    monkeypatch.setattr(
-        rotation.np, "load", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
-    )
-    env = SimpleNamespace(
-        _grasp_cache=materialized,
-        cfg=SimpleNamespace(
-            domain_rand=SimpleNamespace(joint_noise=0.0, ball_vel_noise=0.0, ball_z_offset=0.0)
-        ),
-        default_angles=np.zeros(16),
-        _NUM_HAND_DOF=16,
-        _ctrl_lower=-np.ones(16),
-        _ctrl_upper=np.ones(16),
-        _init_qpos=np.zeros(23),
-        nv=23,
-    )
-
-    provider = rotation.AllegroRotationDomainRandomizationProvider()
-    for _ in range(2):
-        hand_qpos, ball_pos, ball_quat, qvel = provider._sample_reset_state(env, 2)
-        assert hand_qpos.shape == (2, 16)
-        assert ball_pos.shape == (2, 3)
-        assert ball_quat.shape == (2, 4)
-        assert qvel.shape == (2, 23)
+    assert failed.cache_saved is False
 
 
 def test_g1_motion_tracking_uses_combined_body_pose_query():
@@ -2136,7 +2157,6 @@ def test_env_reset_and_step(
     default_go2_reward_config,
     default_g1_reward_config,
     default_g1_walk_flat_reward_config,
-    default_allegro_reward_config,
 ):
     """Every registered env must be constructible, resetable, and steppable.
 
@@ -2162,7 +2182,7 @@ def test_env_reset_and_step(
     elif env_name == "AllegroInhandRotation":
         env_cfg_override = _allegro_manager_override()
     elif env_name == "AllegroInhandRotationGrasp":
-        env_cfg_override = {"reward_config": default_allegro_reward_config}
+        env_cfg_override = _allegro_manager_override(task="allegro_inhand_grasp")
 
     env = cast(
         Any,
@@ -2204,27 +2224,15 @@ def test_env_reset_and_step(
         env.close()
 
 
-def test_allegro_manager_runtime_matches_legacy_rotation_transition(
-    default_allegro_reward_config,
-):
+def test_allegro_manager_runtime_transition_contract():
     _require_mujoco_runtime()
     ensure_registries()
     from unilab.base import registry
     from unilab.envs import ManagerBasedRlEnv
     from unilab.tasks.manipulation.allegro_inhand.manager_terms import (
         AllegroIncrementalPositionAction,
+        AllegroRotationObservation,
     )
-    from unilab.tasks.manipulation.allegro_inhand.rotation import (
-        AllegroRotationPPO,
-        AllegroRotationPPOCfg,
-        RewardConfigPPO,
-    )
-
-    legacy_cfg = AllegroRotationPPOCfg(
-        reward_config=RewardConfigPPO(**default_allegro_reward_config)
-    )
-    legacy_cfg.noise_config.level = 0.0
-    legacy = AllegroRotationPPO(legacy_cfg, num_envs=2, backend_type="mujoco")
 
     manager_override = _allegro_manager_override()
     manager_override["observations"]["policy"]["terms"]["rotation"]["params"]["joint_noise"] = 0.0
@@ -2236,28 +2244,86 @@ def test_allegro_manager_runtime_matches_legacy_rotation_transition(
     )
     assert isinstance(env, ManagerBasedRlEnv)
     try:
-        legacy_initial = legacy.init_state()
         manager_initial = env.init_state()
-        np.testing.assert_allclose(manager_initial.obs["obs"], legacy_initial.obs["obs"])
-
-        actions = np.full((2, 16), 0.25, dtype=np.float32)
-        legacy_state = legacy.step(actions)
-        manager_state = env.step(actions)
-        np.testing.assert_allclose(
-            manager_state.obs["obs"], legacy_state.obs["obs"], rtol=1.0e-5, atol=2.0e-6
-        )
-        np.testing.assert_allclose(
-            manager_state.reward, legacy_state.reward, rtol=1.0e-5, atol=2.0e-8
-        )
-        np.testing.assert_array_equal(manager_state.terminated, legacy_state.terminated)
+        history = manager_initial.obs["obs"].reshape(2, 3, 35)
+        np.testing.assert_array_equal(history[:, 0], history[:, 1])
+        np.testing.assert_array_equal(history[:, 1], history[:, 2])
 
         action = env.action_manager.get_term("hand")
         assert isinstance(action, AllegroIncrementalPositionAction)
+        target_before = action.target.copy()
+        actions = np.full((2, 16), 0.25, dtype=np.float32)
+        manager_state = env.step(actions)
+        expected_target = np.clip(
+            target_before + 0.25 / 24.0,
+            action.ctrl_lower,
+            action.ctrl_upper,
+        )
+        np.testing.assert_allclose(action.target, expected_target, rtol=0.0, atol=1.0e-7)
+
+        observation = env.observation_manager.get_term_cfg("policy", "rotation").func
+        assert isinstance(observation, AllegroRotationObservation)
+        current_frame = observation(env)
+        np.testing.assert_allclose(
+            manager_state.obs["obs"][:, -35:], current_frame, rtol=0.0, atol=1.0e-7
+        )
+        assert np.isfinite(manager_state.obs["obs"]).all()
+        assert np.isfinite(manager_state.reward).all()
+        assert manager_state.terminated.dtype == np.bool_
         assert action.action_dim == 16
         assert env.obs_groups_spec == {"obs": 105}
     finally:
         env.close()
-        legacy.close()
+
+
+@pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
+def test_allegro_grasp_manager_runtime_uses_zero_increment_action(sim_backend: str, tmp_path: Path):
+    if sim_backend == "mujoco":
+        _require_mujoco_runtime()
+    else:
+        pytest.importorskip("motrixsim")
+    ensure_registries()
+    from unilab.base import registry
+    from unilab.envs import ManagerBasedRlEnv
+    from unilab.tasks.manipulation.allegro_inhand.grasp_gen import (
+        AllegroGraspQualityTermination,
+        AllegroGraspRecorder,
+    )
+    from unilab.tasks.manipulation.allegro_inhand.manager_terms import (
+        AllegroIncrementalPositionAction,
+    )
+
+    override = _allegro_manager_override(sim_backend, task="allegro_inhand_grasp")
+    override["auto_reset"] = False
+    override["terminations"]["invalid_grasp"]["params"]["enabled"] = False
+    override["recorders"]["grasp_cache"]["params"].update(
+        {"output_path": str(tmp_path / f"{sim_backend}.npy"), "auto_save": False}
+    )
+    env = registry.make(
+        "AllegroInhandRotationGrasp",
+        num_envs=2,
+        sim_backend=sim_backend,
+        env_cfg_override=override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
+    try:
+        initial = env.init_state()
+        action = env.action_manager.get_term("hand")
+        quality = env.termination_manager.get_term_cfg("invalid_grasp").func
+        recorder = env.recorder_manager.get_term("grasp_cache")
+        assert isinstance(action, AllegroIncrementalPositionAction)
+        assert isinstance(quality, AllegroGraspQualityTermination)
+        assert isinstance(recorder, AllegroGraspRecorder)
+        target = action.target.copy()
+
+        state = env.step(np.ones((2, 16), dtype=np.float32))
+        np.testing.assert_array_equal(action.target, target)
+        np.testing.assert_array_equal(state.reward, np.zeros(2, dtype=state.reward.dtype))
+        assert initial.obs["obs"].shape == (2, 105)
+        assert state.obs["obs"].shape == (2, 105)
+        assert quality.last_counter == env.common_step_counter
+    finally:
+        env.close()
 
 
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
