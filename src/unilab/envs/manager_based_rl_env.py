@@ -62,8 +62,9 @@ def _manager_terms_field() -> Any:
 class ManagerBasedRlEnvCfg(EnvCfg):
     """Configuration for the manager-based NumPy environment.
 
-    Serializable values remain ordinary dataclass fields so task-owned Hydra owner
-    configs can overlay them without introducing a second configuration runtime.
+    Production task owners declare these fields in Hydra. The Registry materializes
+    them into this plain typed config on the cold path; Python factories do not mirror
+    task-specific manager or term declarations.
     """
 
     observations: dict[str, ObservationGroupCfg | None] = _manager_terms_field()

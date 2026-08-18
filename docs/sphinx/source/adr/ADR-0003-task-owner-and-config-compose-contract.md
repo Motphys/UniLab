@@ -25,12 +25,17 @@ orphan: true
 2. owner YAML 直接持有 `training.task_name`、`training.sim_backend`、`reward`、`env` 及 task-specific `algo`。
 3. `training.sim_backend` 是 owner 身份字段，不是独立 backend switch。
 4. CLI override 允许参数覆盖，但不能破坏 task owner 的 backend identity。
+5. Manager-Based production task 也不例外：owner YAML 完整持有 manager/term/callable 与
+   observation mapping，compose 后在 Registry 冷路径物化为 typed cfg；Python 不保存
+   task-specific config mirror。
 
 ## Stable Contracts
 
 - PPO/APPO owner 路径: `conf/{ppo,appo}/task/<task>/<backend>.yaml`
 - Offpolicy owner 路径: `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
 - reward 注入与 backend 差异表达必须在 owner YAML 层显式存在。
+- Manager-Based cfg 使用 Hydra `_target_` 与 dotted callable reference；解析失败或类型错误
+  必须在 env/backend 构造前报错。
 
 ## Consequences
 
