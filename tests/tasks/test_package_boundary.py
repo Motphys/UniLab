@@ -14,8 +14,7 @@ _ENV_PACKAGE = _REPO_ROOT / "src" / "unilab" / "envs"
 _TASK_REGISTRY_MODULES = (
     "unilab.tasks.locomotion.go1",
     "unilab.tasks.locomotion.go2",
-    "unilab.envs.locomotion.go2w",
-    "unilab.tasks.locomotion.go2w.rough",
+    "unilab.tasks.locomotion.go2w",
     "unilab.envs.locomotion.g1",
     "unilab.envs.locomotion.go2_arm",
     "unilab.tasks.locomotion.a2",
