@@ -103,10 +103,10 @@ uv run unilab-pull-assets --robot x2
 ## 架构说明
 
 - 资产解析模块：`src/unilab/assets/hub.py`（`resolve_motion_files`）。
-- 唯一集成点：`src/unilab/envs/motion_tracking/g1/motion_loader.py` 中的
+- 唯一集成点：`src/unilab/tasks/motion_tracking/common/motion_loader.py` 中的
   `MotionLoader.__init__`，在冷路径上调用一次 resolver。
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析。
 - `ASSETS_ROOT_PATH` 定义不变，下载落盘位置与原始本地路径完全一致。
 - 机器人网格使用同一目录 resolver（`resolve_robot_asset_dir`），集成点为
-  `src/unilab/envs/motion_tracking/x2/flip_tracking.py` 中的
+  `src/unilab/tasks/motion_tracking/x2/flip_tracking.py` 中的
   `X2WallFlipTrackingEnv.__init__`，并通过 `unilab-pull-assets` CLI 暴露。
