@@ -9,13 +9,14 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
 from unilab.envs.locomotion.g1.base import Sensor
-from unilab.envs.motion_tracking.common.config import (
+
+from ..common.config import (
     PoseRandomization,
     VelocityRandomization,
     _zero_pose_randomization,
     _zero_velocity_randomization,
 )
-from unilab.envs.motion_tracking.common.tracking import (
+from ..common.tracking import (
     MotionTrackingDeployEnv,
     MotionTrackingDeployEnvCfg,
 )

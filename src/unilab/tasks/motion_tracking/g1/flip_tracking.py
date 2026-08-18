@@ -12,11 +12,11 @@ from typing import Literal
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
-from unilab.envs.motion_tracking.common.config import (
+
+from ..common.config import (
     _zero_pose_randomization,
     _zero_velocity_randomization,
 )
-
 from .tracking import (
     G1MotionTrackingCfg,
     G1MotionTrackingEnv,

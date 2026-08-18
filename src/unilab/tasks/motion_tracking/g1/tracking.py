@@ -1,7 +1,7 @@
 """G1 Motion Tracking profiles — thin registry subclasses over the shared engine.
 
-The robot-agnostic engine and owner modules now live in
-:mod:`unilab.envs.motion_tracking.common`. This module keeps the G1 registry
+The robot-agnostic engine and owner modules live in
+:mod:`unilab.tasks.motion_tracking.common`. This module keeps the G1 registry
 entries (``G1MotionTracking`` / ``G1MotionTrackingDeploy``) and re-exports the
 historical ``G1*`` / ``Domain_Rand`` / ``_build_motion_reference_state`` symbol
 names so existing subclasses and tests keep importing them from ``.tracking``.
@@ -14,7 +14,10 @@ from dataclasses import dataclass, field
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
-from unilab.envs.motion_tracking.common.config import (
+from unilab.envs.motion_tracking.common.reset import build_motion_reference_state
+from unilab.envs.motion_tracking.common.rewards import RewardConfig
+
+from ..common.config import (
     Domain_Rand,
     DomainRand,
     MotionTrackingCfg,
@@ -24,12 +27,10 @@ from unilab.envs.motion_tracking.common.config import (
     _zero_pose_randomization,
     _zero_velocity_randomization,
 )
-from unilab.envs.motion_tracking.common.domain_randomization import (
+from ..common.domain_randomization import (
     MotionTrackingDomainRandomizationProvider,
 )
-from unilab.envs.motion_tracking.common.reset import build_motion_reference_state
-from unilab.envs.motion_tracking.common.rewards import RewardConfig
-from unilab.envs.motion_tracking.common.tracking import (
+from ..common.tracking import (
     MotionTrackingDeployEnv,
     MotionTrackingEnv,
 )
