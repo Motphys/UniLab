@@ -14,8 +14,7 @@ from unilab.base.scene import SceneCfg, TerrainSceneCfg
 from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.tasks.locomotion.common import rewards
 from unilab.tasks.locomotion.common.commands import (
     Commands,
     apply_heading_yaw_feedback,
@@ -31,6 +30,7 @@ from unilab.tasks.locomotion.common.height_scan import (
     raw_height_scan_obs,
     terrain_out_of_bounds,
 )
+from unilab.tasks.locomotion.common.rewards import RewardContext
 from unilab.tasks.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
 )

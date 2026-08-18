@@ -38,7 +38,7 @@ Notes:
 
 - UniLab's `state` carries `prev_contact` so you don't need to manage
   edge detection yourself. See
-  `unilab.envs.locomotion.common.rewards`.
+  `unilab.tasks.locomotion.common.rewards`.
 
 ## Pattern: action smoothness penalty
 
@@ -47,7 +47,7 @@ def reward_action_rate(self, state):
     return -np.sum((state.action - state.prev_action) ** 2, axis=1)
 ```
 
-Already a stock helper in `unilab.envs.locomotion.common.rewards`.
+Already a stock helper in `unilab.tasks.locomotion.common.rewards`.
 
 ## Pattern: posture penalty
 
@@ -77,4 +77,4 @@ def reward_termination(self, state):
 
 - {doc}`5-task_config_translation`
 - `unilab.training.reward`
-- `unilab.envs.locomotion.common.rewards`
+- `unilab.tasks.locomotion.common.rewards`

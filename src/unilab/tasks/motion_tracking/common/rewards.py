@@ -1,7 +1,7 @@
 """Shared reward configuration and functions for motion tracking.
 
 Reward terms are plain module-level callables ``fn(ctx: RewardContext) -> np.ndarray``
-mirroring :mod:`unilab.envs.locomotion.common.rewards`. Robot-specific terms that
+mirroring :mod:`unilab.tasks.locomotion.common.rewards`. Robot-specific terms that
 live on env subclasses (box-object / joint-effort terms) are stored in the same
 ``_reward_fns`` dispatch table as bound methods and are called with the same
 ``ctx`` argument.

@@ -22,6 +22,7 @@ from .height_scan import (
     DEFAULT_SCAN_POINTS_Y,
     HeightScanConfig,
 )
+from .rewards import RewardContext
 
 __all__ = [
     "BaseNoiseConfig",
@@ -35,6 +36,7 @@ __all__ = [
     "LocomotionBaseCfg",
     "LocomotionBaseEnv",
     "PdControlConfig",
+    "RewardContext",
     "Sensor",
     "apply_heading_yaw_feedback",
     "sample_heading_commands",

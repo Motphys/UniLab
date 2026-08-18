@@ -440,7 +440,7 @@ def test_a2_cfg_reward_config_annotation_is_a2_type():
 
 
 def _a2_ctx(commands, dof_pos=None):
-    from unilab.envs.locomotion.common.rewards import RewardContext
+    from unilab.tasks.locomotion.common.rewards import RewardContext
 
     n = commands.shape[0]
     return RewardContext(

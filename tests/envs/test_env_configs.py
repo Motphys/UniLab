@@ -243,7 +243,7 @@ def test_g1_walk_env_reward_dispatch_restores_motrix_terms():
 
 
 def test_g1_walk_env_feet_phase_reward_is_gated_by_forward_speed():
-    from unilab.envs.locomotion.common.rewards import RewardContext
+    from unilab.tasks.locomotion.common.rewards import RewardContext
     from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     class FakeBackend:
