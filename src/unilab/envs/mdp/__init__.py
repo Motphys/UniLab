@@ -9,11 +9,15 @@ from unilab.envs.mdp.events import reset_scene_to_default as reset_scene_to_defa
 from unilab.envs.mdp.events import resolve_env_ids as resolve_env_ids
 from unilab.envs.mdp.observations import base_ang_vel as base_ang_vel
 from unilab.envs.mdp.observations import base_lin_vel as base_lin_vel
+from unilab.envs.mdp.observations import builtin_sensor as builtin_sensor
 from unilab.envs.mdp.observations import generated_commands as generated_commands
 from unilab.envs.mdp.observations import joint_pos_rel as joint_pos_rel
 from unilab.envs.mdp.observations import joint_vel_rel as joint_vel_rel
 from unilab.envs.mdp.observations import last_action as last_action
 from unilab.envs.mdp.observations import projected_gravity as projected_gravity
+from unilab.envs.mdp.observations import (
+    projected_gravity_from_sensor as projected_gravity_from_sensor,
+)
 from unilab.envs.mdp.rewards import action_acc_l2 as action_acc_l2
 from unilab.envs.mdp.rewards import action_rate_l2 as action_rate_l2
 from unilab.envs.mdp.rewards import (
@@ -40,6 +44,7 @@ __all__ = [
     "action_rate_l2",
     "base_ang_vel",
     "base_lin_vel",
+    "builtin_sensor",
     "bad_orientation",
     "body_angular_velocity_penalty",
     "flat_orientation_l2",
@@ -51,6 +56,7 @@ __all__ = [
     "is_alive",
     "is_terminated",
     "projected_gravity",
+    "projected_gravity_from_sensor",
     "reset_root_state_uniform",
     "reset_scene_to_default",
     "resolve_env_ids",

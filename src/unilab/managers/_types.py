@@ -135,6 +135,24 @@ class ManagerEntity(Protocol):
     ) -> None: ...
 
 
+class ManagerSensorView(Protocol):
+    """Backend-owned named-sensor view retained by a manager term."""
+
+    @property
+    def backend_type(self) -> str: ...
+
+    @property
+    def names(self) -> tuple[str, ...]: ...
+
+    @property
+    def dimensions(self) -> tuple[int, ...]: ...
+
+    @property
+    def data(self) -> np.ndarray: ...
+
+    def read(self) -> np.ndarray: ...
+
+
 class ManagerScene(Protocol):
     """Minimal name-addressable scene surface consumed by managers."""
 
@@ -145,6 +163,8 @@ class ManagerScene(Protocol):
     def env_origins(self) -> np.ndarray: ...
 
     def __getitem__(self, name: str) -> ManagerEntity: ...
+
+    def bind_sensor_data(self, names: Sequence[str]) -> ManagerSensorView: ...
 
     def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None: ...
 

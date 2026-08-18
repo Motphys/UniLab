@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 import numpy as np
 
-from unilab.base.backend.base import BackendRootStateLayout, SimBackend
+from unilab.base.backend.base import BackendRootStateLayout, BackendSensorView, SimBackend
 from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_from_quat
 
 if TYPE_CHECKING:
@@ -1198,6 +1198,7 @@ class EntityScene(Mapping[str, Entity]):
         *,
         reset_state: ResetStateTransaction | None = None,
     ) -> None:
+        self._backend = backend
         materialized: dict[str, Entity] = {}
         for name, cfg in entities.items():
             if not isinstance(name, str) or not name:
@@ -1247,6 +1248,21 @@ class EntityScene(Mapping[str, Entity]):
                 "a formal backend root-state layout"
             )
         self._reset_state.reset_to_default(env_ids, term_name=term_name)
+
+    def bind_sensor_data(self, names: Sequence[str]) -> BackendSensorView:
+        """Bind existing backend sensors for a manager term on the cold path.
+
+        The returned view owns the backend-specific reader.  Terms retain that
+        view and only call :meth:`BackendSensorView.read` while stepping, so the
+        scene facade never exposes a backend model, data object, or native handle.
+        """
+        try:
+            return self._backend.bind_sensor_data(names)
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                "Manager scene named-sensor capability on backend "
+                f"'{self._backend.backend_type}': {exc}"
+            ) from exc
 
     def __getitem__(self, name: str) -> Entity:
         try:

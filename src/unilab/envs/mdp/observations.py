@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
+from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
 
 if TYPE_CHECKING:
@@ -18,6 +19,76 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+
+
+class _NamedSensorObservation(ManagerTermBase):
+    """Cold-path binding shared by pinned named-sensor observation terms."""
+
+    _term_name = "named_sensor"
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        sensor_name = cfg.params.get("sensor_name")
+        if not isinstance(sensor_name, str) or not sensor_name:
+            raise ValueError(
+                f"Observation term '{self._term_name}' capability 'named sensor' "
+                "requires a non-empty sensor_name"
+            )
+        self._sensor_name = sensor_name
+        try:
+            self._view = env.scene.bind_sensor_data((sensor_name,))
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                f"Observation term '{self._term_name}' capability 'named sensor "
+                f"{sensor_name}' could not be materialized: {exc}"
+            ) from exc
+
+    def _validate_call_name(self, sensor_name: str) -> None:
+        if sensor_name != self._sensor_name:
+            raise ValueError(
+                f"Observation term '{self._term_name}' was bound to sensor "
+                f"'{self._sensor_name}', received '{sensor_name}'"
+            )
+
+    def _read(self) -> np.ndarray:
+        try:
+            return self._view.read()
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                f"Observation term '{self._term_name}' capability 'named sensor "
+                f"{self._sensor_name}' failed on backend '{self._view.backend_type}': {exc}"
+            ) from exc
+
+
+class builtin_sensor(_NamedSensorObservation):
+    """Read one existing backend sensor through a cached NumPy view."""
+
+    _term_name = "builtin_sensor"
+
+    def __call__(self, env: ManagerBasedRlEnv, sensor_name: str) -> np.ndarray:
+        del env
+        self._validate_call_name(sensor_name)
+        return self._read()
+
+
+class projected_gravity_from_sensor(_NamedSensorObservation):
+    """Negate a cached 3-D up-vector sensor to obtain projected gravity."""
+
+    _term_name = "projected_gravity_from_sensor"
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        if self._view.dimensions != (3,):
+            raise ValueError(
+                "Observation term 'projected_gravity_from_sensor' capability "
+                f"'3-D named sensor {self._sensor_name}' received dimensions "
+                f"{self._view.dimensions} on backend '{self._view.backend_type}'"
+            )
+
+    def __call__(self, env: ManagerBasedRlEnv, sensor_name: str) -> np.ndarray:
+        del env
+        self._validate_call_name(sensor_name)
+        return -self._read()
 
 
 def base_lin_vel(
@@ -88,9 +159,11 @@ def generated_commands(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
 __all__ = [
     "base_ang_vel",
     "base_lin_vel",
+    "builtin_sensor",
     "generated_commands",
     "joint_pos_rel",
     "joint_vel_rel",
     "last_action",
     "projected_gravity",
+    "projected_gravity_from_sensor",
 ]
