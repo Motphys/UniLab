@@ -39,4 +39,4 @@
 - Env 状态契约：`src/unilab/base/np_env.py`
 - 场景配置：`src/unilab/base/scene.py`
 - 现有任务示例：`src/unilab/envs/locomotion/go2/joystick.py`、
-  `src/unilab/envs/manipulation/allegro_inhand/rotation.py`
+  `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`

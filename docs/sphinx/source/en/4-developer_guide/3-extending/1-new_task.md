@@ -39,4 +39,4 @@ Start from the contracts: {doc}`../2-contracts/1-env_contract`,
 - Env state contract: `src/unilab/base/np_env.py`
 - Scene config: `src/unilab/base/scene.py`
 - Existing task examples: `src/unilab/envs/locomotion/go2/joystick.py`,
-  `src/unilab/envs/manipulation/allegro_inhand/rotation.py`
+  `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`

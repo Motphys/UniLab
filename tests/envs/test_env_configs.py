@@ -52,7 +52,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
         from unilab.base import registry
         from unilab.base.backend import create_backend
-        from unilab.envs.manipulation.allegro_inhand.rotation import AllegroRotationCfg
+        from unilab.tasks.manipulation.allegro_inhand.rotation import AllegroRotationCfg
         from unilab.envs.motion_tracking.g1.tracking import (
             G1MotionTrackingCfg,
             G1MotionTrackingDeployEnvCfg,
@@ -396,7 +396,7 @@ def test_g1_box_tracking_scene_uses_sphere_hand_and_box_tracking_mesh():
 
 def test_allegro_rotation_obs_groups_spec_dims():
     """Allegro rotation obs_groups_spec should expose single actor obs group."""
-    from unilab.envs.manipulation.allegro_inhand.rotation import AllegroRotationPPO
+    from unilab.tasks.manipulation.allegro_inhand.rotation import AllegroRotationPPO
 
     env = cast(Any, object.__new__(AllegroRotationPPO))
     spec = env.obs_groups_spec
@@ -406,7 +406,7 @@ def test_allegro_rotation_obs_groups_spec_dims():
 
 def test_allegro_grasp_obs_groups_spec_dims():
     """Allegro grasp task inherits the same obs group layout as rotation."""
-    from unilab.envs.manipulation.allegro_inhand.grasp_gen import AllegroRotationGrasp
+    from unilab.tasks.manipulation.allegro_inhand.grasp_gen import AllegroRotationGrasp
 
     env = cast(Any, object.__new__(AllegroRotationGrasp))
     spec = env.obs_groups_spec
@@ -417,7 +417,7 @@ def test_allegro_grasp_obs_groups_spec_dims():
 def test_allegro_missing_grasp_cache_logs_local_generation_notice(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from unilab.envs.manipulation.allegro_inhand.rotation import (
+    from unilab.tasks.manipulation.allegro_inhand.rotation import (
         AllegroRotationPPOCfg,
         _materialize_grasp_cache,
     )
@@ -429,7 +429,7 @@ def test_allegro_missing_grasp_cache_logs_local_generation_notice(
     )
 
     with caplog.at_level(
-        logging.WARNING, logger="unilab.envs.manipulation.allegro_inhand.rotation"
+        logging.WARNING, logger="unilab.tasks.manipulation.allegro_inhand.rotation"
     ):
         assert _materialize_grasp_cache(cfg) is None
     notice = caplog.text
@@ -443,7 +443,7 @@ def test_allegro_missing_grasp_cache_logs_local_generation_notice(
 def test_allegro_grasp_generation_skips_cache_materialization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from unilab.envs.manipulation.allegro_inhand import rotation
+    from unilab.tasks.manipulation.allegro_inhand import rotation
 
     def fail_io(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("grasp generation must not resolve or load a rotation cache")
@@ -459,7 +459,7 @@ def test_allegro_grasp_target_raises_run_complete_without_resaving_on_close(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from unilab.base.run_control import RunComplete
-    from unilab.envs.manipulation.allegro_inhand import grasp_gen
+    from unilab.tasks.manipulation.allegro_inhand import grasp_gen
 
     cache_path = tmp_path / "allegro.npy"
     env = cast(Any, object.__new__(grasp_gen.AllegroRotationGrasp))
@@ -528,7 +528,7 @@ def test_allegro_grasp_target_raises_run_complete_without_resaving_on_close(
 def test_allegro_grasp_save_failure_does_not_signal_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from unilab.envs.manipulation.allegro_inhand import grasp_gen
+    from unilab.tasks.manipulation.allegro_inhand import grasp_gen
 
     env = cast(Any, object.__new__(grasp_gen.AllegroRotationGrasp))
     env._cfg = grasp_gen.AllegroRotationGraspCfg(
@@ -555,7 +555,7 @@ def test_allegro_grasp_save_failure_does_not_signal_completion(
 def test_allegro_reset_samples_materialized_cache_without_file_io(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from unilab.envs.manipulation.allegro_inhand import rotation
+    from unilab.tasks.manipulation.allegro_inhand import rotation
 
     cache_path = tmp_path / "allegro.npy"
     cache = np.zeros((4, 23), dtype=np.float64)

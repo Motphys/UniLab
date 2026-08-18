@@ -30,7 +30,7 @@ Representative provider implementations are in:
 - `src/unilab/envs/locomotion/go1/joystick.py`
 - `src/unilab/tasks/locomotion/g1/joystick.py`
 - `src/unilab/envs/motion_tracking/g1/tracking.py`
-- `src/unilab/envs/manipulation/allegro_inhand/rotation.py`
+- `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`
 - `src/unilab/envs/manipulation/sharpa_inhand/rotation.py`
 
 Developer contract details are in
