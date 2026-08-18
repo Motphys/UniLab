@@ -24,9 +24,9 @@ from unilab.base import registry
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import sample_commands_with_standing
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.tasks.locomotion.common.commands import sample_commands_with_standing
 from unilab.tasks.locomotion.go2.base import Asset, ControlConfig
 from unilab.tasks.locomotion.go2.joystick import (
     Go2DomainRandConfig,

@@ -17,14 +17,14 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import (
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
+from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.envs.locomotion.common.rewards import RewardContext
+from unilab.tasks.locomotion.common.commands import (
     Commands,
     sample_heading_commands,
     zero_small_xy_commands,
 )
-from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
-from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
-from unilab.envs.locomotion.common.rewards import RewardContext
 
 from .base import G1BaseCfg, G1BaseEnv
 

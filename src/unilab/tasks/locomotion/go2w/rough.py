@@ -13,11 +13,6 @@ from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import zero_actions
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.commands import (
-    Commands,
-    apply_heading_yaw_feedback,
-    zero_small_xy_commands,
-)
 from unilab.envs.locomotion.common.height_scan import (
     HeightScanConfig,
     base_height_from_scan,
@@ -30,6 +25,11 @@ from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
+)
+from unilab.tasks.locomotion.common.commands import (
+    Commands,
+    apply_heading_yaw_feedback,
+    zero_small_xy_commands,
 )
 from unilab.tasks.locomotion.go2w.base import NUM_GO2W_ACTIONS, NUM_LEG_ACTIONS
 from unilab.tasks.locomotion.go2w.joystick import (
