@@ -1,20 +1,5 @@
 """Motion tracking environments for Unitree G1."""
 
-from .flip_tracking import (
-    G1ClimbTrackingCfg,
-    G1ClimbTrackingEnv,
-    G1ClimbTrackingEnvCfg,
-    G1FlipTracking23DofCfg,
-    G1FlipTracking23DofEnvCfg,
-    G1FlipTrackingCfg,
-    G1FlipTrackingEnv,
-    G1FlipTrackingEnvCfg,
-    G1WallFlipTracking23DofCfg,
-    G1WallFlipTracking23DofEnvCfg,
-    G1WallFlipTrackingCfg,
-    G1WallFlipTrackingEnv,
-    G1WallFlipTrackingEnvCfg,
-)
 from .tracking import (
     G1MotionTracking23DofCfg,
     G1MotionTracking23DofDeployEnvCfg,
@@ -35,17 +20,4 @@ __all__ = [
     "G1MotionTrackingDeployEnvCfg",
     "G1MotionTrackingEnv",
     "G1MotionTrackingEnvCfg",
-    "G1FlipTracking23DofCfg",
-    "G1FlipTracking23DofEnvCfg",
-    "G1FlipTrackingCfg",
-    "G1FlipTrackingEnv",
-    "G1FlipTrackingEnvCfg",
-    "G1WallFlipTracking23DofCfg",
-    "G1WallFlipTracking23DofEnvCfg",
-    "G1WallFlipTrackingCfg",
-    "G1WallFlipTrackingEnv",
-    "G1WallFlipTrackingEnvCfg",
-    "G1ClimbTrackingCfg",
-    "G1ClimbTrackingEnv",
-    "G1ClimbTrackingEnvCfg",
 ]

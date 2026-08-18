@@ -1715,7 +1715,7 @@ def test_sharpa_run_complete_reports_effective_collection_target() -> None:
 
 
 def test_g1_flip_tracking_cfg_uses_flip_profile():
-    from unilab.envs.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
+    from unilab.tasks.motion_tracking.g1.flip_tracking import G1FlipTrackingCfg
 
     cfg = G1FlipTrackingCfg()
 
@@ -1731,7 +1731,7 @@ def test_g1_flip_tracking_cfg_uses_flip_profile():
 
 
 def test_g1_wall_flip_tracking_cfg_uses_wall_flip_profile():
-    from unilab.envs.motion_tracking.g1.flip_tracking import G1WallFlipTrackingCfg
+    from unilab.tasks.motion_tracking.g1.flip_tracking import G1WallFlipTrackingCfg
 
     cfg = G1WallFlipTrackingCfg()
 
