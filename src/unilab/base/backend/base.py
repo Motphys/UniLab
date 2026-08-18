@@ -286,6 +286,22 @@ class SimBackend(abc.ABC):
             ``None`` when the backend does not expose limits.
         """
 
+    def get_dof_pos_limits(self) -> np.ndarray:
+        """Return joint position limits as a guaranteed array, never ``None``.
+
+        Same values as :meth:`get_joint_range`, but contractually non-optional:
+        callers that cannot proceed without limits use this and get a loud
+        ``NotImplementedError`` instead of a silent ``None``. Kept separate
+        because :meth:`get_joint_range` returning ``None`` is load-bearing for
+        envs that treat "no limits" as "skip clamping".
+
+        Returns:
+            Array with shape ``(num_dof, 2)`` and columns ``[low, high]``.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose joint position limits"
+        )
+
     # ------------------------------------------------------------------ #
     # Simulation control                                                   #
     # ------------------------------------------------------------------ #
@@ -491,6 +507,19 @@ class SimBackend(abc.ABC):
             f"{self.__class__.__name__} does not support reading actuator gains"
         )
 
+    def get_actuator_force_range(self) -> np.ndarray:
+        """Return actuator force/torque limits.
+
+        This is the effort/force bound (distinct from ``get_actuator_ctrl_range``,
+        which is the position-target range); not every backend models it.
+
+        Returns:
+            Array with shape ``(num_actuators, 2)`` and columns ``[low, high]``.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose actuator force ranges"
+        )
+
     # ------------------------------------------------------------------ #
     # Base kinematics                                                      #
     # ------------------------------------------------------------------ #
@@ -535,6 +564,22 @@ class SimBackend(abc.ABC):
         Returns:
             (num_envs, 3)
         """
+
+    def get_base_ang_vel_b(self) -> np.ndarray:
+        """Return base angular velocity in the base (body) frame.
+
+        Distinct from :meth:`get_base_ang_vel`, which this contract declares to be
+        world-frame. Backends whose native base angular velocity is already
+        body-frame return it directly; world-frame backends rotate into the base
+        frame. Prefer this method when an env needs the IMU-like body-frame value
+        and must behave identically across backends.
+
+        Returns:
+            (num_envs, 3)
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose body-frame base angular velocity"
+        )
 
     # ------------------------------------------------------------------ #
     # DOF state                                                            #
@@ -772,7 +817,24 @@ class SimBackend(abc.ABC):
     # Sensors                                                              #
     # ------------------------------------------------------------------ #
 
-    @abc.abstractmethod
+    def get_body_contact_force(self, body_name: str) -> np.ndarray:
+        """Return the magnitude of the net ground contact force on one body, in newtons.
+
+        Requires the body to have been declared at construction time (backends inject
+        the needed sensors while building the model). Envs use this instead of reaching
+        for a backend-specific sensor name, so a contact-dependent reward means the same
+        thing on every backend.
+
+        Args:
+            body_name: Body to report, as passed to the backend's contact-sensor option.
+
+        Returns:
+            ``(num_envs,)`` non-negative force magnitudes.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose per-body contact forces"
+        )
+
     def get_sensor_data(self, name: str) -> np.ndarray:
         """Return sensor data.
 

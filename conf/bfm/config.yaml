@@ -1,0 +1,88 @@
+defaults:
+  - _self_
+  - task: g1_bfm/mujoco
+algo:
+  algo: bfm
+  algo_log_name: bfm
+  seed: 4728
+  num_envs: 4096
+  num_env_steps: 1_536_000_000
+  update_agent_every: 4096
+  num_agent_updates: 16
+  num_seed_steps: 40_960
+  buffer_size: 5_120_000
+  buffer_device: cuda
+  use_trajectory_buffer: true
+  eval_every_steps: 12_000_000
+  checkpoint_every_steps: 38_400_000
+  log_every_updates: 40_960
+  eval_n_motions: 862
+  add_obs_noise: true
+  prioritization: false
+  prioritization_min_val: 0.5
+  prioritization_max_val: 2.0
+  prioritization_scale: 2.0
+  prioritization_mode: exp
+  model:
+    z_dim: 256
+    norm_z: true
+    hidden_dim: 2048
+    hidden_layers: 6
+    embedding_layers: 2
+    num_parallel: 2
+    discriminator_hidden_dim: 1024
+    discriminator_hidden_layers: 3
+    backward_hidden_dim: 256
+    backward_hidden_layers: 1
+    seq_length: 8
+    actor_std: 0.05
+    compile: false
+    cudagraphs: false
+  algorithm:
+    batch_size: 4096
+    discount: 0.98
+    lr_f: 3.0e-4
+    lr_b: 1.0e-5
+    lr_actor: 3.0e-4
+    lr_critic: 3.0e-4
+    lr_discriminator: 1.0e-5
+    lr_aux_critic: 3.0e-4
+    fb_target_tau: 0.01
+    critic_target_tau: 0.005
+    ortho_coef: 100.0
+    train_goal_ratio: 0.2
+    fb_pessimism_penalty: 0.0
+    actor_pessimism_penalty: 0.5
+    critic_pessimism_penalty: 0.5
+    aux_critic_pessimism_penalty: 0.5
+    stddev_clip: 0.3
+    update_z_every_step: 100
+    z_buffer_size: 8192
+    rollout_expert_trajectories: true
+    rollout_expert_trajectories_length: 250
+    rollout_expert_trajectories_percentage: 0.5
+    expert_asm_ratio: 0.6
+    relabel_ratio: 0.8
+    grad_penalty_discriminator: 10.0
+    reg_coeff: 0.05
+    reg_coeff_aux: 0.02
+    scale_reg: true
+    scale_reg_mode: fb
+    reg_denom_floor: 1.0
+training:
+  task_name: G1Bfm
+  device: null
+  collector_device: null
+  sim_backend: mujoco
+  logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  play_only: false
+expert:
+  lafan_pkl: ${oc.env:UNILAB_BFM_LAFAN_PKL,motions/g1/lafan_29dof_10s-clipped.pkl}
+  max_motions: null
+  motion_glob: ${oc.env:UNILAB_BFM_MOTIONS,src/unilab/assets/motions/g1/*.npz}
+hydra:
+  run:
+    dir: logs/bfm/${training.task_name}/${now:%Y-%m-%d_%H-%M-%S}

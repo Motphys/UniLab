@@ -11,6 +11,7 @@ def _reward_tracking_lin_vel(self):
     err = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
     return torch.exp(-err / self.cfg.rewards.tracking_sigma)
 
+
 # UniLab
 def reward_tracking_lin_vel(self, state):
     err = np.sum((state.commands[:, :2] - state.base_lin_vel[:, :2]) ** 2, axis=1)
@@ -27,8 +28,8 @@ Notes:
 
 ```python
 def reward_feet_air_time(self, state):
-    contact = state.foot_contact     # bool, (n_envs, n_feet)
-    air_time = state.last_air_time   # float, (n_envs, n_feet)
+    contact = state.foot_contact  # bool, (n_envs, n_feet)
+    air_time = state.last_air_time  # float, (n_envs, n_feet)
     first_contact = contact & ~state.prev_contact
     reward = (air_time - self.cfg.air_time_threshold) * first_contact
     return reward.sum(axis=1)
@@ -55,10 +56,7 @@ Already a stock helper in `unilab.envs.locomotion.common.rewards`.
 def reward_dof_pos_limits(self, state):
     lower = self.cfg.dof_pos_lower
     upper = self.cfg.dof_pos_upper
-    deviation = (
-        np.maximum(0, lower - state.dof_pos) +
-        np.maximum(0, state.dof_pos - upper)
-    )
+    deviation = np.maximum(0, lower - state.dof_pos) + np.maximum(0, state.dof_pos - upper)
     return -np.sum(deviation, axis=1)
 ```
 

@@ -510,6 +510,39 @@ def materialize_mujoco_hfield_attached_scene(
     return model, generated.terrain_origins
 
 
+def inject_contact_sensors(
+    model_file: str,
+    body_names: list[str],
+    site_size: float = 0.12,
+) -> str:
+    """Inject per-body TOUCH (contact-force) sensors named ``touch_<body>``.
+
+    Adds a box site at each body + a TOUCH sensor over it; the sensor reports summed
+    contact normal force, exposing runtime contact through the batch pool's sensordata
+    (the BFM-Zero contact_forces equivalent). Additive: only used when requested.
+    """
+    mujoco = _mujoco_module()
+    spec = mujoco.MjSpec.from_file(model_file)
+    for bn in body_names:
+        try:
+            body = spec.body(bn)
+        except Exception:
+            body = None
+        if body is None:
+            continue
+        site = body.add_site()
+        site.name = f"ct_{bn}"
+        site.size = [site_size, site_size, site_size]
+        site.pos = [0.0, 0.0, 0.0]
+        site.type = mujoco.mjtGeom.mjGEOM_BOX
+        sensor = spec.add_sensor()
+        sensor.name = f"touch_{bn}"
+        sensor.type = mujoco.mjtSensor.mjSENS_TOUCH
+        sensor.objtype = mujoco.mjtObj.mjOBJ_SITE
+        sensor.objname = f"ct_{bn}"
+    return _materialize_spec_xml(spec, model_file)
+
+
 def inject_mujoco_tracking_sensors(
     model_file: str,
     baselink_name: str | None = None,

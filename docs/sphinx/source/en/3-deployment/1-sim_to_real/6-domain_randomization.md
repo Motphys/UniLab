@@ -47,6 +47,7 @@ Tasks that use DR attach a provider through the env initialization path:
 ```python
 from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 
+
 class MyTaskEnv(NpEnv):
     def __init__(self, cfg):
         super().__init__(cfg)

@@ -33,6 +33,14 @@ dependencies = [
     "onnxruntime>=1.20 ; python_version >= '3.11'",
     "huggingface_hub>=0.25",
     "ninja ; sys_platform == 'linux'",
+    # BFM (FB-CPR-Aux) runtime deps: LAFAN motion pkl loading (joblib),
+    # velocity smoothing (scipy), EMD eval (pot -> `import ot`), checkpoint
+    # weights (safetensors) and transition-buffer serialization (h5py).
+    "joblib>=1.5.3",
+    "scipy>=1.15.3",
+    "pot>=0.9.6.post1",
+    "safetensors>=0.8.0",
+    "h5py>=3.16.0",
     "imageio-ffmpeg>=0.6.0",
 ]
 

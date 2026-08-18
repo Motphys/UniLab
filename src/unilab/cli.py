@@ -15,7 +15,7 @@ from typing import Sequence
 
 from unilab.demo import run_demo
 
-SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
+SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac", "bfm")
 SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
@@ -198,6 +198,13 @@ def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> R
         return Route(
             script_name="train_appo.py",
             config_group="appo",
+            owner_task=f"{task}/{owner}.yaml",
+            generated_overrides=(f"task={task_choice}",),
+        )
+    if algo == "bfm":
+        return Route(
+            script_name="train_bfm.py",
+            config_group="bfm",
             owner_task=f"{task}/{owner}.yaml",
             generated_overrides=(f"task={task_choice}",),
         )

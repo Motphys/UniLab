@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
@@ -109,6 +109,7 @@ def _build_motrix_scene_context(
     *,
     add_body_sensors: bool,
     base_name: str,
+    contact_force_geoms: Mapping[str, Sequence[str]] | None = None,
 ) -> _MotrixSceneContext:
     from unilab.base.backend.motrix.scene import (
         materialize_motrix_hfield_attached_scene,
@@ -126,6 +127,7 @@ def _build_motrix_scene_context(
             fragment_files=scene.fragment_files,
             add_body_sensors=add_body_sensors,
             base_name=base_name,
+            contact_force_geoms=contact_force_geoms,
         )
         return _MotrixSceneContext(model=model)
 
@@ -162,14 +164,28 @@ class MotrixBackend(SimBackend):
         add_body_sensors: bool = False,
         max_iterations: int | None = DEFAULT_MOTRIX_MAX_ITERATIONS,
         push_body_name: str | None = None,
+        contact_sensor_bodies: Sequence[str] | None = None,
     ):
         if not MOTRIX_AVAILABLE:
             raise ImportError("motrixsim not available")
+
+        # Per-body ground contact force, the MotrixSim counterpart of the MuJoCo
+        # backend's mjSENS_TOUCH injection. Resolved on the cold path: every colliding
+        # geom of each body is read out of the XML, because a body's total ground
+        # reaction force is the sum over all of them (ledger §9.8).
+        self._contact_force_geoms: dict[str, tuple[str, ...]] = {}
+        if contact_sensor_bodies:
+            from unilab.base.backend.motrix.scene import collect_body_collision_geoms
+
+            self._contact_force_geoms = collect_body_collision_geoms(
+                scene.model_file, list(contact_sensor_bodies)
+            )
 
         scene_context = _build_motrix_scene_context(
             scene,
             add_body_sensors=add_body_sensors,
             base_name=base_name,
+            contact_force_geoms=self._contact_force_geoms or None,
         )
         self._scene = scene
         self.scene_artifacts_dir = None
@@ -256,6 +272,9 @@ class MotrixBackend(SimBackend):
             if self._actuator_joint_pos_indices is not None
             else None
         )
+        # Parsed lazily from the XML on first request; see get_actuator_force_range.
+        self._actuator_force_range: np.ndarray | None = None
+        self._actuator_force_range_resolved = False
         self._default_actuator_kp = np.zeros((self.num_actuators,), dtype=np.float32)
         self._default_actuator_kd = np.zeros((self.num_actuators,), dtype=np.float32)
         for actuator in self._position_actuators:
@@ -561,7 +580,19 @@ class MotrixBackend(SimBackend):
         return np.asarray(self._model.options.gravity, dtype=np.float64).copy()
 
     def get_joint_range(self) -> np.ndarray | None:
+        # Deliberately ``None``: envs read this as "backend exposes no limits" and skip
+        # joint clamping on reset. Returning real limits here would change the reset
+        # distribution of every Motrix task already training. Use
+        # ``get_dof_pos_limits()`` when limits are required. See ledger §9.4.
         return None
+
+    def get_dof_pos_limits(self) -> np.ndarray:
+        """Return joint position limits as ``(num_dof, 2)``.
+
+        ``model.joint_limits`` is laid out ``(2, num_dof)``; the contract wants
+        ``(num_dof, 2)`` with columns ``[low, high]``.
+        """
+        return np.asarray(self._model.joint_limits, dtype=self._np_dtype).T.copy()
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #
@@ -969,6 +1000,22 @@ class MotrixBackend(SimBackend):
             return self._body_floatingbase.get_global_angular_velocity(self._data)  # type: ignore[no-any-return]
         return self._body_link.get_angular_velocity(self._data)  # type: ignore[no-any-return]
 
+    def get_base_ang_vel_b(self) -> np.ndarray:
+        """Rotate the native world-frame base angular velocity into the base frame.
+
+        MuJoCo's ``qvel[3:6]`` is body-frame already, so its override is a passthrough;
+        Motrix reports world-frame, hence the explicit rotation here. This keeps the
+        ``_b`` contract identical across backends without touching
+        :meth:`get_base_ang_vel`, which stays world-frame for existing callers.
+        """
+        quat_wxyz = np.asarray(self.get_base_quat(), dtype=self._np_dtype)
+        w_world = np.asarray(self.get_base_ang_vel(), dtype=self._np_dtype)
+        # Inverse rotation by the base quaternion: q_conj ⊗ (0, w) ⊗ q, expanded.
+        w_scalar = quat_wxyz[:, 0:1]
+        q_vec = -quat_wxyz[:, 1:4]  # conjugate
+        t = 2.0 * np.cross(q_vec, w_world)
+        return (w_world + w_scalar * t + np.cross(q_vec, t)).astype(self._np_dtype)
+
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
     # ------------------------------------------------------------------ #
@@ -1093,6 +1140,40 @@ class MotrixBackend(SimBackend):
     # ------------------------------------------------------------------ #
     # Sensors                                                            #
     # ------------------------------------------------------------------ #
+
+    def get_body_contact_force(self, body_name: str) -> np.ndarray:
+        """Return the net contact force magnitude on ``body_name``, in newtons.
+
+        Sums the per-geom net contact force magnitudes of every colliding geom of the
+        body, which is why all of them have to be registered: on a G1 foot, summing only
+        the 4 sphere geoms and ignoring the 7 capsules recovers ~20% of the true load
+        (ledger §9.8).
+
+        Contacts are resolved by the solver, so this reads zero until the first
+        :meth:`step` after :meth:`set_state` (``forward_kinematic`` alone runs no
+        collision detection).
+        """
+        if body_name not in self._contact_force_geoms:
+            raise ValueError(
+                f"No contact-force sensors for body {body_name!r}; pass it in "
+                f"contact_sensor_bodies at construction. "
+                f"Available: {tuple(self._contact_force_geoms)}"
+            )
+        geom_names = self._contact_force_geoms[body_name]
+        if not geom_names:
+            # Registered, but the body carries no colliding geom, so it can never be in
+            # contact. MuJoCo's touch sensor reads exactly 0.0 for these too (§9.11).
+            return np.zeros((self._num_envs,), dtype=self._np_dtype)
+        from unilab.base.backend.motrix.scene import contact_force_sensor_name
+
+        total = np.zeros((self._num_envs,), dtype=self._np_dtype)
+        for geom_name in geom_names:
+            forces = np.asarray(
+                self._model.get_sensor_value(contact_force_sensor_name(geom_name), self._data),
+                dtype=self._np_dtype,
+            ).reshape(self._num_envs, -1)
+            total += np.linalg.norm(forces, axis=-1)
+        return total
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         return self._model.get_sensor_value(name, self._data)  # type: ignore[no-any-return]
@@ -1663,3 +1744,53 @@ class MotrixBackend(SimBackend):
                 "Motrix actuator gains are only exposed for all-position-actuator models"
             )
         return self._default_actuator_kp.copy(), self._default_actuator_kd.copy()
+
+    def get_actuator_force_range(self) -> np.ndarray:
+        """Return actuator force limits as ``(num_actuators, 2)``.
+
+        MotrixSim enforces the XML ``forcerange`` internally but does not surface it on
+        the actuator objects (``actuator_ctrl_limits`` reports ``±inf``), so the values
+        are parsed out of the source XML. Verified against MuJoCo's
+        ``actuator_forcerange``: identical values and identical actuator ordering.
+
+        Parsed on first call and cached, rather than during ``__init__``, so constructing
+        a backend never depends on the XML being parseable or on the model exposing
+        actuator names.
+        """
+        if not self._actuator_force_range_resolved:
+            from unilab.base.backend.motrix.scene import parse_actuator_force_ranges
+
+            self._actuator_force_range = parse_actuator_force_ranges(
+                self._scene.model_file, list(self._model.actuator_names)
+            )
+            self._actuator_force_range_resolved = True
+        if self._actuator_force_range is None:
+            raise NotImplementedError(
+                "Motrix actuator force ranges are unavailable: no <actuator> entry in the "
+                "scene XML declared a forcerange for every actuator"
+            )
+        return self._actuator_force_range.copy()
+
+    def get_physics_state(self) -> np.ndarray:
+        """Return a physics snapshot laid out like the MuJoCo backend's.
+
+        Layout ``[time, base_pos(3), base_quat_wxyz(4), dof_pos, base_lin_vel(3),
+        base_ang_vel(3), dof_vel]``, matching ``MuJoCoBackend.get_physics_state()`` so
+        callers can index it identically.
+
+        Note this does not flip ``supports_physics_state_playback``: the playback
+        capability gates unrelated behaviour for every Motrix task (ledger §9.5).
+        """
+        num_envs = self._num_envs
+        return np.concatenate(
+            [
+                np.zeros((num_envs, 1), dtype=self._np_dtype),
+                np.asarray(self.get_base_pos(), dtype=self._np_dtype),
+                np.asarray(self.get_base_quat(), dtype=self._np_dtype),
+                np.asarray(self.get_dof_pos(), dtype=self._np_dtype),
+                np.asarray(self.get_base_lin_vel(), dtype=self._np_dtype),
+                np.asarray(self.get_base_ang_vel(), dtype=self._np_dtype),
+                np.asarray(self.get_dof_vel(), dtype=self._np_dtype),
+            ],
+            axis=-1,
+        )

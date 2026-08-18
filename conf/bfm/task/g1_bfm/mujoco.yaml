@@ -1,0 +1,8 @@
+# @package _global_
+training:
+  task_name: G1Bfm
+  sim_backend: mujoco
+  play_steps: 1000
+algo:
+  num_envs: 1024
+  num_seed_steps: 10_240

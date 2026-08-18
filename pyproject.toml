@@ -33,6 +33,14 @@ dependencies = [
     "onnxruntime>=1.20 ; python_version >= '3.11'",
     "huggingface_hub>=0.25",
     "ninja ; sys_platform == 'linux'",
+    # BFM (FB-CPR-Aux) runtime deps: LAFAN motion pkl loading (joblib),
+    # velocity smoothing (scipy), EMD eval (pot -> `import ot`), checkpoint
+    # weights (safetensors) and transition-buffer serialization (h5py).
+    "joblib>=1.5.3",
+    "scipy>=1.15.3",
+    "pot>=0.9.6.post1",
+    "safetensors>=0.8.0",
+    "h5py>=3.16.0",
     "imageio-ffmpeg>=0.6.0",
 ]
 
@@ -139,7 +147,8 @@ warn_unused_configs = true
 ignore_missing_imports = true
 no_site_packages = true
 exclude = [
-    "src/unilab/algos/torch/rsl_rl/", # vendored third-party, tracked in .gitignore
+    "src/unilab/algos/torch/rsl_rl/",
+    "src/unilab/algos/torch/bfm/", # vendored third-party, tracked in .gitignore
 ]
 
 [tool.pytest.ini_options]
@@ -162,7 +171,8 @@ venvPath = "."
 venv = ".venv"
 include = ["src/unilab"]
 exclude = [
-    "src/unilab/algos/torch/rsl_rl/",       # vendored third-party
+    "src/unilab/algos/torch/rsl_rl/",
+    "src/unilab/algos/torch/bfm/",       # vendored third-party
     "src/unilab/base/backend/",             # mujoco-uni-runtime stubs mismatch; optional backends
     "src/unilab/envs/",                     # mujoco-uni-runtime internal API, stubs mismatch
     "src/unilab/terrains/",                 # mujoco-uni-runtime MjSpec API, stubs mismatch
@@ -171,3 +181,7 @@ exclude = [
 ]
 reportMissingImports = "warning"
 reportMissingModuleSource = "none"
+
+[[tool.mypy.overrides]]
+module = "unilab.algos.torch.bfm.*"
+disable_error_code = ["union-attr", "no-any-return", "var-annotated", "assignment", "arg-type", "attr-defined", "index", "operator", "return-value", "dict-item"]

@@ -15,6 +15,7 @@ class TerrainSceneCfg:
     hfield_name: str = "terrain_hfield"
     geom_name: str | None = None
 
+
 @dataclass
 class SceneCfg:
     model_file: str

@@ -284,7 +284,9 @@ class MuJoCoBackend(SimBackend):
         adaptive_chunk_size: bool = False,
         cpu_ids: Optional[Sequence[int]] = None,
         bench_nsteps: int = 1,
+        contact_sensor_bodies: Optional[list] = None,
     ):
+        self._contact_sensor_bodies = list(contact_sensor_bodies) if contact_sensor_bodies else []
         scene_context = _build_mujoco_scene_context(scene)
         self.scene_model_file = scene_context.model_file
         self.scene_visual_model_file = scene_context.visual_model_file
@@ -455,6 +457,7 @@ class MuJoCoBackend(SimBackend):
     def _prepare_model_xml(self) -> tuple[str, list[str], list[int], list[str]]:
         from unilab.base.backend.mujoco.xml import (
             create_discardvisual_xml,
+            inject_contact_sensors,
             inject_mujoco_tracking_sensors,
         )
 
@@ -469,6 +472,9 @@ class MuJoCoBackend(SimBackend):
         else:
             tracked_body_ids = []
             valid_bnames = []
+        if self._contact_sensor_bodies:
+            model_path = inject_contact_sensors(model_path, self._contact_sensor_bodies)
+            tmp_paths.append(model_path)
         return model_path, tmp_paths, tracked_body_ids, valid_bnames
 
     def _configure_model(self, model: mujoco.MjModel) -> None:
@@ -839,6 +845,10 @@ class MuJoCoBackend(SimBackend):
         mask = self._model.jnt_type != int(mujoco.mjtJoint.mjJNT_FREE)
         return np.array(jnt_range[mask], dtype=self._np_dtype)
 
+    def get_dof_pos_limits(self) -> np.ndarray:
+        """Return joint position limits; MuJoCo always exposes them."""
+        return cast(np.ndarray, self.get_joint_range())
+
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #
     # ------------------------------------------------------------------ #
@@ -1189,6 +1199,16 @@ class MuJoCoBackend(SimBackend):
     def get_base_ang_vel(self) -> np.ndarray:
         return self._base_ang_vel_view
 
+    def get_base_ang_vel_b(self) -> np.ndarray:
+        """Return the body-frame base angular velocity.
+
+        MuJoCo stores a free joint's angular velocity in ``qvel[3:6]`` as body-frame
+        components, so this returns the same view as :meth:`get_base_ang_vel` with no
+        conversion. The two therefore agree bit-for-bit on this backend; they diverge
+        on backends whose native value is world-frame.
+        """
+        return self._base_ang_vel_view
+
     # ------------------------------------------------------------------ #
     # DOF state                                                          #
     # ------------------------------------------------------------------ #
@@ -1468,6 +1488,26 @@ class MuJoCoBackend(SimBackend):
         kp = np.asarray(self._model.actuator_gainprm[:, 0], dtype=np.float64).copy()
         kd = np.asarray(-self._model.actuator_biasprm[:, 2], dtype=np.float64).copy()
         return kp, kd
+
+    def get_actuator_force_range(self) -> np.ndarray:
+        """Return the model actuator force/torque limits as ``(num_actuators, 2)``."""
+        return np.asarray(self._model.actuator_forcerange, dtype=np.float64).copy()
+
+    def get_body_contact_force(self, body_name: str) -> np.ndarray:
+        """Return the net contact force magnitude on ``body_name``, in newtons.
+
+        Reads the ``touch_<body>`` ``mjSENS_TOUCH`` sensor injected for the bodies passed
+        as ``contact_sensor_bodies``, which already reports summed contact normal force,
+        so this is a rename of existing behaviour rather than a new measurement.
+        """
+        if body_name not in self._contact_sensor_bodies:
+            raise ValueError(
+                f"No contact sensor for body {body_name!r}; pass it in "
+                f"contact_sensor_bodies at construction. "
+                f"Available: {tuple(self._contact_sensor_bodies)}"
+            )
+        values = np.asarray(self.get_sensor_data(f"touch_{body_name}"), dtype=self._np_dtype)
+        return np.abs(values.reshape(self._num_envs, -1)[:, 0])
 
     def _apply_position_actuator_gains_to_model(
         self,
