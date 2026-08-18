@@ -53,7 +53,7 @@ class TestEnsureRegistries:
         # Use real package + fake optional package
         with caplog.at_level(logging.WARNING):
             ensure_registries(
-                ["unilab.envs.locomotion", "nonexistent_optional_12345"],
+                ["unilab.tasks.locomotion", "nonexistent_optional_12345"],
                 optional_packages=["nonexistent_optional_12345"],
             )
 
