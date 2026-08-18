@@ -16,6 +16,8 @@ from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
+    RESET_TERM_DOF_ARMATURE,
+    RESET_TERM_GEOM_FRICTION,
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -135,6 +137,48 @@ class ResetStateTransaction:
             term_name=term_name,
         )
 
+    def bind_dof_armature_write(
+        self,
+        dof_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind DOF-armature columns and immutable backend defaults."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_DOF_ARMATURE,
+            getter=self._backend.get_dof_armature,
+            expected_tail=None,
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            dof_ids,
+            width=default.shape[0],
+            capability="DOF armature IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def bind_geom_friction_write(
+        self,
+        geom_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind geom-friction rows and immutable backend defaults."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_GEOM_FRICTION,
+            getter=self._backend.get_geom_friction,
+            expected_tail=(3,),
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            geom_ids,
+            width=default.shape[0],
+            capability="geom friction IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
     def write_body_mass(
         self,
         env_ids: np.ndarray,
@@ -144,7 +188,7 @@ class ResetStateTransaction:
         term_name: str,
     ) -> None:
         """Stage selected body masses in the exactly-once reset payload."""
-        self._write_body_randomization(
+        self._write_selected_randomization(
             RESET_TERM_BODY_MASS,
             env_ids,
             body_ids,
@@ -162,7 +206,7 @@ class ResetStateTransaction:
         term_name: str,
     ) -> None:
         """Stage selected body inertial positions in the reset payload."""
-        self._write_body_randomization(
+        self._write_selected_randomization(
             RESET_TERM_BODY_IPOS,
             env_ids,
             body_ids,
@@ -199,6 +243,42 @@ class ResetStateTransaction:
         buffer[ids] = gravity
         mask[ids] = True
         self._dirty_mask[ids] = True
+
+    def write_dof_armature(
+        self,
+        env_ids: np.ndarray,
+        dof_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected DOF armatures in the reset payload."""
+        self._write_selected_randomization(
+            RESET_TERM_DOF_ARMATURE,
+            env_ids,
+            dof_ids,
+            values,
+            value_tail=(),
+            term_name=term_name,
+        )
+
+    def write_geom_friction(
+        self,
+        env_ids: np.ndarray,
+        geom_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected three-axis geom friction in the reset payload."""
+        self._write_selected_randomization(
+            RESET_TERM_GEOM_FRICTION,
+            env_ids,
+            geom_ids,
+            values,
+            value_tail=(3,),
+            term_name=term_name,
+        )
 
     def bind_actuator_gain_write(
         self,
@@ -612,11 +692,11 @@ class ResetStateTransaction:
         selected.setflags(write=False)
         return bound_columns, selected
 
-    def _write_body_randomization(
+    def _write_selected_randomization(
         self,
         field: str,
         env_ids: np.ndarray,
-        body_ids: np.ndarray,
+        column_ids: np.ndarray,
         values: np.ndarray,
         *,
         value_tail: tuple[int, ...],
@@ -629,9 +709,9 @@ class ResetStateTransaction:
         )
         default = self._require_randomization_default(field, term_name)
         columns = self._validate_columns(
-            body_ids,
+            column_ids,
             width=default.shape[0],
-            capability=f"{field} body IDs",
+            capability=f"{field} column IDs",
             term_name=term_name,
         )
         selected = self._validate_values(
@@ -655,7 +735,13 @@ class ResetStateTransaction:
         dirty_ids: np.ndarray,
     ) -> ResetRandomizationPayload | None:
         payload = ResetRandomizationPayload()
-        for field in (RESET_TERM_BODY_MASS, RESET_TERM_BODY_IPOS, RESET_TERM_GRAVITY):
+        for field in (
+            RESET_TERM_BODY_MASS,
+            RESET_TERM_BODY_IPOS,
+            RESET_TERM_DOF_ARMATURE,
+            RESET_TERM_GEOM_FRICTION,
+            RESET_TERM_GRAVITY,
+        ):
             mask = self._randomization_dirty_masks.get(field)
             if mask is None or not np.any(mask):
                 continue

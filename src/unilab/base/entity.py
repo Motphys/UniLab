@@ -426,6 +426,7 @@ class Entity:
         self._reset_root_layout_error: str | None = None
         self._reset_joint_qpos_ids: np.ndarray | None = None
         self._reset_joint_qvel_ids: np.ndarray | None = None
+        self._joint_model_dof_ids: np.ndarray | None = None
 
         self._joint_names = _normalize_names(name, "joint", cfg.joint_names)
         self._body_names = _normalize_names(name, "body", cfg.body_names)
@@ -1091,6 +1092,106 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def bind_joint_armature_write(
+        self,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local joints and immutable default DOF armatures."""
+        if self._reset_state is None:
+            raise self._capability_error(
+                "reset joint-armature write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        model_dof_ids = self._materialize_joint_model_dof_ids()
+        local_ids = self._normalize_local_joint_ids(
+            joint_ids,
+            capability="reset joint-armature write",
+        )
+        if local_ids.size == 0:
+            raise ValueError(f"Entity '{self.name}' reset joint-armature write selected no joints")
+        _, defaults = self._reset_state.bind_dof_armature_write(
+            model_dof_ids[local_ids],
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_joint_armature_to_sim(
+        self,
+        values: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "joint_armature",
+    ) -> None:
+        """Stage selected entity joint armatures in the active reset transaction."""
+        if self._reset_state is None:
+            raise self._capability_error(
+                "reset joint-armature write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        model_dof_ids = self._materialize_joint_model_dof_ids()
+        local_ids = self._normalize_local_joint_ids(
+            joint_ids,
+            capability="reset joint-armature write",
+        )
+        self._reset_state.write_dof_armature(
+            self._normalize_reset_env_ids(env_ids),
+            model_dof_ids[local_ids],
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_geom_friction_write(
+        self,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local geoms and immutable default friction vectors."""
+        if self._reset_state is None or self._geom_ids is None:
+            raise self._capability_error(
+                "reset geom-friction write",
+                "geom metadata or the env-owned reset transaction was not materialized",
+            )
+        local_ids = self._normalize_local_geom_ids(
+            geom_ids,
+            capability="reset geom-friction write",
+        )
+        if local_ids.size == 0:
+            raise ValueError(f"Entity '{self.name}' reset geom-friction write selected no geoms")
+        _, defaults = self._reset_state.bind_geom_friction_write(
+            self._geom_ids[local_ids],
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_geom_friction_to_sim(
+        self,
+        values: np.ndarray,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "geom_friction",
+    ) -> None:
+        """Stage selected entity geom friction in the active reset transaction."""
+        if self._reset_state is None or self._geom_ids is None:
+            raise self._capability_error(
+                "reset geom-friction write",
+                "geom metadata or the env-owned reset transaction was not materialized",
+            )
+        local_ids = self._normalize_local_geom_ids(
+            geom_ids,
+            capability="reset geom-friction write",
+        )
+        self._reset_state.write_geom_friction(
+            self._normalize_reset_env_ids(env_ids),
+            self._geom_ids[local_ids],
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def bind_body_mass_write(
         self,
         body_ids: np.ndarray | Sequence[int] | slice | None = None,
@@ -1363,6 +1464,33 @@ class Entity:
         bound_defaults.setflags(write=False)
         return bound_ids, bound_defaults
 
+    def _materialize_joint_model_dof_ids(self) -> np.ndarray:
+        """Resolve full model DOF addresses once for reset-time model fields."""
+        cached = self._joint_model_dof_ids
+        if cached is not None:
+            return cached
+        if self._joint_names is None:
+            raise self._capability_error(
+                "reset joint-armature write",
+                "joint_names were not declared in EntityCfg",
+            )
+        try:
+            values = self._backend.get_joint_dof_indices(self._joint_names)
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error("reset joint-armature write", str(exc)) from exc
+        except (KeyError, ValueError) as exc:
+            raise ValueError(
+                f"Entity '{self.name}' could not resolve joint model DOF names "
+                f"{list(self._joint_names)} on backend '{self._backend_type}': {exc}"
+            ) from exc
+        resolved = _readonly_ids(
+            values,
+            expected=len(self._joint_names),
+            label=f"Entity '{self.name}' joint model DOF",
+        )
+        self._joint_model_dof_ids = resolved
+        return resolved
+
     def _normalize_local_body_ids(
         self,
         body_ids: np.ndarray | Sequence[int] | slice | None,
@@ -1426,6 +1554,39 @@ class Entity:
         if np.unique(ids).size != ids.size:
             raise ValueError(
                 f"Entity '{self.name}' {capability} joint_ids contain duplicates: {ids.tolist()}"
+            )
+        return ids
+
+    def _normalize_local_geom_ids(
+        self,
+        geom_ids: np.ndarray | Sequence[int] | slice | None,
+        *,
+        capability: str,
+    ) -> np.ndarray:
+        if geom_ids is None:
+            ids = np.arange(self.num_geoms, dtype=np.intp)
+        elif isinstance(geom_ids, slice):
+            ids = np.arange(self.num_geoms, dtype=np.intp)[geom_ids]
+        else:
+            raw = np.asarray(geom_ids)
+            if (
+                raw.ndim != 1
+                or not np.issubdtype(raw.dtype, np.integer)
+                or np.issubdtype(raw.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self.name}' {capability} geom_ids must be a 1-D integer "
+                    "array or slice"
+                )
+            ids = np.asarray(raw, dtype=np.intp)
+        if np.any(ids < 0) or np.any(ids >= self.num_geoms):
+            raise IndexError(
+                f"Entity '{self.name}' {capability} geom_ids out of range for "
+                f"{self.num_geoms} geoms: {ids.tolist()}"
+            )
+        if np.unique(ids).size != ids.size:
+            raise ValueError(
+                f"Entity '{self.name}' {capability} geom_ids contain duplicates: {ids.tolist()}"
             )
         return ids
 

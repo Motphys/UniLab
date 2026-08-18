@@ -16,6 +16,8 @@ from unilab.base.reset_state import ResetStateTransaction
 from unilab.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
+    RESET_TERM_DOF_ARMATURE,
+    RESET_TERM_GEOM_FRICTION,
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -182,6 +184,8 @@ class _Backend:
         self.body_mass = np.array([10.0])
         self.body_ipos = np.array([[0.0, 0.0, 0.0]])
         self.gravity = np.array([0.0, 0.0, -9.81])
+        self.dof_armature = np.array([0.0] * 6 + [1.0, 2.0, 3.0])
+        self.geom_friction = np.array([[0.5, 0.01, 0.001], [0.7, 0.02, 0.002], [0.9, 0.03, 0.003]])
         self.interval_plans: list[IntervalRandomizationPlan] = []
 
     def get_body_ids(self, names) -> np.ndarray:
@@ -203,13 +207,33 @@ class _Backend:
         return self.init_qvel.copy()
 
     def get_dof_pos(self) -> np.ndarray:
-        return np.empty((self.num_envs, 0))
+        return np.zeros((self.num_envs, 3))
 
     def get_dof_vel(self) -> np.ndarray:
-        return np.empty((self.num_envs, 0))
+        return np.zeros((self.num_envs, 3))
+
+    def get_default_dof_pos(self) -> np.ndarray:
+        return np.zeros(3)
+
+    def get_joint_dof_indices(self, names) -> np.ndarray:
+        table = {"j0": 6, "j1": 7, "j2": 8}
+        return np.asarray([table[name] for name in names], dtype=np.int32)
+
+    def get_joint_dof_pos_indices(self, names) -> np.ndarray:
+        table = {"j0": 0, "j1": 1, "j2": 2}
+        return np.asarray([table[name] for name in names], dtype=np.int32)
+
+    def get_joint_dof_vel_indices(self, names) -> np.ndarray:
+        return self.get_joint_dof_pos_indices(names)
+
+    def get_geom_names(self) -> tuple[str, ...]:
+        return ("floor", "foot", "base_geom")
 
     def get_actuator_names(self) -> tuple[str, ...]:
         return ("a0", "a1", "a2")
+
+    def get_actuator_joint_names(self) -> tuple[str, ...]:
+        return ("j0", "j1", "j2")
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return np.tile([-1.0, 1.0], (self.num_actuators, 1))
@@ -217,7 +241,15 @@ class _Backend:
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         terms: set[str] = set((RESET_TERM_KP, RESET_TERM_KD)) if self.gain_supported else set()
         if self.randomization_supported:
-            terms.update((RESET_TERM_BODY_MASS, RESET_TERM_BODY_IPOS, RESET_TERM_GRAVITY))
+            terms.update(
+                (
+                    RESET_TERM_BODY_MASS,
+                    RESET_TERM_BODY_IPOS,
+                    RESET_TERM_DOF_ARMATURE,
+                    RESET_TERM_GEOM_FRICTION,
+                    RESET_TERM_GRAVITY,
+                )
+            )
         return DomainRandomizationCapabilities(
             supported_reset_terms=frozenset(terms),
             supports_interval_body_velocity_delta=self.interval_velocity_supported,
@@ -234,6 +266,12 @@ class _Backend:
 
     def get_gravity(self) -> np.ndarray:
         return self.gravity.copy()
+
+    def get_dof_armature(self) -> np.ndarray:
+        return self.dof_armature.copy()
+
+    def get_geom_friction(self) -> np.ndarray:
+        return self.geom_friction.copy()
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         self.interval_plans.append(plan)
@@ -287,7 +325,9 @@ def _transaction_env(
         {
             "robot": EntityCfg(
                 root_body_name="base",
+                joint_names=("j0", "j1", "j2"),
                 body_names=body_names,
+                geom_names=("floor", "foot", "base_geom"),
                 actuator_names=("a0", "a1", "a2"),
             )
         },
@@ -492,6 +532,104 @@ def test_reset_randomization_terms_compose_with_state_and_gains_exactly_once() -
     np.testing.assert_allclose(payload.gravity, [[0.0, 0.0, -10.0]] * 2)
     np.testing.assert_allclose(payload.kp, [[20.0, 40.0, 60.0]] * 2)
     np.testing.assert_allclose(payload.kd, [[3.0, 6.0, 9.0]] * 2)
+
+
+def test_model_field_terms_use_cached_selectors_and_one_dense_reset_payload() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=23)
+    manager = EventManager(
+        {
+            "armature": EventTermCfg(
+                func=mdp.joint_armature,
+                mode="reset",
+                params={
+                    "asset_cfg": SceneEntityCfg(
+                        "robot",
+                        joint_names=("j2", "j0"),
+                        preserve_order=True,
+                    ),
+                    "ranges": (2.0, 2.0),
+                    "operation": "scale",
+                },
+            ),
+            "friction": EventTermCfg(
+                func=mdp.geom_friction,
+                mode="reset",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", geom_names=".*"),
+                    "ranges": {"floor": (2.0, 2.0), "base_.*": (3.0, 3.0)},
+                    "operation": "scale",
+                    "shared_random": True,
+                },
+            ),
+        },
+        env,
+    )
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    assert payload.dof_armature is not None
+    assert payload.geom_friction is not None
+    np.testing.assert_allclose(
+        payload.dof_armature,
+        [[0.0] * 6 + [2.0, 2.0, 6.0]] * 2,
+    )
+    expected_friction = backend.geom_friction.copy()
+    expected_friction[0, 0] *= 2.0
+    expected_friction[2, 0] *= 3.0
+    np.testing.assert_allclose(payload.geom_friction, [expected_friction] * 2)
+
+
+def test_model_field_aliases_are_identical_and_capability_gaps_fail_cold() -> None:
+    assert mdp.dof_armature is mdp.joint_armature
+    env, backend, _ = _transaction_env(randomization_supported=False)
+
+    with pytest.raises(
+        NotImplementedError,
+        match="joint_armature:robot.*dof_armature randomization.*backend 'fake'",
+    ):
+        EventManager(
+            {
+                "armature": EventTermCfg(
+                    func=mdp.dof_armature,
+                    mode="reset",
+                    params={"ranges": (0.9, 1.1)},
+                )
+            },
+            env,
+        )
+    assert backend.set_state_calls == []
+
+
+@pytest.mark.parametrize(
+    ("func", "params", "match"),
+    [
+        (mdp.geom_friction, {"ranges": (0.5, 1.0), "axes": [3]}, "invalid axes"),
+        (mdp.joint_armature, {"ranges": (-1.0, -0.5)}, "produced negative"),
+    ],
+)
+def test_model_field_invalid_requests_fail_explicitly(func, params, match: str) -> None:
+    env, backend, transaction = _transaction_env()
+    if func is mdp.geom_friction:
+        with pytest.raises(ValueError, match=match):
+            EventManager({"field": EventTermCfg(func=func, mode="reset", params=params)}, env)
+    else:
+        manager = EventManager(
+            {"field": EventTermCfg(func=func, mode="reset", params=params)},
+            env,
+        )
+        ids = np.array([0, 1], dtype=np.int32)
+        with pytest.raises(ValueError, match=match):
+            with transaction.scoped(ids):
+                mdp.reset_scene_to_default(env, ids)
+                manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+    assert backend.set_state_calls == []
 
 
 @pytest.mark.parametrize(
