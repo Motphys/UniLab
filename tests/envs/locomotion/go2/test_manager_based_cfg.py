@@ -16,7 +16,6 @@ from unilab.envs.locomotion.go2.manager_based_cfg import (
     make_go2_joystick_flat_manager_cfg,
 )
 from unilab.envs.mdp import JointPositionAction, JointPositionActionCfg
-from unilab.managers import EventTermCfg
 
 _JOINT_NAMES = (
     "FL_hip_joint",
@@ -137,7 +136,7 @@ def test_go2_manager_factory_preserves_legacy_config_surface() -> None:
     assert command.ranges.heading is None
 
     events = _active(cfg.events)
-    assert list(events) == ["reset_scene_to_default", "reset_root_state_uniform"]
+    assert list(events) == ["reset_scene_to_default", "reset_root_state_uniform", "pd_gains"]
     assert events["reset_scene_to_default"].func is mdp.reset_scene_to_default
     assert events["reset_scene_to_default"].mode == "reset"
     assert events["reset_scene_to_default"].params == {}
@@ -154,6 +153,14 @@ def test_go2_manager_factory_preserves_legacy_config_surface() -> None:
     }
     assert root_reset.params["velocity_range"] == {
         key: (-0.5, 0.5) for key in ("x", "y", "z", "roll", "pitch", "yaw")
+    }
+    pd_gains = events["pd_gains"]
+    assert pd_gains.func is mdp.pd_gains
+    assert pd_gains.mode == "reset"
+    assert pd_gains.params == {
+        "kp_range": (31.5, 38.5),
+        "kd_range": (0.45, 0.55),
+        "operation": "abs",
     }
 
     expected_rewards = {
@@ -317,15 +324,6 @@ def _read_runtime_actuator_gains(backend_type: str, backend) -> tuple[np.ndarray
 @pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
 def test_go2_manager_pd_gains_mutates_real_backend_on_reset(backend_type: str) -> None:
     cfg = make_go2_joystick_flat_manager_cfg()
-    cfg.events["pd_gains"] = EventTermCfg(
-        func=mdp.pd_gains,
-        mode="reset",
-        params={
-            "kp_range": (31.5, 38.5),
-            "kd_range": (0.45, 0.55),
-            "operation": "abs",
-        },
-    )
     assert cfg.scene is not None
     backend = create_backend(
         backend_type,

@@ -162,6 +162,15 @@ def make_go2_joystick_flat_manager_cfg() -> ManagerBasedRlEnvCfg:
                     },
                 },
             ),
+            "pd_gains": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                params={
+                    "kp_range": (31.5, 38.5),
+                    "kd_range": (0.45, 0.55),
+                    "operation": "abs",
+                },
+            ),
         },
         rewards={
             "tracking_lin_vel": RewardTermCfg(
