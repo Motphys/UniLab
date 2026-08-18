@@ -115,7 +115,7 @@ def test_go1_rough_initialization_and_reset_use_backend_terrain_contract():
 
 
 def test_go2w_rough_initialization_and_reset_use_backend_terrain_contract():
-    from unilab.envs.locomotion.go2w.joystick import RewardConfig
+    from unilab.tasks.locomotion.go2w.joystick import RewardConfig
     from unilab.tasks.locomotion.go2w.rough import Go2WJoystickRoughCfg, Go2WJoystickRoughEnv
 
     cfg = Go2WJoystickRoughCfg(

@@ -88,12 +88,12 @@ class JoystickSensor:
 @registry.envcfg("Go2WJoystickFlat")
 @dataclass
 class Go2WJoystickCfg(Go2WBaseCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "go2w" / "scene_flat.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
@@ -229,7 +229,7 @@ class Go2WJoystickDomainRandomizationProvider(LocomotionDRProvider):
 @registry.env("Go2WJoystickFlat", sim_backend="mujoco")
 @registry.env("Go2WJoystickFlat", sim_backend="drake")
 class Go2WJoystickEnv(Go2WBaseEnv):
-    _cfg: Go2WJoystickCfg
+    _cfg: Go2WJoystickCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: Go2WJoystickCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:

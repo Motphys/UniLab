@@ -16,7 +16,7 @@ from unilab.envs.locomotion.go2w.base import (
     Go2WBaseEnv,
     compute_go2w_motor_ctrl,
 )
-from unilab.envs.locomotion.go2w.joystick import (
+from unilab.tasks.locomotion.go2w.joystick import (
     Go2WJoystickCfg,
     Go2WJoystickDomainRandomizationProvider,
     Go2WJoystickEnv,
@@ -135,7 +135,7 @@ def test_go2w_reset_plan_can_disable_initial_yaw_randomization() -> None:
 
 
 def test_go2w_init_does_not_pass_position_actuator_gains(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unilab.envs.locomotion.go2w import joystick as go2w_module
+    from unilab.tasks.locomotion.go2w import joystick as go2w_module
 
     captured: dict[str, Any] = {}
 
