@@ -145,12 +145,12 @@ class DomainRandConfig:
 @registry.envcfg("AllegroInhandRotation")
 @dataclass
 class AllegroRotationPPOCfg(AllegroBaseCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "allegro_hand" / "scene.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
     reward_config: RewardConfigPPO | None = None
     domain_rand: DomainRandConfig = field(default_factory=DomainRandConfig)
     rotation_axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
@@ -260,7 +260,7 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
 @registry.env("AllegroInhandRotation", sim_backend="mujoco")
 @registry.env("AllegroInhandRotation", sim_backend="motrix")
 class AllegroRotationPPO(AllegroBaseEnv):
-    _cfg: AllegroRotationPPOCfg
+    _cfg: AllegroRotationPPOCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _reward_cfg: RewardConfigPPO
 
     _NUM_OBS_PER_STEP = 35

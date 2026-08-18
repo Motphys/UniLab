@@ -22,7 +22,7 @@ class AllegroRotationGraspCfg(AllegroRotationPPOCfg):
     # conf/ppo/task/allegro_inhand_grasp/mujoco.yaml and CLI env.*)
     # are applied at env construction and take precedence.
     max_episode_seconds: float = 2.0
-    reward_config: RewardConfigPPO = field(
+    reward_config: RewardConfigPPO = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: RewardConfigPPO(
             scales={
                 "rotate": 0.0,
@@ -47,7 +47,7 @@ class AllegroRotationGraspCfg(AllegroRotationPPOCfg):
 @registry.env("AllegroInhandRotationGrasp", sim_backend="mujoco")
 @registry.env("AllegroInhandRotationGrasp", sim_backend="motrix")
 class AllegroRotationGrasp(AllegroRotationPPO):
-    _cfg: AllegroRotationGraspCfg
+    _cfg: AllegroRotationGraspCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _CONTACT_SENSORS = ("ff_contact", "mf_contact", "rf_contact", "th_contact")
 
     def __init__(

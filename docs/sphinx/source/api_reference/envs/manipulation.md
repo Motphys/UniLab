@@ -6,7 +6,7 @@
    :template: autosummary/module.rst
    :recursive:
 
-   unilab.envs.manipulation.allegro_inhand
+   unilab.tasks.manipulation.allegro_inhand
    unilab.envs.manipulation.sharpa_inhand
    unilab.tasks.manipulation.stewart
 ```
