@@ -8,5 +8,5 @@
 
    unilab.envs.manipulation.allegro_inhand
    unilab.envs.manipulation.sharpa_inhand
-   unilab.envs.manipulation.stewart
+   unilab.tasks.manipulation.stewart
 ```
