@@ -14,7 +14,7 @@ import pytest
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend.mujoco.xml import get_named_body_ids
 from unilab.base.scene import SceneCfg
-from unilab.dr.types import ResetRandomizationPayload
+from unilab.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -108,6 +108,7 @@ def test_mujoco_backend_smoke_contract(robot):
         "kd",
     }.issubset(caps.supported_reset_terms)
     assert caps.supports_interval_push
+    assert caps.supports_interval_body_velocity_delta
 
 
 def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
@@ -129,6 +130,117 @@ def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
     np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
     np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
     _unit_quat(bkd.get_base_quat(), "MuJoCo fixed-base smoke")
+    assert not bkd.get_dr_capabilities().supports_interval_body_velocity_delta
+
+
+def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_sensors():
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_xml("go2")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+        add_body_sensors=True,
+    )
+    bkd.materialize()
+    qpos = np.broadcast_to(bkd.get_default_qpos(), (NUM_ENVS, bkd.model.nq)).copy()
+    qvel = np.zeros((NUM_ENVS, bkd.model.nv), dtype=np.float64)
+    bkd.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+    bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)), nsteps=1)
+    assert bkd._pool is not None
+    bkd._sensor_data[:] = bkd._pool.forward(bkd.get_physics_state())
+
+    body_ids = bkd.get_body_ids(("base",))
+    state_before = bkd.get_physics_state().copy()
+    body_velocity_before = bkd.get_body_lin_vel_w(body_ids).copy()
+    delta = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    delta[1, 0] = (0.25, -0.4, 0.15)
+
+    bkd.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            body_ids=body_ids,
+            body_linear_velocity_delta=delta,
+        )
+    )
+
+    state_after = bkd.get_physics_state()
+    body_velocity_after = bkd.get_body_lin_vel_w(body_ids)
+    np.testing.assert_array_equal(state_after[0], state_before[0])
+    np.testing.assert_allclose(state_after[1, 0], state_before[1, 0], atol=1e-12)
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qpos : bkd._idx_qvel],
+        state_before[1, bkd._idx_qpos : bkd._idx_qvel],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qvel + 3 :],
+        state_before[1, bkd._idx_qvel + 3 :],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qvel : bkd._idx_qvel + 3],
+        state_before[1, bkd._idx_qvel : bkd._idx_qvel + 3] + delta[1, 0],
+        atol=1e-7,
+    )
+    np.testing.assert_allclose(
+        body_velocity_after[1, 0],
+        body_velocity_before[1, 0] + delta[1, 0],
+        atol=1e-6,
+    )
+
+
+def test_mujoco_interval_root_velocity_kick_rejects_invalid_contracts():
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_xml("go2")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+    )
+    body_ids = bkd.get_body_ids(("base",))
+    delta = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+
+    with pytest.raises(RuntimeError, match="requires a materialized backend"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
+                body_linear_velocity_delta=delta,
+            )
+        )
+
+    bkd.materialize()
+    with pytest.raises(TypeError, match="body_ids must be a 1-D integer array"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids.astype(np.float64),
+                body_linear_velocity_delta=delta,
+            )
+        )
+    with pytest.raises(NotImplementedError, match="only supports the configured free root"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=np.asarray([body_ids[0] + 1], dtype=np.int32),
+                body_linear_velocity_delta=delta,
+            )
+        )
+    with pytest.raises(ValueError, match=r"shape .* expected \(2, 1, 3\)"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
+                body_linear_velocity_delta=np.zeros((NUM_ENVS, 3), dtype=np.float64),
+            )
+        )
+    invalid = delta.copy()
+    invalid[0, 0, 0] = np.nan
+    with pytest.raises(ValueError, match="contains NaN or Inf"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
+                body_linear_velocity_delta=invalid,
+            )
+        )
 
 
 @pytest.mark.parametrize("robot", BASIC_ROBOTS)
