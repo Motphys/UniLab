@@ -1,4 +1,4 @@
-"""Shared DomainRandomizationProvider for locomotion environments.
+"""Shared DomainRandomizationProvider for locomotion tasks.
 
 Implements the common reset/interval randomization logic shared by
 G1, Go1, and Go2 joystick environments.  Subclasses override hooks

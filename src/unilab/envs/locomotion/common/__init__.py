@@ -6,7 +6,6 @@ from .base import (
     PdControlConfig,
     Sensor,
 )
-from .dr_provider import LocomotionDRProvider
 from .height_scan import (
     DEFAULT_SCAN_POINTS_X,
     DEFAULT_SCAN_POINTS_Y,
@@ -22,7 +21,6 @@ __all__ = [
     "HeightScanConfig",
     "LocomotionBaseCfg",
     "LocomotionBaseEnv",
-    "LocomotionDRProvider",
     "PdControlConfig",
     "RewardContext",
     "Sensor",

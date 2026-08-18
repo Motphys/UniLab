@@ -43,7 +43,7 @@
 使用 DR 的任务通过环境初始化路径挂接一个 provider：
 
 ```python
-from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
 
 class MyTaskEnv(NpEnv):
     def __init__(self, cfg):

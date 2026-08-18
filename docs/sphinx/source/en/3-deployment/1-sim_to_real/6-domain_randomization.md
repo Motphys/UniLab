@@ -45,7 +45,7 @@ range in the task owner only after recording why that range is plausible.
 Tasks that use DR attach a provider through the env initialization path:
 
 ```python
-from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
 
 class MyTaskEnv(NpEnv):
     def __init__(self, cfg):
