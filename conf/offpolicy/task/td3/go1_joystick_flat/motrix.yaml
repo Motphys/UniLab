@@ -1,4 +1,8 @@
 # @package _global_
+defaults:
+  - /task/go1_joystick_flat/base
+  - _self_
+
 training:
   task_name: Go1JoystickFlat
   sim_backend: motrix
@@ -12,18 +16,12 @@ algo:
   replay_buffer_n: 1024
 env:
   commands:
-    vel_limit:
-      - [0.5, 0.0, 0.0]
-      - [0.5, 0.0, 0.0]
+    twist:
+      ranges:
+        lin_vel_x: [0.5, 0.5]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [0.0, 0.0]
+  events:
+    push_robot: null
 reward:
-  scales:
-    tracking_lin_vel: 1.0
-    tracking_ang_vel: 0.2
-    lin_vel_z: -5.0
-    ang_vel_xy: -0.1
-    base_height: -100.0
-    action_rate: -0.005
-    similar_to_default: -0.1
-    swing_feet_z: 4.0
-  tracking_sigma: 0.25
-  base_height_target: 0.3
+  contact: null

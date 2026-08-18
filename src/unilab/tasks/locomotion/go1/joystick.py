@@ -11,6 +11,7 @@ from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
 from unilab.tasks.locomotion.common import rewards
 from unilab.tasks.locomotion.common.commands import Commands
 from unilab.tasks.locomotion.common.domain_rand import DomainRandConfig
@@ -43,7 +44,6 @@ class JoystickSensor:
     feet_pos = ["FL_pos", "FR_pos", "RL_pos", "RR_pos"]
 
 
-@registry.envcfg("Go1JoystickFlat")
 @dataclass
 class Go1JoystickCfg(Go1BaseCfg):
     scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -82,9 +82,6 @@ class Go1JoystickDomainRandomizationProvider(LocomotionDRProvider):
         )
 
 
-@registry.env("Go1JoystickFlat", sim_backend="mujoco")
-@registry.env("Go1JoystickFlat", sim_backend="motrix")
-@registry.env("Go1JoystickFlat", sim_backend="drake")
 class Go1WalkTask(Go1BaseEnv):
     _cfg: Go1JoystickCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
@@ -254,3 +251,12 @@ class Go1WalkTask(Go1BaseEnv):
             exec_actions * self._cfg.control_config.action_scale + self.default_angles
         )
         return ctrl
+
+
+# Go1JoystickCfg and Go1WalkTask remain as the rough-task bridge and as inputs
+# for pre-migration A/B benchmark adapters. Neither owns the flat production
+# identity, which is Hydra-owned and uses the generic Manager-Based factories.
+registry.register_env_config("Go1JoystickFlat", ManagerBasedRlEnvCfg)
+registry.register_env("Go1JoystickFlat", make_manager_based_rl_env, sim_backend="mujoco")
+registry.register_env("Go1JoystickFlat", make_manager_based_rl_env, sim_backend="motrix")
+registry.register_env("Go1JoystickFlat", make_manager_based_rl_env, sim_backend="drake")

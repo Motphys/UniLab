@@ -75,22 +75,3 @@ def test_reward_config_conversion():
     assert hasattr(env._cfg.reward_config, "scales")
     assert env._cfg.reward_config.scales["tracking_lin_vel"] == 2.0
     env.close()
-
-    # Test Go1 config - registry auto-converts dict to RewardConfig
-    go1_dict = {
-        "scales": {"tracking_lin_vel": 1.0, "base_height": -100.0},
-        "tracking_sigma": 0.25,
-        "base_height_target": 0.3,
-    }
-    env = cast(
-        Any,
-        registry.make(
-            "Go1JoystickFlat",
-            num_envs=1,
-            sim_backend="mujoco",
-            env_cfg_override={"reward_config": go1_dict},
-        ),
-    )
-    assert hasattr(env._cfg.reward_config, "scales")
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == 1.0
-    env.close()

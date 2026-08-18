@@ -2052,7 +2052,6 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 
 # Environments that don't need special config overrides
 _STANDARD_ENVS = [
-    "Go1JoystickFlat",
     "Go1JoystickRough",
     "Go2WJoystickFlat",
     "Go2WJoystickRough",
@@ -2146,29 +2145,6 @@ def _assert_mujoco_position_gains(
     np.testing.assert_allclose(model.actuator_biasprm[actuator_ids, 2], -kd)
     np.testing.assert_allclose(pool.get_field(0, "kp")[actuator_ids], kp)
     np.testing.assert_allclose(pool.get_field(0, "kd")[actuator_ids], kd)
-
-
-def test_go1_env_initializes_kp_kd_into_pool(default_go1_reward_config):
-    _require_mujoco_runtime()
-    ensure_registries()
-    from unilab.base import registry
-
-    env = cast(
-        Any,
-        registry.make(
-            "Go1JoystickFlat",
-            num_envs=2,
-            sim_backend="mujoco",
-            env_cfg_override={
-                "reward_config": default_go1_reward_config,
-                "control_config": {"Kp": 12.0, "Kd": 0.7},
-            },
-        ),
-    )
-    try:
-        _assert_mujoco_position_gains(env, kp=12.0, kd=0.7)
-    finally:
-        env.close()
 
 
 def test_allegro_env_initializes_kp_kd_into_pool(default_allegro_reward_config):

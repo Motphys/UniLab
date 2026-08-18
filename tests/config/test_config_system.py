@@ -68,8 +68,9 @@ def _assert_reward_populated(cfg, label: str):
         assert len(reward_dict["scales"]) > 0, f"{label} reward.scales must be non-empty"
         return
 
-    assert reward_dict, f"{label} Manager-Based reward terms must be non-empty"
-    for term_name, term in reward_dict.items():
+    active_terms = {name: term for name, term in reward_dict.items() if term is not None}
+    assert active_terms, f"{label} Manager-Based reward terms must be non-empty"
+    for term_name, term in active_terms.items():
         assert isinstance(term, dict), f"{label} reward.{term_name} must be a mapping"
         assert "_target_" in term, f"{label} reward.{term_name} must declare _target_"
         assert "func" in term, f"{label} reward.{term_name} must declare func"
@@ -258,7 +259,9 @@ def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
     assert cfg.training.task_name == "Go1JoystickFlat"
     assert cfg.training.sim_backend == "motrix"
     assert cfg.algo.algo == "td3"
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
+    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
+    assert cfg.reward.contact is None
+    assert cfg.env.events.push_robot is None
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
@@ -401,8 +404,12 @@ def test_ppo_go1_motrix_preserves_reward_and_algo_values():
     assert cfg.algo.empirical_normalization is True
     assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
     assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
-    assert cfg.reward.scales.tracking_lin_vel == pytest.approx(1.0)
-    assert cfg.env.commands.vel_limit == [[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
+    assert cfg.reward.contact is None
+    assert cfg.env.commands.twist.ranges.lin_vel_x == [0.5, 0.5]
+    assert cfg.env.commands.twist.ranges.lin_vel_y == [0.0, 0.0]
+    assert cfg.env.commands.twist.ranges.ang_vel_z == [0.0, 0.0]
+    assert cfg.env.events.push_robot is None
 
 
 def test_ppo_go2_motrix_preserves_backend_env_overrides():

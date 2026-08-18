@@ -2,36 +2,8 @@
 
 from typing import Any, cast
 
-import pytest
-
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
-
-
-def test_reward_override_go1():
-    """Test Go1 reward config override."""
-    ensure_registries()
-
-    from unilab.tasks.locomotion.go1.joystick import RewardConfig
-
-    override_config = RewardConfig(
-        scales={"tracking_lin_vel": 999.0},
-        tracking_sigma=0.5,
-        base_height_target=0.5,
-    )
-
-    env = cast(
-        Any,
-        registry.make(
-            "Go1JoystickFlat",
-            num_envs=1,
-            sim_backend="mujoco",
-            env_cfg_override={"reward_config": override_config},
-        ),
-    )
-
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == 999.0
-    env.close()
 
 
 def test_reward_override_g1():
