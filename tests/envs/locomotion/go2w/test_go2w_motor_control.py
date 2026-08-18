@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from unilab.base.np_env import NpEnvState
-from unilab.envs.locomotion.go2w.base import (
+from unilab.tasks.locomotion.go2w.base import (
     DEFAULT_GO2W_ANGLES,
     JOINT_SENSOR_PREFIXES,
     NUM_GO2W_ACTIONS,

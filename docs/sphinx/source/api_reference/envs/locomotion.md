@@ -11,5 +11,5 @@
    unilab.tasks.locomotion.go1
    unilab.tasks.locomotion.go2
    unilab.envs.locomotion.go2_arm
-   unilab.envs.locomotion.go2w
+   unilab.tasks.locomotion.go2w
 ```
