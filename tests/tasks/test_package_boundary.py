@@ -10,6 +10,7 @@ from unilab.tasks import __unilab_registry_modules__
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ENV_PACKAGE = _REPO_ROOT / "src" / "unilab" / "envs"
+_CONCRETE_TASK_PACKAGES = ("locomotion", "manipulation", "motion_tracking")
 
 _TASK_REGISTRY_MODULES = (
     "unilab.tasks.locomotion.go1",
@@ -51,3 +52,13 @@ def test_env_runtime_does_not_depend_on_tasks() -> None:
     ]
 
     assert violations == [], "unilab.envs must not import concrete unilab.tasks modules"
+
+
+def test_env_runtime_does_not_own_concrete_task_packages() -> None:
+    violations = [
+        path.relative_to(_REPO_ROOT).as_posix()
+        for package in _CONCRETE_TASK_PACKAGES
+        for path in sorted((_ENV_PACKAGE / package).rglob("*.py"))
+    ]
+
+    assert violations == [], "concrete task source must be owned by unilab.tasks"
