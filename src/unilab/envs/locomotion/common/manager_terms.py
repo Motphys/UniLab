@@ -6,14 +6,16 @@ uses community ``func + params`` terms, NumPy, and the base-owned sensor facade.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 
 import numpy as np
 
 from unilab.dtype_config import get_global_dtype
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
+from unilab.managers.scene_entity_config import SceneEntityCfg
 
 if TYPE_CHECKING:
+    from unilab.base.entity import Entity
     from unilab.managers._types import ManagerBasedRlEnv, ManagerSensorView
 
     class _GaitEnv(ManagerBasedRlEnv, Protocol):
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
 
 
 _OFFSETS = (0.0, 0.5, 0.5, 0.0)
+_DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
 def _real(
@@ -73,6 +76,138 @@ def _names(term: str, value: Any) -> tuple[str, ...]:
     if len(set(names)) != 4:
         raise ValueError(f"{term} sensor_names must be unique: {names}")
     return names
+
+
+def _state(term: str, capability: str, value: Any, shape: tuple[int, ...]) -> np.ndarray:
+    if not isinstance(value, np.ndarray):
+        raise TypeError(f"{term} {capability} must be an np.ndarray")
+    if value.shape != shape:
+        raise ValueError(f"{term} {capability} must have shape {shape}, got {value.shape}")
+    if not np.isfinite(value).all():
+        env_ids = np.flatnonzero(~np.isfinite(value).reshape(shape[0], -1).all(axis=1)).tolist()
+        raise ValueError(f"{term} {capability} contains NaN or Inf for environments {env_ids[:10]}")
+    return value
+
+
+def _command(env: ManagerBasedRlEnv, term: str, command_name: str) -> np.ndarray:
+    if not isinstance(command_name, str) or not command_name:
+        raise ValueError(f"{term} command_name must be a non-empty string")
+    try:
+        command = env.command_manager.get_command(command_name)
+    except KeyError as exc:
+        raise KeyError(f"{term} command capability '{command_name}' is unavailable") from exc
+    if command is None:
+        raise KeyError(f"{term} command capability '{command_name}' is unavailable")
+    return _state(term, f"command '{command_name}'", command, (env.num_envs, 3))
+
+
+def _asset(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> Entity:
+    return cast("Entity", env.scene[asset_cfg.name])
+
+
+def track_lin_vel_xy_exp(
+    env: ManagerBasedRlEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Track commanded planar velocity with the legacy independent exponential kernel."""
+    scale = _real("track_lin_vel_xy_exp", "std", std, minimum=0.0, strict_minimum=True)
+    actual = _state(
+        "track_lin_vel_xy_exp",
+        "root linear velocity",
+        _asset(env, asset_cfg).data.root_link_lin_vel_b,
+        (env.num_envs, 3),
+    )
+    error = np.sum(
+        np.square(_command(env, "track_lin_vel_xy_exp", command_name)[:, :2] - actual[:, :2]),
+        axis=1,
+    )
+    return np.asarray(np.exp(-error / scale**2), dtype=get_global_dtype())
+
+
+def track_ang_vel_z_exp(
+    env: ManagerBasedRlEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Track commanded yaw velocity without folding roll/pitch into the kernel."""
+    scale = _real("track_ang_vel_z_exp", "std", std, minimum=0.0, strict_minimum=True)
+    actual = _state(
+        "track_ang_vel_z_exp",
+        "root angular velocity",
+        _asset(env, asset_cfg).data.root_link_ang_vel_b,
+        (env.num_envs, 3),
+    )
+    error = np.square(_command(env, "track_ang_vel_z_exp", command_name)[:, 2] - actual[:, 2])
+    return np.asarray(np.exp(-error / scale**2), dtype=get_global_dtype())
+
+
+def lin_vel_z_l2(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Penalize vertical root velocity independently from planar tracking."""
+    velocity = _state(
+        "lin_vel_z_l2",
+        "root linear velocity",
+        _asset(env, asset_cfg).data.root_link_lin_vel_b,
+        (env.num_envs, 3),
+    )
+    return np.asarray(np.square(velocity[:, 2]), dtype=get_global_dtype())
+
+
+def ang_vel_xy_l2(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Penalize root roll/pitch angular velocity independently from yaw tracking."""
+    velocity = _state(
+        "ang_vel_xy_l2",
+        "root angular velocity",
+        _asset(env, asset_cfg).data.root_link_ang_vel_b,
+        (env.num_envs, 3),
+    )
+    return np.asarray(np.sum(np.square(velocity[:, :2]), axis=1), dtype=get_global_dtype())
+
+
+def base_height_l2(
+    env: ManagerBasedRlEnv,
+    target_height: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Penalize world-frame root height error for the flat-ground pilot."""
+    target = _real("base_height_l2", "target_height", target_height)
+    position = _state(
+        "base_height_l2",
+        "root position",
+        _asset(env, asset_cfg).data.root_link_pos_w,
+        (env.num_envs, 3),
+    )
+    return np.asarray(np.square(position[:, 2] - target), dtype=get_global_dtype())
+
+
+def joint_deviation_l1(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Penalize selected joint displacement from the default pose with an L1 kernel."""
+    asset = _asset(env, asset_cfg)
+    position = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    default = asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    if (
+        not isinstance(position, np.ndarray)
+        or position.ndim != 2
+        or position.shape[0] != env.num_envs
+    ):
+        shape = getattr(position, "shape", None)
+        raise ValueError(
+            f"joint_deviation_l1 joint position must be 2-D with leading dimension {env.num_envs}, got {shape}"
+        )
+    default = _state("joint_deviation_l1", "default joint position", default, position.shape)
+    position = _state("joint_deviation_l1", "joint position", position, position.shape)
+    return np.asarray(np.sum(np.abs(position - default), axis=1), dtype=get_global_dtype())
 
 
 class _GaitTerm(ManagerTermBase):
@@ -231,4 +366,14 @@ class feet_phase_swing_height(_FootSensorTerm):
         return np.mean(reward, axis=1).astype(get_global_dtype(), copy=False)
 
 
-__all__ = ["feet_phase_contact", "feet_phase_swing_height", "quadruped_gait_phase"]
+__all__ = [
+    "ang_vel_xy_l2",
+    "base_height_l2",
+    "feet_phase_contact",
+    "feet_phase_swing_height",
+    "joint_deviation_l1",
+    "lin_vel_z_l2",
+    "quadruped_gait_phase",
+    "track_ang_vel_z_exp",
+    "track_lin_vel_xy_exp",
+]
