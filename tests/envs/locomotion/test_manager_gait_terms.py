@@ -77,8 +77,12 @@ class _ParityScene:
 
 
 class _Commands:
-    def __init__(self) -> None:
-        self.command = np.array([[0.5, -0.2, 0.3], [-0.1, 0.4, -0.2]], dtype=np.float32)
+    def __init__(self, command: np.ndarray | None = None) -> None:
+        self.command = (
+            np.array([[0.5, -0.2, 0.3], [-0.1, 0.4, -0.2]], dtype=np.float32)
+            if command is None
+            else command
+        )
 
     def get_command(self, name: str) -> np.ndarray:
         if name != "twist":
@@ -95,6 +99,7 @@ def _env(counter: int = 0, scene: _Scene | None = None) -> ManagerBasedRlEnv:
             episode_length_buf=np.array([counter, 0]),
             step_dt=0.02,
             scene=scene or _Scene(),
+            command_manager=_Commands(),
         ),
     )
 
@@ -157,6 +162,76 @@ def test_gait_phase_matches_global_legacy_clock_and_ignores_episode_reset() -> N
     )
 
 
+def test_standing_aware_gait_freezes_only_standing_environments() -> None:
+    env = _env()
+    cast(Any, env).command_manager.command[:] = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    manager = _observations(env, command_name="twist", command_threshold=0.1)
+
+    cast(Any, env).common_step_counter = 1
+    phase = manager.compute_group("policy")
+    assert isinstance(phase, np.ndarray)
+    np.testing.assert_allclose(
+        phase,
+        [[0.0, 0.5, 0.5, 0.0], [0.04, 0.54, 0.54, 0.04]],
+        atol=1e-7,
+    )
+
+
+def test_standing_aware_foot_rewards_gate_swing_and_expect_planted_feet() -> None:
+    env = _env(counter=5)
+    cast(Any, env).command_manager.command[:] = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    params = {"frequency": 2.0, "command_name": "twist", "command_threshold": 0.1}
+    manager = RewardManager(
+        {
+            "contact": RewardTermCfg(
+                func=manager_terms.feet_phase_contact,
+                weight=1.0,
+                params={"sensor_names": CONTACTS, **params},
+            ),
+            "swing": RewardTermCfg(
+                func=manager_terms.feet_phase_swing_height,
+                weight=1.0,
+                params={"sensor_names": POSITIONS, **params},
+            ),
+        },
+        env,
+        scale_by_dt=False,
+    )
+
+    value = manager.compute(dt=0.02)
+    expected_moving_swing = (1.0 + np.exp(-1.0)) / 4.0
+    np.testing.assert_allclose(value, [0.5, expected_moving_swing], atol=1e-7)
+
+
+def test_standing_penalties_match_a2_legacy_gates() -> None:
+    parity_env = _parity_env()
+    cast(Any, parity_env).command_manager.command[:] = [
+        [0.0, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+    ]
+    stand_still = _reward_value(
+        parity_env,
+        manager_terms.stand_still_l1,
+        command_name="twist",
+        command_threshold=0.1,
+    )
+    np.testing.assert_allclose(stand_still, [0.2, 0.0], atol=1e-7)
+
+    foot_env = _env()
+    cast(Any, foot_env).command_manager.command[:] = [
+        [0.0, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+    ]
+    feet_air = _reward_value(
+        foot_env,
+        manager_terms.feet_air_while_standing,
+        sensor_names=CONTACTS,
+        command_name="twist",
+        command_threshold=0.1,
+    )
+    np.testing.assert_array_equal(feet_air, [2.0, 0.0])
+
+
 def test_foot_rewards_match_legacy_equations_and_read_only_bound_views() -> None:
     scene = _Scene()
     manager = _rewards(_env(5, scene))
@@ -180,6 +255,8 @@ def test_foot_rewards_match_legacy_equations_and_read_only_bound_views() -> None
         ({"frequency": -1}, ValueError, "frequency must be at least 0.0"),
         ({"phase_offsets": (0, 0.5)}, ValueError, "must contain 4 values"),
         ({"phase_offsets": (0, True, 0.5, 0)}, TypeError, "must be a real number"),
+        ({"command_name": ""}, ValueError, "command_name must be a non-empty string"),
+        ({"command_threshold": -0.1}, ValueError, "must be at least 0.0"),
         ({"unknown": 1}, TypeError, "unsupported parameters"),
     ],
 )

@@ -210,8 +210,30 @@ def joint_deviation_l1(
     return np.asarray(np.sum(np.abs(position - default), axis=1), dtype=get_global_dtype())
 
 
+def stand_still_l1(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    command_threshold: float = 0.1,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Penalize selected joint deviation only below the commanded-motion threshold."""
+    threshold = _real(
+        "stand_still_l1",
+        "command_threshold",
+        command_threshold,
+        minimum=0.0,
+    )
+    stopped = np.linalg.norm(_command(env, "stand_still_l1", command_name), axis=1) < threshold
+    return np.asarray(
+        joint_deviation_l1(env, asset_cfg=asset_cfg) * stopped,
+        dtype=get_global_dtype(),
+    )
+
+
 class _GaitTerm(ManagerTermBase):
-    _allowed_params: ClassVar[frozenset[str]] = frozenset({"frequency", "phase_offsets"})
+    _allowed_params: ClassVar[frozenset[str]] = frozenset(
+        {"frequency", "phase_offsets", "command_name", "command_threshold"}
+    )
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: _GaitEnv):
         super().__init__(env)
@@ -223,9 +245,19 @@ class _GaitTerm(ManagerTermBase):
         )
         self._offsets = _offsets(self.name, cfg.params.get("phase_offsets", _OFFSETS))
         self._step_dt = _real(self.name, "step_dt", env.step_dt, minimum=0.0, strict_minimum=True)
-        self._phase_value = np.asarray(0.0, dtype=get_global_dtype())
+        command_name = cfg.params.get("command_name")
+        if command_name is not None and (not isinstance(command_name, str) or not command_name):
+            raise ValueError(f"{self.name} command_name must be a non-empty string or None")
+        self._command_name = command_name
+        self._command_threshold = _real(
+            self.name,
+            "command_threshold",
+            cfg.params.get("command_threshold", 0.0),
+            minimum=0.0,
+        )
+        self._phase_value = np.zeros(env.num_envs, dtype=get_global_dtype())
         self._last_counter = 0
-        self._advance_to(self._counter(env))
+        self._advance_to(env, self._counter(env))
 
     def _counter(self, env: _GaitEnv) -> int:
         counter = env.common_step_counter
@@ -235,24 +267,33 @@ class _GaitTerm(ManagerTermBase):
             raise ValueError(f"{self.name} common_step_counter must be non-negative")
         return int(counter)
 
-    def _advance_to(self, counter: int) -> None:
+    def _moving(self, env: _GaitEnv) -> np.ndarray:
+        if self._command_name is None:
+            return np.ones(env.num_envs, dtype=np.bool_)
+        command = _command(env, self.name, self._command_name)
+        return np.linalg.norm(command, axis=1) > self._command_threshold
+
+    def _advance_to(self, env: _GaitEnv, counter: int) -> None:
         delta = counter - self._last_counter
         if delta < 0:
             raise ValueError(f"{self.name} common_step_counter cannot move backwards")
         increment = np.asarray(self._step_dt * self._frequency, dtype=get_global_dtype())
         if delta == 1:  # Hot path: preserve the legacy float32 iterative phase exactly.
-            self._phase_value = np.fmod(self._phase_value + increment, 1.0)
+            self._phase_value = np.fmod(self._phase_value + increment * self._moving(env), 1.0)
         elif delta > 1:  # Cold catch-up for a term constructed or inspected between steps.
             for _ in range(delta):
-                self._phase_value = np.fmod(self._phase_value + increment, 1.0)
+                self._phase_value = np.fmod(
+                    self._phase_value + increment * self._moving(env),
+                    1.0,
+                )
         self._last_counter = counter
 
     def _phase(self, env: _GaitEnv) -> np.ndarray:
-        self._advance_to(self._counter(env))
-        phase = np.remainder(self._phase_value + self._offsets, 1.0).astype(
+        self._advance_to(env, self._counter(env))
+        phase = np.remainder(self._phase_value[:, None] + self._offsets[None, :], 1.0).astype(
             get_global_dtype(), copy=False
         )
-        return np.broadcast_to(phase, (env.num_envs, 4)).copy()
+        return phase
 
 
 class quadruped_gait_phase(_GaitTerm):
@@ -320,6 +361,8 @@ class feet_phase_contact(_FootSensorTerm):
         expected = self._phase(env) < self._stance_threshold
         if self._frequency < 1.0e-8:
             expected.fill(True)
+        elif self._command_name is not None:
+            expected |= ~self._moving(env)[:, None]
         return np.mean(contact == expected, axis=1).astype(get_global_dtype(), copy=False)
 
 
@@ -362,18 +405,83 @@ class feet_phase_swing_height(_FootSensorTerm):
         del params
         heights = self._read()[:, (2, 5, 8, 11)]
         swing = self._phase(env) >= self._swing_start
+        if self._command_name is not None:
+            swing &= self._moving(env)[:, None]
         reward = np.exp(-np.square(heights - self._target) / self._kernel) * swing
         return np.mean(reward, axis=1).astype(get_global_dtype(), copy=False)
+
+
+class feet_air_while_standing(ManagerTermBase):
+    """Count feet without contact while the configured velocity command is standing."""
+
+    _allowed_params = frozenset(
+        {"sensor_names", "command_name", "command_threshold", "contact_threshold"}
+    )
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        unexpected = set(cfg.params) - self._allowed_params
+        if unexpected:
+            raise TypeError(f"{self.name} received unsupported parameters: {sorted(unexpected)}")
+        sensor_names = _names(self.name, cfg.params.get("sensor_names"))
+        command_name = cfg.params.get("command_name")
+        if not isinstance(command_name, str) or not command_name:
+            raise ValueError(f"{self.name} command_name must be a non-empty string")
+        self._command_name = command_name
+        self._command_threshold = _real(
+            self.name,
+            "command_threshold",
+            cfg.params.get("command_threshold", 0.1),
+            minimum=0.0,
+        )
+        self._contact_threshold = _real(
+            self.name,
+            "contact_threshold",
+            cfg.params.get("contact_threshold", 0.1),
+            minimum=0.0,
+        )
+        try:
+            self._view = env.scene.bind_sensor_data(sensor_names)
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                f"Manager term '{self.name}' named-foot-sensor capability could not be "
+                f"materialized for {sensor_names}: {exc}"
+            ) from exc
+        if any(width not in (1, 3) for width in self._view.dimensions):
+            raise ValueError(
+                f"{self.name} contact sensors must each expose 1-D found or 3-D force; "
+                f"received {self._view.dimensions} on backend '{self._view.backend_type}'"
+            )
+        starts = np.cumsum((0, *self._view.dimensions[:-1]), dtype=np.int64)
+        self._columns = starts + [0 if width == 1 else 2 for width in self._view.dimensions]
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+        del params
+        try:
+            values = self._view.read()
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                f"Manager term '{self.name}' named-foot-sensor capability failed on "
+                f"backend '{self._view.backend_type}': {exc}"
+            ) from exc
+        contact = values[:, self._columns] > self._contact_threshold
+        standing = (
+            np.linalg.norm(_command(env, self.name, self._command_name), axis=1)
+            <= self._command_threshold
+        )
+        return np.asarray(np.sum(~contact, axis=1) * standing, dtype=get_global_dtype())
 
 
 __all__ = [
     "ang_vel_xy_l2",
     "base_height_l2",
+    "feet_air_while_standing",
     "feet_phase_contact",
     "feet_phase_swing_height",
     "joint_deviation_l1",
     "lin_vel_z_l2",
     "quadruped_gait_phase",
+    "stand_still_l1",
     "track_ang_vel_z_exp",
     "track_lin_vel_xy_exp",
 ]

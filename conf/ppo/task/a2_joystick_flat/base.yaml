@@ -1,0 +1,335 @@
+# @package _global_
+# Canonical A2 flat Manager-Based task declaration. The MuJoCo owner leaf adds
+# only training identity/tuning; all task behavior is declared here for Hydra.
+env:
+  scene:
+    model_file: src/unilab/assets/robots/a2/scene_flat.xml
+    default_keyframe_name: home
+    entities:
+      robot:
+        root_body_name: base_link
+        joint_names:
+          - FL_hip_joint
+          - FL_thigh_joint
+          - FL_calf_joint
+          - FR_hip_joint
+          - FR_thigh_joint
+          - FR_calf_joint
+          - RL_hip_joint
+          - RL_thigh_joint
+          - RL_calf_joint
+          - RR_hip_joint
+          - RR_thigh_joint
+          - RR_calf_joint
+        body_names: [base_link]
+        geom_names: [floor]
+        actuator_names:
+          - FL_hip
+          - FL_thigh
+          - FL_calf
+          - FR_hip
+          - FR_thigh
+          - FR_calf
+          - RL_hip
+          - RL_thigh
+          - RL_calf
+          - RR_hip
+          - RR_thigh
+          - RR_calf
+  sim_dt: 0.01
+  ctrl_dt: 0.02
+  max_episode_seconds: 20.0
+  observations:
+    policy:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        base_ang_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: gyro
+        projected_gravity:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params:
+            sensor_name: upvector
+        joint_pos:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.last_action
+        command:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.generated_commands
+          params:
+            command_name: twist
+        gait_phase:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
+          params:
+            frequency: 2.0
+            command_name: twist
+            command_threshold: 0.1
+    critic:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        base_ang_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: gyro
+        projected_gravity:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params:
+            sensor_name: upvector
+        joint_pos:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.last_action
+        command:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.generated_commands
+          params:
+            command_name: twist
+        gait_phase:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
+          params:
+            frequency: 2.0
+            command_name: twist
+            command_threshold: 0.1
+        base_lin_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: local_linvel
+  actions:
+    joint_pos:
+      _target_: unilab.envs.mdp.JointPositionActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      scale: 0.25
+      use_default_offset: true
+  commands:
+    twist:
+      _target_: unilab.envs.mdp.UniformVelocityCommandCfg
+      entity_name: robot
+      resampling_time_range: [5.0, 5.0]
+      heading_command: false
+      heading_control_stiffness: 0.5
+      rel_standing_envs: 0.1
+      rel_heading_envs: 0.0
+      rel_world_envs: 0.0
+      rel_forward_envs: 0.0
+      init_velocity_prob: 0.0
+      ranges:
+        lin_vel_x: [-0.6, 1.0]
+        lin_vel_y: [-0.4, 0.4]
+        ang_vel_z: [-0.8, 0.8]
+  events:
+    reset_scene_to_default:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_root_state_uniform:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.0]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.5, 0.5]
+          roll: [-0.5, 0.5]
+          pitch: [-0.5, 0.5]
+          yaw: [-0.5, 0.5]
+    base_mass:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: base_link
+        mass_distribution_params: [0.0, 8.0]
+        operation: add
+        recompute_inertia: false
+    base_com:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: base_link
+        com_range:
+          x: [-0.08, 0.08]
+          y: [-0.08, 0.08]
+          z: [-0.08, 0.08]
+    foot_friction:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: floor
+        ranges: [0.3, 1.6]
+        operation: scale
+        axes: [0]
+        shared_random: true
+    joint_armature:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.joint_armature
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+        ranges: [0.9, 1.1]
+        operation: scale
+    pd_gains:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          actuator_names: ".*"
+        kp_range: [0.9, 1.1]
+        kd_range: [0.9, 1.1]
+        operation: scale
+    push_robot:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [8.0, 8.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-1.0, 1.0]
+          y: [-1.0, 1.0]
+          z: [-0.5, 0.5]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
+  terminations:
+    time_out:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    bad_orientation:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.bad_orientation
+      params:
+        limit_angle: 1.0471975511965976
+  policy_observation_group: policy
+  critic_observation_group: critic
+
+reward:
+  tracking_lin_vel:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    weight: 1.0
+    params:
+      std: 0.5
+      command_name: twist
+  tracking_ang_vel:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel_z_exp
+    weight: 0.4
+    params:
+      std: 0.5
+      command_name: twist
+  lin_vel_z:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z_l2
+    weight: -5.0
+  ang_vel_xy:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy_l2
+    weight: -0.1
+  base_height:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.base_height_l2
+    weight: -100.0
+    params:
+      target_height: 0.4
+  action_rate:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.02
+  similar_to_default:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.joint_deviation_l1
+    weight: -0.25
+  contact:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_contact
+    weight: 0.5
+    params:
+      frequency: 2.0
+      command_name: twist
+      command_threshold: 0.1
+      sensor_names: [FL_foot_contact, FR_foot_contact, RL_foot_contact, RR_foot_contact]
+      contact_threshold: 0.1
+      stance_threshold: 0.6
+  swing_feet_z:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_swing_height
+    weight: 4.0
+    params:
+      frequency: 2.0
+      command_name: twist
+      command_threshold: 0.1
+      sensor_names: [FL_pos, FR_pos, RL_pos, RR_pos]
+      target_height: 0.1
+      kernel: 0.01
+      swing_start: 0.6
+  stand_still:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.stand_still_l1
+    weight: -4.0
+    params:
+      command_name: twist
+      command_threshold: 0.1
+  hip_deviation:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.joint_deviation_l1
+    weight: -1.0
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: ".*_hip_joint"
+  stand_feet_air:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.feet_air_while_standing
+    weight: -1.0
+    params:
+      command_name: twist
+      command_threshold: 0.1
+      sensor_names: [FL_foot_contact, FR_foot_contact, RL_foot_contact, RR_foot_contact]
+      contact_threshold: 0.1

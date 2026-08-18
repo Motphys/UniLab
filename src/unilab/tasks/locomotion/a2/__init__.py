@@ -1,3 +1,3 @@
-from .joystick import A2JoystickCfg, A2JoystickFlatEnv
+from . import joystick as joystick
 
-__all__ = ["A2JoystickCfg", "A2JoystickFlatEnv"]
+__all__ = ["joystick"]
