@@ -1,7 +1,7 @@
 # 操作
 
-操作任务位于 `src/unilab/envs/manipulation/` 中，Go2 机械臂 manip-loco
-env 位于 `src/unilab/envs/locomotion/go2_arm/` 中。
+操作任务位于 `src/unilab/tasks/manipulation/` 中，Go2 机械臂 manip-loco
+env 位于 `src/unilab/tasks/locomotion/go2_arm/` 中。
 
 ## 手内操作
 

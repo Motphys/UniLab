@@ -30,7 +30,7 @@
 - `src/unilab/tasks/locomotion/g1/joystick.py`
 - `src/unilab/envs/motion_tracking/g1/tracking.py`
 - `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`
-- `src/unilab/envs/manipulation/sharpa_inhand/rotation.py`
+- `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
 
 开发者 contract 详情见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。

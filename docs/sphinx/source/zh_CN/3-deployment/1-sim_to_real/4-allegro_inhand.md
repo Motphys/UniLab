@@ -64,7 +64,7 @@ owner 与部署运行时在观测时序上达成一致。见
 
 操作类环境通过任务控制配置把策略动作映射为关节位置目标
 （`src/unilab/tasks/manipulation/allegro_inhand/base.py` 和
-`src/unilab/envs/manipulation/sharpa_inhand/base.py`）。部署控制器必须使用相同的
+`src/unilab/tasks/manipulation/sharpa_inhand/base.py`）。部署控制器必须使用相同的
 关节顺序、动作缩放与限位策略。
 
 ## 失败恢复

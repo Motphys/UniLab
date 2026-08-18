@@ -91,7 +91,7 @@ contact-frame data (one normal scalar plus two tangent scalars).
 
 The env reads tactile force through `_read_tactile_force()` →
 `_extract_sensor_scalar()` in
-`src/unilab/envs/manipulation/sharpa_inhand/base.py`. That helper currently
+`src/unilab/tasks/manipulation/sharpa_inhand/base.py`. That helper currently
 collapses any `(N, >=3)` array with `np.linalg.norm(data[:, :3], axis=1)`.
 
 If the env still routes both backend shapes through that one branch, the
@@ -131,8 +131,8 @@ backend subclass.
 
 | File | Role |
 | --- | --- |
-| `src/unilab/envs/manipulation/sharpa_inhand/base.py` | `_extract_sensor_scalar()`, `_read_tactile_force()` |
-| `src/unilab/envs/manipulation/sharpa_inhand/rotation.py` | reward computation, virtual torque |
+| `src/unilab/tasks/manipulation/sharpa_inhand/base.py` | `_extract_sensor_scalar()`, `_read_tactile_force()` |
+| `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py` | reward computation, virtual torque |
 | `src/unilab/assets/robots/sharpa_wave/right_sharpa_wave.xml` | contact-sensor XML definitions |
 | `src/unilab/base/backend/motrix/backend.py` | Motrix `get_sensor_data()` |
 | `src/unilab/base/backend/mujoco/backend.py` | MuJoCo `get_sensor_data()` |
