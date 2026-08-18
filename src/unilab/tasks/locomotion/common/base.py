@@ -12,7 +12,7 @@ from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.common.terrain_spawn import BaseSpawnManager
+from unilab.tasks.locomotion.common.terrain_spawn import BaseSpawnManager
 
 
 @dataclass

@@ -1,4 +1,4 @@
-"""Spawn-origin managers for locomotion envs.
+"""Spawn-origin managers for locomotion tasks.
 
 ``BaseSpawnManager`` is a no-op default: every env spawns at the world origin
 (plus the existing per-env xy jitter from the dr_provider). Used whenever the
