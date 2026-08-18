@@ -7,8 +7,8 @@
 /scripts/train_*.py @TATP-233 @caozx1110
 
 # Task and environment ownership
-/src/unilab/envs/motion_tracking/ @caozx1110
-/src/unilab/envs/manipulation/ @Mingrui-Yu
+/src/unilab/tasks/motion_tracking/ @caozx1110
+/src/unilab/tasks/manipulation/ @Mingrui-Yu
 /scripts/motion/ @caozx1110
 
 # Project process and docs

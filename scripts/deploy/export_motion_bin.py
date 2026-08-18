@@ -15,7 +15,7 @@ Layout (little-endian, contiguous):
     body_lin_vel_w  [num_frames][num_bodies][3]
     body_ang_vel_w  [num_frames][num_bodies][3]
 
-NPZ source layout (per src/unilab/envs/motion_tracking/g1/motion_loader.py):
+NPZ source layout (per src/unilab/tasks/motion_tracking/common/motion_loader.py):
   - 'fps' (int)
   - 'joint_pos' (N, 29)
   - 'joint_vel' (N, 29)

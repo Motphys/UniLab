@@ -5,7 +5,7 @@ Faithful xp-port of the NumPy computation in the collector-timed sections of
 (num_envs=2048, 29-dof, 14 tracked bodies):
 
 - `MotionTrackingEnv.update_state`
-  (src/unilab/envs/motion_tracking/common/tracking.py):
+  (src/unilab/tasks/motion_tracking/common/tracking.py):
   motion gather, relative transforms (transforms.py), terminations
   (terminations.py), 9 active reward terms (rewards.py, incl. per-term logging
   every 4 steps), observation build (observations.py, actor 160 / critic 289

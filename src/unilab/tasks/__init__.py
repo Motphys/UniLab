@@ -1,10 +1,8 @@
 """Production task registry bootstrap.
 
-Concrete task implementations are moving from :mod:`unilab.envs` into this
-package under issue #1112.  Until each task family moves, this explicit list
-records its legacy module as the last remaining consumer of that path.  The
-registry imports these leaf modules directly, so registration stays explicit
-and deterministic throughout the migration.
+Concrete task implementations live in this package.  The registry imports the
+explicit leaf-module list directly, so registration stays deterministic and
+does not depend on package discovery or import order.
 """
 
 __unilab_registry_modules__ = (
