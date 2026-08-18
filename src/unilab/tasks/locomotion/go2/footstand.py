@@ -83,12 +83,12 @@ class JoystickSensor:
 
 @dataclass
 class Go2HandStandCfg(Go2BaseCfg):
-    scene: SceneCfg = field(
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default_factory=lambda: SceneCfg(
             model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
         )
     )
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     reward_config: RewardConfig | None = None
@@ -127,7 +127,7 @@ class Go2HandStandDomainRandomizationProvider(LocomotionDRProvider):
 
 
 class Go2HandStandTask(Go2BaseEnv):
-    _cfg: Go2HandStandCfg
+    _cfg: Go2HandStandCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: Go2HandStandCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:
@@ -449,7 +449,7 @@ class Go2FootStandDomainRandomizationProvider(Go2HandStandDomainRandomizationPro
 @registry.env("Go2FootStand", sim_backend="motrix")
 @registry.env("Go2FootStand", sim_backend="drake")
 class Go2FootStandTask(Go2HandStandTask):
-    _cfg: Go2FootStandCfg
+    _cfg: Go2FootStandCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: Go2FootStandCfg, num_envs=1, backend_type="mujoco"):
         super().__init__(cfg, num_envs=num_envs, backend_type=backend_type)
