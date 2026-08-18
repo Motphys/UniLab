@@ -1,4 +1,4 @@
-# `unilab.envs.locomotion`
+# `unilab.tasks.locomotion`
 
 ```{eval-rst}
 .. autosummary::
@@ -6,7 +6,8 @@
    :template: autosummary/module.rst
    :recursive:
 
-   unilab.envs.locomotion.common
+   unilab.tasks.locomotion.a2
+   unilab.tasks.locomotion.common
    unilab.tasks.locomotion.g1
    unilab.tasks.locomotion.go1
    unilab.tasks.locomotion.go2

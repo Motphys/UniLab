@@ -30,8 +30,14 @@ The contracts everything else depends on: `NpEnv`, `SimBackend`, `Registry`,
 :::{grid-item-card} 🧪 `unilab.envs`
 :link: envs/index
 :link-type: doc
-Concrete tasks — locomotion, manipulation, motion tracking — layered on
+Manager-Based environment runtime and task-agnostic MDP terms layered on
 top of `base`.
+:::
+
+:::{grid-item-card} 🤖 `unilab.tasks`
+:link: tasks/index
+:link-type: doc
+Concrete locomotion, manipulation, and motion-tracking task packages.
 :::
 
 ::::
@@ -125,6 +131,7 @@ top_level
 
 base/index
 envs/index
+tasks/index
 ```
 
 ```{toctree}
