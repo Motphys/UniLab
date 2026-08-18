@@ -1,0 +1,126 @@
+# @package _global_
+# Off-policy copy of the canonical Stewart Manager-Based declaration. Hydra
+# config groups have separate search roots, so this intentionally mirrors PPO.
+env:
+  scene:
+    model_file: src/unilab/assets/robots/stewart/scene.xml
+    entities:
+      stewart:
+        root_body_name: ball
+        actuator_names: [a0, a1, a2, a3, a4, a5]
+        body_names:
+          - ball
+          - top
+          - leg00
+          - leg10
+          - leg01
+          - leg11
+          - leg02
+          - leg12
+          - top_connect00
+          - top_connect10
+          - top_connect01
+          - top_connect11
+          - top_connect02
+          - top_connect12
+  sim_dt: 0.004
+  ctrl_dt: 0.02
+  max_episode_seconds: 24.0
+  render_spacing: 4.5
+  observations:
+    policy:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        balance:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.manipulation.stewart.balance.StewartObservation
+          params:
+            entity_name: stewart
+            action_name: tilt
+            ball_body_name: ball
+            top_body_name: top
+            target_rotation_limit_deg: 6.0
+            vel_smooth: 0.25
+  actions:
+    tilt:
+      _target_: unilab.tasks.manipulation.stewart.balance.StewartTiltActionCfg
+      entity_name: stewart
+      actuator_names: [a0, a1, a2, a3, a4, a5]
+      top_body_name: top
+      ball_body_name: ball
+      leg_body_names: [leg00, leg10, leg01, leg11, leg02, leg12]
+      top_connect_body_names:
+        - top_connect00
+        - top_connect10
+        - top_connect01
+        - top_connect11
+        - top_connect02
+        - top_connect12
+      raw_action_clip: [-1.0, 1.0]
+      target_rotation_limit_deg: 6.0
+      action_smooth: 0.60
+      center_control_radius: 0.25
+      center_control_min_gain: 0.15
+  events:
+    reset_scene_to_default:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_ball:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.tasks.manipulation.stewart.balance.StewartBallReset
+      mode: reset
+      params:
+        entity_name: stewart
+        platform_radius: 0.8
+        init_ball_radius_ratio: 0.18
+        ball_home_z: 1.2
+  terminations:
+    balance_state:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.tasks.manipulation.stewart.balance.StewartBalanceState
+      params:
+        observation_group: policy
+        observation_term: balance
+        platform_radius: 0.8
+        fall_radius: 0.5
+        top_center_z: 1.0
+        still_xy: 0.12
+        still_vel: 0.07
+        still_xy_hysteresis: 1.15
+        still_vel_hysteresis: 1.20
+        zero_vel_thresh: 0.07
+        still_steps_needed: 5
+    time_out:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  scale_rewards_by_dt: false
+  policy_observation_group: policy
+  critic_observation_group: null
+
+reward:
+  center:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.manipulation.stewart.balance.center_reward
+    weight: 0.7
+    params:
+      state_term_name: balance_state
+  progress:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.manipulation.stewart.balance.progress_reward
+    weight: 0.6
+    params:
+      state_term_name: balance_state
+  still:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.manipulation.stewart.balance.still_reward
+    weight: 3.0
+    params:
+      state_term_name: balance_state
+  fall:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.manipulation.stewart.balance.fall_reward
+    weight: -6.0
+    params:
+      state_term_name: balance_state
