@@ -150,9 +150,11 @@ class ArmStageConfig:
 @registry.envcfg("Go2ArmManipLoco")
 @dataclass
 class Go2ArmManipLocoCfg(Go2ArmBaseCfg):
-    scene: SceneCfg = field(default_factory=_default_go2_arm_scene)
+    scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default_factory=_default_go2_arm_scene
+    )
     model_file: str = field(default_factory=_default_go2_arm_model_file)
-    max_episode_seconds: float = 20.0
+    max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
     init_state: InitState = field(default_factory=InitState)
     commands: CommandsConfig = field(default_factory=CommandsConfig)  # type: ignore[assignment]
     reward_config: RewardConfig | None = None
@@ -266,7 +268,7 @@ class Go2ArmManipLocoDRProvider(LocomotionDRProvider):
 @registry.env("Go2ArmManipLoco", sim_backend="drake")
 @registry.env("Go2ArmManipLoco", sim_backend="mujoco")
 class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
-    _cfg: Go2ArmManipLocoCfg
+    _cfg: Go2ArmManipLocoCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: Go2ArmManipLocoCfg, num_envs=1, backend_type="mujoco"):
         if cfg.reward_config is None:

@@ -11,7 +11,7 @@ from gymnasium import spaces
 
 from unilab.base.np_env import NpEnvState
 
-_GO2_ARM_MANIP_LOCO_MODULE = "unilab.envs.locomotion.go2_arm.manip_loco"
+_GO2_ARM_MANIP_LOCO_MODULE = "unilab.tasks.locomotion.go2_arm.manip_loco"
 _REGISTRY_MODULE = "unilab.base.registry"
 
 
@@ -24,7 +24,7 @@ def _skip_if_no_mujoco():
 
 
 def _default_reward_cfg():
-    from unilab.envs.locomotion.go2_arm.manip_loco import RewardConfig
+    from unilab.tasks.locomotion.go2_arm.manip_loco import RewardConfig
 
     return RewardConfig(
         scales={
@@ -88,7 +88,7 @@ def test_go2_arm_manip_loco_registers_motrix_backend():
 def test_go2_arm_manip_loco_cfg_declares_scene_for_playback():
     """MuJoCo video playback needs the original visual scene, not only legacy model_file."""
     from unilab.base.scene import SceneCfg
-    from unilab.envs.locomotion.go2_arm.manip_loco import (
+    from unilab.tasks.locomotion.go2_arm.manip_loco import (
         Go2ArmManipLocoCfg,
         _resolve_go2_arm_scene,
     )
@@ -107,7 +107,7 @@ def test_go2_arm_manip_loco_cfg_declares_scene_for_playback():
 
 def test_go2_arm_ee_goal_collision_check_matches_reference_semantics():
     """Any EE goal path sample inside the collision box or below ground is unsafe."""
-    from unilab.envs.locomotion.go2_arm.manip_loco import (
+    from unilab.tasks.locomotion.go2_arm.manip_loco import (
         EEGoalConfig,
         Go2ArmManipLocoCfg,
         Go2ArmManipLocoEnv,
@@ -131,7 +131,7 @@ def test_go2_arm_ee_goal_collision_check_matches_reference_semantics():
 
 def test_go2_arm_command_moving_mask_includes_all_velocity_axes():
     """A command is moving when vx, vy, or vyaw exceeds the motion threshold."""
-    from unilab.envs.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
+    from unilab.tasks.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
     env = object.__new__(Go2ArmManipLocoEnv)
     clip = env._CMD_CLIP
@@ -156,7 +156,7 @@ def test_go2_arm_command_moving_mask_includes_all_velocity_axes():
 
 def test_go2_arm_command_postprocess_can_force_zero_commands():
     """zero_command_prob should inject exact zero commands after small-command zeroing."""
-    from unilab.envs.locomotion.go2_arm.manip_loco import (
+    from unilab.tasks.locomotion.go2_arm.manip_loco import (
         Go2ArmManipLocoCfg,
         Go2ArmManipLocoEnv,
     )
@@ -184,7 +184,7 @@ def test_go2_arm_command_postprocess_can_force_zero_commands():
 def test_go2_arm_stand_still_reward_uses_same_command_mask():
     """stand_still should not penalize leg pose under lateral, yaw, or forward commands."""
     from unilab.envs.locomotion.common.rewards import RewardContext
-    from unilab.envs.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
+    from unilab.tasks.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
     env = object.__new__(Go2ArmManipLocoEnv)
     clip = env._CMD_CLIP
@@ -212,7 +212,7 @@ def test_go2_arm_stand_still_reward_uses_same_command_mask():
 
 def test_go2_arm_write_feet_phase_updates_indexed_envs():
     """Resetting env subsets must write back feet_phase instead of losing fancy-index copies."""
-    from unilab.envs.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
+    from unilab.tasks.locomotion.go2_arm.manip_loco import Go2ArmManipLocoEnv
 
     env = object.__new__(Go2ArmManipLocoEnv)
     env.phase = np.asarray([0.2, 0.4, 0.6], dtype=np.float32)
@@ -229,7 +229,7 @@ def test_go2_arm_write_feet_phase_updates_indexed_envs():
 
 def test_go2_arm_apply_action_uses_arm_action_scale_for_arm_residual():
     """Leg residuals use action_scale while arm residuals use arm_action_scale."""
-    from unilab.envs.locomotion.go2_arm.manip_loco import (
+    from unilab.tasks.locomotion.go2_arm.manip_loco import (
         Go2ArmManipLocoCfg,
         Go2ArmManipLocoEnv,
     )
