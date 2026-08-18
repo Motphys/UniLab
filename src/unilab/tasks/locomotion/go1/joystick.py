@@ -20,7 +20,7 @@ from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
     TerrainSpawnManager,
 )
-from unilab.envs.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
+from unilab.tasks.locomotion.go1.base import Go1BaseCfg, Go1BaseEnv
 
 
 @dataclass

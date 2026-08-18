@@ -37,4 +37,4 @@ class Go1BaseCfg(LocomotionBaseCfg):
 
 
 class Go1BaseEnv(LocomotionBaseEnv):
-    _cfg: Go1BaseCfg
+    _cfg: Go1BaseCfg  # pyright: ignore[reportIncompatibleVariableOverride]
