@@ -7,7 +7,7 @@
    :recursive:
 
    unilab.envs.locomotion.common
-   unilab.envs.locomotion.g1
+   unilab.tasks.locomotion.g1
    unilab.tasks.locomotion.go1
    unilab.tasks.locomotion.go2
    unilab.tasks.locomotion.go2_arm
