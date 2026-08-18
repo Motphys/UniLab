@@ -13,7 +13,14 @@ import pytest
 from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.reset_state import ResetStateTransaction
+from unilab.dr.types import (
+    RESET_TERM_KD,
+    RESET_TERM_KP,
+    DomainRandomizationCapabilities,
+    ResetRandomizationPayload,
+)
 from unilab.envs import mdp
+from unilab.managers import EventManager, EventTermCfg, SceneEntityCfg
 from unilab.managers._types import ManagerBasedRlEnv
 
 
@@ -146,13 +153,20 @@ def test_uniform_root_state_none_ids_targets_all_environments() -> None:
 class _Backend:
     backend_type = "fake"
     num_envs = 3
-    num_actuators = 0
+    num_actuators = 3
 
-    def __init__(self, *, root_layout_supported: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        root_layout_supported: bool = True,
+        gain_supported: bool = True,
+    ) -> None:
         self.root_layout_supported = root_layout_supported
+        self.gain_supported = gain_supported
         self.default_qpos = np.asarray([0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
         self.init_qvel = np.zeros(6)
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        self.randomization_calls: list[ResetRandomizationPayload | None] = []
         self.body_pos = np.zeros((self.num_envs, 1, 3))
         self.body_quat = np.zeros((self.num_envs, 1, 4))
         self.body_quat[:, :, 0] = 1.0
@@ -182,6 +196,19 @@ class _Backend:
     def get_dof_vel(self) -> np.ndarray:
         return np.empty((self.num_envs, 0))
 
+    def get_actuator_names(self) -> tuple[str, ...]:
+        return ("a0", "a1", "a2")
+
+    def get_actuator_ctrl_range(self) -> np.ndarray:
+        return np.tile([-1.0, 1.0], (self.num_actuators, 1))
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        terms = frozenset((RESET_TERM_KP, RESET_TERM_KD)) if self.gain_supported else frozenset()
+        return DomainRandomizationCapabilities(supported_reset_terms=terms)
+
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        return np.array([10.0, 20.0, 30.0]), np.array([1.0, 2.0, 3.0])
+
     def get_body_pos_w(self, ids: np.ndarray) -> np.ndarray:
         return self.body_pos[:, ids]
 
@@ -207,17 +234,20 @@ class _Backend:
         qvel: np.ndarray,
         randomization=None,
     ) -> None:
-        assert randomization is None
         self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
+        self.randomization_calls.append(randomization)
 
 
 def _transaction_env(
-    *, root_layout_supported: bool = True
+    *, root_layout_supported: bool = True, gain_supported: bool = True, rng_seed: int = 5
 ) -> tuple[ManagerBasedRlEnv, _Backend, ResetStateTransaction]:
-    backend = _Backend(root_layout_supported=root_layout_supported)
+    backend = _Backend(
+        root_layout_supported=root_layout_supported,
+        gain_supported=gain_supported,
+    )
     transaction = ResetStateTransaction(cast(SimBackend, backend))
     scene = EntityScene(
-        {"robot": EntityCfg(root_body_name="base")},
+        {"robot": EntityCfg(root_body_name="base", actuator_names=("a0", "a1", "a2"))},
         cast(SimBackend, backend),
         reset_state=transaction,
     )
@@ -225,7 +255,7 @@ def _transaction_env(
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=backend.num_envs,
-            rng=np.random.default_rng(5),
+            rng=np.random.default_rng(rng_seed),
             scene=scene,
         ),
     )
@@ -253,6 +283,108 @@ def test_uniform_root_state_composes_in_one_reset_transaction_commit() -> None:
     np.testing.assert_allclose(qpos[1], backend.default_qpos + [1.0, 0, 0, 0, 0, 0, 0])
     np.testing.assert_array_equal(qvel[0], backend.init_qvel)
     np.testing.assert_allclose(qvel[1], backend.init_qvel + [0.5, 0, 0, 0, 0, 0])
+
+
+def test_pd_gains_event_uses_selector_scale_and_exactly_once_reset_payload() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=11)
+    manager = EventManager(
+        {
+            "randomize_pd": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                params={
+                    "kp_range": (2.0, 2.0),
+                    "kd_range": (3.0, 3.0),
+                    "asset_cfg": SceneEntityCfg(
+                        "robot",
+                        actuator_names=["a2", "a0"],
+                        preserve_order=True,
+                    ),
+                },
+            )
+        },
+        env,
+    )
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    np.testing.assert_array_equal(payload.kp, [[20.0, 20.0, 60.0]] * 2)
+    np.testing.assert_array_equal(payload.kd, [[3.0, 2.0, 9.0]] * 2)
+
+
+def test_pd_gains_event_supports_log_uniform_absolute_sampling() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=11)
+    manager = EventManager(
+        {
+            "gain": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                params={
+                    "kp_range": (0.25, 4.0),
+                    "kd_range": (0.5, 2.0),
+                    "distribution": "log_uniform",
+                    "operation": "abs",
+                },
+            )
+        },
+        env,
+    )
+    ids = np.arange(3, dtype=np.int32)
+
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+
+    payload = backend.randomization_calls[0]
+    assert payload is not None and payload.kp is not None and payload.kd is not None
+    assert np.all((payload.kp >= 0.25) & (payload.kp <= 4.0))
+    assert np.all((payload.kd >= 0.5) & (payload.kd <= 2.0))
+    assert np.unique(payload.kp[0]).size > 1
+
+
+@pytest.mark.parametrize(
+    ("cfg_kwargs", "match"),
+    [
+        ({"mode": "startup"}, "only supports mode='reset'"),
+        ({"min_step_count_between_reset": 2}, "min_step_count_between_reset=0"),
+        ({"params": {"kp_range": (2.0, 1.0), "kd_range": (1.0, 1.0)}}, "minimum"),
+    ],
+)
+def test_pd_gains_invalid_config_fails_during_manager_construction(
+    cfg_kwargs: dict[str, Any],
+    match: str,
+) -> None:
+    env, backend, _ = _transaction_env(rng_seed=11)
+    values: dict[str, Any] = {
+        "mode": "reset",
+        "params": {"kp_range": (1.0, 1.0), "kd_range": (1.0, 1.0)},
+    }
+    values.update(cfg_kwargs)
+
+    with pytest.raises((ValueError, NotImplementedError), match=match):
+        EventManager({"gain": EventTermCfg(func=mdp.pd_gains, **values)}, env)
+    assert backend.set_state_calls == []
+
+
+def test_pd_gains_missing_backend_capability_fails_during_manager_construction() -> None:
+    env, backend, _ = _transaction_env(gain_supported=False, rng_seed=11)
+    cfg = EventTermCfg(
+        func=mdp.pd_gains,
+        mode="reset",
+        params={"kp_range": (1.0, 1.0), "kd_range": (1.0, 1.0)},
+    )
+
+    with pytest.raises(
+        NotImplementedError,
+        match="pd_gains:robot.*actuator gain randomization.*backend 'fake'",
+    ):
+        EventManager({"gain": cfg}, env)
+    assert backend.set_state_calls == []
 
 
 def test_uniform_root_state_fixed_or_mocap_capability_fails_closed() -> None:

@@ -16,6 +16,7 @@ from unilab.envs.locomotion.go2.manager_based_cfg import (
     make_go2_joystick_flat_manager_cfg,
 )
 from unilab.envs.mdp import JointPositionAction, JointPositionActionCfg
+from unilab.managers import EventTermCfg
 
 _JOINT_NAMES = (
     "FL_hip_joint",
@@ -292,5 +293,58 @@ def test_go2_manager_factory_executes_on_real_mujoco() -> None:
             assert np.isfinite(value).all()
         assert state.terminated.dtype == np.bool_
         assert state.truncated.dtype == np.bool_
+    finally:
+        env.close()
+
+
+def _read_runtime_actuator_gains(backend_type: str, backend) -> tuple[np.ndarray, np.ndarray]:
+    if backend_type == "mujoco":
+        assert backend._pool is not None
+        kp = np.stack([backend._pool.get_field(index, "kp") for index in range(backend.num_envs)])
+        kd = np.stack([backend._pool.get_field(index, "kd") for index in range(backend.num_envs)])
+        return kp, kd
+    assert backend_type == "motrix"
+    actuators = sorted(backend._position_actuators, key=lambda actuator: int(actuator.index))
+    kp = np.column_stack(
+        [np.asarray(actuator.get_kp_override(backend._data)).reshape(-1) for actuator in actuators]
+    )
+    kd = np.column_stack(
+        [np.asarray(actuator.get_kd_override(backend._data)).reshape(-1) for actuator in actuators]
+    )
+    return kp, kd
+
+
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
+def test_go2_manager_pd_gains_mutates_real_backend_on_reset(backend_type: str) -> None:
+    cfg = make_go2_joystick_flat_manager_cfg()
+    cfg.events["pd_gains"] = EventTermCfg(
+        func=mdp.pd_gains,
+        mode="reset",
+        params={
+            "kp_range": (31.5, 38.5),
+            "kd_range": (0.45, 0.55),
+            "operation": "abs",
+        },
+    )
+    assert cfg.scene is not None
+    backend = create_backend(
+        backend_type,
+        cfg.scene,
+        2,
+        cfg.sim_dt,
+        base_name="base",
+        add_body_sensors=True,
+        **env_backend_kwargs(cfg),
+    )
+    env = ManagerBasedRlEnv(cfg, backend, 2)
+    try:
+        env.reset(seed=29)
+        kp, kd = _read_runtime_actuator_gains(backend_type, backend)
+        assert kp.shape == (2, 12)
+        assert kd.shape == (2, 12)
+        assert np.all((kp >= 31.5) & (kp <= 38.5))
+        assert np.all((kd >= 0.45) & (kd <= 0.55))
+        assert np.unique(np.round(kp, 6)).size > 1
+        assert np.unique(np.round(kd, 6)).size > 1
     finally:
         env.close()

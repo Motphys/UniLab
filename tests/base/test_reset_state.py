@@ -9,10 +9,17 @@ import pytest
 
 from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.base.reset_state import ResetStateTransaction
+from unilab.dr.types import (
+    RESET_TERM_KD,
+    RESET_TERM_KP,
+    DomainRandomizationCapabilities,
+    ResetRandomizationPayload,
+)
 
 
 class _Backend:
     backend_type = "fake"
+    num_actuators = 3
 
     def __init__(
         self,
@@ -28,6 +35,9 @@ class _Backend:
         self.default_qpos_calls = 0
         self.init_qvel_calls = 0
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        self.randomization_calls: list[ResetRandomizationPayload | None] = []
+        self.default_kp = np.array([10.0, 20.0, 30.0])
+        self.default_kd = np.array([1.0, 2.0, 3.0])
 
     def get_default_qpos(self):
         self.default_qpos_calls += 1
@@ -37,6 +47,14 @@ class _Backend:
         self.init_qvel_calls += 1
         return self.qvel
 
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset((RESET_TERM_KP, RESET_TERM_KD))
+        )
+
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.default_kp.copy(), self.default_kd.copy()
+
     def set_state(
         self,
         env_ids: np.ndarray,
@@ -44,10 +62,10 @@ class _Backend:
         qvel: np.ndarray,
         randomization=None,
     ) -> dict:
-        assert randomization is None
         if self.fail_set_state:
             raise NotImplementedError("reset upload disabled")
         self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
+        self.randomization_calls.append(randomization)
         return {"timing": {"set_state_ms": 1.0}}
 
 
@@ -108,6 +126,58 @@ def test_exception_aborts_without_backend_mutation_and_next_reset_is_clean() -> 
         transaction.reset_to_default(np.array([1], dtype=np.int32), term_name="healthy")
     assert len(backend.set_state_calls) == 1
     np.testing.assert_array_equal(backend.set_state_calls[0][0], [1])
+
+
+def test_actuator_gains_compose_with_state_in_one_reset_commit() -> None:
+    backend = _Backend()
+    transaction = _transaction(backend)
+    columns, default_kp, default_kd = transaction.bind_actuator_gain_write(
+        np.array([2, 0], dtype=np.int32),
+        term_name="pd_gains:robot",
+    )
+    np.testing.assert_array_equal(columns, [2, 0])
+    np.testing.assert_array_equal(default_kp, [30.0, 10.0])
+    np.testing.assert_array_equal(default_kd, [3.0, 1.0])
+
+    with transaction.scoped(np.array([0, 2], dtype=np.int32)):
+        transaction.reset_to_default(np.array([0, 2], dtype=np.int32), term_name="default")
+        transaction.write_actuator_gains(
+            np.array([2, 0], dtype=np.int32),
+            columns,
+            np.array([[5.0, 6.0], [7.0, 8.0]]),
+            np.array([[0.5, 0.6], [0.7, 0.8]]),
+            term_name="pd_gains:robot",
+        )
+
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    np.testing.assert_array_equal(payload.kp, [[8.0, 20.0, 7.0], [6.0, 20.0, 5.0]])
+    np.testing.assert_array_equal(payload.kd, [[0.8, 2.0, 0.7], [0.6, 2.0, 0.5]])
+
+
+def test_actuator_gain_sparse_rows_abort_without_backend_mutation() -> None:
+    backend = _Backend()
+    transaction = _transaction(backend)
+    columns, _, _ = transaction.bind_actuator_gain_write(
+        np.array([0], dtype=np.int32),
+        term_name="pd_gains:robot",
+    )
+
+    with pytest.raises(RuntimeError, match=r"cannot represent sparse rows.*missing env IDs \[1\]"):
+        with transaction.scoped(np.array([0, 1], dtype=np.int32)):
+            transaction.reset_to_default(
+                np.array([0, 1], dtype=np.int32),
+                term_name="default",
+            )
+            transaction.write_actuator_gains(
+                np.array([0], dtype=np.int32),
+                columns,
+                np.array([[11.0]]),
+                np.array([[1.1]]),
+                term_name="pd_gains:robot",
+            )
+
+    assert backend.set_state_calls == []
 
 
 def test_joint_writes_initialize_defaults_and_compose_by_column() -> None:

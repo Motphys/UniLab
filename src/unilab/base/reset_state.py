@@ -13,6 +13,7 @@ from contextlib import contextmanager
 import numpy as np
 
 from unilab.base.backend.base import BackendRootStateLayout, SimBackend
+from unilab.dr.types import RESET_TERM_KD, RESET_TERM_KP, ResetRandomizationPayload
 from unilab.utils.rotation import np_quat_apply_inverse
 
 
@@ -35,6 +36,11 @@ class ResetStateTransaction:
         self._default_qvel: np.ndarray | None = None
         self._qpos: np.ndarray | None = None
         self._qvel: np.ndarray | None = None
+        self._default_kp: np.ndarray | None = None
+        self._default_kd: np.ndarray | None = None
+        self._kp: np.ndarray | None = None
+        self._kd: np.ndarray | None = None
+        self._gain_dirty_mask = np.zeros(self._num_envs, dtype=np.bool_)
         self._requesting_terms: set[str] = set()
 
     @property
@@ -62,8 +68,82 @@ class ResetStateTransaction:
         self._active_mask.fill(False)
         self._active_mask[ids] = True
         self._dirty_mask.fill(False)
+        self._gain_dirty_mask.fill(False)
         self._requesting_terms.clear()
         self._active = True
+
+    def bind_actuator_gain_write(
+        self,
+        actuator_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Resolve gain mutation capability and immutable defaults on the cold path."""
+        columns = self._validate_columns(
+            actuator_ids,
+            width=self._backend.num_actuators,
+            capability="actuator IDs",
+            term_name=term_name,
+        )
+        self._materialize_default_actuator_gains(term_name)
+        assert self._default_kp is not None
+        assert self._default_kd is not None
+        selected_kp = np.array(self._default_kp[columns], copy=True)
+        selected_kd = np.array(self._default_kd[columns], copy=True)
+        selected_kp.setflags(write=False)
+        selected_kd.setflags(write=False)
+        bound_columns = np.array(columns, copy=True)
+        bound_columns.setflags(write=False)
+        return bound_columns, selected_kp, selected_kd
+
+    def write_actuator_gains(
+        self,
+        env_ids: np.ndarray,
+        actuator_ids: np.ndarray,
+        kp: np.ndarray,
+        kd: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected per-environment actuator gains in the reset transaction."""
+        ids = self._prepare_state_write(
+            env_ids,
+            capability="actuator-gain",
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            actuator_ids,
+            width=self._backend.num_actuators,
+            capability="actuator IDs",
+            term_name=term_name,
+        )
+        self._materialize_default_actuator_gains(term_name)
+        gains_shape = (ids.size, columns.size)
+        kp_values = self._validate_values(
+            kp,
+            shape=gains_shape,
+            capability="actuator kp",
+            term_name=term_name,
+        )
+        kd_values = self._validate_values(
+            kd,
+            shape=gains_shape,
+            capability="actuator kd",
+            term_name=term_name,
+        )
+        assert self._default_kp is not None
+        assert self._default_kd is not None
+        assert self._kp is not None
+        assert self._kd is not None
+        uninitialized = ids[~self._gain_dirty_mask[ids]]
+        if uninitialized.size:
+            self._kp[uninitialized] = self._default_kp
+            self._kd[uninitialized] = self._default_kd
+        if ids.size and columns.size:
+            self._kp[ids[:, None], columns[None, :]] = kp_values
+            self._kd[ids[:, None], columns[None, :]] = kd_values
+        self._gain_dirty_mask[ids] = True
+        self._dirty_mask[ids] = True
 
     def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None:
         """Stage backend default qpos/qvel for a subset of the active reset."""
@@ -243,11 +323,13 @@ class ResetStateTransaction:
                 return None
             assert self._qpos is not None
             assert self._qvel is not None
+            randomization = self._build_randomization_payload(dirty_ids)
             try:
                 return self._backend.set_state(
                     dirty_ids,
                     self._qpos[dirty_ids],
                     self._qvel[dirty_ids],
+                    randomization=randomization,
                 )
             except (AttributeError, NotImplementedError) as exc:
                 terms = ", ".join(sorted(self._requesting_terms))
@@ -283,6 +365,61 @@ class ResetStateTransaction:
         self._default_qvel = default_qvel
         self._qpos = np.empty((self._num_envs, default_qpos.size), dtype=default_qpos.dtype)
         self._qvel = np.empty((self._num_envs, default_qvel.size), dtype=default_qvel.dtype)
+
+    def _materialize_default_actuator_gains(self, term_name: str) -> None:
+        if self._default_kp is not None:
+            return
+        try:
+            capabilities = self._backend.get_dr_capabilities()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error(term_name, "actuator gain randomization", exc) from exc
+        required = frozenset((RESET_TERM_KP, RESET_TERM_KD))
+        unsupported = capabilities.get_unsupported_reset_terms(required)
+        if unsupported:
+            detail = ", ".join(sorted(unsupported))
+            raise self._capability_error(
+                term_name,
+                "actuator gain randomization",
+                NotImplementedError(f"unsupported reset payload fields: {detail}"),
+            )
+        try:
+            kp, kd = self._backend.get_actuator_gains()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error(term_name, "default actuator gains", exc) from exc
+        default_kp = self._validate_gain_vector(kp, "default actuator kp", term_name)
+        default_kd = self._validate_gain_vector(kd, "default actuator kd", term_name)
+        self._default_kp = default_kp
+        self._default_kd = default_kd
+        self._kp = np.empty(
+            (self._num_envs, self._backend.num_actuators),
+            dtype=default_kp.dtype,
+        )
+        self._kd = np.empty(
+            (self._num_envs, self._backend.num_actuators),
+            dtype=default_kd.dtype,
+        )
+
+    def _build_randomization_payload(
+        self,
+        dirty_ids: np.ndarray,
+    ) -> ResetRandomizationPayload | None:
+        gain_ids = np.flatnonzero(self._gain_dirty_mask).astype(np.int32, copy=False)
+        if gain_ids.size == 0:
+            return None
+        missing = dirty_ids[~self._gain_dirty_mask[dirty_ids]]
+        if missing.size:
+            terms = ", ".join(sorted(self._requesting_terms))
+            raise RuntimeError(
+                "EventManager reset actuator-gain payload cannot represent sparse rows in "
+                f"one SimBackend.set_state call for term(s) [{terms}] on backend "
+                f"'{self._backend.backend_type}'; missing env IDs {missing.tolist()}"
+            )
+        assert self._kp is not None
+        assert self._kd is not None
+        return ResetRandomizationPayload(
+            kp=np.array(self._kp[dirty_ids], copy=True),
+            kd=np.array(self._kd[dirty_ids], copy=True),
+        )
 
     def _prepare_state_write(
         self,
@@ -376,6 +513,21 @@ class ResetStateTransaction:
             )
         result = np.array(value, copy=True)
         result.setflags(write=False)
+        return result
+
+    def _validate_gain_vector(
+        self,
+        value: np.ndarray,
+        capability: str,
+        term_name: str,
+    ) -> np.ndarray:
+        result = self._validate_state_vector(value, capability, term_name)
+        expected = (self._backend.num_actuators,)
+        if result.shape != expected:
+            raise ValueError(
+                f"EventManager term '{term_name}' capability '{capability}' on backend "
+                f"'{self._backend.backend_type}' returned shape {result.shape}; expected {expected}"
+            )
         return result
 
     def _validate_ids(self, env_ids: np.ndarray, *, capability: str) -> np.ndarray:
@@ -484,6 +636,7 @@ class ResetStateTransaction:
         self._active = False
         self._active_mask.fill(False)
         self._dirty_mask.fill(False)
+        self._gain_dirty_mask.fill(False)
         self._requesting_terms.clear()
 
 
