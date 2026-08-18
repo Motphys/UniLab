@@ -27,7 +27,7 @@ Fields are classified by dotted path into three tiers (see `src/unilab/training/
 
 | Tier | Behavior | Fields |
 |---|---|---|
-| **DENYLIST** | Mismatch → `CrossBackendIncompatibleError`, aborts | `algo.obs_groups`, `env.control_config.action_scale`, `algo.policy.actor_hidden_dims` / `critic_hidden_dims`, `algo.empirical_normalization` / `algo.obs_normalization`, `env.sampling_mode` |
+| **DENYLIST** | Mismatch → `CrossBackendIncompatibleError`, aborts | `algo.obs_groups`, legacy `env.control_config.action_scale`, Manager-Based `env.observations` / `env.actions` / policy and critic group mapping, `algo.policy.actor_hidden_dims` / `critic_hidden_dims`, `algo.empirical_normalization` / `algo.obs_normalization`, `env.sampling_mode` |
 | **WARNING_LIST** | Prints a warning, continues | `reward.*`, `env.control_config.simulate_action_latency`, `env.ctrl_dt` |
 | **ALLOWLIST** | Free to override, not checked | `training.sim_backend`, `env.scene`, `training.play_steps`, `env.domain_rand`, `env.noise_config`, `env.commands.vel_limit` |
 
@@ -39,6 +39,12 @@ If the target backend's DENYLIST fields differ from training (e.g. a task whose 
 - **Force through** (at your own risk): `uv run eval ... training.sim2sim_strict=false` downgrades DENYLIST mismatches to warnings.
 
 > Legacy runs: if `run_config.json` has no `contract_snapshot` (older training), the guard skips with a warning instead of breaking your workflow.
+
+Manager-Based snapshots store the complete typed observation and action declarations from
+Hydra. A snapshot from before those fields existed cannot prove that its policy I/O is
+equivalent to a Manager-Based target, so asymmetric presence fails closed. Set
+`training.sim2sim_strict=false` only as an explicit user override; the load-time dimension
+guard still remains active.
 
 ## See also
 
