@@ -86,7 +86,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
 
 def test_g1_walk_env_cfg_obs_groups_spec():
     """G1WalkEnv must declare obs_groups_spec with actor and critic groups."""
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnvCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnvCfg
 
     cfg = G1WalkEnvCfg()
     assert not hasattr(cfg, "obs_config"), "obs_config should have been removed"
@@ -94,7 +94,7 @@ def test_g1_walk_env_cfg_obs_groups_spec():
 
 def test_g1_walk_flat_cfg_no_obs_config():
     """G1WalkFlatCfg should no longer have obs_config after dict obs refactor."""
-    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg
 
     cfg = G1WalkFlatCfg()
     assert not hasattr(cfg, "obs_config"), (
@@ -103,7 +103,7 @@ def test_g1_walk_flat_cfg_no_obs_config():
 
 
 def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
-    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg
 
     cfg = G1WalkFlatCfg()
     assert hasattr(cfg, "domain_rand")
@@ -116,7 +116,7 @@ def test_g1_walk_flat_cfg_has_domain_rand_for_motrix():
 
 
 def test_g1_walk_flat_cfg_defaults_match_walk_profile():
-    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg
 
     cfg = G1WalkFlatCfg()
     assert not hasattr(cfg, "obs_profile")
@@ -125,7 +125,7 @@ def test_g1_walk_flat_cfg_defaults_match_walk_profile():
 
 def test_g1_walk_tasks_register_to_algorithm_agnostic_env_base():
     from unilab.base import registry
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv, G1WalkRewardConfig
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv, G1WalkRewardConfig
 
     env = cast(
         Any,
@@ -156,7 +156,7 @@ def test_g1_walk_tasks_register_to_algorithm_agnostic_env_base():
 
 
 def test_g1_walk_flat_observation_construction_is_hardcoded_for_legacy_and_walk_modes():
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     class NoiseCfg:
         level = 0.0
@@ -219,7 +219,7 @@ def test_g1_walk_env_obs_groups_spec_dims():
             + last_actions(29) + command(3) + gait_phase(2) = 98
         critic: actor(98) + linvel(3) = 101
     """
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     # obs_groups_spec is a @property; access via descriptor protocol
     spec = G1WalkEnv.obs_groups_spec.fget(None)  # type: ignore[union-attr]
@@ -229,7 +229,7 @@ def test_g1_walk_env_obs_groups_spec_dims():
 
 
 def test_g1_walk_env_reward_dispatch_restores_motrix_terms():
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     env = cast(Any, object.__new__(G1WalkEnv))
     env._reward_fns = {}
@@ -244,7 +244,7 @@ def test_g1_walk_env_reward_dispatch_restores_motrix_terms():
 
 def test_g1_walk_env_feet_phase_reward_is_gated_by_forward_speed():
     from unilab.envs.locomotion.common.rewards import RewardContext
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     class FakeBackend:
         def get_sensor_data(self, name: str) -> np.ndarray:

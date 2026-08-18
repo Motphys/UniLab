@@ -357,7 +357,7 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
-    from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkRoughCfg
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
@@ -375,7 +375,7 @@ def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     def uses_walk_profile(config_group: str, overrides: list[str]) -> bool:
         GlobalHydra.instance().clear()

@@ -15,7 +15,7 @@ _TASK_REGISTRY_MODULES = (
     "unilab.tasks.locomotion.go1",
     "unilab.tasks.locomotion.go2",
     "unilab.tasks.locomotion.go2w",
-    "unilab.envs.locomotion.g1",
+    "unilab.tasks.locomotion.g1",
     "unilab.tasks.locomotion.go2_arm",
     "unilab.tasks.locomotion.a2",
     "unilab.envs.manipulation.allegro_inhand",

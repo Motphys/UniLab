@@ -129,14 +129,14 @@ def _compose_cfg(config_group: str, overrides: list[str]):
 
 
 def _materialize_env_cfg(cfg: Any):
-    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg, G1WalkRoughCfg
+    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg, G1WalkRoughCfg
 
     env_cfg_cls = G1WalkRoughCfg if cfg.training.task_name == "G1WalkRough" else G1WalkFlatCfg
     return OmegaConf.merge(OmegaConf.structured(env_cfg_cls()), cfg.env)
 
 
 def _build_probe_env(cfg: Any):
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     env = cast(Any, object.__new__(G1WalkEnv))
     env._num_envs = 1
@@ -168,7 +168,7 @@ def _compute_probe_obs(cfg: Any) -> dict[str, np.ndarray]:
 
 @pytest.mark.parametrize("case", _G1_OWNER_CASES, ids=[case["id"] for case in _G1_OWNER_CASES])
 def test_g1_owner_yaml_regression_contract(case: dict[str, Any]):
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     cfg = _compose_cfg(case["config_group"], case["overrides"])
     full_env_cfg = _materialize_env_cfg(cfg)
@@ -222,7 +222,7 @@ def test_g1_owner_yaml_observation_profiles_match_expected_family(case: dict[str
 
 
 def test_g1_observation_profile_selection_prefers_reward_family_over_curriculum_flag():
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
 
     env = cast(Any, object.__new__(G1WalkEnv))
 

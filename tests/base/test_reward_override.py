@@ -38,7 +38,7 @@ def test_reward_override_g1():
     """Test G1 reward config override."""
     ensure_registries()
 
-    from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
+    from unilab.tasks.locomotion.g1.joystick import G1WalkRewardConfig
 
     override_config = G1WalkRewardConfig(
         scales={"tracking_lin_vel": 888.0, "alive": 20.0},
