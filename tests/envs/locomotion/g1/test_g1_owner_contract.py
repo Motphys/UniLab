@@ -183,7 +183,8 @@ def test_g1_owner_yaml_regression_contract(case: dict[str, Any]):
     assert full_env_cfg.curriculum.enabled is case["curriculum_enabled"]
     assert env._uses_walk_observation_profile() is (case["profile"] == "walk")
     assert (
-        registry._envs[cfg.training.task_name].env_cls_dict[cfg.training.sim_backend] is G1WalkEnv
+        registry._envs[cfg.training.task_name].env_factory_dict[cfg.training.sim_backend]
+        is G1WalkEnv
     )
 
     if "model_suffix" in case:

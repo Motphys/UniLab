@@ -350,7 +350,7 @@ def test_go2_joystick_rough_motrix_registers_rough_env():
     from unilab.base import registry
     from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
 
-    assert registry._envs["Go2JoystickRough"].env_cls_dict["motrix"] is Go2JoystickRoughEnv
+    assert registry._envs["Go2JoystickRough"].env_factory_dict["motrix"] is Go2JoystickRoughEnv
 
 
 def test_offpolicy_g1_rough_terrain_task_overrides():
