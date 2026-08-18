@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from unilab.base.backend import SimBackend
-from unilab.envs.locomotion.common.base import (
+from unilab.tasks.locomotion.common.base import (
     ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,

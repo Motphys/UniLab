@@ -6,13 +6,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from unilab.envs.locomotion.common.base import (
+from unilab.tasks.locomotion.common.base import (
     BaseNoiseConfig,
     ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
 )
-from unilab.envs.locomotion.common.base import (
+from unilab.tasks.locomotion.common.base import (
     Sensor as LocomotionSensor,
 )
 

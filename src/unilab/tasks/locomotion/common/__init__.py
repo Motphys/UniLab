@@ -1,5 +1,13 @@
 """Shared task-specific locomotion components."""
 
+from .base import (
+    BaseNoiseConfig,
+    ControlConfigBase,
+    LocomotionBaseCfg,
+    LocomotionBaseEnv,
+    PdControlConfig,
+    Sensor,
+)
 from .commands import (
     Commands,
     apply_heading_yaw_feedback,
@@ -16,12 +24,18 @@ from .height_scan import (
 )
 
 __all__ = [
+    "BaseNoiseConfig",
     "Commands",
+    "ControlConfigBase",
     "DEFAULT_SCAN_POINTS_X",
     "DEFAULT_SCAN_POINTS_Y",
     "DomainRandConfig",
     "HeightScanConfig",
     "LocomotionDRProvider",
+    "LocomotionBaseCfg",
+    "LocomotionBaseEnv",
+    "PdControlConfig",
+    "Sensor",
     "apply_heading_yaw_feedback",
     "sample_heading_commands",
     "sample_velocity_commands",

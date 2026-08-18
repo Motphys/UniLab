@@ -12,7 +12,6 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.locomotion.common import rewards
-from unilab.envs.locomotion.common.base import Sensor
 from unilab.envs.locomotion.common.rewards import RewardContext
 from unilab.envs.locomotion.common.terrain_spawn import (
     TerrainCurriculumCfg,
@@ -22,6 +21,7 @@ from unilab.envs.manager_based_rl_env import (
     ManagerBasedRlEnvCfg,
     make_manager_based_rl_env,
 )
+from unilab.tasks.locomotion.common.base import Sensor
 from unilab.tasks.locomotion.common.commands import Commands
 from unilab.tasks.locomotion.common.domain_rand import DomainRandConfig
 from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider

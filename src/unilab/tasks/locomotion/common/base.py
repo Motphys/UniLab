@@ -1,3 +1,5 @@
+"""Shared base environment and configuration for legacy locomotion tasks."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
