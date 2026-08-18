@@ -300,13 +300,13 @@ def _go2_env_cls() -> type:
 
 
 def _go2_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg
 
     return _ppo_owner_yaml_cfg("go2_joystick_rough", backend, Go2JoystickRoughCfg, config_overrides)
 
 
 def _go2_rough_env_cls() -> type:
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
+    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
 
     return Go2JoystickRoughEnv
 
