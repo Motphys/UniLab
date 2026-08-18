@@ -10,6 +10,7 @@ from typing import (
     Dict,
     Literal,
     Optional,
+    Protocol,
     Type,
     TypeVar,
     cast,
@@ -27,6 +28,21 @@ from .config_overrides import (
 
 EnvCfgFactory = Callable[[], EnvCfg]
 TEnvCfgFactory = TypeVar("TEnvCfgFactory", bound=EnvCfgFactory)
+
+
+class EnvFactory(Protocol):
+    """Construct an environment for one materialized config and backend."""
+
+    def __call__(
+        self,
+        cfg: Any,
+        *,
+        num_envs: int = 1,
+        backend_type: str = "mujoco",
+    ) -> ABEnv: ...
+
+
+TEnvFactory = TypeVar("TEnvFactory", bound=EnvFactory)
 RewardOverrideField = Literal["reward_config", "rewards"]
 _SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake")
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
@@ -47,18 +63,18 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EnvMeta:
     env_cfg_factory: EnvCfgFactory
-    env_cls_dict: Dict[str, Type[ABEnv]] = field(default_factory=dict)
+    env_factory_dict: Dict[str, EnvFactory] = field(default_factory=dict)
 
     def available_sim_backend(self) -> Optional[str]:
         """Return the explicit default simulation backend for this environment."""
         for backend in _DEFAULT_SIM_BACKEND_ORDER:
-            if backend in self.env_cls_dict:
+            if backend in self.env_factory_dict:
                 return backend
-        return next(iter(self.env_cls_dict), None)
+        return next(iter(self.env_factory_dict), None)
 
     def support_sim_backend(self, sim_backend: str) -> bool:
         """Check if the environment supports a specific simulation backend."""
-        return sim_backend in self.env_cls_dict
+        return sim_backend in self.env_factory_dict
 
 
 _envs: Dict[str, EnvMeta] = {}
@@ -70,6 +86,10 @@ def contains(name: str) -> bool:
 
 
 def _config_factory_name(factory: EnvCfgFactory) -> str:
+    return str(getattr(factory, "__qualname__", type(factory).__qualname__))
+
+
+def _env_factory_name(factory: EnvFactory) -> str:
     return str(getattr(factory, "__qualname__", type(factory).__qualname__))
 
 
@@ -122,8 +142,8 @@ def materialize_env_config(name: str) -> EnvCfg:
     return env_cfg
 
 
-def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
-    """Register an environment class with a name and simulation backend."""
+def register_env(name: str, env_factory: TEnvFactory, sim_backend: str) -> TEnvFactory:
+    """Register and return an environment class or function factory."""
     if sim_backend not in _SUPPORTED_SIM_BACKENDS:
         raise ValueError(
             f"Unsupported simulation backend: {sim_backend}. "
@@ -135,27 +155,37 @@ def register_env(name: str, env_cls: Type[ABEnv], sim_backend: str):
             f"Environment '{name}' is not registered. Please register the config first."
         )
 
-    if sim_backend in _envs[name].env_cls_dict:
+    if not callable(env_factory):
+        raise TypeError(
+            f"Environment '{name}' backend '{sim_backend}' factory must be callable, got "
+            f"{type(env_factory).__name__}"
+        )
+
+    if sim_backend in _envs[name].env_factory_dict:
         raise ValueError(
             f"Environment '{name}' with sim backend '{sim_backend}' is already registered."
         )
 
-    _envs[name].env_cls_dict[sim_backend] = env_cls
+    _envs[name].env_factory_dict[sim_backend] = env_factory
+    return env_factory
 
 
-def env(name: str, sim_backend: str) -> Callable[[Type[ABEnv]], Type[ABEnv]]:
+def env(name: str, sim_backend: str) -> Callable[[TEnvFactory], TEnvFactory]:
     """
-    Decorator to register an environment class with a name and simulation backend.
+    Decorator to register an environment class or function factory.
 
     Usage:
-        @register_env_decorator("my-env", "np")
+        @env("my-env", "mujoco")
         class MyEnv(ABEnv):
+            ...
+
+        @env("my-manager-env", "mujoco")
+        def make_my_env(cfg, num_envs=1, backend_type="mujoco"):
             ...
     """
 
-    def decorator(cls: Type[ABEnv]) -> Type[ABEnv]:
-        register_env(name, cls, sim_backend)
-        return cls
+    def decorator(factory: TEnvFactory) -> TEnvFactory:
+        return register_env(name, factory, sim_backend)
 
     return decorator
 
@@ -413,8 +443,14 @@ def make(
         )
 
     # Create environment instance
-    env_cls_any: Any = meta.env_cls_dict[sim_backend]
-    env: ABEnv = env_cls_any(env_cfg, num_envs=num_envs, backend_type=sim_backend)
+    factory = meta.env_factory_dict[sim_backend]
+    env = factory(env_cfg, num_envs=num_envs, backend_type=sim_backend)
+    if not isinstance(env, ABEnv):
+        raise TypeError(
+            f"Environment '{name}' backend '{sim_backend}' factory "
+            f"'{_env_factory_name(factory)}' returned {type(env).__name__}, "
+            "expected an ABEnv instance"
+        )
     return env
 
 
@@ -424,7 +460,7 @@ def list_registered_envs() -> Dict[str, Dict[str, Any]]:
     for name, meta in _envs.items():
         result[name] = {
             "config_factory": _config_factory_name(meta.env_cfg_factory),
-            "available_backends": list(meta.env_cls_dict.keys()),
+            "available_backends": list(meta.env_factory_dict.keys()),
         }
     return result
 
