@@ -1,12 +1,12 @@
 # Motion Tracking
 
-G1 motion tracking tasks live under `src/unilab/envs/motion_tracking/` and are
+G1 motion tracking tasks live under `src/unilab/tasks/motion_tracking/` and are
 selected through task owner YAMLs in `conf/ppo/`, `conf/appo/`, and selected
 off-policy paths.
 
 > **Motion assets moved to Hugging Face.** The `.npz` clips are no longer shipped
 > in the repository. On first use `MotionLoader`
-> (`src/unilab/envs/motion_tracking/g1/motion_loader.py`) downloads them on demand
+> (`src/unilab/tasks/motion_tracking/common/motion_loader.py`) downloads them on demand
 > from [unilabsim/unilab-motions](https://huggingface.co/datasets/unilabsim/unilab-motions)
 > via `src/unilab/assets/hub.py` (`_HF_MOTIONS_REPO_ID`). `uv sync` already installs
 > the required `huggingface_hub` dependency.
@@ -75,7 +75,7 @@ uv run eval --algo sac --task g1_motion_tracking --sim motrix \
 Motion NPZ files are read through `env.motion_file`, which also accepts a list of
 paths. A standard clip must contain the seven keys `fps`, `joint_pos`,
 `joint_vel`, `body_pos_w`, `body_quat_w`, `body_lin_vel_w`, and `body_ang_vel_w`
-(validated in `g1/motion_loader.py`):
+(validated in `common/motion_loader.py`):
 
 ```yaml
 env:

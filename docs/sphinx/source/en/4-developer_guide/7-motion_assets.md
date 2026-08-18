@@ -115,12 +115,12 @@ To add a new robot's meshes:
 - Asset resolver module: `src/unilab/assets/hub.py`
   (`resolve_motion_files`).
 - Single integration point: `MotionLoader.__init__` in
-  `src/unilab/envs/motion_tracking/g1/motion_loader.py`, which calls the
+  `src/unilab/tasks/motion_tracking/common/motion_loader.py`, which calls the
   resolver once on a cold path.
 - Hot paths (`step` / `reset`) never trigger any file download or parsing.
 - `ASSETS_ROOT_PATH` is unchanged, so the download target matches the
   original local path exactly.
 - Robot meshes use the same directory resolver (`resolve_robot_asset_dir`),
   integrated at `X2WallFlipTrackingEnv.__init__` in
-  `src/unilab/envs/motion_tracking/x2/flip_tracking.py`, and exposed as the
+  `src/unilab/tasks/motion_tracking/x2/flip_tracking.py`, and exposed as the
   `unilab-pull-assets` CLI.

@@ -110,7 +110,7 @@ G1 部署原型将 actor 输出严格映射为：
 - **速率有界** —— 将 dφ/dt 钳制到策略训练时所用的值（运动加载器会记录这个值；加载
   `reference_motion.npz`）。
 
-参见 `unilab.envs.motion_tracking.g1.motion_loader`，这是你应当在硬件上镜像的仿真侧
+参见 `unilab.tasks.motion_tracking.common.motion_loader`，这是你应当在硬件上镜像的仿真侧
 加载器。
 
 ## 5. 安全层

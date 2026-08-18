@@ -1,10 +1,10 @@
 # 动作追踪
 
-G1 动作追踪任务位于 `src/unilab/envs/motion_tracking/` 下，并通过
+G1 动作追踪任务位于 `src/unilab/tasks/motion_tracking/` 下，并通过
 `conf/ppo/`、`conf/appo/` 以及选定的 off-policy 路径中的 task owner YAML 选择。
 
 > **Motion 资产已迁移到 Hugging Face。** `.npz` 片段不再随仓库分发，首次使用时由
-> `MotionLoader`（`src/unilab/envs/motion_tracking/g1/motion_loader.py`）按需从
+> `MotionLoader`（`src/unilab/tasks/motion_tracking/common/motion_loader.py`）按需从
 > [unilabsim/unilab-motions](https://huggingface.co/datasets/unilabsim/unilab-motions)
 > 下载，下载逻辑在 `src/unilab/assets/hub.py`（`_HF_MOTIONS_REPO_ID`）。`uv sync`
 > 已自动安装所需的 `huggingface_hub` 依赖。
@@ -71,7 +71,7 @@ uv run eval --algo sac --task g1_motion_tracking --sim motrix \
 
 动作 NPZ 文件通过 `env.motion_file` 读取，也支持路径列表。标准片段必须包含七个 key：
 `fps`、`joint_pos`、`joint_vel`、`body_pos_w`、`body_quat_w`、`body_lin_vel_w`、
-`body_ang_vel_w`（在 `g1/motion_loader.py` 中校验）：
+`body_ang_vel_w`（在 `common/motion_loader.py` 中校验）：
 
 ```yaml
 env:

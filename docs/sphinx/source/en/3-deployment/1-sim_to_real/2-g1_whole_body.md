@@ -115,7 +115,7 @@ clip. On hardware you need a wall-clock → phase mapping that is:
 - **Bounded rate** — clip dφ/dt to the value the policy was trained with
   (the motion loader records this; load `reference_motion.npz`).
 
-See `unilab.envs.motion_tracking.g1.motion_loader` for the sim-side
+See `unilab.tasks.motion_tracking.common.motion_loader` for the sim-side
 loader you should mirror on hardware.
 
 ## 5. Safety layer
