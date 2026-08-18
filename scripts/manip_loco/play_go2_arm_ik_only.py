@@ -18,7 +18,7 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.envs.locomotion.go2_arm.base import build_go2_arm_position_gains
+from unilab.tasks.locomotion.go2_arm.base import build_go2_arm_position_gains
 from unilab.tasks.locomotion.go2_arm.manip_loco import Go2ArmManipLocoCfg
 
 TARGET_BODY = "ik_mocap_target"
