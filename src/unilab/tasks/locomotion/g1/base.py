@@ -1,3 +1,5 @@
+"""Shared runtime and configuration for G1 task owners."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -45,14 +47,16 @@ class Asset:
 class G1BaseCfg(LocomotionBaseCfg):
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)  # type: ignore[assignment]
     control_config: ControlConfig = field(default_factory=ControlConfig)  # type: ignore[assignment]
-    sensor: Sensor = field(default_factory=Sensor)
+    sensor: Sensor = field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default_factory=Sensor
+    )
     asset: Asset = field(default_factory=Asset)
     sim_dt: float = 0.02 / 3.0
     ctrl_dt: float = 0.02
 
 
 class G1BaseEnv(LocomotionBaseEnv):
-    _cfg: G1BaseCfg
+    _cfg: G1BaseCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _keyframe_name = "stand"
     _use_global_dtype = False
 

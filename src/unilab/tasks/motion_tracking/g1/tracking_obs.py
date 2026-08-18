@@ -43,7 +43,7 @@ from unilab.dr.dr_utils import (
 )
 from unilab.dr.types import RESET_TERM_GEOM_FRICTION
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.g1.base import NoiseConfig
+from unilab.tasks.locomotion.g1.base import NoiseConfig
 
 from ..common.rewards import RewardContext
 from .tracking import (

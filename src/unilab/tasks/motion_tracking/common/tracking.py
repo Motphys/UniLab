@@ -17,7 +17,7 @@ import numpy as np
 from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.g1.base import G1BaseEnv
+from unilab.tasks.locomotion.g1.base import G1BaseEnv
 
 from . import observations
 from .config import MotionTrackingCfg, MotionTrackingDeployEnvCfg
