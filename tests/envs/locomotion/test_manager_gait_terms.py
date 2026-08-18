@@ -11,7 +11,6 @@ import pytest
 
 from unilab.base.backend.base import BackendSensorView
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.locomotion.common import manager_terms
 from unilab.managers import (
     ObservationGroupCfg,
     ObservationManager,
@@ -21,6 +20,7 @@ from unilab.managers import (
 )
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.tasks.locomotion.common import manager_terms
 
 CONTACTS = ("fl_contact", "fr_contact", "rl_contact", "rr_contact")
 POSITIONS = ("fl_pos", "fr_pos", "rl_pos", "rr_pos")

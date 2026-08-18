@@ -1,4 +1,4 @@
-"""Task-owned Manager-Based terms for the quadruped locomotion pilots.
+"""Task-owned Manager-Based terms for quadruped locomotion.
 
 The equations come from UniLab's existing Go1/Go2 joystick tasks.  The adaptation
 uses community ``func + params`` terms, NumPy, and the base-owned sensor facade.
