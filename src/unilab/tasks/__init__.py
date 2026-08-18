@@ -11,6 +11,7 @@ __unilab_registry_modules__ = (
     "unilab.tasks.locomotion.go1",
     "unilab.tasks.locomotion.go2",
     "unilab.envs.locomotion.go2w",
+    "unilab.tasks.locomotion.go2w.rough",
     "unilab.envs.locomotion.g1",
     "unilab.envs.locomotion.go2_arm",
     "unilab.tasks.locomotion.a2",
