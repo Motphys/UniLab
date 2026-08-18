@@ -353,6 +353,7 @@ class MuJoCoBackend(SimBackend):
         self._root_qpos_dim, self._root_qvel_dim = _root_state_dims(self._model)
         self._num_dof_pos = self.nq - self._root_qpos_dim
         self._num_dof_vel = self.nv - self._root_qvel_dim
+        self._interval_root_velocity_qvel_ids = self._resolve_interval_root_velocity_qvel_ids()
 
         # State storage.
         nstate = mujoco.mj_stateSize(self._model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
@@ -652,6 +653,7 @@ class MuJoCoBackend(SimBackend):
         )
         self._push_body_id = self._resolve_push_body_id(self._model)
         self._push_body_force_slice = self._resolve_push_body_force_slice(self._push_body_id)
+        self._interval_root_velocity_qvel_ids = self._resolve_interval_root_velocity_qvel_ids()
         self._base_body_mass = np.asarray(self._model.body_mass).copy()
         self._base_body_ipos = np.asarray(self._model.body_ipos).copy()
         self._pending_xfrc_applied = np.zeros(
@@ -770,6 +772,19 @@ class MuJoCoBackend(SimBackend):
             qpos_indices=tuple(range(qpos_start, qpos_start + 7)),
             qvel_indices=tuple(range(qvel_start, qvel_start + 6)),
         )
+
+    def _resolve_interval_root_velocity_qvel_ids(self) -> tuple[int, int, int] | None:
+        """Bind the configured free root's world-linear qvel columns on the cold path."""
+        if self._base_name is None or self._base_body_id < 0:
+            return None
+        try:
+            layout = self.get_root_state_layout(self._base_name)
+        except (NotImplementedError, ValueError):
+            return None
+        linear_ids = layout.qvel_indices[:3]
+        if linear_ids != tuple(range(linear_ids[0], linear_ids[0] + 3)):
+            return None
+        return int(linear_ids[0]), int(linear_ids[1]), int(linear_ids[2])
 
     def get_body_ids(self, names: "Sequence[str]") -> np.ndarray:
         ids: list[int] = []
@@ -1074,6 +1089,9 @@ class MuJoCoBackend(SimBackend):
                 }
             ),
             supports_interval_push=self._push_body_id >= 0,
+            supports_interval_body_velocity_delta=(
+                self._interval_root_velocity_qvel_ids is not None
+            ),
             supports_interval_body_force=True,
         )
 
@@ -1128,14 +1146,76 @@ class MuJoCoBackend(SimBackend):
         body_ids: np.ndarray,
         velocity_delta: np.ndarray,
     ) -> None:
-        """Apply a world-frame linear-velocity delta to specific bodies.
+        """Apply a row-selective world-frame velocity kick to the configured free root."""
+        qvel_ids = self._interval_root_velocity_qvel_ids
+        if qvel_ids is None:
+            raise NotImplementedError(
+                "MuJoCo interval body velocity perturbation requires base_name to identify "
+                "a body with exactly one free joint"
+            )
 
-        Backend-internal hook for ``apply_interval_randomization``; it is not
-        part of the public ``SimBackend`` surface.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support interval body velocity perturbation"
+        raw_body_ids = np.asarray(body_ids)
+        if (
+            raw_body_ids.ndim != 1
+            or not np.issubdtype(raw_body_ids.dtype, np.integer)
+            or np.issubdtype(raw_body_ids.dtype, np.bool_)
+        ):
+            raise TypeError(
+                "MuJoCo interval body velocity perturbation body_ids must be a 1-D "
+                f"integer array, got shape={raw_body_ids.shape}, dtype={raw_body_ids.dtype}"
+            )
+        resolved_body_ids = np.asarray(raw_body_ids, dtype=np.int32)
+        expected_body_ids = np.asarray([self._base_body_id], dtype=np.int32)
+        if not np.array_equal(resolved_body_ids, expected_body_ids):
+            raise NotImplementedError(
+                "MuJoCo interval body velocity perturbation only supports the configured "
+                f"free root body '{self._base_name}' (id={self._base_body_id}); "
+                f"received body_ids={resolved_body_ids.tolist()}"
+            )
+
+        if not isinstance(velocity_delta, np.ndarray):
+            raise TypeError(
+                "MuJoCo interval body velocity perturbation must be an np.ndarray, "
+                f"got {type(velocity_delta).__name__}"
+            )
+        expected_shape = (self._num_envs, 1, 3)
+        if velocity_delta.shape != expected_shape:
+            raise ValueError(
+                "MuJoCo interval body velocity perturbation has shape "
+                f"{velocity_delta.shape}; expected {expected_shape}"
+            )
+        if not np.issubdtype(velocity_delta.dtype, np.floating):
+            raise TypeError(
+                "MuJoCo interval body velocity perturbation must have floating dtype, "
+                f"got {velocity_delta.dtype}"
+            )
+        if not np.isfinite(velocity_delta).all():
+            raise ValueError("MuJoCo interval body velocity perturbation contains NaN or Inf")
+        if self._pool is None:
+            raise RuntimeError(
+                "MuJoCo interval body velocity perturbation requires a materialized backend"
+            )
+
+        active_rows = np.flatnonzero(np.any(velocity_delta[:, 0, :] != 0.0, axis=1)).astype(
+            np.int32,
+            copy=False,
         )
+        if active_rows.size == 0:
+            return
+
+        state_rows = np.asarray(self._physics_state[active_rows], dtype=np.float64).copy()
+        state_qvel_ids = np.asarray(
+            [self._idx_qvel + qvel_id for qvel_id in qvel_ids],
+            dtype=np.intp,
+        )
+        state_rows[:, state_qvel_ids] += velocity_delta[active_rows, 0, :]
+        state_out, sensor_out = self._pool.reset(
+            env_ids=active_rows,
+            initial_state=state_rows,
+            chunk_size=self._chunk_size,
+        )
+        self._physics_state[active_rows] = state_out.astype(self._np_dtype)
+        self._sensor_data[active_rows] = sensor_out.astype(self._np_dtype)
 
     def push_robots(self, force_range: Sequence[float] | np.ndarray) -> None:
         self._pending_xfrc_applied.fill(0.0)
