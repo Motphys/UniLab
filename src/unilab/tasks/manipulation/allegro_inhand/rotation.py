@@ -28,6 +28,7 @@ from unilab.dr.dr_utils import (
     zero_actions,
 )
 from unilab.dtype_config import get_global_dtype
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
 from unilab.utils.geometry import (
     np_normalize_axis,
     np_quat_angular_velocity_from_pair,
@@ -142,7 +143,6 @@ class DomainRandConfig:
     ball_z_offset: float = 0.0
 
 
-@registry.envcfg("AllegroInhandRotation")
 @dataclass
 class AllegroRotationPPOCfg(AllegroBaseCfg):
     scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -256,9 +256,6 @@ class AllegroRotationDomainRandomizationProvider(DomainRandomizationProvider):
 # ─────────────────────────── Environment ──────────────────────────────
 
 
-@registry.env("AllegroInhandRotation", sim_backend="drake")
-@registry.env("AllegroInhandRotation", sim_backend="mujoco")
-@registry.env("AllegroInhandRotation", sim_backend="motrix")
 class AllegroRotationPPO(AllegroBaseEnv):
     _cfg: AllegroRotationPPOCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _reward_cfg: RewardConfigPPO
@@ -515,3 +512,11 @@ RewardConfig = RewardConfigPPO
 Domain_Rand = DomainRandConfig
 AllegroRotationCfg = AllegroRotationPPOCfg
 AllegroRotationMj = AllegroRotationPPO
+
+# The legacy class/config above remain only as the implementation base for
+# AllegroInhandRotationGrasp.  The production rotation identity is Hydra-owned
+# and has one generic Manager-Based runtime across all registered backends.
+registry.register_env_config("AllegroInhandRotation", ManagerBasedRlEnvCfg)
+registry.register_env("AllegroInhandRotation", make_manager_based_rl_env, sim_backend="mujoco")
+registry.register_env("AllegroInhandRotation", make_manager_based_rl_env, sim_backend="motrix")
+registry.register_env("AllegroInhandRotation", make_manager_based_rl_env, sim_backend="drake")

@@ -1,14 +1,39 @@
 # @package _global_
-defaults:
-  - /task/allegro_inhand/mujoco
-  - _self_
+# Temporary last-consumer owner for the legacy grasp-generation env. Remove
+# with the dedicated AllegroInhandRotationGrasp Manager-Based migration child.
 
 training:
   task_name: AllegroInhandRotationGrasp
   sim_backend: mujoco
   no_play: true
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0]
+  cam_elevation: -20.0
 algo:
+  num_envs: 16384
+  num_steps_per_env: 8
   max_iterations: 1000 # infinite rollout
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+  algorithm:
+    value_loss_coef: 4.0
+    desired_kl: 0.02
 reward:
   scales:
     rotate: 0.0
@@ -17,6 +42,9 @@ reward:
     torque: 0.0
     work: 0.0
     drop: 0.0
+  angvel_clip_min: -0.5
+  angvel_clip_max: 0.5
+  reset_z_threshold: 0.125
 env:
   gen_grasp: true
   max_episode_seconds: 3.0
@@ -28,7 +56,9 @@ env:
   domain_rand:
     randomize_base_mass: false
     random_com: false
+    randomize_gravity: false
     push_robots: false
+    ball_z_offset: 0.0
     ball_vel_noise: 0.0
     joint_noise: 0.25 # random sampling of the grasp poses
 play_profile:

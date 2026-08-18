@@ -119,7 +119,6 @@ class _RslRlVecEnvWrapper:
 def test_rsl_rl_ppo_one_iteration(
     env_name: str,
     default_g1_reward_config,
-    default_allegro_reward_config,
 ):
     """RSL-RL PPO can complete 1 training iteration on a real env."""
     from rsl_rl.runners import OnPolicyRunner
@@ -138,9 +137,14 @@ def test_rsl_rl_ppo_one_iteration(
         num_envs = 256
         env_cfg_override = {"reward_config": reward_cfg}
     else:
-        reward_cfg = default_allegro_reward_config
         num_envs = 128
-        env_cfg_override = {"reward_config": reward_cfg}
+        root_dir = Path(__file__).parents[2]
+        GlobalHydra.instance().clear()
+        with initialize_config_dir(config_dir=str(root_dir / "conf" / "ppo"), version_base="1.3"):
+            hydra_cfg = compose("config", overrides=["task=allegro_inhand/mujoco"])
+        env_cfg_override = BackendAdapter(
+            hydra_cfg, root_dir=root_dir
+        ).build_task_env_cfg_override()
 
     env = registry.make(
         env_name,

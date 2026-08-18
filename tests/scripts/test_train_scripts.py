@@ -813,8 +813,10 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=allegro_inhand/mujoco"])
     ppo_motrix_cfg = _ppo_cfg(["task=allegro_inhand/motrix"])
+    ppo_drake_cfg = _ppo_cfg(["task=allegro_inhand/drake"])
     appo_cfg = _appo_cfg(["task=allegro_inhand/mujoco"])
     appo_motrix_cfg = _appo_cfg(["task=allegro_inhand/motrix"])
+    appo_drake_cfg = _appo_cfg(["task=allegro_inhand/drake"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -822,18 +824,20 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert cfg.algo.empirical_normalization is False
     assert cfg.algo.actor.obs_normalization is True
     assert cfg.algo.critic.obs_normalization is True
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(1.25)
-    assert env_cfg_override["reward_config"]["reset_z_threshold"] == pytest.approx(0.125)
-    assert env_cfg_override["gen_grasp"] is False
+    assert env_cfg_override["rewards"]["rotate"]["weight"] == pytest.approx(1.25)
+    assert env_cfg_override["terminations"]["dropped"]["params"][
+        "minimum_ball_height"
+    ] == pytest.approx(0.125)
     assert env_cfg_override["max_episode_seconds"] == pytest.approx(20.0)
-    assert env_cfg_override["grasp_cache_path"] == "caches/allegro_grasp_50k.npy"
-    assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
-    assert env_cfg_override["domain_rand"]["random_com"] is False
-    assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
-    assert env_cfg_override["domain_rand"]["push_robots"] is False
-    assert env_cfg_override["domain_rand"]["joint_noise"] == pytest.approx(0.0)
-    assert env_cfg_override["domain_rand"]["ball_vel_noise"] == pytest.approx(0.0)
-    assert env_cfg_override["domain_rand"]["ball_z_offset"] == pytest.approx(0.0)
+    reset_params = env_cfg_override["events"]["reset_hand_ball"]["params"]
+    assert reset_params["grasp_cache_path"] is None
+    assert reset_params["joint_noise"] == pytest.approx(0.0)
+    assert reset_params["ball_velocity_noise"] == pytest.approx(0.0)
+    assert reset_params["ball_z_offset"] == pytest.approx(0.0)
+    assert env_cfg_override["observations"]["policy"]["history_length"] == 3
+    assert env_cfg_override["actions"]["hand"]["action_scale"] == pytest.approx(1.0 / 24.0)
+    assert "reward_config" not in env_cfg_override
+    assert "domain_rand" not in env_cfg_override
     assert appo_cfg.algo.steps_per_env == cfg.algo.num_steps_per_env
     assert list(appo_cfg.algo.actor.hidden_dims) == list(cfg.algo.actor.hidden_dims)
     assert appo_cfg.algo.actor.activation == cfg.algo.actor.activation
@@ -859,14 +863,15 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert appo_motrix_cfg.training.sim_backend == ppo_motrix_cfg.training.sim_backend
     assert appo_motrix_cfg.algo.actor.obs_normalization is True
     assert appo_motrix_cfg.algo.critic.obs_normalization is True
-    assert appo_motrix_cfg.reward.scales.rotate == pytest.approx(
-        ppo_motrix_cfg.reward.scales.rotate
+    assert appo_motrix_cfg.reward.rotate.weight == pytest.approx(
+        ppo_motrix_cfg.reward.rotate.weight
     )
-    assert appo_motrix_cfg.env.gen_grasp is ppo_motrix_cfg.env.gen_grasp
-    assert appo_motrix_cfg.env.domain_rand.randomize_base_mass is False
-    assert appo_motrix_cfg.env.domain_rand.random_com is False
-    assert appo_motrix_cfg.env.domain_rand.randomize_gravity is False
-    assert appo_motrix_cfg.env.domain_rand.push_robots is False
+    assert appo_motrix_cfg.env.events.pd_gains is None
+    assert ppo_motrix_cfg.env.events.pd_gains is None
+    assert ppo_drake_cfg.training.sim_backend == "drake"
+    assert appo_drake_cfg.training.sim_backend == "drake"
+    assert ppo_drake_cfg.env.events.pd_gains is None
+    assert appo_drake_cfg.env.events.pd_gains is None
 
 
 def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(

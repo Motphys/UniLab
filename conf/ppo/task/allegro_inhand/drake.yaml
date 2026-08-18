@@ -5,36 +5,20 @@ defaults:
 
 training:
   task_name: AllegroInhandRotation
-  sim_backend: motrix
-  play_steps: 200
+  sim_backend: drake
   render_spacing: 0.5
   cam_distance: 1.5
   cam_lookat: [0.75, 0.75, 0]
   cam_elevation: -20.0
-env:
-  events:
-    pd_gains: null
 algo:
   num_envs: 16384
-  steps_per_env: 8
+  num_steps_per_env: 8
   max_iterations: 201
-  save_interval: 100
-  algorithm:
-    value_loss_coef: 4.0
-    entropy_coef: 0.01
-    learning_rate: 0.001
-    desired_kl: 0.02
-    adaptive_kl_factor: 2.0
-    adaptive_lr_factor: 1.5
-    num_learning_epochs: 5
-    num_mini_batches: 4
-    clip_param: 0.2
-    gamma: 0.99
-    lam: 0.95
-    max_grad_norm: 1.0
-    use_clipped_value_loss: true
-    schedule: adaptive
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
   actor:
+    class_name: rsl_rl.models.MLPModel
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
@@ -43,6 +27,20 @@ algo:
       init_std: 1.0
       std_type: scalar
   critic:
+    class_name: rsl_rl.models.MLPModel
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
+  algorithm:
+    value_loss_coef: 4.0
+    desired_kl: 0.02
+env:
+  drake_backend_mode: batch
+  events:
+    # Drake consumes the fixed MJCF actuator gains and does not expose reset
+    # gain mutation in the installed production adapter.
+    pd_gains: null
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
