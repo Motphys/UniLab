@@ -474,6 +474,7 @@ class Entity:
             actuator_ids = self._resolve_enumerated_ids(
                 "actuator", self._actuator_names, backend.get_actuator_names
             )
+        self._actuator_ids = actuator_ids
 
         self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
         self._validate_body_state(backend, root_body_ids, body_ids)
@@ -1025,6 +1026,68 @@ class Entity:
             term_name=f"{self.name}.write_root_state_to_sim",
         )
 
+    def bind_actuator_gain_write(
+        self,
+        actuator_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Bind selected actuator columns and immutable gain defaults on the cold path."""
+        if self._reset_state is None:
+            raise self._capability_error(
+                "reset actuator-gain write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        if self._actuator_ids is None:
+            raise self._capability_error(
+                "reset actuator-gain write",
+                "actuator_names were not declared in EntityCfg",
+            )
+        local_ids = self._normalize_local_actuator_ids(
+            actuator_ids,
+            capability="reset actuator-gain write",
+        )
+        if local_ids.size == 0:
+            raise ValueError(
+                f"Entity '{self.name}' reset actuator-gain write selected no actuators"
+            )
+        backend_ids = self._actuator_ids[local_ids]
+        _, default_kp, default_kd = self._reset_state.bind_actuator_gain_write(
+            backend_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        bound_local_ids = np.array(local_ids, copy=True)
+        bound_local_ids.setflags(write=False)
+        return bound_local_ids, default_kp, default_kd
+
+    def write_actuator_gains_to_sim(
+        self,
+        kp: np.ndarray,
+        kd: np.ndarray,
+        actuator_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "pd_gains",
+    ) -> None:
+        """Stage entity-local actuator gains in the active reset transaction."""
+        if self._reset_state is None or self._actuator_ids is None:
+            raise self._capability_error(
+                "reset actuator-gain write",
+                "actuator metadata or the env-owned reset transaction was not materialized",
+            )
+        local_ids = self._normalize_local_actuator_ids(
+            actuator_ids,
+            capability="reset actuator-gain write",
+        )
+        resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        self._reset_state.write_actuator_gains(
+            resolved_env_ids,
+            self._actuator_ids[local_ids],
+            kp,
+            kd,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def write_root_link_pose_to_sim(
         self,
         root_pose: np.ndarray,
@@ -1157,6 +1220,39 @@ class Entity:
         if np.unique(ids).size != ids.size:
             raise ValueError(
                 f"Entity '{self.name}' {capability} joint_ids contain duplicates: {ids.tolist()}"
+            )
+        return ids
+
+    def _normalize_local_actuator_ids(
+        self,
+        actuator_ids: np.ndarray | Sequence[int] | slice | None,
+        *,
+        capability: str,
+    ) -> np.ndarray:
+        if actuator_ids is None:
+            ids = np.arange(self.num_actuators, dtype=np.intp)
+        elif isinstance(actuator_ids, slice):
+            ids = np.arange(self.num_actuators, dtype=np.intp)[actuator_ids]
+        else:
+            raw = np.asarray(actuator_ids)
+            if (
+                raw.ndim != 1
+                or not np.issubdtype(raw.dtype, np.integer)
+                or np.issubdtype(raw.dtype, np.bool_)
+            ):
+                raise TypeError(
+                    f"Entity '{self.name}' {capability} actuator_ids must be a 1-D "
+                    "integer array or slice"
+                )
+            ids = np.asarray(raw, dtype=np.intp)
+        if np.any(ids < 0) or np.any(ids >= self.num_actuators):
+            raise IndexError(
+                f"Entity '{self.name}' {capability} actuator_ids out of range for "
+                f"{self.num_actuators} actuators: {ids.tolist()}"
+            )
+        if np.unique(ids).size != ids.size:
+            raise ValueError(
+                f"Entity '{self.name}' {capability} actuator_ids contain duplicates: {ids.tolist()}"
             )
         return ids
 

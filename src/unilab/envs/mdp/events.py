@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
+from unilab.managers.event_manager import EventTermCfg
+from unilab.managers.manager_base import ManagerTermBase
 from unilab.managers.scene_entity_config import SceneEntityCfg
 from unilab.utils.rotation import np_quat_from_euler_xyz, np_quat_mul
 
@@ -20,6 +22,53 @@ if TYPE_CHECKING:
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 _SE3_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
+_PD_GAIN_PARAM_NAMES = frozenset(("kp_range", "kd_range", "asset_cfg", "distribution", "operation"))
+
+
+def _gain_range(
+    value: Any,
+    *,
+    name: str,
+    distribution: Literal["uniform", "log_uniform"],
+) -> tuple[float, float]:
+    try:
+        bounds = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"pd_gains {name} must be a numeric (min, max) pair") from exc
+    if bounds.shape != (2,):
+        raise ValueError(f"pd_gains {name} must have shape (2,), got {bounds.shape}")
+    if not np.isfinite(bounds).all():
+        raise ValueError(f"pd_gains {name} must contain only finite values")
+    lower, upper = float(bounds[0]), float(bounds[1])
+    if lower > upper:
+        raise ValueError(f"pd_gains {name} minimum {lower} exceeds maximum {upper}")
+    if distribution == "log_uniform" and lower <= 0.0:
+        raise ValueError(f"pd_gains {name} must be positive for log_uniform sampling")
+    return lower, upper
+
+
+def _gain_choice(
+    value: Any,
+    *,
+    name: str,
+    choices: tuple[str, ...],
+) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"pd_gains {name} must be a string, got {type(value).__name__}")
+    if value not in choices:
+        raise ValueError(f"pd_gains {name} must be one of {choices}, got {value!r}")
+    return value
+
+
+def _sample_gain_range(
+    rng: np.random.Generator,
+    bounds: tuple[float, float],
+    shape: tuple[int, int],
+    distribution: Literal["uniform", "log_uniform"],
+) -> np.ndarray:
+    if distribution == "uniform":
+        return rng.uniform(bounds[0], bounds[1], size=shape)
+    return np.exp(rng.uniform(np.log(bounds[0]), np.log(bounds[1]), size=shape))
 
 
 def _sample_se3_range(
@@ -60,6 +109,100 @@ def resolve_env_ids(env: ManagerBasedRlEnv, env_ids: np.ndarray | None) -> np.nd
     if env_ids is None:
         return np.arange(env.num_envs, dtype=np.int32)
     return env_ids
+
+
+class PdGains(ManagerTermBase):
+    """Pinned-mjlab-compatible PD gain randomization on UniLab reset payloads."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        if cfg.mode != "reset":
+            raise NotImplementedError(
+                "EventManager term 'pd_gains' only supports mode='reset' on the UniLab "
+                "set_state transaction; startup/interval/step model-field mutation is unavailable"
+            )
+        if cfg.min_step_count_between_reset != 0:
+            raise NotImplementedError(
+                "EventManager term 'pd_gains' requires min_step_count_between_reset=0 "
+                "because sparse per-field reset rows cannot be represented by the current "
+                "SimBackend.set_state payload"
+            )
+        unknown = sorted(set(cfg.params) - _PD_GAIN_PARAM_NAMES)
+        if unknown:
+            raise ValueError(f"EventManager term 'pd_gains' has unknown parameters {unknown}")
+        missing = [name for name in ("kp_range", "kd_range") if name not in cfg.params]
+        if missing:
+            raise ValueError(f"EventManager term 'pd_gains' is missing parameters {missing}")
+
+        distribution = cast(
+            Literal["uniform", "log_uniform"],
+            _gain_choice(
+                cfg.params.get("distribution", "uniform"),
+                name="distribution",
+                choices=("uniform", "log_uniform"),
+            ),
+        )
+        self._operation = cast(
+            Literal["scale", "abs"],
+            _gain_choice(
+                cfg.params.get("operation", "scale"),
+                name="operation",
+                choices=("scale", "abs"),
+            ),
+        )
+        self._distribution = distribution
+        self._kp_range = _gain_range(
+            cfg.params["kp_range"],
+            name="kp_range",
+            distribution=distribution,
+        )
+        self._kd_range = _gain_range(
+            cfg.params["kd_range"],
+            name="kd_range",
+            distribution=distribution,
+        )
+        asset_cfg = cfg.params.get("asset_cfg", _DEFAULT_ASSET_CFG)
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(
+                "EventManager term 'pd_gains' asset_cfg must be SceneEntityCfg, got "
+                f"{type(asset_cfg).__name__}"
+            )
+        self._entity = cast("Entity", env.scene[asset_cfg.name])
+        self._actuator_ids, self._default_kp, self._default_kd = (
+            self._entity.bind_actuator_gain_write(
+                asset_cfg.actuator_ids,
+                term_name="pd_gains",
+            )
+        )
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: np.ndarray | None,
+        kp_range: tuple[float, float],
+        kd_range: tuple[float, float],
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+        distribution: Literal["uniform", "log_uniform"] = "uniform",
+        operation: Literal["scale", "abs"] = "scale",
+    ) -> None:
+        del kp_range, kd_range, asset_cfg, distribution, operation
+        ids = resolve_env_ids(env, env_ids)
+        shape = (len(ids), len(self._actuator_ids))
+        kp = _sample_gain_range(env.rng, self._kp_range, shape, self._distribution)
+        kd = _sample_gain_range(env.rng, self._kd_range, shape, self._distribution)
+        if self._operation == "scale":
+            kp *= self._default_kp[None, :]
+            kd *= self._default_kd[None, :]
+        self._entity.write_actuator_gains_to_sim(
+            kp,
+            kd,
+            actuator_ids=self._actuator_ids,
+            env_ids=ids,
+            term_name="pd_gains",
+        )
+
+
+pd_gains = PdGains
 
 
 def reset_scene_to_default(env: ManagerBasedRlEnv, env_ids: np.ndarray | None) -> None:
@@ -106,4 +249,4 @@ def reset_root_state_uniform(
     asset.write_root_state_to_sim(root_states, env_ids=ids)
 
 
-__all__ = ["reset_root_state_uniform", "reset_scene_to_default", "resolve_env_ids"]
+__all__ = ["pd_gains", "reset_root_state_uniform", "reset_scene_to_default", "resolve_env_ids"]
