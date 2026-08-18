@@ -87,7 +87,7 @@ def test_terrain_spawn_attached_when_rough_motrix():
 
 
 def test_go1_rough_initialization_and_reset_use_backend_terrain_contract():
-    from unilab.envs.locomotion.go1.rough import (
+    from unilab.tasks.locomotion.go1.rough import (
         Go1JoystickRoughCfg,
         Go1JoystickRoughEnv,
         RoughRewardConfig,
