@@ -19,6 +19,7 @@ from unilab.envs import (
     ManagerBasedRlEnv,
     ManagerBasedRLEnvCfg,
     ManagerBasedRlEnvCfg,
+    make_manager_based_rl_env,
     mdp,
 )
 from unilab.managers import (
@@ -384,6 +385,238 @@ def _make_env(
 def test_public_names_are_spelling_only_aliases() -> None:
     assert ManagerBasedRLEnv is ManagerBasedRlEnv
     assert ManagerBasedRLEnvCfg is ManagerBasedRlEnvCfg
+    assert make_manager_based_rl_env is manager_env_module.make_manager_based_rl_env
+
+
+@pytest.mark.parametrize(
+    ("backend_type", "expects_body_materialization"),
+    [
+        ("mujoco", True),
+        ("motrix", True),
+        ("mjwarp", False),
+        ("drake", False),
+    ],
+)
+def test_generic_factory_routes_only_public_backend_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_type: str,
+    expects_body_materialization: bool,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        actuator_names=("motor",),
+    )
+    backend = _FakeBackend(3)
+    constructed: dict[str, Any] = {}
+
+    def fake_create_backend(
+        requested_backend: str,
+        scene: SceneCfg,
+        num_envs: int,
+        sim_dt: float,
+        **kwargs: Any,
+    ) -> SimBackend:
+        constructed.update(
+            backend_type=requested_backend,
+            scene=scene,
+            num_envs=num_envs,
+            sim_dt=sim_dt,
+            kwargs=kwargs,
+        )
+        return cast(SimBackend, backend)
+
+    sentinel = object()
+
+    def fake_make_env(
+        received_cfg: ManagerBasedRlEnvCfg,
+        received_backend: SimBackend,
+        received_num_envs: int,
+    ) -> Any:
+        assert received_cfg is cfg
+        assert received_backend is backend
+        assert received_num_envs == 3
+        return sentinel
+
+    monkeypatch.setattr(manager_env_module, "create_backend", fake_create_backend)
+    monkeypatch.setattr(manager_env_module, "ManagerBasedRlEnv", fake_make_env)
+
+    result = make_manager_based_rl_env(cfg, num_envs=3, backend_type=backend_type)
+
+    assert result is sentinel
+    assert constructed["backend_type"] == backend_type
+    assert constructed["scene"] is cfg.scene
+    assert constructed["num_envs"] == 3
+    assert constructed["sim_dt"] == cfg.sim_dt
+    kwargs = constructed["kwargs"]
+    assert kwargs["base_name"] == "base"
+    if expects_body_materialization:
+        assert kwargs["add_body_sensors"] is True
+    else:
+        assert "add_body_sensors" not in kwargs
+    for key, value in env_backend_kwargs(cfg).items():
+        assert kwargs[key] == value
+
+
+@pytest.mark.parametrize(
+    ("entities", "match"),
+    [
+        ({"robot": EntityCfg(actuator_names=("motor",))}, "found 0 root entities"),
+        (
+            {
+                "robot": EntityCfg(root_body_name="base", actuator_names=("motor",)),
+                "payload": EntityCfg(root_body_name="box"),
+            },
+            "found 2 root entities.*robot.*payload",
+        ),
+    ],
+)
+def test_generic_factory_requires_exactly_one_explicit_root_entity(
+    monkeypatch: pytest.MonkeyPatch,
+    entities: dict[str, EntityCfg],
+    match: str,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities = entities
+    backend_constructed = False
+
+    def reject_backend_construction(*args: Any, **kwargs: Any) -> SimBackend:
+        nonlocal backend_constructed
+        backend_constructed = True
+        raise AssertionError("backend construction must not run")
+
+    monkeypatch.setattr(manager_env_module, "create_backend", reject_backend_construction)
+
+    with pytest.raises(ValueError, match=match):
+        make_manager_based_rl_env(cfg, num_envs=2, backend_type="mujoco")
+    assert not backend_constructed
+
+
+@pytest.mark.parametrize(
+    ("cfg_value", "num_envs", "backend_type", "error", "match"),
+    [
+        (object(), 2, "mujoco", TypeError, "expected ManagerBasedRlEnvCfg"),
+        (None, 0, "mujoco", ValueError, "num_envs must be a positive integer"),
+        (None, True, "mujoco", ValueError, "num_envs must be a positive integer"),
+        (None, 2, "", ValueError, "backend_type must be a non-empty string"),
+    ],
+)
+def test_generic_factory_rejects_invalid_public_arguments_before_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    cfg_value: object | None,
+    num_envs: int,
+    backend_type: str,
+    error: type[Exception],
+    match: str,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False) if cfg_value is None else cfg_value
+    backend_constructed = False
+
+    def reject_backend_construction(*args: Any, **kwargs: Any) -> SimBackend:
+        nonlocal backend_constructed
+        backend_constructed = True
+        raise AssertionError("backend construction must not run")
+
+    monkeypatch.setattr(manager_env_module, "create_backend", reject_backend_construction)
+
+    with pytest.raises(error, match=match):
+        make_manager_based_rl_env(
+            cast(ManagerBasedRlEnvCfg, cfg),
+            num_envs=num_envs,
+            backend_type=backend_type,
+        )
+    assert not backend_constructed
+
+
+@pytest.mark.parametrize(
+    ("entities", "error", "match"),
+    [
+        (
+            cast(dict[str, EntityCfg], {1: EntityCfg(root_body_name="base")}),
+            TypeError,
+            "entity names must be non-empty strings",
+        ),
+        (
+            cast(dict[str, EntityCfg], {"robot": object()}),
+            TypeError,
+            "scene entity 'robot' must be EntityCfg",
+        ),
+        (
+            {"robot": EntityCfg(root_body_name="")},
+            TypeError,
+            "root_body_name must be a non-empty string",
+        ),
+    ],
+)
+def test_generic_factory_rejects_invalid_entity_contract_before_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    entities: dict[str, EntityCfg],
+    error: type[Exception],
+    match: str,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities = entities
+    backend_constructed = False
+
+    def reject_backend_construction(*args: Any, **kwargs: Any) -> SimBackend:
+        nonlocal backend_constructed
+        backend_constructed = True
+        raise AssertionError("backend construction must not run")
+
+    monkeypatch.setattr(manager_env_module, "create_backend", reject_backend_construction)
+
+    with pytest.raises(error, match=match):
+        make_manager_based_rl_env(cfg, num_envs=2, backend_type="mujoco")
+    assert not backend_constructed
+
+
+def test_generic_factory_preserves_backend_construction_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        actuator_names=("motor",),
+    )
+
+    def fail_backend_construction(*args: Any, **kwargs: Any) -> SimBackend:
+        raise NotImplementedError("body-state capability is unavailable")
+
+    monkeypatch.setattr(manager_env_module, "create_backend", fail_backend_construction)
+
+    with pytest.raises(NotImplementedError, match="body-state capability is unavailable"):
+        make_manager_based_rl_env(cfg, num_envs=2, backend_type="mjwarp")
+
+
+def test_generic_factory_cleans_backend_when_env_construction_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        actuator_names=("motor",),
+    )
+    backend = _FakeBackend(2)
+
+    monkeypatch.setattr(
+        manager_env_module,
+        "create_backend",
+        lambda *args, **kwargs: cast(SimBackend, backend),
+    )
+
+    def fail_env_construction(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("manager initialization failed")
+
+    monkeypatch.setattr(manager_env_module, "ManagerBasedRlEnv", fail_env_construction)
+
+    with pytest.raises(RuntimeError, match="manager initialization failed"):
+        make_manager_based_rl_env(cfg, num_envs=2, backend_type="mujoco")
+    assert backend.cleanup_calls == 1
 
 
 @pytest.mark.parametrize(
@@ -581,7 +814,7 @@ def test_named_keyframe_snapshot_is_shared_by_entity_and_reset_cold_path() -> No
 def test_real_mujoco_backend_is_materialized_before_first_reset() -> None:
     scene = SceneCfg(
         model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"),
-        entities={"robot": EntityCfg()},
+        entities={"robot": EntityCfg(root_body_name="base")},
     )
     cfg = ManagerBasedRlEnvCfg(
         scene=scene,
@@ -599,15 +832,7 @@ def test_real_mujoco_backend_is_materialized_before_first_reset() -> None:
         terminations={"time_out": TerminationTermCfg(func=mdp.time_out, time_out=True)},
         policy_observation_group="actor",
     )
-    backend = create_backend(
-        "mujoco",
-        scene,
-        2,
-        cfg.sim_dt,
-        base_name="base",
-        **env_backend_kwargs(cfg),
-    )
-    env = ManagerBasedRlEnv(cfg, backend, 2)
+    env = make_manager_based_rl_env(cfg, num_envs=2, backend_type="mujoco")
     try:
         state = env.init_state()
         assert state.obs["obs"].shape == (2, 1)
