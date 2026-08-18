@@ -35,7 +35,7 @@ UniLab 的 env 注册依赖 `@registry.envcfg(...)` 与 `@registry.env(...)` dec
 
 ## Consequences
 
-- 新增 env package 时，需要同步声明 bootstrap modules。
+- 新增 task leaf 时，需要在 `unilab.tasks` 中同步声明 bootstrap module。
 - registry 相关回归可以在 `ensure_registries()` 边界直接测试，不必依赖顶层训练脚本间接发现。
 - 文档可以把 registry bootstrap 作为正式架构引用，而不是“当前实现细节”。
 
@@ -48,7 +48,7 @@ UniLab 的 env 注册依赖 `@registry.envcfg(...)` 与 `@registry.env(...)` dec
 
 - Registry 入口: `src/unilab/base/registry.py`
 - Bootstrap helper: `src/unilab/base/registry.py`
-- Env package 入口: `src/unilab/envs/locomotion/__init__.py`, `src/unilab/envs/motion_tracking/__init__.py`, `src/unilab/envs/manipulation/__init__.py`
+- Task package 入口: `src/unilab/tasks/__init__.py`
 - Bootstrap tests: `tests/utils/test_algo_utils.py`, `tests/base/test_registry.py`
 
 ## Related Documents

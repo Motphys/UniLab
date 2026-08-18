@@ -102,4 +102,4 @@ payloads.
 - Backend interface: `src/unilab/base/backend/base.py`
 - Example providers: `src/unilab/tasks/locomotion/g1/joystick.py`,
   `src/unilab/envs/motion_tracking/g1/tracking.py`,
-  `src/unilab/envs/manipulation/sharpa_inhand/rotation.py`
+  `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`

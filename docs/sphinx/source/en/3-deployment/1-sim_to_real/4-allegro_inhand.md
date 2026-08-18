@@ -69,7 +69,7 @@ to the grasp generator**, retrain, and try again.
 
 The manipulation envs map policy actions to joint position targets through the
 task control config (`src/unilab/tasks/manipulation/allegro_inhand/base.py` and
-`src/unilab/envs/manipulation/sharpa_inhand/base.py`). The deploy controller
+`src/unilab/tasks/manipulation/sharpa_inhand/base.py`). The deploy controller
 must use the same joint order, action scale, and limit policy.
 
 ## Failure recovery

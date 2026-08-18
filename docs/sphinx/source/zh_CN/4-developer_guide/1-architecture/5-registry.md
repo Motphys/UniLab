@@ -8,10 +8,9 @@ Registry bootstrap 是一个针对环境的显式导入契约。它由
 
 1. 训练入口调用 `unilab.training.common.ensure_registries()`。
 2. 该 helper 委托给 `unilab.base.registry.ensure_registries()`。
-3. registry 导入已声明的 bootstrap 包：
-   `unilab.envs.locomotion`、`unilab.envs.manipulation` 与
-   `unilab.envs.motion_tracking`。
-4. 每个包都暴露 `__unilab_registry_modules__`，即一个包含注册副作用的模块元组。
+3. registry 导入唯一声明的 bootstrap 包 `unilab.tasks`。
+4. `unilab.tasks` 暴露 `__unilab_registry_modules__`，即一个包含注册副作用的
+   task leaf module 显式元组。
 5. 被导入的模块通过 `@registry.envcfg(...)` 注册 config，并通过
    `@registry.env(..., sim_backend=...)` 或 `registry.register_env(...)` 注册
    env 实现。
@@ -20,8 +19,8 @@ Registry bootstrap 是一个针对环境的显式导入契约。它由
 
 ## 扩展规则
 
-- 如果新的 env 模块位于某个尚未被现有 bootstrap 条目导入的新模块中，需将其加入
-  包级别的 `__unilab_registry_modules__` 元组。
+- 如果新的 task leaf 尚未被现有 bootstrap 条目导入，需将其加入
+  `unilab.tasks.__unilab_registry_modules__`。
 - 保持注册过程轻量。场景 materialization、XML 处理、资源访问以及 backend 构造
   应放在 `registry.make(...)` 之后，而不是放在装饰器注册中。
 - 重复的 env config 以及重复的 `(env, sim_backend)` 注册会在
@@ -31,7 +30,5 @@ Registry bootstrap 是一个针对环境的显式导入契约。它由
 
 - Bootstrap helper：`src/unilab/base/registry.py`
 - 训练 helper：`src/unilab/training/common.py`
-- 包声明：`src/unilab/envs/locomotion/__init__.py`、
-  `src/unilab/envs/manipulation/__init__.py`、
-  `src/unilab/envs/motion_tracking/__init__.py`
+- Task bootstrap 声明：`src/unilab/tasks/__init__.py`
 - 测试：`tests/base/test_registry.py`、`tests/utils/test_algo_utils.py`

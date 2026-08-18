@@ -92,4 +92,4 @@ actuator 的机制泄漏到共享 payload 里。
 - Backend 接口：`src/unilab/base/backend/base.py`
 - 示例 provider：`src/unilab/tasks/locomotion/g1/joystick.py`、
   `src/unilab/envs/motion_tracking/g1/tracking.py`、
-  `src/unilab/envs/manipulation/sharpa_inhand/rotation.py`
+  `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`

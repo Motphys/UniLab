@@ -1,7 +1,7 @@
 # Manipulation
 
-Manipulation tasks live in `src/unilab/envs/manipulation/` and the Go2 arm
-manip-loco env lives in `src/unilab/envs/locomotion/go2_arm/`.
+Manipulation tasks live in `src/unilab/tasks/manipulation/` and the Go2 arm
+manip-loco env lives in `src/unilab/tasks/locomotion/go2_arm/`.
 
 ## In-Hand
 
