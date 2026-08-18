@@ -1,7 +1,7 @@
 # 运动控制
 
-运动控制任务注册在 `src/unilab/envs/locomotion/` 和
-`src/unilab/envs/motion_tracking/` 中。`conf/` 下可用的 owner YAML
+运动控制任务注册在 `src/unilab/tasks/locomotion/` 和
+`src/unilab/tasks/motion_tracking/` 中。`conf/` 下可用的 owner YAML
 定义了哪些算法与后端组合是可运行的。
 
 ## 系列
@@ -33,7 +33,7 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 - PPO 配置：`conf/ppo/task/go2_footstand/mujoco.yaml`
 - 环境注册名：`Go2FootStand`（注册于 `sim_backend="mujoco"`）
-- 环境实现：`src/unilab/envs/locomotion/go2/footstand.py`（继承 Go2 基础任务）
+- 环境实现：`src/unilab/tasks/locomotion/go2/footstand.py`（继承 Go2 基础任务）
 - Go2 模型 XML：`src/unilab/assets/robots/go2/go2.xml`
 
 ```bash

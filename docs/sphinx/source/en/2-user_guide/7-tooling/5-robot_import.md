@@ -44,7 +44,7 @@ where possible.
   only for position-control owners.
   - If the robot must preserve torque/motor actuator semantics, later task
     extension should follow the control pattern in
-    `src/unilab/envs/locomotion/go2w/`: keep action interpretation, PD/torque
+    `src/unilab/tasks/locomotion/go2w/`: keep action interpretation, PD/torque
     control, and the actuator contract inside the robot owner boundary.
 - After conversion, `mujoco.viewer` opens automatically to show the converted
   result and proceed to keyframe adjustment.

@@ -38,5 +38,5 @@
 - Registry API：`src/unilab/base/registry.py`
 - Env 状态契约：`src/unilab/base/np_env.py`
 - 场景配置：`src/unilab/base/scene.py`
-- 现有任务示例：`src/unilab/envs/locomotion/go2/joystick.py`、
+- 现有任务示例：`src/unilab/tasks/locomotion/go2/joystick.py`、
   `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`

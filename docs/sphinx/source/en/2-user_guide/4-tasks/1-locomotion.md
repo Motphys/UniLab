@@ -1,7 +1,7 @@
 # Locomotion
 
-Locomotion tasks are registered in `src/unilab/envs/locomotion/` and
-`src/unilab/envs/motion_tracking/`. The available owner YAMLs under `conf/`
+Locomotion tasks are registered in `src/unilab/tasks/locomotion/` and
+`src/unilab/tasks/motion_tracking/`. The available owner YAMLs under `conf/`
 define which algorithm and backend combinations are runnable.
 
 ## Families
@@ -33,7 +33,7 @@ backend: {doc}`../../5-reference/5-support_matrix`.
 
 - PPO config: `conf/ppo/task/go2_footstand/mujoco.yaml`
 - Registered env: `Go2FootStand` (registered for `sim_backend="mujoco"`)
-- Implementation: `src/unilab/envs/locomotion/go2/footstand.py`
+- Implementation: `src/unilab/tasks/locomotion/go2/footstand.py`
   (extends the Go2 base task)
 - Go2 model XML: `src/unilab/assets/robots/go2/go2.xml`
 
