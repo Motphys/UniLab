@@ -15,7 +15,8 @@ import numpy as np
 
 from unilab.base import registry
 from unilab.dtype_config import get_global_dtype
-from unilab.envs.motion_tracking.g1.tracking import (
+
+from .tracking import (
     G1MotionTracking23DofCfg,
     G1MotionTrackingCfg,
     G1MotionTrackingEnv,

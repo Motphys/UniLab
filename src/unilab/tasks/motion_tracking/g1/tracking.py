@@ -14,8 +14,7 @@ from dataclasses import dataclass, field
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
-
-from ..common.config import (
+from unilab.envs.motion_tracking.common.config import (
     Domain_Rand,
     DomainRand,
     MotionTrackingCfg,
@@ -25,10 +24,15 @@ from ..common.config import (
     _zero_pose_randomization,
     _zero_velocity_randomization,
 )
-from ..common.domain_randomization import MotionTrackingDomainRandomizationProvider
-from ..common.reset import build_motion_reference_state
-from ..common.rewards import RewardConfig
-from ..common.tracking import MotionTrackingDeployEnv, MotionTrackingEnv
+from unilab.envs.motion_tracking.common.domain_randomization import (
+    MotionTrackingDomainRandomizationProvider,
+)
+from unilab.envs.motion_tracking.common.reset import build_motion_reference_state
+from unilab.envs.motion_tracking.common.rewards import RewardConfig
+from unilab.envs.motion_tracking.common.tracking import (
+    MotionTrackingDeployEnv,
+    MotionTrackingEnv,
+)
 
 # ── backward-compatible aliases (historical G1* symbol names) ────────
 G1MotionTrackingCfg = MotionTrackingCfg

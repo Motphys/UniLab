@@ -53,7 +53,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
         from unilab.base import registry
         from unilab.base.backend import create_backend
         from unilab.tasks.manipulation.allegro_inhand.rotation import AllegroRotationCfg
-        from unilab.envs.motion_tracking.g1.tracking import (
+        from unilab.tasks.motion_tracking.g1.tracking import (
             G1MotionTrackingCfg,
             G1MotionTrackingDeployEnvCfg,
         )
@@ -596,7 +596,7 @@ def test_allegro_reset_samples_materialized_cache_without_file_io(
 
 def test_g1_motion_tracking_uses_combined_body_pose_query():
     """G1MotionTracking should query pos/quat via the stable combined backend API."""
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:
         def __init__(self) -> None:
@@ -620,7 +620,9 @@ def test_g1_motion_tracking_uses_combined_body_pose_query():
 
 def test_g1_motion_tracking_reset_observation_uses_sparse_body_pose_rows():
     from unilab.envs.motion_tracking.common.motion_loader import MotionData
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDomainRandomizationProvider
+    from unilab.tasks.motion_tracking.g1.tracking import (
+        G1MotionTrackingDomainRandomizationProvider,
+    )
 
     class FakeBackend:
         def __init__(self) -> None:
@@ -758,7 +760,7 @@ def _compute_g1_motion_tracking_obs_stub(env_cls: type):
 
 
 def test_g1_motion_tracking_critic_uses_clean_beyondmimic_aligned_terms():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     env, obs, motion_data, linvel, gyro, dof_pos, dof_vel, info = (
         _compute_g1_motion_tracking_obs_stub(G1MotionTrackingEnv)
@@ -795,7 +797,7 @@ def test_g1_motion_tracking_critic_uses_clean_beyondmimic_aligned_terms():
 
 
 def test_g1_motion_tracking_anchor_frame_writers_match_reference():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
     from unilab.utils.rotation import (
         np_matrix_from_quat,
         np_quat_apply,
@@ -845,7 +847,7 @@ def test_g1_motion_tracking_anchor_frame_writers_match_reference():
 
 
 def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
     from unilab.utils.rotation import np_quat_apply, np_quat_inv, np_quat_mul, np_yaw_quat
 
     rng = np.random.default_rng(321)
@@ -903,7 +905,7 @@ def test_g1_motion_tracking_relative_transform_fast_path_matches_reference():
 
 def test_g1_motion_tracking_reward_fast_path_matches_reference():
     from unilab.envs.motion_tracking.common.motion_loader import MotionData
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv, RewardConfig
     from unilab.utils.rotation import np_quat_error_magnitude
 
     rng = np.random.default_rng(456)
@@ -1071,7 +1073,7 @@ def test_g1_motion_tracking_reward_fast_path_matches_reference():
 
 
 def test_g1_motion_tracking_deploy_actor_matches_unitree_mimic_terms():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingDeployEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingDeployEnv
 
     env, obs, _motion_data, _linvel, gyro, dof_pos, dof_vel, info = (
         _compute_g1_motion_tracking_obs_stub(G1MotionTrackingDeployEnv)
@@ -1321,7 +1323,7 @@ def test_g1_box_tracking_critic_object_state_respects_subset_env_order():
 
 
 def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._num_envs = 2
@@ -1365,7 +1367,7 @@ def test_g1_motion_tracking_can_terminate_on_undesired_contacts():
 
 
 def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingCfg
 
     cfg = G1MotionTrackingCfg()
     assert hasattr(cfg, "domain_rand")
@@ -1376,7 +1378,7 @@ def test_g1_motion_tracking_cfg_has_domain_rand_for_motrix():
 
 
 def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingCfg
 
     cfg = G1MotionTrackingCfg()
 
@@ -1392,7 +1394,10 @@ def test_g1_motion_tracking_cfg_preserves_legacy_defaults():
 def test_g1_motion_tracking_init_delegates_motion_body_ids_to_backend(monkeypatch):
     from unilab.envs.locomotion.g1.base import G1BaseEnv
     from unilab.envs.motion_tracking.common import tracking as tracking_module
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingCfg, G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import (
+        G1MotionTrackingCfg,
+        G1MotionTrackingEnv,
+    )
 
     calls: dict[str, Any] = {}
 
@@ -1773,7 +1778,7 @@ def test_x2_wall_flip_tracking_cfg_uses_x2_wall_flip_profile():
 
 
 def test_g1_motion_tracking_apply_action_accepts_per_joint_action_scale():
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env.default_angles = np.array([0.5, -0.5, 1.0], dtype=np.float32)
@@ -1800,7 +1805,7 @@ def _make_g1_motion_tracking_clip_end_stub(
 ):
     from unilab.base.np_env import NpEnvState
     from unilab.envs.motion_tracking.common.motion_loader import MotionData
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     class FakeBackend:
         def __init__(self) -> None:
@@ -2022,7 +2027,7 @@ def test_g1_motion_tracking_clip_end_resample_keeps_terminated_final_obs_valid()
 
 def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
     from unilab.base.np_env import NpEnvState
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
     env = cast(Any, object.__new__(G1MotionTrackingEnv))
     env._num_envs = 2

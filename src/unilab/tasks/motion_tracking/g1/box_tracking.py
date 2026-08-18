@@ -14,12 +14,6 @@ from unilab.dr import DomainRandomizationManager, ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization, zero_actions
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.motion_tracking.common.rewards import RewardContext
-from unilab.envs.motion_tracking.g1.tracking import (
-    G1MotionTrackingCfg,
-    G1MotionTrackingDomainRandomizationProvider,
-    G1MotionTrackingEnv,
-    RewardConfig,
-)
 from unilab.utils.geometry import np_sample_uniform
 from unilab.utils.rotation import (
     np_matrix_from_quat,
@@ -32,6 +26,12 @@ from unilab.utils.rotation import (
 )
 
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
+from .tracking import (
+    G1MotionTrackingCfg,
+    G1MotionTrackingDomainRandomizationProvider,
+    G1MotionTrackingEnv,
+    RewardConfig,
+)
 
 
 @dataclass

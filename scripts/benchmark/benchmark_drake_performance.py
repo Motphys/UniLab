@@ -121,12 +121,12 @@ def _task_specs() -> dict[str, TaskSpec]:
         return Go2WalkTask
 
     def g1_tracking_cfg() -> Any:
-        from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
+        from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
 
         return G1MotionTrackingEnvCfg()
 
     def g1_tracking_env() -> type:
-        from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
+        from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
 
         return G1MotionTrackingEnv
 
