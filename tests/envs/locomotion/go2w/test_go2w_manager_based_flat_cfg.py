@@ -187,17 +187,17 @@ def test_go2w_sac_drake_owner_uses_the_same_manager_contract() -> None:
     env_cfg.validate()
 
 
-def test_go2w_flat_registry_is_manager_only_and_rough_owns_legacy_bridge() -> None:
+def test_go2w_flat_and_rough_registries_are_manager_only() -> None:
     registry.ensure_registries()
-    from unilab.tasks.locomotion.go2w.joystick import Go2WJoystickCfg, Go2WJoystickEnv
-    from unilab.tasks.locomotion.go2w.rough import Go2WJoystickRoughCfg, Go2WJoystickRoughEnv
 
     assert registry.list_registered_envs()["Go2WJoystickFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix", "drake"],
     }
-    assert Go2WJoystickRoughCfg.__bases__ == (Go2WJoystickCfg,)
-    assert Go2WJoystickRoughEnv.__bases__ == (Go2WJoystickEnv,)
+    assert registry.list_registered_envs()["Go2WJoystickRough"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix"],
+    }
     for legacy_override in (
         {"reward_config": {}},
         {"domain_rand": {"randomize_kp": False}},

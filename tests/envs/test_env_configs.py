@@ -2140,8 +2140,6 @@ def test_g1_motion_tracking_clip_end_does_not_override_true_termination():
 
 # Environments that don't need special config overrides
 _STANDARD_ENVS = [
-    "Go1JoystickRough",
-    "Go2WJoystickRough",
     "G1WalkFlat",
     "G1WalkRough",
     "AllegroInhandRotation",

@@ -18,25 +18,27 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
     assert PRODUCTION_TASK_NAMES <= registered.keys()
     assert {record.task_name for record in records} == set(PRODUCTION_TASK_NAMES)
     assert len(records) == 39
-    assert sum(record.status == "Compatible" for record in records) == 8
+    assert sum(record.status == "Compatible" for record in records) == 11
     assert sum(record.target == "compatibility" for record in records) == 3
 
 
 @pytest.mark.parametrize(
-    ("task_name", "family", "target"),
+    ("task_name", "family", "target", "status"),
     [
-        ("Go2ArmManipLoco", "go2_arm", "compatibility"),
-        ("SharpaInhandRotation", "sharpa", "compatibility"),
-        ("G1MotionTracking", "motion_tracking", "mba"),
-        ("G1WalkRough", "g1_locomotion", "mba"),
-        ("Go2JoystickRough", "quadruped_rough", "mba"),
+        ("Go2ArmManipLoco", "go2_arm", "compatibility", "Adapted"),
+        ("SharpaInhandRotation", "sharpa", "compatibility", "Adapted"),
+        ("G1MotionTracking", "motion_tracking", "mba", "Adapted"),
+        ("G1WalkRough", "g1_locomotion", "mba", "Adapted"),
+        ("Go2JoystickRough", "quadruped_rough", "complete", "Compatible"),
     ],
 )
-def test_matrix_records_high_risk_families(task_name: str, family: str, target: str) -> None:
+def test_matrix_records_high_risk_families(
+    task_name: str, family: str, target: str, status: str
+) -> None:
     record = migration_record(task_name)
     assert record.family == family
     assert record.target == target
-    assert record.status == "Adapted"
+    assert record.status == status
 
 
 def test_unknown_task_fails_closed() -> None:

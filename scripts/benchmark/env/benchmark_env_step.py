@@ -276,39 +276,29 @@ def _materialize_sharpa_motrix_scene() -> str:
 
 
 def _go1_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.go1.joystick import Go1JoystickCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, Go1JoystickCfg, config_overrides)
+    return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
-def _go1_env_cls() -> type:
-    from unilab.tasks.locomotion.go1.joystick import Go1WalkTask
+def _manager_env_cls() -> Callable[..., Any]:
+    from unilab.envs import make_manager_based_rl_env
 
-    return Go1WalkTask
+    return make_manager_based_rl_env
 
 
 def _go2_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.go2.joystick import Go2JoystickCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg, config_overrides)
-
-
-def _go2_env_cls() -> type:
-    from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
-
-    return Go2WalkTask
+    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _go2_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("go2_joystick_rough", backend, Go2JoystickRoughCfg, config_overrides)
-
-
-def _go2_rough_env_cls() -> type:
-    from unilab.tasks.locomotion.go2.rough import Go2JoystickRoughEnv
-
-    return Go2JoystickRoughEnv
+    return _ppo_owner_yaml_cfg(
+        "go2_joystick_rough", backend, ManagerBasedRlEnvCfg, config_overrides
+    )
 
 
 def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
@@ -320,23 +310,15 @@ def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
 
 
 def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.go2w.rough import Go2WJoystickRoughCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
     return _ppo_owner_yaml_cfg(
-        "go2w_joystick_rough", backend, Go2WJoystickRoughCfg, config_overrides
+        "go2w_joystick_rough", backend, ManagerBasedRlEnvCfg, config_overrides
     )
 
 
 def _go2w_env_cls() -> Callable[..., Any]:
-    from unilab.envs import make_manager_based_rl_env
-
-    return make_manager_based_rl_env
-
-
-def _go2w_rough_env_cls() -> type:
-    from unilab.tasks.locomotion.go2w.rough import Go2WJoystickRoughEnv
-
-    return Go2WJoystickRoughEnv
+    return _manager_env_cls()
 
 
 def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
@@ -440,22 +422,22 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         task_id="go1_joystick_flat",
         env_name="Go1JoystickFlat",
         cfg_factory=_go1_cfg,
-        env_cls_factory=_go1_env_cls,
+        env_cls_factory=_manager_env_cls,
         backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2": TaskConfig(
         task_id="go2_joystick_flat",
         env_name="Go2JoystickFlat",
         cfg_factory=_go2_cfg,
-        env_cls_factory=_go2_env_cls,
+        env_cls_factory=_manager_env_cls,
         backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2_rough": TaskConfig(
         task_id="go2_joystick_rough",
         env_name="Go2JoystickRough",
         cfg_factory=_go2_rough_cfg,
-        env_cls_factory=_go2_rough_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
+        env_cls_factory=_manager_env_cls,
+        backends=("mujoco", "motrix"),
     ),
     "go2w": TaskConfig(
         task_id="go2w_joystick_flat",
@@ -468,8 +450,8 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         task_id="go2w_joystick_rough",
         env_name="Go2WJoystickRough",
         cfg_factory=_go2w_rough_cfg,
-        env_cls_factory=_go2w_rough_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
+        env_cls_factory=_manager_env_cls,
+        backends=("mujoco", "motrix"),
     ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",
