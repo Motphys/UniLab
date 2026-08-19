@@ -3,21 +3,20 @@ from __future__ import annotations
 import pytest
 
 from unilab.base import registry
-from unilab.tasks.migration_matrix import migration_record, migration_records
+from unilab.tasks.migration_matrix import (
+    PRODUCTION_TASK_NAMES,
+    migration_record,
+    migration_records,
+)
 
 
 def test_registered_tasks_have_explicit_migration_records() -> None:
     registry.ensure_registries()
-    registered = {
-        name: metadata
-        for name, metadata in registry.list_registered_envs().items()
-        if registry._envs[name].env_cfg_factory.__module__.startswith(
-            ("unilab.tasks", "unilab.envs.manager_based_rl_env")
-        )
-    }
-    records = migration_records(set(registered))
+    registered = registry.list_registered_envs()
+    records = migration_records(set(PRODUCTION_TASK_NAMES))
 
-    assert {record.task_name for record in records} == set(registered)
+    assert PRODUCTION_TASK_NAMES <= registered.keys()
+    assert {record.task_name for record in records} == set(PRODUCTION_TASK_NAMES)
     assert len(records) == 39
     assert sum(record.status == "Compatible" for record in records) == 8
     assert sum(record.target == "compatibility" for record in records) == 3

@@ -62,11 +62,35 @@ _CUSTOM_COMPAT_TASKS = frozenset(
     }
 )
 
+_MOTION_TASKS = frozenset(
+    {
+        "G1BoxTracking",
+        "G1BoxTracking23Dof",
+        "G1ClimbTracking",
+        "G1ClimbTracking23Dof",
+        "G1FlipTracking",
+        "G1FlipTracking23Dof",
+        "G1FlipTrackingSAC",
+        "G1FlipTrackingSAC23Dof",
+        "G1MotionTracking",
+        "G1MotionTracking23Dof",
+        "G1MotionTracking23DofDeploy",
+        "G1MotionTrackingDeploy",
+        "G1MotionTrackingSAC",
+        "G1MotionTrackingSAC23Dof",
+        "G1WallFlipTracking",
+        "G1WallFlipTracking23Dof",
+        "G1WallFlipTrackingSAC",
+        "G1WallFlipTrackingSAC23Dof",
+        "G1WBTObs",
+        "G1WBTObs23Dof",
+        "X2WallFlipTracking",
+    }
+)
 
-def _motion_task(task_name: str) -> bool:
-    return task_name.startswith(("G1", "X2")) and (
-        "Tracking" in task_name or task_name in {"G1WBTObs", "G1WBTObs23Dof"}
-    )
+PRODUCTION_TASK_NAMES = frozenset(
+    _MBA_TASKS | _ROUGH_TASKS | _G1_LOCOMOTION_TASKS | _CUSTOM_COMPAT_TASKS | _MOTION_TASKS
+)
 
 
 def migration_record(task_name: str) -> TaskMigrationRecord:
@@ -113,7 +137,7 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "Custom IK/history or tactile/contact/cache behavior is retained behind one frozen adapter.",
             "Keep Hydra/Registry ownership single; migrate only when the formal capability exists.",
         )
-    if _motion_task(task_name):
+    if task_name in _MOTION_TASKS:
         return TaskMigrationRecord(
             task_name,
             "motion_tracking",
@@ -136,6 +160,7 @@ def migration_records(
 __all__ = [
     "MigrationStatus",
     "MigrationTarget",
+    "PRODUCTION_TASK_NAMES",
     "TaskMigrationRecord",
     "migration_record",
     "migration_records",
