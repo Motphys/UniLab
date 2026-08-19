@@ -113,10 +113,10 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
         return TaskMigrationRecord(
             task_name,
             "quadruped_rough",
-            "Adapted",
-            "mba",
-            "Terrain and height-scan terms depend on the pending raycaster capability boundary.",
-            "Migrate as one rough-family PR; use the compatibility seam only if a new public capability is required.",
+            "Compatible",
+            "complete",
+            "Hydra owners materialize shared terrain, height-scan, reset, and curriculum manager terms on the canonical runtime.",
+            "Keep the shared rough-family contract and both backend owners in sync.",
         )
     if task_name in _G1_LOCOMOTION_TASKS:
         return TaskMigrationRecord(

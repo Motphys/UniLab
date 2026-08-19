@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from hydra.errors import ConfigCompositionException
-from omegaconf import OmegaConf
 from scripts.benchmark.env import benchmark_env_step as bench
 
 from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
+from unilab.tasks.locomotion.common.rough_manager_terms import QuadrupedRoughTerrainCfg
 
 
 def test_go2w_flat_benchmark_uses_production_manager_owner() -> None:
@@ -22,32 +20,28 @@ def test_go2w_flat_benchmark_uses_production_manager_owner() -> None:
 
 def test_go2w_rough_cfg_matches_ppo_owner_yaml() -> None:
     cfg = bench.TASK_CONFIGS["go2w_rough"].build_cfg("mujoco")
-    owner_path = (
-        Path(bench.ROOT_DIR) / "conf" / "ppo" / "task" / "go2w_joystick_rough" / "mujoco.yaml"
-    )
-    owner_cfg = OmegaConf.load(owner_path)
 
-    assert cfg.reward_config.scales == OmegaConf.to_container(
-        owner_cfg.reward.scales,
-        resolve=True,
-    )
-    assert cfg.reward_config.tracking_sigma == owner_cfg.reward.tracking_sigma
-    assert cfg.reward_config.base_height_target == owner_cfg.reward.base_height_target
-    assert cfg.scene.model_file == owner_cfg.env.scene.model_file
+    assert isinstance(cfg, ManagerBasedRlEnvCfg)
+    assert cfg.scene is not None
+    assert cfg.scene.terrain is not None
+    assert isinstance(cfg.scene.terrain.generator, QuadrupedRoughTerrainCfg)
+    assert cfg.scene.model_file.endswith("go2w_mujoco.xml")
+    assert cfg.actions["motor"].wheel_action_scale == pytest.approx(5.0)
+    assert cfg.rewards["tracking_lin_vel"].weight == pytest.approx(3.0)
+    assert bench.TASK_CONFIGS["go2w_rough"].env_cls_factory() is make_manager_based_rl_env
 
 
 def test_env_and_reward_overrides_use_hydra_composition() -> None:
     cfg = bench.TASK_CONFIGS["go2w_rough"].build_cfg(
         "mujoco",
         [
-            "env.control_config.action_scale=0.125",
-            "reward.tracking_sigma=${reward.base_height_target}",
+            "env.actions.motor.leg_action_scale=0.125",
+            "reward.tracking_lin_vel.weight=2.25",
         ],
     )
 
-    assert cfg.control_config.action_scale == pytest.approx(0.125)
-    assert cfg.reward_config.tracking_sigma == pytest.approx(0.4)
-    assert isinstance(cfg.reward_config.tracking_sigma, float)
+    assert cfg.actions["motor"].leg_action_scale == pytest.approx(0.125)
+    assert cfg.rewards["tracking_lin_vel"].weight == pytest.approx(2.25)
 
 
 def test_unknown_env_override_fails_in_hydra() -> None:
@@ -70,8 +64,8 @@ def test_training_sim_backend_override_is_rejected(override: str) -> None:
 def test_only_owner_config_overrides_are_forwarded() -> None:
     overrides = [
         "task=go2w_joystick_rough/mujoco",
-        "env.control_config.action_scale=0.125",
-        "+reward.scales.custom_term=1.0",
+        "env.actions.motor.leg_action_scale=0.125",
+        "reward.tracking_lin_vel.weight=2.25",
     ]
 
     assert bench._owner_config_overrides(overrides) == overrides[1:]

@@ -1,0 +1,150 @@
+# @package _global_
+defaults:
+  - /task/quadruped_joystick_rough/base
+  - _self_
+
+env:
+  observations:
+    policy:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        base_ang_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: gyro}
+          scale: 0.25
+        projected_gravity:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: upvector}
+        command:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        leg_joint_pos:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              joint_names: ".*_(hip|thigh|calf)_joint"
+        joint_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+          scale: 0.05
+        actions:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.last_action
+          params: {action_name: motor}
+    critic:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        base_lin_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: local_linvel}
+        base_ang_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: gyro}
+        projected_gravity:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: upvector}
+        command:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        leg_joint_pos:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              joint_names: ".*_(hip|thigh|calf)_joint"
+        joint_vel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.last_action
+          params: {action_name: motor}
+        height_scan:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.locomotion.common.rough_manager_terms.RoughHeightScan
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+            geom_name: floor
+            vertical_offset: 0.5
+            scale: 5.0
+  actions:
+    motor:
+      _target_: unilab.tasks.locomotion.go2w.manager_terms.Go2WMixedActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      leg_action_scale: 0.25
+      hip_action_scale: 0.125
+      wheel_action_scale: 5.0
+      leg_kp: 35.0
+      leg_kd: 0.5
+      wheel_kd: 0.5
+      clip_actions: 100.0
+      simulate_action_latency: false
+  events:
+    pd_gains: null
+    motor_gains:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.tasks.locomotion.go2w.manager_terms.randomize_motor_gains
+      mode: reset
+      params:
+        action_name: motor
+        kp_multiplier_range: [0.5, 1.0]
+        kd_multiplier_range: [0.5, 1.0]
+
+reward:
+  orientation:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.envs.mdp.flat_orientation_l2
+    weight: -2.0
+  motor_torque:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.go2w.manager_terms.motor_torque_l2
+    weight: -2.5e-5
+    params: {action_name: motor}
+  stand_still:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.manager_terms.stand_still_l1
+    weight: -2.0
+    params:
+      command_name: twist
+      command_threshold: 0.1
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: ".*_(hip|thigh|calf)_joint"
+  hip_pos:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.rough_manager_terms.joint_deviation_l2
+    weight: -2.0
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: ".*_hip_joint"
+  joint_pos_penalty:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.common.rough_manager_terms.joint_deviation_l2
+    weight: -1.0
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: ".*_(hip|thigh|calf)_joint"
+  upward:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.go2w.manager_terms.upward_l2
+    weight: 1.0

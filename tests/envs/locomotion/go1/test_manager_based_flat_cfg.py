@@ -263,17 +263,17 @@ def test_go1_flat_owner_materializes_complete_plain_manager_cfg(
     _assert_no_omegaconf(env_cfg)
 
 
-def test_go1_flat_registry_is_manager_only_and_rough_owns_the_legacy_bridge() -> None:
+def test_go1_flat_and_rough_registries_are_manager_only() -> None:
     registry.ensure_registries()
-    from unilab.tasks.locomotion.go1.joystick import Go1JoystickCfg, Go1WalkTask
-    from unilab.tasks.locomotion.go1.rough import Go1JoystickRoughCfg, Go1JoystickRoughEnv
 
     assert registry.list_registered_envs()["Go1JoystickFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix", "drake"],
     }
-    assert Go1JoystickRoughCfg.__bases__ == (Go1JoystickCfg,)
-    assert Go1JoystickRoughEnv.__bases__ == (Go1WalkTask,)
+    assert registry.list_registered_envs()["Go1JoystickRough"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix"],
+    }
 
     for legacy_override in (
         {"reward_config": {}},

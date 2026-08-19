@@ -62,17 +62,26 @@ class _MuJoCoHeightScanner(BackendHeightScanner):
 
     def scan(self) -> np.ndarray:
         pool = self.backend._pool
-        if pool is None:
-            raise RuntimeError("MuJoCo backend pool must be materialized before hfield scanning")
-
-        heights = pool.sample_hfield_height(
-            self.backend._physics_state,
-            hfield_geom_id=self.hfield_geom_id,
-            offsets=self.offsets,
-            frame_body_id=self.frame_body_id,
-            alignment=self.alignment,
-            output=self.output,
-        )
+        transient_pool = pool is None
+        if transient_pool:
+            # ObservationManager evaluates terms once to infer their dimensions
+            # before startup randomization and the backend's formal materialize
+            # phase.  Use a real, short-lived pool for that cold-path read; the
+            # scanner automatically switches to the final pool afterwards.
+            pool = self.backend._build_pool()
+        assert pool is not None
+        try:
+            heights = pool.sample_hfield_height(
+                self.backend._physics_state,
+                hfield_geom_id=self.hfield_geom_id,
+                offsets=self.offsets,
+                frame_body_id=self.frame_body_id,
+                alignment=self.alignment,
+                output=self.output,
+            )
+        finally:
+            if transient_pool:
+                pool.close()
         return np.asarray(heights, dtype=self.backend._np_dtype)
 
 
@@ -242,7 +251,7 @@ def _build_mujoco_scene_context(scene: SceneCfg) -> _MuJoCoSceneContext:
 
     output_dir = tempfile.TemporaryDirectory(prefix="unilab_scene_")
     try:
-        model, terrain_origins, terrain_surface_sampler = materialize_mujoco_hfield_attached_scene(
+        _, terrain_origins, terrain_surface_sampler = materialize_mujoco_hfield_attached_scene(
             model_file=scene.model_file,
             terrain_cfg=scene.terrain.generator,
             output_dir=output_dir.name,
@@ -256,7 +265,10 @@ def _build_mujoco_scene_context(scene: SceneCfg) -> _MuJoCoSceneContext:
         raise
 
     return _MuJoCoSceneContext(
-        model_source=model,
+        # The materializer already writes the complete composed scene.  Keep XML
+        # as the physics source so manager-requested body sensors can be injected
+        # before compilation just like they are for static scenes.
+        model_source=os.path.join(output_dir.name, "scene.xml"),
         model_file=scene.model_file,
         visual_model_file=os.path.join(output_dir.name, "scene.xml"),
         artifacts_dir=output_dir.name,

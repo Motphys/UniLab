@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-import gymnasium as gym
 import numpy as np
-
-from unilab.tasks.locomotion.common.base import (
-    BaseNoiseConfig,
-    LocomotionBaseCfg,
-    LocomotionBaseEnv,
-    PdControlConfig,
-)
 
 LEG_JOINT_SENSOR_PREFIXES: tuple[str, ...] = (
     "FR_hip",
@@ -32,62 +22,6 @@ JOINT_SENSOR_PREFIXES: tuple[str, ...] = LEG_JOINT_SENSOR_PREFIXES + WHEEL_JOINT
 NUM_LEG_ACTIONS = len(LEG_JOINT_SENSOR_PREFIXES)
 NUM_WHEEL_ACTIONS = len(WHEEL_JOINT_SENSOR_PREFIXES)
 NUM_GO2W_ACTIONS = len(JOINT_SENSOR_PREFIXES)
-
-DEFAULT_LEG_ANGLES = np.asarray(
-    [
-        0.0,
-        0.8,
-        -1.5,
-        0.0,
-        0.8,
-        -1.5,
-        0.0,
-        0.8,
-        -1.5,
-        0.0,
-        0.8,
-        -1.5,
-    ],
-    dtype=np.float64,
-)
-DEFAULT_GO2W_ANGLES = np.concatenate(
-    [DEFAULT_LEG_ANGLES, np.zeros((NUM_WHEEL_ACTIONS,), dtype=np.float64)]
-)
-
-
-@dataclass
-class NoiseConfig(BaseNoiseConfig):
-    scale_wheel_vel: float = 0.5
-
-
-@dataclass
-class ControlConfig(PdControlConfig):
-    action_scale: float = 0.25
-    hip_action_scale: float | None = None
-    wheel_action_scale: float = 10.0
-    wheel_Kd: float = 0.5  # noqa: N815 - Hydra config key kept for compatibility.
-    clip_actions: float = 1.0
-
-
-@dataclass
-class Asset:
-    base_name = "base_link"
-    ground = "floor"
-
-
-@dataclass
-class Go2WBaseCfg(LocomotionBaseCfg):
-    noise_config: NoiseConfig = field(default_factory=NoiseConfig)  # type: ignore[assignment]
-    control_config: ControlConfig = field(default_factory=ControlConfig)  # type: ignore[assignment]
-    asset: Asset = field(default_factory=Asset)
-    sim_dt: float = 0.005
-    ctrl_dt: float = 0.02
-
-
-def stack_joint_sensors(backend, suffix: str, *, dtype: np.dtype | type) -> np.ndarray:
-    names = tuple(f"{prefix}_{suffix}" for prefix in JOINT_SENSOR_PREFIXES)
-    values = backend.get_sensor_data_batch(names)
-    return np.asarray(values.reshape(values.shape[0], -1)[:, :NUM_GO2W_ACTIONS], dtype=dtype)
 
 
 def compute_go2w_motor_ctrl(
@@ -116,23 +50,12 @@ def compute_go2w_motor_ctrl(
     return out
 
 
-class Go2WBaseEnv(LocomotionBaseEnv):
-    _cfg: Go2WBaseCfg  # pyright: ignore[reportIncompatibleVariableOverride]
-
-    def _init_action_space(self) -> None:
-        self._action_space = gym.spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(NUM_GO2W_ACTIONS,),
-            dtype=np.float32,
-        )
-
-    def _init_buffers(self) -> None:
-        super()._init_buffers()
-        self.default_angles = np.asarray(DEFAULT_GO2W_ANGLES, dtype=self.default_angles.dtype)
-
-    def get_dof_pos(self) -> np.ndarray:
-        return stack_joint_sensors(self._backend, "pos", dtype=self.default_angles.dtype)
-
-    def get_dof_vel(self) -> np.ndarray:
-        return stack_joint_sensors(self._backend, "vel", dtype=self.default_angles.dtype)
+__all__ = [
+    "JOINT_SENSOR_PREFIXES",
+    "LEG_JOINT_SENSOR_PREFIXES",
+    "NUM_GO2W_ACTIONS",
+    "NUM_LEG_ACTIONS",
+    "NUM_WHEEL_ACTIONS",
+    "WHEEL_JOINT_SENSOR_PREFIXES",
+    "compute_go2w_motor_ctrl",
+]

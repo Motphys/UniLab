@@ -44,7 +44,7 @@ def _install_import_paths(drakeuni_src: Path | None) -> None:
 @dataclass(frozen=True)
 class TaskSpec:
     env_cfg_factory: Callable[[], Any]
-    env_cls_factory: Callable[[], type]
+    env_cls_factory: Callable[[], Callable[..., Any]]
 
 
 @dataclass
@@ -101,24 +101,19 @@ class StepProfiler:
 
 def _task_specs() -> dict[str, TaskSpec]:
     def go1_cfg() -> Any:
-        from unilab.tasks.locomotion.go1.joystick import Go1JoystickCfg
+        from unilab.envs import ManagerBasedRlEnvCfg
 
-        return Go1JoystickCfg()
+        return ManagerBasedRlEnvCfg()
 
-    def go1_env() -> type:
-        from unilab.tasks.locomotion.go1.joystick import Go1WalkTask
+    def manager_env() -> Callable[..., Any]:
+        from unilab.envs import make_manager_based_rl_env
 
-        return Go1WalkTask
+        return make_manager_based_rl_env
 
     def go2_cfg() -> Any:
-        from unilab.tasks.locomotion.go2.joystick import Go2JoystickCfg
+        from unilab.envs import ManagerBasedRlEnvCfg
 
-        return Go2JoystickCfg()
-
-    def go2_env() -> type:
-        from unilab.tasks.locomotion.go2.joystick import Go2WalkTask
-
-        return Go2WalkTask
+        return ManagerBasedRlEnvCfg()
 
     def g1_tracking_cfg() -> Any:
         from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
@@ -132,8 +127,8 @@ def _task_specs() -> dict[str, TaskSpec]:
 
     return {
         "g1_motion_tracking": TaskSpec(g1_tracking_cfg, g1_tracking_env),
-        "go1_joystick_flat": TaskSpec(go1_cfg, go1_env),
-        "go2_joystick_flat": TaskSpec(go2_cfg, go2_env),
+        "go1_joystick_flat": TaskSpec(go1_cfg, manager_env),
+        "go2_joystick_flat": TaskSpec(go2_cfg, manager_env),
     }
 
 

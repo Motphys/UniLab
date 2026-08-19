@@ -33,10 +33,8 @@ _TASK_SOURCE_ROOTS = (
     SRC_ROOT / "unilab" / "tasks",
 )
 _TERRAIN_CONSUMER_PATHS = (
+    Path("locomotion/common/rough_manager_terms.py"),
     Path("locomotion/common/terrain_spawn.py"),
-    Path("locomotion/go1/joystick.py"),
-    Path("locomotion/go2/joystick.py"),
-    Path("locomotion/go2w/rough.py"),
 )
 
 NUM_ENVS = 2
