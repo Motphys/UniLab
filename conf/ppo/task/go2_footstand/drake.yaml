@@ -1,36 +1,26 @@
 # @package _global_
+defaults:
+  - /task/go2_footstand/base
+  - _self_
+
 training:
   task_name: Go2FootStand
   sim_backend: drake
 
 env:
-  sim_dt: 0.004
   drake_backend_mode: batch
   drake_nthread: 0
-  add_body_sensors: true
-  obs_history_len: 15
-  energy_termination_threshold: 200.0
-  noise_config:
-    level: 1.0
-    scale_joint_angle: 0.01
-    scale_joint_vel: 1.5
-    scale_gyro: 0.2
-    scale_gravity: 0.05
-    scale_linvel: 0.1
-  control_config:
-    action_scale: 0.3
-  domain_rand:
-    randomize_floor_friction: false
-    randomize_link_mass: false
-    torso_added_mass_range: null
-    randomize_torso_com: false
-    randomize_dof_armature: false
-    randomize_reset_joint_qpos: true
-    reset_joint_qpos_range: [-0.05, 0.05]
+  events:
+    # Drake supports the joint-state reset, but not these reset payload fields.
+    pd_gains: null
+    floor_friction: null
+    link_mass: null
+    torso_com: null
+    joint_armature: null
 
 algo:
   empirical_normalization: true
-  num_envs: 1024
+  num_envs: 4096
   max_iterations: 10000
   obs_groups:
     actor:
@@ -41,27 +31,3 @@ algo:
     init_noise_std: 0.5
   algorithm:
     entropy_coef: 0.005
-
-reward:
-  scales:
-    height: 2.0
-    orientation: 2.0
-    contact: -1.0
-    action_rate: -0.01
-    termination: -2.0
-    dof_pos_limits: -0.5
-    torques: 0.0
-    pose: -0.1
-    penalty_contact: -0.2
-    tar: 0.8
-    rear_feet_contact: 0.5
-    rear_leg_symmetry: -0.2
-    front_leg_motion: -0.05
-    upright_stability: -0.2
-    knee_clearance: -0.5
-    stay_still: -0.1
-    energy: -0.003
-    dof_acc: -2.5e-7
-  tracking_sigma: 0.25
-  base_height_target: 0.3
-  knee_height_target: 0.08

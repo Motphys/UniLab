@@ -28,12 +28,12 @@ uv run scripts/audit_sim2sim_contracts.py
 
 | Task | 判定 | 分歧 |
 |---|---|---|
-| allegro_inhand · allegro_inhand_grasp · g1_climb_tracking · g1_motion_tracking · g1_wall_flip_tracking · go1_joystick_rough · go2_arm_manip_loco · go2_handstand · go2_joystick_flat · go2_joystick_rough · go2w_joystick_flat · go2w_joystick_rough · sharpa_inhand · sharpa_inhand_grasp | ✅ | 无 |
+| allegro_inhand · allegro_inhand_grasp · g1_climb_tracking · g1_motion_tracking · g1_wall_flip_tracking · go1_joystick_rough · go2_arm_manip_loco · go2_footstand · go2_handstand · go2_joystick_flat · go2_joystick_rough · go2w_joystick_flat · go2w_joystick_rough · sharpa_inhand · sharpa_inhand_grasp | ✅ | 无 |
 | g1_box_tracking | ❌ | `empirical_normalization` false↔true；`obs_groups` critic 组差异 |
 | g1_flip_tracking | ❌ | `empirical_normalization` true↔false；`obs_groups`；`action_scale` 29 维↔默认 0.25；`sampling_mode` 两后端运行时同为 `start`（无害） |
 | g1_walk_flat | ❌ | `action_scale` 0.25↔0.5；`empirical_normalization` false↔true；`obs_groups` |
 | go1_joystick_flat | ❌ | `empirical_normalization` false↔true |
-| g1_motion_tracking_deploy · go2_footstand | ⚪ | 仅 mujoco |
+| g1_motion_tracking_deploy | ⚪ | 仅 mujoco |
 
 ## `conf/appo/task/`
 

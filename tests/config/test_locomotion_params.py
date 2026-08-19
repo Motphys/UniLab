@@ -487,7 +487,7 @@ def test_ppo_go2_num_envs():
     assert cfg.algo.max_iterations == 151
 
 
-def test_ppo_go2_footstand_uses_teacher_linvel_task():
+def test_ppo_go2_footstand_uses_hydra_owned_manager_task():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
@@ -497,19 +497,26 @@ def test_ppo_go2_footstand_uses_teacher_linvel_task():
 
     assert cfg.training.task_name == "Go2FootStand"
     assert cfg.training.sim_backend == "mujoco"
-    assert cfg.env.add_body_sensors is True
-    assert cfg.env.obs_history_len == 15
-    assert cfg.env.energy_termination_threshold == pytest.approx(200.0)
-    assert cfg.reward.scales.energy == pytest.approx(-0.003)
-    assert cfg.reward.scales.dof_acc == pytest.approx(-2.5e-7)
-    assert cfg.reward.scales.rear_leg_symmetry == pytest.approx(-0.2)
-    assert cfg.reward.scales.knee_clearance == pytest.approx(-0.5)
-    assert cfg.reward.knee_height_target == pytest.approx(0.08)
-    assert cfg.env.domain_rand.randomize_floor_friction is True
-    assert cfg.env.domain_rand.randomize_link_mass is True
-    assert cfg.env.domain_rand.randomize_torso_com is True
-    assert cfg.env.domain_rand.randomize_dof_armature is True
-    assert cfg.env.domain_rand.randomize_reset_joint_qpos is True
+    assert cfg.algo.num_envs == 4096
+    assert cfg.env.sim_dt == pytest.approx(0.004)
+    assert cfg.env.ctrl_dt == pytest.approx(0.02)
+    assert cfg.env.max_episode_seconds == pytest.approx(10.0)
+    assert cfg.env.adaptive_chunk_size is False
+    assert cfg.env.observations.policy.terms.frame.history_length == 15
+    assert cfg.env.observations.critic.terms.frame.history_length == 15
+    assert cfg.env.actions.joint_pos.action_scale == pytest.approx(0.3)
+    assert cfg.env.actions.joint_pos.clip_actions == pytest.approx(1.0)
+    assert cfg.env.terminations.footstand.params.energy_threshold == pytest.approx(200.0)
+    assert cfg.reward.footstand.params.scales.energy == pytest.approx(-0.003)
+    assert cfg.reward.footstand.params.scales.dof_acc == pytest.approx(-2.5e-7)
+    assert cfg.reward.footstand.params.scales.rear_leg_symmetry == pytest.approx(-0.2)
+    assert cfg.reward.footstand.params.scales.knee_clearance == pytest.approx(-0.5)
+    assert cfg.reward.footstand.params.knee_height_target == pytest.approx(0.08)
+    assert cfg.env.events.floor_friction is not None
+    assert cfg.env.events.link_mass is not None
+    assert cfg.env.events.torso_com is not None
+    assert cfg.env.events.joint_armature is not None
+    assert cfg.env.events.reset_joints is not None
 
 
 def test_ppo_g1_motion_tracking():
