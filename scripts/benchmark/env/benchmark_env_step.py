@@ -129,7 +129,7 @@ class TaskConfig:
     task_id: str
     env_name: str
     cfg_factory: Callable[[str, list[str]], Any]
-    env_cls_factory: Callable[[], type]
+    env_cls_factory: Callable[[], Callable[..., Any]]
     backends: tuple[str, ...] = ("mujoco", "motrix")
     aliases: tuple[str, ...] = ()
     cfg_finalizer: Callable[[Any, str], None] | None = None
@@ -312,9 +312,11 @@ def _go2_rough_env_cls() -> type:
 
 
 def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.go2w.joystick import Go2WJoystickCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("go2w_joystick_flat", backend, Go2WJoystickCfg, config_overrides)
+    return _ppo_owner_yaml_cfg(
+        "go2w_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides
+    )
 
 
 def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
@@ -325,10 +327,10 @@ def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
     )
 
 
-def _go2w_env_cls() -> type:
-    from unilab.tasks.locomotion.go2w.joystick import Go2WJoystickEnv
+def _go2w_env_cls() -> Callable[..., Any]:
+    from unilab.envs import make_manager_based_rl_env
 
-    return Go2WJoystickEnv
+    return make_manager_based_rl_env
 
 
 def _go2w_rough_env_cls() -> type:
@@ -502,7 +504,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
 }
 
 # Default benchmark parameters
-DEFAULT_NUM_ENVS = 2048
+DEFAULT_NUM_ENVS = 4096
 DEFAULT_NUM_STEPS = 20
 DEFAULT_WARMUP_STEPS = 5
 
@@ -708,15 +710,21 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
         env_cls = task_config.env_cls_factory()
         env = env_cls(cfg, num_envs=num_envs, backend_type=sim_backend)
 
-        nu = env._backend.num_actuators  # type: ignore[reportAttributeAccessIssue]
+        action_shape = env.action_space.shape
+        if action_shape is None or len(action_shape) != 1:
+            raise ValueError(
+                f"Benchmark task {task_config.env_name!r} requires a flat action space, "
+                f"got {action_shape}"
+            )
+        action_dim = int(action_shape[0])
         env.init_state()
 
         for _ in range(warmup_steps):
-            actions = np.random.uniform(-1, 1, size=(num_envs, nu)).astype(np.float32)
+            actions = np.random.uniform(-1, 1, size=(num_envs, action_dim)).astype(np.float32)
             env.step(actions)
 
         for _ in range(num_steps):
-            actions = np.random.uniform(-1, 1, size=(num_envs, nu)).astype(np.float32)
+            actions = np.random.uniform(-1, 1, size=(num_envs, action_dim)).astype(np.float32)
             state = env.step(actions)
             timing = state.info.get("timing", {})
             for k, v in timing.items():

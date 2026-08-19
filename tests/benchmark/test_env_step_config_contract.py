@@ -7,6 +7,18 @@ from hydra.errors import ConfigCompositionException
 from omegaconf import OmegaConf
 from scripts.benchmark.env import benchmark_env_step as bench
 
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
+
+
+def test_go2w_flat_benchmark_uses_production_manager_owner() -> None:
+    cfg = bench.TASK_CONFIGS["go2w"].build_cfg("mujoco")
+
+    assert isinstance(cfg, ManagerBasedRlEnvCfg)
+    assert list(cfg.actions) == ["motor"]
+    assert cfg.critic_observation_group == "critic"
+    assert bench.TASK_CONFIGS["go2w"].env_cls_factory() is make_manager_based_rl_env
+    assert bench.DEFAULT_NUM_ENVS == 4096
+
 
 def test_go2w_rough_cfg_matches_ppo_owner_yaml() -> None:
     cfg = bench.TASK_CONFIGS["go2w_rough"].build_cfg("mujoco")

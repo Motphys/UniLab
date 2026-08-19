@@ -428,19 +428,24 @@ def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
 
     assert cfg.training.task_name == "Go2WJoystickFlat"
     assert cfg.training.sim_backend == "mujoco"
-    assert cfg.env.commands.vel_limit == [[0.0, 0.0, -1.0], [1.0, 0.0, 1.0]]
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.control_config.Kp == pytest.approx(50.0)
-    assert cfg.env.control_config.Kd == pytest.approx(1.5)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.env.control_config.wheel_Kd == pytest.approx(0.5)
-    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.75)
-    assert cfg.reward.scales.orientation == pytest.approx(-2.0)
-    assert cfg.reward.scales.upward == pytest.approx(1.0)
-    assert cfg.reward.base_height_target == pytest.approx(0.4)
-    assert cfg.reward.scales.torques < 0.0
+    command = cfg.env.commands.twist
+    assert command.ranges.lin_vel_x == [0.0, 1.0]
+    assert command.ranges.lin_vel_y == [0.0, 0.0]
+    assert command.ranges.ang_vel_z == [-1.0, 1.0]
+    action = cfg.env.actions.motor
+    assert action.leg_action_scale == pytest.approx(0.5)
+    assert action.leg_kp == pytest.approx(50.0)
+    assert action.leg_kd == pytest.approx(1.5)
+    assert action.wheel_action_scale == pytest.approx(10.0)
+    assert action.wheel_kd == pytest.approx(0.5)
+    gains = cfg.env.events.motor_gains.params
+    assert gains.kp_multiplier_range == [1.0, 1.0]
+    assert gains.kd_multiplier_range == [1.0, 1.0]
+    assert cfg.reward.tracking_ang_vel.weight == pytest.approx(0.75)
+    assert cfg.reward.orientation.weight == pytest.approx(-2.0)
+    assert cfg.reward.upward.weight == pytest.approx(1.0)
+    assert cfg.reward.base_height.params.target_height == pytest.approx(0.4)
+    assert cfg.reward.torques.weight < 0.0
 
 
 def test_ppo_go2w_motrix_uses_motor_owner_dr_path():
@@ -449,18 +454,20 @@ def test_ppo_go2w_motrix_uses_motor_owner_dr_path():
     assert cfg.training.task_name == "Go2WJoystickFlat"
     assert cfg.training.sim_backend == "motrix"
     assert cfg.env.render_offset_mode == "zero"
-    assert cfg.env.commands.vel_limit == [[0.0, 0.0, -1.0], [1.0, 0.0, 1.0]]
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.control_config.Kp == pytest.approx(50.0)
-    assert cfg.env.control_config.Kd == pytest.approx(1.5)
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.env.control_config.wheel_Kd == pytest.approx(0.5)
-    assert cfg.reward.scales.tracking_ang_vel == pytest.approx(0.75)
-    assert cfg.reward.scales.orientation == pytest.approx(-2.0)
-    assert cfg.reward.scales.upward == pytest.approx(1.0)
-    assert cfg.reward.scales.torques < 0.0
+    command = cfg.env.commands.twist
+    assert command.ranges.lin_vel_x == [0.0, 1.0]
+    assert command.ranges.lin_vel_y == [0.0, 0.0]
+    assert command.ranges.ang_vel_z == [-1.0, 1.0]
+    action = cfg.env.actions.motor
+    assert action.leg_action_scale == pytest.approx(0.5)
+    assert action.leg_kp == pytest.approx(50.0)
+    assert action.leg_kd == pytest.approx(1.5)
+    assert action.wheel_action_scale == pytest.approx(10.0)
+    assert action.wheel_kd == pytest.approx(0.5)
+    assert cfg.reward.tracking_ang_vel.weight == pytest.approx(0.75)
+    assert cfg.reward.orientation.weight == pytest.approx(-2.0)
+    assert cfg.reward.upward.weight == pytest.approx(1.0)
+    assert cfg.reward.torques.weight < 0.0
 
 
 def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
@@ -468,11 +475,10 @@ def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
 
     assert cfg.training.task_name == "Go2WJoystickFlat"
     assert cfg.training.sim_backend == "motrix"
-    assert "model_file" not in cfg.env
-    assert cfg.env.domain_rand.randomize_kp is False
-    assert cfg.env.domain_rand.randomize_kd is False
-    assert cfg.env.control_config.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.reward.scales.torques < 0.0
+    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/scene_flat.xml")
+    assert cfg.env.scene.default_keyframe_name == "home"
+    assert cfg.env.actions.motor.wheel_action_scale == pytest.approx(10.0)
+    assert cfg.reward.torques.weight < 0.0
 
 
 def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
