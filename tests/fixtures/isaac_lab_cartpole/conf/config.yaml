@@ -1,0 +1,117 @@
+# Derived from Isaac Lab b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers.
+# Modified by UniLab for Hydra and the fixture-local MJCF adapter; BSD-3-Clause.
+# Hydra is the fixture's only task-configuration owner. This declaration mirrors
+# Isaac Lab's CartpoleEnvCfg term names and insertion order.
+training:
+  task_name: IsaacLabCartpoleFixture
+  sim_backend: mujoco
+
+env:
+  scene:
+    model_file: tests/fixtures/isaac_lab_cartpole/cartpole.xml
+    entities:
+      robot:
+        root_body_name: cart
+        joint_names: [slider_to_cart, cart_to_pole]
+        actuator_names: [slider_to_cart]
+  sim_dt: 0.008333333333333333
+  ctrl_dt: 0.016666666666666666
+  max_episode_seconds: 5.0
+  seed: 7
+  observations:
+    policy:
+      _target_: unilab.managers.ObservationGroupCfg
+      enable_corruption: false
+      concatenate_terms: true
+      terms:
+        joint_pos_rel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel_rel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+  actions:
+    joint_effort:
+      _target_: tests.fixtures.isaac_lab_cartpole.task.JointEffortActionCfg
+      entity_name: robot
+      actuator_names: [slider_to_cart]
+      scale: 100.0
+  events:
+    reset_cart_position:
+      _target_: unilab.managers.EventTermCfg
+      func: tests.fixtures.isaac_lab_cartpole.task.reset_joints_by_offset
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: slider_to_cart
+        position_range: [-1.0, 1.0]
+        velocity_range: [-0.5, 0.5]
+    reset_pole_position:
+      _target_: unilab.managers.EventTermCfg
+      func: tests.fixtures.isaac_lab_cartpole.task.reset_joints_by_offset
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: cart_to_pole
+        position_range: [-0.7853981633974483, 0.7853981633974483]
+        velocity_range: [-0.7853981633974483, 0.7853981633974483]
+  terminations:
+    time_out:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    cart_out_of_bounds:
+      _target_: unilab.managers.TerminationTermCfg
+      func: tests.fixtures.isaac_lab_cartpole.task.joint_pos_out_of_manual_limit
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: slider_to_cart
+        bounds: [-3.0, 3.0]
+  policy_observation_group: policy
+  critic_observation_group: null
+  scale_rewards_by_dt: true
+
+reward:
+  alive:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.envs.mdp.is_alive
+    weight: 1.0
+  terminating:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.envs.mdp.is_terminated
+    weight: -2.0
+  pole_pos:
+    _target_: unilab.managers.RewardTermCfg
+    func: tests.fixtures.isaac_lab_cartpole.task.joint_pos_target_l2
+    weight: -1.0
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: cart_to_pole
+      target: 0.0
+  cart_vel:
+    _target_: unilab.managers.RewardTermCfg
+    func: tests.fixtures.isaac_lab_cartpole.task.joint_vel_l1
+    weight: -0.01
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: slider_to_cart
+  pole_vel:
+    _target_: unilab.managers.RewardTermCfg
+    func: tests.fixtures.isaac_lab_cartpole.task.joint_vel_l1
+    weight: -0.005
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: cart_to_pole
