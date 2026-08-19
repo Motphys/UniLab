@@ -30,6 +30,7 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 from unilab.dtype_config import get_global_dtype
+from unilab.tasks.compatibility import adapt_legacy_factory
 from unilab.tasks.manipulation.sharpa_inhand.base import (
     SharpaInhandBaseCfg,
     SharpaInhandBaseEnv,
@@ -440,9 +441,6 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         )
 
 
-@registry.env("SharpaInhandRotation", sim_backend="drake")
-@registry.env("SharpaInhandRotation", sim_backend="mujoco")
-@registry.env("SharpaInhandRotation", sim_backend="motrix")
 class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
     _cfg: SharpaInhandRotationCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _reward_cfg: RewardConfig
@@ -1536,3 +1534,14 @@ class SharpaInhandRotationEnv(SharpaInhandBaseEnv):
 
 SharpaWaveRewardConfig = RewardConfig
 SharpaWaveRotationCfg = SharpaInhandRotationCfg
+
+_SHARPA_ROTATION_COMPAT_FACTORY = adapt_legacy_factory(
+    SharpaInhandRotationEnv,
+    task_family="Sharpa",
+    reason=(
+        "tactile/contact latency, object variants, and grasp-cache state remain "
+        "task-owned until formal Manager-Based capabilities exist"
+    ),
+)
+for _backend_type in ("mujoco", "motrix", "drake"):
+    registry.register_env("SharpaInhandRotation", _SHARPA_ROTATION_COMPAT_FACTORY, _backend_type)

@@ -12,6 +12,7 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.run_control import RunComplete
 from unilab.dr import ResetPlan
 from unilab.dr.dr_utils import build_common_reset_randomization
+from unilab.tasks.compatibility import adapt_legacy_factory
 from unilab.tasks.manipulation.sharpa_inhand.base import (
     SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
     SharpaDomainRandConfig,
@@ -138,8 +139,6 @@ class SharpaInhandGraspDRProvider(SharpaInhandRotationDRProvider):
         )
 
 
-@registry.env("SharpaInhandRotationGrasp", sim_backend="mujoco")
-@registry.env("SharpaInhandRotationGrasp", sim_backend="motrix")
 class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
     _cfg: SharpaInhandRotationGraspCfg  # pyright: ignore[reportIncompatibleVariableOverride]
     _MATERIALIZE_ROTATION_GRASP_CACHE = False
@@ -390,3 +389,14 @@ class SharpaInhandRotationGraspEnv(SharpaInhandRotationEnv):
 
 
 SharpaWaveGraspCfg = SharpaInhandGraspEnvCfg
+
+_SHARPA_GRASP_COMPAT_FACTORY = adapt_legacy_factory(
+    SharpaInhandRotationGraspEnv,
+    task_family="Sharpa",
+    reason=(
+        "tactile grasp validation and cache-collection completion remain task-owned "
+        "until formal Manager-Based capabilities exist"
+    ),
+)
+for _backend_type in ("mujoco", "motrix"):
+    registry.register_env("SharpaInhandRotationGrasp", _SHARPA_GRASP_COMPAT_FACTORY, _backend_type)
