@@ -1,0 +1,16 @@
+<mujoco model="isaac_lab_cartpole_fixture">
+  <option timestep="0.008333333333333333"/>
+  <worldbody>
+    <body name="cart" pos="0 0 1">
+      <joint name="slider_to_cart" type="slide" axis="1 0 0" limited="true" range="-4 4" damping="0.01"/>
+      <geom name="cart" type="box" size="0.2 0.15 0.1" mass="1"/>
+      <body name="pole" pos="0 0 0.1">
+        <joint name="cart_to_pole" type="hinge" axis="0 1 0" damping="0.00001"/>
+        <geom name="pole" type="capsule" fromto="0 0 0 0 0 1" size="0.04" mass="0.1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="slider_to_cart" joint="slider_to_cart" gear="1" ctrllimited="true" ctrlrange="-100 100"/>
+  </actuator>
+</mujoco>
