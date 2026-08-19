@@ -1,93 +1,169 @@
 # Migrating from Isaac Lab
 
-If you have an Isaac Lab task you want to run in UniLab, this page tells
-you what stays the same, what changes, and where the sharp edges are.
+Port an Isaac Lab Manager-Based task to UniLab by keeping its manager and term
+structure, then adapting configuration, numeric execution, and scene access at
+their owner boundaries. Do not rewrite it as a monolithic `NpEnv` subclass.
 
-## What stays the same
+This is source-compatible migration, not a promise that an arbitrary Isaac Lab
+task runs unchanged. The target path is:
 
-- Gymnasium-style env interface (`reset`, `step`, `obs/reward/info`).
-- Hydra-based configuration. Most of your existing YAML can be ported with
-  field-name remapping.
-- The general idea of a "task" that composes scene + reward + DR + obs.
-- PPO as the default algo — UniLab ships RSL-RL's PPO out of the box.
+```text
+Hydra owner YAML
+  -> plain ManagerBasedRlEnvCfg
+  -> Registry + make_manager_based_rl_env
+  -> ManagerBasedRlEnv on the NumPy/SimBackend runtime
+  -> NpEnvState for the existing training and IPC path
+```
 
-## What changes
+## Compatibility boundary
 
 ```{list-table}
 :header-rows: 1
-:widths: 30 35 35
+:widths: 28 24 48
 
-* - Isaac Lab concept
-  - UniLab equivalent
-  - Notes
-* - `DirectRLEnv`
-  - `unilab.base.np_env.NpEnv`
-  - UniLab obs is always a **dict**, not a tensor.
-* - `RigidBody.cfg`
-  - Task-side asset import + scene composition
-  - See {doc}`../../4-developer_guide/1-architecture/4-scene_composition`.
-* - GPU PhysX backend
-  - CPU MuJoCo / Motrix + GPU learner
-  - Architectural inversion — see below.
-* - `RandomizationCfg`
-  - {doc}`../../4-developer_guide/2-contracts/4-dr_contract`
-  - UniLab DR runs in cold-path resampling only.
-* - `RewardManager` chains
-  - Reward composition in env, plus
-    `unilab.training.reward` bookkeeping
-  - Reward terms still keyed for component-wise logging.
-* - `EventCfg` event-driven hooks
-  - Phase + curriculum + DR providers
-  - Hooks are explicit, not implicit.
+* - Isaac Lab surface
+  - UniLab status
+  - Migration rule
+* - Manager categories, term names and dictionary order
+  - Compatible
+  - Keep observation, action, event, reward, termination, command, and
+    curriculum terms in the same order.
+* - Function/class terms and `func + params`
+  - Compatible
+  - Change imports to `unilab.managers`; keep term boundaries and partial
+    `reset(env_ids)` semantics.
+* - `ManagerBasedRLEnv` / `ManagerBasedRLEnvCfg`
+  - Compatible spelling aliases
+  - The canonical UniLab names are `ManagerBasedRlEnv` and
+    `ManagerBasedRlEnvCfg`; the aliases point to the same implementation.
+* - Tensor values and operations
+  - Adapted
+  - Replace `torch.Tensor` with `np.ndarray` and use vectorized NumPy. There is
+    no manager-facing device API.
+* - Nested `@configclass` task configuration
+  - Adapted
+  - Move the complete task declaration to one Hydra owner YAML. `_target_`
+    selects concrete config dataclasses and dotted `func` values select terms.
+* - `InteractiveSceneCfg`, USD, and PhysX views
+  - Adapted or unsupported
+  - Declare a task-owned `SceneCfg` and `EntityCfg`; access state and control
+    only through `SceneEntityCfg` and the public entity facade. Unsupported
+    capabilities raise during cold-path binding.
+* - Omniverse, Isaac renderer, and Torch/PhysX mutation
+  - Unsupported
+  - UniLab does not install or silently emulate these runtimes.
 ```
 
-## The architectural inversion
+The normative boundary is
+{doc}`ADR-0006 </adr/ADR-0006-community-manager-api-on-numpy-runtime>`. Only
+surfaces backed by registration, configuration, and tests should be described
+as compatible.
 
-Isaac Lab places the simulator on GPU and lets you batch thousands of
-envs in PhysX. UniLab places the simulator on CPU (often multithread) and
-batches across worker **processes**, sharing memory with a single GPU
-learner.
+## Migration procedure
 
-Implications:
+### 1. Inventory the source task
 
-- **Per-env step time** in UniLab is comparable or worse than Isaac on a
-  single env. **Throughput** comes from process parallelism + asynchrony
-  (see `unilab.ipc.async_runner`).
-- You can run on **MPS, ROCm, XPU** as the learner device — Isaac is
-  CUDA-only.
-- **No GPU contention** between simulator and learner — your trainer's
-  memory usage is predictable.
+Pin the Isaac Lab revision and list the source manager groups, term names, term
+order, parameters, observation dimensions, action dimensions, reset behavior,
+and episode timing. Classify each dependency before writing code:
 
-## Step-by-step migration
+- reuse an existing `unilab.managers` config or `unilab.envs.mdp` term;
+- adapt a task-specific term from Torch to NumPy;
+- stop if the term requires a capability absent from the public entity or
+  `SimBackend` contract.
 
-1. **Audit observations.** Make sure every observation key is a vector
-   you can express without GPU PhysX queries. If not, add a state
-   estimator or move the query to cold path.
-2. **Port the asset.** UniLab consumes MJCF as its source of truth. If
-   you have USD, convert to MJCF first.
-3. **Port the env.** Subclass `unilab.base.np_env.NpEnv`. Move
-   reward computation into the env's `compute_reward()`.
-4. **Port the YAML.** Map Isaac Lab's `EnvCfg` fields to UniLab task owner
-   YAML following the table in
-   {doc}`5-task_config_translation`.
-5. **Port the reward.** Use the cookbook at
-   {doc}`6-reward_porting`.
-6. **Validate.** Train a small run, compare reward curves against your
-   Isaac baseline.
+Do not probe backend objects with `getattr`/`hasattr`, return zeros, or route the
+task back to a legacy environment.
 
-## What you'll miss (and how to compensate)
+### 2. Port scene and assets on the cold path
 
-- **Isaac Sim renderer.** Use Motrix's headless video export or build a
-  viser scene (`unilab.visualization.viser_scene`).
-- **Per-env tensor obs.** UniLab gives you dict-of-arrays; wrap with your
-  own `obs_to_tensor` if you need a tensor.
-- **Built-in GPU-side DR.** UniLab DR is CPU-side per process. For most
-  tasks this is plenty; for extreme parallelism use more worker
-  processes.
+Replace Isaac Lab's USD/`InteractiveSceneCfg` declaration with a task-owned
+`SceneCfg`. Declare every entity and selector needed by terms. The
+`SceneEntityCfg` selector resolves names and regular expressions once during
+materialization; reset and step reuse cached IDs and NumPy views.
+
+The Cartpole fixture uses a minimal task-owned MJCF asset. More complex assets
+must follow
+{doc}`scene composition <../../4-developer_guide/1-architecture/4-scene_composition>`
+and the selected backend's formal capabilities.
+
+### 3. Port term code, not the manager structure
+
+Keep each function/class term and its parameters. Replace Torch types and
+operators mechanically with NumPy, preserve batch shapes, and return one value
+per environment where the source term does. Stateful terms resolve selectors
+and allocate buffers in their constructor, then update only NumPy buffers on
+the hot path.
+
+Python owns term implementations and reusable config dataclasses. It must not
+hold a second task-specific list of enabled terms or default weights.
+
+### 4. Make Hydra the only task configuration owner
+
+Declare scene, timing, groups, terms, concrete config types, callables,
+parameters, weights, and observation mapping in the owner YAML. For example:
+
+```yaml
+env:
+  observations:
+    policy:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        joint_pos_rel:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+  terminations:
+    time_out:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  policy_observation_group: policy
+  critic_observation_group: null
+
+reward:
+  alive:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.envs.mdp.is_alive
+    weight: 1.0
+```
+
+Hydra composition materializes this declaration into plain typed config on the
+cold path. Unknown fields, unresolved `_target_`/`func` references, and wrong
+config types fail before reset or step. Direct Python config construction is
+reserved for focused lower-level tests.
+
+### 5. Register one generic runtime path
+
+The task module registers `ManagerBasedRlEnvCfg` and
+`make_manager_based_rl_env` for each backend that the repository actually
+supports. Backend owner YAMLs carry backend identity and tuning. Users select
+the composed owner through the normal CLI, for example:
+
+```bash
+uv run train --algo ppo --task <task> --sim mujoco
+```
+
+Do not add a task-specific training-script branch, environment factory, runner,
+or IPC path.
+
+### 6. Validate near each adaptation
+
+Test Hydra composition and typed materialization, term order and math, selector
+failure, observation/action shapes, partial reset, and at least one real
+registered backend transition. Compare behavior with the pinned source task;
+benchmark only after semantic migration is complete.
+
+## Repository evidence
+
+`tests/fixtures/isaac_lab_cartpole/` ports the Manager-Based Cartpole task from
+Isaac Lab commit `b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8`. It preserves all
+12 source term names and their order while adapting Torch to NumPy, nested
+config objects to Hydra YAML, and the scene/action/reset boundaries to a
+fixture-local MJCF implementation. It is test-only evidence, not a production
+task or a blanket Isaac Lab support claim.
 
 ## See also
 
-- {doc}`2-from_legged_gym`
-- {doc}`3-from_rsl_rl`
-- {doc}`5-task_config_translation`
-- {doc}`6-reward_porting`
+- {doc}`Manager-Based API <../../4-developer_guide/1-architecture/6-manager_based_api>`
+- {doc}`Environment contract <../../4-developer_guide/2-contracts/1-env_contract>`
+- {doc}`ADR-0006 </adr/ADR-0006-community-manager-api-on-numpy-runtime>`
