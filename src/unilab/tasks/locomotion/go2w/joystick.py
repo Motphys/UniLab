@@ -17,6 +17,7 @@ from unilab.dr.dr_utils import (
     zero_actions,
 )
 from unilab.dtype_config import get_global_dtype
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
 from unilab.tasks.locomotion.common import rewards
 from unilab.tasks.locomotion.common.commands import (
     Commands,
@@ -85,7 +86,6 @@ class JoystickSensor:
     gravity = "upvector"
 
 
-@registry.envcfg("Go2WJoystickFlat")
 @dataclass
 class Go2WJoystickCfg(Go2WBaseCfg):
     scene: SceneCfg = field(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -226,8 +226,6 @@ class Go2WJoystickDomainRandomizationProvider(LocomotionDRProvider):
         return commands
 
 
-@registry.env("Go2WJoystickFlat", sim_backend="mujoco")
-@registry.env("Go2WJoystickFlat", sim_backend="drake")
 class Go2WJoystickEnv(Go2WBaseEnv):
     _cfg: Go2WJoystickCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
@@ -644,4 +642,10 @@ class Go2WJoystickEnv(Go2WBaseEnv):
         return np.asarray(mirror, dtype=get_global_dtype())
 
 
-registry.register_env("Go2WJoystickFlat", Go2WJoystickEnv, sim_backend="motrix")
+# Go2WJoystickCfg and Go2WJoystickEnv remain solely as the rough-task bridge.
+# The flat production identity is Hydra-owned and uses the generic Manager-Based
+# factory; the bridge is deleted with the rough-task migration.
+registry.register_env_config("Go2WJoystickFlat", ManagerBasedRlEnvCfg)
+registry.register_env("Go2WJoystickFlat", make_manager_based_rl_env, sim_backend="mujoco")
+registry.register_env("Go2WJoystickFlat", make_manager_based_rl_env, sim_backend="motrix")
+registry.register_env("Go2WJoystickFlat", make_manager_based_rl_env, sim_backend="drake")
