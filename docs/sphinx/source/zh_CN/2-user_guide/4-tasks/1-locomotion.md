@@ -29,11 +29,14 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 ## Go2 FootStand
 
-`go2_footstand` 是 Go2 前足站立任务，**仅支持 MuJoCo**。
+`go2_footstand` 是 Go2 前足站立任务。PPO owner YAML 已注册 MuJoCo、
+Motrix 和 Drake；当前 SAC owner 使用 Drake。
 
-- PPO 配置：`conf/ppo/task/go2_footstand/mujoco.yaml`
-- 环境注册名：`Go2FootStand`（注册于 `sim_backend="mujoco"`）
-- 环境实现：`src/unilab/tasks/locomotion/go2/footstand.py`（继承 Go2 基础任务）
+- PPO canonical 配置：`conf/ppo/task/go2_footstand/base.yaml`
+- 后端 owner：`conf/ppo/task/go2_footstand/{mujoco,motrix,drake}.yaml`
+- 环境注册名：`Go2FootStand`（MuJoCo、Motrix、Drake）
+- 环境实现：`src/unilab/tasks/locomotion/go2/footstand.py`
+  （通用 Manager-Based runtime 上的 task-owned NumPy manager terms）
 - Go2 模型 XML：`src/unilab/assets/robots/go2/go2.xml`
 
 ```bash
@@ -59,14 +62,14 @@ FootStand 的完整流程是三阶段教师-学生 pipeline；当前仓库里的
 ### 观测口径
 
 `Go2FootStand` 的策略（actor）网络观测使用 15 帧历史，每帧 45 维
-（`_FOOTSTAND_FRAME_OBS_DIM = 45`）：
+（`FRAME_OBS_DIM = 45`）：
 
 ```text
 linvel(3) + gyro(3) + gravity(3) + joint_position_delta(12) + joint_velocity(12) + last_action(12)
 ```
 
 因此策略网络观测维度是 `45 * 15 = 675`。价值（critic）网络在这段历史观测后追加当前时刻的
-特权观测尾部（`_FOOTSTAND_PRIVILEGED_TAIL_DIM = 49`）：
+特权观测尾部（`PRIVILEGED_OBS_DIM = 49`）：
 
 ```text
 gyro(3) + accelerometer(3) + linvel(3) + global_angvel(3) + dof_pos(12) + dof_vel(12) + torques(12) + height(1)
@@ -76,19 +79,23 @@ gyro(3) + accelerometer(3) + linvel(3) + global_angvel(3) + dof_pos(12) + dof_ve
 
 ### 奖励与终止项
 
-默认奖励来自 `conf/ppo/task/go2_footstand/mujoco.yaml`。奖励权重包括站立 `height`、
+默认奖励来自 `conf/ppo/task/go2_footstand/base.yaml`，后端 leaf 只覆盖
+后端专属 term 和调优项。奖励权重包括站立 `height`、
 `orientation`、`rear_feet_contact`、前腿目标角度（`tar`）、`action_rate`、
 `dof_pos_limits`、`front_leg_motion`、`rear_leg_symmetry`、`knee_clearance`、
 `upright_stability`、`stay_still`、`pose`，以及 `energy` 和 `dof_acc` 惩罚；
 `termination` 与 `penalty_contact` 驱动终止/惩罚路径（前腿/前身体接触、低高度、坏朝向，
-以及由 `energy_termination_threshold` 控制的高能耗截断）。
+以及 `footstand` termination term 中的高能耗截断）。
 
 ### 调参提示
 
-- `env.obs_history_len`：策略观测历史长度，配置默认为 `15`。
-- `env.energy_termination_threshold`：高能耗终止阈值，配置默认为 `200.0`。
-- `env.domain_rand`：地面摩擦、连杆质量、机身质心、关节惯量和重置关节位置随机化。
-- `reward.scales.height` / `orientation` / `rear_feet_contact`：站立姿态和后脚接触权重。
+- `env.observations.policy.terms.frame.history_length`：策略观测历史长度，
+  默认为 `15`。
+- `env.terminations.footstand.params.energy_threshold`：高能耗终止阈值，
+  默认为 `200.0`。
+- `env.events`：重置和 domain randomization terms；后端 owner 对不支持的
+  model-field term 显式设为 `null`。
+- `reward.footstand.params.scales`：站立、接触、运动和能耗权重。
 
 ### 近风险检查
 

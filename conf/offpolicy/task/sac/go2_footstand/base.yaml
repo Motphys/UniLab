@@ -1,0 +1,229 @@
+# @package _global_
+# Canonical Go2 footstand Manager-Based declaration for off-policy training.
+# Keep this task surface aligned with the PPO owner; Hydra remains the sole entry.
+env:
+  scene:
+    model_file: src/unilab/assets/robots/go2/scene_flat.xml
+    default_keyframe_name: home
+    entities:
+      robot:
+        root_body_name: base
+        joint_names:
+          - FL_hip_joint
+          - FL_thigh_joint
+          - FL_calf_joint
+          - FR_hip_joint
+          - FR_thigh_joint
+          - FR_calf_joint
+          - RL_hip_joint
+          - RL_thigh_joint
+          - RL_calf_joint
+          - RR_hip_joint
+          - RR_thigh_joint
+          - RR_calf_joint
+        body_names:
+          - base
+          - FL_hip
+          - FL_thigh
+          - FL_calf
+          - FR_hip
+          - FR_thigh
+          - FR_calf
+          - RL_hip
+          - RL_thigh
+          - RL_calf
+          - RR_hip
+          - RR_thigh
+          - RR_calf
+        geom_names: [floor]
+        actuator_names:
+          - FR_hip
+          - FR_thigh
+          - FR_calf
+          - FL_hip
+          - FL_thigh
+          - FL_calf
+          - RR_hip
+          - RR_thigh
+          - RR_calf
+          - RL_hip
+          - RL_thigh
+          - RL_calf
+  sim_dt: 0.004
+  ctrl_dt: 0.02
+  max_episode_seconds: 10.0
+  adaptive_chunk_size: false
+  observations:
+    policy:
+      _target_: unilab.managers.ObservationGroupCfg
+      enable_corruption: true
+      terms:
+        frame:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.locomotion.go2.footstand.frame_observation
+          params:
+            action_name: joint_pos
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: [-0.1, -0.1, -0.1, -0.2, -0.2, -0.2, -0.05, -0.05, -0.05, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            n_max: [0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.05, 0.05, 0.05, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+          history_length: 15
+    critic:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        frame:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.locomotion.go2.footstand.frame_observation
+          params:
+            action_name: joint_pos
+          history_length: 15
+        privileged:
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.tasks.locomotion.go2.footstand.privileged_observation
+          params:
+            action_name: joint_pos
+  actions:
+    joint_pos:
+      _target_: unilab.tasks.locomotion.go2.footstand.FootstandIncrementalActionCfg
+      entity_name: robot
+      actuator_names:
+        - FR_hip
+        - FR_thigh
+        - FR_calf
+        - FL_hip
+        - FL_thigh
+        - FL_calf
+        - RR_hip
+        - RR_thigh
+        - RR_calf
+        - RL_hip
+        - RL_thigh
+        - RL_calf
+      joint_names:
+        - FR_hip_joint
+        - FR_thigh_joint
+        - FR_calf_joint
+        - FL_hip_joint
+        - FL_thigh_joint
+        - FL_calf_joint
+        - RR_hip_joint
+        - RR_thigh_joint
+        - RR_calf_joint
+        - RL_hip_joint
+        - RL_thigh_joint
+        - RL_calf_joint
+      joint_position_limits:
+        - [-1.0472, 1.0472]
+        - [-1.5708, 3.4907]
+        - [-2.7227, -0.83776]
+        - [-1.0472, 1.0472]
+        - [-1.5708, 3.4907]
+        - [-2.7227, -0.83776]
+        - [-1.0472, 1.0472]
+        - [-0.5236, 4.5379]
+        - [-2.7227, -0.83776]
+        - [-1.0472, 1.0472]
+        - [-0.5236, 4.5379]
+        - [-2.7227, -0.83776]
+      action_scale: 0.3
+      clip_actions: 1.0
+      kp: 35.0
+      kd: 0.5
+      simulate_action_latency: false
+  events:
+    reset_scene_to_default:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_root_state_uniform:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.0]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.5, 0.5]
+          roll: [-0.5, 0.5]
+          pitch: [-0.5, 0.5]
+          yaw: [-0.5, 0.5]
+    reset_joints:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.tasks.locomotion.go2.footstand.FootstandJointReset
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+        position_offset_range: [-0.05, 0.05]
+    pd_gains:
+      _target_: unilab.managers.EventTermCfg
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [35.0, 35.0]
+        kd_range: [0.5, 0.5]
+        operation: abs
+    floor_friction: null
+    link_mass: null
+    torso_com: null
+    joint_armature: null
+  terminations:
+    footstand:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.tasks.locomotion.go2.footstand.FootstandTermination
+      params:
+        action_name: joint_pos
+        grace_steps: 100
+        height_fraction: 0.8
+        orientation_threshold: 0.2
+        energy_threshold: 200.0
+    time_out:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  policy_observation_group: policy
+  critic_observation_group: critic
+  scale_rewards_by_dt: true
+
+reward:
+  footstand:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.go2.footstand.FootstandReward
+    weight: 1.0
+    params:
+      state_term_name: footstand
+      scales:
+        height: 2.0
+        orientation: 2.0
+        contact: -1.0
+        action_rate: -0.01
+        termination: -2.0
+        dof_pos_limits: -0.5
+        torques: 0.0
+        pose: -0.1
+        penalty_contact: -0.2
+        tar: 0.8
+        rear_feet_contact: 0.5
+        rear_leg_symmetry: -0.2
+        front_leg_motion: -0.05
+        upright_stability: -0.2
+        knee_clearance: -0.5
+        stay_still: -0.1
+        energy: -0.003
+        dof_acc: -2.5e-7
+      soft_joint_pos_limit_factor: 0.9
+      knee_height_target: 0.08
+      front_feet_min_separation: 0.16
+      front_feet_side_margin: 0.04
+      rear_hip_abduction_margin: 0.25
+      rear_foot_slip_deadband: 0.02
+      rear_foot_anchor_radius: 0.03
