@@ -125,7 +125,9 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
     raise KeyError(f"Task '{task_name}' has no #1042 migration-matrix entry")
 
 
-def migration_records(task_names: list[str] | tuple[str, ...] | set[str]) -> tuple[TaskMigrationRecord, ...]:
+def migration_records(
+    task_names: list[str] | tuple[str, ...] | set[str],
+) -> tuple[TaskMigrationRecord, ...]:
     """Return records in deterministic task-name order."""
 
     return tuple(migration_record(name) for name in sorted(task_names))

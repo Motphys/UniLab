@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import Generic, Protocol, TypeVar
 
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.base.np_env import NpEnv
@@ -37,12 +37,15 @@ class LegacyTaskCompatibility:
             raise ValueError("legacy compatibility reason must be non-empty")
 
 
-class LegacyEnvFactory(Protocol):
+TCfg_contra = TypeVar("TCfg_contra", bound=EnvCfg, contravariant=True)
+
+
+class LegacyEnvFactory(Protocol[TCfg_contra]):
     """Existing registry-shaped legacy factory admitted by this seam."""
 
     def __call__(
         self,
-        cfg: EnvCfg,
+        cfg: TCfg_contra,
         *,
         num_envs: int = 1,
         backend_type: str = "mujoco",
@@ -50,10 +53,10 @@ class LegacyEnvFactory(Protocol):
 
 
 @dataclass(frozen=True)
-class LegacyFactoryAdapter:
+class LegacyFactoryAdapter(Generic[TCfg_contra]):
     """Validate one legacy factory at the existing env construction boundary."""
 
-    factory: LegacyEnvFactory
+    factory: LegacyEnvFactory[TCfg_contra]
     compatibility: LegacyTaskCompatibility
 
     def __post_init__(self) -> None:
@@ -62,7 +65,7 @@ class LegacyFactoryAdapter:
 
     def __call__(
         self,
-        cfg: EnvCfg,
+        cfg: TCfg_contra,
         *,
         num_envs: int = 1,
         backend_type: str = "mujoco",
@@ -88,11 +91,11 @@ class LegacyFactoryAdapter:
 
 
 def adapt_legacy_factory(
-    factory: LegacyEnvFactory,
+    factory: LegacyEnvFactory[TCfg_contra],
     *,
     task_family: str,
     reason: str,
-) -> LegacyFactoryAdapter:
+) -> LegacyFactoryAdapter[TCfg_contra]:
     """Mark and wrap an existing ``EnvCfg -> NpEnv`` task factory.
 
     The wrapper runs only while the registry constructs an environment.  It

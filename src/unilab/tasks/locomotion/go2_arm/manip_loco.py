@@ -12,6 +12,7 @@ from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import ResetPlan
 from unilab.dtype_config import get_global_dtype
+from unilab.tasks.compatibility import adapt_legacy_factory
 from unilab.tasks.locomotion.common import rewards
 from unilab.tasks.locomotion.common.commands import Commands
 from unilab.tasks.locomotion.common.domain_rand import DomainRandConfig
@@ -264,9 +265,6 @@ class Go2ArmManipLocoDRProvider(LocomotionDRProvider):
         return env._update_history(actor_raw, env_ids=env_ids, critic_raw_obs=critic_raw)  # type: ignore[no-any-return]
 
 
-@registry.env("Go2ArmManipLoco", sim_backend="motrix")
-@registry.env("Go2ArmManipLoco", sim_backend="drake")
-@registry.env("Go2ArmManipLoco", sim_backend="mujoco")
 class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
     _cfg: Go2ArmManipLocoCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
@@ -1027,3 +1025,15 @@ class Go2ArmManipLocoEnv(Go2ArmBaseEnv):
         for name in self._ARM_TOUCH_SENSORS:
             total += self._backend.get_sensor_data(name)[:, 0]
         return total
+
+
+_GO2_ARM_COMPAT_FACTORY = adapt_legacy_factory(
+    Go2ArmManipLocoEnv,
+    task_family="Go2ArmManipLoco",
+    reason=(
+        "custom IK/Jacobian, end-effector goals, and observation history remain "
+        "task-owned until formal Manager-Based terms exist"
+    ),
+)
+for _backend_type in ("mujoco", "motrix", "drake"):
+    registry.register_env("Go2ArmManipLoco", _GO2_ARM_COMPAT_FACTORY, _backend_type)

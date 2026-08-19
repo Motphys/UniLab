@@ -8,6 +8,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
+from unilab.base import registry
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.tasks.compatibility import (
@@ -174,3 +175,27 @@ def test_compatibility_metadata_requires_stable_family_and_reason(
 ) -> None:
     with pytest.raises(ValueError, match="must be non-empty"):
         unsupported_legacy_task(task_family=task_family, reason=reason)
+
+
+@pytest.mark.parametrize(
+    ("task_name", "family", "backends"),
+    (
+        ("Go2ArmManipLoco", "Go2ArmManipLoco", {"mujoco", "motrix", "drake"}),
+        ("SharpaInhandRotation", "Sharpa", {"mujoco", "motrix", "drake"}),
+        ("SharpaInhandRotationGrasp", "Sharpa", {"mujoco", "motrix"}),
+    ),
+)
+def test_approved_production_families_are_registered_through_the_frozen_seam(
+    task_name: str,
+    family: str,
+    backends: set[str],
+) -> None:
+    registry.ensure_registries()
+    factories = registry._envs[task_name].env_factory_dict
+
+    assert set(factories) == backends
+    assert all(isinstance(factory, LegacyFactoryAdapter) for factory in factories.values())
+    assert {factory.compatibility.task_family for factory in factories.values()} == {family}
+    assert {factory.compatibility.status for factory in factories.values()} == {
+        CompatibilityStatus.ADAPTED
+    }
