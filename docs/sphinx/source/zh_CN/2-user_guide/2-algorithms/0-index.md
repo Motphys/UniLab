@@ -12,6 +12,7 @@
 | FlashSAC | off-policy | `scripts/train_offpolicy.py` | `conf/offpolicy/algo/flashsac.yaml` |
 | HIM-PPO | 高度估计器 PPO 路径 | `scripts/train_him_ppo.py` | `conf/ppo_him/config.yaml` |
 | HORA | teacher/student 蒸馏路径 | `scripts/train_hora_distill.py` | `conf/hora_distill/config.yaml` |
+| BFM | 动作模仿 off-policy | `scripts/train_bfm.py` | `conf/bfm/config.yaml` |
 
 ```{toctree}
 :hidden:
@@ -23,4 +24,5 @@
 5-flash_sac
 6-him_ppo
 7-hora
+8-bfm
 ```

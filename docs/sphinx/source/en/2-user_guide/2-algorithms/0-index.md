@@ -13,6 +13,7 @@ lives, and which command shape selects it. For general flags, see
 | FlashSAC | off-policy | `scripts/train_offpolicy.py` | `conf/offpolicy/algo/flashsac.yaml` |
 | HIM-PPO | height-estimator PPO path | `scripts/train_him_ppo.py` | `conf/ppo_him/config.yaml` |
 | HORA | teacher/student distillation path | `scripts/train_hora_distill.py` | `conf/hora_distill/config.yaml` |
+| BFM | motion imitation off-policy | `scripts/train_bfm.py` | `conf/bfm/config.yaml` |
 
 ```{toctree}
 :hidden:
@@ -24,4 +25,5 @@ lives, and which command shape selects it. For general flags, see
 5-flash_sac
 6-him_ppo
 7-hora
+8-bfm
 ```
