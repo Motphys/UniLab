@@ -1,0 +1,109 @@
+# Derived from mujocolab/mjlab 0fb8a681,
+# src/mjlab/tasks/cartpole/cartpole_env_cfg.py; Apache-2.0.
+# Hydra is the fixture's only task-configuration owner.
+training:
+  task_name: MjlabCartpoleBalanceFixture
+  sim_backend: mujoco
+
+env:
+  scene:
+    model_file: tests/fixtures/mjlab_cartpole/cartpole.xml
+    entities:
+      cartpole:
+        root_body_name: cart
+        joint_names: [slider, hinge_1]
+        actuator_names: [slide]
+  sim_dt: 0.01
+  ctrl_dt: 0.05
+  max_episode_seconds: 50.0
+  seed: 13
+  observations:
+    actor:
+      _target_: unilab.managers.ObservationGroupCfg
+      enable_corruption: true
+      terms:
+        cart_pos: &cart_pos
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_pos_rel
+          params:
+            asset_cfg: &cart_cfg
+              _target_: unilab.managers.SceneEntityCfg
+              name: cartpole
+              joint_names: [slider]
+        pole_angle: &pole_angle
+          _target_: unilab.managers.ObservationTermCfg
+          func: tests.fixtures.mjlab_cartpole.task.pole_angle_cos_sin
+          params:
+            asset_cfg: &hinge_cfg
+              _target_: unilab.managers.SceneEntityCfg
+              name: cartpole
+              joint_names: [hinge_1]
+        cart_vel: &cart_vel
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+          params:
+            asset_cfg: *cart_cfg
+        pole_vel: &pole_vel
+          _target_: unilab.managers.ObservationTermCfg
+          func: unilab.envs.mdp.joint_vel_rel
+          params:
+            asset_cfg: *hinge_cfg
+    critic:
+      _target_: unilab.managers.ObservationGroupCfg
+      terms:
+        cart_pos: *cart_pos
+        pole_angle: *pole_angle
+        cart_vel: *cart_vel
+        pole_vel: *pole_vel
+  actions:
+    effort:
+      _target_: tests.fixtures.cartpole_manager_adapters.JointEffortActionCfg
+      entity_name: cartpole
+      actuator_names: [slide]
+      scale: 1.0
+  events:
+    reset_slider:
+      _target_: unilab.managers.EventTermCfg
+      func: tests.fixtures.cartpole_manager_adapters.reset_joints_by_offset
+      mode: reset
+      params:
+        position_range: [-0.1, 0.1]
+        velocity_range: [-0.01, 0.01]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: cartpole
+          joint_names: [slider]
+    reset_hinge:
+      _target_: unilab.managers.EventTermCfg
+      func: tests.fixtures.cartpole_manager_adapters.reset_joints_by_offset
+      mode: reset
+      params:
+        position_range: [-0.034, 0.034]
+        velocity_range: [-0.01, 0.01]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: cartpole
+          joint_names: [hinge_1]
+  terminations:
+    time_out:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  policy_observation_group: actor
+  critic_observation_group: critic
+  scale_rewards_by_dt: true
+
+reward:
+  smooth_reward:
+    _target_: unilab.managers.RewardTermCfg
+    func: tests.fixtures.mjlab_cartpole.task.cartpole_smooth_reward
+    weight: 1.0
+    params:
+      cart_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: cartpole
+        joint_names: [slider]
+      hinge_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: cartpole
+        joint_names: [hinge_1]
