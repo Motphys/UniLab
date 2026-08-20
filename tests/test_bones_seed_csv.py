@@ -8,9 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from unilab.tools import bones_seed_csv
-from unilab.tools.bones_seed_csv import (
+from scripts.motion import bones_seed_csv
+from scripts.motion.bones_seed_csv import (
     ROOT_COLUMNS,
     euler_deg_to_quat_wxyz,
     load_header,

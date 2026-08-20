@@ -13,7 +13,7 @@ _unilab_uv_complete() {
     local output
     output="$(
         uv run --no-sync unilab-complete --cword "$((CURRENT - 1))" -- "${words[@]}" 2>/dev/null \
-            || PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}" uv run --no-sync python -m unilab.tools.completion --cword "$((CURRENT - 1))" -- "${words[@]}" 2>/dev/null
+            || PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}" uv run --no-sync python -m unilab.cli_completion --cword "$((CURRENT - 1))" -- "${words[@]}" 2>/dev/null
     )" || return 0
 
     if [[ -z "$output" ]]; then

@@ -9,6 +9,7 @@ ALLOWED_UTILS_MODULES = {
     "device",
     "geometry",
     "nan_guard",
+    "nan_viz",
     "rotation",
     "support_matrix",
     "tensor",

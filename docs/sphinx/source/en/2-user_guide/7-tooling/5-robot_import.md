@@ -30,7 +30,7 @@ Prefer MuJoCo/MJCF `.xml`, copied according to the contract above.
 If the source is URDF-only, convert it with the repository script:
 
 ```bash
-uv run unilab-import-robot <urdf_path> [robot_name]
+uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
 ```
 
 ```{important}
@@ -72,7 +72,7 @@ When checking `home`, confirm at least:
 
 ## Output Artifacts
 
-After running `uv run unilab-import-robot <urdf_path> [robot_name]`, the script
+After running `uv run scripts/tools/import_robot.py <urdf_path> [robot_name]`, the script
 generates:
 
 - `src/unilab/assets/robots/<robot_name>/assets/`: converted and organized mesh

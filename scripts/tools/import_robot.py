@@ -2,7 +2,7 @@
 """Convert a URDF robot to a UniLab robot MJCF asset directory.
 
 Usage:
-  uv run unilab-import-robot <urdf_path> [robot_name]
+  uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
 
 """
 
@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Iterable, Sequence, cast
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ROBOT_ASSET_ROOT = REPO_ROOT / "src" / "unilab" / "assets" / "robots"
 TEMP_MESH_PREFIX = "meshes/meshes/"
 DEFAULT_MATERIAL = "default_material"

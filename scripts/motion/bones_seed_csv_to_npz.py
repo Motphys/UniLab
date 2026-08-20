@@ -37,17 +37,17 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
-from tqdm import tqdm
-
-from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.xml import inject_mujoco_tracking_sensors
-from unilab.tools.bones_seed_csv import (
+from scripts.motion.bones_seed_csv import (
     ROOT_COLUMNS,
     euler_deg_to_quat_wxyz,
     load_header,
     parse_joint_names,
     resolve_input_files,
 )
+from tqdm import tqdm
+
+from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.backend.mujoco.xml import inject_mujoco_tracking_sensors
 from unilab.utils.rotation import np_quat_angular_velocity, np_quat_ensure_continuity
 
 DEFAULT_INPUT = "src/unilab/assets/motions/g1/flip"

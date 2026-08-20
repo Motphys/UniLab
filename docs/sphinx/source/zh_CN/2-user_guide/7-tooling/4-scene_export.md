@@ -1,6 +1,6 @@
 # 场景导出
 
-场景导出由 `src/unilab/tools/export_scene.py` 实现，并在 `pyproject.toml` 中注册为 `unilab-export-scene` 控制台入口。它接受一个 MuJoCo XML 或 MJB 模型路径，写出 `scene.xml`，在能够发现 mesh asset 时复制它们，并且可以创建一个 zip 归档。
+场景导出由 `src/unilab/base/backend/mujoco/export_scene.py` 实现，并在 `pyproject.toml` 中注册为 `unilab-export-scene` 控制台入口。它接受一个 MuJoCo XML 或 MJB 模型路径，写出 `scene.xml`，在能够发现 mesh asset 时复制它们，并且可以创建一个 zip 归档。
 
 对于 task 级别的实例化检查，请使用从 registry 和 owner config 构造 env 的脚本：
 
