@@ -1,266 +1,678 @@
+"""Hydra-owned production contract for the G1 walk Manager-Based tasks."""
+
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from unilab.base import registry
-from unilab.base.registry import ensure_registries
+from unilab.base.config_materialization import apply_cfg_overrides
+from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, mdp
+from unilab.tasks.locomotion.g1 import manager_terms as g1_terms
 from unilab.training.backend_adapter import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[4]
 CONF_DIR = ROOT_DIR / "conf"
 
+_RESET_EVENTS = ("reset_scene_to_default", "reset_root_state_uniform")
+_PPO_REWARDS = (
+    "tracking_lin_vel",
+    "tracking_ang_vel",
+    "feet_phase",
+    "lin_vel_z",
+    "ang_vel_xy",
+    "base_height",
+    "orientation",
+    "action_rate",
+    "pose",
+)
+_MOTRIX_EXTRA_REWARDS = (
+    "forward_progress",
+    "under_speed",
+    "upper_body_pose",
+    "penalty_feet_ori",
+    "feet_phase_contrast",
+    "feet_phase_contact",
+    "feet_double_stance",
+)
+_OFFPOLICY_REWARDS = (
+    "tracking_lin_vel",
+    "tracking_ang_vel",
+    "penalty_ang_vel_xy",
+    "penalty_orientation",
+    "penalty_action_rate",
+    "pose",
+    "penalty_feet_ori",
+    "feet_phase",
+    "alive",
+)
 
-_G1_OWNER_CASES = [
-    {
-        "id": "ppo_mujoco",
-        "config_group": "ppo",
-        "overrides": ["task=g1_walk_flat/mujoco"],
-        "task_name": "G1WalkFlat",
-        "backend": "mujoco",
-        "profile": "legacy",
-        "action_scale": 0.25,
-        "curriculum_enabled": False,
-    },
-    {
-        "id": "ppo_motrix",
-        "config_group": "ppo",
-        "overrides": ["task=g1_walk_flat/motrix"],
-        "task_name": "G1WalkFlat",
-        "backend": "motrix",
-        "profile": "legacy",
-        "action_scale": 0.5,
-        "curriculum_enabled": False,
-    },
-    {
-        "id": "appo_mujoco",
-        "config_group": "appo",
-        "overrides": ["task=g1_walk_flat/mujoco"],
-        "task_name": "G1WalkFlat",
-        "backend": "mujoco",
-        "profile": "legacy",
-        "action_scale": 0.25,
-        "curriculum_enabled": False,
-    },
-    {
-        "id": "sac_mujoco",
-        "config_group": "offpolicy",
-        "overrides": ["algo=sac", "task=sac/g1_walk_flat/mujoco"],
-        "task_name": "G1WalkFlat",
-        "backend": "mujoco",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
-    {
-        "id": "sac_motrix",
-        "config_group": "offpolicy",
-        "overrides": ["algo=sac", "task=sac/g1_walk_flat/motrix"],
-        "task_name": "G1WalkFlat",
-        "backend": "motrix",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
-    {
-        "id": "ppo_mjwarp",
-        "config_group": "ppo",
-        "overrides": ["task=g1_walk_flat/mjwarp"],
-        "task_name": "G1WalkFlat",
-        "backend": "mjwarp",
-        "profile": "legacy",
-        "action_scale": 0.25,
-        "curriculum_enabled": False,
-    },
-    {
-        "id": "sac_mjwarp",
-        "config_group": "offpolicy",
-        "overrides": ["algo=sac", "task=sac/g1_walk_flat/mjwarp"],
-        "task_name": "G1WalkFlat",
-        "backend": "mjwarp",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
-    {
-        "id": "sac_rough",
-        "config_group": "offpolicy",
-        "overrides": ["algo=sac", "task=sac/g1_walk_rough/mujoco"],
-        "task_name": "G1WalkRough",
-        "backend": "mujoco",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-        "model_suffix": "scene_rough.xml",
-    },
-    {
-        "id": "td3_mujoco",
-        "config_group": "offpolicy",
-        "overrides": ["algo=td3", "task=td3/g1_walk_flat/mujoco"],
-        "task_name": "G1WalkFlat",
-        "backend": "mujoco",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
-    {
-        "id": "flashsac_walk_mujoco",
-        "config_group": "offpolicy",
-        "overrides": ["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"],
-        "task_name": "G1WalkFlat",
-        "backend": "mujoco",
-        "profile": "walk",
-        "action_scale": 1.0,
-        "curriculum_enabled": True,
-    },
-]
+_OBSERVATION_TERMS = (
+    "base_ang_vel",
+    "projected_gravity",
+    "joint_pos",
+    "joint_vel",
+    "actions",
+    "command",
+    "gait_phase",
+)
+
+_POSE_WEIGHTS_29 = [0.01, 1.0, 5.0, 0.01, 5.0, 5.0] * 2 + [50.0] * 17
+_POSE_WEIGHTS_23 = [0.01, 1.0, 5.0, 0.01, 5.0, 5.0] * 2 + [50.0] * 11
+
+_OWNER_CASES = (
+    pytest.param(
+        "ppo",
+        ("task=g1_walk_flat/mujoco",),
+        "G1WalkFlat",
+        "mujoco",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        False,
+        id="ppo-mujoco",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_walk_flat/motrix",),
+        "G1WalkFlat",
+        "motrix",
+        29,
+        0.5,
+        "scene_flat.xml",
+        (*_PPO_REWARDS, *_MOTRIX_EXTRA_REWARDS),
+        _RESET_EVENTS,
+        False,
+        id="ppo-motrix",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_walk_flat/mjwarp",),
+        "G1WalkFlat",
+        "mjwarp",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_REWARDS,
+        _RESET_EVENTS,
+        False,
+        id="ppo-mjwarp",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_23dof_walk_flat/mujoco",),
+        "G1Walk23DofFlat",
+        "mujoco",
+        23,
+        0.25,
+        "scene_flat_23dof.xml",
+        _PPO_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        False,
+        id="ppo-23dof-mujoco",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_23dof_walk_flat/motrix",),
+        "G1Walk23DofFlat",
+        "motrix",
+        23,
+        0.5,
+        "scene_flat_23dof.xml",
+        (*_PPO_REWARDS, *_MOTRIX_EXTRA_REWARDS),
+        _RESET_EVENTS,
+        False,
+        id="ppo-23dof-motrix",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_23dof_walk_rough/mujoco",),
+        "G1Walk23DofRough",
+        "mujoco",
+        23,
+        0.25,
+        "scene_rough_23dof.xml",
+        _PPO_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="ppo-23dof-rough-mujoco",
+    ),
+    pytest.param(
+        "appo",
+        ("task=g1_walk_flat/mujoco",),
+        "G1WalkFlat",
+        "mujoco",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        False,
+        id="appo-mujoco",
+    ),
+    pytest.param(
+        "appo",
+        ("task=g1_23dof_walk_flat/mujoco",),
+        "G1Walk23DofFlat",
+        "mujoco",
+        23,
+        0.25,
+        "scene_flat_23dof.xml",
+        _PPO_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        False,
+        id="appo-23dof-mujoco",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_flat/mujoco"),
+        "G1WalkFlat",
+        "mujoco",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="sac-mujoco",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_flat/motrix"),
+        "G1WalkFlat",
+        "motrix",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-motrix",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_flat/mjwarp"),
+        "G1WalkFlat",
+        "mjwarp",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-mjwarp",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_rough/mujoco"),
+        "G1WalkRough",
+        "mujoco",
+        29,
+        1.0,
+        "scene_rough.xml",
+        _OFFPOLICY_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="sac-rough-mujoco",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_rough/motrix"),
+        "G1WalkRough",
+        "motrix",
+        29,
+        1.0,
+        "scene_rough.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-rough-motrix",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_23dof_walk_flat/mujoco"),
+        "G1Walk23DofFlat",
+        "mujoco",
+        23,
+        1.0,
+        "scene_flat_23dof.xml",
+        _OFFPOLICY_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="sac-23dof-mujoco",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_23dof_walk_rough/motrix"),
+        "G1Walk23DofRough",
+        "motrix",
+        23,
+        1.0,
+        "scene_rough_23dof.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-23dof-rough-motrix",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=td3", "task=td3/g1_walk_flat/mujoco"),
+        "G1WalkFlat",
+        "mujoco",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="td3-mujoco",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"),
+        "G1WalkFlat",
+        "mujoco",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="flashsac-mujoco",
+    ),
+)
+
+_WALK_PROFILE_IDS = {
+    "sac-mujoco",
+    "sac-motrix",
+    "sac-mjwarp",
+    "sac-rough-mujoco",
+    "sac-rough-motrix",
+    "sac-23dof-mujoco",
+    "sac-23dof-rough-motrix",
+    "td3-mujoco",
+    "flashsac-mujoco",
+}
 
 
-def _compose_cfg(config_group: str, overrides: list[str]):
+def _compose(config_group: str, overrides: Sequence[str]) -> DictConfig:
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / config_group), version_base="1.3"):
-        return compose("config", overrides=overrides)
+        return compose("config", overrides=list(overrides))
 
 
-def _materialize_env_cfg(cfg: Any):
-    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg, G1WalkRoughCfg
-
-    env_cfg_cls = G1WalkRoughCfg if cfg.training.task_name == "G1WalkRough" else G1WalkFlatCfg
-    return OmegaConf.merge(OmegaConf.structured(env_cfg_cls()), cfg.env)
-
-
-def _build_probe_env(cfg: Any):
-    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
-
-    env = cast(Any, object.__new__(G1WalkEnv))
-    env._num_envs = 1
-    env._cfg = _materialize_env_cfg(cfg)
-    env._reward_cfg = cfg.reward
-    env.default_angles = np.zeros((1, 29), dtype=np.float32)
-    env._obs_noise = lambda data, scale: np.asarray(data + 100.0, dtype=np.float32)
-    return env
+def _materialize(
+    config_group: str, overrides: Sequence[str], task_name: str
+) -> tuple[DictConfig, ManagerBasedRlEnvCfg, dict[str, Any]]:
+    hydra_cfg = _compose(config_group, overrides)
+    env_override = BackendAdapter(hydra_cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
+    env_cfg = registry.materialize_env_config(task_name)
+    assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
+    apply_cfg_overrides(env_cfg, env_override)
+    env_cfg.validate()
+    return hydra_cfg, env_cfg, env_override
 
 
-def _compute_probe_obs(cfg: Any) -> dict[str, np.ndarray]:
-    env = _build_probe_env(cfg)
-    return cast(
-        dict[str, np.ndarray],
-        env._compute_obs(
-            {
-                "commands": np.array([[0.7, 0.0, 0.2]], dtype=np.float32),
-                "current_actions": np.zeros((1, 29), dtype=np.float32),
-                "gait_phase": np.array([[0.3, 3.4]], dtype=np.float32),
-            },
-            linvel=np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
-            gyro=np.array([[4.0, 5.0, 6.0]], dtype=np.float32),
-            gravity=np.array([[0.1, 0.2, 0.9]], dtype=np.float32),
-            dof_pos=np.zeros((1, 29), dtype=np.float32),
-            dof_vel=np.array([np.arange(7.0, 36.0, dtype=np.float32)], dtype=np.float32),
-        ),
+def _assert_no_omegaconf(value: Any) -> None:
+    assert not OmegaConf.is_config(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        for item in fields(value):
+            _assert_no_omegaconf(getattr(value, item.name))
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            _assert_no_omegaconf(key)
+            _assert_no_omegaconf(item)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for item in value:
+            _assert_no_omegaconf(item)
+
+
+@pytest.mark.parametrize(
+    "config_group,overrides,task_name,backend,num_dof,action_scale,model_suffix,"
+    "expected_rewards,expected_events,has_curriculum",
+    _OWNER_CASES,
+    ids=[case.id for case in _OWNER_CASES],
+)
+def test_g1_owner_materializes_complete_plain_manager_cfg(
+    config_group: str,
+    overrides: tuple[str, ...],
+    task_name: str,
+    backend: str,
+    num_dof: int,
+    action_scale: float,
+    model_suffix: str,
+    expected_rewards: tuple[str, ...],
+    expected_events: tuple[str, ...],
+    has_curriculum: bool,
+) -> None:
+    registry.ensure_registries()
+    hydra_cfg, env_cfg, _ = _materialize(config_group, overrides, task_name)
+    case_id = next(case.id for case in _OWNER_CASES if case.values[1] == overrides)
+
+    assert hydra_cfg.training.task_name == task_name
+    assert hydra_cfg.training.sim_backend == backend
+    assert env_cfg.ctrl_dt == pytest.approx(0.02)
+    assert env_cfg.max_episode_seconds == pytest.approx(20.0)
+    assert env_cfg.policy_observation_group == "policy"
+    assert env_cfg.critic_observation_group == "critic"
+    assert env_cfg.scale_rewards_by_dt is True
+
+    assert env_cfg.scene is not None
+    assert env_cfg.scene.model_file.endswith(f"robots/g1/{model_suffix}")
+    assert env_cfg.scene.default_keyframe_name == "stand"
+    robot = env_cfg.scene.entities["robot"]
+    assert robot.root_body_name == "pelvis"
+    assert len(robot.joint_names or ()) == num_dof
+    assert len(robot.actuator_names or ()) == num_dof
+    assert robot.body_names == ["pelvis"]
+
+    assert list(env_cfg.observations) == ["policy", "critic"]
+    assert list(env_cfg.observations["policy"].terms) == list(_OBSERVATION_TERMS)
+    assert list(env_cfg.observations["critic"].terms) == [*_OBSERVATION_TERMS, "base_lin_vel"]
+
+    # Observation scaling profiles are explicit per-owner term scales.
+    policy_terms = env_cfg.observations["policy"].terms
+    critic_terms = env_cfg.observations["critic"].terms
+    walk_profile = case_id in _WALK_PROFILE_IDS
+    expected_gyro = 0.25 if walk_profile else None
+    expected_joint_vel = 0.05 if walk_profile else None
+    expected_linvel = 2.0 if walk_profile else None
+    for terms in (policy_terms, critic_terms):
+        assert terms["base_ang_vel"].scale == expected_gyro
+        assert terms["joint_vel"].scale == expected_joint_vel
+        assert terms["projected_gravity"].scale is None
+        assert terms["joint_pos"].scale is None
+        assert terms["actions"].scale is None
+        assert terms["command"].scale is None
+        assert terms["gait_phase"].scale is None
+        assert terms["gait_phase"].params["frequency"] == pytest.approx(1.5)
+    assert critic_terms["base_lin_vel"].scale == expected_linvel
+
+    assert list(env_cfg.actions) == ["joint_pos"]
+    assert env_cfg.actions["joint_pos"].scale == pytest.approx(action_scale)
+    assert env_cfg.actions["joint_pos"].use_default_offset is True
+
+    assert list(env_cfg.terminations) == ["time_out", "tilt", "base_height"]
+    assert env_cfg.terminations["time_out"].time_out is True
+    assert env_cfg.terminations["tilt"].func is g1_terms.g1_tilt_exceeded
+    assert env_cfg.terminations["base_height"].func is mdp.root_height_below_minimum
+
+    assert tuple(name for name, term in env_cfg.events.items() if term is not None) == (
+        expected_events
     )
-
-
-@pytest.mark.parametrize("case", _G1_OWNER_CASES, ids=[case["id"] for case in _G1_OWNER_CASES])
-def test_g1_owner_yaml_regression_contract(case: dict[str, Any]):
-    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
-
-    cfg = _compose_cfg(case["config_group"], case["overrides"])
-    full_env_cfg = _materialize_env_cfg(cfg)
-    env = _build_probe_env(cfg)
-    env_cfg_override = BackendAdapter(
-        cfg, root_dir=ROOT_DIR, algo_name=cfg.algo.algo if "algo" in cfg.algo else None
-    ).build_task_env_cfg_override()
-
-    assert cfg.training.task_name == case["task_name"]
-    assert cfg.training.sim_backend == case["backend"]
-    assert full_env_cfg.control_config.action_scale == pytest.approx(case["action_scale"])
-    assert full_env_cfg.curriculum.enabled is case["curriculum_enabled"]
-    assert env._uses_walk_observation_profile() is (case["profile"] == "walk")
-    assert (
-        registry._envs[cfg.training.task_name].env_factory_dict[cfg.training.sim_backend]
-        is G1WalkEnv
+    assert tuple(name for name, term in env_cfg.rewards.items() if term is not None) == (
+        expected_rewards
     )
-
-    if "model_suffix" in case:
-        assert full_env_cfg.scene.model_file.endswith(case["model_suffix"])
-
-    reward_config = OmegaConf.to_container(cfg.reward, resolve=True)
-    assert env_cfg_override["reward_config"] == reward_config
-    env_override = cast(dict[str, Any], OmegaConf.to_container(cfg.env, resolve=True))
-    for key, value in env_override.items():
-        assert env_cfg_override[key] == value
-
-    env._reward_fns = {}
-    env._init_reward_functions()
-    for reward_name in cfg.reward.scales.keys():
-        assert reward_name in env._reward_fns
-
-
-@pytest.mark.parametrize("case", _G1_OWNER_CASES, ids=[case["id"] for case in _G1_OWNER_CASES])
-def test_g1_owner_yaml_observation_profiles_match_expected_family(case: dict[str, Any]):
-    cfg = _compose_cfg(case["config_group"], case["overrides"])
-    obs = _compute_probe_obs(cfg)
-
-    if case["profile"] == "legacy":
-        np.testing.assert_allclose(obs["obs"][:, :3], [[104.0, 105.0, 106.0]])
-        np.testing.assert_allclose(obs["obs"][:, 35:37], [[107.0, 108.0]])
-        np.testing.assert_allclose(obs["critic"][:, :3], [[4.0, 5.0, 6.0]])
-        np.testing.assert_allclose(obs["critic"][:, 35:37], [[7.0, 8.0]])
-        np.testing.assert_allclose(obs["critic"][:, 98:101], [[1.0, 2.0, 3.0]])
+    if has_curriculum:
+        assert list(env_cfg.curriculum) == ["penalty_scaling"]
+        assert env_cfg.curriculum["penalty_scaling"].func is g1_terms.G1PenaltyCurriculum
     else:
-        np.testing.assert_allclose(obs["obs"][:, :3], [[26.0, 26.25, 26.5]])
-        np.testing.assert_allclose(obs["obs"][:, 35:37], [[5.35, 5.4]])
-        np.testing.assert_allclose(obs["critic"][:, :3], [[1.0, 1.25, 1.5]])
-        np.testing.assert_allclose(obs["critic"][:, 35:37], [[0.35, 0.4]])
-        np.testing.assert_allclose(obs["critic"][:, 98:101], [[2.0, 4.0, 6.0]])
+        assert not env_cfg.curriculum
+
+    command = env_cfg.commands["twist"]
+    assert isinstance(command, g1_terms.G1VelocityCommandCfg)
+    assert command.planar_dead_zone == pytest.approx(0.2)
+    assert command.resampling_time_range == [20.0, 20.0]
+    if backend == "motrix" and config_group == "ppo":
+        assert tuple(command.ranges.lin_vel_x) == (0.4, 0.7)
+        assert tuple(command.ranges.lin_vel_y) == (0.0, 0.0)
+    else:
+        assert tuple(command.ranges.lin_vel_x) == (-0.6, 1.0)
+        assert tuple(command.ranges.lin_vel_y) == (-0.4, 0.4)
+        assert tuple(command.ranges.ang_vel_z) == (-0.8, 0.8)
+
+    if backend == "mjwarp":
+        assert env_cfg.mjwarp_nconmax == 128
+        assert env_cfg.mjwarp_njmax == 256
+
+    pose = env_cfg.rewards["pose"]
+    expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23
+    if case_id == "flashsac-mujoco":
+        expected_weights = [2.0 if i in (1, 7) else w for i, w in enumerate(expected_weights)]
+    assert list(pose.params["pose_weights"]) == pytest.approx(expected_weights)
+
+    for manager_name in ("observations", "events", "rewards", "terminations", "curriculum"):
+        for term in getattr(env_cfg, manager_name).values():
+            if term is None:
+                continue
+            nested_terms = term.terms.values() if manager_name == "observations" else (term,)
+            for nested in nested_terms:
+                if nested is None:
+                    continue
+                module = nested.func.__module__
+                assert ".backend." not in module
+                assert not any(name in module for name in (".mujoco", ".motrix", ".mjwarp"))
+
+    _assert_no_omegaconf(env_cfg)
 
 
-def test_g1_observation_profile_selection_prefers_reward_family_over_curriculum_flag():
-    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
+def test_g1_walk_registries_are_manager_only() -> None:
+    registry.ensure_registries()
+    metadata = registry.list_registered_envs()
 
-    env = cast(Any, object.__new__(G1WalkEnv))
+    assert metadata["G1WalkFlat"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "mjwarp", "motrix"],
+    }
+    assert metadata["G1WalkRough"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix"],
+    }
+    assert metadata["G1Walk23DofFlat"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix"],
+    }
+    assert metadata["G1Walk23DofRough"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix"],
+    }
 
-    env._cfg = cast(
-        Any,
-        type(
-            "Cfg",
-            (),
-            {"curriculum": type("Curriculum", (), {"enabled": True})(), "reward_config": None},
-        )(),
+    for legacy_override in (
+        {"reward_config": {}},
+        {"domain_rand": {"randomize_kp": True}},
+        {"control_config": {"action_scale": 0.25}},
+        {"gait_phase_init_mode": "offset_phase"},
+        {"reset_base_qvel_limit": 0.5},
+        {"noise_config": {"level": 1.0}},
+    ):
+        with pytest.raises(ValueError, match="has no attribute"):
+            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
+
+
+@pytest.mark.parametrize(
+    ("config_group", "overrides", "task_name", "backend", "num_dof", "obs_dim", "critic_dim"),
+    (
+        pytest.param(
+            "ppo",
+            ("task=g1_walk_flat/mujoco",),
+            "G1WalkFlat",
+            "mujoco",
+            29,
+            98,
+            101,
+            id="ppo-mujoco",
+        ),
+        pytest.param(
+            "ppo",
+            ("task=g1_walk_flat/motrix",),
+            "G1WalkFlat",
+            "motrix",
+            29,
+            98,
+            101,
+            id="ppo-motrix",
+        ),
+        pytest.param(
+            "offpolicy",
+            ("algo=sac", "task=sac/g1_walk_flat/mujoco"),
+            "G1WalkFlat",
+            "mujoco",
+            29,
+            98,
+            101,
+            id="sac-mujoco",
+        ),
+        pytest.param(
+            "ppo",
+            ("task=g1_23dof_walk_flat/mujoco",),
+            "G1Walk23DofFlat",
+            "mujoco",
+            23,
+            80,
+            83,
+            id="ppo-23dof-mujoco",
+        ),
+        pytest.param(
+            "ppo",
+            ("task=g1_23dof_walk_rough/mujoco",),
+            "G1Walk23DofRough",
+            "mujoco",
+            23,
+            80,
+            83,
+            id="ppo-23dof-rough-mujoco",
+        ),
+    ),
+)
+def test_g1_registry_executes_real_manager_runtime(
+    config_group: str,
+    overrides: tuple[str, ...],
+    task_name: str,
+    backend: str,
+    num_dof: int,
+    obs_dim: int,
+    critic_dim: int,
+) -> None:
+    registry.ensure_registries()
+    _, env_cfg, env_override = _materialize(config_group, overrides, task_name)
+    try:
+        env = registry.make(
+            task_name,
+            sim_backend=backend,
+            env_cfg_override=env_override,
+            num_envs=2,
+        )
+    except ImportError as exc:
+        pytest.skip(f"{backend} runtime unavailable: {exc}")
+
+    try:
+        assert isinstance(env, ManagerBasedRlEnv)
+        assert env.obs_groups_spec == {"obs": obs_dim, "critic": critic_dim}
+        assert env.action_space.shape == (num_dof,)
+        action = env.action_manager.get_term("joint_pos")
+        assert len(action.target_names) == num_dof
+
+        obs, info = env.reset(seed=7)
+        assert {name: value.shape for name, value in obs.items()} == {
+            "obs": (2, obs_dim),
+            "critic": (2, critic_dim),
+        }
+        assert isinstance(info, dict)
+        for _ in range(5):
+            state = env.step(np.zeros((2, num_dof), dtype=np.float32))
+        for value in (*state.obs.values(), state.reward):
+            assert isinstance(value, np.ndarray)
+            assert np.isfinite(value).all()
+
+        # The command and gait-phase segments pin the legacy obs layout tail.
+        command = env.command_manager.get_command("twist")
+        np.testing.assert_allclose(
+            state.obs["obs"][:, obs_dim - 5 : obs_dim - 2], command, rtol=0.0, atol=1.0e-6
+        )
+    finally:
+        env.close()
+
+
+def test_g1_walk_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
+    """Walk-profile owners scale gyro x0.25, dof_vel x0.05, critic linvel x2.0."""
+    registry.ensure_registries()
+    _, _, env_override = _materialize(
+        "offpolicy", ("algo=sac", "task=sac/g1_walk_flat/mujoco"), "G1WalkFlat"
     )
-    env._reward_cfg = cast(
-        Any,
-        type("RewardCfg", (), {"scales": {"orientation": -2.5, "ang_vel_xy": -0.2}})(),
+    try:
+        env = registry.make(
+            "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
+        )
+    except ImportError as exc:
+        pytest.skip(f"mujoco runtime unavailable: {exc}")
+
+    try:
+        env.reset(seed=3)
+        state = env.step(np.zeros((2, 29), dtype=np.float32))
+        gyro = env._backend.get_sensor_data("torso_gyro")
+        upvector = env._backend.get_sensor_data("torso_upvector")
+        dof_vel = env._backend.get_dof_vel()
+        linvel = env._backend.get_sensor_data("pelvis_local_linvel")
+        np.testing.assert_allclose(state.obs["obs"][:, :3], 0.25 * gyro, rtol=0.0, atol=1.0e-6)
+        np.testing.assert_allclose(state.obs["obs"][:, 3:6], -upvector, rtol=0.0, atol=1.0e-6)
+        np.testing.assert_allclose(
+            state.obs["obs"][:, 35:64], 0.05 * dof_vel, rtol=0.0, atol=1.0e-6
+        )
+        np.testing.assert_allclose(
+            state.obs["critic"][:, 98:101], 2.0 * linvel, rtol=0.0, atol=1.0e-6
+        )
+        np.testing.assert_allclose(state.obs["critic"][:, :3], 0.25 * gyro, rtol=0.0, atol=1.0e-6)
+        np.testing.assert_allclose(
+            state.obs["obs"][:, 96:98], state.obs["critic"][:, 96:98], rtol=0.0, atol=0.0
+        )
+    finally:
+        env.close()
+
+
+def test_g1_legacy_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
+    """Legacy-profile owners keep unit scaling on every observation segment."""
+    registry.ensure_registries()
+    _, _, env_override = _materialize("ppo", ("task=g1_walk_flat/mujoco",), "G1WalkFlat")
+    try:
+        env = registry.make(
+            "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
+        )
+    except ImportError as exc:
+        pytest.skip(f"mujoco runtime unavailable: {exc}")
+
+    try:
+        env.reset(seed=3)
+        state = env.step(np.zeros((2, 29), dtype=np.float32))
+        gyro = env._backend.get_sensor_data("torso_gyro")
+        dof_vel = env._backend.get_dof_vel()
+        linvel = env._backend.get_sensor_data("pelvis_local_linvel")
+        np.testing.assert_allclose(state.obs["obs"][:, :3], gyro, rtol=0.0, atol=1.0e-6)
+        np.testing.assert_allclose(state.obs["obs"][:, 35:64], dof_vel, rtol=0.0, atol=1.0e-6)
+        np.testing.assert_allclose(state.obs["critic"][:, 98:101], linvel, rtol=0.0, atol=1.0e-6)
+    finally:
+        env.close()
+
+
+def test_g1_penalty_curriculum_scales_negative_weights_from_start() -> None:
+    registry.ensure_registries()
+    _, _, env_override = _materialize(
+        "offpolicy", ("algo=sac", "task=sac/g1_walk_flat/mujoco"), "G1WalkFlat"
     )
-    assert env._uses_walk_observation_profile() is False
+    try:
+        env = registry.make(
+            "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
+        )
+    except ImportError as exc:
+        pytest.skip(f"mujoco runtime unavailable: {exc}")
 
-    env._cfg = cast(
-        Any,
-        type(
-            "Cfg",
-            (),
-            {"curriculum": type("Curriculum", (), {"enabled": False})(), "reward_config": None},
-        )(),
-    )
-    env._reward_cfg = cast(
-        Any,
-        type(
-            "RewardCfg",
-            (),
-            {"scales": {"penalty_orientation": -10.0, "penalty_ang_vel_xy": -1.0, "alive": 10.0}},
-        )(),
-    )
-    assert env._uses_walk_observation_profile() is True
-
-
-def test_g1_walk_tasks_are_registered():
-    ensure_registries()
-
-    assert registry.contains("G1WalkFlat")
-    assert registry.contains("G1WalkRough")
+    try:
+        assert env.curriculum_manager.active_terms == ["penalty_scaling"]
+        # initial_scale=0.5 halves every negative weight from construction.
+        assert env.reward_manager.get_term_cfg("penalty_orientation").weight == pytest.approx(-5.0)
+        assert env.reward_manager.get_term_cfg("penalty_action_rate").weight == pytest.approx(-2.0)
+        assert env.reward_manager.get_term_cfg("pose").weight == pytest.approx(-0.25)
+        # Positive weights stay untouched.
+        assert env.reward_manager.get_term_cfg("alive").weight == pytest.approx(10.0)
+        assert env.reward_manager.get_term_cfg("feet_phase").weight == pytest.approx(5.0)
+    finally:
+        env.close()

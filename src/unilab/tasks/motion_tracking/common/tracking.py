@@ -1,7 +1,7 @@
 """Robot-agnostic motion-tracking engine.
 
 Holds :class:`MotionTrackingEnv` (the imitation engine, inheriting the shared
-``G1BaseEnv`` locomotion base) and :class:`MotionTrackingDeployEnv` (the
+``G1BaseEnv`` locomotion base (``motion_tracking.common.g1_base``)) and :class:`MotionTrackingDeployEnv` (the
 unitree_rl_lab mimic actor variant). Per-concern math lives in the owner
 modules (``rewards`` / ``observations`` / ``terminations`` / ``transforms`` /
 ``reset`` / ``domain_randomization``); the engine keeps only the
@@ -17,7 +17,7 @@ import numpy as np
 from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.dtype_config import get_global_dtype
-from unilab.tasks.locomotion.g1.base import G1BaseEnv
+from unilab.tasks.motion_tracking.common.g1_base import G1BaseEnv
 
 from . import observations
 from .config import MotionTrackingCfg, MotionTrackingDeployEnvCfg

@@ -1,0 +1,66 @@
+# @package _global_
+# Canonical G1 23-DoF walk Manager-Based task declaration (APPO owners; mirrors the PPO base).
+# Inherits the 29-DoF flat contract and swaps the scene to the 23-DoF model
+# (no waist roll/pitch, no wrist pitch/yaw) with the 23-entry pose weights.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_flat_23dof.xml
+    entities:
+      robot:
+        joint_names:
+          - left_hip_pitch_joint
+          - left_hip_roll_joint
+          - left_hip_yaw_joint
+          - left_knee_joint
+          - left_ankle_pitch_joint
+          - left_ankle_roll_joint
+          - right_hip_pitch_joint
+          - right_hip_roll_joint
+          - right_hip_yaw_joint
+          - right_knee_joint
+          - right_ankle_pitch_joint
+          - right_ankle_roll_joint
+          - waist_yaw_joint
+          - left_shoulder_pitch_joint
+          - left_shoulder_roll_joint
+          - left_shoulder_yaw_joint
+          - left_elbow_joint
+          - left_wrist_roll_joint
+          - right_shoulder_pitch_joint
+          - right_shoulder_roll_joint
+          - right_shoulder_yaw_joint
+          - right_elbow_joint
+          - right_wrist_roll_joint
+        actuator_names:
+          - left_hip_pitch_joint
+          - left_hip_roll_joint
+          - left_hip_yaw_joint
+          - left_knee_joint
+          - left_ankle_pitch_joint
+          - left_ankle_roll_joint
+          - right_hip_pitch_joint
+          - right_hip_roll_joint
+          - right_hip_yaw_joint
+          - right_knee_joint
+          - right_ankle_pitch_joint
+          - right_ankle_roll_joint
+          - waist_yaw_joint
+          - left_shoulder_pitch_joint
+          - left_shoulder_roll_joint
+          - left_shoulder_yaw_joint
+          - left_elbow_joint
+          - left_wrist_roll_joint
+          - right_shoulder_pitch_joint
+          - right_shoulder_roll_joint
+          - right_shoulder_yaw_joint
+          - right_elbow_joint
+          - right_wrist_roll_joint
+
+reward:
+  pose:
+    params:
+      pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]

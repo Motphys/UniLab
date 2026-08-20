@@ -122,10 +122,10 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
         return TaskMigrationRecord(
             task_name,
             "g1_locomotion",
-            "Adapted",
-            "mba",
-            "The locomotion equations are reusable, but the 29/23-DoF sensor and gait surface is not yet manager-owned.",
-            "Migrate flat and rough variants together and delete the legacy owner.",
+            "Compatible",
+            "complete",
+            "Hydra owners materialize biped gait, sensor, command, and penalty-curriculum manager terms on the canonical runtime.",
+            "Keep the manager contract and regression evidence current.",
         )
     if task_name in _CUSTOM_COMPAT_TASKS:
         family = "go2_arm" if task_name == "Go2ArmManipLoco" else "sharpa"

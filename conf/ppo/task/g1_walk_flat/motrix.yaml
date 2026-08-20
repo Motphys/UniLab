@@ -1,7 +1,11 @@
 # @package _global_
-# Standalone Motrix owner config: carries the shared contract inline, then
-# overrides contract fields for Motrix-specific tuning
+# Motrix owner: inherits the shared 29-DoF flat Manager-Based contract from
+# base.yaml, then overrides contract fields for Motrix-specific tuning
 # (intentionally non-transferable from MuJoCo; drop overrides to restore parity).
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
 training:
   task_name: G1WalkFlat
   sim_backend: motrix
@@ -22,50 +26,105 @@ algo:
     learning_rate: 3.0e-4
     entropy_coef: 5.0e-3
 env:
-  domain_rand:
-    randomize_kp: false
-    randomize_kd: false
-  control_config:
-    action_scale: 0.5
+  actions:
+    joint_pos:
+      scale: 0.5
   commands:
-    vel_limit:
-      - [0.4, 0.0, 0.0]
-      - [0.7, 0.0, 0.0]
-  gait_phase_init_mode: offset_phase
-  reset_base_qvel_limit: 0.05
-  curriculum:
-    enabled: false
-  noise_config:
-    level: 1.0
-    scale_joint_angle: 0.01
-    scale_joint_vel: 1.5
-    scale_gyro: 0.2
+    twist:
+      ranges:
+        lin_vel_x: [0.4, 0.7]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [0.0, 0.0]
+  events:
+    # Legacy Motrix owners disable kp/kd randomization.
+    pd_gains: null
+    reset_root_state_uniform:
+      params:
+        velocity_range:
+          x: [-0.05, 0.05]
+          y: [-0.05, 0.05]
+          z: [-0.05, 0.05]
+          roll: [-0.05, 0.05]
+          pitch: [-0.05, 0.05]
+          yaw: [-0.05, 0.05]
+  terminations:
+    tilt:
+      params:
+        max_tilt_deg: 35.0
+    base_height:
+      params:
+        minimum_height: 0.5
 reward:
-  scales:
-    tracking_lin_vel: 2.0
-    tracking_ang_vel: 0.25
-    forward_progress: 0.0
-    under_speed: -0.2
-    upper_body_pose: -0.05
-    penalty_feet_ori: 0.0
-    feet_phase: 1.2
-    feet_phase_contrast: 1.5
-    feet_phase_contact: 1.0
-    feet_double_stance: -1.0
-    lin_vel_z: -1.0
-    ang_vel_xy: -0.2
-    base_height: -120.0
-    orientation: -2.5
-    action_rate: -0.005
-    pose: -0.05
-  tracking_sigma: 0.25
-  gait_frequency: 1.5
-  feet_phase_swing_height: 0.09
-  feet_phase_tracking_sigma: 0.008
-  base_height_target: 0.765
-  min_forward_speed_for_gait_reward: 0.05
-  min_base_height: 0.5
-  max_tilt_deg: 35.0
+  tracking_ang_vel:
+    weight: 0.25
+  forward_progress:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.forward_progress
+    weight: 0.0
+    params:
+      command_name: twist
+  under_speed:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.under_speed
+    weight: -0.2
+    params:
+      command_name: twist
+  upper_body_pose:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.upper_body_pose
+    weight: -0.05
+    params:
+      pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+  penalty_feet_ori:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.penalty_feet_ori
+    weight: 0.0
+  feet_phase:
+    weight: 1.2
+    params:
+      min_forward_speed: 0.05
+  feet_phase_contrast:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_phase_contrast
+    weight: 1.5
+    params:
+      frequency: 1.5
+      swing_height: 0.09
+      tracking_sigma: 0.008
+      min_forward_speed: 0.05
+      command_name: twist
+  feet_phase_contact:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_phase_contact
+    weight: 1.0
+    params:
+      frequency: 1.5
+      swing_height: 0.09
+      tracking_sigma: 0.008
+      min_forward_speed: 0.05
+      command_name: twist
+  feet_double_stance:
+    _target_: unilab.managers.RewardTermCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_double_stance
+    weight: -1.0
+    params:
+      frequency: 1.5
+      swing_height: 0.09
+      tracking_sigma: 0.008
+      min_forward_speed: 0.05
+      command_name: twist
+  ang_vel_xy:
+    weight: -0.2
+  base_height:
+    weight: -120.0
+    params:
+      target_height: 0.765
+  orientation:
+    weight: -2.5
+  action_rate:
+    weight: -0.005
+  pose:
+    weight: -0.05
 play_profile:
   enabled: true
   env:

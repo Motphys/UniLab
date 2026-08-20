@@ -21,9 +21,9 @@ def test_reward_injection_in_offpolicy_env_override():
         env_cfg_override = build_offpolicy_env_cfg_override("sac", cfg)
 
         assert env_cfg_override is not None
-        assert "reward_config" in env_cfg_override
+        assert "rewards" in env_cfg_override
 
-        # Verify reward config dict has correct values
-        reward_dict = env_cfg_override["reward_config"]
-        assert reward_dict["scales"]["tracking_lin_vel"] == 2.0
-        assert reward_dict["scales"]["alive"] == 10.0
+        # Verify reward term mapping has correct values
+        reward_dict = env_cfg_override["rewards"]
+        assert reward_dict["tracking_lin_vel"]["weight"] == 2.0
+        assert reward_dict["alive"]["weight"] == 10.0

@@ -605,14 +605,13 @@ def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
     assert cfg.algo.use_symmetry is False
 
 
-def test_offpolicy_g1_walk_flat_env_cfg_override_has_reward_and_domain_rand():
+def test_offpolicy_g1_walk_flat_env_cfg_override_has_rewards_and_events():
     cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
-    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
-    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
+    assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(2.2)
+    assert env_cfg_override["events"]["pd_gains"] is None
 
 
 def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
@@ -661,14 +660,14 @@ def test_ppo_g1_env_preset_has_env_overrides():
     cfg = _ppo_cfg(["task=g1_walk_flat/motrix"])
 
     assert OmegaConf.select(cfg, "env.motrix_max_iterations") is None
-    assert cfg.env.control_config.action_scale == pytest.approx(0.5)
-    assert cfg.env.commands.vel_limit == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
-    assert cfg.env.gait_phase_init_mode == "offset_phase"
-    assert cfg.env.reset_base_qvel_limit == pytest.approx(0.05)
-    assert cfg.reward.scales.feet_phase_contrast == pytest.approx(1.5)
-    assert cfg.reward.scales.feet_phase_contact == pytest.approx(1.0)
-    assert cfg.reward.scales.feet_double_stance == pytest.approx(-1.0)
-    assert cfg.reward.min_forward_speed_for_gait_reward == pytest.approx(0.05)
+    assert cfg.env.actions.joint_pos.scale == pytest.approx(0.5)
+    assert cfg.env.commands.twist.ranges.lin_vel_x == [0.4, 0.7]
+    assert cfg.env.observations.policy.terms.gait_phase.params.init_mode == "offset_phase"
+    assert cfg.env.events.reset_root_state_uniform.params.velocity_range.x == [-0.05, 0.05]
+    assert cfg.reward.feet_phase_contrast.weight == pytest.approx(1.5)
+    assert cfg.reward.feet_phase_contact.weight == pytest.approx(1.0)
+    assert cfg.reward.feet_double_stance.weight == pytest.approx(-1.0)
+    assert cfg.reward.feet_phase.params.min_forward_speed == pytest.approx(0.05)
 
 
 def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
@@ -744,19 +743,21 @@ def test_build_ppo_env_cfg_override_g1_motrix(
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     # env_cfg_override has reward + env preset fields (flat, matching env cfg structure)
-    assert env_cfg_override["reward_config"]["scales"]["upper_body_pose"] == pytest.approx(-0.05)
-    assert env_cfg_override["reward_config"]["scales"]["penalty_feet_ori"] == pytest.approx(0.0)
-    assert env_cfg_override["reward_config"]["scales"]["feet_phase_contrast"] == pytest.approx(1.5)
-    assert env_cfg_override["reward_config"]["scales"]["feet_phase_contact"] == pytest.approx(1.0)
-    assert env_cfg_override["reward_config"]["scales"]["feet_double_stance"] == pytest.approx(-1.0)
-    assert env_cfg_override["reward_config"]["min_forward_speed_for_gait_reward"] == pytest.approx(
-        0.05
-    )
+    assert env_cfg_override["rewards"]["upper_body_pose"]["weight"] == pytest.approx(-0.05)
+    assert env_cfg_override["rewards"]["penalty_feet_ori"]["weight"] == pytest.approx(0.0)
+    assert env_cfg_override["rewards"]["feet_phase_contrast"]["weight"] == pytest.approx(1.5)
+    assert env_cfg_override["rewards"]["feet_phase_contact"]["weight"] == pytest.approx(1.0)
+    assert env_cfg_override["rewards"]["feet_double_stance"]["weight"] == pytest.approx(-1.0)
+    assert env_cfg_override["rewards"]["feet_phase"]["params"][
+        "min_forward_speed"
+    ] == pytest.approx(0.05)
     assert "motrix_max_iterations" not in env_cfg_override
-    assert env_cfg_override["control_config"]["action_scale"] == pytest.approx(0.5)
-    assert env_cfg_override["commands"]["vel_limit"] == [[0.4, 0.0, 0.0], [0.7, 0.0, 0.0]]
-    assert env_cfg_override["gait_phase_init_mode"] == "offset_phase"
-    assert env_cfg_override["reset_base_qvel_limit"] == pytest.approx(0.05)
+    assert env_cfg_override["actions"]["joint_pos"]["scale"] == pytest.approx(0.5)
+    assert env_cfg_override["commands"]["twist"]["ranges"]["lin_vel_x"] == [0.4, 0.7]
+    assert env_cfg_override["events"]["pd_gains"] is None
+    assert env_cfg_override["events"]["reset_root_state_uniform"]["params"]["velocity_range"][
+        "x"
+    ] == [-0.05, 0.05]
 
 
 def test_build_ppo_env_cfg_override_carries_motrix_max_iterations_override(
@@ -782,14 +783,13 @@ def test_build_ppo_env_cfg_override_carries_post_step_forward_sensor_override(
         assert env_cfg_override["post_step_forward_sensor"] is value
 
 
-def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
+def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_disables_pd_gains():
     cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
-    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
-    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
+    assert env_cfg_override["events"]["pd_gains"] is None
+    assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(2.2)
 
 
 def test_build_ppo_env_cfg_override_applies_go2_motrix_reward(

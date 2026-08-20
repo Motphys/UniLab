@@ -31,7 +31,7 @@ uv run scripts/audit_sim2sim_contracts.py
 | allegro_inhand · allegro_inhand_grasp · g1_climb_tracking · g1_motion_tracking · g1_wall_flip_tracking · go1_joystick_rough · go2_arm_manip_loco · go2_footstand · go2_handstand · go2_joystick_flat · go2_joystick_rough · go2w_joystick_flat · go2w_joystick_rough · sharpa_inhand · sharpa_inhand_grasp | ✅ | 无 |
 | g1_box_tracking | ❌ | `empirical_normalization` false↔true；`obs_groups` critic 组差异 |
 | g1_flip_tracking | ❌ | `empirical_normalization` true↔false；`obs_groups`；`action_scale` 29 维↔默认 0.25；`sampling_mode` 两后端运行时同为 `start`（无害） |
-| g1_walk_flat | ❌ | `action_scale` 0.25↔0.5；`empirical_normalization` false↔true；`obs_groups` |
+| g1_walk_flat | ❌ | `env.actions.joint_pos.scale` 0.25↔0.5；`empirical_normalization` false↔true；`obs_groups` |
 | go1_joystick_flat | ❌ | `empirical_normalization` false↔true |
 | g1_motion_tracking_deploy | ⚪ | 仅 mujoco |
 
@@ -69,6 +69,7 @@ uv run scripts/audit_sim2sim_contracts.py
 | `action_scale` | **不可** | 改值即改训练动力学，必须 owner 决策 + 重训 |
 | `empirical_normalization` | **不可** | 改变网络结构，必须重训 |
 
-试点示例：`conf/ppo/task/g1_walk_flat/{mujoco,motrix}.yaml`。每个后端 owner 自包含完整契约，
-`motrix.yaml` 为单后端调参 override 了若干契约字段——这种 override
+试点示例：`conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`。后端 owner 通过 Hydra
+defaults 继承共享 base owner 的完整契约，`motrix.yaml` 为单后端调参 override
+了若干契约字段——这种 override
 即令该 task 在该后端不可 sim2sim 迁移，去掉 override 即可恢复。

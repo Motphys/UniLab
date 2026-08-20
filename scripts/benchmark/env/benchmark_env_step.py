@@ -78,7 +78,7 @@ save_json = _OUTPUT.save_json
 def _install_mjwarp_patch() -> bool:
     """Route ``backend_type == "mjwarp"`` to ``scripts/benchmark/mjwarp`` via factory patch.
 
-    Must run before any task env module (e.g. ``unilab.tasks.locomotion.g1.joystick``)
+    Must run before any task env module (e.g. ``unilab.tasks.locomotion.g1``)
     is imported, because those modules bind ``create_backend`` at module load
     time via ``from unilab.base.backend import create_backend``.
 
@@ -322,15 +322,15 @@ def _go2w_env_cls() -> Callable[..., Any]:
 
 
 def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg, config_overrides)
+    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.locomotion.g1.joystick import G1WalkRoughCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg, config_overrides)
+    return _sac_owner_yaml_cfg("g1_walk_rough", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
@@ -400,9 +400,9 @@ def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
 
 
 def _g1_walk_env_cls() -> type:
-    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1 import make_g1_walk_env
 
-    return G1WalkEnv
+    return make_g1_walk_env
 
 
 def _g1_motion_tracking_env_cls() -> type:

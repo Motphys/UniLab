@@ -18,7 +18,7 @@ These three paths correspond to three lifecycle classes:
 ## Status Conclusions
 
 1. All tasks currently wired to a DR provider use the unified DR entry point; no task bypasses `DomainRandomizationManager` to run a separate DR flow inside `reset()`.
-2. They are all roughly structured: task files define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; `G1WalkFlat` reuses `G1Walk`'s provider.
+2. They are all roughly structured: task files define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; `G1Walk*` instead declares DR through Hydra `EventTermCfg` Manager-Based reset terms.
 3. What is "unified" today is mainly the entry point and execution flow, not every randomization item itself. The shared helper `build_common_reset_randomization()` currently generates `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`; the shared interval helper currently only generates push.
 4. `ResetRandomizationPayload` can already express `gravity`, `body_iquat`, `body_inertia`, `kp`, `kd`, and `MuJoCoBackend` has declared support. Whether these are actually used still depends on whether the task provider samples and dispatches them.
 5. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
@@ -30,8 +30,8 @@ These three paths correspond to three lifecycle classes:
 | --- | --- | --- | --- | --- | --- |
 | `Go1JoystickFlat` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | task state sampling + common payload | push | `go1/joystick.py` |
 | `Go2JoystickFlat` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | task state sampling + common payload | push | `go2/joystick.py` |
-| `G1WalkFlat` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | task state sampling + common payload | push | `g1/joystick.py` |
-| `G1WalkRough` | Yes | Yes: reuses `G1WalkDomainRandomizationProvider` | task state sampling + common payload | push | `g1/joystick.py` |
+| `G1WalkFlat` | Yes | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
+| `G1WalkRough` | Yes | Yes: same Manager-Based event terms as `G1WalkFlat` | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
 | `G1MotionTracking` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | extensive task-specific reset sampling + common payload | push | `motion_tracking/g1/tracking.py` |
 | `AllegroInhandRotation` | Yes | Yes: Hydra `EventTermCfg` + Manager-Based reset term | entity-scoped hand/ball reset | none | `allegro_inhand/manager_terms.py` |
 | `AllegroInhandRotationGrasp` | Yes | Yes: reuses the rotation reset event + `RecorderTermCfg` | noisy hand reset + grasp collection | none | `allegro_inhand/grasp_gen.py` |
@@ -44,8 +44,8 @@ These three paths correspond to three lifecycle classes:
 | --- | --- | --- | --- |
 | `Go1JoystickFlat` | base xy; base yaw; base qvel; command sampling; `current_actions/last_actions` zeroed; optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | `base_mass_delta`, `base_com_offset`, and push enabled by default; `gravity` disabled by default |
 | `Go2JoystickFlat` | base xy; base yaw; base qvel; command sampling; `current_actions/last_actions` zeroed; kp/kd randomization (enabled by default); optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | kp/kd enabled by default; common payload and push disabled by default |
-| `G1WalkFlat` | base xy; base yaw; base qvel sampled by `reset_base_qvel_limit`; command sampling; `gait_phase` sampling; `current_actions/last_actions` zeroed; kp/kd randomization (enabled by default); optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | kp/kd enabled by default; common payload and push disabled by default |
-| `G1WalkRough` | Same as `G1WalkFlat`, directly reuses the same provider | `push_robots` | kp/kd enabled by default; common payload and push disabled by default |
+| `G1WalkFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling with a planar dead zone; `gait_phase` sampling; kp/kd randomization via `pd_gains` | none | kp/kd enabled on mujoco owners by default; disabled on motrix/mjwarp owners |
+| `G1WalkRough` | Same as `G1WalkFlat` (shared owner bases, rough scene) | none | Same defaults as `G1WalkFlat` |
 | `G1MotionTracking` | motion frame sampling; root pose perturbation `x/y/z/roll/pitch/yaw`; root velocity perturbation `x/y/z/roll/pitch/yaw`; joint position noise; under MuJoCo clipped by joint range; `current_actions/last_actions` zeroed; optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | `pose_randomization`, `velocity_randomization`, `joint_position_range` have non-zero perturbations by default; common payload and push disabled by default |
 | `AllegroInhandRotation` | Entity-scoped hand/ball reset; an explicitly configured grasp cache is sampled, otherwise `null` explicitly selects the model home pose; optional `joint_noise`, `ball_velocity_noise`, and `ball_z_offset` | none | owner YAML explicitly selects the home pose and zero reset noise; a configured missing or malformed cache fails closed |
 | `AllegroInhandRotationGrasp` | Reuses the rotation reset with `joint_noise=0.25`; Manager-Based termination checks fingertip distance, contact count, and ball height; recorder stores successful timeout rows | none | generates the 50k-row Allegro grasp cache and raises `RunComplete` after a successful save |
@@ -134,7 +134,7 @@ Field semantics:
 If you only want to randomize the magnitude while keeping the vertical-down direction, only open up the `z` component:
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -142,7 +142,7 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 If you want to randomize both direction and magnitude, open up `x/y/z`:
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
 ```
@@ -174,7 +174,7 @@ env:
 - `push_body_name`: the target body / link to apply the force to. Defaults to `null`, meaning the backend's `base_name` is used.
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
   'env.domain_rand.max_force=[20.0,20.0,5.0]' \
