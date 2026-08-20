@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.tools.completion import (
+from unilab.cli_completion import (
     COMPLETION_BLOCK_END,
     COMPLETION_BLOCK_START,
     build_metadata,

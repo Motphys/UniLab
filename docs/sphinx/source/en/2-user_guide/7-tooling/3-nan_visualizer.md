@@ -12,7 +12,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   training.nan_guard.output_dir=/tmp/unilab/nan_dumps
 ```
 
-The viewer implementation is `src/unilab/tools/viz_nan.py`, registered as the
+The viewer implementation is `src/unilab/utils/nan_viz.py`, registered as the
 `unilab-viz-nan` console entry. It replays a dump path and lets you select the
 environment index. Dump format and round-trip loading are covered by
 `tests/test_nan_guard.py`.

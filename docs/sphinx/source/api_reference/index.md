@@ -97,12 +97,6 @@ Procedural and heightfield terrain generators.
 Scene rendering and viser bridges.
 :::
 
-:::{grid-item-card} 🔧 `unilab.tools`
-:link: tools/index
-:link-type: doc
-Scene export, NaN visualizer, ONNX export.
-:::
-
 :::{grid-item-card} 🧰 `unilab.utils`
 :link: utils/index
 :link-type: doc
@@ -151,7 +145,6 @@ backend/index
 dr/index
 terrains/index
 visualization/index
-tools/index
 utils/index
 logging/index
 ```

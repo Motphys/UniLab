@@ -9,7 +9,7 @@ import numpy as np
 
 
 def _load_script() -> Any:
-    return importlib.import_module("unilab.tools.import_robot")
+    return importlib.import_module("scripts.tools.import_robot")
 
 
 def test_robot_name_defaults_to_urdf_stem(tmp_path: Path) -> None:

@@ -601,7 +601,7 @@ def test_demo_teaser_run_demo_invokes_render_teaser_main(
     def fake_render_teaser_main() -> None:
         called.append("rendered")
 
-    import unilab.tools.render_teaser as render_teaser_module
+    import unilab.visualization.teaser as render_teaser_module
 
     monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
 
@@ -633,7 +633,7 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     def fail_render_teaser_main() -> None:
         raise AssertionError("macOS teaser must route through mxpython")
 
-    import unilab.tools.render_teaser as render_teaser_module
+    import unilab.visualization.teaser as render_teaser_module
 
     monkeypatch.setattr(render_teaser_module, "main", fail_render_teaser_main)
 
@@ -643,7 +643,7 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     command, env = calls[0]
     assert command == [
         "/tmp/unilab/.venv/bin/mxpython",
-        str(demo._repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
+        str(demo._repo_root() / "src" / "unilab" / "visualization" / "teaser.py"),
     ]
     assert env["UV_PROJECT_ENVIRONMENT"] == str(demo._repo_root() / ".venv")
 
@@ -657,7 +657,7 @@ def test_demo_main_teaser_dispatches_to_render_teaser(
     def fake_render_teaser_main() -> None:
         called.append("rendered")
 
-    import unilab.tools.render_teaser as render_teaser_module
+    import unilab.visualization.teaser as render_teaser_module
 
     monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
     rc = cli.demo_main(["teaser"])

@@ -40,12 +40,11 @@ dependencies = [
 train = "unilab.cli:train_main"
 eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
-unilab-complete = "unilab.tools.completion:main"
-unilab-viz-nan = "unilab.tools.viz_nan:main"
-unilab-export-scene = "unilab.tools.export_scene:main"
-unilab-render-teaser = "unilab.tools.render_teaser:main"
-unilab-import-robot = "unilab.tools.import_robot:main"
-unilab-pull-assets = "unilab.tools.pull_assets:main"
+unilab-complete = "unilab.cli_completion:main"
+unilab-viz-nan = "unilab.utils.nan_viz:main"
+unilab-export-scene = "unilab.base.backend.mujoco.export_scene:main"
+unilab-render-teaser = "unilab.visualization.teaser:main"
+unilab-pull-assets = "unilab.assets.pull:main"
 
 [project.optional-dependencies]
 mujoco = [
