@@ -535,7 +535,9 @@ def test_motrix_model_properties_smoke():
     ctrl_range = bkd.get_actuator_ctrl_range()
     _shape(ctrl_range, bkd.num_actuators, 2)
     assert bkd.get_default_qpos().ndim == 1
-    assert bkd.get_joint_range() is None
+    joint_range = bkd.get_joint_range()
+    assert joint_range is not None
+    assert joint_range.shape == (bkd.num_dof_vel, 2)
 
 
 def test_motrix_copy_body_state_matches_split_queries():

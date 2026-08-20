@@ -44,17 +44,32 @@ DENYLIST: list[str] = [
     "algo.policy.critic_hidden_dims",
     "algo.empirical_normalization",
     "algo.obs_normalization",
-    "env.sampling_mode",
+    "env.commands.motion.params.sampling_mode",
 ]
 
 SNAPSHOT_FIELDS: list[str] = DENYLIST + WARNING_LIST
 
 ENV_STRUCTURAL_DENYLIST: list[str] = [path for path in DENYLIST if path.startswith("env.")]
 
+LEGACY_PATH_ALIASES: dict[str, str] = {
+    "env.sampling_mode": "env.commands.motion.params.sampling_mode",
+}
+_CANONICAL_PATH_FALLBACKS: dict[str, str] = {
+    canonical: legacy for legacy, canonical in LEGACY_PATH_ALIASES.items()
+}
+
 
 def _select(cfg: Any, path: str) -> Any:
     """Return the effective value at a dotted path (or ``None`` if absent)."""
     return OmegaConf.select(cfg, path)
+
+
+def _select_contract(cfg: Any, path: str) -> Any:
+    value = _select(cfg, path)
+    if value is not None:
+        return value
+    legacy_path = _CANONICAL_PATH_FALLBACKS.get(path)
+    return None if legacy_path is None else _select(cfg, legacy_path)
 
 
 def _to_plain(value: Any) -> Any:
@@ -68,7 +83,7 @@ def extract_contract_snapshot(full_cfg: DictConfig) -> dict[str, Any]:
     cfg: Any = full_cfg if OmegaConf.is_config(full_cfg) else OmegaConf.create(full_cfg)
     snapshot: dict[str, Any] = {}
     for path in SNAPSHOT_FIELDS:
-        value = _select(cfg, path)
+        value = _select_contract(cfg, path)
         if value is None:
             continue
         snapshot[path] = _to_plain(value)
@@ -162,8 +177,13 @@ def resolve_sim2sim_config(
         return target_cfg
 
     denials: list[str] = []
-    for path, source_value in snapshot.items():
-        target_value = _select(target_cfg, path)
+    canonical_snapshot: dict[str, Any] = {}
+    for raw_path, source_value in snapshot.items():
+        path = LEGACY_PATH_ALIASES.get(raw_path, raw_path)
+        canonical_snapshot[path] = source_value
+
+    for path, source_value in canonical_snapshot.items():
+        target_value = _select_contract(target_cfg, path)
         if target_value is None:
             if path in ENV_STRUCTURAL_DENYLIST:
                 denials.append(_asymmetric_line(path, source_value, source_present=True))
@@ -177,10 +197,11 @@ def resolve_sim2sim_config(
             print(f"[sim2sim] WARNING override {line}")
 
     for path in ENV_STRUCTURAL_DENYLIST:
-        if path in snapshot:
+        if path in canonical_snapshot:
             continue
-        if _select(target_cfg, path) is not None:
-            denials.append(_asymmetric_line(path, _select(target_cfg, path), source_present=False))
+        target_value = _select_contract(target_cfg, path)
+        if target_value is not None:
+            denials.append(_asymmetric_line(path, target_value, source_present=False))
 
     if denials:
         message = (

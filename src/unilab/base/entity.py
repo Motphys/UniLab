@@ -146,6 +146,7 @@ class EntityData:
         default_root_state_error: str | None,
         default_joint_pos: np.ndarray | None,
         default_joint_vel: np.ndarray | None,
+        soft_joint_pos_limits: np.ndarray | None,
         gravity_vec_w: np.ndarray | None,
         body_ids: np.ndarray | None,
         actuator_ids: np.ndarray | None,
@@ -164,6 +165,7 @@ class EntityData:
         self._default_root_state_error = default_root_state_error
         self._default_joint_pos = default_joint_pos
         self._default_joint_vel = default_joint_vel
+        self._soft_joint_pos_limits = soft_joint_pos_limits
         self._gravity_vec_w = gravity_vec_w
         self._encoder_bias = (
             None
@@ -225,6 +227,11 @@ class EntityData:
         return np_quat_apply_inverse(self.root_link_quat_w, gravity)
 
     @property
+    def gravity_vec_w(self) -> np.ndarray:
+        """Read-only world-frame unit gravity vector for every environment."""
+        return self._require(self._gravity_vec_w, "world-frame gravity")
+
+    @property
     def root_link_pose_w(self) -> np.ndarray:
         return np.concatenate((self.root_link_pos_w, self.root_link_quat_w), axis=-1)
 
@@ -267,6 +274,11 @@ class EntityData:
     def default_joint_vel(self) -> np.ndarray:
         """Read-only zero default velocities from the UniLab reset contract."""
         return self._require(self._default_joint_vel, "default joint velocity")
+
+    @property
+    def soft_joint_pos_limits(self) -> np.ndarray:
+        """Read-only joint position limits in the declared entity joint order."""
+        return self._require(self._soft_joint_pos_limits, "joint position limits")
 
     @property
     def encoder_bias(self) -> np.ndarray:
@@ -427,6 +439,7 @@ class Entity:
         self._reset_joint_qpos_ids: np.ndarray | None = None
         self._reset_joint_qvel_ids: np.ndarray | None = None
         self._joint_model_dof_ids: np.ndarray | None = None
+        self._motion_body_ids: np.ndarray | None = None
 
         self._joint_names = _normalize_names(name, "joint", cfg.joint_names)
         self._body_names = _normalize_names(name, "body", cfg.body_names)
@@ -493,6 +506,7 @@ class Entity:
             default_qpos,
         )
         default_joint_vel = self._materialize_default_joint_vel(backend, joint_vel_ids)
+        soft_joint_pos_limits = self._materialize_soft_joint_pos_limits(backend, joint_pos_ids)
         gravity_vec_w = self._materialize_gravity_vector(backend, root_body_ids)
         actuator_ctrl_range = self._materialize_actuator_ctrl_range(backend, actuator_ids)
         (
@@ -521,6 +535,7 @@ class Entity:
             default_root_state_error=self._reset_root_layout_error,
             default_joint_pos=default_joint_pos,
             default_joint_vel=default_joint_vel,
+            soft_joint_pos_limits=soft_joint_pos_limits,
             gravity_vec_w=gravity_vec_w,
             body_ids=body_ids,
             actuator_ids=actuator_ids,
@@ -529,6 +544,22 @@ class Entity:
             entity_name=self.name,
             backend_type=self._backend_type,
         )
+
+    @property
+    def motion_body_ids(self) -> np.ndarray:
+        """Motion-dataset body columns for the declared entity body order."""
+        if self._body_names is None:
+            raise self._capability_error(
+                "motion body IDs",
+                "body_names were not declared in EntityCfg",
+            )
+        if self._motion_body_ids is None:
+            self._motion_body_ids = self._resolve_ids(
+                "motion body",
+                self._body_names,
+                self._backend.get_motion_body_ids,
+            )
+        return self._motion_body_ids
 
     def _capability_error(self, capability: str, detail: str) -> NotImplementedError:
         return NotImplementedError(
@@ -722,6 +753,35 @@ class Entity:
         ).astype(current.dtype, copy=True)
         materialized.setflags(write=False)
         return materialized
+
+    def _materialize_soft_joint_pos_limits(
+        self,
+        backend: SimBackend,
+        joint_pos_ids: np.ndarray | None,
+    ) -> np.ndarray | None:
+        if joint_pos_ids is None:
+            return None
+        try:
+            raw_ranges = backend.get_joint_range()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error("joint position limits", str(exc)) from exc
+        if raw_ranges is None:
+            return None
+        ranges = np.asarray(raw_ranges)
+        if ranges.ndim != 2 or ranges.shape[1] != 2:
+            raise ValueError(
+                f"Entity '{self.name}' capability 'joint position limits' on backend "
+                f"'{self._backend_type}' returned shape {ranges.shape}; expected (num_dof, 2)"
+            )
+        if joint_pos_ids.size and int(np.max(joint_pos_ids)) >= ranges.shape[0]:
+            raise ValueError(
+                f"Entity '{self.name}' capability 'joint position limits' resolved index "
+                f"{int(np.max(joint_pos_ids))}, but backend '{self._backend_type}' returned "
+                f"only {ranges.shape[0]} rows"
+            )
+        selected = np.array(ranges[_as_column_index(joint_pos_ids)], copy=True)
+        selected.setflags(write=False)
+        return selected
 
     def _materialize_root_state(
         self,

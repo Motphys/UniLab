@@ -1275,12 +1275,12 @@ def test_g1_motion_tracking_ppo_motrix_prefers_backend_specific_reward(
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix"])
 
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
-    cfg.reward.scales.motion_body_pos = 1.25
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(1.0)
+    cfg.reward.motion_body_pos.weight = 1.25
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
-    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.25)
+    assert env_cfg_override["rewards"]["motion_body_pos"]["weight"] == pytest.approx(1.25)
 
 
 def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile(
@@ -1293,15 +1293,16 @@ def test_build_ppo_play_env_cfg_override_applies_g1_motion_tracking_play_profile
     monkeypatch.setattr(
         mod,
         "materialize_scene_visual_override",
-        lambda source_model_file, **kwargs: "/tmp/g1_motion_tracking_play_scene.xml",
+        lambda *_args, **_kwargs: pytest.fail("manager scene must not be replaced"),
     )
 
     env_cfg_override = mod.build_ppo_play_env_cfg_override(cfg)
 
     assert cfg.training.play_env_num == 16
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
-    assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
-    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.0)
+    assert env_cfg_override["scene"]["model_file"].endswith("robots/g1/scene_flat.xml")
+    assert "robot" in env_cfg_override["scene"]["entities"]
+    assert env_cfg_override["rewards"]["motion_body_pos"]["weight"] == pytest.approx(1.0)
 
 
 def test_build_ppo_play_env_cfg_override_respects_cli_play_env_override(
@@ -1328,27 +1329,21 @@ def test_build_ppo_play_env_cfg_override_respects_cli_play_env_override(
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
 
 
-def test_build_ppo_play_env_cfg_override_resolves_relative_ground_texture(
+def test_build_ppo_play_env_cfg_override_keeps_task_owned_manager_scene(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
-    cfg.play_profile.scene.ground_texture_file = "src/unilab/assets/robots/g1/textures/floor.png"
-
-    captured = {}
-
-    def _fake_materialize(source_model_file, **kwargs):
-        captured["source_model_file"] = source_model_file
-        captured.update(kwargs)
-        return "/tmp/g1_motion_tracking_play_scene.xml"
-
-    monkeypatch.setattr(mod, "materialize_scene_visual_override", _fake_materialize)
-
-    mod.build_ppo_play_env_cfg_override(cfg)
-
-    assert captured["ground_texture_file"] == str(
-        mod.ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
+    monkeypatch.setattr(
+        mod,
+        "materialize_scene_visual_override",
+        lambda *_args, **_kwargs: pytest.fail("manager scene must not be replaced"),
     )
+
+    env_cfg_override = mod.build_ppo_play_env_cfg_override(cfg)
+
+    assert env_cfg_override["scene"]["entities"]["robot"]["root_body_name"] == "pelvis"
+    assert env_cfg_override["scene"]["entities"]["robot"]["joint_names"]
 
 
 def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
@@ -1472,28 +1467,28 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode(
 
 
 def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
-    from unilab.training.reward import extract_reward_config
+    from unilab.training import BackendAdapter
 
     cfg = _appo_cfg(["task=g1_motion_tracking/motrix"])
 
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
-    cfg.reward.scales.motion_body_pos = 1.5
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(1.0)
+    cfg.reward.motion_body_pos.weight = 1.5
 
-    env_cfg_override = extract_reward_config(cfg)
+    env_cfg_override = BackendAdapter(cfg, root_dir=_SRC_DIR.parent).build_task_env_cfg_override()
 
-    assert env_cfg_override["reward_config"]["scales"]["motion_body_pos"] == pytest.approx(1.5)
+    assert env_cfg_override["rewards"]["motion_body_pos"]["weight"] == pytest.approx(1.5)
 
 
 def test_g1_motion_tracking_ppo_task_exposes_final_reward():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix"])
 
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(1.0)
 
 
 def test_g1_motion_tracking_appo_task_exposes_final_reward():
     cfg = _appo_cfg(["task=g1_motion_tracking/motrix"])
 
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(1.0)
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(1.0)
 
 
 def test_sharpa_appo_motrix_owner_uses_backend_specific_overrides():
@@ -1519,7 +1514,7 @@ def test_build_appo_runner_kwargs_forwards_sim_backend():
 
     runner_kwargs = mod.build_appo_runner_kwargs(
         cfg,
-        env_cfg_override={"reward_config": {"scales": {}}},
+        env_cfg_override={"rewards": {}},
         collector_device="cpu",
     )
 
@@ -1530,7 +1525,7 @@ def test_build_appo_runner_kwargs_forwards_sim_backend():
     assert runner_kwargs["steps_per_env"] == cfg.algo.steps_per_env
     assert "num_workers" not in runner_kwargs
     assert "num_collectors" not in runner_kwargs
-    assert runner_kwargs["env_cfg_overrides"]["reward_config"]["scales"] == {}
+    assert runner_kwargs["env_cfg_overrides"]["rewards"] == {}
 
 
 def test_run_motrix_play_loop_runs_without_physics_state():

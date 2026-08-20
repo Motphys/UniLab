@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Profile Drake vs MuJoCo env-step performance on selected UniLab tasks.
-
-This benchmark is intentionally task-level rather than raw-simulator-level. It
-keeps UniLab's reset, observation, sensor-view, and body-query paths in the
-loop so G1 motion tracking can expose the expensive integration points.
-"""
+"""Profile Drake vs MuJoCo env-step performance on selected UniLab tasks."""
 
 from __future__ import annotations
 
@@ -115,18 +110,7 @@ def _task_specs() -> dict[str, TaskSpec]:
 
         return ManagerBasedRlEnvCfg()
 
-    def g1_tracking_cfg() -> Any:
-        from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
-
-        return G1MotionTrackingEnvCfg()
-
-    def g1_tracking_env() -> type:
-        from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
-
-        return G1MotionTrackingEnv
-
     return {
-        "g1_motion_tracking": TaskSpec(g1_tracking_cfg, g1_tracking_env),
         "go1_joystick_flat": TaskSpec(go1_cfg, manager_env),
         "go2_joystick_flat": TaskSpec(go2_cfg, manager_env),
     }
@@ -336,10 +320,7 @@ def main() -> None:
     parser.add_argument(
         "--tasks",
         default="go1_joystick_flat,go2_joystick_flat",
-        help=(
-            "Comma-separated task ids. Defaults stay within committed Drake task configs; "
-            "pass g1_motion_tracking explicitly when its Drake config is available."
-        ),
+        help="Comma-separated task ids with committed Drake YAML owners.",
     )
     parser.add_argument("--backends", default="drake,mujoco", help="Comma-separated backends.")
     parser.add_argument("--num-envs", default="64,256,1024", help="Comma-separated env counts.")

@@ -59,6 +59,10 @@ class _StrictBackendProfile:
             dtype=np.float32,
         )
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        self.joint_range = np.asarray(
+            [[-1.0, 1.0], [-2.0, 2.0], [-3.0, 3.0], [-4.0, 4.0], [-5.0, 5.0]],
+            dtype=np.float32,
+        )
 
     def _check(self, capability: str) -> None:
         self.calls[capability] += 1
@@ -133,6 +137,10 @@ class _StrictBackendProfile:
         self._check("joint velocity state")
         return self.dof_vel
 
+    def get_joint_range(self) -> np.ndarray:
+        self._check("joint position limits")
+        return self.joint_range
+
     def get_body_pos_w(self, ids: np.ndarray) -> np.ndarray:
         self._check("body position state")
         return self.body_pos[:, ids]
@@ -186,6 +194,8 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
     np.testing.assert_array_equal(robot.data.joint_pos, backend.dof_pos[:, [4, 2]])
     np.testing.assert_array_equal(robot.data.joint_vel, backend.dof_vel[:, [4, 2]])
     np.testing.assert_array_equal(robot.data.default_joint_vel, 0.0)
+    np.testing.assert_array_equal(robot.data.soft_joint_pos_limits, backend.joint_range[[4, 2]])
+    np.testing.assert_array_equal(robot.data.gravity_vec_w, [[0.0, 0.0, -1.0]] * 3)
     np.testing.assert_array_equal(robot.data.joint_pos_biased, backend.dof_pos[:, [4, 2]])
     np.testing.assert_array_equal(robot.data.body_link_pos_w, backend.body_pos[:, [7, 4]])
     np.testing.assert_array_equal(robot.data.root_link_pos_w, backend.body_pos[:, 4])
@@ -198,6 +208,8 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
         np.tile([1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], (3, 1)),
     )
     assert not robot.data.default_root_state.flags.writeable
+    assert not robot.data.soft_joint_pos_limits.flags.writeable
+    assert not robot.data.gravity_vec_w.flags.writeable
     np.testing.assert_array_equal(
         robot.data.actuator_ctrl_range,
         np.arange(10, dtype=np.float32).reshape(5, 2)[[4, 2]],

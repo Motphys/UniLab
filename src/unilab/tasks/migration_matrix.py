@@ -62,6 +62,17 @@ _CUSTOM_COMPAT_TASKS = frozenset(
     }
 )
 
+_MOTION_CORE_TASKS = frozenset(
+    {
+        "G1MotionTracking",
+        "G1MotionTracking23Dof",
+        "G1MotionTracking23DofDeploy",
+        "G1MotionTrackingDeploy",
+        "G1MotionTrackingSAC",
+        "G1MotionTrackingSAC23Dof",
+    }
+)
+
 _MOTION_TASKS = frozenset(
     {
         "G1BoxTracking",
@@ -72,12 +83,6 @@ _MOTION_TASKS = frozenset(
         "G1FlipTracking23Dof",
         "G1FlipTrackingSAC",
         "G1FlipTrackingSAC23Dof",
-        "G1MotionTracking",
-        "G1MotionTracking23Dof",
-        "G1MotionTracking23DofDeploy",
-        "G1MotionTrackingDeploy",
-        "G1MotionTrackingSAC",
-        "G1MotionTrackingSAC23Dof",
         "G1WallFlipTracking",
         "G1WallFlipTracking23Dof",
         "G1WallFlipTrackingSAC",
@@ -89,7 +94,12 @@ _MOTION_TASKS = frozenset(
 )
 
 PRODUCTION_TASK_NAMES = frozenset(
-    _MBA_TASKS | _ROUGH_TASKS | _G1_LOCOMOTION_TASKS | _CUSTOM_COMPAT_TASKS | _MOTION_TASKS
+    _MBA_TASKS
+    | _ROUGH_TASKS
+    | _G1_LOCOMOTION_TASKS
+    | _CUSTOM_COMPAT_TASKS
+    | _MOTION_CORE_TASKS
+    | _MOTION_TASKS
 )
 
 
@@ -136,6 +146,15 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "compatibility",
             "Custom IK/history or tactile/contact/cache behavior is retained behind one frozen adapter.",
             "Keep Hydra/Registry ownership single; migrate only when the formal capability exists.",
+        )
+    if task_name in _MOTION_CORE_TASKS:
+        return TaskMigrationRecord(
+            task_name,
+            "motion_tracking",
+            "Compatible",
+            "complete",
+            "Hydra owner YAML materializes task-owned NumPy motion manager terms on the canonical runtime.",
+            "Keep PPO, APPO, and SAC owners aligned with the shared motion manager contract.",
         )
     if task_name in _MOTION_TASKS:
         return TaskMigrationRecord(

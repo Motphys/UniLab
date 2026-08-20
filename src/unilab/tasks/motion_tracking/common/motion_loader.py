@@ -214,6 +214,7 @@ class MotionSampler:
         adaptive_uniform_ratio: float = 0.1,
         adaptive_alpha: float = 0.001,
         start_ratio: float = 0.0,
+        rng: np.random.Generator | None = None,
     ):
         """Initialize motion sampler.
 
@@ -236,6 +237,7 @@ class MotionSampler:
         self.mode = mode
         self.num_envs = num_envs
         self.start_ratio = start_ratio
+        self.rng = rng
 
         # Current frame indices for each environment
         self.current_frames = np.zeros(num_envs, dtype=np.int32)
@@ -306,16 +308,28 @@ class MotionSampler:
         if self.motion_loader.num_clips == 1:
             frames = np.zeros(len(env_ids), dtype=np.int32)
         else:
-            clip_indices = np.random.randint(
-                0, self.motion_loader.num_clips, len(env_ids), dtype=np.int32
-            )
+            if self.rng is None:
+                clip_indices = np.random.randint(
+                    0, self.motion_loader.num_clips, len(env_ids), dtype=np.int32
+                )
+            else:
+                clip_indices = self.rng.integers(
+                    0, self.motion_loader.num_clips, len(env_ids), dtype=np.int32
+                )
             frames = np.asarray(self.motion_loader.clip_offsets[clip_indices], dtype=np.int32)
         self._set_sampled_frames(env_ids, frames)
         return frames
 
     def _sample_uniform(self, env_ids: np.ndarray) -> np.ndarray:
         """Sample uniformly across motion."""
-        frames = np.random.randint(0, self.motion_loader.num_frames, len(env_ids), dtype=np.int32)
+        if self.rng is None:
+            frames = np.random.randint(
+                0, self.motion_loader.num_frames, len(env_ids), dtype=np.int32
+            )
+        else:
+            frames = self.rng.integers(
+                0, self.motion_loader.num_frames, len(env_ids), dtype=np.int32
+            )
         self._set_sampled_frames(env_ids, frames)
 
         # Update metrics
@@ -334,11 +348,16 @@ class MotionSampler:
         uniform RSI's whole-clip coverage everywhere else.
         """
         n = len(env_ids)
-        use_start = np.random.random(n) < self.start_ratio
+        random_values = np.random.random(n) if self.rng is None else self.rng.random(n)
+        if self.rng is None:
+            uniform_frames = np.random.randint(0, self.motion_loader.num_frames, n)
+        else:
+            uniform_frames = self.rng.integers(0, self.motion_loader.num_frames, n)
+        use_start = random_values < self.start_ratio
         frames = np.where(
             use_start,
             0,
-            np.random.randint(0, self.motion_loader.num_frames, n),
+            uniform_frames,
         ).astype(np.int32)
         self._set_sampled_frames(env_ids, frames)
 
@@ -374,10 +393,18 @@ class MotionSampler:
         sampling_probs = sampling_probs / sampling_probs.sum()
 
         # Sample bins
-        sampled_bins = np.random.choice(self.bin_count, size=len(env_ids), p=sampling_probs)
+        sampled_bins = (
+            np.random.choice(self.bin_count, size=len(env_ids), p=sampling_probs)
+            if self.rng is None
+            else self.rng.choice(self.bin_count, size=len(env_ids), p=sampling_probs)
+        )
 
         # Add random offset within bin
-        bin_offsets = np.random.uniform(0.0, 1.0, len(env_ids))
+        bin_offsets = (
+            np.random.uniform(0.0, 1.0, len(env_ids))
+            if self.rng is None
+            else self.rng.uniform(0.0, 1.0, len(env_ids))
+        )
         frames = (
             (sampled_bins + bin_offsets) / self.bin_count * (self.motion_loader.num_frames - 1)
         ).astype(np.int32)
@@ -437,12 +464,14 @@ class MotionSampler:
         self.current_clip_indices[env_ids] = clip_indices
         self.current_clip_end_frames[env_ids] = self.motion_loader.clip_end_frames[clip_indices]
 
-    def step(self):
-        """Advance all frames by one step."""
-        self.current_frames += 1
+    def step(self, env_ids: np.ndarray | None = None) -> np.ndarray:
+        """Advance selected frames by one step and return their clip-end rows."""
+        ids = np.arange(self.num_envs, dtype=np.int32) if env_ids is None else env_ids
+        self.current_frames[ids] += 1
 
         # Find environments that reached the end of their current clip.
-        np.greater(self.current_frames, self.current_clip_end_frames, out=self._done_mask)
+        self._done_mask.fill(False)
+        self._done_mask[ids] = self.current_frames[ids] > self.current_clip_end_frames[ids]
         return np.flatnonzero(self._done_mask)
 
     def get_current_motion(self, out: MotionData | None = None) -> MotionData:

@@ -140,6 +140,9 @@ class _ResetBackend(_FakeBackend):
     def get_dof_vel(self) -> np.ndarray:
         return np.zeros((self.num_envs, 1), dtype=np.float32)
 
+    def get_joint_range(self) -> np.ndarray:
+        return np.array([[-1.0, 1.0]], dtype=np.float32)
+
     def set_state(
         self,
         env_ids: np.ndarray,
@@ -232,6 +235,22 @@ class _Command(CommandTerm):
     def _update_command(self, env_ids: np.ndarray | None) -> None:
         ids = None if env_ids is None else env_ids.copy()
         self._env.command_update_ids.append(ids)
+
+
+@dataclass(kw_only=True)
+class _StateWritingCommandCfg(CommandTermCfg):
+    def build(self, env) -> CommandTerm:
+        return _StateWritingCommand(self, env)
+
+
+class _StateWritingCommand(_Command):
+    def _resample_command(self, env_ids: np.ndarray) -> None:
+        self._command[env_ids, 0] = 0.75
+        self._env.scene["robot"].write_joint_state_to_sim(
+            np.full((len(env_ids), 1), 0.75, dtype=np.float32),
+            np.full((len(env_ids), 1), -0.75, dtype=np.float32),
+            env_ids=env_ids,
+        )
 
 
 class _Recorder(RecorderTerm):
@@ -995,6 +1014,32 @@ def test_reset_events_compose_then_commit_default_state_once() -> None:
     assert backend.default_qpos_calls == 1
     assert backend.init_qvel_calls == 1
     assert backend.joint_layout_calls == 2
+
+
+def test_reset_event_and_command_state_writes_share_one_commit() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.events = {
+        "default_first": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset"),
+        "joint_state": EventTermCfg(func=_write_reset_joint_state, mode="reset"),
+    }
+    cfg.commands = {"state_writer": _StateWritingCommandCfg(resampling_time_range=(1.0, 1.0))}
+    cfg.scene.entities["robot"] = EntityCfg(
+        joint_names=("joint",),
+        actuator_names=("motor",),
+    )
+    backend = _ResetBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    env.reset()
+
+    assert len(backend.set_state_calls) == 1
+    ids, qpos, qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(ids, [0, 1])
+    np.testing.assert_array_equal(
+        qpos,
+        [[0.0, 0.0, 0.5, 0.75], [0.0, 0.0, 0.5, 0.75]],
+    )
+    np.testing.assert_array_equal(qvel, [[0.0, 0.0, -0.75], [0.0, 0.0, -0.75]])
 
 
 def test_pure_reset_event_does_not_request_backend_state_capability() -> None:

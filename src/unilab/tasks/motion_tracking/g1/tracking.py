@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
 from unilab.base.scene import SceneCfg
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
 
 from ..common.config import (
     Domain_Rand,
@@ -41,7 +42,6 @@ G1MotionTrackingDomainRandomizationProvider = MotionTrackingDomainRandomizationP
 _build_motion_reference_state = build_motion_reference_state
 
 
-@registry.envcfg("G1MotionTracking")
 @dataclass
 class G1MotionTrackingEnvCfg(MotionTrackingCfg):
     """Registered configuration for G1 motion tracking."""
@@ -49,7 +49,6 @@ class G1MotionTrackingEnvCfg(MotionTrackingCfg):
     pass
 
 
-@registry.envcfg("G1MotionTrackingDeploy")
 @dataclass
 class G1MotionTrackingDeployEnvCfg(MotionTrackingDeployEnvCfg):
     """Registered deploy configuration for G1 motion tracking."""
@@ -91,44 +90,40 @@ class G1MotionTracking23DofCfg(G1MotionTrackingCfg):
     )
 
 
-@registry.envcfg("G1MotionTracking23Dof")
 @dataclass
 class G1MotionTracking23DofEnvCfg(G1MotionTracking23DofCfg):
     pass
 
 
-@registry.envcfg("G1MotionTracking23DofDeploy")
 @dataclass
 class G1MotionTracking23DofDeployEnvCfg(G1MotionTracking23DofCfg):
     pass
 
 
-@registry.env("G1MotionTracking", sim_backend="drake")
-@registry.env("G1MotionTracking", sim_backend="mujoco")
-@registry.env("G1MotionTracking", sim_backend="motrix")
 class G1MotionTrackingEnv(MotionTrackingEnv):
     """G1 Motion Tracking Environment."""
 
     _cfg: MotionTrackingCfg
 
 
-@registry.env("G1MotionTrackingDeploy", sim_backend="mujoco")
-@registry.env("G1MotionTrackingDeploy", sim_backend="motrix")
 class G1MotionTrackingDeployEnv(MotionTrackingDeployEnv):
     """Deploy-oriented G1 motion tracking env with unitree_rl_lab mimic actor inputs."""
 
     _cfg: MotionTrackingDeployEnvCfg
 
 
-# --- 23-DoF env registrations (same env classes, 23-DoF configs) ---
-registry.register_env("G1MotionTracking23Dof", G1MotionTrackingEnv, sim_backend="mujoco")
-registry.register_env("G1MotionTracking23Dof", G1MotionTrackingEnv, sim_backend="motrix")
-registry.register_env(
-    "G1MotionTracking23DofDeploy", G1MotionTrackingDeployEnv, sim_backend="mujoco"
-)
-registry.register_env(
-    "G1MotionTracking23DofDeploy", G1MotionTrackingDeployEnv, sim_backend="motrix"
-)
+# The legacy classes above remain explicit consumers for profiles that are not
+# part of #1227.  The four core identities have one Hydra-owned manager config
+# and one generic runtime factory instead of inheriting those classes.
+for _task_name in (
+    "G1MotionTracking",
+    "G1MotionTrackingDeploy",
+    "G1MotionTracking23Dof",
+    "G1MotionTracking23DofDeploy",
+):
+    registry.register_env_config(_task_name, ManagerBasedRlEnvCfg)
+    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="mujoco")
+    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="motrix")
 
 
 __all__ = [

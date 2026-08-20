@@ -351,12 +351,12 @@ def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
 
 
 def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
     return _ppo_owner_yaml_cfg(
         "g1_motion_tracking",
         backend,
-        G1MotionTrackingEnvCfg,
+        ManagerBasedRlEnvCfg,
         config_overrides,
     )
 
@@ -422,12 +422,6 @@ def _g1_walk_env_cls() -> type:
     return make_g1_walk_env
 
 
-def _g1_motion_tracking_env_cls() -> type:
-    from unilab.tasks.motion_tracking.g1.tracking import G1MotionTrackingEnv
-
-    return G1MotionTrackingEnv
-
-
 def _sharpa_inhand_env_cls() -> type:
     from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
 
@@ -489,8 +483,8 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         task_id="g1_motion_tracking",
         env_name="G1MotionTracking",
         cfg_factory=_g1_motion_tracking_cfg,
-        env_cls_factory=_g1_motion_tracking_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
+        env_cls_factory=_manager_env_cls,
+        backends=("mujoco", "motrix"),
     ),
     "sharpa_inhand": TaskConfig(
         task_id="sharpa_inhand",

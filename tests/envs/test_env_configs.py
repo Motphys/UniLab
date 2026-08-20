@@ -70,6 +70,33 @@ def _g1_manager_override(task: str = "g1_walk_flat") -> dict[str, Any]:
     return BackendAdapter(cfg, root_dir=repo_root, algo_name="ppo").build_task_env_cfg_override()
 
 
+def _motion_manager_override(
+    task: str,
+    backend: str,
+    *,
+    config_root: str = "ppo",
+) -> tuple[str, dict[str, Any]]:
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.training.backend_adapter import BackendAdapter
+
+    repo_root = Path(__file__).parents[2]
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(
+        config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
+    ):
+        overrides = [f"task={task}/{backend}"]
+        if config_root == "offpolicy":
+            overrides.insert(0, "algo=sac")
+        cfg = compose("config", overrides=overrides)
+    return str(cfg.training.task_name), BackendAdapter(
+        cfg,
+        root_dir=repo_root,
+        algo_name="sac" if config_root == "offpolicy" else config_root,
+    ).build_task_env_cfg_override()
+
+
 # ---------------------------------------------------------------------------
 # Non-slow: config attribute completeness (no env.step(), no MuJoCo sim)
 # ---------------------------------------------------------------------------
@@ -2154,103 +2181,221 @@ def test_allegro_grasp_manager_runtime_uses_zero_increment_action(sim_backend: s
         env.close()
 
 
+_MOTION_CORE_RUNTIME_CASES = (
+    pytest.param("ppo", "g1_motion_tracking", "G1MotionTracking", 160, 286, 29, False),
+    pytest.param(
+        "ppo",
+        "g1_motion_tracking_deploy",
+        "G1MotionTrackingDeploy",
+        154,
+        286,
+        29,
+        False,
+    ),
+    pytest.param("ppo", "g1_23dof_motion_tracking", "G1MotionTracking23Dof", 130, 256, 23, False),
+    pytest.param(
+        "ppo",
+        "g1_23dof_motion_tracking_deploy",
+        "G1MotionTracking23DofDeploy",
+        124,
+        256,
+        23,
+        False,
+    ),
+    pytest.param("appo", "g1_motion_tracking", "G1MotionTracking", 160, 286, 29, False),
+    pytest.param("appo", "g1_23dof_motion_tracking", "G1MotionTracking23Dof", 130, 256, 23, False),
+    pytest.param(
+        "offpolicy",
+        "sac/g1_motion_tracking",
+        "G1MotionTrackingSAC",
+        160,
+        289,
+        29,
+        True,
+    ),
+    pytest.param(
+        "offpolicy",
+        "sac/g1_23dof_motion_tracking",
+        "G1MotionTrackingSAC23Dof",
+        130,
+        259,
+        23,
+        True,
+    ),
+)
+
+
+def test_g1_motion_core_registrations_are_manager_only() -> None:
+    from unilab.base import registry
+
+    ensure_registries()
+    metadata = registry.list_registered_envs()
+    for task_name in (
+        "G1MotionTracking",
+        "G1MotionTrackingDeploy",
+        "G1MotionTracking23Dof",
+        "G1MotionTracking23DofDeploy",
+        "G1MotionTrackingSAC",
+        "G1MotionTrackingSAC23Dof",
+    ):
+        assert metadata[task_name] == {
+            "config_factory": "ManagerBasedRlEnvCfg",
+            "available_backends": ["mujoco", "motrix"],
+        }
+
+
+def test_g1_motion_manager_ppo_wraps_only_active_rows_in_one_state_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ensure_registries()
+    _require_mujoco_runtime()
+    from unilab.base import registry
+
+    _, override = _motion_manager_override("g1_motion_tracking", "mujoco")
+    env = registry.make(
+        "G1MotionTracking",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override=override,
+    )
+    try:
+        env.init_state()
+        command = env.command_manager.get_term("motion")
+        command.time_steps[:] = command.sampler.current_clip_end_frames
+        env.reset_buf[:] = [True, False]
+
+        set_state_env_ids: list[np.ndarray] = []
+        original_set_state = env._backend.set_state
+
+        def record_set_state(
+            env_ids: np.ndarray,
+            qpos: np.ndarray,
+            qvel: np.ndarray,
+            *,
+            randomization: Any = None,
+        ) -> Any:
+            set_state_env_ids.append(env_ids.copy())
+            return original_set_state(
+                env_ids,
+                qpos,
+                qvel,
+                randomization=randomization,
+            )
+
+        monkeypatch.setattr(env._backend, "set_state", record_set_state)
+        all_ids = np.arange(env.num_envs, dtype=np.int32)
+        with env._reset_state.scoped(all_ids):
+            env.command_manager.compute(dt=0.0)
+        env.command_manager.post_compute()
+
+        assert len(set_state_env_ids) == 1
+        np.testing.assert_array_equal(set_state_env_ids[0], [1])
+        assert command.time_steps[0] == command.sampler.current_clip_end_frames[0]
+        assert command.time_steps[1] <= command.sampler.current_clip_end_frames[1]
+        expected_motion = command.motion.get_motion_at_frame(command.time_steps)
+        np.testing.assert_array_equal(command.joint_pos, expected_motion.joint_pos)
+        np.testing.assert_array_equal(
+            command._robot_body_pos_w,
+            command.robot.data.body_link_pos_w[:, command._robot_body_ids],
+        )
+        assert command._robot_cache_step == env.common_step_counter
+    finally:
+        env.close()
+
+
+def test_g1_motion_manager_sac_clip_end_is_truncation() -> None:
+    ensure_registries()
+    _require_mujoco_runtime()
+    from unilab.base import registry
+
+    _, override = _motion_manager_override(
+        "sac/g1_motion_tracking",
+        "mujoco",
+        config_root="offpolicy",
+    )
+    override["auto_reset"] = False
+    env = registry.make(
+        "G1MotionTrackingSAC",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override=override,
+    )
+    try:
+        env.init_state()
+        command = env.command_manager.get_term("motion")
+        command.time_steps[:] = command.sampler.current_clip_end_frames
+
+        state = env.step(np.zeros((2, 29), dtype=np.float32))
+
+        np.testing.assert_array_equal(state.terminated, [False, False])
+        np.testing.assert_array_equal(state.truncated, [True, True])
+        np.testing.assert_array_equal(command.time_steps, command.sampler.current_clip_end_frames)
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize(
+    ("config_root", "task", "identity", "actor_dim", "critic_dim", "action_dim", "truncate"),
+    _MOTION_CORE_RUNTIME_CASES,
+)
 @pytest.mark.parametrize("sim_backend", ["mujoco", "motrix"])
-def test_g1_motion_tracking_reset_and_step(sim_backend: str):
-    """G1MotionTracking needs a motion_file — skip if not available."""
+def test_g1_motion_core_manager_reset_and_step(
+    config_root: str,
+    task: str,
+    identity: str,
+    actor_dim: int,
+    critic_dim: int,
+    action_dim: int,
+    truncate: bool,
+    sim_backend: str,
+) -> None:
     ensure_registries()
     from unilab.base import registry
+    from unilab.envs import ManagerBasedRlEnv
 
     if sim_backend == "mujoco":
         _require_mujoco_runtime()
     else:
         pytest.importorskip("motrixsim")
 
-    # Look for any motion file in the expected location
-    motion_dir = Path(__file__).parents[2] / "src" / "unilab" / "assets" / "motions" / "g1"
-    if not motion_dir.exists():
-        pytest.skip(f"Motion data directory not found: {motion_dir}")
-
-    npz_files = list(motion_dir.glob("*.npz"))
-    if not npz_files:
-        pytest.skip(f"No .npz motion files in {motion_dir}")
-
-    # Filter out 23-DoF motion files — G1MotionTracking uses 29-DoF config
-    non_23dof = [f for f in npz_files if "_23dof" not in f.name]
-    if not non_23dof:
-        pytest.skip("No non-23-DoF motion files available for 29-DoF config")
-    motion_file = str(non_23dof[0])
-    env = cast(
-        Any,
-        registry.make(
-            "G1MotionTracking",
-            num_envs=2,
-            sim_backend=sim_backend,
-            env_cfg_override={"motion_file": motion_file},
-        ),
+    task_name, override = _motion_manager_override(
+        task,
+        sim_backend,
+        config_root=config_root,
     )
+    assert task_name == identity
+    env = registry.make(
+        identity,
+        num_envs=2,
+        sim_backend=sim_backend,
+        env_cfg_override=override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
     try:
-        spec = env.obs_groups_spec
-        assert isinstance(spec, dict)
-        assert "obs" in spec
-        assert "critic" in spec
-        obs_shape = env.observation_space.shape
-        assert obs_shape is not None
-        assert sum(spec.values()) == obs_shape[0]
+        assert env.obs_groups_spec == {"obs": actor_dim, "critic": critic_dim}
+        assert env.action_space.shape == (action_dim,)
+        command = env.command_manager.get_term("motion")
+        assert command.cfg.params.truncate_on_clip_end is truncate
+        if sim_backend == "motrix" and "deploy" in task:
+            assert env._cfg.events["foot_friction"] is None
+            assert env._cfg.events["push_robot"] is None
+        if sim_backend == "motrix" and config_root in {"ppo", "appo"}:
+            root_pos = env._cfg.rewards["motion_global_root_pos"]
+            action_rate = env._cfg.rewards["action_rate_l2"]
+            assert root_pos is not None
+            assert action_rate is not None
+            expected_weights = (1.0, -0.05) if config_root == "ppo" else (0.5, -0.1)
+            assert (root_pos.weight, action_rate.weight) == pytest.approx(expected_weights)
 
         state = env.init_state()
-        assert isinstance(state.obs, dict)
-        for key, dim in spec.items():
-            assert state.obs[key].shape == (2, dim)
+        assert state.obs["obs"].shape == (2, actor_dim)
+        assert state.obs["critic"].shape == (2, critic_dim)
 
-        action_shape = env.action_space.shape
-        assert action_shape is not None
-        actions = np.zeros((2, action_shape[0]))
-        state = env.step(actions)
-        assert isinstance(state.obs, dict)
+        state = env.step(np.zeros((2, action_dim), dtype=np.float32))
         assert state.reward.shape == (2,)
         assert state.terminated.shape == (2,)
         assert state.truncated.shape == (2,)
-    finally:
-        env.close()
-
-
-def test_g1_motion_tracking_deploy_reset_and_step_mujoco():
-    """Deploy env keeps motion-tracking behavior but exposes unitree mimic actor inputs."""
-    ensure_registries()
-    _require_mujoco_runtime()
-    from unilab.base import registry
-
-    motion_dir = Path(__file__).parents[2] / "src" / "unilab" / "assets" / "motions" / "g1"
-    if not motion_dir.exists():
-        pytest.skip(f"Motion data directory not found: {motion_dir}")
-
-    npz_files = list(motion_dir.glob("*.npz"))
-    if not npz_files:
-        pytest.skip(f"No .npz motion files in {motion_dir}")
-
-    # Filter out 23-DoF motion files — G1MotionTrackingDeploy uses 29-DoF config
-    non_23dof = [f for f in npz_files if "_23dof" not in f.name]
-    if not non_23dof:
-        pytest.skip("No non-23-DoF motion files available for 29-DoF deploy config")
-    env = cast(
-        Any,
-        registry.make(
-            "G1MotionTrackingDeploy",
-            num_envs=2,
-            sim_backend="mujoco",
-            env_cfg_override={"motion_file": str(non_23dof[0])},
-        ),
-    )
-    try:
-        assert env.obs_groups_spec == {"obs": 154, "critic": 286}
-        state = env.init_state()
-        assert state.obs["obs"].shape == (2, 154)
-        assert state.obs["critic"].shape == (2, 286)
-
-        action_shape = env.action_space.shape
-        assert action_shape is not None
-        state = env.step(np.zeros((2, action_shape[0])))
-        assert state.obs["obs"].shape == (2, 154)
-        assert state.obs["critic"].shape == (2, 286)
+        assert np.isfinite(state.reward).all()
+        assert all(np.isfinite(values).all() for values in state.obs.values())
     finally:
         env.close()

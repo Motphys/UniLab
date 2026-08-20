@@ -175,6 +175,9 @@ class CommandTerm(ManagerTermBase):
         """
         raise NotImplementedError
 
+    def post_compute(self) -> None:
+        """Refresh state that depends on committed command-side simulation writes."""
+
 
 class CommandManager(ManagerBase):
     """Manages command generation for the environment.
@@ -234,6 +237,10 @@ class CommandManager(ManagerBase):
         for name, term in self._terms.items():
             term.compute(dt, env_ids)
             self._validate_command(name, term.command)
+
+    def post_compute(self) -> None:
+        for term in self._terms.values():
+            term.post_compute()
 
     def get_command(self, name: str) -> np.ndarray:
         return self._validate_command(name, self._terms[name].command)
@@ -301,6 +308,9 @@ class NullCommandManager:
         return {}
 
     def compute(self, dt: float | np.ndarray, env_ids: np.ndarray | None = None) -> None:
+        pass
+
+    def post_compute(self) -> None:
         pass
 
     def get_command(self, name: str) -> None:

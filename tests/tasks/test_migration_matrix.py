@@ -18,7 +18,7 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
     assert PRODUCTION_TASK_NAMES <= registered.keys()
     assert {record.task_name for record in records} == set(PRODUCTION_TASK_NAMES)
     assert len(records) == 39
-    assert sum(record.status == "Compatible" for record in records) == 15
+    assert sum(record.status == "Compatible" for record in records) == 21
     assert sum(record.target == "compatibility" for record in records) == 3
 
 
@@ -27,7 +27,7 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
     [
         ("Go2ArmManipLoco", "go2_arm", "compatibility", "Adapted"),
         ("SharpaInhandRotation", "sharpa", "compatibility", "Adapted"),
-        ("G1MotionTracking", "motion_tracking", "mba", "Adapted"),
+        ("G1MotionTracking", "motion_tracking", "complete", "Compatible"),
         ("G1WalkRough", "g1_locomotion", "complete", "Compatible"),
         ("Go2JoystickRough", "quadruped_rough", "complete", "Compatible"),
     ],

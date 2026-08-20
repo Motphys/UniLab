@@ -73,6 +73,9 @@ class _Backend:
     def get_default_dof_pos(self) -> np.ndarray:
         return np.asarray([0.1, 0.2, 0.3], dtype=np.float32)
 
+    def get_joint_range(self) -> np.ndarray:
+        return np.tile(np.asarray([[-1.0, 1.0]], dtype=np.float32), (3, 1))
+
     def get_body_pos_w(self, ids: np.ndarray) -> np.ndarray:
         return self.body_pos[:, ids]
 
