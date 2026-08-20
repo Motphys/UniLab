@@ -18,7 +18,7 @@ These three paths correspond to three lifecycle classes:
 ## Status Conclusions
 
 1. All tasks currently wired to a DR provider use the unified DR entry point; no task bypasses `DomainRandomizationManager` to run a separate DR flow inside `reset()`.
-2. They are all roughly structured: task files define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; `G1Walk*` instead declares DR through Hydra `EventTermCfg` Manager-Based reset terms.
+2. They are all roughly structured: legacy task owners define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to `MotionCommandCfg`, while WBT adds `EventTermCfg` reset and interval terms.
 3. What is "unified" today is mainly the entry point and execution flow, not every randomization item itself. The shared helper `build_common_reset_randomization()` currently generates `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`; the shared interval helper currently only generates push.
 4. `ResetRandomizationPayload` can already express `gravity`, `body_iquat`, `body_inertia`, `kp`, `kd`, and `MuJoCoBackend` has declared support. Whether these are actually used still depends on whether the task provider samples and dispatches them.
 5. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
@@ -32,7 +32,8 @@ These three paths correspond to three lifecycle classes:
 | `Go2JoystickFlat` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | task state sampling + common payload | push | `go2/joystick.py` |
 | `G1WalkFlat` | Yes | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
 | `G1WalkRough` | Yes | Yes: same Manager-Based event terms as `G1WalkFlat` | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
-| `G1MotionTracking` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | extensive task-specific reset sampling + common payload | push | `motion_tracking/g1/tracking.py` |
+| `G1MotionTracking` | Yes | Yes: Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame, root pose/velocity, and joint-position sampling | none | `motion_tracking/common/manager_terms.py` |
+| `G1WBTObs` | Yes | Yes: same motion command + Hydra `EventTermCfg` | motion reset plus mass/COM/PD/friction/encoder-bias events | interval velocity kick | `motion_tracking/g1/manager_terms.py` |
 | `AllegroInhandRotation` | Yes | Yes: Hydra `EventTermCfg` + Manager-Based reset term | entity-scoped hand/ball reset | none | `allegro_inhand/manager_terms.py` |
 | `AllegroInhandRotationGrasp` | Yes | Yes: reuses the rotation reset event + `RecorderTermCfg` | noisy hand reset + grasp collection | none | `allegro_inhand/grasp_gen.py` |
 | `SharpaInhandRotation` | Yes | Yes: `InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache sampling + common payload | object `body_force` | `sharpa_inhand/rotation.py` |
@@ -46,7 +47,8 @@ These three paths correspond to three lifecycle classes:
 | `Go2JoystickFlat` | base xy; base yaw; base qvel; command sampling; `current_actions/last_actions` zeroed; kp/kd randomization (enabled by default); optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | kp/kd enabled by default; common payload and push disabled by default |
 | `G1WalkFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling with a planar dead zone; `gait_phase` sampling; kp/kd randomization via `pd_gains` | none | kp/kd enabled on mujoco owners by default; disabled on motrix/mjwarp owners |
 | `G1WalkRough` | Same as `G1WalkFlat` (shared owner bases, rough scene) | none | Same defaults as `G1WalkFlat` |
-| `G1MotionTracking` | motion frame sampling; root pose perturbation `x/y/z/roll/pitch/yaw`; root velocity perturbation `x/y/z/roll/pitch/yaw`; joint position noise; under MuJoCo clipped by joint range; `current_actions/last_actions` zeroed; optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | `pose_randomization`, `velocity_randomization`, `joint_position_range` have non-zero perturbations by default; common payload and push disabled by default |
+| `G1MotionTracking` | Motion-command frame sampling; root pose perturbation `x/y/z/roll/pitch/yaw`; root velocity perturbation `x/y/z/roll/pitch/yaw`; joint-position noise clipped through the public entity soft limits; action-manager state reset | none | `pose_range`, `velocity_range`, and `joint_position_range` have non-zero perturbations in the base owner |
+| `G1WBTObs` | Same motion reset plus base mass, base COM, PD gain, foot friction, and encoder-bias event terms | `push_by_setting_velocity` | The WBT owner explicitly enables all listed event terms; unsupported capabilities raise rather than fall back |
 | `AllegroInhandRotation` | Entity-scoped hand/ball reset; an explicitly configured grasp cache is sampled, otherwise `null` explicitly selects the model home pose; optional `joint_noise`, `ball_velocity_noise`, and `ball_z_offset` | none | owner YAML explicitly selects the home pose and zero reset noise; a configured missing or malformed cache fails closed |
 | `AllegroInhandRotationGrasp` | Reuses the rotation reset with `joint_noise=0.25`; Manager-Based termination checks fingertip distance, contact count, and ball height; recorder stores successful timeout rows | none | generates the 50k-row Allegro grasp cache and raises `RunComplete` after a successful save |
 | `SharpaInhandRotation` | grasp cache bucketed sampling by `scale_ids`; object pose / quat reset; optional common reset randomization payload (incl. `gravity`) | object `body_force` direct force disturbance | `domain_rand.scale_list` defaults come from the owner YAML; under MuJoCo, object geom scale is materialized during init; common payload disabled by default; object force enabled by default via the Sharpa owner YAML |
@@ -74,7 +76,7 @@ So from an execution-path perspective, the tasks are already unified.
 This means:
 
 - Although locomotion tasks all go through the unified entry point, their base xy, yaw, qvel, command, and gait phase are still sampled directly inside each provider
-- `G1MotionTracking`'s pose / velocity / joint noise is also task-specific logic
+- `G1MotionTracking`'s pose / velocity / joint noise is owned by its manager command
 - Allegro's grasp / object initial state sampling is entirely task-specific logic
 - Sharpa's `geom_size` scale is init-lifecycle model materialization and is not part of the reset common payload
 

@@ -120,7 +120,8 @@ To add a new robot's meshes:
 - Hot paths (`step` / `reset`) never trigger any file download or parsing.
 - `ASSETS_ROOT_PATH` is unchanged, so the download target matches the
   original local path exactly.
-- Robot meshes use the same directory resolver (`resolve_robot_asset_dir`),
-  integrated at `X2WallFlipTrackingEnv.__init__` in
-  `src/unilab/tasks/motion_tracking/x2/flip_tracking.py`, and exposed as the
-  `unilab-pull-assets` CLI.
+- Robot meshes use the same directory resolver (`resolve_robot_asset_dir`). The
+  thin `make_x2_wall_flip_env` factory in
+  `src/unilab/tasks/motion_tracking/x2/__init__.py` resolves them once before
+  delegating to the shared manager environment factory. The resolver is also
+  exposed through the `unilab-pull-assets` CLI.

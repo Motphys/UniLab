@@ -70,10 +70,10 @@ flowchart LR
   runtime (units, frame, filter cutoffs). Log the first deploy-side
   observation window and compare it with a sim rollout built from the same
   owner YAML.
-- **Action latency.** Some task configs expose one-step delayed action
-  execution through `control_config.simulate_action_latency`. Measure the
-  deploy loop and make the training owner match that contract before a
-  hardware run. See {doc}`8-latency_budget`.
+- **Action latency.** Some task owners expose one-step delayed action execution
+  through a control config or Manager-Based action term. Measure the deploy loop
+  and make the training owner match that contract before a hardware run. See
+  {doc}`8-latency_budget`.
 - **Friction / damping mismatch.** Especially for in-hand manipulation.
   Sweep friction in DR; cross-check via {doc}`../2-sim_to_sim/3-contact_and_friction_alignment`.
 - **Reset transients.** Sim resets to a stable pose; deployment starts from a

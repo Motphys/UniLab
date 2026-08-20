@@ -60,9 +60,9 @@ flowchart LR
 
 - **观测漂移。** 仿真与部署运行时之间的传感器预处理不同（单位、坐标系、滤波截止频率）。
   记录第一段部署侧观测窗口，并与用同一份 owner YAML 构建的仿真回合作对比。
-- **动作延迟。** 一些任务配置通过 `control_config.simulate_action_latency` 暴露单步
-  延迟的动作执行。测量部署回路，并在硬件运行前让训练 owner 匹配该契约。见
-  {doc}`8-latency_budget`。
+- **动作延迟。** 一些 task owner 通过 control config 或 Manager-Based action term
+  暴露单步延迟的动作执行。测量部署回路，并在硬件运行前让训练 owner 匹配该契约。
+  见 {doc}`8-latency_budget`。
 - **摩擦 / 阻尼不匹配。** 尤其对于手内操作。在 DR 中扫动摩擦；通过
   {doc}`../2-sim_to_sim/3-contact_and_friction_alignment` 交叉核对。
 - **复位瞬态。** 仿真复位到一个稳定姿态；部署则从一个控制器状态开始。安全层必须在

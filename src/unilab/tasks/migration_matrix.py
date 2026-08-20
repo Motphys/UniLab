@@ -160,10 +160,10 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
         return TaskMigrationRecord(
             task_name,
             "motion_tracking",
-            "Adapted",
-            "mba",
-            "Stateful motion loading and profile-specific tracking terms need a grouped manager port.",
-            "Migrate the shared engine and all profiles together; stop on new backend contracts.",
+            "Compatible",
+            "complete",
+            "Hydra profile owners specialize the shared NumPy motion managers without a legacy runtime.",
+            "Keep profile scene, motion, observation, reward, and termination declarations aligned.",
         )
     raise KeyError(f"Task '{task_name}' has no #1042 migration-matrix entry")
 

@@ -174,13 +174,19 @@ def _resolve_backend_entity_contract(cfg: ManagerBasedRlEnvCfg) -> tuple[str, bo
         if entity_cfg.body_names is not None:
             body_state_requested = True
 
-    if len(root_entities) != 1:
+    if not root_entities:
+        raise ValueError(
+            "ManagerBasedRlEnv factory requires at least one scene entity with an explicit "
+            "root_body_name"
+        )
+    primary = next((item for item in root_entities if item[0] == "robot"), None)
+    if primary is None and len(root_entities) != 1:
         declared = [name for name, _ in root_entities]
         raise ValueError(
-            "ManagerBasedRlEnv factory requires exactly one scene entity with an explicit "
-            f"root_body_name; found {len(root_entities)} root entities {declared}"
+            "ManagerBasedRlEnv factory requires a conventional 'robot' root entity when "
+            f"multiple floating entities are declared; found {declared}"
         )
-    return root_entities[0][1], body_state_requested
+    return (primary or root_entities[0])[1], body_state_requested
 
 
 class ManagerBasedRlEnv(NpEnv):

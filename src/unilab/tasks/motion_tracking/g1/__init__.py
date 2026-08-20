@@ -1,98 +1,37 @@
-"""G1 motion-tracking tasks."""
+"""G1 motion profiles on the shared NumPy Manager-Based runtime."""
 
-from .box_tracking import (
-    G1BoxTracking23DofCfg,
-    G1BoxTracking23DofEnvCfg,
-    G1BoxTrackingCfg,
-    G1BoxTrackingEnv,
-    G1BoxTrackingEnvCfg,
-)
-from .flip_tracking import (
-    G1ClimbTrackingCfg,
-    G1ClimbTrackingEnv,
-    G1ClimbTrackingEnvCfg,
-    G1FlipTracking23DofCfg,
-    G1FlipTracking23DofEnvCfg,
-    G1FlipTrackingCfg,
-    G1FlipTrackingEnv,
-    G1FlipTrackingEnvCfg,
-    G1WallFlipTracking23DofCfg,
-    G1WallFlipTracking23DofEnvCfg,
-    G1WallFlipTrackingCfg,
-    G1WallFlipTrackingEnv,
-    G1WallFlipTrackingEnvCfg,
-)
-from .flip_tracking_sac import (
-    G1FlipTrackingSAC23DofCfg,
-    G1FlipTrackingSAC23DofEnv,
-    G1FlipTrackingSACCfg,
-    G1FlipTrackingSACEnv,
-    G1WallFlipTrackingSAC23DofCfg,
-    G1WallFlipTrackingSAC23DofEnv,
-    G1WallFlipTrackingSACCfg,
-    G1WallFlipTrackingSACEnv,
-)
+from unilab.base import registry
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
+
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
-from .tracking import (
-    G1MotionTracking23DofCfg,
-    G1MotionTracking23DofDeployEnvCfg,
-    G1MotionTracking23DofEnvCfg,
-    G1MotionTrackingCfg,
-    G1MotionTrackingDeployEnv,
-    G1MotionTrackingDeployEnvCfg,
-    G1MotionTrackingEnv,
-    G1MotionTrackingEnvCfg,
-)
-from .tracking_obs import G1WBTObs23DofCfg, G1WBTObsCfg, G1WBTObsEnv
-from .tracking_sac import (
-    G1MotionTrackingSAC23DofCfg,
-    G1MotionTrackingSAC23DofEnv,
-    G1MotionTrackingSACCfg,
-    G1MotionTrackingSACEnv,
+
+G1_MOTION_TASKS = (
+    "G1MotionTracking",
+    "G1MotionTrackingDeploy",
+    "G1MotionTracking23Dof",
+    "G1MotionTracking23DofDeploy",
+    "G1MotionTrackingSAC",
+    "G1MotionTrackingSAC23Dof",
+    "G1BoxTracking",
+    "G1BoxTracking23Dof",
+    "G1ClimbTracking",
+    "G1ClimbTracking23Dof",
+    "G1FlipTracking",
+    "G1FlipTracking23Dof",
+    "G1FlipTrackingSAC",
+    "G1FlipTrackingSAC23Dof",
+    "G1WallFlipTracking",
+    "G1WallFlipTracking23Dof",
+    "G1WallFlipTrackingSAC",
+    "G1WallFlipTrackingSAC23Dof",
+    "G1WBTObs",
+    "G1WBTObs23Dof",
 )
 
-__all__ = [
-    "BoxMotionData",
-    "BoxMotionLoader",
-    "G1BoxTracking23DofCfg",
-    "G1BoxTracking23DofEnvCfg",
-    "G1BoxTrackingCfg",
-    "G1BoxTrackingEnv",
-    "G1BoxTrackingEnvCfg",
-    "G1ClimbTrackingCfg",
-    "G1ClimbTrackingEnv",
-    "G1ClimbTrackingEnvCfg",
-    "G1FlipTracking23DofCfg",
-    "G1FlipTracking23DofEnvCfg",
-    "G1FlipTrackingCfg",
-    "G1FlipTrackingEnv",
-    "G1FlipTrackingEnvCfg",
-    "G1FlipTrackingSAC23DofCfg",
-    "G1FlipTrackingSAC23DofEnv",
-    "G1FlipTrackingSACCfg",
-    "G1FlipTrackingSACEnv",
-    "G1MotionTracking23DofCfg",
-    "G1MotionTracking23DofDeployEnvCfg",
-    "G1MotionTracking23DofEnvCfg",
-    "G1MotionTrackingCfg",
-    "G1MotionTrackingDeployEnv",
-    "G1MotionTrackingDeployEnvCfg",
-    "G1MotionTrackingEnv",
-    "G1MotionTrackingEnvCfg",
-    "G1MotionTrackingSAC23DofCfg",
-    "G1MotionTrackingSAC23DofEnv",
-    "G1MotionTrackingSACCfg",
-    "G1MotionTrackingSACEnv",
-    "G1WBTObs23DofCfg",
-    "G1WBTObsCfg",
-    "G1WBTObsEnv",
-    "G1WallFlipTracking23DofCfg",
-    "G1WallFlipTracking23DofEnvCfg",
-    "G1WallFlipTrackingCfg",
-    "G1WallFlipTrackingEnv",
-    "G1WallFlipTrackingEnvCfg",
-    "G1WallFlipTrackingSAC23DofCfg",
-    "G1WallFlipTrackingSAC23DofEnv",
-    "G1WallFlipTrackingSACCfg",
-    "G1WallFlipTrackingSACEnv",
-]
+for _task_name in G1_MOTION_TASKS:
+    registry.register_env_config(_task_name, ManagerBasedRlEnvCfg)
+    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="mujoco")
+    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="motrix")
+
+
+__all__ = ["BoxMotionData", "BoxMotionLoader", "G1_MOTION_TASKS"]

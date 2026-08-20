@@ -412,6 +412,32 @@ def test_backend_adapter_keeps_motion_manager_scene_during_play():
     assert captured == {}
 
 
+def test_backend_adapter_materializes_visuals_without_dropping_manager_entities():
+    cfg = _ppo_cfg(["task=g1_box_tracking/motrix", "training.play_only=true"])
+    captured: dict[str, object] = {}
+
+    def _fake_materializer(source_model_file: str, **kwargs) -> str:
+        captured["source_model_file"] = source_model_file
+        captured.update(kwargs)
+        return "/tmp/materialized_box.xml"
+
+    env_cfg_override = BackendAdapter(
+        cfg,
+        root_dir=_ROOT_DIR,
+        algo_name="ppo",
+        scene_materializer=_fake_materializer,
+    ).build_play_env_cfg_override()
+
+    scene = env_cfg_override["scene"]
+    assert scene["model_file"] == "/tmp/materialized_box.xml"
+    assert scene["default_keyframe_name"] == "stand"
+    assert set(scene["entities"]) == {"robot", "object"}
+    assert scene["entities"]["object"]["root_body_name"] == "largebox"
+    assert str(captured["source_model_file"]).endswith(
+        "src/unilab/assets/robots/g1/scene_flat_with_largebox.xml"
+    )
+
+
 def test_render_play_mode_uses_env_interactive_contract():
     class FakeEnv:
         def __init__(self):

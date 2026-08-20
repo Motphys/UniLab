@@ -8,21 +8,22 @@ budgets as robot-specific measurements, not UniLab defaults.
 
 | Surface | Repo evidence | What it covers |
 | --- | --- | --- |
-| One-step action delay | `control_config.simulate_action_latency` in locomotion and G1 motion-tracking envs | Executes the previous action instead of the current action. |
-| G1 WBT observation history | `noise_config.obs_history_length` and `scripts/deploy/export_deploy_config.py` | Exports per-term `obs_layout` history for `gyro`, `joint_pos_rel`, `dof_vel`, and `last_actions`. |
+| One-step action delay | Manager action term `simulate_action_latency` declarations in task owners | Executes the previous action instead of the current action. |
+| G1 WBT observation history | Per-term `history_length` in `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` and `scripts/deploy/export_deploy_config.py` | Exports per-term `obs_layout` history for `gyro`, `joint_pos_rel`, `dof_vel`, and `last_actions`. |
 | Sharpa tactile contact latency | `domain_rand.contact_latency` in Sharpa in-hand configs | Keeps previous tactile contact values for sampled contact channels. |
 | Deploy-side ONNX contract check | `scripts/deploy/sim_prototype.py` | Validates `obs_layout`, `obs_dim`, ONNX input width, clipping, and EMA action smoothing for the G1 WBT path. |
 
 ## Action Latency
 
-For tasks that expose `control_config.simulate_action_latency`, the env applies
-`last_actions` when the flag is enabled. Keep this in the selected task owner
-YAML instead of adding deploy-only behavior later.
+For Manager-Based tasks that enable action latency, the action manager applies
+the previous action when the flag is enabled. Keep this in the selected task
+owner YAML instead of adding deploy-only behavior later.
 
 ```yaml
 env:
-  control_config:
-    simulate_action_latency: true
+  actions:
+    joint_pos:
+      simulate_action_latency: true
 ```
 
 The checked-in G1 WBT owner enables this flag in

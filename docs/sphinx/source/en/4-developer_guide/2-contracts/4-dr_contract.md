@@ -100,6 +100,6 @@ payloads.
 - DR types: `src/unilab/dr/types.py`
 - DR manager: `src/unilab/dr/manager.py`
 - Backend interface: `src/unilab/base/backend/base.py`
-- Example providers: `src/unilab/tasks/locomotion/g1/joystick.py`,
-  `src/unilab/tasks/motion_tracking/g1/tracking.py`,
+- Example providers: `src/unilab/tasks/locomotion/common/dr_provider.py`,
+  `src/unilab/tasks/locomotion/go2_arm/manip_loco.py`,
   `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`

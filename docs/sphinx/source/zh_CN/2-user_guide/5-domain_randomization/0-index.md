@@ -18,7 +18,7 @@
 ## 状态结论
 
 1. 当前所有接入 DR provider 的任务都使用统一的 DR 入口点；没有任何任务绕开 `DomainRandomizationManager` 在 `reset()` 内部运行单独的 DR 流程。
-2. 它们的结构都大致相同：task 文件定义一个 `domain_rand` 配置 dataclass、一个 `DomainRandomizationProvider` 和一个 `ResetPlan`；`G1Walk*` 则改为通过 Hydra `EventTermCfg` Manager-Based reset term 声明 DR。
+2. 它们的结构都大致相同：legacy task owner 定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider` 和 `ResetPlan`；Manager-Based owner 则通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
 3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`；共享的 interval 辅助函数目前只生成 push。
 4. `ResetRandomizationPayload` 已经可以表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，并且 `MuJoCoBackend` 已声明支持。这些是否实际被使用，仍取决于 task provider 是否对它们进行采样和 dispatch。
 5. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
@@ -32,7 +32,8 @@
 | `Go2JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | task 状态采样 + common payload | push | `go2/joystick.py` |
 | `G1WalkFlat` | 是 | 是：Hydra `EventTermCfg` + Manager-Based reset term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
 | `G1WalkRough` | 是 | 是：与 `G1WalkFlat` 相同的 Manager-Based event term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
-| `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量 task 专属的 reset 采样 + common payload | push | `motion_tracking/g1/tracking.py` |
+| `G1MotionTracking` | 是 | 是：Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame、root pose/velocity 与 joint-position 采样 | 无 | `motion_tracking/common/manager_terms.py` |
+| `G1WBTObs` | 是 | 是：同一 motion command + Hydra `EventTermCfg` | motion reset 加 mass/COM/PD/friction/encoder-bias event | interval velocity kick | `motion_tracking/g1/manager_terms.py` |
 | `AllegroInhandRotation` | 是 | 是：Hydra `EventTermCfg` + Manager-Based reset term | entity 范围的手/球 reset | 无 | `allegro_inhand/manager_terms.py` |
 | `AllegroInhandRotationGrasp` | 是 | 是：复用 rotation reset event + `RecorderTermCfg` | 带噪声的手部 reset + grasp 收集 | 无 | `allegro_inhand/grasp_gen.py` |
 | `SharpaInhandRotation` | 是 | 是：`InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache 采样 + common payload | 物体 `body_force` | `sharpa_inhand/rotation.py` |
@@ -46,7 +47,8 @@
 | `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认启用）；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | kp/kd 默认启用；common payload 和 push 默认禁用 |
 | `G1WalkFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；带平面死区的 command 采样；`gait_phase` 采样；经 `pd_gains` 的 kp/kd 随机化 | 无 | mujoco owner 默认启用 kp/kd；motrix/mjwarp owner 默认禁用 |
 | `G1WalkRough` | 与 `G1WalkFlat` 相同（共享 owner base，rough 场景） | 无 | 与 `G1WalkFlat` 相同的默认值 |
-| `G1MotionTracking` | 动作帧采样；root 位姿扰动 `x/y/z/roll/pitch/yaw`；root 速度扰动 `x/y/z/roll/pitch/yaw`；关节位置噪声；在 MuJoCo 下被关节范围 clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认禁用 |
+| `G1MotionTracking` | Motion-command frame 采样；root 位姿扰动 `x/y/z/roll/pitch/yaw`；root 速度扰动 `x/y/z/roll/pitch/yaw`；通过 public entity soft limit clip 的关节位置噪声；action-manager 状态 reset | 无 | base owner 中 `pose_range`、`velocity_range` 与 `joint_position_range` 默认有非零扰动 |
+| `G1WBTObs` | 同一 motion reset 加 base mass、base COM、PD gain、足端摩擦和 encoder-bias event term | `push_by_setting_velocity` | WBT owner 显式启用上述全部 event term；能力不支持时直接报错，不回退 |
 | `AllegroInhandRotation` | entity 范围的手/球 reset；显式配置 grasp cache 时进行采样，否则以 `null` 显式选择模型 home pose；可选 `joint_noise`、`ball_velocity_noise` 与 `ball_z_offset` | 无 | owner YAML 显式选择 home pose 与零 reset 噪声；配置的 cache 缺失或格式错误时 fail-closed |
 | `AllegroInhandRotationGrasp` | 复用 rotation reset 并设置 `joint_noise=0.25`；Manager-Based termination 检查指尖距离、接触数和球高度；recorder 保存成功 timeout rows | 无 | 生成 5 万行 Allegro grasp cache，成功保存后抛出 `RunComplete` |
 | `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；物体位姿 / quat reset；可选 common reset 随机化 payload（含 `gravity`） | 物体 `body_force` 直接力扰动 | `domain_rand.scale_list` 默认值来自 owner YAML；在 MuJoCo 下，物体 geom 缩放在 init 期间 materialize；common payload 默认禁用；物体 force 通过 Sharpa owner YAML 默认启用 |
@@ -74,7 +76,7 @@
 这意味着：
 
 - 尽管运动控制任务都走统一入口点，但它们的 base xy、yaw、qvel、command 和 gait phase 仍然直接在各自的 provider 内部采样
-- `G1MotionTracking` 的 pose / velocity / joint 噪声也是 task 专属逻辑
+- `G1MotionTracking` 的 pose / velocity / joint 噪声由其 manager command 所有
 - Allegro 的 grasp / 物体初始状态采样完全是 task 专属逻辑
 - Sharpa 的 `geom_size` 缩放是 init 生命周期的模型 materialization，不属于 reset common payload
 
