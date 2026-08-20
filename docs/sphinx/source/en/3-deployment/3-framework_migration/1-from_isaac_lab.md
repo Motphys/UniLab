@@ -151,12 +151,36 @@ uv run train --algo ppo --task <task> --sim mujoco
 Do not add a task-specific training-script branch, environment factory, runner,
 or IPC path.
 
+Two maintainer-approved factory wrappers are the only registered exceptions to
+the generic-factory rule: `make_g1_walk_env`
+(`src/unilab/tasks/locomotion/g1/manager_terms.py`) constructs a
+`G1WalkManagerBasedEnv` subclass that provides the `NpEnv`
+`build_symmetry_augmentation` symmetry hook, and `make_x2_wall_flip_env`
+(`src/unilab/tasks/motion_tracking/x2/__init__.py`) resolves untracked X2
+meshes on the cold path before delegating to `make_manager_based_rl_env`.
+Every other Compatible task registers `make_manager_based_rl_env` directly.
+
 ### 6. Validate near each adaptation
 
 Test Hydra composition and typed materialization, term order and math, selector
 failure, observation/action shapes, partial reset, and at least one real
 registered backend transition. Compare behavior with the pinned source task;
 benchmark only after semantic migration is complete.
+
+## Final task status
+
+The #1042 migration closeout covers 39 production tasks and 86 task/backend
+registrations. The fail-closed source of truth is
+`src/unilab/tasks/migration_matrix.py`: `migration_record()` raises `KeyError`
+for a production task name with no entry, so adding a production registration
+requires an explicit migration decision.
+
+- 36 tasks are **Compatible** (`target=complete`): the Hydra owner YAML
+  materializes the canonical NumPy Manager-Based runtime.
+- 3 tasks are **Adapted** (`target=compatibility`): `Go2ArmManipLoco`,
+  `SharpaInhandRotation`, and `SharpaInhandRotationGrasp` keep custom
+  IK/history or tactile/contact/cache behavior behind one frozen compatibility
+  factory each; they migrate only when the formal capability exists.
 
 ## Repository evidence
 

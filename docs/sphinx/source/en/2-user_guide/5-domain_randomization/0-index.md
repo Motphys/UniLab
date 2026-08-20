@@ -1,9 +1,14 @@
 # Domain Randomization
 
 
-This page only describes the current status of tasks in the repo that are already registered and already wired to a DR provider. All conclusions come from the code; nothing is inferred from design intent.
+This page only describes the current domain randomization status of registered tasks in the repo. All conclusions come from the code; nothing is inferred from design intent.
 
-The current unified entry point lives in `NpEnv._init_domain_randomization()` and `DomainRandomizationManager`:
+Two DR declaration paths exist today:
+
+- **Manager-Based (Compatible) tasks**: reset / interval randomization is declared through Hydra `events:` manager terms in the owner YAML; reset-lifecycle events sample at reset, interval-lifecycle events perturb between steps. See the `events:` block of `conf/ppo/task/go1_joystick_flat/base.yaml` for an example.
+- **Legacy provider path**: only the 3 Adapted families (`sharpa_inhand` / `sharpa_inhand_grasp` / `go2_arm_manip_loco`, including their appo / hora / ppo_him owners) still declare `env.domain_rand.*` configuration through a `DomainRandomizationProvider` + `DomainRandomizationManager`.
+
+The unified entry point of the legacy provider path lives in `NpEnv._init_domain_randomization()` and `DomainRandomizationManager`:
 
 - init path: the task provider produces an `InitRandomizationPlan`; the manager calls the backend's `apply_init_randomization(...)` during env initialization
 - reset path: the task provider produces a `ResetPlan`; the manager validates capability and then calls the backend's `set_state(..., randomization=...)`
@@ -17,34 +22,35 @@ These three paths correspond to three lifecycle classes:
 
 ## Status Conclusions
 
-1. All tasks currently wired to a DR provider use the unified DR entry point; no task bypasses `DomainRandomizationManager` to run a separate DR flow inside `reset()`.
-2. They are all roughly structured: legacy task owners define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to `MotionCommandCfg`, while WBT adds `EventTermCfg` reset and interval terms.
-3. What is "unified" today is mainly the entry point and execution flow, not every randomization item itself. The shared helper `build_common_reset_randomization()` currently generates `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`; the shared interval helper currently only generates push.
+1. Manager-Based tasks do not register a DR provider; their reset/interval randomization consists of `events:` manager terms in the owner YAML, executed uniformly by the manager lifecycle. Only the frozen compatibility factories of the Adapted families still go through the `DomainRandomizationManager` unified entry point.
+2. Adapted-family owners define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to `MotionCommandCfg`, while WBT adds `EventTermCfg` reset and interval terms.
+3. What is "unified" today is mainly the entry point and execution flow, not every randomization item itself. The legacy path's shared helper `build_common_reset_randomization()` currently generates `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`; the shared interval helper currently only generates push.
 4. `ResetRandomizationPayload` can already express `gravity`, `body_iquat`, `body_inertia`, `kp`, `kd`, and `MuJoCoBackend` has declared support. Whether these are actually used still depends on whether the task provider samples and dispatches them.
 5. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
 6. `geom_size` is not a reset-lifecycle field; Sharpa-hand object geom scale is handled by init-lifecycle model materialization.
 
 ## Uniformity Assessment Table
 
-| Task | Uses unified DR entry? | Structured form? | reset form | interval form | Code |
+| Task | Declaration path | Structured form? | reset form | interval form | Code |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlat` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | task state sampling + common payload | push | `go1/joystick.py` |
-| `Go2JoystickFlat` | Yes | Yes: `Domain_Rand + Provider + ResetPlan` | task state sampling + common payload | push | `go2/joystick.py` |
-| `G1WalkFlat` | Yes | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
-| `G1WalkRough` | Yes | Yes: same Manager-Based event terms as `G1WalkFlat` | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
-| `G1MotionTracking` | Yes | Yes: Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame, root pose/velocity, and joint-position sampling | none | `motion_tracking/common/manager_terms.py` |
-| `G1WBTObs` | Yes | Yes: same motion command + Hydra `EventTermCfg` | motion reset plus mass/COM/PD/friction/encoder-bias events | interval velocity kick | `motion_tracking/g1/manager_terms.py` |
-| `AllegroInhandRotation` | Yes | Yes: Hydra `EventTermCfg` + Manager-Based reset term | entity-scoped hand/ball reset | none | `allegro_inhand/manager_terms.py` |
-| `AllegroInhandRotationGrasp` | Yes | Yes: reuses the rotation reset event + `RecorderTermCfg` | noisy hand reset + grasp collection | none | `allegro_inhand/grasp_gen.py` |
-| `SharpaInhandRotation` | Yes | Yes: `InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache sampling + common payload | object `body_force` | `sharpa_inhand/rotation.py` |
-| `SharpaInhandRotationGrasp` | Yes | Yes: reuses the Sharpa rotation provider and overrides reset sampling | grasp collection reset + common payload | none | `sharpa_inhand/grasp_gen.py` |
+| `Go1JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset/interval events | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `conf/ppo/task/go1_joystick_flat/base.yaml` |
+| `Go2JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset events | root-state reset + `pd_gains` kp/kd | none | `conf/ppo/task/go2_joystick_flat/base.yaml` |
+| `G1WalkFlat` | Hydra `events:` terms | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
+| `G1WalkRough` | Hydra `events:` terms | Yes: same Manager-Based event terms as `G1WalkFlat` | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
+| `G1MotionTracking` | Hydra command term | Yes: Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame, root pose/velocity, and joint-position sampling | none | `motion_tracking/common/manager_terms.py` |
+| `G1WBTObs` | Hydra `events:` terms | Yes: same motion command + Hydra `EventTermCfg` | motion reset plus mass/COM/PD/friction/encoder-bias events | interval velocity kick | `motion_tracking/g1/manager_terms.py` |
+| `AllegroInhandRotation` | Hydra `events:` terms | Yes: Hydra `EventTermCfg` + Manager-Based reset term | entity-scoped hand/ball reset | none | `allegro_inhand/manager_terms.py` |
+| `AllegroInhandRotationGrasp` | Hydra `events:` terms | Yes: reuses the rotation reset event + `RecorderTermCfg` | noisy hand reset + grasp collection | none | `allegro_inhand/grasp_gen.py` |
+| `SharpaInhandRotation` | legacy provider | Yes: `InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache sampling + common payload | object `body_force` | `sharpa_inhand/rotation.py` |
+| `SharpaInhandRotationGrasp` | legacy provider | Yes: reuses the Sharpa rotation provider and overrides reset sampling | grasp collection reset + common payload | none | `sharpa_inhand/grasp_gen.py` |
+| `Go2ArmManipLoco` | legacy provider | Yes: `DomainRandConfig + LocomotionDRProvider subclass + ResetPlan` | task state sampling + common payload | push | `go2_arm/manip_loco.py` |
 
 ## Per-task Domain Randomization List
 
 | Task | Currently implemented reset domain randomization | Currently implemented interval domain randomization | Default state |
 | --- | --- | --- | --- |
-| `Go1JoystickFlat` | base xy; base yaw; base qvel; command sampling; `current_actions/last_actions` zeroed; optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | `base_mass_delta`, `base_com_offset`, and push enabled by default; `gravity` disabled by default |
-| `Go2JoystickFlat` | base xy; base yaw; base qvel; command sampling; `current_actions/last_actions` zeroed; kp/kd randomization (enabled by default); optional `base_mass_delta`; optional `base_com_offset`; optional `gravity` | `push_robots` | kp/kd enabled by default; common payload and push disabled by default |
+| `Go1JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling (`UniformVelocityCommandCfg`); base mass via `randomize_rigid_body_mass`; base COM via `randomize_rigid_body_com`; kp/kd via `pd_gains` | `push_by_setting_velocity` interval event | all listed event terms are declared and enabled by default in `conf/ppo/task/go1_joystick_flat/base.yaml` |
+| `Go2JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling; kp/kd via `pd_gains` | none | event terms declared and enabled by default in `conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling with a planar dead zone; `gait_phase` sampling; kp/kd randomization via `pd_gains` | none | kp/kd enabled on mujoco owners by default; disabled on motrix/mjwarp owners |
 | `G1WalkRough` | Same as `G1WalkFlat` (shared owner bases, rough scene) | none | Same defaults as `G1WalkFlat` |
 | `G1MotionTracking` | Motion-command frame sampling; root pose perturbation `x/y/z/roll/pitch/yaw`; root velocity perturbation `x/y/z/roll/pitch/yaw`; joint-position noise clipped through the public entity soft limits; action-manager state reset | none | `pose_range`, `velocity_range`, and `joint_position_range` have non-zero perturbations in the base owner |
@@ -56,26 +62,30 @@ These three paths correspond to three lifecycle classes:
 
 ## Current Unified DR Capabilities and Boundaries
 
-### 1. Unified Entry Point Is Complete
+### 1. The Legacy Provider Entry Point Is Unified
 
-The unified entry point is guaranteed by `NpEnv` and `DomainRandomizationManager`:
+The unified entry point of the legacy provider path is guaranteed by `NpEnv`
+and `DomainRandomizationManager`:
 
 - Tasks only need to register a provider
 - The manager uniformly performs capability validation
 - The backend is uniformly responsible for actually applying the randomization payload
 
-So from an execution-path perspective, the tasks are already unified.
+So from an execution-path perspective, the Adapted families still on this path
+are unified; Manager-Based tasks instead execute the `events:` terms declared
+in the owner YAML through the manager lifecycle.
 
 ### 2. The Shared Helpers Are Still Narrow
 
-`dr_utils.py` currently has only two classes of shared helpers:
+The legacy path's `dr_utils.py` currently has only two classes of shared helpers:
 
 - reset common payload: `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`
 - interval common payload: push
 
 This means:
 
-- Although locomotion tasks all go through the unified entry point, their base xy, yaw, qvel, command, and gait phase are still sampled directly inside each provider
+- The go2_arm / sharpa families still on the legacy provider path sample their
+  task-specific state directly inside each provider
 - `G1MotionTracking`'s pose / velocity / joint noise is owned by its manager command
 - Allegro's grasp / object initial state sampling is entirely task-specific logic
 - Sharpa's `geom_size` scale is init-lifecycle model materialization and is not part of the reset common payload
@@ -116,7 +126,10 @@ But on the task side, the current reality is: not every provider constructs thes
 - Lifecycle: only sampled and written at reset; the env retains that gravity until the next reset re-samples it.
 - Backend: currently in UniLab, only the MuJoCo backend declares support for this reset term; the Motrix backend does not. Some tasks filter it by capability and skip it; others raise an error in the validate stage.
 
-The config entry is under each task's `env.domain_rand`:
+The config entry exists only under `env.domain_rand` of the Adapted-family
+owners still on the legacy provider path (`sharpa_inhand_grasp`,
+`go2_arm_manip_loco`, and their hora / appo / ppo_him variants); Manager-Based
+tasks have no `env.domain_rand`:
 
 ```yaml
 env:
@@ -136,7 +149,7 @@ Field semantics:
 If you only want to randomize the magnitude while keeping the vertical-down direction, only open up the `z` component:
 
 ```bash
-uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
+uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -144,7 +157,7 @@ uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
 If you want to randomize both direction and magnitude, open up `x/y/z`:
 
 ```bash
-uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
+uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
 ```
@@ -159,7 +172,13 @@ Notes:
 
 ## Interval push Usage
 
-Tasks supporting interval push configure it under `env.domain_rand`:
+The `env.domain_rand.push_robots` family of fields exists only in the go2_arm
+Adapted-family owners (`conf/ppo/task/go2_arm_manip_loco/mujoco.yaml` etc.);
+Manager-Based tasks declare push through a `push_by_setting_velocity` interval
+event term instead (for example `conf/ppo/task/go1_joystick_flat/base.yaml` and
+`conf/ppo/task/quadruped_joystick_rough/base.yaml`).
+
+The go2_arm owners configure push under `env.domain_rand`:
 
 ```yaml
 env:
@@ -176,11 +195,11 @@ env:
 - `push_body_name`: the target body / link to apply the force to. Defaults to `null`, meaning the backend's `base_name` is used.
 
 ```bash
-uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
+uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
   'env.domain_rand.max_force=[20.0,20.0,5.0]' \
-  env.domain_rand.push_body_name=torso_link
+  env.domain_rand.push_body_name=base
 ```
 
 Notes:

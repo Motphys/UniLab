@@ -789,11 +789,7 @@ _STANDARD_ENVS = [
 
 
 @pytest.mark.parametrize("env_name", _STANDARD_ENVS)
-def test_env_reset_and_step(
-    env_name: str,
-    default_go1_reward_config,
-    default_go2_reward_config,
-):
+def test_env_reset_and_step(env_name: str):
     """Every registered env must be constructible, resetable, and steppable.
 
     Verifies:
@@ -807,11 +803,7 @@ def test_env_reset_and_step(
 
     # Provide config overrides for envs that require them via Hydra
     env_cfg_override = None
-    if "Go1" in env_name:
-        env_cfg_override = {"reward_config": default_go1_reward_config}
-    elif "Go2" in env_name:
-        env_cfg_override = {"reward_config": default_go2_reward_config}
-    elif env_name == "G1WalkFlat":
+    if env_name == "G1WalkFlat":
         env_cfg_override = _g1_manager_override("g1_walk_flat")
     elif env_name == "G1WalkRough":
         env_cfg_override = _g1_manager_override("g1_walk_rough")
