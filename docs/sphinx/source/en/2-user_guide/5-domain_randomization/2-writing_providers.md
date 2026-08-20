@@ -27,10 +27,8 @@ The shared types live in `src/unilab/dr/types.py`, and the manager lives in
 
 Representative provider implementations are in:
 
-- `src/unilab/tasks/locomotion/go1/joystick.py`
-- `src/unilab/tasks/locomotion/g1/joystick.py`
-- `src/unilab/tasks/motion_tracking/g1/tracking.py`
-- `src/unilab/tasks/locomotion/go2/footstand.py`
+- `src/unilab/tasks/locomotion/common/dr_provider.py`
+- `src/unilab/tasks/locomotion/go2_arm/manip_loco.py`
 - `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
 
 Developer contract details are in

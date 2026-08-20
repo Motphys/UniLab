@@ -418,6 +418,7 @@ def test_generic_factory_routes_only_public_backend_contract(
         root_body_name="base",
         actuator_names=("motor",),
     )
+    cfg.scene.entities["payload"] = EntityCfg(root_body_name="box")
     backend = _FakeBackend(3)
     constructed: dict[str, Any] = {}
 
@@ -470,17 +471,20 @@ def test_generic_factory_routes_only_public_backend_contract(
 @pytest.mark.parametrize(
     ("entities", "match"),
     [
-        ({"robot": EntityCfg(actuator_names=("motor",))}, "found 0 root entities"),
+        (
+            {"robot": EntityCfg(actuator_names=("motor",))},
+            "at least one scene entity with an explicit root_body_name",
+        ),
         (
             {
-                "robot": EntityCfg(root_body_name="base", actuator_names=("motor",)),
                 "payload": EntityCfg(root_body_name="box"),
+                "tool": EntityCfg(root_body_name="tool"),
             },
-            "found 2 root entities.*robot.*payload",
+            "conventional 'robot' root entity.*payload.*tool",
         ),
     ],
 )
-def test_generic_factory_requires_exactly_one_explicit_root_entity(
+def test_generic_factory_rejects_missing_or_ambiguous_root_entity(
     monkeypatch: pytest.MonkeyPatch,
     entities: dict[str, EntityCfg],
     match: str,

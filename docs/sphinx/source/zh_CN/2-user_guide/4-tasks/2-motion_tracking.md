@@ -11,28 +11,30 @@ G1 动作追踪任务位于 `src/unilab/tasks/motion_tracking/` 下，并通过
 
 ## Task Owners
 
-每个 task 在 env 配置 dataclass 中定义了默认 motion 片段：
+每个 task 都在 Hydra task owner YAML 中定义默认 motion 片段。Hydra 是唯一配置入口；
+选中的 owner 会被物化为共享的 `ManagerBasedRlEnvCfg`，再由 NumPy Manager-Based
+runtime 执行。
 
 | CLI Task | Registered Env | 默认 motion | Owner Evidence |
 | --- | --- | --- | --- |
 | `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `conf/ppo/task/g1_motion_tracking/`, `conf/appo/task/g1_motion_tracking/` |
 | `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `conf/ppo/task/g1_flip_tracking/`, `conf/appo/task/g1_flip_tracking/` |
 | `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `conf/ppo/task/g1_wall_flip_tracking/`, `conf/appo/task/g1_wall_flip_tracking/` |
-| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/`（仅 MuJoCo） |
-| `g1_climb_tracking` | G1 climb tracking env | 由 env 配置给出 | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
-| `g1_box_tracking` | G1 box tracking env | 由 env 配置给出 | `conf/ppo/task/g1_box_tracking/` |
-| `g1_wbt_obs` | `G1MotionTrackingSAC` | 与 `g1_motion_tracking` 共用 | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
+| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` |
+| `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
+| `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `conf/ppo/task/g1_box_tracking/` |
+| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
 
-默认值在代码中设定：`dance1_subject2_part.npz`（`g1/tracking.py`），
-`flip_360_001__A304.npz` 与 `flip_from_wall_104__A304.npz`（`g1/flip_tracking.py`），
-以及 `tictacflip_6-3_g1format.npz`（`x2/flip_tracking.py`）。
+23-DoF task owner 目录选择对应的 23-DoF 场景、motion、entity 与 action 声明。
+profile 差异全部留在 Hydra 中。G1 identity 使用共享 manager factory；X2 只在委托给
+该 factory 前增加一层冷路径 mesh resolver。
 
 ## PPO 与 APPO
 
 PPO owner 迭代预算（`--sim mujoco` owner YAML）：`g1_motion_tracking` 为
 `algo.max_iterations=15000`；`g1_flip_tracking` 和 `g1_wall_flip_tracking` 为
-`20000`；仅 MuJoCo 的 `x2_wall_flip_tracking` 为 `9500`。（`g1_flip_tracking` 的
-Motrix owner YAML 将其提到 `30000`。）
+`20000`；`x2_wall_flip_tracking` 为 `9500`。（`g1_flip_tracking` 的 Motrix owner
+YAML 将其提到 `30000`。）
 
 ```bash
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
@@ -55,12 +57,13 @@ uv run train --algo sac --task g1_motion_tracking --sim mujoco training.use_amp=
 uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
 ```
 
-`g1_wbt_obs` owner 是与部署对齐的 off-policy 观测配置：pelvis IMU 状态
-（`pelvis_local_linvel` / `pelvis_gyro` / `pelvis_upvector`）加上 per-term 历史观测
-（`noise_config.obs_history_length: 5`），与部署侧的 `ObservationManager` 按字节对齐。
-部署工具在 `scripts/deploy/`，观测对齐由 `tests/scripts/test_obs_alignment_g1_wbt.py`
-交叉校验。当 Motrix sim2sim 回放需要引用其他日志根目录下的 checkpoint 时，用
-`uv run eval` 透传绝对路径：
+`g1_wbt_obs` owner 是与部署对齐的 off-policy 观测配置。actor 的 command 与 anchor
+orientation term 保持单步，`base_ang_vel`、`joint_pos`、`joint_vel` 和 `actions` term
+分别声明 `history_length: 5`。这些逐项历史由 `ObservationManager` 维护并展开；actor
+使用配置中的 encoder-biased joint-position term，critic 则保留 clean term。部署工具在
+`scripts/deploy/`，观测对齐由 `tests/scripts/test_obs_alignment_g1_wbt.py` 交叉校验。
+当 Motrix sim2sim 回放需要引用其他日志根目录下的 checkpoint 时，用 `uv run eval`
+透传绝对路径：
 
 ```bash
 uv run eval --algo sac --task g1_motion_tracking --sim motrix \
@@ -69,15 +72,19 @@ uv run eval --algo sac --task g1_motion_tracking --sim motrix \
 
 ## 动作文件
 
-动作 NPZ 文件通过 `env.motion_file` 读取，也支持路径列表。标准片段必须包含七个 key：
+动作 NPZ 文件通过 `env.commands.motion.params.motion_file` 选择，既可传单个路径，
+也可传路径列表。标准片段必须包含七个 key：
 `fps`、`joint_pos`、`joint_vel`、`body_pos_w`、`body_quat_w`、`body_lin_vel_w`、
 `body_ang_vel_w`（在 `common/motion_loader.py` 中校验）：
 
 ```yaml
 env:
-  motion_file:
-    - src/unilab/assets/motions/g1/dance1_subject2_part.npz
-    - src/unilab/assets/motions/g1/walk1_subject5_from_csv.npz
+  commands:
+    motion:
+      params:
+        motion_file:
+          - motions/g1/dance1_subject2_part.npz
+          - motions/g1/walk1_subject5_from_csv.npz
 ```
 
 转换与检查辅助工具在 `scripts/motion/` 中：
@@ -109,20 +116,21 @@ uv run scripts/motion/replay_npz.py \
 ```bash
 CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim mujoco \
   training.use_amp=true algo.seed=1 \
-  +env.motion_file=src/unilab/assets/motions/g1/motion_crawl_slope_uni.npz \
-  +env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
-  +env.sampling_mode=start \
-  env.truncate_on_clip_end=true \
-  +env.max_episode_seconds=20.0 \
-  '+env.pose_randomization={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
-  '+env.velocity_randomization={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
-  '+env.joint_position_range=[0,0]'
+  env.commands.motion.params.motion_file=motions/g1/motion_crawl_slope_uni.npz \
+  env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
+  env.commands.motion.params.sampling_mode=start \
+  env.commands.motion.params.truncate_on_clip_end=true \
+  env.max_episode_seconds=20.0 \
+  'env.commands.motion.params.pose_range={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
+  'env.commands.motion.params.velocity_range={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
+  'env.commands.motion.params.joint_position_range=[0,0]'
 ```
 
-关键覆写：`env.motion_file` 切爬坡动作；`env.scene.model_file` 切斜坡场景
-（`scene_crawl_slope.xml` 在 `src/unilab/assets/robots/g1/` 下）；`sampling_mode=start`
-加 `truncate_on_clip_end=true` 从 clip 起点出发并在结尾截断；randomization 范围全置零
-复用 motion 精确初始状态。
+关键覆写：`env.commands.motion.params.motion_file` 切换爬坡动作；
+`env.scene.model_file` 切换斜坡场景（`scene_crawl_slope.xml` 在
+`src/unilab/assets/robots/g1/` 下）；`sampling_mode=start` 加
+`truncate_on_clip_end=true` 从 clip 起点出发并在结尾截断；command reset 范围全置零
+即可复用 motion 的精确初始状态。
 
 ## 交互式调试
 

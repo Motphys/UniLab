@@ -128,7 +128,7 @@ class MotionCommand(CommandTerm):
         self._robot_body_ids = np.asarray(body_ids, dtype=np.intp)
         self._robot_body_ids.setflags(write=False)
         motion_body_ids = self.robot.motion_body_ids[self._robot_body_ids]
-        self.motion = MotionLoader(cfg.motion_file, body_indices=motion_body_ids)
+        self.motion = self._make_motion_loader(cfg.motion_file, motion_body_ids)
         if self.motion.num_joints != len(self.robot.joint_names):
             raise ValueError(
                 f"MotionCommand motion joint width {self.motion.num_joints} does not match "
@@ -209,6 +209,14 @@ class MotionCommand(CommandTerm):
         self._refresh_motion()
         self._refresh_robot_state(force=True)
         self._refresh_relative_state()
+
+    def _make_motion_loader(
+        self,
+        motion_file: str | list[str],
+        body_indices: np.ndarray,
+    ) -> MotionLoader:
+        """Materialize the profile-owned motion loader on the cold path."""
+        return MotionLoader(motion_file, body_indices=body_indices)
 
     @staticmethod
     def _validate_cfg(cfg: MotionCommandCfg) -> None:
@@ -469,6 +477,7 @@ class MotionCommand(CommandTerm):
 @dataclass(kw_only=True)
 class MotionJointPositionActionCfg(JointPositionActionCfg):
     command_name: str = "motion"
+    simulate_action_latency: bool = False
 
     def build(self, env: ManagerBasedRlEnv) -> MotionJointPositionAction:
         return MotionJointPositionAction(self, env)
@@ -478,8 +487,36 @@ class MotionJointPositionAction(JointPositionAction):
     cfg: MotionJointPositionActionCfg  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(self, cfg: MotionJointPositionActionCfg, env: ManagerBasedRlEnv):
+        if not isinstance(cfg.simulate_action_latency, bool):
+            raise TypeError("MotionJointPositionActionCfg simulate_action_latency must be bool")
         super().__init__(cfg, env)
         self._motion_command = _command(env, cfg.command_name)
+        self._previous_raw_actions = np.zeros_like(self._raw_actions)
+
+    @property
+    def target(self) -> np.ndarray:
+        """Most recently applied physical joint target in entity joint order."""
+        return self._target
+
+    def process_actions(self, actions: np.ndarray) -> None:
+        self._previous_raw_actions[:] = self._raw_actions
+        super().process_actions(actions)
+        if not self.cfg.simulate_action_latency:
+            return
+        np.multiply(self._previous_raw_actions, self._scale, out=self._processed_actions)
+        np.add(self._processed_actions, self._offset, out=self._processed_actions)
+        if self._clip is not None:
+            np.clip(
+                self._processed_actions,
+                self._clip[..., 0],
+                self._clip[..., 1],
+                out=self._processed_actions,
+            )
+
+    def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
+        super().reset(env_ids)
+        ids = slice(None) if env_ids is None else env_ids
+        self._previous_raw_actions[ids] = 0.0
 
     def apply_actions(self) -> None:
         encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
@@ -526,6 +563,16 @@ def motion_joint_pos_rel(env: ManagerBasedRlEnv, command_name: str) -> np.ndarra
     command = _command(env, command_name)
     return (
         command.robot_joint_pos - command.robot.data.default_joint_pos - command.joint_default_bias
+    )
+
+
+def motion_joint_pos_rel_biased(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
+    """Joint position relative to the episode default, including encoder bias."""
+    command = _command(env, command_name)
+    return (
+        command.robot.data.joint_pos_biased
+        - command.robot.data.default_joint_pos
+        - command.joint_default_bias
     )
 
 
@@ -663,6 +710,23 @@ class motion_global_body_angular_velocity_error_exp(_BodyTerm):
         return np.exp(-error.mean(axis=-1) / scale**2)
 
 
+class motion_relative_body_position_z_error_exp(_BodyTerm):
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        command_name: str,
+        std: float,
+        body_names: tuple[str, ...] | None = None,
+    ) -> np.ndarray:
+        del env, body_names
+        command, scale = self._validate(command_name, std)
+        error = np.square(
+            command.body_pos_relative_w[:, self._body_ids, 2]
+            - command.robot_body_pos_w[:, self._body_ids, 2]
+        )
+        return np.exp(-error.mean(axis=-1) / scale**2)
+
+
 def motion_joint_position_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
 ) -> np.ndarray:
@@ -743,6 +807,19 @@ class bad_motion_body_pos_z_only(_BodyTerm):
         return np.any(error > threshold, axis=-1)
 
 
+class bad_undesired_body_contacts(_BodyTerm):
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        command_name: str,
+        threshold: float,
+        body_names: tuple[str, ...] | None = None,
+    ) -> np.ndarray:
+        del env, body_names
+        command = _command(self._env, command_name)
+        return np.any(command.robot_body_pos_w[:, self._body_ids, 2] < threshold, axis=-1)
+
+
 def motion_clip_end(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
     command = _command(env, command_name)
     return command.time_steps >= command.sampler.current_clip_end_frames
@@ -757,6 +834,7 @@ __all__ = [
     "bad_anchor_ori",
     "bad_anchor_pos_z_only",
     "bad_motion_body_pos_z_only",
+    "bad_undesired_body_contacts",
     "joint_pos_limits",
     "motion_anchor_ori_b",
     "motion_anchor_pos_b",
@@ -766,10 +844,12 @@ __all__ = [
     "motion_global_body_angular_velocity_error_exp",
     "motion_global_body_linear_velocity_error_exp",
     "motion_joint_pos_rel",
+    "motion_joint_pos_rel_biased",
     "motion_joint_position_error_exp",
     "motion_joint_velocity_error_exp",
     "motion_relative_body_orientation_error_exp",
     "motion_relative_body_position_error_exp",
+    "motion_relative_body_position_z_error_exp",
     "robot_body_ori_b",
     "robot_body_pos_b",
     "undesired_body_contacts",

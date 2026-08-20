@@ -7,20 +7,21 @@
 
 | 面 | 仓库证据 | 它覆盖什么 |
 | --- | --- | --- |
-| 单步动作延迟 | locomotion 与 G1 运动跟踪环境中的 `control_config.simulate_action_latency` | 执行上一步动作而非当前动作。 |
-| G1 WBT 观测历史 | `noise_config.obs_history_length` 与 `scripts/deploy/export_deploy_config.py` | 为 `gyro`、`joint_pos_rel`、`dof_vel` 与 `last_actions` 导出逐项的 `obs_layout` 历史。 |
+| 单步动作延迟 | task owner 中 Manager action term 的 `simulate_action_latency` 声明 | 执行上一步动作而非当前动作。 |
+| G1 WBT 观测历史 | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` 中逐 term 的 `history_length` 与 `scripts/deploy/export_deploy_config.py` | 为 `gyro`、`joint_pos_rel`、`dof_vel` 与 `last_actions` 导出逐项的 `obs_layout` 历史。 |
 | Sharpa 触觉接触延迟 | Sharpa 手内配置中的 `domain_rand.contact_latency` | 为采样到的接触通道保留上一步的触觉接触值。 |
 | 部署侧 ONNX 契约检查 | `scripts/deploy/sim_prototype.py` | 为 G1 WBT 路径校验 `obs_layout`、`obs_dim`、ONNX 输入宽度、钳制以及 EMA 动作平滑。 |
 
 ## 动作延迟
 
-对于暴露 `control_config.simulate_action_latency` 的任务，当该开关启用时，环境会应用
-`last_actions`。把它保留在所选的任务 owner YAML 中，而不要事后添加仅部署的行为。
+对于启用 action latency 的 Manager-Based 任务，action manager 会在该开关开启时应用
+上一步 action。把它保留在所选的 task owner YAML 中，而不要事后添加仅部署的行为。
 
 ```yaml
 env:
-  control_config:
-    simulate_action_latency: true
+  actions:
+    joint_pos:
+      simulate_action_latency: true
 ```
 
 已签入的 G1 WBT owner 在 `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` 中启用了

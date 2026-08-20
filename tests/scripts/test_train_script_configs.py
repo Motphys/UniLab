@@ -80,7 +80,7 @@ def _appo_motion_file_overrides(task: str, tmp_path: Path) -> list[str]:
         return []
     motion_file = tmp_path / f"{task.split('/', 1)[0]}_smoke_motion.npz"
     _write_g1_motion_smoke_npz(motion_file)
-    return [f"++env.motion_file={motion_file}"]
+    return [f"env.commands.motion.params.motion_file={motion_file}"]
 
 
 def test_appo_mujoco_smoke_tasks_have_owner_configs():

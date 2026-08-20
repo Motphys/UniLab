@@ -4,9 +4,8 @@ This is the load-bearing test that ensures the train -> export -> deploy
 pipeline produces byte-identical actor obs at every step.  Three independent
 implementations are exercised against the SAME inputs:
 
-    1. Training side  — tracking_obs.py's _push_obs_history /
-                        _fill_obs_history + actor obs assembly in
-                        _build_actor_obs (replicated below in numpy).
+    1. Training side  — ObservationManager's per-term CircularBuffer history
+                        and term-major actor assembly (replicated below in NumPy).
     2. Schema side    — sim_prototype.ObsAssembler driven by deploy_config.yaml.
     3. Deploy side    — observation_manager.h::ObservationTermCfg semantics
                         replicated in Python (oldest-first deque per term,
@@ -208,13 +207,11 @@ class TestSchemaAssemblerVsDeploy:
 
 
 class TestTrainingAssemblerVsDeploy:
-    """Replicate training-side history maintenance (np ring buffer) and compare.
+    """Replicate training-side ObservationManager history and compare.
 
-    This replicates the exact buffer logic from tracking_obs.py:
-        * _fill_obs_history: buf[:, :] = val[:, None, :]
-        * _push_obs_history: buf[:, :-1] = buf[:, 1:]; buf[:, -1] = val
-    and the actor obs assembly: refs first, then per-term history blocks
-    (gyro, joint_pos_rel, dof_vel, last_actions) flattened (n_env, H*dim).
+    The manager resets each term history by filling it with the current sample,
+    then shifts oldest-first and appends each new value. Concatenation is
+    term-major, matching the deploy-side observation layout.
     """
 
     @staticmethod
@@ -236,7 +233,7 @@ class TestTrainingAssemblerVsDeploy:
         n = deploy_cfg["action_dim"]
         H = 5
 
-        # Initial buffer of zeros (matches tracking_obs.py allocation).
+        # Initial buffers before ObservationManager.reset fills active rows.
         buf = {
             "gyro": np.zeros((n_env, H, 3), dtype=np.float32),
             "joint_pos_rel": np.zeros((n_env, H, n), dtype=np.float32),
@@ -247,7 +244,7 @@ class TestTrainingAssemblerVsDeploy:
         all_segments = [_random_segments(rng) for _ in range(15)]
         deploy_seq = _deploy_compute_group(deploy_cfg["obs_layout"], all_segments)
 
-        # Step 0: reset (matches tracking_obs.py is_reset=True path).
+        # Step 0: reset fills every history slot with the current value.
         s0 = all_segments[0]
         for key in ("gyro", "joint_pos_rel", "dof_vel", "last_actions"):
             buf[key][:, :, :] = s0[key][None, None, :]
@@ -259,7 +256,7 @@ class TestTrainingAssemblerVsDeploy:
         train_obs0 = self._training_actor_obs(buf, refs0, s0, n_env)
         np.testing.assert_array_equal(train_obs0[0], deploy_seq[0])
 
-        # Steps 1..N-1: push (matches tracking_obs.py is_reset=False path).
+        # Steps 1..N-1: evict oldest and append current.
         for k in range(1, len(all_segments)):
             sk = all_segments[k]
             for key in ("gyro", "joint_pos_rel", "dof_vel", "last_actions"):

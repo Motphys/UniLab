@@ -107,6 +107,7 @@ uv run unilab-pull-assets --robot x2
   `MotionLoader.__init__`，在冷路径上调用一次 resolver。
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析。
 - `ASSETS_ROOT_PATH` 定义不变，下载落盘位置与原始本地路径完全一致。
-- 机器人网格使用同一目录 resolver（`resolve_robot_asset_dir`），集成点为
-  `src/unilab/tasks/motion_tracking/x2/flip_tracking.py` 中的
-  `X2WallFlipTrackingEnv.__init__`，并通过 `unilab-pull-assets` CLI 暴露。
+- 机器人网格使用同一目录 resolver（`resolve_robot_asset_dir`）。
+  `src/unilab/tasks/motion_tracking/x2/__init__.py` 中的薄
+  `make_x2_wall_flip_env` factory 会先在冷路径解析一次，再委托给共享 manager env
+  factory；同一 resolver 也通过 `unilab-pull-assets` CLI 暴露。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -69,19 +70,29 @@ class BackendAdapter:
         if not source_model_file:
             raise ValueError("play_profile.scene.source_model_file must be configured")
 
-        env_cfg_override["scene"] = SceneCfg(
-            model_file=self.scene_materializer(
-                self._resolve_root_relative_path(str(source_model_file)),
-                ground_texture_file=(
-                    self._resolve_root_relative_path(str(scene_override.ground_texture_file))
-                    if getattr(scene_override, "ground_texture_file", None)
-                    else None
-                ),
-                ground_texrepeat=getattr(scene_override, "ground_texrepeat", None),
-                skybox_rgb1=getattr(scene_override, "skybox_rgb1", None),
-                skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
-            )
+        materialized_model_file = self.scene_materializer(
+            self._resolve_root_relative_path(str(source_model_file)),
+            ground_texture_file=(
+                self._resolve_root_relative_path(str(scene_override.ground_texture_file))
+                if getattr(scene_override, "ground_texture_file", None)
+                else None
+            ),
+            ground_texrepeat=getattr(scene_override, "ground_texrepeat", None),
+            skybox_rgb1=getattr(scene_override, "skybox_rgb1", None),
+            skybox_rgb2=getattr(scene_override, "skybox_rgb2", None),
         )
+        scene = env_cfg_override.get("scene")
+        if scene is None:
+            env_cfg_override["scene"] = SceneCfg(model_file=materialized_model_file)
+        elif isinstance(scene, SceneCfg):
+            env_cfg_override["scene"] = replace(scene, model_file=materialized_model_file)
+        elif isinstance(scene, dict):
+            env_cfg_override["scene"] = {**scene, "model_file": materialized_model_file}
+        else:
+            raise TypeError(
+                "play_profile.scene can only override a missing, SceneCfg, or mapping scene; "
+                f"got {type(scene).__name__}"
+            )
         return env_cfg_override
 
     def _apply_env_profile(self, env_cfg_override: dict[str, Any], env_profile: Any) -> None:

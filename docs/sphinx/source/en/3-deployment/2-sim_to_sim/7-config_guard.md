@@ -50,4 +50,4 @@ guard still remains active.
 
 - {doc}`1-backend_swap`
 - {doc}`4-reward_parity`
-- {doc}`../../4-developer_guide/9-sim2sim_contract_status`
+- {doc}`/zh_CN/4-developer_guide/9-sim2sim_contract_status`

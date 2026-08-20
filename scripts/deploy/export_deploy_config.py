@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Export deploy_config.yaml for the C++ G1-29DOF WBT deployment side.
 
-Reads g1.xml + scene_flat.xml + tracking.py defaults to emit a single yaml
+Reads the G1 scene plus the Manager-Based WBT owner contract to emit a single yaml
 that the deploy framework (~/deploy_ws/unitree_rl_lab/.../State_WBT) can load
 to drive the actor at runtime.
 
 This file is the SINGLE SOURCE OF TRUTH for the actor obs schema:
-  * Training side (tracking.py) assembles obs in the order documented here.
+  * Training side (ObservationManager) assembles terms in the order documented here.
   * Deploy side (State_WBT.cpp + ObservationManager) reads obs_layout from
     this yaml and assembles in matching order with per-term history buffers.
   * Alignment test (tests/test_obs_alignment_g1_wbt.py) verifies both code
@@ -64,9 +64,9 @@ CTRL_DT = 0.02
 KEYFRAME_NAME = "stand"
 ROOT_QPOS_DIM = 7  # free joint: xyz + quat(wxyz)
 
-# Default obs history length — matches g1_wbt_obs/mujoco.yaml's
-# `noise_config.obs_history_length`. Override via --obs-history-length when
-# exporting for other training profiles (e.g. g1_motion_tracking/mujoco.yaml uses 1).
+# Default obs history length — matches the per-term ``history_length`` declarations
+# in g1_wbt_obs/mujoco.yaml. Override via --obs-history-length when exporting for
+# other training profiles (e.g. g1_motion_tracking/mujoco.yaml uses one step).
 DEFAULT_OBS_HISTORY_LENGTH = 5
 
 
@@ -77,7 +77,7 @@ def _round_list(arr, ndigits=6):
 def _build_obs_layout(
     num_action: int, hist_len: int, enable_zero_anchor_pos: bool, enable_zero_linvel: bool
 ):
-    """Build obs_layout in the exact order tracking.py:_compute_obs assembles.
+    """Build obs_layout in the exact order ObservationManager assembles it.
 
     Returns (layout_list, total_obs_dim).
     Order = single-step refs first, then per-term proprio history blocks,
@@ -162,8 +162,8 @@ def main():
         "--obs-history-length",
         type=int,
         default=DEFAULT_OBS_HISTORY_LENGTH,
-        help="Proprio history length H. Must match training-side "
-        "noise_config.obs_history_length. Default 5 = current "
+        help="Proprio history length H. Must match training-side per-term "
+        "history_length. Default 5 = current "
         "g1_wbt_obs/mujoco.yaml. Set 1 for the legacy 154-d schema.",
     )
     ap.add_argument(
@@ -171,14 +171,14 @@ def main():
         action="store_true",
         default=True,
         help="Drop motion_anchor_pos_b from actor obs (mjlab parity). "
-        "Matches g1_wbt_obs/mujoco.yaml's noise_config flag.",
+        "Matches the null actor term in g1_wbt_obs/mujoco.yaml.",
     )
     ap.add_argument(
         "--enable-zero-linvel",
         action="store_true",
         default=True,
         help="Drop base_lin_vel from actor obs (mjlab parity). "
-        "Matches g1_wbt_obs/mujoco.yaml's noise_config flag.",
+        "Matches the null actor term in g1_wbt_obs/mujoco.yaml.",
     )
     args = ap.parse_args()
 
@@ -299,7 +299,7 @@ def main():
         # ---- obs layout (SINGLE SOURCE OF TRUTH for both ends) ----
         # Each entry: name, dim (per-step), history_length, source.
         # Total obs_dim = sum(dim * history_length).
-        # Order MUST match tracking.py:_compute_obs assembly order.
+        # Order MUST match the WBT owner term order consumed by ObservationManager.
         # State_WBT.cpp:build_env_cfg translates names via its alias table.
         "obs_layout": obs_layout,
     }

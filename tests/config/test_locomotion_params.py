@@ -461,10 +461,12 @@ def test_ppo_g1_box_tracking():
     assert cfg.training.task_name == "G1BoxTracking"
     assert cfg.algo.max_iterations == 30000
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
-    assert cfg.reward.scales.object_global_ref_position_error_exp == pytest.approx(2.0)
-    assert cfg.reward.scales.object_global_ref_orientation_error_exp == pytest.approx(2.0)
-    assert cfg.reward.std_object_pos == pytest.approx(0.2)
-    assert cfg.reward.std_object_ori == pytest.approx(0.3)
+    assert cfg.env.scene.entities.object.root_body_name == "largebox"
+    assert cfg.env.commands.motion.object_entity_name == "object"
+    assert cfg.reward.object_global_ref_position_error_exp.weight == pytest.approx(2.0)
+    assert cfg.reward.object_global_ref_orientation_error_exp.weight == pytest.approx(2.0)
+    assert cfg.reward.object_global_ref_position_error_exp.params.std == pytest.approx(0.2)
+    assert cfg.reward.object_global_ref_orientation_error_exp.params.std == pytest.approx(0.3)
 
 
 def test_ppo_g1_flip_tracking():
@@ -481,19 +483,20 @@ def test_ppo_g1_flip_tracking():
     assert cfg.algo.obs_groups.critic == ["critic"]
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
     assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
-    assert cfg.env.sampling_mode == "start"
-    assert cfg.env.truncate_on_clip_end is False
+    assert cfg.env.commands.motion.params.sampling_mode == "start"
+    assert cfg.env.commands.motion.params.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
-    assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.env.terminate_on_undesired_contacts is True
-    assert cfg.env.noise_config.level == pytest.approx(0.0)
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(2.0)
-    assert cfg.reward.scales.motion_body_ori == pytest.approx(1.5)
-    assert cfg.reward.scales.motion_ee_body_pos_z == pytest.approx(2.0)
-    assert cfg.reward.scales.action_rate_l2 == pytest.approx(-0.005)
-    assert cfg.reward.scales.undesired_contacts == pytest.approx(-0.1)
+    assert cfg.env.actions.joint_pos.scale[".*_(hip_pitch|hip_yaw)_joint"] == pytest.approx(
+        G1_BEYONDMIMIC_ACTION_SCALE[0]
+    )
+    assert cfg.env.terminations.anchor_pos.params.threshold == pytest.approx(0.5)
+    assert cfg.env.terminations.ee_body_pos.params.threshold == pytest.approx(0.5)
+    assert cfg.env.terminations.undesired_contacts is not None
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(2.0)
+    assert cfg.reward.motion_body_ori.weight == pytest.approx(1.5)
+    assert cfg.reward.motion_ee_body_pos_z.weight == pytest.approx(2.0)
+    assert cfg.reward.action_rate_l2.weight == pytest.approx(-0.005)
+    assert cfg.reward.undesired_contacts.weight == pytest.approx(-0.1)
 
 
 def test_ppo_g1_wall_flip_tracking():
@@ -510,21 +513,20 @@ def test_ppo_g1_wall_flip_tracking():
     assert cfg.algo.obs_groups.critic == ["critic"]
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
     assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
-    assert cfg.env.sampling_mode == "start"
-    assert cfg.env.truncate_on_clip_end is False
+    assert cfg.env.commands.motion.params.sampling_mode == "start"
+    assert cfg.env.commands.motion.params.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
-    assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.env.terminate_on_undesired_contacts is True
-    assert cfg.env.noise_config.level == pytest.approx(0.0)
-    assert cfg.reward.scales.motion_joint_pos == pytest.approx(0.5)
-    assert cfg.reward.scales.motion_joint_vel == pytest.approx(0.25)
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(2.0)
-    assert cfg.reward.scales.motion_body_ori == pytest.approx(1.5)
-    assert cfg.reward.scales.motion_ee_body_pos_z == pytest.approx(2.0)
-    assert cfg.reward.scales.action_rate_l2 == pytest.approx(-0.005)
-    assert cfg.reward.scales.undesired_contacts == pytest.approx(-0.1)
+    assert cfg.env.actions.joint_pos.scale[".*_(hip_pitch|hip_yaw)_joint"] == pytest.approx(
+        G1_BEYONDMIMIC_ACTION_SCALE[0]
+    )
+    assert cfg.env.scene.model_file.endswith("scene_flat_with_wall.xml")
+    assert cfg.reward.motion_joint_pos.weight == pytest.approx(0.5)
+    assert cfg.reward.motion_joint_vel.weight == pytest.approx(0.25)
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(2.0)
+    assert cfg.reward.motion_body_ori.weight == pytest.approx(1.5)
+    assert cfg.reward.motion_ee_body_pos_z.weight == pytest.approx(2.0)
+    assert cfg.reward.action_rate_l2.weight == pytest.approx(-0.005)
+    assert cfg.reward.undesired_contacts.weight == pytest.approx(-0.1)
 
 
 def test_ppo_x2_wall_flip_tracking():
@@ -544,18 +546,17 @@ def test_ppo_x2_wall_flip_tracking():
     assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
     # Interactive playback defaults to policy mode for this task.
     assert cfg.interactive.action_mode == "policy"
-    assert cfg.env.sampling_mode == "start"
-    assert cfg.env.truncate_on_clip_end is False
+    assert cfg.env.commands.motion.params.sampling_mode == "start"
+    assert cfg.env.commands.motion.params.truncate_on_clip_end is False
     assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(X2_ACTION_SCALE)
-    assert cfg.env.anchor_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.env.ee_body_pos_z_threshold == pytest.approx(0.5)
-    assert cfg.env.terminate_on_undesired_contacts is True
-    assert cfg.env.noise_config.level == pytest.approx(0.0)
-    assert cfg.reward.scales.motion_joint_pos == pytest.approx(0.5)
-    assert cfg.reward.scales.motion_joint_vel == pytest.approx(0.25)
-    assert cfg.reward.scales.motion_body_pos == pytest.approx(2.0)
-    assert cfg.reward.scales.motion_body_ori == pytest.approx(1.5)
-    assert cfg.reward.scales.motion_ee_body_pos_z == pytest.approx(2.0)
-    assert cfg.reward.scales.action_rate_l2 == pytest.approx(-0.005)
-    assert cfg.reward.scales.undesired_contacts == pytest.approx(-0.1)
+    assert cfg.env.actions.joint_pos.scale == pytest.approx(X2_ACTION_SCALE[0])
+    assert cfg.env.terminations.anchor_pos.params.threshold == pytest.approx(0.5)
+    assert cfg.env.terminations.ee_body_pos.params.threshold == pytest.approx(0.5)
+    assert cfg.env.terminations.undesired_contacts is not None
+    assert cfg.reward.motion_joint_pos.weight == pytest.approx(0.5)
+    assert cfg.reward.motion_joint_vel.weight == pytest.approx(0.25)
+    assert cfg.reward.motion_body_pos.weight == pytest.approx(2.0)
+    assert cfg.reward.motion_body_ori.weight == pytest.approx(1.5)
+    assert cfg.reward.motion_ee_body_pos_z.weight == pytest.approx(2.0)
+    assert cfg.reward.action_rate_l2.weight == pytest.approx(-0.005)
+    assert cfg.reward.undesired_contacts.weight == pytest.approx(-0.1)
