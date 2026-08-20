@@ -49,12 +49,10 @@ env:
   max_episode_seconds: 20.0
   observations:
     policy:
-      _target_: unilab.managers.ObservationGroupCfg
       history_length: 3
       flatten_history_dim: true
       terms:
         rotation:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.tasks.manipulation.allegro_inhand.manager_terms.AllegroRotationObservation
           params:
             entity_name: robot
@@ -71,11 +69,9 @@ env:
       raw_action_clip: [-1.0, 1.0]
   events:
     reset_scene_to_default:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
     reset_hand_ball:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.manager_terms.AllegroHandBallReset
       mode: reset
       params:
@@ -87,7 +83,6 @@ env:
         ball_velocity_noise: 0.0
         ball_z_offset: 0.0
     pd_gains:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.pd_gains
       mode: reset
       params:
@@ -96,14 +91,12 @@ env:
         operation: abs
   terminations:
     dropped:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.manager_terms.AllegroDropTermination
       params:
         observation_group: policy
         observation_term: rotation
         minimum_ball_height: 0.125
     time_out:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.time_out
       time_out: true
   scale_rewards_by_dt: true
@@ -112,7 +105,6 @@ env:
 
 reward:
   rotate:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.manipulation.allegro_inhand.manager_terms.AllegroRotateReward
     weight: 1.25
     params:
@@ -121,31 +113,26 @@ reward:
       clip_min: -0.5
       clip_max: 0.5
   obj_linvel:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.manipulation.allegro_inhand.manager_terms.object_linear_velocity_l1
     weight: -0.3
     params:
       state_term_name: dropped
   pose_diff:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.manipulation.allegro_inhand.manager_terms.hand_pose_deviation_l2
     weight: -0.3
     params:
       state_term_name: dropped
   torque:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.manipulation.allegro_inhand.manager_terms.estimated_torque_l2
     weight: -0.1
     params:
       state_term_name: dropped
   work:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.manipulation.allegro_inhand.manager_terms.estimated_work_l2
     weight: -2.0
     params:
       state_term_name: dropped
   drop:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.manipulation.allegro_inhand.manager_terms.dropped
     weight: 0.0
     params:

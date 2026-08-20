@@ -107,14 +107,11 @@ parameters, weights, and observation mapping in the owner YAML. For example:
 env:
   observations:
     policy:
-      _target_: unilab.managers.ObservationGroupCfg
       terms:
         joint_pos_rel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.joint_pos_rel
   terminations:
     time_out:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.time_out
       time_out: true
   policy_observation_group: policy
@@ -122,10 +119,18 @@ env:
 
 reward:
   alive:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.envs.mdp.is_alive
     weight: 1.0
 ```
+
+Manager mappings whose value type is a single concrete config dataclass
+(observations / events / rewards / terminations / curriculum / metrics /
+recorders) may omit `_target_`; materialization infers it from the field type
+annotation. `actions` / `commands` have abstract base configs, so they must
+still declare a concrete `_target_` (for example
+`unilab.envs.mdp.JointPositionActionCfg`). Config classes under
+`unilab.managers.` (such as `SceneEntityCfg`) may be referenced by their bare
+class name.
 
 Hydra composition materializes this declaration into plain typed config on the
 cold path. Unknown fields, unresolved `_target_`/`func` references, and wrong

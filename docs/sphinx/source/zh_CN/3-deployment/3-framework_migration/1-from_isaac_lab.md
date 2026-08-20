@@ -95,14 +95,11 @@ weight 和 observation mapping。例如：
 env:
   observations:
     policy:
-      _target_: unilab.managers.ObservationGroupCfg
       terms:
         joint_pos_rel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.joint_pos_rel
   terminations:
     time_out:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.time_out
       time_out: true
   policy_observation_group: policy
@@ -110,10 +107,15 @@ env:
 
 reward:
   alive:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.envs.mdp.is_alive
     weight: 1.0
 ```
+
+值类型唯一且具体的 manager mapping（observations / events / rewards /
+terminations / curriculum / metrics / recorders）可以省略 `_target_`，物化时按字段
+类型注解推断；`actions` / `commands` 的基类是抽象的，必须显式声明具体 `_target_`
+（如 `unilab.envs.mdp.JointPositionActionCfg`）。`unilab.managers.` 下的 config 类
+（如 `SceneEntityCfg`）可以直接写裸类名。
 
 Hydra compose 在冷路径把这份声明物化为 plain typed config。未知字段、无法解析的
 `_target_`/`func` 和错误 config 类型都会在 reset/step 之前报错。直接用 Python 构造

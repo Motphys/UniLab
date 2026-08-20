@@ -34,6 +34,13 @@ from unilab.base.scene import SceneCfg
 
 _MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")
 _NUM_ENVS = 4
+
+if not hasattr(os, "sched_getaffinity"):
+    pytest.skip(
+        "os.sched_getaffinity unavailable on this platform (e.g. macOS)",
+        allow_module_level=True,
+    )
+
 _AVAILABLE_CPUS = sorted(os.sched_getaffinity(0))
 
 

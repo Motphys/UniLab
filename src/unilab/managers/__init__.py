@@ -3,6 +3,14 @@
 # Modified by UniLab for NumPy and UniLab contracts; licensed under Apache-2.0.
 """Environment managers."""
 
+from unilab.managers._noise.noise_cfg import ConstantNoiseCfg as ConstantNoiseCfg
+from unilab.managers._noise.noise_cfg import GaussianNoiseCfg as GaussianNoiseCfg
+from unilab.managers._noise.noise_cfg import NoiseCfg as NoiseCfg
+from unilab.managers._noise.noise_cfg import NoiseModelCfg as NoiseModelCfg
+from unilab.managers._noise.noise_cfg import (
+    NoiseModelWithAdditiveBiasCfg as NoiseModelWithAdditiveBiasCfg,
+)
+from unilab.managers._noise.noise_cfg import UniformNoiseCfg as UniformNoiseCfg
 from unilab.managers.action_manager import ActionManager as ActionManager
 from unilab.managers.action_manager import ActionTerm as ActionTerm
 from unilab.managers.action_manager import ActionTermCfg as ActionTermCfg

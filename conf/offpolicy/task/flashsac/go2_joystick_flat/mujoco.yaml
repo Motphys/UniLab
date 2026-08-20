@@ -29,12 +29,12 @@ env:
       terms:
         joint_pos:
           noise:
-            _target_: unilab.managers._noise.UniformNoiseCfg
+            _target_: UniformNoiseCfg
             n_min: -0.01
             n_max: 0.01
         joint_vel:
           noise:
-            _target_: unilab.managers._noise.UniformNoiseCfg
+            _target_: UniformNoiseCfg
             n_min: -0.1
             n_max: 0.1
     critic:
@@ -42,40 +42,37 @@ env:
       terms:
         joint_pos:
           noise:
-            _target_: unilab.managers._noise.UniformNoiseCfg
+            _target_: UniformNoiseCfg
             n_min: -0.01
             n_max: 0.01
         joint_vel:
           noise:
-            _target_: unilab.managers._noise.UniformNoiseCfg
+            _target_: UniformNoiseCfg
             n_min: -0.1
             n_max: 0.1
   events:
     randomize_rigid_body_mass:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.randomize_rigid_body_mass
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           body_names: base
         mass_distribution_params: [-1.5, 1.5]
         operation: add
         recompute_inertia: false
     randomize_rigid_body_com:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.randomize_rigid_body_com
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           body_names: base
         com_range:
           x: [-0.05, 0.05]
     randomize_physics_scene_gravity:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.randomize_physics_scene_gravity
       mode: reset
       params:
@@ -84,7 +81,6 @@ env:
           - [0.0, 0.0, -9.81]
         operation: abs
     push_by_setting_velocity:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.push_by_setting_velocity
       mode: interval
       interval_range_s: [15.0, 15.0]

@@ -36,16 +36,14 @@ env:
         heading: [-3.141592653589793, 3.141592653589793]
   events:
     reset_scene_to_default:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
     terrain_root_state:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.tasks.locomotion.common.rough_manager_terms.RoughTerrainReset
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
         pose_range:
           x: [-0.5, 0.5]
@@ -66,24 +64,22 @@ env:
         cycle_top_frac: 0.5
         spawn_height_margin: 0.05
     base_mass:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.randomize_rigid_body_mass
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           body_names: ".*"
         mass_distribution_params: [-1.0, 3.0]
         operation: add
         recompute_inertia: false
     base_com:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.randomize_rigid_body_com
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           body_names: ".*"
         com_range:
@@ -91,7 +87,6 @@ env:
           y: [0.0, 0.0]
           z: [0.0, 0.0]
     pd_gains:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.pd_gains
       mode: reset
       params:
@@ -99,7 +94,6 @@ env:
         kd_range: [0.25, 1.0]
         operation: abs
     push_robot:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.push_by_setting_velocity
       mode: interval
       interval_range_s: [12.5, 12.5]
@@ -114,53 +108,45 @@ env:
           yaw: [0.0, 0.0]
   terminations:
     time_out:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.time_out
       time_out: true
     terrain_out_of_bounds:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.tasks.locomotion.common.rough_manager_terms.RoughTerrainOutOfBounds
       time_out: true
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
         distance_buffer: 3.0
   curriculum:
     terrain_levels:
-      _target_: unilab.managers.CurriculumTermCfg
       func: unilab.tasks.locomotion.common.rough_manager_terms.RoughTerrainCurriculum
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
   policy_observation_group: policy
   critic_observation_group: critic
 
 reward:
   tracking_lin_vel:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
     weight: 3.0
     params:
       std: 0.5
       command_name: twist
   tracking_ang_vel:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel_z_exp
     weight: 1.5
     params:
       std: 0.5
       command_name: twist
   lin_vel_z:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z_l2
     weight: -2.0
   ang_vel_xy:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy_l2
     weight: -0.05
   action_rate:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.envs.mdp.action_rate_l2
     weight: -0.01

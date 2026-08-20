@@ -72,7 +72,6 @@ def _assert_reward_populated(cfg, label: str):
     assert active_terms, f"{label} Manager-Based reward terms must be non-empty"
     for term_name, term in active_terms.items():
         assert isinstance(term, dict), f"{label} reward.{term_name} must be a mapping"
-        assert "_target_" in term, f"{label} reward.{term_name} must declare _target_"
         assert "func" in term, f"{label} reward.{term_name} must declare func"
         assert "weight" in term, f"{label} reward.{term_name} must declare weight"
 

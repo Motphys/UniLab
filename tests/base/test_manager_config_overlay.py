@@ -280,8 +280,7 @@ def test_hydra_mapping_fully_materializes_empty_manager_config() -> None:
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
-        ({"rewards": {"missing": {"weight": 1.0}}}, "missing.*_target_"),
-        ({"rewards": {"disabled": {"weight": 1.0}}}, "disabled.*_target_"),
+        ({"actions": {"missing": {"scale": 0.25}}}, "missing.*_target_"),
         ({"rewards": {"tracking": _second_term}}, "tracking.*field mapping"),
         ({"rewards": []}, "rewards.*mapping"),
         ({"rewards": {"tracking": {"func": _second_term}}}, "func.*typed term"),
@@ -290,6 +289,88 @@ def test_hydra_mapping_fully_materializes_empty_manager_config() -> None:
 def test_manager_mapping_overlay_fails_closed(overrides: dict, match: str) -> None:
     with pytest.raises((TypeError, ValueError), match=match):
         apply_cfg_overrides(_manager_cfg(), overrides)
+
+
+def test_manager_mapping_overlay_infers_concrete_term_target() -> None:
+    cfg = _manager_cfg()
+
+    apply_cfg_overrides(
+        cfg,
+        {
+            "rewards": {
+                "missing": {
+                    "func": "unilab.envs.mdp.is_alive",
+                    "weight": 0.5,
+                },
+                "disabled": {
+                    "func": "unilab.envs.mdp.is_alive",
+                    "weight": 0.2,
+                },
+            },
+            "observations": {
+                "critic": {
+                    "terms": {
+                        "joint_vel": {"func": "unilab.envs.mdp.joint_vel_rel"},
+                    }
+                }
+            },
+        },
+    )
+
+    missing = cfg.rewards["missing"]
+    assert isinstance(missing, RewardTermCfg)
+    assert callable(missing.func)
+    assert missing.weight == pytest.approx(0.5)
+    disabled = cfg.rewards["disabled"]
+    assert isinstance(disabled, RewardTermCfg)
+    assert disabled.weight == pytest.approx(0.2)
+    assert list(cfg.rewards) == ["tracking", "alive", "disabled", "missing"]
+    critic = cfg.observations["critic"]
+    assert isinstance(critic, ObservationGroupCfg)
+    joint_vel = critic.terms["joint_vel"]
+    assert isinstance(joint_vel, ObservationTermCfg)
+    assert callable(joint_vel.func)
+
+
+def test_hydra_materialization_resolves_managers_short_name() -> None:
+    cfg = ManagerBasedRlEnvCfg()
+
+    apply_cfg_overrides(
+        cfg,
+        {
+            "events": {
+                "base_mass": {
+                    "func": "unilab.envs.mdp.is_alive",
+                    "mode": "reset",
+                    "params": {
+                        "asset_cfg": {"_target_": "SceneEntityCfg", "name": "robot"},
+                    },
+                }
+            }
+        },
+    )
+
+    base_mass = cfg.events["base_mass"]
+    assert isinstance(base_mass, EventTermCfg)
+    asset_cfg = base_mass.params["asset_cfg"]
+    assert isinstance(asset_cfg, SceneEntityCfg)
+    assert asset_cfg.name == "robot"
+
+
+def test_hydra_materialization_rejects_unknown_short_name() -> None:
+    with pytest.raises(ValueError, match="could not resolve"):
+        apply_cfg_overrides(
+            ManagerBasedRlEnvCfg(),
+            {
+                "rewards": {
+                    "term": {
+                        "_target_": "NoSuchCfg",
+                        "func": "unilab.envs.mdp.is_alive",
+                        "weight": 1.0,
+                    }
+                }
+            },
+        )
 
 
 @pytest.mark.parametrize(
