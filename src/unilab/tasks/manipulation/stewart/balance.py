@@ -33,7 +33,9 @@ if TYPE_CHECKING:
     from unilab.managers.termination_manager import TerminationManager
 
     class _StewartEnv(ManagerBasedRlEnv, Protocol):
-        common_step_counter: int
+        @property
+        def common_step_counter(self) -> int: ...
+
         observation_manager: ObservationManager
 
 

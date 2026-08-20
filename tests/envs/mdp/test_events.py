@@ -215,6 +215,9 @@ class _Backend:
     def get_default_dof_pos(self) -> np.ndarray:
         return np.zeros(3)
 
+    def get_joint_range(self) -> np.ndarray:
+        return np.tile([-1.0, 1.0], (3, 1))
+
     def get_joint_dof_indices(self, names) -> np.ndarray:
         table = {"j0": 6, "j1": 7, "j2": 8}
         return np.asarray([table[name] for name in names], dtype=np.int32)

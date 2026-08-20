@@ -243,6 +243,8 @@ class ManagerBasedRlEnv(NpEnv):
         self._command_dt = np.zeros(num_envs, dtype=get_global_dtype())
         self._no_truncation = np.zeros(num_envs, dtype=np.bool_)
         self._manual_reset_pending = np.zeros(num_envs, dtype=np.bool_)
+        self._all_env_ids = np.arange(num_envs, dtype=np.int32)
+        self._all_env_ids.setflags(write=False)
         self._has_transition = False
         self._uses_pre_step_control = False
 
@@ -459,7 +461,9 @@ class ManagerBasedRlEnv(NpEnv):
 
         self._command_dt.fill(self.step_dt)
         self._command_dt[self.reset_buf] = 0.0
-        self.command_manager.compute(dt=self._command_dt)
+        with self._reset_state.scoped(self._all_env_ids):
+            self.command_manager.compute(dt=self._command_dt)
+        self.command_manager.post_compute()
         manager_obs = self.observation_manager.compute(update_history=True)
         self.obs_buf = self._map_observations(manager_obs)
         self._has_transition = True
@@ -504,13 +508,14 @@ class ManagerBasedRlEnv(NpEnv):
 
         log: dict[str, Any] = {}
         self.curriculum_manager.compute(env_ids=ids)
-        if "reset" in self.event_manager.available_modes:
-            with self._reset_state.scoped(ids):
+        with self._reset_state.scoped(ids):
+            if "reset" in self.event_manager.available_modes:
                 self.event_manager.apply(
                     mode="reset",
                     env_ids=ids,
                     global_env_step_count=self.step_counter,
                 )
+            log.update(self.command_manager.reset(ids))
 
         for manager in (
             self.observation_manager,
@@ -518,7 +523,6 @@ class ManagerBasedRlEnv(NpEnv):
             self.reward_manager,
             self.metrics_manager,
             self.curriculum_manager,
-            self.command_manager,
             self.event_manager,
             self.termination_manager,
         ):
@@ -531,6 +535,7 @@ class ManagerBasedRlEnv(NpEnv):
             self._state.info["steps"][ids] = 0
 
         self.command_manager.compute(dt=0.0, env_ids=ids)
+        self.command_manager.post_compute()
         manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
         mapped_obs = self._map_observations(manager_obs)
         reset_obs = {name: values[ids].copy() for name, values in mapped_obs.items()}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,7 @@ G1_BEYONDMIMIC_ACTION_SCALE = [
     0.07450087032950714,
     0.07450087032950714,
 ]
+G1_23DOF_BEYONDMIMIC_ACTION_SCALE = G1_BEYONDMIMIC_ACTION_SCALE[:13] + [0.43857731392336724] * 10
 X2_ACTION_SCALE = [0.25] * 29
 
 
@@ -411,8 +413,42 @@ def test_ppo_g1_motion_tracking_deploy():
     assert cfg.algo.max_iterations == 15000
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
     assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert cfg.env.sensor.gyro == "pelvis_gyro"
-    assert list(cfg.env.control_config.action_scale) == pytest.approx(G1_BEYONDMIMIC_ACTION_SCALE)
+    assert cfg.env.observations.actor.terms.base_ang_vel.params.sensor_name == "pelvis_gyro"
+    assert cfg.env.actions.joint_pos.scale[".*_(hip_pitch|hip_yaw)_joint"] == pytest.approx(
+        G1_BEYONDMIMIC_ACTION_SCALE[0]
+    )
+    assert cfg.env.actions.joint_pos.scale[".*_wrist_(pitch|yaw)_joint"] == pytest.approx(
+        G1_BEYONDMIMIC_ACTION_SCALE[20]
+    )
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("g1_motion_tracking_deploy", G1_BEYONDMIMIC_ACTION_SCALE),
+        ("g1_23dof_motion_tracking_deploy", G1_23DOF_BEYONDMIMIC_ACTION_SCALE),
+    ],
+)
+def test_ppo_g1_motion_tracking_deploy_action_scale_expands_in_joint_order(
+    task: str,
+    expected: list[float],
+) -> None:
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        cfg = compose("config", overrides=[f"task={task}/mujoco"])
+
+    scales = cfg.env.actions.joint_pos.scale
+    resolved: list[float] = []
+    for joint_name in cfg.env.scene.entities.robot.joint_names:
+        matches = [
+            float(value) for pattern, value in scales.items() if re.fullmatch(pattern, joint_name)
+        ]
+        assert len(matches) == 1, f"{joint_name} matched {len(matches)} action-scale patterns"
+        resolved.append(matches[0])
+    assert resolved == pytest.approx(expected)
 
 
 def test_ppo_g1_box_tracking():

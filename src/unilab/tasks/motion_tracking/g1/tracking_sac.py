@@ -15,6 +15,7 @@ import numpy as np
 
 from unilab.base import registry
 from unilab.dtype_config import get_global_dtype
+from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
 
 from .tracking import (
     G1MotionTracking23DofCfg,
@@ -23,14 +24,11 @@ from .tracking import (
 )
 
 
-@registry.envcfg("G1MotionTrackingSAC")
 @dataclass
 class G1MotionTrackingSACCfg(G1MotionTrackingCfg):
     """Config for SAC-based motion tracking (identical fields, separate registry entry)."""
 
 
-@registry.env("G1MotionTrackingSAC", sim_backend="mujoco")
-@registry.env("G1MotionTrackingSAC", sim_backend="motrix")
 class G1MotionTrackingSACEnv(G1MotionTrackingEnv):
     """G1 Motion Tracking environment for FastSAC training.
 
@@ -75,13 +73,16 @@ class G1MotionTrackingSACEnv(G1MotionTrackingEnv):
         return obs
 
 
-@registry.envcfg("G1MotionTrackingSAC23Dof")
 @dataclass
 class G1MotionTrackingSAC23DofCfg(G1MotionTracking23DofCfg):
     pass
 
 
-@registry.env("G1MotionTrackingSAC23Dof", sim_backend="mujoco")
-@registry.env("G1MotionTrackingSAC23Dof", sim_backend="motrix")
 class G1MotionTrackingSAC23DofEnv(G1MotionTrackingSACEnv):
     _cfg: G1MotionTrackingSAC23DofCfg  # pyright: ignore[reportIncompatibleVariableOverride]
+
+
+for _task_name in ("G1MotionTrackingSAC", "G1MotionTrackingSAC23Dof"):
+    registry.register_env_config(_task_name, ManagerBasedRlEnvCfg)
+    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="mujoco")
+    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="motrix")

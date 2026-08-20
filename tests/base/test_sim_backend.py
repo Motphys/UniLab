@@ -1221,7 +1221,10 @@ class TestMotrixModelProperties:
             bkd.get_body_ids(["nonexistent_body_xyz"])
 
     def test_get_joint_range(self, bkd):
-        assert bkd.get_joint_range() is None
+        jr = bkd.get_joint_range()
+        assert jr is not None
+        assert jr.shape == (bkd.num_dof_vel, 2)
+        assert np.all(jr[:, 0] <= jr[:, 1])
 
 
 # ---------------------------------------------------------------------------

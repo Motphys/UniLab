@@ -388,7 +388,7 @@ def test_backend_adapter_env_cfg_override_for_motrix_sac_g1_walk_flat():
     assert cfg.algo.max_iterations == 5000
 
 
-def test_backend_adapter_builds_play_scene_override():
+def test_backend_adapter_keeps_motion_manager_scene_during_play():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
     assert cfg.training.play_env_num == 16
     captured: dict[str, object] = {}
@@ -396,7 +396,7 @@ def test_backend_adapter_builds_play_scene_override():
     def _fake_materializer(source_model_file: str, **kwargs) -> str:
         captured["source_model_file"] = source_model_file
         captured.update(kwargs)
-        return "/tmp/g1_motion_tracking_play_scene.xml"
+        pytest.fail("manager scene must not be replaced during play")
 
     env_cfg_override = BackendAdapter(
         cfg,
@@ -407,10 +407,9 @@ def test_backend_adapter_builds_play_scene_override():
 
     assert cfg.training.play_env_num == 16
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
-    assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
-    assert captured["ground_texture_file"] == str(
-        _ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
-    )
+    assert env_cfg_override["scene"]["model_file"].endswith("robots/g1/scene_flat.xml")
+    assert "robot" in env_cfg_override["scene"]["entities"]
+    assert captured == {}
 
 
 def test_render_play_mode_uses_env_interactive_contract():

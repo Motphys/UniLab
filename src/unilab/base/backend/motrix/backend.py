@@ -638,7 +638,20 @@ class MotrixBackend(SimBackend):
         return np.asarray(self._model.options.gravity, dtype=np.float64).copy()
 
     def get_joint_range(self) -> np.ndarray | None:
-        return None
+        """Return single-DoF joint limits in backend DOF order.
+
+        Motrix stores the model-wide limits as a ``(2, num_dof)`` table,
+        whereas the UniLab backend contract exposes the MuJoCo-shaped
+        ``(num_dof, 2)`` table.  This is materialized once by ``Entity`` and
+        never queried from a task hot path.
+        """
+        raw_limits = np.asarray(self._model.joint_limits, dtype=self._np_dtype)
+        if raw_limits.ndim != 2 or raw_limits.shape != (2, self.num_dof_vel):
+            raise ValueError(
+                "Motrix joint limits must have shape (2, num_dof); "
+                f"received {raw_limits.shape} for {self.num_dof_vel} DOFs"
+            )
+        return np.array(raw_limits.T, copy=True)
 
     # ------------------------------------------------------------------ #
     # Simulation control                                                 #

@@ -196,6 +196,8 @@ class ManagerActionManager(Protocol):
 class ManagerCommandManager(Protocol):
     def get_command(self, name: str) -> np.ndarray | None: ...
 
+    def get_term(self, name: str) -> Any: ...
+
 
 class ManagerTerminationManager(Protocol):
     @property
@@ -235,6 +237,12 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def episode_length_buf(self) -> np.ndarray: ...
+
+    @property
+    def reset_buf(self) -> np.ndarray: ...
+
+    @property
+    def common_step_counter(self) -> int: ...
 
     @property
     def max_episode_length(self) -> int: ...

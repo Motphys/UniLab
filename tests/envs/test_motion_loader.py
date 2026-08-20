@@ -184,6 +184,30 @@ def test_motion_sampler_step_respects_current_clip_end(tmp_path):
     np.testing.assert_array_equal(sampler.current_frames, np.array([2, 4], dtype=np.int32))
 
 
+def test_motion_sampler_uses_env_owned_rng_and_steps_only_selected_rows(tmp_path):
+    motion = tmp_path / "motion.npz"
+    _write_motion_npz(motion, base_value=0.0, num_frames=8)
+    loader = MotionLoader(str(motion))
+    env_ids = np.array([0, 2], dtype=np.int32)
+    sampler = MotionSampler(
+        loader,
+        mode="uniform",
+        num_envs=3,
+        rng=np.random.default_rng(17),
+    )
+    expected_rng = np.random.default_rng(17)
+
+    frames = sampler.sample_frames(env_ids)
+
+    np.testing.assert_array_equal(frames, expected_rng.integers(0, 8, 2, dtype=np.int32))
+    untouched = int(sampler.current_frames[1])
+    sampler.current_clip_end_frames[:] = 7
+    done = sampler.step(np.array([2], dtype=np.int32))
+    assert done.size == 0
+    assert sampler.current_frames[1] == untouched
+    assert sampler.current_frames[2] == frames[1] + 1
+
+
 def test_box_motion_loader_reads_object_state_and_trims_robot_joints(tmp_path):
     from unilab.tasks.motion_tracking.g1.motion_box_loader import BoxMotionLoader
 

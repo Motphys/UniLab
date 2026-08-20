@@ -115,7 +115,7 @@ def test_extract_snapshot_includes_only_present_contract_fields():
     assert "training.sim_backend" not in snapshot
     # ...and absent fields are omitted (never stored as None).
     assert "algo.obs_normalization" not in snapshot
-    assert "env.sampling_mode" not in snapshot
+    assert "env.commands.motion.params.sampling_mode" not in snapshot
     assert "reward.base_height_target" not in snapshot
 
 
@@ -272,7 +272,7 @@ def test_env_structural_denylist_is_the_env_subset():
         "env.actions",
         "env.policy_observation_group",
         "env.critic_observation_group",
-        "env.sampling_mode",
+        "env.commands.motion.params.sampling_mode",
     ]
     assert set(ENV_STRUCTURAL_DENYLIST) <= set(DENYLIST)
 
@@ -294,13 +294,33 @@ def test_env_field_present_in_target_absent_in_source_raises(tmp_path):
     # the target sets it explicitly. Still unverifiable -> fail closed.
     _write_sidecar(tmp_path, {"algo.empirical_normalization": False})
     target = OmegaConf.create(
-        {"algo": {"empirical_normalization": False}, "env": {"sampling_mode": "adaptive"}}
+        {
+            "algo": {"empirical_normalization": False},
+            "env": {"commands": {"motion": {"params": {"sampling_mode": "adaptive"}}}},
+        }
     )
     with pytest.raises(CrossBackendIncompatibleError) as excinfo:
         resolve_sim2sim_config(tmp_path, target)
     msg = str(excinfo.value)
     assert "sampling_mode" in msg
     assert "source=<absent>" in msg
+
+
+def test_legacy_sampling_mode_snapshot_resolves_against_manager_path(tmp_path) -> None:
+    _write_sidecar(tmp_path, {"env.sampling_mode": "adaptive"})
+    target = OmegaConf.create(
+        {"env": {"commands": {"motion": {"params": {"sampling_mode": "adaptive"}}}}}
+    )
+
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+def test_legacy_config_sampling_mode_is_snapshotted_under_canonical_path() -> None:
+    cfg = OmegaConf.create({"env": {"sampling_mode": "adaptive"}})
+
+    assert extract_contract_snapshot(cfg) == {
+        "env.commands.motion.params.sampling_mode": "adaptive"
+    }
 
 
 def test_env_field_symmetric_absence_does_not_raise(tmp_path):
