@@ -58,25 +58,21 @@ reward:
   tracking_ang_vel:
     weight: 0.25
   forward_progress:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.forward_progress
     weight: 0.0
     params:
       command_name: twist
   under_speed:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.under_speed
     weight: -0.2
     params:
       command_name: twist
   upper_body_pose:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.upper_body_pose
     weight: -0.05
     params:
       pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
   penalty_feet_ori:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.penalty_feet_ori
     weight: 0.0
   feet_phase:
@@ -84,7 +80,6 @@ reward:
     params:
       min_forward_speed: 0.05
   feet_phase_contrast:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.feet_phase_contrast
     weight: 1.5
     params:
@@ -94,7 +89,6 @@ reward:
       min_forward_speed: 0.05
       command_name: twist
   feet_phase_contact:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.feet_phase_contact
     weight: 1.0
     params:
@@ -104,7 +98,6 @@ reward:
       min_forward_speed: 0.05
       command_name: twist
   feet_double_stance:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.feet_double_stance
     weight: -1.0
     params:

@@ -20,7 +20,6 @@ env:
     model_file: src/unilab/assets/robots/g1/scene_rough_23dof.xml
   curriculum:
     penalty_scaling:
-      _target_: unilab.managers.CurriculumTermCfg
       func: unilab.tasks.locomotion.g1.manager_terms.G1PenaltyCurriculum
       params:
         initial_scale: 0.5

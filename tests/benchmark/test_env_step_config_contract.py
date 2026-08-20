@@ -7,6 +7,11 @@ from scripts.benchmark.env import benchmark_env_step as bench
 from unilab.envs import ManagerBasedRlEnvCfg, make_manager_based_rl_env
 from unilab.tasks.locomotion.common.rough_manager_terms import QuadrupedRoughTerrainCfg
 
+# Importing benchmark_env_step installs a process-wide create_backend patch for
+# the benchmark script. These tests only build configs, so undo the patch to
+# keep the global factory pristine for the rest of the pytest session.
+bench._uninstall_mjwarp_patch()
+
 
 def test_go2w_flat_benchmark_uses_production_manager_owner() -> None:
     cfg = bench.TASK_CONFIGS["go2w"].build_cfg("mujoco")

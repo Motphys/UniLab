@@ -116,7 +116,24 @@ def _install_mjwarp_patch() -> bool:
 
     _ub_backend.create_backend = _patched_create_backend
     _ub_backend._mjwarp_patched = True
+    _ub_backend._mjwarp_orig_create_backend = _orig_create_backend
     return True
+
+
+def _uninstall_mjwarp_patch() -> None:
+    """Undo the import-time factory patch installed by :func:`_install_mjwarp_patch`.
+
+    Importing this module inside a pytest session would otherwise leak the
+    mjwarp rerouting into unrelated tests that exercise the real factory.
+    """
+    import unilab.base.backend as _ub_backend
+
+    if not getattr(_ub_backend, "_mjwarp_patched", False):
+        return
+    orig = getattr(_ub_backend, "_mjwarp_orig_create_backend", None)
+    if orig is not None:
+        _ub_backend.create_backend = orig
+    _ub_backend._mjwarp_patched = False
 
 
 MJWARP_AVAILABLE = _install_mjwarp_patch()
