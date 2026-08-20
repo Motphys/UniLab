@@ -76,69 +76,52 @@ env:
   max_episode_seconds: 20.0
   observations:
     policy:
-      _target_: unilab.managers.ObservationGroupCfg
       terms:
         base_ang_vel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: torso_gyro}
         projected_gravity:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.projected_gravity_from_sensor
           params: {sensor_name: torso_upvector}
         joint_pos:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.joint_pos_rel
         joint_vel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.joint_vel_rel
         actions:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.last_action
           params: {action_name: joint_pos}
         command:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.generated_commands
           params: {command_name: twist}
         gait_phase:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.tasks.locomotion.g1.manager_terms.G1GaitPhase
           params:
             frequency: 1.5
             init_mode: offset_phase
     critic:
-      _target_: unilab.managers.ObservationGroupCfg
       terms:
         base_ang_vel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: torso_gyro}
         projected_gravity:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.projected_gravity_from_sensor
           params: {sensor_name: torso_upvector}
         joint_pos:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.joint_pos_rel
         joint_vel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.joint_vel_rel
         actions:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.last_action
           params: {action_name: joint_pos}
         command:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.generated_commands
           params: {command_name: twist}
         gait_phase:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.tasks.locomotion.g1.manager_terms.G1GaitPhase
           params:
             frequency: 1.5
             init_mode: offset_phase
         base_lin_vel:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: pelvis_local_linvel}
   actions:
@@ -167,11 +150,9 @@ env:
         ang_vel_z: [-0.8, 0.8]
   events:
     reset_scene_to_default:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
     reset_root_state_uniform:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.reset_root_state_uniform
       mode: reset
       params:
@@ -190,7 +171,6 @@ env:
           pitch: [-0.5, 0.5]
           yaw: [-0.5, 0.5]
     pd_gains:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.pd_gains
       mode: reset
       params:
@@ -199,16 +179,13 @@ env:
         operation: scale
   terminations:
     time_out:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.time_out
       time_out: true
     tilt:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.tasks.locomotion.g1.manager_terms.g1_tilt_exceeded
       params:
         max_tilt_deg: 25.0
     base_height:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.root_height_below_minimum
       params:
         minimum_height: 0.55
@@ -217,21 +194,18 @@ env:
 
 reward:
   tracking_lin_vel:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.track_lin_vel
     weight: 2.0
     params:
       tracking_sigma: 0.25
       command_name: twist
   tracking_ang_vel:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.track_ang_vel
     weight: 0.2
     params:
       tracking_sigma: 0.25
       command_name: twist
   feet_phase:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.feet_phase
     weight: 1.0
     params:
@@ -241,29 +215,23 @@ reward:
       min_forward_speed: 0.0
       command_name: twist
   lin_vel_z:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.lin_vel_z
     weight: -1.0
   ang_vel_xy:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.ang_vel_xy
     weight: -0.25
   base_height:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.base_height
     weight: -500.0
     params:
       target_height: 0.754
   orientation:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.orientation
     weight: -5.0
   action_rate:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.envs.mdp.action_rate_l2
     weight: -0.01
   pose:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.g1.manager_terms.weighted_pose
     weight: -0.1
     params:
