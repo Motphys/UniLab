@@ -30,7 +30,6 @@ reward:
   action_rate:
     weight: -0.015
   action_smooth:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.envs.mdp.action_acc_l2
     weight: -0.01
   similar_to_default:

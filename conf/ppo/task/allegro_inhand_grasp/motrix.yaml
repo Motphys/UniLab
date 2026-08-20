@@ -48,7 +48,6 @@ env:
         ball_z_offset: 0.0
   terminations:
     invalid_grasp:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityTermination
       params:
         entity_name: robot
@@ -62,24 +61,19 @@ env:
         enabled: true
   metrics:
     fingertips_close:
-      _target_: unilab.managers.MetricsTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
       params: {quality_term_name: invalid_grasp, condition: fingertips_close}
     enough_contacts:
-      _target_: unilab.managers.MetricsTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
       params: {quality_term_name: invalid_grasp, condition: enough_contacts}
     ball_held:
-      _target_: unilab.managers.MetricsTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
       params: {quality_term_name: invalid_grasp, condition: ball_held}
     valid:
-      _target_: unilab.managers.MetricsTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
       params: {quality_term_name: invalid_grasp, condition: valid}
   recorders:
     grasp_cache:
-      _target_: unilab.managers.RecorderTermCfg
       func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspRecorder
       params:
         quality_term_name: invalid_grasp

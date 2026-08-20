@@ -66,12 +66,27 @@ def _dict_value_type(annotation: Any) -> Any:
 def _resolve(reference: Any, *, path: str) -> Any:
     if not isinstance(reference, str) or not reference.strip():
         raise TypeError(f"Config field '{path}' must be a non-empty dotted string")
+    if "." not in reference:
+        try:
+            return get_object(f"unilab.managers.{reference}")
+        except Exception as exc:
+            raise ValueError(
+                f"Config field '{path}' could not resolve short reference {reference!r} "
+                f"(tried 'unilab.managers.{reference}'): {exc}"
+            ) from exc
     try:
         return get_object(reference)
     except Exception as exc:
         raise ValueError(
             f"Config field '{path}' could not resolve dotted reference {reference!r}: {exc}"
         ) from exc
+
+
+def _inferable_target(annotation: Any) -> type[Any] | None:
+    candidates = _dataclass_types(annotation)
+    if len(candidates) == 1 and not inspect.isabstract(candidates[0]):
+        return candidates[0]
+    return None
 
 
 def _resolve_target(
@@ -155,7 +170,7 @@ def _prepare_manager_mapping(value: Any, *, annotation: Any, path: str) -> dict[
                 dict(entry),
                 expected=value_type,
                 path=entry_path,
-                require_target=True,
+                require_target=_inferable_target(value_type) is None,
             )
     return result
 
@@ -185,6 +200,7 @@ def _prepare_dataclass(
         reference = _target_path(target)
     else:
         target = _resolve_target(reference, expected=expected, path=path)
+        reference = _target_path(target)
 
     fields = {field.name: field for field in dataclasses.fields(target) if field.init}
     unknown = [name for name in values if name not in fields]
@@ -219,8 +235,16 @@ def _prepare_dataclass(
     return prepared
 
 
-def _materialize_entry(value: Mapping[str, Any], *, expected: Any, path: str) -> Any:
-    prepared = _prepare_dataclass(value, expected=expected, path=path, require_target=True)
+def _materialize_entry(
+    value: Mapping[str, Any],
+    *,
+    expected: Any,
+    path: str,
+    require_target: bool = True,
+) -> Any:
+    prepared = _prepare_dataclass(
+        value, expected=expected, path=path, require_target=require_target
+    )
     try:
         result = instantiate(prepared, _convert_="all")
     except Exception as exc:
@@ -299,6 +323,11 @@ def _apply_manager_mapping(
         else:
             current = existing.get(term_name, _MISSING)
             if current is _MISSING or current is None:
+                if _inferable_target(value_type) is not None:
+                    existing[term_name] = _materialize_entry(
+                        value, expected=value_type, path=path, require_target=False
+                    )
+                    continue
                 raise ValueError(
                     f"Config field '{path}' is a new Manager-Based entry and must declare "
                     f"'{HYDRA_TARGET_KEY}'"

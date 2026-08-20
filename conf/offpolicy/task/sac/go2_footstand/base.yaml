@@ -55,30 +55,25 @@ env:
   adaptive_chunk_size: false
   observations:
     policy:
-      _target_: unilab.managers.ObservationGroupCfg
       enable_corruption: true
       terms:
         frame:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.tasks.locomotion.go2.footstand.frame_observation
           params:
             action_name: joint_pos
           noise:
-            _target_: unilab.managers._noise.UniformNoiseCfg
+            _target_: UniformNoiseCfg
             n_min: [-0.1, -0.1, -0.1, -0.2, -0.2, -0.2, -0.05, -0.05, -0.05, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, -1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             n_max: [0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.05, 0.05, 0.05, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
           history_length: 15
     critic:
-      _target_: unilab.managers.ObservationGroupCfg
       terms:
         frame:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.tasks.locomotion.go2.footstand.frame_observation
           params:
             action_name: joint_pos
           history_length: 15
         privileged:
-          _target_: unilab.managers.ObservationTermCfg
           func: unilab.tasks.locomotion.go2.footstand.privileged_observation
           params:
             action_name: joint_pos
@@ -132,11 +127,9 @@ env:
       simulate_action_latency: false
   events:
     reset_scene_to_default:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
     reset_root_state_uniform:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.reset_root_state_uniform
       mode: reset
       params:
@@ -155,17 +148,15 @@ env:
           pitch: [-0.5, 0.5]
           yaw: [-0.5, 0.5]
     reset_joints:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.tasks.locomotion.go2.footstand.FootstandJointReset
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           joint_names: ".*"
         position_offset_range: [-0.05, 0.05]
     pd_gains:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.pd_gains
       mode: reset
       params:
@@ -178,7 +169,6 @@ env:
     joint_armature: null
   terminations:
     footstand:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.tasks.locomotion.go2.footstand.FootstandTermination
       params:
         action_name: joint_pos
@@ -187,7 +177,6 @@ env:
         orientation_threshold: 0.2
         energy_threshold: 200.0
     time_out:
-      _target_: unilab.managers.TerminationTermCfg
       func: unilab.envs.mdp.time_out
       time_out: true
   policy_observation_group: policy
@@ -196,7 +185,6 @@ env:
 
 reward:
   footstand:
-    _target_: unilab.managers.RewardTermCfg
     func: unilab.tasks.locomotion.go2.footstand.FootstandReward
     weight: 1.0
     params:

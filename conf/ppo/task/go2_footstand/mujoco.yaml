@@ -10,35 +10,32 @@ training:
 env:
   events:
     floor_friction:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.geom_friction
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           geom_names: floor
         ranges: [0.4, 1.0]
         operation: abs
     link_mass:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.tasks.locomotion.go2.footstand.FootstandMassRandomization
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           body_names: ".*"
         torso_body_name: base
         link_mass_scale_range: [0.9, 1.1]
         torso_added_mass_range: [-1.0, 1.0]
     torso_com:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.randomize_rigid_body_com
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           body_names: base
         com_range:
@@ -46,12 +43,11 @@ env:
           y: [-0.05, 0.05]
           z: [-0.05, 0.05]
     joint_armature:
-      _target_: unilab.managers.EventTermCfg
       func: unilab.envs.mdp.joint_armature
       mode: reset
       params:
         asset_cfg:
-          _target_: unilab.managers.SceneEntityCfg
+          _target_: SceneEntityCfg
           name: robot
           joint_names: ".*"
         ranges: [1.0, 1.05]
