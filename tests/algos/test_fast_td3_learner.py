@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from unilab.algos.torch.fast_td3.learner import FastTD3Learner, TD3Actor
+from unilab.algos.fast_td3.learner import FastTD3Learner, TD3Actor
 
 # ---------------------------------------------------------------------------
 # TD3Actor

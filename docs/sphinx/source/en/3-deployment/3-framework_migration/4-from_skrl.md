@@ -8,7 +8,7 @@ deployment path.
 
 | skrl | UniLab |
 |---|---|
-| `Agent` (PPO, SAC, …) | `unilab.algos.torch.*` |
+| `Agent` (PPO, SAC, …) | `unilab.algos.*` |
 | `RolloutMemory` | `unilab.ipc.rollout_ring_buffer` |
 | `ReplayMemory` | `unilab.ipc.replay_buffer` |
 | `Trainer` | `unilab.training.run` |

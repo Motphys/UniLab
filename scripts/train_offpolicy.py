@@ -92,7 +92,7 @@ def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[st
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
-    from unilab.algos.torch.offpolicy.thread_budget import (
+    from unilab.algos.offpolicy.thread_budget import (
         apply_torch_thread_runtime,
         resolve_torch_thread_runtime,
     )
@@ -165,7 +165,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
 
     replay_device = require_offpolicy_replay_device(rank_device)
     if algo_name == "sac":
-        from unilab.algos.torch.fast_sac.double_buffer import (
+        from unilab.algos.fast_sac.double_buffer import (
             build_sac_double_buffer_runner,
         )
 
@@ -181,7 +181,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         )
 
     if algo_name == "td3":
-        from unilab.algos.torch.fast_td3.double_buffer import (
+        from unilab.algos.fast_td3.double_buffer import (
             build_td3_double_buffer_runner,
         )
 
@@ -197,7 +197,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         )
 
     if algo_name == "flashsac":
-        from unilab.algos.torch.flash_sac.double_buffer import (
+        from unilab.algos.flash_sac.double_buffer import (
             build_flashsac_double_buffer_runner,
         )
 
@@ -220,7 +220,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     import numpy as np
     import torch
 
-    from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
+    from unilab.algos.offpolicy.worker import resolve_offpolicy_actor_priv_info
 
     load_path, load_path_dir = resolve_checkpoint_path(
         ROOT_DIR,

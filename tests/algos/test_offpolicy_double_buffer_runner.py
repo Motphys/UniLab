@@ -147,15 +147,15 @@ def test_non_cuda_training_devices_fail_before_env_materialization(
         raise AssertionError("unsupported replay device must fail before env creation")
 
     if algo == "sac":
-        import unilab.algos.torch.fast_sac.double_buffer as owner_module
+        import unilab.algos.fast_sac.double_buffer as owner_module
 
         monkeypatch.setattr(owner_module, "create_env", reject_env)
     elif algo == "td3":
-        import unilab.algos.torch.fast_td3.double_buffer as owner_module
+        import unilab.algos.fast_td3.double_buffer as owner_module
 
         monkeypatch.setattr(owner_module, "get_env_dims", reject_env)
     else:
-        import unilab.algos.torch.flash_sac.double_buffer as owner_module
+        import unilab.algos.flash_sac.double_buffer as owner_module
 
         monkeypatch.setattr(owner_module, "create_env", reject_env)
     with pytest.raises(ValueError, match="training.devices entries"):
@@ -167,7 +167,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
     cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false"])
 
-    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+    import unilab.algos.fast_sac.double_buffer as owner_module
 
     monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
     monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: _FakeEnv())
@@ -222,8 +222,8 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
 def test_sac_owner_custom_runtime_can_override_base_learner_kwargs(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from unilab.algos.torch.fast_sac import double_buffer as owner_module
-    from unilab.algos.torch.offpolicy.runtime import OffPolicyRuntime
+    from unilab.algos.fast_sac import double_buffer as owner_module
+    from unilab.algos.offpolicy.runtime import OffPolicyRuntime
 
     cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false"])
     custom_runtime = OffPolicyRuntime(
@@ -256,8 +256,8 @@ def test_sac_owner_custom_runtime_can_override_base_learner_kwargs(
 def test_sac_owner_rejects_custom_runtime_without_symmetry_support(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from unilab.algos.torch.fast_sac import double_buffer as owner_module
-    from unilab.algos.torch.offpolicy.runtime import OffPolicyRuntime
+    from unilab.algos.fast_sac import double_buffer as owner_module
+    from unilab.algos.offpolicy.runtime import OffPolicyRuntime
 
     cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true"])
     monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
@@ -280,7 +280,7 @@ def test_sac_owner_rejects_custom_runtime_without_symmetry_support(
 def test_sac_owner_preserves_symmetry_batch_and_learner_contract(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+    import unilab.algos.fast_sac.double_buffer as owner_module
 
     cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true"])
     symmetry = MagicMock(batch_multiplier=4)
@@ -321,7 +321,7 @@ def test_sac_owner_preserves_symmetry_validation(
     symmetry: MagicMock | None,
     match: str,
 ):
-    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+    import unilab.algos.fast_sac.double_buffer as owner_module
 
     cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true", f"algo.batch_size={batch_size}"])
 
@@ -346,7 +346,7 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
     cfg = _offpolicy_cfg(["algo=td3"])
 
-    import unilab.algos.torch.fast_td3.double_buffer as owner_module
+    import unilab.algos.fast_td3.double_buffer as owner_module
 
     monkeypatch.setattr(owner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 6))
     monkeypatch.setattr(owner_module, "FastTD3Learner", _FakeLearner)
@@ -418,7 +418,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     module = _offpolicy()
     cfg = _offpolicy_cfg(["algo=flashsac"])
 
-    import unilab.algos.torch.flash_sac.double_buffer as flash_module
+    import unilab.algos.flash_sac.double_buffer as flash_module
 
     monkeypatch.setattr(flash_module, "ensure_registries", lambda: None)
     monkeypatch.setattr(flash_module, "create_env", lambda *args, **kwargs: _FakeEnv())
@@ -443,7 +443,7 @@ def test_flashsac_n_step_is_rejected():
 
 
 def _bare_runner():
-    from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+    from unilab.algos.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 
     return object.__new__(DoubleBufferOffPolicyRunner)
 
@@ -476,7 +476,7 @@ def _build_sac_runner_with_fakes(
 
     monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
 
-    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+    import unilab.algos.fast_sac.double_buffer as owner_module
 
     monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
     monkeypatch.setattr(owner_module, "create_env", fake_create_env)

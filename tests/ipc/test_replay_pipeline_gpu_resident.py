@@ -151,7 +151,7 @@ class TestConstructionGuards:
             GPUResidentReplayPipeline(rb, device="cpu", sample_count=8, pack_layout="bogus")
 
     def test_runner_rejects_non_accelerator_before_base_initialization(self):
-        from unilab.algos.torch.offpolicy.double_buffer_runner import (
+        from unilab.algos.offpolicy.double_buffer_runner import (
             DoubleBufferOffPolicyRunner,
         )
 

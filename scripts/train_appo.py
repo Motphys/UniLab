@@ -16,7 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
-from unilab.algos.torch.appo.runtime import resolve_appo_runtime
+from unilab.algos.appo.runtime import resolve_appo_runtime
 from unilab.training import (
     BackendAdapter,
     apply_configured_training_seed,

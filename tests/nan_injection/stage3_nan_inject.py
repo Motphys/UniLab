@@ -193,8 +193,8 @@ class _FakeRolloutRingBuffer:
 
 def _check_double_buffer_runner_wires_nan_guard():
     """Verify DoubleBufferOffPolicyRunner passes nan_guard_cfg to collector."""
-    import unilab.algos.torch.offpolicy.double_buffer_runner as db_mod
-    import unilab.algos.torch.offpolicy.runner as runner_mod
+    import unilab.algos.offpolicy.double_buffer_runner as db_mod
+    import unilab.algos.offpolicy.runner as runner_mod
 
     with (
         patch.object(db_mod, "ReplayBuffer", _FakeReplayBuffer),
@@ -244,8 +244,8 @@ def _check_double_buffer_runner_wires_nan_guard():
 
 def _check_appo_runner_wires_nan_guard():
     """Verify APPORunner passes nan_guard_cfg to collector."""
-    import unilab.algos.torch.appo.runner as appo_mod
-    from unilab.algos.torch.appo.runner import APPORunner
+    import unilab.algos.appo.runner as appo_mod
+    from unilab.algos.appo.runner import APPORunner
 
     def fake_detect_dims(self):
         self.critic_dim = 4

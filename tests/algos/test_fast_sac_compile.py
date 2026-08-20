@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import torch
 
-from unilab.algos.torch.fast_sac.learner import FastSACLearner, SACActor
+from unilab.algos.fast_sac.learner import FastSACLearner, SACActor
 
 
 def _small_fast_sac_learner(*, use_autotune: bool = True) -> FastSACLearner:

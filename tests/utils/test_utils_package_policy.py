@@ -35,8 +35,8 @@ REMOVED_UTILS_SHIMS = {
     "xml_utils",
 }
 REMOVED_OWNER_ALIASES = {
-    "unilab.algos.torch.offpolicy.logging",
-    "unilab.algos.torch.common.tensor",
+    "unilab.algos.offpolicy.logging",
+    "unilab.algos.common.tensor",
 }
 
 
@@ -69,7 +69,7 @@ def test_removed_owner_aliases_are_not_importable() -> None:
 
 
 def test_algos_torch_common_no_longer_reexports_utils_primitives() -> None:
-    common = importlib.import_module("unilab.algos.torch.common")
+    common = importlib.import_module("unilab.algos.common")
     assert "get_default_device" not in common.__all__
     assert "to_numpy" not in common.__all__
     assert "to_torch" not in common.__all__

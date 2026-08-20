@@ -407,7 +407,7 @@ def test_hora_distill_runtime_checkpoint_records_model_only():
 
 
 def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
-    from unilab.algos.torch.hora.distill import cfg_with_checkpoint_runtime
+    from unilab.algos.hora.distill import cfg_with_checkpoint_runtime
 
     cfg = _hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"])
     checkpoint = {
@@ -471,8 +471,8 @@ def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
     teacher_algo_family: str,
     checkpoint_model: dict[str, Any],
 ):
-    from unilab.algos.torch.hora import distill_config
-    from unilab.algos.torch.hora.distill import cfg_with_checkpoint_runtime
+    from unilab.algos.hora import distill_config
+    from unilab.algos.hora.distill import cfg_with_checkpoint_runtime
 
     owner_cfg = OmegaConf.create(
         {
@@ -1967,8 +1967,8 @@ def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
 def test_offpolicy_build_play_actor_preserves_flashsac_model_kwargs(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    import unilab.algos.torch.common.actor_factory as actor_factory
-    import unilab.algos.torch.common.normalization as normalization
+    import unilab.algos.common.actor_factory as actor_factory
+    import unilab.algos.common.normalization as normalization
     from unilab.training.offpolicy import build_play_actor
 
     captured: dict[str, Any] = {}
@@ -2024,7 +2024,7 @@ def test_offpolicy_build_play_actor_restores_td3_state_and_normalizer(
 ):
     import torch
 
-    import unilab.algos.torch.fast_td3.learner as learner_module
+    import unilab.algos.fast_td3.learner as learner_module
     from unilab.training.offpolicy import build_play_actor, load_play_actor
 
     captured: dict[str, Any] = {}
@@ -2185,7 +2185,7 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
         ),
     )
 
-    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.algos.common.actor_factory as actor_factory
 
     monkeypatch.setattr(actor_factory, "build_actor", lambda *args, **kwargs: FakeActor())
 
@@ -2308,7 +2308,7 @@ def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
 
-    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.algos.common.actor_factory as actor_factory
 
     def fake_build_actor(algo_type, obs_dim, action_dim, hidden_dim, use_layer_norm, device, **kw):
         captured["build_actor"] = (algo_type, obs_dim, action_dim, kw)
@@ -2547,7 +2547,7 @@ def test_play_wrapper_flat_policy_excludes_critic_only_group():
 def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
     import numpy as np
 
-    from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
+    from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):
@@ -2668,7 +2668,7 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
 def test_play_wrapper_timeout_bootstrap_preserves_hora_priv_info():
     import torch
 
-    from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
+    from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):

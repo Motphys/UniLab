@@ -50,8 +50,8 @@ CPU physics env loop -> shared IPC buffer -> learner
 ## 仓库中的证据
 
 - PPO 入口：`scripts/train_rsl_rl.py`
-- APPO runner：`src/unilab/algos/torch/appo/runner.py`
-- Off-policy runner：`src/unilab/algos/torch/offpolicy/double_buffer_runner.py`
+- APPO runner：`src/unilab/algos/appo/runner.py`
+- Off-policy runner：`src/unilab/algos/offpolicy/double_buffer_runner.py`
 - IPC 原语：`src/unilab/ipc/async_runner.py`、
   `src/unilab/ipc/rollout_ring_buffer.py`、`src/unilab/ipc/replay_buffer.py`、
   `src/unilab/ipc/weight_sync.py`

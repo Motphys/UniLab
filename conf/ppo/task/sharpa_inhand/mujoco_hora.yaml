@@ -14,12 +14,12 @@ interactive:
 algo:
   algo_log_name: hora_ppo
   runtime_impl: hora_ppo
-  runtime_resolver: unilab.algos.torch.hora.rsl_rl:resolve_hora_ppo_runtime
+  runtime_resolver: unilab.algos.hora.rsl_rl:resolve_hora_ppo_runtime
   obs_groups:
     actor: [actor]
     critic: [actor]
   actor:
-    class_name: unilab.algos.torch.hora:HoraActorModel
+    class_name: unilab.algos.hora:HoraActorModel
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
@@ -30,14 +30,14 @@ algo:
       init_std: 1.0
       std_type: scalar
   critic:
-    class_name: unilab.algos.torch.hora:HoraCriticModel
+    class_name: unilab.algos.hora:HoraCriticModel
     hidden_dims: [512, 256, 128]
     activation: elu
     obs_normalization: true
     priv_info_embed_dim: 9
     priv_mlp_hidden_dims: [256, 128, 9]
   algorithm:
-    class_name: unilab.algos.torch.hora:HoraPPO
+    class_name: unilab.algos.hora:HoraPPO
 
 env:
   obs:

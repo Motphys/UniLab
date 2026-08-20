@@ -9,7 +9,7 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
-from unilab.algos.torch.rsl_rl_ppo import FinalObservationAwarePPO
+from unilab.algos.rsl_rl_ppo import FinalObservationAwarePPO
 from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
@@ -225,7 +225,7 @@ def test_normalize_ppo_train_cfg_preserves_unilab_runtime_flags() -> None:
     train_cfg = normalize_ppo_train_cfg(
         {
             "algorithm": {
-                "class_name": "unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO",
+                "class_name": "unilab.algos.rsl_rl_ppo:FinalObservationAwarePPO",
                 "enable_compile": True,
                 "target_kl_stop": None,
             },

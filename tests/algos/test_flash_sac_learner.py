@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 import torch
 
-from unilab.algos.torch.flash_sac.learner import FlashSACLearner, RewardNormalizer
-from unilab.algos.torch.flash_sac.update import compute_categorical_td_target
+from unilab.algos.flash_sac.learner import FlashSACLearner, RewardNormalizer
+from unilab.algos.flash_sac.update import compute_categorical_td_target
 
 
 def _make_batch(batch_size: int = 32) -> dict[str, torch.Tensor]:

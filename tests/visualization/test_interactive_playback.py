@@ -527,7 +527,7 @@ def test_sac_playback_session_runs_sim2sim_preflight(
 ) -> None:
     from omegaconf import OmegaConf
 
-    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.algos.common.actor_factory as actor_factory
     import unilab.training.offpolicy as offpolicy_play
     import unilab.training.run as training_run
     import unilab.visualization.interactive_playback as interactive_playback
@@ -667,8 +667,8 @@ def test_appo_hora_playback_session_uses_hora_wrapper_and_actor_checkpoint(
     from omegaconf import OmegaConf
     from tensordict import TensorDict
 
-    import unilab.algos.torch.hora.models as hora_models
-    import unilab.algos.torch.hora.rsl_rl as hora_rsl
+    import unilab.algos.hora.models as hora_models
+    import unilab.algos.hora.rsl_rl as hora_rsl
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)
@@ -782,7 +782,7 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
 ) -> None:
     from omegaconf import OmegaConf
 
-    import unilab.algos.torch.common.actor_factory as actor_factory
+    import unilab.algos.common.actor_factory as actor_factory
     import unilab.training.offpolicy as offpolicy_play
     import unilab.training.run as training_run
 
@@ -915,8 +915,8 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
     from omegaconf import OmegaConf
     from tensordict import TensorDict
 
-    import unilab.algos.torch.hora.distill as distill
-    import unilab.algos.torch.hora.rsl_rl as hora_rsl
+    import unilab.algos.hora.distill as distill
+    import unilab.algos.hora.rsl_rl as hora_rsl
     import unilab.training as training
 
     checkpoint = tmp_path / "hora_stage2_last.pt"

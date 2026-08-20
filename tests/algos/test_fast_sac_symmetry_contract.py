@@ -8,7 +8,7 @@ import gymnasium as gym
 import pytest
 import torch
 
-import unilab.algos.torch.fast_sac.learner as learner_module
+import unilab.algos.fast_sac.learner as learner_module
 
 
 class _FakeSymmetryAugmentation:
@@ -62,9 +62,9 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ):
-    import unilab.algos.torch.fast_sac.runner as runner_module
-    import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
-    from unilab.algos.torch.fast_sac.runner import FastSACRunner
+    import unilab.algos.fast_sac.runner as runner_module
+    import unilab.algos.offpolicy.double_buffer_runner as device_runner_module
+    from unilab.algos.fast_sac.runner import FastSACRunner
     from unilab.base import registry
 
     augmentation = _FakeSymmetryAugmentation()
@@ -79,7 +79,7 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(
         lambda value: value,
     )
 
-    with caplog.at_level(logging.INFO, logger="unilab.algos.torch.fast_sac.runner"):
+    with caplog.at_level(logging.INFO, logger="unilab.algos.fast_sac.runner"):
         runner = FastSACRunner(
             env_name="FakeEnv",
             device="cpu",
@@ -101,9 +101,9 @@ def test_fast_sac_runner_uses_env_owned_symmetry_contract(
 
 
 def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytest.MonkeyPatch):
-    import unilab.algos.torch.fast_sac.runner as runner_module
-    import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
-    from unilab.algos.torch.fast_sac.runner import FastSACRunner
+    import unilab.algos.fast_sac.runner as runner_module
+    import unilab.algos.offpolicy.double_buffer_runner as device_runner_module
+    from unilab.algos.fast_sac.runner import FastSACRunner
     from unilab.base import registry
 
     fake_env = _FakeEnv(_FakeSymmetryAugmentation())
@@ -141,7 +141,7 @@ def test_fast_sac_runner_skips_symmetry_builder_when_disabled(monkeypatch: pytes
 
 
 def test_fast_sac_learner_rejects_symmetry_without_augmentation():
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     with pytest.raises(
         ValueError,
@@ -157,7 +157,7 @@ def test_fast_sac_learner_rejects_symmetry_without_augmentation():
 
 
 def test_fast_sac_obs_normalization_uses_local_moments_and_round_trips():
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=2,
@@ -199,7 +199,7 @@ def test_fast_sac_obs_normalization_uses_local_moments_and_round_trips():
 def test_fast_sac_symmetry_augmentation_emits_fine_grained_nvtx_ranges(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     seen_ranges: list[str] = []
 
@@ -275,7 +275,7 @@ def test_fast_sac_symmetry_augmentation_emits_fine_grained_nvtx_ranges(
 def test_fast_sac_symmetry_uses_obs_only_augmentation_for_obs_only_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     symmetry = _FakeSymmetryAugmentation()
     learner = FastSACLearner(

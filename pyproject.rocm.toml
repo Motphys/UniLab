@@ -127,7 +127,7 @@ warn_unused_configs = true
 ignore_missing_imports = true
 no_site_packages = true
 exclude = [
-    "src/unilab/algos/torch/rsl_rl/",
+    "src/unilab/algos/rsl_rl/",
 ]
 
 [tool.pytest.ini_options]
@@ -150,8 +150,8 @@ venvPath = "."
 venv = ".venv"
 include = ["src/unilab"]
 exclude = [
-    "src/unilab/algos/torch/rsl_rl/",
-    "src/unilab/algos/torch/common/ane_*",
+    "src/unilab/algos/rsl_rl/",
+    "src/unilab/algos/common/ane_*",
     "src/unilab/base/backend/",
     "src/unilab/envs/",
     "src/unilab/terrains/",

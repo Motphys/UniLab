@@ -64,7 +64,7 @@ def resolve_play_actor_spec(
     if algo_name != "sac":
         return algo_name, {}
 
-    from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
+    from unilab.algos.offpolicy.runtime import resolve_custom_offpolicy_runtime
 
     rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
     custom_runtime = resolve_custom_offpolicy_runtime(rl_cfg)
@@ -91,7 +91,7 @@ def build_play_actor(
     """Build the policy actor selected by an off-policy owner config."""
     import torch
 
-    from unilab.algos.torch.common.actor_factory import build_actor
+    from unilab.algos.common.actor_factory import build_actor
 
     actor_algo_type, actor_kwargs = resolve_play_actor_spec(
         algo_name,
@@ -111,7 +111,7 @@ def build_play_actor(
             **actor_kwargs,
         )
     elif algo_name == "td3":
-        from unilab.algos.torch.fast_td3.learner import EmpiricalNormalization, TD3Actor
+        from unilab.algos.fast_td3.learner import EmpiricalNormalization, TD3Actor
 
         actor = TD3Actor(
             obs_dim,
@@ -138,7 +138,7 @@ def build_play_actor(
             actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
         )
         if cfg.algo.obs_normalization:
-            from unilab.algos.torch.common.normalization import EmpiricalNormalization
+            from unilab.algos.common.normalization import EmpiricalNormalization
 
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
     else:

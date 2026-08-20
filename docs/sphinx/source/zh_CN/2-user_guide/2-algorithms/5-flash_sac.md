@@ -2,7 +2,7 @@
 
 FlashSAC 是共享 off-policy 入口上的第三个算法。使用 `--algo flashsac` 选择它；默认
 值位于 `conf/offpolicy/algo/flashsac.yaml`，实现位于
-`src/unilab/algos/torch/flash_sac/` 下。
+`src/unilab/algos/flash_sac/` 下。
 
 它与 SAC、TD3 共用 off-policy 训练脚本，但默认网络并不相同：actor 使用 block-based
 结构，critic 使用 distributional（categorical）Q 变体。

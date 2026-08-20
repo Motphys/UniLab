@@ -34,7 +34,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / "src"))
 
-from unilab.algos.torch.him_ppo.runner import HIMOnPolicyRunner  # noqa: E402
+from unilab.algos.him_ppo.runner import HIMOnPolicyRunner  # noqa: E402
 from unilab.base.backend.mujoco.xml import materialize_scene_visual_override  # noqa: E402
 from unilab.training import BackendAdapter, create_env, ensure_registries  # noqa: E402
 from unilab.training.rsl_rl import RslRlVecEnvWrapper  # noqa: E402

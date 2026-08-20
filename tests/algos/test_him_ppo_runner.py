@@ -11,7 +11,7 @@ import pytest
 def test_him_iteration_progress_is_one_equivalent_multiline_log_record(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from unilab.algos.torch.him_ppo.runner import HIMOnPolicyRunner
+    from unilab.algos.him_ppo.runner import HIMOnPolicyRunner
 
     runner = cast(Any, HIMOnPolicyRunner.__new__(HIMOnPolicyRunner))
     runner.logger = SimpleNamespace(
@@ -19,7 +19,7 @@ def test_him_iteration_progress_is_one_equivalent_multiline_log_record(
         lenbuffer=deque([10.0, 14.0]),
     )
 
-    with caplog.at_level(logging.INFO, logger="unilab.algos.torch.him_ppo.runner"):
+    with caplog.at_level(logging.INFO, logger="unilab.algos.him_ppo.runner"):
         runner._log_iter(
             it=1,
             tot=3,
@@ -31,9 +31,7 @@ def test_him_iteration_progress_is_one_equivalent_multiline_log_record(
             infos={"log": {"reward/feet": 1.25}},
         )
 
-    records = [
-        record for record in caplog.records if record.name == "unilab.algos.torch.him_ppo.runner"
-    ]
+    records = [record for record in caplog.records if record.name == "unilab.algos.him_ppo.runner"]
     assert len(records) == 1
     lines = records[0].getMessage().splitlines()
     assert lines[0] == "-" * 80

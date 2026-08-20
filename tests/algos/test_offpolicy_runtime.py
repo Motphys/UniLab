@@ -4,7 +4,7 @@ import pytest
 
 
 def test_offpolicy_runtime_defaults_to_standard_sac_overrides() -> None:
-    from unilab.algos.torch.offpolicy.runtime import OffPolicyRuntime
+    from unilab.algos.offpolicy.runtime import OffPolicyRuntime
 
     runtime = OffPolicyRuntime()
 
@@ -15,7 +15,7 @@ def test_offpolicy_runtime_defaults_to_standard_sac_overrides() -> None:
 
 
 def test_hora_sac_runtime_builds_privileged_actor_kwargs() -> None:
-    from unilab.algos.torch.hora.sac import resolve_hora_sac_runtime
+    from unilab.algos.hora.sac import resolve_hora_sac_runtime
 
     runtime = resolve_hora_sac_runtime(
         {
@@ -38,7 +38,7 @@ def test_hora_sac_runtime_builds_privileged_actor_kwargs() -> None:
 
 
 def test_hora_sac_runtime_requires_critic_tail() -> None:
-    from unilab.algos.torch.hora.sac import resolve_hora_sac_runtime
+    from unilab.algos.hora.sac import resolve_hora_sac_runtime
 
     runtime = resolve_hora_sac_runtime({"runtime_impl": "hora_sac"})
 
@@ -48,7 +48,7 @@ def test_hora_sac_runtime_requires_critic_tail() -> None:
 
 
 def test_offpolicy_runtime_rejects_marker_without_resolver() -> None:
-    from unilab.algos.torch.offpolicy.runtime import resolve_custom_offpolicy_runtime
+    from unilab.algos.offpolicy.runtime import resolve_custom_offpolicy_runtime
 
     with pytest.raises(ValueError, match="runtime_impl='hora_sac'.*runtime_resolver"):
         resolve_custom_offpolicy_runtime({"runtime_impl": "hora_sac"})

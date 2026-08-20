@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from unilab.algos.torch.offpolicy.thread_budget import (
+from unilab.algos.offpolicy.thread_budget import (
     apply_torch_thread_runtime,
     format_torch_thread_runtime,
     resolve_torch_thread_runtime,

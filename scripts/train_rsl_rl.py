@@ -17,7 +17,7 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unilab.base.backend import RenderClosedError, materialize_scene_visual_override
 from unilab.base.run_control import RunComplete
 from unilab.ipc.dp_launcher import (

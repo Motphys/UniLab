@@ -58,7 +58,7 @@ run_summary.json
 src/unilab/assets/checkpoints/
 
 scripts/benchmark/outputs/
-src/unilab/algos/torch/rsl_rl
+src/unilab/algos/rsl_rl
 
 third-party
 temp/

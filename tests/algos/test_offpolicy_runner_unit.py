@@ -11,13 +11,13 @@ import numpy as np
 import pytest
 import torch
 
-import unilab.algos.torch.offpolicy.double_buffer_runner as device_runner_module
-import unilab.algos.torch.offpolicy.runner as runner_module
-from unilab.algos.torch.offpolicy.double_buffer_runner import (
+import unilab.algos.offpolicy.double_buffer_runner as device_runner_module
+import unilab.algos.offpolicy.runner as runner_module
+from unilab.algos.offpolicy.double_buffer_runner import (
     _LearnerInferenceScheduler,
     algo_display_name,
 )
-from unilab.algos.torch.offpolicy.runner import (
+from unilab.algos.offpolicy.runner import (
     OffPolicyRunner,
     build_offpolicy_sample_info,
     compute_train_start_threshold,
@@ -575,15 +575,15 @@ def test_drain_metrics_propagates_collector_error():
 @pytest.mark.parametrize("algo_type", ["sac", "td3", "flashsac"])
 def test_learner_inference_matches_existing_actor_exploration(algo_type: str) -> None:
     if algo_type == "sac":
-        from unilab.algos.torch.fast_sac.learner import SACActor
+        from unilab.algos.fast_sac.learner import SACActor
 
         actor = SACActor(3, 2, hidden_dim=8, use_layer_norm=False)
     elif algo_type == "flashsac":
-        from unilab.algos.torch.flash_sac.network import FlashSACActor
+        from unilab.algos.flash_sac.network import FlashSACActor
 
         actor = FlashSACActor(num_blocks=1, input_dim=3, hidden_dim=8, action_dim=2)
     else:
-        from unilab.algos.torch.fast_td3.learner import TD3Actor
+        from unilab.algos.fast_td3.learner import TD3Actor
 
         actor = TD3Actor(3, 2, num_envs=2, init_scale=0.01, hidden_dim=8)
     expected_actor = copy.deepcopy(actor)
@@ -624,7 +624,7 @@ def test_learner_inference_matches_existing_actor_exploration(algo_type: str) ->
 
 
 def test_hora_learner_inference_uses_privileged_context() -> None:
-    from unilab.algos.torch.hora.sac_models import HoraSACActor
+    from unilab.algos.hora.sac_models import HoraSACActor
 
     actor = HoraSACActor(
         obs_dim=3,

@@ -1,7 +1,7 @@
 # APPO
 
 APPO 是 UniLab 的异步 PPO 路径。它使用 `scripts/train_appo.py`、
-`conf/appo/config.yaml` 以及 `src/unilab/algos/torch/appo/` 下的运行时。该配置暴露
+`conf/appo/config.yaml` 以及 `src/unilab/algos/appo/` 下的运行时。该配置暴露
 了 `algo.steps_per_env`、`training.collector_device` 和
 `training.replay_queue_size`；算法配置中包含 V-trace 裁剪字段。
 

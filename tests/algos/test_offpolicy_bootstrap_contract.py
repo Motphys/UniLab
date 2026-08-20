@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import torch
 
-from unilab.algos.torch.fast_sac.learner import FastSACLearner
-from unilab.algos.torch.fast_td3.learner import FastTD3Learner
+from unilab.algos.fast_sac.learner import FastSACLearner
+from unilab.algos.fast_td3.learner import FastTD3Learner
 
 
 class _CaptureSacTargetCritic(torch.nn.Module):

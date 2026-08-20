@@ -7,7 +7,7 @@ skrl 的强项在于算法广度。UniLab 专注于一组精选算法（PPO、SA
 
 | skrl | UniLab |
 |---|---|
-| `Agent`（PPO、SAC……） | `unilab.algos.torch.*` |
+| `Agent`（PPO、SAC……） | `unilab.algos.*` |
 | `RolloutMemory` | `unilab.ipc.rollout_ring_buffer` |
 | `ReplayMemory` | `unilab.ipc.replay_buffer` |
 | `Trainer` | `unilab.training.run` |

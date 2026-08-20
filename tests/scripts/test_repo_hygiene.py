@@ -5,8 +5,8 @@ from pathlib import Path
 from tests.scripts import repo_hygiene_checks
 
 REMOVED_ORPHAN_MODULES = (
-    "src/unilab/algos/torch/common/base_collector.py",
-    "src/unilab/algos/torch/fast_td3/runner.py",
+    "src/unilab/algos/common/base_collector.py",
+    "src/unilab/algos/fast_td3/runner.py",
 )
 
 

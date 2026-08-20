@@ -67,7 +67,7 @@ def _attach_guard(env, output_dir: Path) -> NanGuard:
 
 
 def build_him_ppo(num_envs: int, log_dir: Path, output_dir: Path):
-    from unilab.algos.torch.him_ppo.runner import HIMOnPolicyRunner
+    from unilab.algos.him_ppo.runner import HIMOnPolicyRunner
 
     ensure_registries()
     with initialize_config_dir(config_dir=str(ROOT_DIR / "conf/ppo_him"), version_base=None):

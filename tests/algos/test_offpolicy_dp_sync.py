@@ -19,7 +19,7 @@ from unilab.ipc.dp_sync import DpParameterSync
 
 
 def _bare_runner():
-    from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+    from unilab.algos.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 
     return object.__new__(DoubleBufferOffPolicyRunner)
 
@@ -162,7 +162,7 @@ def test_close_closes_dp_sync_idempotently():
 
 
 def test_close_restores_terminal_and_ipc_before_destroying_process_group(monkeypatch):
-    from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+    from unilab.algos.offpolicy.runner import OffPolicyRunner
 
     events: list[str] = []
 
@@ -185,7 +185,7 @@ def test_close_restores_terminal_and_ipc_before_destroying_process_group(monkeyp
 
 
 def test_close_still_destroys_process_group_when_local_cleanup_fails(monkeypatch):
-    from unilab.algos.torch.offpolicy.runner import OffPolicyRunner
+    from unilab.algos.offpolicy.runner import OffPolicyRunner
 
     dp_sync = _FakeDpSync()
     runner = _runner_with(_SyncLearner(), dp_sync)
@@ -335,7 +335,7 @@ def test_only_rank_zero_persists_checkpoint(tmp_path):
 
 def test_learn_source_orders_sync_around_collector_and_logging():
     """Startup broadcast precedes collection; timing is consumed after updates."""
-    from unilab.algos.torch.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+    from unilab.algos.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 
     source = inspect.getsource(DoubleBufferOffPolicyRunner.learn)
     assert source.index("self._dp_init_broadcast()") < source.index("self._start_collector(")
@@ -350,7 +350,7 @@ def test_learn_source_orders_sync_around_collector_and_logging():
 
 
 def test_fast_sac_initial_sync_tensors_return_live_references():
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=4,
@@ -389,7 +389,7 @@ def test_fast_sac_initial_sync_tensors_return_live_references():
 
 
 def test_fast_sac_syncs_each_optimizer_gradient_before_step():
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=4,
@@ -446,7 +446,7 @@ def test_fast_sac_syncs_each_optimizer_gradient_before_step():
 
 
 def test_fast_sac_gradient_sync_preserves_cuda_graph_capture():
-    from unilab.algos.torch.fast_sac.learner import FastSACLearner
+    from unilab.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=4,
@@ -482,7 +482,7 @@ def _build_sac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: 
     cfg = _offpolicy_cfg(overrides)
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
 
-    import unilab.algos.torch.fast_sac.double_buffer as owner_module
+    import unilab.algos.fast_sac.double_buffer as owner_module
 
     class _Learner:
         def __init__(self, *args, **kwargs):
@@ -556,7 +556,7 @@ def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.Monke
 
 
 def test_flash_sac_initial_sync_tensors_return_live_references():
-    from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+    from unilab.algos.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
         obs_dim=4,
@@ -603,7 +603,7 @@ def test_flash_sac_initial_sync_tensors_return_live_references():
 
 
 def test_flash_sac_syncs_each_optimizer_gradient_before_step():
-    from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+    from unilab.algos.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
         obs_dim=4,
@@ -650,7 +650,7 @@ def test_flash_sac_syncs_each_optimizer_gradient_before_step():
 
 
 def test_flash_sac_gradient_sync_preserves_cuda_graph_and_cpu_fallback_updates():
-    from unilab.algos.torch.flash_sac.learner import FlashSACLearner
+    from unilab.algos.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
         obs_dim=4,
@@ -706,7 +706,7 @@ def _build_flashsac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overri
     cfg = _offpolicy_cfg(overrides)
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
 
-    import unilab.algos.torch.flash_sac.double_buffer as flash_module
+    import unilab.algos.flash_sac.double_buffer as flash_module
 
     monkeypatch.setattr(flash_module, "ensure_registries", lambda: None)
     monkeypatch.setattr(flash_module, "create_env", lambda *args, **kwargs: _FakeEnv())

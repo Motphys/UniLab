@@ -41,4 +41,4 @@
 - 结构化 config dataclass：`src/unilab/structured_configs.py`
 - 训练辅助工具：`src/unilab/training/common.py`、
   `src/unilab/training/run.py`
-- 现有算法包：`src/unilab/algos/torch/`
+- 现有算法包：`src/unilab/algos/`

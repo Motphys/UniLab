@@ -1050,7 +1050,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         if algo == "ppo":
             wrapper_cls = RslRlVecEnvWrapper
             if cfg is not None:
-                from unilab.algos.torch.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+                from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 
                 wrapper_cls = resolve_rsl_rl_ppo_runtime(
                     _algo_config_dict(cfg),

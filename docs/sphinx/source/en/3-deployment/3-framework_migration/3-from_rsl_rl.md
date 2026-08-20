@@ -1,7 +1,7 @@
 # Migrating from RSL-RL
 
 You're already using RSL-RL standalone? Good news: UniLab ships RSL-RL PPO
-as one of its supported algorithms (`unilab.algos.torch.rsl_rl_ppo`)
+as one of its supported algorithms (`unilab.algos.rsl_rl_ppo`)
 and it's nearly drop-in.
 
 ## What you gain by moving inside UniLab
@@ -13,7 +13,7 @@ and it's nearly drop-in.
    backend / task / algo selection. No more bespoke train scripts per
    robot.
 3. **Async runner.** Wrap RSL-RL PPO inside
-   `unilab.algos.torch.appo` for higher throughput on machines
+   `unilab.algos.appo` for higher throughput on machines
    with many CPU cores.
 4. **Deployment story.** ONNX export with the right wrapper, safety
    layer documentation, and the

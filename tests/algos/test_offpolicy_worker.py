@@ -6,8 +6,8 @@ import threading
 import pytest
 import torch
 
-from unilab.algos.torch.common.collector_timing import extract_env_step_breakdown_timing_ms
-from unilab.algos.torch.offpolicy.worker import (
+from unilab.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
+from unilab.algos.offpolicy.worker import (
     _publish_inference_tick,
     _wait_for_inference_tick,
     compute_collector_active_steps_per_sec,

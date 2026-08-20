@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from unilab.algos.torch.common.actor_factory import build_actor
+from unilab.algos.common.actor_factory import build_actor
 from unilab.base.registry import ensure_registries
 
 

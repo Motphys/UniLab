@@ -41,4 +41,4 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
 - Structured config dataclasses: `src/unilab/structured_configs.py`
 - Training helpers: `src/unilab/training/common.py`,
   `src/unilab/training/run.py`
-- Existing algorithm packages: `src/unilab/algos/torch/`
+- Existing algorithm packages: `src/unilab/algos/`

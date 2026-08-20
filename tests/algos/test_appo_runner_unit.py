@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch
 
-import unilab.algos.torch.appo.runner as appo_runner_module
-from unilab.algos.torch.appo.runner import APPORunner
+import unilab.algos.appo.runner as appo_runner_module
+from unilab.algos.appo.runner import APPORunner
 
 
 @pytest.fixture(autouse=True)
