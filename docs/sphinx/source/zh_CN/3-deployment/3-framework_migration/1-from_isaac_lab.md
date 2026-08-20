@@ -133,11 +133,33 @@ uv run train --algo ppo --task <task> --sim mujoco
 
 不要增加 task-specific 训练脚本分支、env factory、runner 或 IPC 路径。
 
+generic factory 规则只有两个 maintainer 批准的已注册例外：
+`make_g1_walk_env`（`src/unilab/tasks/locomotion/g1/manager_terms.py`）构造
+`G1WalkManagerBasedEnv` 子类，提供 `NpEnv` 的 `build_symmetry_augmentation`
+对称性 hook；`make_x2_wall_flip_env`
+（`src/unilab/tasks/motion_tracking/x2/__init__.py`）在冷路径解析未跟踪的 X2
+mesh，然后委托给 `make_manager_based_rl_env`。其余所有 Compatible task 都直接注册
+`make_manager_based_rl_env`。
+
 ### 6. 在适配风险附近验证
 
 测试 Hydra compose 与 typed materialization、term 顺序与数学、selector 失败、
 observation/action shape、局部 reset，以及至少一个真实已注册 backend 的 transition。行为
 应与固定来源 task 对比；完成语义迁移后再做性能 benchmark。
+
+## 任务迁移最终状态
+
+#1042 迁移收尾覆盖 39 个 production task、86 个 task/backend 注册。fail-closed 的
+source of truth 是 `src/unilab/tasks/migration_matrix.py`：`migration_record()` 对没有
+entry 的 production task 名称抛出 `KeyError`，因此新增 production 注册必须显式做出
+迁移决策。
+
+- 36 个 task 为 **Compatible**（`target=complete`）：Hydra owner YAML 物化 canonical
+  NumPy Manager-Based runtime。
+- 3 个 task 为 **Adapted**（`target=compatibility`）：`Go2ArmManipLoco`、
+  `SharpaInhandRotation` 和 `SharpaInhandRotationGrasp` 各自把自定义 IK/history 或
+  tactile/contact/cache 行为保留在一个冻结的兼容 factory 后面；只有当正式能力存在时
+  才迁移。
 
 ## 仓库证据
 

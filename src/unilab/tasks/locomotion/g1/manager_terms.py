@@ -795,7 +795,7 @@ class G1VelocityCommand(UniformVelocityCommand):
 
 
 # ---------------------------------------------------------------------------
-# Penalty curriculum (ports EpisodeLengthTracker + PenaltyCurriculum semantics)
+# Penalty curriculum (ports the legacy G1 penalty-curriculum semantics)
 # ---------------------------------------------------------------------------
 
 
