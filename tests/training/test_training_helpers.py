@@ -381,9 +381,8 @@ def test_backend_adapter_env_cfg_override_for_motrix_sac_g1_walk_flat():
     env_cfg_override = adapter.build_task_env_cfg_override()
 
     # env_cfg_override has reward + env preset fields
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
-    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
-    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
+    assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(2.2)
+    assert env_cfg_override["events"]["pd_gains"] is None
     # algo values come straight from YAML compose — no mutation, matches task owner values
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000

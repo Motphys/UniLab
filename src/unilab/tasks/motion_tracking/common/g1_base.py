@@ -1,4 +1,9 @@
-"""Shared runtime and configuration for G1 task owners."""
+"""Shared G1 runtime and configuration base for motion-tracking tasks.
+
+Relocated from ``unilab.tasks.locomotion.g1.base`` when the G1 locomotion
+family migrated to the Manager-Based runtime; motion tracking is the sole
+remaining consumer of the legacy class-based G1 base env.
+"""
 
 from __future__ import annotations
 

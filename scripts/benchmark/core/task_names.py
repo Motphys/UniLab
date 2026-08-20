@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from unilab.envs import ManagerBasedRlEnvCfg
-from unilab.tasks.locomotion.g1.joystick import G1WalkFlatCfg
 from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
 
 
@@ -35,7 +34,8 @@ _TASK_SPECS = {
         owner_task_id="g1_walk_flat",
         env_task_name="G1WalkFlat",
         display_name="g1_walk_flat",
-        config_cls=G1WalkFlatCfg,
+        config_cls=ManagerBasedRlEnvCfg,
+        model_file="src/unilab/assets/robots/g1/scene_flat.xml",
     ),
     "sharpa_inhand": LocomotionTaskSpec(
         owner_task_id="sharpa_inhand",

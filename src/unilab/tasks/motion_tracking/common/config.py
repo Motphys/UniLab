@@ -13,7 +13,7 @@ from typing import Literal
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
-from unilab.tasks.locomotion.g1.base import G1BaseCfg
+from unilab.tasks.motion_tracking.common.g1_base import G1BaseCfg
 
 from .rewards import RewardConfig
 

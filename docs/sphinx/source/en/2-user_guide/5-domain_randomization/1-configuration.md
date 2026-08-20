@@ -5,7 +5,7 @@ under `env.domain_rand`. Use `--task` and `--sim` to select backend-specific
 behavior first, then override fields inside that selected owner.
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -31,7 +31,7 @@ Use `--sim mujoco` when enabling gravity reset randomization; Motrix does not
 advertise the same gravity capability in the current backend.
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -39,7 +39,7 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 ## Interval Push
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
   'env.domain_rand.max_force=[20.0,20.0,5.0]'

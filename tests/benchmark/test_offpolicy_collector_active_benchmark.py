@@ -135,14 +135,9 @@ def test_auto_discovery_supports_motrixsim_alias() -> None:
 
 
 def test_noise_seed_override_composes_for_target_g1_profiles() -> None:
-    for spec in (
-        ("sac", "g1_motion_tracking", "mujoco"),
-        ("sac", "g1_walk_flat", "mujoco"),
-        ("sac", "g1_walk_flat", "motrix"),
-        ("flashsac", "g1_walk_flat", "mujoco"),
-        ("flashsac", "g1_walk_flat", "motrix"),
-        ("td3", "g1_walk_flat", "mujoco"),
-    ):
+    # Manager-Based G1 walk owners no longer carry env.noise_config; only the
+    # legacy motion-tracking owner still composes the seed override.
+    for spec in (("sac", "g1_motion_tracking", "mujoco"),):
         cfg = bench._compose_offpolicy_cfg(
             *spec,
             extra_overrides=["env.noise_config.seed=123"],

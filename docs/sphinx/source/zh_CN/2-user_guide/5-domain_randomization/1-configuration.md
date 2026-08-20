@@ -5,7 +5,7 @@
 然后在所选的 owner 内部 override 字段。
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -28,7 +28,7 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 未提供相同的 gravity 能力。
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -36,7 +36,7 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 ## Interval Push
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
   'env.domain_rand.max_force=[20.0,20.0,5.0]'

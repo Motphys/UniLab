@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 
@@ -151,9 +150,9 @@ def test_offpolicy_sac_g1_task_overrides():
     assert cfg.algo.algo_params.use_compile is True
     assert cfg.training.task_name == "G1WalkFlat"
 
-    assert cfg.env.control_config.action_scale == pytest.approx(1.0)
-    assert cfg.env.gait_phase_init_mode == "offset_phase"
-    assert cfg.env.reset_base_qvel_limit == pytest.approx(0.5)
+    assert cfg.env.actions.joint_pos.scale == pytest.approx(1.0)
+    assert cfg.env.observations.policy.terms.gait_phase.params.init_mode == "offset_phase"
+    assert cfg.env.events.reset_root_state_uniform.params.velocity_range.x == [-0.5, 0.5]
 
 
 def test_offpolicy_td3_defaults():
@@ -181,7 +180,7 @@ def test_offpolicy_td3_g1_task_overrides():
         cfg = compose("config", overrides=["algo=td3", "task=td3/g1_walk_flat/mujoco"])
     assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.algo.max_iterations == 100000
-    assert cfg.env.control_config.action_scale == pytest.approx(1.0)
+    assert cfg.env.actions.joint_pos.scale == pytest.approx(1.0)
 
 
 def test_offpolicy_flashsac_g1_task_overrides():
@@ -228,8 +227,6 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
-    from unilab.tasks.locomotion.g1.joystick import G1WalkRoughCfg
-
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
         cfg = compose(
@@ -239,23 +236,24 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     assert cfg.algo.algo == "sac"
     assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
-    assert G1WalkRoughCfg().scene.model_file.endswith("scene_rough.xml")
+    assert cfg.env.scene.model_file.endswith("scene_rough.xml")
 
 
 def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
-    from unilab.tasks.locomotion.g1.joystick import G1WalkEnv
-
     def uses_walk_profile(config_group: str, overrides: list[str]) -> bool:
         GlobalHydra.instance().clear()
         with initialize_config_dir(config_dir=str(CONF_DIR / config_group), version_base="1.3"):
             cfg = compose("config", overrides=overrides)
-        env = cast(Any, object.__new__(G1WalkEnv))
-        env._cfg = cfg.env
-        env._reward_cfg = cfg.reward
-        return bool(env._uses_walk_observation_profile())
+        gyro_scale = cfg.env.observations.policy.terms.base_ang_vel.get("scale")
+        if gyro_scale is None:
+            return False
+        assert gyro_scale == pytest.approx(0.25)
+        assert cfg.env.observations.policy.terms.joint_vel.scale == pytest.approx(0.05)
+        assert cfg.env.observations.critic.terms.base_lin_vel.scale == pytest.approx(2.0)
+        return True
 
     assert uses_walk_profile("ppo", ["task=g1_walk_flat/mujoco"]) is False
     assert uses_walk_profile("appo", ["task=g1_walk_flat/mujoco"]) is False
@@ -297,7 +295,7 @@ def test_appo_g1_task_overrides():
     assert cfg.algo.save_interval == 100
     assert cfg.training.task_name == "G1WalkFlat"
     assert "obs_profile" not in cfg.env
-    assert cfg.env.curriculum.enabled is False
+    assert "curriculum" not in cfg.env
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +342,7 @@ def test_ppo_g1_num_envs():
     assert cfg.algo.max_iterations == 2200
     assert cfg.training.task_name == "G1WalkFlat"
     assert "obs_profile" not in cfg.env
-    assert cfg.env.curriculum.enabled is False
+    assert "curriculum" not in cfg.env
 
 
 def test_ppo_go2_num_envs():

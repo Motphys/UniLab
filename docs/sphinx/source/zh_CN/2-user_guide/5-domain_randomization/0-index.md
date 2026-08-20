@@ -18,7 +18,7 @@
 ## 状态结论
 
 1. 当前所有接入 DR provider 的任务都使用统一的 DR 入口点；没有任何任务绕开 `DomainRandomizationManager` 在 `reset()` 内部运行单独的 DR 流程。
-2. 它们的结构都大致相同：task 文件定义一个 `domain_rand` 配置 dataclass、一个 `DomainRandomizationProvider` 和一个 `ResetPlan`；`G1WalkFlat` 复用 `G1Walk` 的 provider。
+2. 它们的结构都大致相同：task 文件定义一个 `domain_rand` 配置 dataclass、一个 `DomainRandomizationProvider` 和一个 `ResetPlan`；`G1Walk*` 则改为通过 Hydra `EventTermCfg` Manager-Based reset term 声明 DR。
 3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`；共享的 interval 辅助函数目前只生成 push。
 4. `ResetRandomizationPayload` 已经可以表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，并且 `MuJoCoBackend` 已声明支持。这些是否实际被使用，仍取决于 task provider 是否对它们进行采样和 dispatch。
 5. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
@@ -30,8 +30,8 @@
 | --- | --- | --- | --- | --- | --- |
 | `Go1JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | task 状态采样 + common payload | push | `go1/joystick.py` |
 | `Go2JoystickFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | task 状态采样 + common payload | push | `go2/joystick.py` |
-| `G1WalkFlat` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | task 状态采样 + common payload | push | `g1/joystick.py` |
-| `G1WalkRough` | 是 | 是：复用 `G1WalkDomainRandomizationProvider` | task 状态采样 + common payload | push | `g1/joystick.py` |
+| `G1WalkFlat` | 是 | 是：Hydra `EventTermCfg` + Manager-Based reset term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
+| `G1WalkRough` | 是 | 是：与 `G1WalkFlat` 相同的 Manager-Based event term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
 | `G1MotionTracking` | 是 | 是：`Domain_Rand + Provider + ResetPlan` | 大量 task 专属的 reset 采样 + common payload | push | `motion_tracking/g1/tracking.py` |
 | `AllegroInhandRotation` | 是 | 是：Hydra `EventTermCfg` + Manager-Based reset term | entity 范围的手/球 reset | 无 | `allegro_inhand/manager_terms.py` |
 | `AllegroInhandRotationGrasp` | 是 | 是：复用 rotation reset event + `RecorderTermCfg` | 带噪声的手部 reset + grasp 收集 | 无 | `allegro_inhand/grasp_gen.py` |
@@ -44,8 +44,8 @@
 | --- | --- | --- | --- |
 | `Go1JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | `base_mass_delta`、`base_com_offset` 和 push 默认启用；`gravity` 默认禁用 |
 | `Go2JoystickFlat` | base xy；base yaw；base qvel；command 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认启用）；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | kp/kd 默认启用；common payload 和 push 默认禁用 |
-| `G1WalkFlat` | base xy；base yaw；由 `reset_base_qvel_limit` 采样的 base qvel；command 采样；`gait_phase` 采样；`current_actions/last_actions` 清零；kp/kd 随机化（默认启用）；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | kp/kd 默认启用；common payload 和 push 默认禁用 |
-| `G1WalkRough` | 与 `G1WalkFlat` 相同，直接复用同一 provider | `push_robots` | kp/kd 默认启用；common payload 和 push 默认禁用 |
+| `G1WalkFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；带平面死区的 command 采样；`gait_phase` 采样；经 `pd_gains` 的 kp/kd 随机化 | 无 | mujoco owner 默认启用 kp/kd；motrix/mjwarp owner 默认禁用 |
+| `G1WalkRough` | 与 `G1WalkFlat` 相同（共享 owner base，rough 场景） | 无 | 与 `G1WalkFlat` 相同的默认值 |
 | `G1MotionTracking` | 动作帧采样；root 位姿扰动 `x/y/z/roll/pitch/yaw`；root 速度扰动 `x/y/z/roll/pitch/yaw`；关节位置噪声；在 MuJoCo 下被关节范围 clip；`current_actions/last_actions` 清零；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | `push_robots` | `pose_randomization`、`velocity_randomization`、`joint_position_range` 默认有非零扰动；common payload 和 push 默认禁用 |
 | `AllegroInhandRotation` | entity 范围的手/球 reset；显式配置 grasp cache 时进行采样，否则以 `null` 显式选择模型 home pose；可选 `joint_noise`、`ball_velocity_noise` 与 `ball_z_offset` | 无 | owner YAML 显式选择 home pose 与零 reset 噪声；配置的 cache 缺失或格式错误时 fail-closed |
 | `AllegroInhandRotationGrasp` | 复用 rotation reset 并设置 `joint_noise=0.25`；Manager-Based termination 检查指尖距离、接触数和球高度；recorder 保存成功 timeout rows | 无 | 生成 5 万行 Allegro grasp cache，成功保存后抛出 `RunComplete` |
@@ -134,7 +134,7 @@ env:
 如果你只想随机化大小而保持竖直向下的方向，只开放 `z` 分量：
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
 ```
@@ -142,7 +142,7 @@ uv run train --algo ppo --task g1_walk_flat --sim mujoco \
 如果你想同时随机化方向和大小，开放 `x/y/z`：
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.randomize_gravity=true \
   'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
 ```
@@ -174,7 +174,7 @@ env:
 - `push_body_name`：施加力的目标 body / link。默认为 `null`，表示使用后端的 `base_name`。
 
 ```bash
-uv run train --algo ppo --task g1_walk_flat --sim mujoco \
+uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
   env.domain_rand.push_robots=true \
   env.domain_rand.push_interval=500 \
   'env.domain_rand.max_force=[20.0,20.0,5.0]' \
