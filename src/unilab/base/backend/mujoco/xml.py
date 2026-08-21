@@ -58,7 +58,12 @@ def _iter_named_bodies(root: ET.Element, base_dir: Path) -> Iterator[str]:
         yield from _iter_named_bodies(child, child_base_dir)
 
 
-def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
+def get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
+    """List MuJoCo-style body ids and names declared in a (possibly included) XML.
+
+    Returns ``(ids, names)`` in document order, with ids starting at 1 (the
+    MuJoCo implicit world body 0 is not listed).
+    """
     model_path = Path(model_file).resolve()
     names = list(_iter_named_bodies(ET.parse(model_path).getroot(), model_path.parent))
     ids = list(range(1, len(names) + 1))
@@ -67,7 +72,7 @@ def _get_named_bodies(model_file: str) -> tuple[list[int], list[str]]:
 
 def get_named_body_ids(model_file: str, names: Sequence[str]) -> list[int]:
     """Resolve MuJoCo-style body ids from XML without importing mujoco."""
-    body_ids, body_names = _get_named_bodies(model_file)
+    body_ids, body_names = get_named_bodies(model_file)
     body_id_by_name = dict(zip(body_names, body_ids, strict=True))
     missing = [name for name in names if name not in body_id_by_name]
     if missing:
@@ -524,7 +529,7 @@ def inject_mujoco_tracking_sensors(
         (tmp_xml_path, tracked_body_ids, valid_bnames)
     """
     mujoco = _mujoco_module()
-    tracked_body_ids, valid_bnames = _get_named_bodies(model_file)
+    tracked_body_ids, valid_bnames = get_named_bodies(model_file)
 
     spec = mujoco.MjSpec.from_file(model_file)
     _add_w_sensors(spec, valid_bnames)

@@ -486,7 +486,7 @@ def _materialize_tuning_scene(
     add_height_joint: bool = True,
     height_range: tuple[float, float] = (-1.0, 1.0),
 ) -> Path:
-    from unilab.base.backend.mujoco.xml import materialize_scene_fragments
+    from unilab.base.backend import materialize_scene_fragments
 
     merged = materialize_scene_fragments(str(robot_xml), fragment_files=[str(scene_xml)])
     tree = ET.parse(merged)
