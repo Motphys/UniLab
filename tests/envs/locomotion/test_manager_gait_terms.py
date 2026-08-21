@@ -38,6 +38,8 @@ class _Scene:
             "fr_pos": np.array([[0, 0, 0.2], [0, 0, 0.1]], dtype=np.float32),
             "rl_pos": np.array([[0, 0, 0.1], [0, 0, 0.2]], dtype=np.float32),
             "rr_pos": np.array([[0, 0, 0], [0, 0, 0.1]], dtype=np.float32),
+            "local_linvel": np.array([[0.2, 0.1, -0.3], [0.3, -0.2, 0.5]], dtype=np.float32),
+            "gyro": np.array([[0.1, -0.2, 0.4], [-0.3, 0.2, -0.1]], dtype=np.float32),
         }
 
     def bind_sensor_data(self, names) -> BackendSensorView:
@@ -364,3 +366,55 @@ def test_base_reward_terms_fail_closed_at_nearest_boundary() -> None:
             manager_terms.joint_deviation_l1,
             asset_cfg=SceneEntityCfg("missing"),
         )
+
+
+def test_sensor_bound_velocity_terms_match_legacy_go2_equations() -> None:
+    env = _env()
+    linvel = cast(Any, env).scene.values["local_linvel"]
+    gyro = cast(Any, env).scene.values["gyro"]
+    command = cast(Any, env).command_manager.command
+    sigma = 0.25
+    actual = {
+        "track_lin": _reward_value(
+            env, manager_terms.track_lin_vel, tracking_sigma=sigma, command_name="twist"
+        ),
+        "track_ang": _reward_value(
+            env, manager_terms.track_ang_vel, tracking_sigma=sigma, command_name="twist"
+        ),
+        "lin_z": _reward_value(env, manager_terms.lin_vel_z),
+        "ang_xy": _reward_value(env, manager_terms.ang_vel_xy),
+    }
+    expected = {
+        "track_lin": np.exp(-np.sum(np.square(command[:, :2] - linvel[:, :2]), axis=1) / sigma),
+        "track_ang": np.exp(-np.square(command[:, 2] - gyro[:, 2]) / sigma),
+        "lin_z": np.square(linvel[:, 2]),
+        "ang_xy": np.sum(np.square(gyro[:, :2]), axis=1),
+    }
+    for name in expected:
+        assert actual[name].shape == (2,)
+        assert actual[name].dtype == np.dtype(get_global_dtype())
+        np.testing.assert_allclose(actual[name], expected[name], rtol=1e-6, atol=1e-7)
+
+
+def test_sensor_bound_velocity_terms_fail_closed_at_nearest_boundary() -> None:
+    env = _env()
+    with pytest.raises(KeyError, match="lin_vel_z.*could not be materialized.*missing"):
+        _reward_value(env, manager_terms.lin_vel_z, sensor_name="missing")
+    with pytest.raises(ValueError, match="track_lin_vel tracking_sigma must be greater than 0.0"):
+        _reward_value(env, manager_terms.track_lin_vel, tracking_sigma=0.0)
+    with pytest.raises(ValueError, match="track_ang_vel sensor_name must be a non-empty string"):
+        _reward_value(env, manager_terms.track_ang_vel, sensor_name="")
+    with pytest.raises(KeyError, match="track_lin_vel command capability 'missing'"):
+        _reward_value(env, manager_terms.track_lin_vel, command_name="missing")
+    with pytest.raises(TypeError, match="ang_vel_xy received unsupported parameters"):
+        _reward_value(env, manager_terms.ang_vel_xy, std=0.5)
+
+    scene = _Scene()
+    manager = RewardManager(
+        {"parity": RewardTermCfg(func=manager_terms.ang_vel_xy, weight=1.0)},
+        _env(scene=scene),
+        scale_by_dt=False,
+    )
+    scene.values["gyro"][1, 0] = np.nan
+    with pytest.raises(ValueError, match="ang_vel_xy.*backend 'fake'.*NaN or Inf"):
+        manager.compute(dt=0.02)

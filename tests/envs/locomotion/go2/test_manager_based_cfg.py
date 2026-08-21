@@ -16,6 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 from unilab.base import registry
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, mdp
+from unilab.tasks.locomotion.common import manager_terms
 from unilab.training.backend_adapter import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[4]
@@ -237,6 +238,18 @@ def test_go2_flat_owner_materializes_complete_plain_manager_cfg(
         if alive_declared:
             expected_weights["alive"] = 0.0
         assert {name: term.weight for name, term in env_cfg.rewards.items()} == expected_weights
+        # Base-velocity rewards stay bound to the legacy IMU-style XML sensors;
+        # Entity root_link_*_vel_b is identically zero for the root on Motrix.
+        assert env_cfg.rewards["tracking_lin_vel"].func is manager_terms.track_lin_vel
+        assert env_cfg.rewards["tracking_ang_vel"].func is manager_terms.track_ang_vel
+        assert env_cfg.rewards["lin_vel_z"].func is manager_terms.lin_vel_z
+        assert env_cfg.rewards["ang_vel_xy"].func is manager_terms.ang_vel_xy
+        tracking_params = env_cfg.rewards["tracking_lin_vel"].params
+        assert tracking_params["tracking_sigma"] == pytest.approx(0.25)
+        assert tracking_params["sensor_name"] == "local_linvel"
+        assert env_cfg.rewards["tracking_ang_vel"].params["sensor_name"] == "gyro"
+        assert env_cfg.rewards["lin_vel_z"].params["sensor_name"] == "local_linvel"
+        assert env_cfg.rewards["ang_vel_xy"].params["sensor_name"] == "gyro"
 
     if fixed_command:
         ranges = env_cfg.commands["twist"].ranges
@@ -362,7 +375,7 @@ def test_go2_flat_flashsac_uses_canonical_manager_events_and_numpy_noise() -> No
         assert group.terms["joint_vel"].noise.n_min == pytest.approx(-0.1)
         assert group.terms["joint_vel"].noise.n_max == pytest.approx(0.1)
 
-    assert env_cfg.rewards["tracking_lin_vel"].params["std"] == pytest.approx(0.4**0.5)
+    assert env_cfg.rewards["tracking_lin_vel"].params["tracking_sigma"] == pytest.approx(0.4)
     assert env_cfg.rewards["base_height"].weight == pytest.approx(-20.0)
     assert env_cfg.rewards["contact"].weight == pytest.approx(1.5)
 

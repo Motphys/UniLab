@@ -32,10 +32,11 @@ from unilab.envs.mdp.commands.velocity_command import (
 )
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.tasks.locomotion.common.sensor_terms import SensorTermBase
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
-    from unilab.managers._types import ManagerBasedRlEnv, ManagerSensorView
+    from unilab.managers._types import ManagerBasedRlEnv
 
     class _RewardTermCfgView(Protocol):
         weight: float
@@ -124,35 +125,8 @@ def _asset(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> Entity:
     return cast("Entity", env.scene[asset_cfg.name])
 
 
-class _SensorTerm(ManagerTermBase):
-    """Cold-path named-sensor binding shared by G1 manager terms."""
-
-    _allowed_params: ClassVar[frozenset[str]] = frozenset()
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(env)
-        unexpected = set(cfg.params) - self._allowed_params
-        if unexpected:
-            raise TypeError(f"{self.name} received unsupported parameters: {sorted(unexpected)}")
-
-    def _bind(self, sensor_names: tuple[str, ...]) -> ManagerSensorView:
-        try:
-            return self._env.scene.bind_sensor_data(sensor_names)
-        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
-            raise type(exc)(
-                f"Manager term '{self.name}' named-sensor capability could not be "
-                f"materialized for {sensor_names}: {exc}"
-            ) from exc
-
-    @staticmethod
-    def _read(view: ManagerSensorView, term: str) -> np.ndarray:
-        try:
-            return view.read()
-        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
-            raise type(exc)(
-                f"Manager term '{term}' named-sensor capability failed on "
-                f"backend '{view.backend_type}': {exc}"
-            ) from exc
+class _SensorTerm(SensorTermBase):
+    """G1 manager terms share the locomotion-wide named-sensor binding."""
 
 
 # ---------------------------------------------------------------------------
