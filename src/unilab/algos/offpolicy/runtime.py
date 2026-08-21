@@ -18,7 +18,6 @@ class OffPolicyRuntime:
     learner_cls: type[Any] | None = None
     algo_type: str | None = None
     actor_kwargs: dict[str, Any] = field(default_factory=dict)
-    supports_symmetry: bool = True
 
     def build_model_kwargs(self, *, obs_dim: int, critic_obs_dim: int) -> dict[str, Any]:
         """Build learner model kwargs from the environment observation contract."""

@@ -5,7 +5,7 @@ import torch
 from scripts.benchmark.rl import benchmark_replay_buffer_placement as bench
 
 
-def test_sac_default_case_uses_effective_symmetry_batch() -> None:
+def test_sac_default_case_uses_configured_batch() -> None:
     cfg = bench._compose_offpolicy_cfg("sac", "g1_walk_flat", "mujoco")
     shape = bench.ReplayShape(obs_dim=45, action_dim=29, critic_dim=48)
 
@@ -15,13 +15,12 @@ def test_sac_default_case_uses_effective_symmetry_batch() -> None:
         task="g1_walk_flat",
         sim="mujoco",
         shape=shape,
-        symmetry_batch_multiplier=2,
         max_capacity_rows=None,
     )
 
     assert case.command == "uv run train --algo sac --task g1_walk_flat --sim mujoco"
     assert case.config_capacity_rows == case.num_envs * case.replay_buffer_n
-    assert case.learner_batch_size == case.configured_batch_size // 2
+    assert case.learner_batch_size == case.configured_batch_size
     assert case.sample_count == case.learner_batch_size * case.updates_per_step
     assert case.incremental_rows == case.num_envs * case.env_steps_per_sync
 
@@ -36,7 +35,6 @@ def test_flashsac_default_case_uses_configured_batch() -> None:
         task="g1_walk_flat",
         sim="mujoco",
         shape=shape,
-        symmetry_batch_multiplier=1,
         max_capacity_rows=1024,
     )
 
@@ -154,7 +152,6 @@ def test_run_case_cpu_portable_path_records_device_transfer_timings() -> None:
         benchmark_capacity_rows=8,
         configured_batch_size=2,
         learner_batch_size=2,
-        symmetry_batch_multiplier=1,
         updates_per_step=1,
         sample_count=2,
         learning_starts=0,

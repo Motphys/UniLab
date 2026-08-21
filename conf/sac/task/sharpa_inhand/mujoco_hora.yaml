@@ -35,7 +35,6 @@ algo:
   save_interval: 896
   actor_lr: 4.5e-4
   critic_lr: 4.5e-4
-  use_symmetry: false
   actor:
     priv_info_embed_dim: 9
     priv_mlp_hidden_dims: [256, 128, 9]

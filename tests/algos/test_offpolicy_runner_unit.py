@@ -133,25 +133,15 @@ def test_runner_close_releases_ipc_when_terminal_cleanup_fails(monkeypatch) -> N
     assert runner._active_logger is None
 
 
-class _Symmetry:
-    batch_multiplier = 2
-
-
-class _SymmetryLearner:
-    use_symmetry = True
-    symmetry = _Symmetry()
-
-
-def test_sample_info_distinguishes_replay_rows_from_effective_samples():
+def test_sample_info_reports_replay_rows_and_effective_samples():
     assert build_offpolicy_sample_info(
         replay_batch_size_per_rank=4,
         updates_per_step=3,
-        learner=_SymmetryLearner(),
     ) == {
-        "batch_size_per_rank": 8,
-        "effective_batch_size": 8,
+        "batch_size_per_rank": 4,
+        "effective_batch_size": 4,
         "replay_samples_per_iter": 12,
-        "learner_samples_per_iter": 24,
+        "learner_samples_per_iter": 12,
     }
 
 

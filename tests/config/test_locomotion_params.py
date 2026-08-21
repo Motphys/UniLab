@@ -56,7 +56,6 @@ def test_sac_config_defaults():
     assert cfg.algo == "sac"
     assert cfg.num_envs == 4096
     assert cfg.batch_size == 8192
-    assert cfg.use_symmetry is False
     assert cfg.obs_normalization is False
     assert isinstance(cfg.algo_params, SACAlgoParams)
     assert cfg.algo_params.alpha_init == 0.01
@@ -147,7 +146,6 @@ def test_offpolicy_sac_g1_task_overrides():
         cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
-    assert cfg.algo.use_symmetry is True
     assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.0)
     assert cfg.algo.algo_params.use_compile is True
     assert cfg.training.task_name == "G1WalkFlat"

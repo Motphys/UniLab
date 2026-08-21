@@ -15,7 +15,6 @@ from weakref import WeakKeyDictionary
 
 import numpy as np
 
-from unilab.base.augmentation import SymmetryAugmentation, SymmetryObsLayout
 from unilab.base.backend import create_backend, env_backend_kwargs
 from unilab.base.curriculum import EpisodeLengthTracker
 from unilab.dtype_config import get_global_dtype
@@ -873,57 +872,13 @@ class G1PenaltyCurriculum(ManagerTermBase):
 
 
 # ---------------------------------------------------------------------------
-# G1 Manager-Based env: adds the public symmetry hook on the single lifecycle
+# G1 Manager-Based env: Registry-owned production runtime on the single
+# lifecycle
 # ---------------------------------------------------------------------------
-
-_SYMMETRY_TERM_SEGMENTS = {
-    "base_ang_vel": "gyro",
-    "projected_gravity": "gravity",
-    "joint_pos": "dof_pos",
-    "joint_vel": "dof_vel",
-    "actions": "actions",
-    "command": "command",
-    "gait_phase": "gait_phase",
-    "base_lin_vel": "linvel",
-}
 
 
 class G1WalkManagerBasedEnv(_ConcreteManagerBasedRlEnv):
-    """Manager-Based G1 walk runtime with the legacy symmetry-augmentation hook."""
-
-    def get_symmetry_obs_layouts(self) -> dict[str, SymmetryObsLayout]:
-        """Derive symmetry segment layouts from the observation manager terms."""
-        mapping = {"obs": self._cfg.policy_observation_group}
-        if self._cfg.critic_observation_group is not None:
-            mapping["critic"] = self._cfg.critic_observation_group
-        layouts: dict[str, SymmetryObsLayout] = {}
-        for output_name, group_name in mapping.items():
-            term_names = self.observation_manager.active_terms[group_name]
-            term_dims = self.observation_manager.group_obs_term_dim[group_name]
-            segments: list[tuple[str, int]] = []
-            for term_name, dim in zip(term_names, term_dims, strict=True):
-                segment = _SYMMETRY_TERM_SEGMENTS.get(term_name)
-                if segment is None:
-                    raise KeyError(
-                        f"G1 symmetry layout has no segment mapping for observation term "
-                        f"'{term_name}' in group '{group_name}'"
-                    )
-                segments.append((segment, int(np.prod(dim))))
-            layouts[output_name] = tuple(segments)
-        return layouts
-
-    def build_symmetry_augmentation(self, *, device: str) -> SymmetryAugmentation | None:
-        try:
-            actuator_names = self._backend.get_actuator_names()
-        except NotImplementedError:
-            return None
-        from unilab.tasks.locomotion.g1.symmetry import G1SymmetryAugmentation
-
-        return G1SymmetryAugmentation(
-            actuator_names,
-            self.get_symmetry_obs_layouts(),
-            device=device,
-        )
+    """Manager-Based G1 walk runtime."""
 
 
 def make_g1_walk_env(

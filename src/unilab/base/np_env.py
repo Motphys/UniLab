@@ -19,7 +19,6 @@ from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 from unilab.dtype_config import get_global_dtype
 
 if TYPE_CHECKING:
-    from unilab.base.augmentation import SymmetryAugmentation
     from unilab.utils.nan_guard import NanGuard
 
 
@@ -144,10 +143,6 @@ class NpEnv(ABEnv):
     def observation_space(self) -> gym.Space:
         total = sum(self.obs_groups_spec.values())
         return gym.spaces.Box(-np.inf, np.inf, shape=(total,), dtype=np.float64)
-
-    def build_symmetry_augmentation(self, *, device: str) -> "SymmetryAugmentation | None":
-        """Return an env-owned runtime symmetry adapter when the task/backend supports it."""
-        return None
 
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()
