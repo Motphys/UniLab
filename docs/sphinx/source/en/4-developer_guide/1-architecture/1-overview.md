@@ -79,7 +79,9 @@ Use `make test` for the fast path and `make test-all` (`make check` plus
 
 - `scripts/train_rsl_rl.py`
 - `scripts/train_appo.py`
-- `scripts/train_offpolicy.py`
+- `scripts/train_sac.py`
+- `scripts/train_td3.py`
+- `scripts/train_flashsac.py`
 - `src/unilab/base/np_env.py`
 - `src/unilab/base/backend/base.py`
 - `src/unilab/base/registry.py`

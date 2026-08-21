@@ -255,10 +255,9 @@ def _cleanup_device() -> None:
 
 
 def _compose_offpolicy_cfg(algo: str, task: str, sim: str) -> DictConfig:
-    config_dir = str(ROOT_DIR / "conf" / "offpolicy")
+    config_dir = str(ROOT_DIR / "conf" / algo)
     overrides = [
-        f"algo={algo}",
-        f"task={algo}/{task}/{sim}",
+        f"task={task}/{sim}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -270,7 +269,7 @@ def _compose_offpolicy_cfg(algo: str, task: str, sim: str) -> DictConfig:
 
 
 def _owner_config_path(algo: str, task: str, sim: str) -> Path:
-    return ROOT_DIR / "conf" / "offpolicy" / "task" / algo / task / f"{sim}.yaml"
+    return ROOT_DIR / "conf" / algo / "task" / task / f"{sim}.yaml"
 
 
 def _owner_config_exists(algo: str, task: str, sim: str) -> bool:
@@ -278,7 +277,7 @@ def _owner_config_exists(algo: str, task: str, sim: str) -> bool:
 
 
 def _discover_supported_tasks(algo: str, sim: str) -> list[str]:
-    task_root = ROOT_DIR / "conf" / "offpolicy" / "task" / algo
+    task_root = ROOT_DIR / "conf" / algo / "task"
     if not task_root.is_dir():
         return []
     return sorted(path.parent.name for path in task_root.glob(f"*/{sim}.yaml") if path.is_file())

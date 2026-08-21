@@ -30,23 +30,16 @@ _SRC_DIR = Path(__file__).parent.parent.parent / "src"
 
 def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
     normalized: list[str] = []
-    algo = "sac"
     task_selected = False
 
     for override in overrides or []:
-        if override.startswith("algo="):
-            algo = override.split("=", 1)[1]
-            normalized.append(override)
-            continue
         if override.startswith("task="):
             task_selected = True
-            normalized.append(override)
-            continue
         normalized.append(override)
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
+            normalized.append("task=g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
@@ -97,13 +90,14 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# train_offpolicy.py — Hydra config defaults
+# train_sac.py / train_td3.py / train_flashsac.py — Hydra config defaults
+# (composed from the per-algo trees conf/sac, conf/td3, conf/flashsac)
 # ---------------------------------------------------------------------------
 
 
-def _offpolicy_cfg(overrides=None):
+def _offpolicy_cfg(overrides=None, *, algo: str = "sac"):
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(_CONF_DIR / algo), version_base="1.3"):
         return compose(
             "config",
             overrides=_normalize_overrides(overrides, offpolicy=True),
@@ -319,7 +313,7 @@ def test_offpolicy_hydra_default_torch_thread_budget():
 
 
 def test_offpolicy_hydra_algo_td3():
-    cfg = _offpolicy_cfg(["algo=td3"])
+    cfg = _offpolicy_cfg(algo="td3")
     assert cfg.algo.algo == "td3"
 
 
@@ -533,11 +527,7 @@ def test_hora_distill_teacher_owner_defaults_support_ppo_appo_and_sac(
     teacher_algo_family: str,
 ):
     mod = _train_hora_distill()
-    teacher_task = (
-        "sac/sharpa_inhand/mujoco_hora"
-        if teacher_algo_family == "sac"
-        else "sharpa_inhand/mujoco_hora"
-    )
+    teacher_task = "sharpa_inhand/mujoco_hora"
     cfg = mod._apply_teacher_defaults(
         _hora_distill_cfg(
             [
@@ -566,7 +556,7 @@ def test_hora_distill_sac_teacher_requires_hora_sac_runtime():
                 [
                     "task=sharpa_inhand/mujoco",
                     "teacher.algo_family=sac",
-                    "teacher.task=sac/g1_walk_flat/mujoco",
+                    "teacher.task=g1_walk_flat/mujoco",
                 ]
             )
         )
@@ -592,13 +582,13 @@ def test_offpolicy_go1_motrix_task_is_not_configured():
     """SAC has no Go1 Motrix owner config; use PPO for Go1 joystick tasks."""
     from hydra.errors import MissingConfigException
 
-    with pytest.raises(MissingConfigException, match="task/sac/go1_joystick_flat/motrix"):
-        _offpolicy_cfg(["task=sac/go1_joystick_flat/motrix"])
+    with pytest.raises(MissingConfigException, match="task/go1_joystick_flat/motrix"):
+        _offpolicy_cfg(["task=go1_joystick_flat/motrix"])
 
 
 def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
     """Motrix SAC G1 walk flat composes backend-owned algo hyperparameters."""
-    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
@@ -606,7 +596,7 @@ def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
 
 
 def test_offpolicy_g1_walk_flat_env_cfg_override_has_rewards_and_events():
-    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
@@ -615,8 +605,8 @@ def test_offpolicy_g1_walk_flat_env_cfg_override_has_rewards_and_events():
 
 
 def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
-    mujoco_cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/mujoco"])
-    motrix_cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
+    mujoco_cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])
+    motrix_cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.use_symmetry is True
     assert motrix_cfg.algo.use_symmetry is False
@@ -784,7 +774,7 @@ def test_build_ppo_env_cfg_override_carries_post_step_forward_sensor_override(
 
 
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_disables_pd_gains():
-    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/motrix"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 
     env_cfg_override = _offpolicy().build_offpolicy_env_cfg_override("sac", cfg)
 
@@ -1791,7 +1781,7 @@ def test_offpolicy_main_failure_summary_and_skips_playback(
     )
 
     with pytest.raises(RuntimeError, match="collector died"):
-        mod.main.__wrapped__(cfg)
+        mod.main(cfg)
 
     assert captured["tracker_started"] is True
     assert captured["tracker_finished"] is True
@@ -1925,8 +1915,7 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
 
     cfg = _offpolicy_cfg(
         [
-            "algo=sac",
-            "task=sac/sharpa_inhand/mujoco_hora",
+            "task=sharpa_inhand/mujoco_hora",
         ]
     )
 
@@ -1944,8 +1933,8 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
 def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
     from unilab.training.offpolicy import resolve_play_actor_spec
 
-    sac_cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/mujoco"])
-    flashsac_cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
+    sac_cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])
+    flashsac_cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"], algo="flashsac")
 
     sac_algo_type, sac_kwargs = resolve_play_actor_spec(
         "sac",
@@ -1987,7 +1976,7 @@ def test_offpolicy_build_play_actor_preserves_flashsac_model_kwargs(
 
     monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
     monkeypatch.setattr(normalization, "EmpiricalNormalization", FakeNormalizer)
-    cfg = _offpolicy_cfg(["algo=flashsac", "algo.obs_normalization=true"])
+    cfg = _offpolicy_cfg(["algo.obs_normalization=true"], algo="flashsac")
 
     actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
         "flashsac",
@@ -2051,7 +2040,7 @@ def test_offpolicy_build_play_actor_restores_td3_state_and_normalizer(
 
     monkeypatch.setattr(learner_module, "TD3Actor", FakeActor)
     monkeypatch.setattr(learner_module, "EmpiricalNormalization", FakeNormalizer)
-    cfg = _offpolicy_cfg(["algo=td3"])
+    cfg = _offpolicy_cfg(algo="td3")
     actor_state = {"weight": torch.ones(1), "noise_scales": torch.zeros(1)}
     normalizer_state = {"mean": torch.ones(1)}
 
@@ -2103,8 +2092,7 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
     mod = _offpolicy()
     cfg = _offpolicy_cfg(
         [
-            "algo=sac",
-            "task=sac/g1_walk_flat/mujoco",
+            "task=g1_walk_flat/mujoco",
             "training.play_only=true",
             "training.play_render_mode=record",
             "training.export_onnx=false",
@@ -2211,8 +2199,7 @@ def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
     mod = _offpolicy()
     cfg = _offpolicy_cfg(
         [
-            "algo=sac",
-            "task=sac/sharpa_inhand/mujoco_hora",
+            "task=sharpa_inhand/mujoco_hora",
             "training.play_only=true",
             "training.play_render_mode=record",
             "training.export_onnx=false",
@@ -2766,49 +2753,43 @@ def test_appo_hydra_default_algo_log_name():
 
 def test_offpolicy_sac_hydra_default_algo_log_name():
     """Verify SAC config has algo_log_name in algo section."""
-    cfg = _offpolicy_cfg(["algo=sac"])
+    cfg = _offpolicy_cfg()
     assert cfg.algo.algo_log_name == "fast_sac"
     assert cfg.algo.load_run == "-1"
 
 
 def test_offpolicy_td3_hydra_default_algo_log_name():
     """Verify TD3 config has algo_log_name in algo section."""
-    cfg = _offpolicy_cfg(["algo=td3"])
+    cfg = _offpolicy_cfg(algo="td3")
     assert cfg.algo.algo_log_name == "fast_td3"
     assert cfg.algo.load_run == "-1"
 
 
 def test_offpolicy_flashsac_hydra_algo_log_name():
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"], algo="flashsac")
     assert cfg.algo.algo_log_name == "flash_sac"
     assert cfg.algo.load_run == "-1"
 
 
 def test_offpolicy_flashsac_g1_walk_flat_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"], algo="flashsac")
     assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
 
 
 def test_offpolicy_g1_rough_terrain_task_composes() -> None:
-    cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_rough/mujoco"])
+    cfg = _offpolicy_cfg(["task=g1_walk_rough/mujoco"])
 
     assert cfg.training.task_name == "G1WalkRough"
     assert cfg.training.sim_backend == "mujoco"
 
 
-@pytest.mark.parametrize(
-    ("algo", "task"),
-    [
-        ("flashsac", "sac/g1_walk_flat/mujoco"),
-        ("sac", "flashsac/g1_walk_flat/mujoco"),
-    ],
-)
-def test_offpolicy_rejects_algo_task_owner_mismatch(algo: str, task: str):
-    cfg = _offpolicy_cfg([f"algo={algo}", f"task={task}"])
+def test_offpolicy_rejects_algo_argument_mismatch():
+    """build_runner must reject an algo argument inconsistent with cfg.algo.algo."""
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])
 
-    with pytest.raises(ValueError, match="Off-policy algo/task mismatch"):
-        _offpolicy().build_runner(algo, cfg)
+    with pytest.raises(ValueError, match="inconsistent with cfg.algo.algo"):
+        _offpolicy().build_runner("flashsac", cfg)
 
 
 def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
@@ -3204,7 +3185,7 @@ def test_play_interactive_dynamic_compose_supports_algo_roots():
     assert distill_cfg.interactive.action_mode == "policy"
 
 
-def test_play_interactive_sac_task_shorthand_rewrites_to_owner_group():
+def test_play_interactive_sac_overrides_pass_through():
     mod = _play_interactive()
 
     overrides = mod._normalize_interactive_overrides(
@@ -3213,8 +3194,7 @@ def test_play_interactive_sac_task_shorthand_rewrites_to_owner_group():
     )
 
     assert overrides == [
-        "algo=sac",
-        "task=sac/sharpa_inhand/mujoco_hora",
+        "task=sharpa_inhand/mujoco_hora",
         "algo.load_run=my_run",
     ]
 

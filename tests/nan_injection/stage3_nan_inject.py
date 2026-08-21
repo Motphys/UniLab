@@ -324,8 +324,8 @@ def _print_manual_recipe():
         4. Verify a dump file appears under the output_dir.
         5. Revert the env edit.
 
-        Repeat with scripts/train_offpolicy.py to exercise SAC/TD3/FlashSAC
-        (set algo=sac / algo=td3 / algo=flashsac via Hydra override).
+        Repeat with scripts/train_sac.py, scripts/train_td3.py, or
+        scripts/train_flashsac.py to exercise SAC/TD3/FlashSAC.
     """).strip()
     )
     print()

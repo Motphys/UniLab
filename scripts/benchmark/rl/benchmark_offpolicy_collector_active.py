@@ -382,8 +382,7 @@ def _compose_offpolicy_cfg(
 ) -> DictConfig:
     owner_sim = _runtime_sim_backend(sim)
     overrides = [
-        f"algo={algo}",
-        f"task={algo}/{task}/{owner_sim}",
+        f"task={task}/{owner_sim}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -395,21 +394,19 @@ def _compose_offpolicy_cfg(
         overrides.extend(extra_overrides)
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / algo), version_base="1.3"):
         return compose(config_name="config", overrides=overrides)
 
 
 def _owner_config_path(algo: str, task: str, sim: str) -> Path:
-    return (
-        ROOT_DIR / "conf" / "offpolicy" / "task" / algo / task / f"{_runtime_sim_backend(sim)}.yaml"
-    )
+    return ROOT_DIR / "conf" / algo / "task" / task / f"{_runtime_sim_backend(sim)}.yaml"
 
 
 def _discover_cases(*, algos: list[str], sim: str) -> list[str]:
     cases: list[str] = []
     owner_sim = _runtime_sim_backend(sim)
     for algo in algos:
-        task_root = ROOT_DIR / "conf" / "offpolicy" / "task" / algo
+        task_root = ROOT_DIR / "conf" / algo / "task"
         if not task_root.is_dir():
             continue
         for path in sorted(task_root.glob(f"*/{owner_sim}.yaml")):

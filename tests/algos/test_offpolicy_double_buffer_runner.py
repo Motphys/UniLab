@@ -28,25 +28,22 @@ def _offpolicy():
     return module
 
 
-def _offpolicy_cfg(overrides: list[str] | None = None):
+def _offpolicy_cfg(overrides: list[str] | None = None, *, algo: str = "sac"):
     GlobalHydra.instance().clear()
     normalized: list[str] = []
-    algo = "sac"
     task_selected = False
     devices_selected = False
     for override in overrides or []:
-        if override.startswith("algo="):
-            algo = override.split("=", 1)[1]
-        elif override.startswith("task="):
+        if override.startswith("task="):
             task_selected = True
         elif override.startswith("training.devices="):
             devices_selected = True
         normalized.append(override)
     if not task_selected:
-        normalized.append(f"task={algo}/g1_walk_flat/mujoco")
+        normalized.append("task=g1_walk_flat/mujoco")
     if not devices_selected:
         normalized.append("training.devices=[0]")
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(_CONF_DIR / algo), version_base="1.3"):
         return compose("config", overrides=normalized, return_hydra_config=True)
 
 
@@ -97,7 +94,7 @@ def test_offpolicy_config_has_one_replay_path():
 
 
 def test_hora_uses_same_learner_inference_path():
-    cfg = _offpolicy_cfg(["algo=sac", "task=sac/sharpa_inhand/mujoco_hora"])
+    cfg = _offpolicy_cfg(["task=sharpa_inhand/mujoco_hora"])
     assert "inference_owner" not in cfg.training
     assert cfg.training.env_steps_per_sync == 2
 
@@ -137,7 +134,7 @@ def test_non_cuda_training_devices_fail_before_env_materialization(
     device: str,
 ):
     module = _offpolicy()
-    cfg = _offpolicy_cfg([f"algo={algo}", f"training.devices=[{device}]"])
+    cfg = _offpolicy_cfg([f"training.devices=[{device}]"], algo=algo)
     env_calls = 0
 
     def reject_env(*args, **kwargs):
@@ -165,7 +162,7 @@ def test_non_cuda_training_devices_fail_before_env_materialization(
 
 def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false"])
+    cfg = _offpolicy_cfg(["algo.use_symmetry=false"])
 
     import unilab.algos.fast_sac.double_buffer as owner_module
 
@@ -225,7 +222,7 @@ def test_sac_owner_custom_runtime_can_override_base_learner_kwargs(
     from unilab.algos.fast_sac import double_buffer as owner_module
     from unilab.algos.offpolicy.runtime import OffPolicyRuntime
 
-    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false"])
+    cfg = _offpolicy_cfg(["algo.use_symmetry=false"])
     custom_runtime = OffPolicyRuntime(
         learner_cls=_FakeLearner,
         algo_type="custom_sac",
@@ -259,7 +256,7 @@ def test_sac_owner_rejects_custom_runtime_without_symmetry_support(
     from unilab.algos.fast_sac import double_buffer as owner_module
     from unilab.algos.offpolicy.runtime import OffPolicyRuntime
 
-    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true"])
+    cfg = _offpolicy_cfg(["algo.use_symmetry=true"])
     monkeypatch.setattr(owner_module, "ensure_registries", lambda: None)
     monkeypatch.setattr(owner_module, "create_env", lambda *args, **kwargs: _FakeEnv())
     monkeypatch.setattr(
@@ -282,7 +279,7 @@ def test_sac_owner_preserves_symmetry_batch_and_learner_contract(
 ):
     import unilab.algos.fast_sac.double_buffer as owner_module
 
-    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true"])
+    cfg = _offpolicy_cfg(["algo.use_symmetry=true"])
     symmetry = MagicMock(batch_multiplier=4)
 
     class SymmetricEnv(_FakeEnv):
@@ -323,7 +320,7 @@ def test_sac_owner_preserves_symmetry_validation(
 ):
     import unilab.algos.fast_sac.double_buffer as owner_module
 
-    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=true", f"algo.batch_size={batch_size}"])
+    cfg = _offpolicy_cfg(["algo.use_symmetry=true", f"algo.batch_size={batch_size}"])
 
     class SymmetricEnv(_FakeEnv):
         def build_symmetry_augmentation(self, device=None):
@@ -344,7 +341,7 @@ def test_sac_owner_preserves_symmetry_validation(
 
 def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=td3"])
+    cfg = _offpolicy_cfg(algo="td3")
 
     import unilab.algos.fast_td3.double_buffer as owner_module
 
@@ -416,7 +413,7 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
 
 def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=flashsac"])
+    cfg = _offpolicy_cfg(algo="flashsac")
 
     import unilab.algos.flash_sac.double_buffer as flash_module
 
@@ -437,7 +434,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
 
 
 def test_flashsac_n_step_is_rejected():
-    cfg = _offpolicy_cfg(["algo=flashsac", "algo.algo_params.n_step=3"])
+    cfg = _offpolicy_cfg(["algo.algo_params.n_step=3"], algo="flashsac")
     with pytest.raises(ValueError, match="n_step=1 only"):
         _offpolicy().build_runner("flashsac", cfg)
 
@@ -493,7 +490,7 @@ def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.Mon
     monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/offpolicy_test_run")
     runner, probe_env_calls = _build_sac_runner_with_fakes(
         monkeypatch,
-        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        ["algo.use_symmetry=false", "training.devices=[0,1]"],
         cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
@@ -513,7 +510,7 @@ def test_build_runner_rank_zero_partitions_without_dp_env(monkeypatch: pytest.Mo
     monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
     runner, _ = _build_sac_runner_with_fakes(
         monkeypatch,
-        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        ["algo.use_symmetry=false", "training.devices=[0,1]"],
         cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == list(range(0, 64))
@@ -524,7 +521,7 @@ def test_build_runner_single_rank_keeps_collector_cpus_unset(monkeypatch: pytest
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
     runner, probe_env_calls = _build_sac_runner_with_fakes(
-        monkeypatch, ["algo=sac", "algo.use_symmetry=false"], cpu_count=128
+        monkeypatch, ["algo.use_symmetry=false"], cpu_count=128
     )
     assert runner.kwargs["collector_cpu_ids"] is None
     # Single-rank thread budget still resolves against the full host.
@@ -540,7 +537,6 @@ def test_build_runner_explicit_dp_collector_cpu_ids(monkeypatch: pytest.MonkeyPa
     runner, probe_env_calls = _build_sac_runner_with_fakes(
         monkeypatch,
         [
-            "algo=sac",
             "algo.use_symmetry=false",
             "training.devices=[0,1]",
             "training.dp_collector_cpu_ids=[[0,1],[2,3]]",

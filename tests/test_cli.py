@@ -260,10 +260,7 @@ def _make_demo_checkout(root: Path, *, demo_name: str) -> None:
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
     (root / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    if spec.algo in {"sac", "flashsac"}:
-        owner_dir = root / "conf" / "offpolicy" / "task" / spec.algo / spec.task
-    else:
-        owner_dir = root / "conf" / spec.algo / "task" / spec.task
+    owner_dir = root / "conf" / spec.algo / "task" / spec.task
     owner_dir.mkdir(parents=True, exist_ok=True)
     (owner_dir / f"{spec.sim}.yaml").write_text(
         f"training:\n  sim_backend: {spec.sim}\n", encoding="utf-8"
@@ -382,10 +379,10 @@ def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None
     ]
 
 
-def test_demo_play_interactive_sac_owner_path_uses_offpolicy(tmp_path: Path) -> None:
+def test_demo_play_interactive_sac_owner_path_uses_sac_tree(tmp_path: Path) -> None:
     (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
     (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "offpolicy" / "task" / "sac" / "sharpa_inhand"
+    owner_dir = tmp_path / "conf" / "sac" / "task" / "sharpa_inhand"
     owner_dir.mkdir(parents=True)
     (owner_dir / "mujoco_hora.yaml").write_text(
         "training:\n  sim_backend: mujoco\n", encoding="utf-8"

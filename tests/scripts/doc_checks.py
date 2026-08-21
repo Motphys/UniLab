@@ -285,7 +285,9 @@ def check_argparse_vs_hydra(content: str, doc_path: Path, root: Path) -> list[st
     hydra_scripts = [
         "train_rsl_rl.py",
         "train_appo.py",
-        "train_offpolicy.py",
+        "train_sac.py",
+        "train_td3.py",
+        "train_flashsac.py",
     ]
 
     for pattern, message in old_flags:
@@ -320,7 +322,7 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
     for match in re.finditer(task_pattern, content):
         errors.append(
             f"{doc_path}: Task override '{match.group(0)}' is missing the backend segment; "
-            "use task=<task>/<backend> or task=<algo>/<task>/<backend>"
+            "use task=<task>/<backend>"
         )
 
     return errors

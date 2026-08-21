@@ -34,4 +34,5 @@
 - Env 状态契约：`src/unilab/base/np_env.py`
 - Registry 构造路径：`src/unilab/base/registry.py`
 - 训练入口：`scripts/train_rsl_rl.py`、
-  `scripts/train_appo.py`、`scripts/train_offpolicy.py`
+  `scripts/train_appo.py`、`scripts/train_sac.py`、
+  `scripts/train_td3.py`、`scripts/train_flashsac.py`

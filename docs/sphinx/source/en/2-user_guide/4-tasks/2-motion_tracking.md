@@ -25,7 +25,7 @@ configuration entry point; the selected owner is materialized into the shared
 | `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` |
 | `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
 | `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `conf/ppo/task/g1_box_tracking/` |
-| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
+| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/sac/task/g1_wbt_obs/mujoco.yaml` |
 
 The 23-DoF task-owner directories select their matching 23-DoF scene, motion,
 entity, and action declarations. Profile differences remain in Hydra. The G1

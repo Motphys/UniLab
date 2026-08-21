@@ -46,7 +46,8 @@ uv run scripts/audit_sim2sim_contracts.py
 
 ## 其它配置树
 
-`conf/ppo_him/task`、`conf/offpolicy/task`、`conf/hora_distill/task` 均无 mujoco↔motrix
+`conf/ppo_him/task`、`conf/sac/task`、`conf/td3/task`、`conf/flashsac/task`、
+`conf/hora_distill/task` 均无 mujoco↔motrix
 配对，sim2sim 不适用。
 
 ## 字段语义速查

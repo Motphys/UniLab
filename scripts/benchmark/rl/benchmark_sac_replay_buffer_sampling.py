@@ -228,7 +228,7 @@ def _cleanup_device() -> None:
 
 
 def _owner_config_path(task: str, sim: str) -> Path:
-    return ROOT_DIR / "conf" / "offpolicy" / "task" / "sac" / task / f"{sim}.yaml"
+    return ROOT_DIR / "conf" / "sac" / "task" / task / f"{sim}.yaml"
 
 
 def _owner_config_exists(task: str, sim: str) -> bool:
@@ -252,10 +252,9 @@ def _compose_offpolicy_cfg(task: str = DEFAULT_TASK, sim: str | None = None) -> 
         raise FileNotFoundError(
             f"Missing SAC owner config for task={task_name!r}, sim={sim_name!r}: {owner_config}"
         )
-    config_dir = str(ROOT_DIR / "conf" / "offpolicy")
+    config_dir = str(ROOT_DIR / "conf" / "sac")
     overrides = [
-        "algo=sac",
-        f"task=sac/{task_name}/{sim_name}",
+        f"task={task_name}/{sim_name}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",

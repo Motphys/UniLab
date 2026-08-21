@@ -25,28 +25,30 @@ def test_discover_preserves_standard_task_layout() -> None:
     assert {"mujoco", "motrix"}.issubset(discovered["g1_walk_flat"])
 
 
-def test_discover_groups_offpolicy_owners_by_algorithm() -> None:
+def test_discover_offpolicy_trees_group_by_task() -> None:
     audit = _load_audit_module()
 
-    discovered = audit._discover("offpolicy")
+    sac = audit._discover("sac")
+    flashsac = audit._discover("flashsac")
+    td3 = audit._discover("td3")
 
-    assert {"mujoco", "motrix", "mjwarp"}.issubset(discovered["sac/g1_walk_flat"])
-    assert {"mujoco", "motrix", "mjwarp"}.issubset(discovered["flashsac/g1_walk_flat"])
-    assert discovered["td3/g1_walk_flat"] == ["mujoco"]
+    assert {"mujoco", "motrix", "mjwarp"}.issubset(sac["g1_walk_flat"])
+    assert {"mujoco", "motrix", "mjwarp"}.issubset(flashsac["g1_walk_flat"])
+    assert td3["g1_walk_flat"] == ["mujoco"]
 
 
 @pytest.mark.parametrize(
-    ("task_variant", "expected_algo"),
+    ("tree", "task_variant", "expected_algo"),
     [
-        ("sac/g1_walk_flat/mujoco", "sac"),
-        ("td3/g1_walk_flat/mujoco", "td3"),
-        ("flashsac/g1_walk_flat/mujoco", "flashsac"),
+        ("sac", "g1_walk_flat/mujoco", "sac"),
+        ("td3", "g1_walk_flat/mujoco", "td3"),
+        ("flashsac", "g1_walk_flat/mujoco", "flashsac"),
     ],
 )
-def test_compose_selects_matching_offpolicy_algo(task_variant: str, expected_algo: str) -> None:
+def test_compose_resolves_tree_algo(tree: str, task_variant: str, expected_algo: str) -> None:
     audit = _load_audit_module()
 
-    cfg = audit._compose("offpolicy", task_variant)
+    cfg = audit._compose(tree, task_variant)
 
     assert cfg.algo.algo == expected_algo
 
@@ -58,13 +60,13 @@ def test_audit_tree_compares_one_offpolicy_backend_pair(
     monkeypatch.setattr(
         audit,
         "_discover",
-        lambda tree: {"flashsac/g1_walk_flat": ["motrix", "mujoco"]},
+        lambda tree: {"g1_walk_flat": ["motrix", "mujoco"]},
     )
 
-    rows = audit.audit_tree("offpolicy")
+    rows = audit.audit_tree("flashsac")
 
     assert len(rows) == 1
-    assert rows[0]["task"] == "flashsac/g1_walk_flat"
+    assert rows[0]["task"] == "g1_walk_flat"
     assert rows[0]["backends"] == ["motrix", "mujoco"]
     assert rows[0]["errors"] == {}
 
@@ -74,11 +76,4 @@ def test_audit_tree_rejects_empty_discovery(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(audit, "_discover", lambda tree: {})
 
     with pytest.raises(ValueError, match="No task owner configs discovered"):
-        audit.audit_tree("offpolicy")
-
-
-def test_compose_rejects_offpolicy_variant_without_algo() -> None:
-    audit = _load_audit_module()
-
-    with pytest.raises(ValueError, match="<algo>/<task>/<backend>"):
-        audit._compose("offpolicy", "g1_walk_flat")
+        audit.audit_tree("sac")

@@ -36,15 +36,10 @@ def _compose(algo_dir: str, config_name: str = "config", overrides: list[str] | 
 
 
 def _normalize_overrides(algo_dir: str, overrides: list[str] | None) -> list[str]:
-    algo = "sac"
     normalized: list[str] = []
     task_selected = False
 
     for override in overrides or []:
-        if override.startswith("algo="):
-            algo = override.split("=", 1)[1]
-            normalized.append(override)
-            continue
         if override.startswith("task="):
             task_selected = True
             normalized.append(override)
@@ -52,8 +47,8 @@ def _normalize_overrides(algo_dir: str, overrides: list[str] | None) -> list[str
         normalized.append(override)
 
     if not task_selected:
-        if algo_dir == "offpolicy":
-            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
+        if algo_dir in ("sac", "td3", "flashsac"):
+            normalized.append("task=g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
 
@@ -97,24 +92,21 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
                     )
                 )
 
-    offpolicy_root = CONF_DIR / "offpolicy" / "task"
-    for algo_root in sorted(path for path in offpolicy_root.iterdir() if path.is_dir()):
-        for task_dir in sorted(path for path in algo_root.iterdir() if path.is_dir()):
+    for algo_dir in ["sac", "td3", "flashsac"]:
+        root = CONF_DIR / algo_dir / "task"
+        for task_dir in sorted(path for path in root.iterdir() if path.is_dir()):
             for backend_file in sorted(task_dir.glob("*.yaml")):
                 expected_backend = _expected_backend_from_variant(backend_file.stem)
                 if expected_backend is None:
                     continue
                 cases.append(
                     (
-                        "offpolicy",
+                        algo_dir,
                         "config",
                         task_dir.name,
                         expected_backend,
                         str(backend_file.relative_to(CONF_DIR)),
-                        [
-                            f"algo={algo_root.name}",
-                            f"task={algo_root.name}/{task_dir.name}/{backend_file.stem}",
-                        ],
+                        [f"task={task_dir.name}/{backend_file.stem}"],
                     )
                 )
 
@@ -124,7 +116,9 @@ def _supported_task_cases() -> list[tuple[str, str, str, str, str, list[str]]]:
 @pytest.mark.parametrize(
     "algo_dir,config_name",
     [
-        ("offpolicy", "config"),
+        ("sac", "config"),
+        ("td3", "config"),
+        ("flashsac", "config"),
         ("appo", "config"),
         ("ppo", "config"),
     ],
@@ -144,10 +138,10 @@ def test_legacy_config_groups_removed():
         CONF_DIR / "appo" / "reward",
         CONF_DIR / "appo" / "backend_task_preset",
         CONF_DIR / "appo" / "sim_backend",
-        CONF_DIR / "offpolicy" / "reward",
-        CONF_DIR / "offpolicy" / "backend_task_preset",
-        CONF_DIR / "offpolicy" / "algo_preset",
-        CONF_DIR / "offpolicy" / "sim_backend",
+        CONF_DIR / "sac" / "reward",
+        CONF_DIR / "sac" / "backend_task_preset",
+        CONF_DIR / "sac" / "algo_preset",
+        CONF_DIR / "sac" / "sim_backend",
     ]:
         assert not path.exists(), f"legacy config group should be removed: {path}"
 
@@ -211,7 +205,7 @@ def test_ppo_go2_arm_manip_loco_motrix_preserves_backend_overrides():
 
 
 def test_offpolicy_g1_walk_flat_motrix_sac_preserves_backend_overrides():
-    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
+    cfg = _compose("sac", overrides=["task=g1_walk_flat/motrix"])
 
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
@@ -220,7 +214,7 @@ def test_offpolicy_g1_walk_flat_motrix_sac_preserves_backend_overrides():
 
 
 def test_offpolicy_g1_walk_flat_mujoco_td3_uses_td3_task_owner():
-    cfg = _compose("offpolicy", overrides=["algo=td3", "task=td3/g1_walk_flat/mujoco"])
+    cfg = _compose("td3", overrides=["task=g1_walk_flat/mujoco"])
 
     assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.training.sim_backend == "mujoco"
@@ -234,8 +228,8 @@ def test_offpolicy_g1_walk_flat_mujoco_td3_uses_td3_task_owner():
 
 def test_offpolicy_td3_go2_joystick_flat_motrix_composes():
     cfg = _compose(
-        "offpolicy",
-        overrides=["algo=td3", "task=td3/go2_joystick_flat/motrix"],
+        "td3",
+        overrides=["task=go2_joystick_flat/motrix"],
     )
 
     assert cfg.training.task_name == "Go2JoystickFlat"
@@ -250,8 +244,8 @@ def test_offpolicy_td3_go2_joystick_flat_motrix_composes():
 
 def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
     cfg = _compose(
-        "offpolicy",
-        overrides=["algo=td3", "task=td3/go1_joystick_flat/motrix"],
+        "td3",
+        overrides=["task=go1_joystick_flat/motrix"],
     )
 
     assert cfg.training.task_name == "Go1JoystickFlat"
@@ -263,16 +257,16 @@ def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
-    mujoco_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"])
-    motrix_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
+    mujoco_cfg = _compose("sac", overrides=["task=g1_walk_flat/mujoco"])
+    motrix_cfg = _compose("sac", overrides=["task=g1_walk_flat/motrix"])
 
     assert mujoco_cfg.algo.use_symmetry is True
     assert motrix_cfg.algo.use_symmetry is False
 
 
 def test_offpolicy_g1_walk_flat_mjwarp_owner_preserves_sac_contract():
-    mujoco_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"])
-    mjwarp_cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/mjwarp"])
+    mujoco_cfg = _compose("sac", overrides=["task=g1_walk_flat/mujoco"])
+    mjwarp_cfg = _compose("sac", overrides=["task=g1_walk_flat/mjwarp"])
 
     assert mjwarp_cfg.training.sim_backend == "mjwarp"
     assert mjwarp_cfg.training.no_play is False
@@ -336,8 +330,8 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
         ("ppo", ["task=g1_walk_flat/mujoco"]),
         ("ppo_him", ["task=go2_arm_manip_loco/mujoco"]),
         ("appo", ["task=g1_walk_flat/mujoco"]),
-        ("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/mujoco"]),
-        ("offpolicy", ["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"]),
+        ("sac", ["task=g1_walk_flat/mujoco"]),
+        ("flashsac", ["task=g1_walk_flat/mujoco"]),
     ],
 )
 def test_post_step_forward_sensor_defaults_false_outside_sharpa_mujoco(
@@ -356,7 +350,7 @@ def test_post_step_forward_sensor_defaults_false_outside_sharpa_mujoco(
         ("ppo", ["task=sharpa_inhand_grasp/mujoco"]),
         ("appo", ["task=sharpa_inhand/mujoco"]),
         ("appo", ["task=sharpa_inhand/mujoco_hora"]),
-        ("offpolicy", ["algo=sac", "task=sac/sharpa_inhand/mujoco_hora"]),
+        ("sac", ["task=sharpa_inhand/mujoco_hora"]),
         ("hora_distill", ["task=sharpa_inhand/mujoco"]),
     ],
 )
@@ -479,7 +473,7 @@ def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
-    cfg = _compose("offpolicy", overrides=["algo=sac", "task=sac/g1_walk_flat/motrix"])
+    cfg = _compose("sac", overrides=["task=g1_walk_flat/motrix"])
 
     assert cfg.training.sim_backend == "motrix"
     assert cfg.algo.num_envs == 2048
@@ -490,8 +484,8 @@ def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():
 
 def test_offpolicy_flashsac_go2_joystick_mujoco_enables_full_dr_stack():
     mujoco_cfg = _compose(
-        "offpolicy",
-        overrides=["algo=flashsac", "task=flashsac/go2_joystick_flat/mujoco"],
+        "flashsac",
+        overrides=["task=go2_joystick_flat/mujoco"],
     )
 
     assert mujoco_cfg.training.task_name == "Go2JoystickFlat"

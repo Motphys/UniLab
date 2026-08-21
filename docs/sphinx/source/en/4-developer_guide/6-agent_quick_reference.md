@@ -11,7 +11,8 @@ repo facts.
 - Algorithms index: {doc}`../2-user_guide/2-algorithms/0-index`
 - PPO entrypoint: `scripts/train_rsl_rl.py`
 - APPO entrypoint: `scripts/train_appo.py`
-- SAC / TD3 / FlashSAC entrypoint: `scripts/train_offpolicy.py`
+- SAC / TD3 / FlashSAC entrypoints: `scripts/train_sac.py` /
+  `scripts/train_td3.py` / `scripts/train_flashsac.py`
 - HIM-PPO entrypoint: `scripts/train_him_ppo.py`
 - HORA distillation entrypoint: `scripts/train_hora_distill.py`
 

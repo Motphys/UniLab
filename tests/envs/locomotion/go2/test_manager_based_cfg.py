@@ -107,8 +107,8 @@ _OWNER_CASES = (
         id="appo-motrix",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=flashsac", "task=flashsac/go2_joystick_flat/mujoco"),
+        "flashsac",
+        ("task=go2_joystick_flat/mujoco",),
         "mujoco",
         0.4,
         True,
@@ -117,8 +117,8 @@ _OWNER_CASES = (
         id="flashsac-mujoco",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=td3", "task=td3/go2_joystick_flat/motrix"),
+        "td3",
+        ("task=go2_joystick_flat/motrix",),
         "motrix",
         0.25,
         False,
@@ -127,8 +127,8 @@ _OWNER_CASES = (
         id="td3-motrix",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/go2_joystick_flat/drake"),
+        "sac",
+        ("task=go2_joystick_flat/drake",),
         "drake",
         0.25,
         False,
@@ -344,8 +344,8 @@ def test_go2_flat_registry_executes_real_manager_runtime(backend: str, owner: st
 def test_go2_flat_flashsac_uses_canonical_manager_events_and_numpy_noise() -> None:
     registry.ensure_registries()
     _, env_cfg, _ = _materialize(
-        "offpolicy",
-        ("algo=flashsac", "task=flashsac/go2_joystick_flat/mujoco"),
+        "flashsac",
+        ("task=go2_joystick_flat/mujoco",),
     )
 
     assert env_cfg.scene is not None

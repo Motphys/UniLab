@@ -32,7 +32,7 @@ orphan: true
 ## Stable Contracts
 
 - PPO/APPO owner 路径: `conf/{ppo,appo}/task/<task>/<backend>.yaml`
-- Offpolicy owner 路径: `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
+- Offpolicy owner 路径: `conf/{sac,td3,flashsac}/task/<task>/<backend>.yaml`（每个 off-policy 算法一棵独立配置树）
 - reward 注入与 backend 差异表达必须在 owner YAML 层显式存在。
 - Manager-Based cfg 使用 Hydra `_target_` 与 dotted callable reference；解析失败或类型错误
   必须在 env/backend 构造前报错。

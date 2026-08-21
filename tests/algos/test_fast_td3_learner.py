@@ -212,18 +212,17 @@ class TestTD3CLIRouting:
         from unilab.cli import build_route
 
         route = build_route("td3", "go2_joystick_flat", "motrix")
-        assert route.script_name == "train_offpolicy.py"
-        assert route.config_group == "offpolicy"
-        assert route.owner_task == "td3/go2_joystick_flat/motrix.yaml"
-        assert "algo=td3" in route.generated_overrides
-        assert "task=td3/go2_joystick_flat/motrix" in route.generated_overrides
+        assert route.script_name == "train_td3.py"
+        assert route.config_group == "td3"
+        assert route.owner_task == "go2_joystick_flat/motrix.yaml"
+        assert route.generated_overrides == ("task=go2_joystick_flat/motrix",)
 
     def test_build_route_td3_go1_joystick_flat_motrix(self):
         from unilab.cli import build_route
 
         route = build_route("td3", "go1_joystick_flat", "motrix")
-        assert route.script_name == "train_offpolicy.py"
-        assert route.owner_task == "td3/go1_joystick_flat/motrix.yaml"
+        assert route.script_name == "train_td3.py"
+        assert route.owner_task == "go1_joystick_flat/motrix.yaml"
 
     def test_td3_in_offpolicy_algos(self):
         from unilab.cli import OFFPOLICY_ALGOS, SUPPORTED_ALGOS

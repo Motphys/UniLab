@@ -18,7 +18,7 @@ uv run eval  --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 
 1. **At train time**: `ExperimentTracker` snapshots the contract fields that define policy I/O into `contract_snapshot` in `run_config.json` (the checkpoint format is untouched, so historical checkpoints stay compatible).
 2. **At replay time**: `eval` loads the **target backend** owner config selected by `--sim` (e.g. `conf/ppo/task/go2_joystick_flat/motrix.yaml`) and injects `training.play_only=true`.
-3. **Before env creation**: the four play entrypoints (rsl_rl / appo / offpolicy / him_ppo) call `resolve_sim2sim_config`, comparing the target config against the source run's contract snapshot field by field.
+3. **Before env creation**: the play entrypoints (rsl_rl / appo / sac / td3 / flashsac / him_ppo) call `resolve_sim2sim_config`, comparing the target config against the source run's contract snapshot field by field.
 4. **At weight load**: `policy_load_dim_guard` wraps checkpoint loading, re-raising cryptic tensor shape-mismatch errors as a clear sim2sim diagnostic.
 
 ## What the guard covers

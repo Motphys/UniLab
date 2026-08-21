@@ -18,7 +18,7 @@ uv run eval  --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 
 1. **训练时**：`ExperimentTracker` 把决定策略 I/O 的契约字段快照进 `run_config.json` 的 `contract_snapshot`（不改动 checkpoint 格式，历史 checkpoint 天然兼容）。
 2. **回放时**：`eval` 读取 `--sim` 指定的**目标后端** owner 配置（如 `conf/ppo/task/go2_joystick_flat/motrix.yaml`），并注入 `training.play_only=true`。
-3. **建 env 前**：四个 play 入口（rsl_rl / appo / offpolicy / him_ppo）调用 `resolve_sim2sim_config`，把目标配置与源 run 的契约快照逐字段比对。
+3. **建 env 前**：各 play 入口（rsl_rl / appo / sac / td3 / flashsac / him_ppo）调用 `resolve_sim2sim_config`，把目标配置与源 run 的契约快照逐字段比对。
 4. **加载权重时**：`policy_load_dim_guard` 包裹 checkpoint 加载，把底层 tensor 维度不匹配的晦涩报错重抛为清晰的 sim2sim 诊断。
 
 ## 守卫的字段

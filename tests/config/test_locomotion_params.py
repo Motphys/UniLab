@@ -132,7 +132,7 @@ def test_offpolicy_sac_defaults():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(CONF_DIR / "sac"), version_base="1.3"):
         cfg = compose("config")
     assert cfg.algo.algo == "sac"
     assert cfg.algo.num_envs == 2048
@@ -143,8 +143,8 @@ def test_offpolicy_sac_g1_task_overrides():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=sac", "task=sac/g1_walk_flat/mujoco"])
+    with initialize_config_dir(config_dir=str(CONF_DIR / "sac"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
     assert cfg.algo.use_symmetry is True
@@ -162,8 +162,8 @@ def test_offpolicy_td3_defaults():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=td3"])
+    with initialize_config_dir(config_dir=str(CONF_DIR / "td3"), version_base="1.3"):
+        cfg = compose("config")
     assert cfg.algo.algo == "td3"
     assert cfg.algo.use_layer_norm is False
     assert cfg.algo.algo_params.weight_decay == pytest.approx(0.1)
@@ -178,8 +178,8 @@ def test_offpolicy_td3_g1_task_overrides():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
-        cfg = compose("config", overrides=["algo=td3", "task=td3/g1_walk_flat/mujoco"])
+    with initialize_config_dir(config_dir=str(CONF_DIR / "td3"), version_base="1.3"):
+        cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
     assert cfg.training.task_name == "G1WalkFlat"
     assert cfg.algo.max_iterations == 100000
     assert cfg.env.actions.joint_pos.scale == pytest.approx(1.0)
@@ -190,10 +190,10 @@ def test_offpolicy_flashsac_g1_task_overrides():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(CONF_DIR / "flashsac"), version_base="1.3"):
         cfg = compose(
             "config",
-            overrides=["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"],
+            overrides=["task=g1_walk_flat/mujoco"],
         )
     assert cfg.algo.algo == "flashsac"
     assert cfg.training.task_name == "G1WalkFlat"
@@ -208,10 +208,10 @@ def test_offpolicy_flashsac_go2_task_overrides():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(CONF_DIR / "flashsac"), version_base="1.3"):
         cfg = compose(
             "config",
-            overrides=["algo=flashsac", "task=flashsac/go2_joystick_flat/mujoco"],
+            overrides=["task=go2_joystick_flat/mujoco"],
         )
     assert cfg.algo.algo == "flashsac"
     assert cfg.training.task_name == "Go2JoystickFlat"
@@ -230,10 +230,10 @@ def test_offpolicy_g1_rough_terrain_task_overrides():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(CONF_DIR / "sac"), version_base="1.3"):
         cfg = compose(
             "config",
-            overrides=["algo=sac", "task=sac/g1_walk_rough/mujoco"],
+            overrides=["task=g1_walk_rough/mujoco"],
         )
     assert cfg.algo.algo == "sac"
     assert cfg.training.task_name == "G1WalkRough"
@@ -259,14 +259,11 @@ def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
 
     assert uses_walk_profile("ppo", ["task=g1_walk_flat/mujoco"]) is False
     assert uses_walk_profile("appo", ["task=g1_walk_flat/mujoco"]) is False
-    assert uses_walk_profile("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/mujoco"]) is True
-    assert uses_walk_profile("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/motrix"]) is True
-    assert uses_walk_profile("offpolicy", ["algo=sac", "task=sac/g1_walk_rough/mujoco"]) is True
-    assert uses_walk_profile("offpolicy", ["algo=td3", "task=td3/g1_walk_flat/mujoco"]) is True
-    assert (
-        uses_walk_profile("offpolicy", ["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
-        is True
-    )
+    assert uses_walk_profile("sac", ["task=g1_walk_flat/mujoco"]) is True
+    assert uses_walk_profile("sac", ["task=g1_walk_flat/motrix"]) is True
+    assert uses_walk_profile("sac", ["task=g1_walk_rough/mujoco"]) is True
+    assert uses_walk_profile("td3", ["task=g1_walk_flat/mujoco"]) is True
+    assert uses_walk_profile("flashsac", ["task=g1_walk_flat/mujoco"]) is True
 
 
 # ---------------------------------------------------------------------------

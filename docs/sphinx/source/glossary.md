@@ -46,8 +46,8 @@ Cold path 指 init、materialization、cache build 等低频路径。Hot path �
 
 顶层 CLI 通过 `--algo <algo> --task <task> --sim <backend>` 选择最终
 task owner 配置。PPO / APPO 路径位于
-`conf/{ppo,appo}/task/<task>/<backend>.yaml`，off-policy 路径位于
-`conf/offpolicy/task/<algo>/<task>/<backend>.yaml`。
+`conf/{ppo,appo}/task/<task>/<backend>.yaml`，off-policy 算法（SAC / TD3 /
+FlashSAC）各自有独立的配置树，路径位于 `conf/<algo>/task/<task>/<backend>.yaml`。
 
 owner YAML 直接持有 `training.task_name`、`training.sim_backend`、`reward`、`env` 以及 task-specific `algo`。`training.sim_backend` 是 owner YAML 的身份字段，不是独立 backend switch。
 

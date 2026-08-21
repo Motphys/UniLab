@@ -503,7 +503,7 @@ def test_offpolicy_config_has_no_periodic_parameter_sync_interval():
 
 def test_build_runner_single_rank_keeps_dp_sync_none(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
-    kwargs = _build_sac_runner_with_dp_fakes(monkeypatch, ["algo=sac", "algo.use_symmetry=false"])
+    kwargs = _build_sac_runner_with_dp_fakes(monkeypatch, ["algo.use_symmetry=false"])
     assert kwargs["dp_sync"] is None
 
 
@@ -513,7 +513,6 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_rank0(monkeypatch: pytest
     kwargs = _build_sac_runner_with_dp_fakes(
         monkeypatch,
         [
-            "algo=sac",
             "algo.use_symmetry=false",
             "training.devices=[0,1]",
         ],
@@ -531,7 +530,7 @@ def test_build_runner_spawned_rank_uses_shared_run_root(monkeypatch: pytest.Monk
     monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/dp_sync_shared_root")
     kwargs = _build_sac_runner_with_dp_fakes(
         monkeypatch,
-        ["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"],
+        ["algo.use_symmetry=false", "training.devices=[0,1]"],
     )
     dp_sync = kwargs["dp_sync"]
     assert isinstance(dp_sync, DpParameterSync)
@@ -542,7 +541,7 @@ def test_build_runner_spawned_rank_uses_shared_run_root(monkeypatch: pytest.Monk
 
 def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
-    cfg = _offpolicy_cfg(["algo=sac", "algo.use_symmetry=false", "training.devices=[0,1]"])
+    cfg = _offpolicy_cfg(["algo.use_symmetry=false", "training.devices=[0,1]"])
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     monkeypatch.delenv(UNILAB_DP_LOG_DIR, raising=False)
     monkeypatch.setattr(module, "ensure_registries", lambda: None)
@@ -703,7 +702,7 @@ def test_flash_sac_gradient_sync_preserves_cuda_graph_and_cpu_fallback_updates()
 def _build_flashsac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: list[str]):
     """build_runner("flashsac", ...) with learner/env/runner fakes; returns runner kwargs."""
     module = _offpolicy()
-    cfg = _offpolicy_cfg(overrides)
+    cfg = _offpolicy_cfg(overrides, algo="flashsac")
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
 
     import unilab.algos.flash_sac.double_buffer as flash_module
@@ -723,7 +722,7 @@ def _build_flashsac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overri
 
 def test_build_runner_single_rank_flashsac_keeps_dp_sync_none(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
-    kwargs = _build_flashsac_runner_with_dp_fakes(monkeypatch, ["algo=flashsac"])
+    kwargs = _build_flashsac_runner_with_dp_fakes(monkeypatch, [])
     assert kwargs["dp_sync"] is None
     assert kwargs["collector_cpu_ids"] is None
 
@@ -736,7 +735,6 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
     kwargs = _build_flashsac_runner_with_dp_fakes(
         monkeypatch,
         [
-            "algo=flashsac",
             "training.devices=[0,1]",
         ],
     )
@@ -755,7 +753,7 @@ def test_build_runner_multi_gpu_flashsac_spawned_rank(monkeypatch: pytest.Monkey
     monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/dp_sync_shared_root")
     kwargs = _build_flashsac_runner_with_dp_fakes(
         monkeypatch,
-        ["algo=flashsac", "training.devices=[0,1]"],
+        ["training.devices=[0,1]"],
     )
     dp_sync = kwargs["dp_sync"]
     assert isinstance(dp_sync, DpParameterSync)

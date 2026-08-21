@@ -176,32 +176,22 @@ def _mxpython_executable() -> str:
 
 
 def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> Route:
-    task_choice: str
     owner = f"{sim}_{profile}" if profile is not None else sim
-    if algo in OFFPOLICY_ALGOS:
-        task_choice = f"{algo}/{task}/{owner}"
-        return Route(
-            script_name="train_offpolicy.py",
-            config_group="offpolicy",
-            owner_task=f"{algo}/{task}/{owner}.yaml",
-            generated_overrides=(f"algo={algo}", f"task={task_choice}"),
-        )
     task_choice = f"{task}/{owner}"
-    if algo == "ppo":
-        return Route(
-            script_name="train_rsl_rl.py",
-            config_group="ppo",
-            owner_task=f"{task}/{owner}.yaml",
-            generated_overrides=(f"task={task_choice}",),
-        )
-    if algo == "appo":
-        return Route(
-            script_name="train_appo.py",
-            config_group="appo",
-            owner_task=f"{task}/{owner}.yaml",
-            generated_overrides=(f"task={task_choice}",),
-        )
-    raise SystemExit(f"Unsupported algo={algo!r}; choose one of: {', '.join(SUPPORTED_ALGOS)}")
+    if algo in OFFPOLICY_ALGOS:
+        script_name = f"train_{algo}.py"
+    elif algo == "ppo":
+        script_name = "train_rsl_rl.py"
+    elif algo == "appo":
+        script_name = "train_appo.py"
+    else:
+        raise SystemExit(f"Unsupported algo={algo!r}; choose one of: {', '.join(SUPPORTED_ALGOS)}")
+    return Route(
+        script_name=script_name,
+        config_group=algo,
+        owner_task=f"{task}/{owner}.yaml",
+        generated_overrides=(f"task={task_choice}",),
+    )
 
 
 def build_command(

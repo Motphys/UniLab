@@ -169,10 +169,10 @@ def test_go2w_flat_owner_materializes_complete_plain_manager_cfg(backend: str) -
 
 def test_go2w_sac_drake_owner_uses_the_same_manager_contract() -> None:
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(CONF_DIR / "sac"), version_base="1.3"):
         hydra_cfg = compose(
             "config",
-            overrides=["algo=sac", "task=sac/go2w_joystick_flat/drake"],
+            overrides=["task=go2w_joystick_flat/drake"],
         )
     env_override = BackendAdapter(hydra_cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
     env_cfg = registry.materialize_env_config("Go2WJoystickFlat")

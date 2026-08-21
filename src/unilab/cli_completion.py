@@ -145,36 +145,13 @@ def _task_entries_for_group(
     return entries
 
 
-def _task_entries_for_offpolicy(root: Path) -> list[TaskCompletionEntry]:
-    entries: list[TaskCompletionEntry] = []
-    task_root = root / "conf" / "offpolicy" / "task"
-    if not task_root.is_dir():
-        return entries
-    for algo in cli.SUPPORTED_ALGOS:
-        algo_root = task_root / algo
-        if not algo_root.is_dir():
-            continue
-        for task_dir in sorted(path for path in algo_root.iterdir() if path.is_dir()):
-            for owner_yaml in sorted(task_dir.glob("*.yaml")):
-                sim = _sim_from_owner(owner_yaml.stem)
-                if sim is None:
-                    continue
-                entries.append(
-                    TaskCompletionEntry(
-                        algo=algo,
-                        task=task_dir.name,
-                        sim=sim,
-                        owner=owner_yaml.stem,
-                    )
-                )
-    return entries
-
-
 def _task_entries(root: Path) -> tuple[TaskCompletionEntry, ...]:
     entries = [
         *_task_entries_for_group(root, "ppo", ("ppo",)),
         *_task_entries_for_group(root, "appo", ("appo",)),
-        *_task_entries_for_offpolicy(root),
+        *_task_entries_for_group(root, "sac", ("sac",)),
+        *_task_entries_for_group(root, "td3", ("td3",)),
+        *_task_entries_for_group(root, "flashsac", ("flashsac",)),
     ]
     return tuple(
         sorted(entries, key=lambda entry: (entry.task, entry.algo, entry.sim, entry.owner))

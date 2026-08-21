@@ -56,6 +56,11 @@ training:
   sim_backend: mujoco
   log_root: custom_logs
 """,
+        root / "conf" / "sac" / "task" / "go4" / "mujoco.yaml": """
+training:
+  task_name: Go4
+  sim_backend: mujoco
+""",
     }
     for path, content in owner_files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -281,6 +286,17 @@ def test_task_completion_respects_selected_profile(tmp_path: Path) -> None:
         10,
         metadata,
     ) == ["go1"]
+
+
+def test_task_completion_covers_per_algo_offpolicy_trees(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    assert complete_words(
+        ["uv", "run", "train", "--algo", "sac", "--sim", "mujoco", "--task", ""],
+        8,
+        metadata,
+    ) == ["go4"]
 
 
 def test_demo_positional_completes_all_demo_names(tmp_path: Path) -> None:

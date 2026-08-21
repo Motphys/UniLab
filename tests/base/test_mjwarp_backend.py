@@ -97,8 +97,8 @@ def test_selected_row_reset_isolated() -> None:
     [
         pytest.param("ppo", ["task=g1_walk_flat/mjwarp"], "ppo", id="ppo"),
         pytest.param(
-            "offpolicy",
-            ["algo=sac", "task=sac/g1_walk_flat/mjwarp"],
+            "sac",
+            ["task=g1_walk_flat/mjwarp"],
             "sac",
             id="sac",
         ),

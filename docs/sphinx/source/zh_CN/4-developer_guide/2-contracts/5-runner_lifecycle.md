@@ -19,7 +19,8 @@ runner；它们不应另起第二套 collector/learner 协议。
   `OnPolicyRunner`。
 - `scripts/train_appo.py` 使用 `APPORunner`、`RolloutRingBuffer` 与
   `SharedWeightSync`。
-- `scripts/train_offpolicy.py` 使用 off-policy runner，配合 `ReplayBuffer` 与
+- `scripts/train_sac.py`、`scripts/train_td3.py` 与 `scripts/train_flashsac.py`
+  使用 off-policy runner，配合 `ReplayBuffer` 与
   `SharedWeightSync`。
 - `AsyncRunner` 为异步 runner 拥有 collector 进程生命周期与共享资源清理。
 

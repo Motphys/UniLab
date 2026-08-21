@@ -52,7 +52,7 @@ NOISE_LEVEL = 1.0
 NOISE_SCALE_JOINT_ANGLE = 0.01
 NOISE_SCALE_JOINT_VEL = 0.1
 
-# conf/offpolicy/task/sac/g1_walk_flat/mujoco.yaml pose_weights (29-dof)
+# conf/sac/task/g1_walk_flat/mujoco.yaml pose_weights (29-dof)
 POSE_WEIGHTS = [0.01, 1.0, 5.0, 0.01, 5.0, 5.0] * 2 + [50.0] * 17
 
 # Reward scales from the SAC owner YAML; penalty terms are multiplied by the

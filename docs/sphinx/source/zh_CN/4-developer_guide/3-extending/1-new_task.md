@@ -20,8 +20,8 @@
    `reset(env_indices)` 返回 `(obs_dict, info_dict)`，而 `step(actions)`
    返回 `NpEnvState`。
 7. 在相关 config 根目录下添加 owner YAML，例如
-   `conf/ppo/task/<task>/<backend>.yaml` 或
-   `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`。
+   `conf/ppo/task/<task>/<backend>.yaml`，off-policy 算法则为
+   `conf/<algo>/task/<task>/<backend>.yaml`。
 8. 把任务或场景的 keyframe 放进通过 `SceneCfg.fragment_files` 引用的
    任务/场景 XML fragment；不要把 task-level keyframe 放进 `robot.xml`。
 

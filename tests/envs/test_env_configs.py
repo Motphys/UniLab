@@ -58,10 +58,8 @@ def _g1_manager_override(task: str = "g1_walk_flat") -> dict[str, Any]:
     repo_root = Path(__file__).parents[2]
     if task == "g1_walk_rough":
         # There is no ppo g1_walk_rough owner; use the SAC owner instead.
-        with initialize_config_dir(
-            config_dir=str(repo_root / "conf" / "offpolicy"), version_base="1.3"
-        ):
-            cfg = compose("config", overrides=["algo=sac", f"task=sac/{task}/mujoco"])
+        with initialize_config_dir(config_dir=str(repo_root / "conf" / "sac"), version_base="1.3"):
+            cfg = compose("config", overrides=[f"task={task}/mujoco"])
         return BackendAdapter(
             cfg, root_dir=repo_root, algo_name="sac"
         ).build_task_env_cfg_override()
@@ -87,13 +85,11 @@ def _motion_manager_override(
         config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
     ):
         overrides = [f"task={task}/{backend}"]
-        if config_root == "offpolicy":
-            overrides.insert(0, "algo=sac")
         cfg = compose("config", overrides=overrides)
     return str(cfg.training.task_name), BackendAdapter(
         cfg,
         root_dir=repo_root,
-        algo_name="sac" if config_root == "offpolicy" else config_root,
+        algo_name=config_root,
     ).build_task_env_cfg_override()
 
 
@@ -978,8 +974,8 @@ _MOTION_CORE_RUNTIME_CASES = (
     pytest.param("appo", "g1_motion_tracking", "G1MotionTracking", 160, 286, 29, False),
     pytest.param("appo", "g1_23dof_motion_tracking", "G1MotionTracking23Dof", 130, 256, 23, False),
     pytest.param(
-        "offpolicy",
-        "sac/g1_motion_tracking",
+        "sac",
+        "g1_motion_tracking",
         "G1MotionTrackingSAC",
         160,
         289,
@@ -987,8 +983,8 @@ _MOTION_CORE_RUNTIME_CASES = (
         True,
     ),
     pytest.param(
-        "offpolicy",
-        "sac/g1_23dof_motion_tracking",
+        "sac",
+        "g1_23dof_motion_tracking",
         "G1MotionTrackingSAC23Dof",
         130,
         259,
@@ -1082,9 +1078,9 @@ def test_g1_motion_manager_sac_clip_end_is_truncation() -> None:
     from unilab.base import registry
 
     _, override = _motion_manager_override(
-        "sac/g1_motion_tracking",
+        "g1_motion_tracking",
         "mujoco",
-        config_root="offpolicy",
+        config_root="sac",
     )
     override["auto_reset"] = False
     env = registry.make(

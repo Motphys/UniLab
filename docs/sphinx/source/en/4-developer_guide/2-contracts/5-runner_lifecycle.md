@@ -21,7 +21,8 @@ The training scripts follow the same high-level sequence:
   `OnPolicyRunner`.
 - `scripts/train_appo.py` uses `APPORunner`, `RolloutRingBuffer`, and
   `SharedWeightSync`.
-- `scripts/train_offpolicy.py` uses off-policy runners with `ReplayBuffer` and
+- `scripts/train_sac.py`, `scripts/train_td3.py`, and
+  `scripts/train_flashsac.py` use off-policy runners with `ReplayBuffer` and
   `SharedWeightSync`.
 - `AsyncRunner` owns collector process lifecycle and shared-resource cleanup for
   async runners.

@@ -23,7 +23,7 @@ UNILAB_DP_WORLD_SIZE = "UNILAB_DP_WORLD_SIZE"
 UNILAB_DP_DEVICES = "UNILAB_DP_DEVICES"
 UNILAB_DP_LOG_DIR = "UNILAB_DP_LOG_DIR"
 
-_OFFPOLICY_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "train_offpolicy.py"
+_SCRIPTS_ROOT = Path(__file__).resolve().parents[3] / "scripts"
 
 _WATCHDOG_INTERVAL_S = 0.5
 _COOPERATIVE_EXIT_GRACE_S = 10.0
@@ -320,7 +320,8 @@ def _process_group_exists(child: subprocess.Popen) -> bool:
 class DpRankSupervisor:
     """Rank-0 supervisor that spawns and watches data-parallel rank subprocesses.
 
-    Ranks 1..N-1 re-run ``scripts/train_offpolicy.py`` with the same Hydra
+    Ranks 1..N-1 re-run the current entry script (``sys.argv[0]``, e.g.
+    ``scripts/train_sac.py``) with the same Hydra
     argv plus the ``UNILAB_DP_*`` environment; each spawned rank builds its
     own learner+collector pair through the regular runner path. If any rank
     subprocess dies with a non-zero exit code while active, the supervisor
@@ -356,7 +357,11 @@ class DpRankSupervisor:
                 env = base_env | {UNILAB_DP_RANK: str(rank)}
                 self._children.append(
                     subprocess.Popen(
-                        [sys.executable, str(_OFFPOLICY_SCRIPT), *sys.argv[1:]],
+                        [
+                            sys.executable,
+                            str(_SCRIPTS_ROOT / Path(sys.argv[0]).name),
+                            *sys.argv[1:],
+                        ],
                         env=env,
                         # Rank-local collectors inherit this group. The terminal
                         # only interrupts rank 0; the supervisor then forwards

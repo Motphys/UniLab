@@ -6,11 +6,11 @@ def test_reward_injection_in_offpolicy_env_override():
     from hydra import compose, initialize
     from scripts.train_offpolicy import build_offpolicy_env_cfg_override
 
-    with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
+    with initialize(config_path="../../conf/sac", version_base="1.3"):
         cfg = compose(
             config_name="config",
             overrides=[
-                "task=sac/g1_walk_flat/mujoco",
+                "task=g1_walk_flat/mujoco",
                 "algo.max_iterations=1",
                 "algo.num_envs=64",
                 "training.no_play=true",

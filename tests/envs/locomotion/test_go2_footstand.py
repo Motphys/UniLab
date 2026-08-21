@@ -106,8 +106,8 @@ _OWNER_CASES = (
         id="ppo-drake",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/go2_footstand/drake"),
+        "sac",
+        ("task=go2_footstand/drake",),
         "drake",
         frozenset(),
         0.05,

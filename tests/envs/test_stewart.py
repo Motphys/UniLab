@@ -52,8 +52,8 @@ _OWNER_CASES = (
     pytest.param("ppo", ("task=stewart_balance/mujoco",), "mujoco", id="ppo-mujoco"),
     pytest.param("ppo", ("task=stewart_balance/drake",), "drake", id="ppo-drake"),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/stewart_balance/drake"),
+        "sac",
+        ("task=stewart_balance/drake",),
         "drake",
         id="sac-drake",
     ),

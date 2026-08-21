@@ -116,16 +116,19 @@ def test_appo_task_configs_load(task, tmp_path):
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "task",
-    ["sac/g1_walk_flat/mujoco", "sac/g1_walk_rough/mujoco", "td3/g1_walk_flat/mujoco"],
+    ("algo", "task"),
+    [
+        ("sac", "g1_walk_flat/mujoco"),
+        ("sac", "g1_walk_rough/mujoco"),
+        ("td3", "g1_walk_flat/mujoco"),
+    ],
 )
-def test_offpolicy_task_configs_load(task):
+def test_offpolicy_task_configs_load(algo, task):
     """Off-policy task configs can start training with supported MuJoCo owners."""
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/train_offpolicy.py",
-            f"algo={task.split('/', 1)[0]}",
+            f"scripts/train_{algo}.py",
             f"task={task}",
             "algo.max_iterations=1",
             "training.no_play=true",
@@ -134,7 +137,7 @@ def test_offpolicy_task_configs_load(task):
         text=True,
         timeout=120,
     )
-    assert result.returncode == 0, f"Off-policy {task} failed:\n{result.stderr}"
+    assert result.returncode == 0, f"Off-policy {algo} {task} failed:\n{result.stderr}"
 
 
 @pytest.mark.slow

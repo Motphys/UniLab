@@ -23,7 +23,7 @@ uv run train --algo ppo --task go1_joystick_flat --sim motrix
 Owner YAML locations:
 
 - PPO / APPO: `conf/{ppo,appo}/task/<task>/<backend>.yaml`
-- Off-policy: `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`
+- Off-policy (SAC / TD3 / FlashSAC): `conf/<algo>/task/<task>/<backend>.yaml`
 
 The selected owner YAML sets `training.sim_backend` as an identity field.
 

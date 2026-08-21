@@ -9,8 +9,8 @@ from omegaconf import OmegaConf
 
 def test_reward_config_loading_g1():
     """Test G1 SAC reward config loads correctly."""
-    with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/g1_walk_flat/mujoco"])
+    with initialize(config_path="../../conf/sac", version_base="1.3"):
+        cfg = compose(config_name="config", overrides=["task=g1_walk_flat/mujoco"])
         assert hasattr(cfg, "reward")
         assert cfg.reward.tracking_lin_vel.weight == 2.0
         assert cfg.reward.alive.weight == 10.0
@@ -19,8 +19,8 @@ def test_reward_config_loading_g1():
 
 def test_reward_config_loading_g1_motrix():
     """Test G1 Motrix reward config loads correctly."""
-    with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/g1_walk_flat/motrix"])
+    with initialize(config_path="../../conf/sac", version_base="1.3"):
+        cfg = compose(config_name="config", overrides=["task=g1_walk_flat/motrix"])
         assert hasattr(cfg, "reward")
         assert cfg.reward.tracking_lin_vel.weight == 2.2
         assert cfg.reward.alive.weight == 12.0

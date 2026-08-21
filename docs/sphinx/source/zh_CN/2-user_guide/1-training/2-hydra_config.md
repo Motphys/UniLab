@@ -9,7 +9,7 @@ reward、scene 以及 task 专属运行时字段的身份标识。
 | --- | --- |
 | PPO | `conf/ppo/task/<task>/<backend>.yaml` |
 | APPO | `conf/appo/task/<task>/<backend>.yaml` |
-| SAC / TD3 / FlashSAC | `conf/offpolicy/task/<algo>/<task>/<backend>.yaml` |
+| SAC / TD3 / FlashSAC | `conf/<algo>/task/<task>/<backend>.yaml` |
 | HIM-PPO | `conf/ppo_him/task/<task>/<backend>.yaml` |
 | HORA 蒸馏 | `conf/hora_distill/task/<task>/<backend>.yaml` |
 
@@ -21,8 +21,8 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
-对于 off-policy，`--algo` 选择 `conf/offpolicy/task/<algo>/` 下 owner 路径的第一
-个分段；不要在 `--task` 中包含算法名称。
+对于 off-policy，`--algo` 选择按算法划分的配置树 `conf/<algo>/`；不要在
+`--task` 中包含算法名称。
 
 ## 安全的 Override
 

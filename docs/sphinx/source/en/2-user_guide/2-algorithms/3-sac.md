@@ -1,9 +1,9 @@
 # SAC
 
-SAC is selected through the shared off-policy entrypoint
-`scripts/train_offpolicy.py`, which TD3 and FlashSAC share as well. The main
-config is `conf/offpolicy/config.yaml`, and the SAC algorithm defaults live in
-`conf/offpolicy/algo/sac.yaml`. The current log name is `fast_sac`.
+SAC runs through `scripts/train_sac.py`; TD3 and FlashSAC have their own
+entrypoints and per-algorithm config trees. The main config is
+`conf/sac/config.yaml`, with the SAC algorithm defaults inlined there. The
+current log name is `fast_sac`.
 
 ## Runtime Model
 
@@ -25,7 +25,7 @@ uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
 
 ## Key Fields
 
-For the off-policy playback path (`scripts/train_offpolicy.py` / CLI `--algo sac`),
+For the off-policy playback path (`scripts/train_sac.py` / CLI `--algo sac`),
 set `training.export_onnx=false` to skip `policy.onnx` export while still recording
 playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 
@@ -33,7 +33,7 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.num_envs=4096`
 - `algo.batch_size=8192` is the learner batch per update.
 - `algo.max_iterations=500`
-- `training.use_amp=true` in the shared off-policy config
+- `training.use_amp=true` in `conf/sac/config.yaml`
 
 The off-policy device replay path uses synchronized, learner-owned inference:
 collectors exchange observations and actions through shared memory and do not own an actor.

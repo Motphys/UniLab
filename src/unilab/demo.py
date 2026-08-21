@@ -108,22 +108,7 @@ def _build_play_interactive_command(
     script = selected_root / "scripts" / "play_interactive.py"
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
-    if spec.algo in {"sac", "flashsac"}:
-        owner_yaml = (
-            selected_root
-            / "conf"
-            / "offpolicy"
-            / "task"
-            / spec.algo
-            / spec.task
-            / f"{spec.sim}.yaml"
-        )
-    elif spec.algo == "hora_distill":
-        owner_yaml = (
-            selected_root / "conf" / "hora_distill" / "task" / spec.task / f"{spec.sim}.yaml"
-        )
-    else:
-        owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
+    owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
     if not owner_yaml.is_file():
         raise SystemExit(
             f"No owner config exists for algo={spec.algo}, task={spec.task}, sim={spec.sim}: "

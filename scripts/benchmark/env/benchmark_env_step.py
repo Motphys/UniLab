@@ -236,9 +236,9 @@ def _sac_owner_yaml_cfg(
 ) -> Any:
     yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
-        config_root="offpolicy",
+        config_root="sac",
         algo_name="sac",
-        overrides=["algo=sac", f"task=sac/{task_id}/{yaml_backend}"],
+        overrides=[f"task={task_id}/{yaml_backend}"],
         config_overrides=config_overrides,
         env_cfg_cls=env_cfg_cls,
     )

@@ -9,7 +9,7 @@ budgets as robot-specific measurements, not UniLab defaults.
 | Surface | Repo evidence | What it covers |
 | --- | --- | --- |
 | One-step action delay | Manager action term `simulate_action_latency` declarations in task owners | Executes the previous action instead of the current action. |
-| G1 WBT observation history | Per-term `history_length` in `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` and `scripts/deploy/export_deploy_config.py` | Exports per-term `obs_layout` history for `gyro`, `joint_pos_rel`, `dof_vel`, and `last_actions`. |
+| G1 WBT observation history | Per-term `history_length` in `conf/sac/task/g1_wbt_obs/mujoco.yaml` and `scripts/deploy/export_deploy_config.py` | Exports per-term `obs_layout` history for `gyro`, `joint_pos_rel`, `dof_vel`, and `last_actions`. |
 | Sharpa tactile contact latency | `domain_rand.contact_latency` in Sharpa in-hand configs | Keeps previous tactile contact values for sampled contact channels. |
 | Deploy-side ONNX contract check | `scripts/deploy/sim_prototype.py` | Validates `obs_layout`, `obs_dim`, ONNX input width, clipping, and EMA action smoothing for the G1 WBT path. |
 
@@ -27,7 +27,7 @@ env:
 ```
 
 The checked-in G1 WBT owner enables this flag in
-`conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml`.
+`conf/sac/task/g1_wbt_obs/mujoco.yaml`.
 
 ## Observation Lag And History
 

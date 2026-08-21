@@ -2,13 +2,13 @@
 
 For every task with >=2 backend YAMLs, hydra-composes each backend's effective config
 and compares the DENYLIST / WARNING_LIST fields from ``unilab.training.sim2sim``.
-Off-policy owners are grouped by algorithm so SAC, TD3, and FlashSAC are never
-compared with one another.
+Off-policy owners now live in separate per-algorithm trees (``sac``, ``td3``,
+``flashsac``), so SAC, TD3, and FlashSAC are never compared with one another.
 
 Read-only.
 
     uv run scripts/audit_sim2sim_contracts.py
-    uv run scripts/audit_sim2sim_contracts.py --trees ppo appo offpolicy
+    uv run scripts/audit_sim2sim_contracts.py --trees ppo appo sac td3 flashsac
     uv run scripts/audit_sim2sim_contracts.py --json
 """
 
@@ -52,16 +52,7 @@ def _select(cfg: Any, path: str) -> Any:
 
 def _compose(tree: str, task_variant: str) -> Any:
     conf_dir = str(CONF_ROOT / tree)
-    overrides: list[str] = []
-    if tree == "offpolicy":
-        variant_parts = task_variant.split("/")
-        if len(variant_parts) != 3:
-            raise ValueError(
-                f"offpolicy task variants must use '<algo>/<task>/<backend>', got {task_variant!r}"
-            )
-        algo = variant_parts[0]
-        overrides.append(f"algo={algo}")
-    overrides.append(f"task={task_variant}")
+    overrides: list[str] = [f"task={task_variant}"]
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=conf_dir, version_base="1.3"):
         return compose("config", overrides=overrides)

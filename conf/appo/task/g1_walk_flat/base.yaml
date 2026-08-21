@@ -2,7 +2,7 @@
 # Canonical G1 29-DoF walk Manager-Based task declaration (APPO owners; mirrors the PPO base).
 # Backend owner leaves inherit this file and only override backend/algo tuning
 # or explicitly disabled terms. Observation scaling follows the legacy profile
-# (unit scales); the walk profile lives in the offpolicy base owners.
+# (unit scales); the walk profile lives in conf/sac/task/g1_walk_flat/base.yaml.
 env:
   scene:
     model_file: src/unilab/assets/robots/g1/scene_flat.xml

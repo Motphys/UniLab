@@ -34,4 +34,5 @@ standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 - Env state contract: `src/unilab/base/np_env.py`
 - Registry construction path: `src/unilab/base/registry.py`
 - Training entrypoints: `scripts/train_rsl_rl.py`,
-  `scripts/train_appo.py`, `scripts/train_offpolicy.py`
+  `scripts/train_appo.py`, `scripts/train_sac.py`,
+  `scripts/train_td3.py`, `scripts/train_flashsac.py`

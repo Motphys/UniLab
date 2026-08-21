@@ -50,23 +50,16 @@ def _resolve_low_level_playback_flags(kwargs: dict[str, object]) -> dict[str, ob
 
 def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
     normalized: list[str] = []
-    algo = "sac"
     task_selected = False
 
     for override in overrides or []:
-        if override.startswith("algo="):
-            algo = override.split("=", 1)[1]
-            normalized.append(override)
-            continue
         if override.startswith("task="):
             task_selected = True
-            normalized.append(override)
-            continue
         normalized.append(override)
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
+            normalized.append("task=g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
@@ -78,9 +71,9 @@ def _ppo_cfg(overrides: list[str] | None = None):
         return compose("config", overrides=_normalize_overrides(overrides))
 
 
-def _offpolicy_cfg(overrides: list[str] | None = None):
+def _offpolicy_cfg(overrides: list[str] | None = None, *, algo: str = "sac"):
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(_CONF_DIR / algo), version_base="1.3"):
         return compose("config", overrides=_normalize_overrides(overrides, offpolicy=True))
 
 
@@ -375,7 +368,7 @@ def test_resolve_task_checkpoint_path_accepts_integer_latest_run(
 
 def test_backend_adapter_env_cfg_override_for_motrix_sac_g1_walk_flat():
     """Env cfg override carries reward + env preset fields. Algo is NOT touched."""
-    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 
     adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
     env_cfg_override = adapter.build_task_env_cfg_override()

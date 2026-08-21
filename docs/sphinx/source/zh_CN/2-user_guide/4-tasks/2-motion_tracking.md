@@ -23,7 +23,7 @@ runtime 执行。
 | `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` |
 | `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
 | `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `conf/ppo/task/g1_box_tracking/` |
-| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
+| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/sac/task/g1_wbt_obs/mujoco.yaml` |
 
 23-DoF task owner 目录选择对应的 23-DoF 场景、motion、entity 与 action 声明。
 profile 差异全部留在 Hydra 中。G1 identity 使用共享 manager factory；X2 只在委托给

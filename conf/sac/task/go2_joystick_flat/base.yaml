@@ -1,0 +1,215 @@
+# @package _global_
+# Canonical Go2 flat Manager-Based task declaration. Backend owner leaves inherit
+# this file and only override backend/algo tuning or explicitly disabled terms.
+env:
+  scene:
+    model_file: src/unilab/assets/robots/go2/scene_flat.xml
+    default_keyframe_name: home
+    entities:
+      robot:
+        root_body_name: base
+        joint_names:
+          - FL_hip_joint
+          - FL_thigh_joint
+          - FL_calf_joint
+          - FR_hip_joint
+          - FR_thigh_joint
+          - FR_calf_joint
+          - RL_hip_joint
+          - RL_thigh_joint
+          - RL_calf_joint
+          - RR_hip_joint
+          - RR_thigh_joint
+          - RR_calf_joint
+        actuator_names:
+          - FR_hip
+          - FR_thigh
+          - FR_calf
+          - FL_hip
+          - FL_thigh
+          - FL_calf
+          - RR_hip
+          - RR_thigh
+          - RR_calf
+          - RL_hip
+          - RL_thigh
+          - RL_calf
+  sim_dt: 0.01
+  ctrl_dt: 0.02
+  max_episode_seconds: 20.0
+  observations:
+    policy:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: gyro
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params:
+            sensor_name: upvector
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          func: unilab.envs.mdp.last_action
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params:
+            command_name: twist
+        gait_phase:
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
+          params:
+            frequency: 2.0
+    critic:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: gyro
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params:
+            sensor_name: upvector
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          func: unilab.envs.mdp.last_action
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params:
+            command_name: twist
+        gait_phase:
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
+          params:
+            frequency: 2.0
+        base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: local_linvel
+  actions:
+    joint_pos:
+      _target_: unilab.envs.mdp.JointPositionActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      scale: 0.25
+      use_default_offset: true
+  commands:
+    twist:
+      _target_: unilab.envs.mdp.UniformVelocityCommandCfg
+      entity_name: robot
+      resampling_time_range: [20.0, 20.0]
+      heading_command: false
+      heading_control_stiffness: 0.5
+      rel_standing_envs: 0.0
+      rel_heading_envs: 0.0
+      rel_world_envs: 0.0
+      rel_forward_envs: 0.0
+      init_velocity_prob: 0.0
+      ranges:
+        lin_vel_x: [-0.6, 1.0]
+        lin_vel_y: [-0.4, 0.4]
+        ang_vel_z: [-0.8, 0.8]
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_root_state_uniform:
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.0]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.5, 0.5]
+          roll: [-0.5, 0.5]
+          pitch: [-0.5, 0.5]
+          yaw: [-0.5, 0.5]
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [31.5, 38.5]
+        kd_range: [0.45, 0.55]
+        operation: abs
+  terminations:
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    bad_orientation:
+      func: unilab.envs.mdp.bad_orientation
+      params:
+        limit_angle: 1.0471975511965976
+  policy_observation_group: policy
+  critic_observation_group: critic
+
+reward:
+  # Base-velocity terms bind the IMU-style XML sensors (local_linvel / gyro)
+  # like the legacy task; Entity root_link_*_vel_b reads base-relative frame
+  # sensors that are identically zero for the root body on Motrix.
+  tracking_lin_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel
+    weight: 1.0
+    params:
+      tracking_sigma: 0.25
+      command_name: twist
+      sensor_name: local_linvel
+  tracking_ang_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel
+    weight: 0.2
+    params:
+      tracking_sigma: 0.25
+      command_name: twist
+      sensor_name: gyro
+  lin_vel_z:
+    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z
+    weight: -5.0
+    params:
+      sensor_name: local_linvel
+  ang_vel_xy:
+    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy
+    weight: -0.1
+    params:
+      sensor_name: gyro
+  base_height:
+    func: unilab.tasks.locomotion.common.manager_terms.base_height_l2
+    weight: -100.0
+    params:
+      target_height: 0.3
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.005
+  similar_to_default:
+    func: unilab.tasks.locomotion.common.manager_terms.joint_deviation_l1
+    weight: -0.1
+  contact:
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_contact
+    weight: 0.24
+    params:
+      frequency: 2.0
+      sensor_names:
+        - FL_foot_contact
+        - FR_foot_contact
+        - RL_foot_contact
+        - RR_foot_contact
+      contact_threshold: 0.1
+      stance_threshold: 0.6
+  swing_feet_z:
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_swing_height
+    weight: 4.0
+    params:
+      frequency: 2.0
+      sensor_names: [FL_pos, FR_pos, RL_pos, RR_pos]
+      target_height: 0.1
+      kernel: 0.01
+      swing_start: 0.6

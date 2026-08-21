@@ -50,7 +50,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 
 - PPO: `scripts/train_rsl_rl.py`
 - APPO: `scripts/train_appo.py`
-- SAC / TD3: `scripts/train_offpolicy.py`
+- SAC / TD3 / FlashSAC: `scripts/train_sac.py` / `scripts/train_td3.py` / `scripts/train_flashsac.py`
 - env contract: `src/unilab/base/np_env.py`
 - backend contract: `src/unilab/base/backend/base.py`
 - training run helpers: `src/unilab/training/run.py`

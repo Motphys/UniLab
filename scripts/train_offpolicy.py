@@ -1,4 +1,9 @@
-"""Unified off-policy training entry for SAC and TD3."""
+"""Shared off-policy (SAC/TD3/FlashSAC) train/play implementation.
+
+This module is no longer runnable directly; use the per-algorithm entry
+scripts instead: ``scripts/train_sac.py``, ``scripts/train_td3.py``, and
+``scripts/train_flashsac.py``.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +14,6 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, cast
 
-import hydra
 from omegaconf import DictConfig, OmegaConf
 
 ROOT_DIR = Path(__file__).parent.parent
@@ -400,7 +404,6 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     return play_video_path
 
 
-@hydra.main(version_base="1.3", config_path="../conf/offpolicy", config_name="config")
 def main(cfg: DictConfig) -> None:
     enable_faulthandler()
     ensure_registries()
@@ -498,4 +501,8 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(
+        "scripts/train_offpolicy.py is a shared implementation module and is no longer "
+        "runnable directly. Use scripts/train_sac.py, scripts/train_td3.py, or "
+        "scripts/train_flashsac.py instead."
+    )

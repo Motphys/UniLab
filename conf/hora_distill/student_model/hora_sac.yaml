@@ -1,4 +1,4 @@
-# Teacher -> student `algo.model` mapping for hora_sac teachers (offpolicy SAC).
+# Teacher -> student `algo.model` mapping for hora_sac teachers (off-policy SAC).
 #
 # Loaded by unilab.algos.hora.distill_config and merged next to the
 # Hydra-composed teacher owner config mounted at `teacher_owner`. Values come

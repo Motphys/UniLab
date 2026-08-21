@@ -7,9 +7,9 @@
 | --- | --- | --- | --- |
 | PPO | 同步 on-policy | `scripts/train_rsl_rl.py` | `conf/ppo/config.yaml` |
 | APPO | 异步 on-policy | `scripts/train_appo.py` | `conf/appo/config.yaml` |
-| SAC | off-policy | `scripts/train_offpolicy.py` | `conf/offpolicy/algo/sac.yaml` |
-| TD3 | off-policy | `scripts/train_offpolicy.py` | `conf/offpolicy/algo/td3.yaml` |
-| FlashSAC | off-policy | `scripts/train_offpolicy.py` | `conf/offpolicy/algo/flashsac.yaml` |
+| SAC | off-policy | `scripts/train_sac.py` | `conf/sac/config.yaml` |
+| TD3 | off-policy | `scripts/train_td3.py` | `conf/td3/config.yaml` |
+| FlashSAC | off-policy | `scripts/train_flashsac.py` | `conf/flashsac/config.yaml` |
 | HIM-PPO | 高度估计器 PPO 路径 | `scripts/train_him_ppo.py` | `conf/ppo_him/config.yaml` |
 | HORA | teacher/student 蒸馏路径 | `scripts/train_hora_distill.py` | `conf/hora_distill/config.yaml` |
 

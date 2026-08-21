@@ -106,8 +106,8 @@ _OWNER_CASES = (
         id="appo-motrix",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=td3", "task=td3/go1_joystick_flat/motrix"),
+        "td3",
+        ("task=go1_joystick_flat/motrix",),
         "motrix",
         (*_RESET_EVENTS, *_DR_EVENTS),
         (*_BASE_REWARDS, "swing_feet_z"),

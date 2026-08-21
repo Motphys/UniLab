@@ -26,7 +26,7 @@ TEACHER_CASES = [
     # The APPO HORA owner composes through /task/sharpa_inhand/mujoco, which
     # exercises an owner whose own defaults chain into another owner file.
     ("appo", "sharpa_inhand/mujoco_hora"),
-    ("sac", "sac/sharpa_inhand/mujoco_hora"),
+    ("sac", "sharpa_inhand/mujoco_hora"),
 ]
 
 
@@ -37,18 +37,20 @@ TEACHER_CASES = [
 
 def _legacy_teacher_cfg(algo_family: str, task: str) -> Any:
     if algo_family == "sac":
-        owner_path = _REPO_ROOT / "conf" / "offpolicy" / "task" / f"{task}.yaml"
-        defaults_base = _REPO_ROOT / "conf" / "offpolicy"
-        algo_defaults_path = _REPO_ROOT / "conf" / "offpolicy" / "algo" / "sac.yaml"
+        owner_path = _REPO_ROOT / "conf" / "sac" / "task" / f"{task}.yaml"
+        defaults_base = _REPO_ROOT / "conf" / "sac"
+        # The SAC tree inlines its algorithm defaults into config.yaml's
+        # top-level `algo:` section (there is no `algo` config group anymore).
+        tree_config_path = _REPO_ROOT / "conf" / "sac" / "config.yaml"
     else:
         owner_path = _REPO_ROOT / "conf" / algo_family / "task" / f"{task}.yaml"
         defaults_base = _REPO_ROOT / "conf" / algo_family
-        algo_defaults_path = None
+        tree_config_path = None
     merged_cfg = OmegaConf.create()
-    if algo_defaults_path is not None:
+    if tree_config_path is not None:
         merged_cfg = OmegaConf.merge(
             merged_cfg,
-            OmegaConf.create({"algo": OmegaConf.load(algo_defaults_path)}),
+            OmegaConf.create({"algo": OmegaConf.load(tree_config_path).algo}),
         )
     owner_cfg = OmegaConf.load(owner_path)
     for default_entry in owner_cfg.get("defaults", []):

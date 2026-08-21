@@ -23,9 +23,9 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 | --- | --- | --- |
 | PPO | `logs/rsl_rl_ppo/<task>/` | `conf/ppo/config.yaml` |
 | APPO | `logs/appo/<task>/` | `conf/appo/config.yaml` |
-| SAC | `logs/fast_sac/<task>/` | `conf/offpolicy/algo/sac.yaml` |
-| FlashSAC | `logs/flash_sac/<task>/` | `conf/offpolicy/algo/flashsac.yaml` |
-| TD3 | `logs/fast_td3/<task>/` | `conf/offpolicy/algo/td3.yaml` |
+| SAC | `logs/fast_sac/<task>/` | `conf/sac/config.yaml` |
+| FlashSAC | `logs/flash_sac/<task>/` | `conf/flashsac/config.yaml` |
+| TD3 | `logs/fast_td3/<task>/` | `conf/td3/config.yaml` |
 
 单个 run 目录名为 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如
 `2026-03-09_18-30-00_mujoco`。常见产物包括 `run_config.json`、

@@ -9,7 +9,7 @@ identity of the task, backend, reward, scene, and task-specific runtime fields.
 | --- | --- |
 | PPO | `conf/ppo/task/<task>/<backend>.yaml` |
 | APPO | `conf/appo/task/<task>/<backend>.yaml` |
-| SAC / TD3 / FlashSAC | `conf/offpolicy/task/<algo>/<task>/<backend>.yaml` |
+| SAC / TD3 / FlashSAC | `conf/<algo>/task/<task>/<backend>.yaml` |
 | HIM-PPO | `conf/ppo_him/task/<task>/<backend>.yaml` |
 | HORA distillation | `conf/hora_distill/task/<task>/<backend>.yaml` |
 
@@ -21,8 +21,8 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
-For off-policy, `--algo` selects the first owner-path segment under
-`conf/offpolicy/task/<algo>/`; do not include the algorithm name in `--task`.
+For off-policy, `--algo` selects the per-algorithm config tree `conf/<algo>/`;
+do not include the algorithm name in `--task`.
 
 ## Safe Overrides
 

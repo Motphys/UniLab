@@ -94,28 +94,28 @@ _APPO_PROFILES = tuple(
 )
 
 _SAC_PROFILES = (
-    ("sac/g1_flip_tracking", "G1FlipTrackingSAC", "scene_flat.xml", "flip_360_001__A304.npz"),
+    ("g1_flip_tracking", "G1FlipTrackingSAC", "scene_flat.xml", "flip_360_001__A304.npz"),
     (
-        "sac/g1_23dof_flip_tracking",
+        "g1_23dof_flip_tracking",
         "G1FlipTrackingSAC23Dof",
         "scene_flat_23dof.xml",
         "flip_360_001__A304_23dof.npz",
     ),
     (
-        "sac/g1_wall_flip_tracking",
+        "g1_wall_flip_tracking",
         "G1WallFlipTrackingSAC",
         "scene_flat_with_wall.xml",
         "flip_from_wall_104__A304.npz",
     ),
     (
-        "sac/g1_23dof_wall_flip_tracking",
+        "g1_23dof_wall_flip_tracking",
         "G1WallFlipTrackingSAC23Dof",
         "scene_flat_23dof_with_wall.xml",
         "flip_from_wall_104__A304_23dof.npz",
     ),
-    ("sac/g1_wbt_obs", "G1WBTObs", "scene_flat.xml", "dance1_subject2_part.npz"),
+    ("g1_wbt_obs", "G1WBTObs", "scene_flat.xml", "dance1_subject2_part.npz"),
     (
-        "sac/g1_23dof_wbt_obs",
+        "g1_23dof_wbt_obs",
         "G1WBTObs23Dof",
         "scene_flat_23dof.xml",
         "dance1_subject2_part_23dof.npz",
@@ -134,7 +134,7 @@ _OWNER_CASES = (
         for backend in ("mujoco", "motrix")
     )
     + tuple(
-        ("offpolicy", task, "mujoco", identity, scene, motion)
+        ("sac", task, "mujoco", identity, scene, motion)
         for task, identity, scene, motion in _SAC_PROFILES
     )
 )
@@ -161,8 +161,6 @@ def _compose_owner(config_root: str, task: str, backend: str) -> Any:
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_ROOT / "conf" / config_root), version_base="1.3"):
         overrides = [f"task={task}/{backend}"]
-        if config_root == "offpolicy":
-            overrides.insert(0, "algo=sac")
         return compose("config", overrides=overrides)
 
 
@@ -179,7 +177,7 @@ def _materialize_profile(
     override = BackendAdapter(
         owner,
         root_dir=_ROOT,
-        algo_name="sac" if config_root == "offpolicy" else config_root,
+        algo_name=config_root,
     ).build_task_env_cfg_override()
     apply_cfg_overrides(
         cfg,
@@ -364,16 +362,14 @@ def test_box_wall_wbt_and_x2_profiles_keep_only_owner_differences() -> None:
     from unilab.tasks.motion_tracking.g1.manager_terms import BoxMotionCommandCfg
 
     _, box, _ = _materialize_profile("ppo", "g1_box_tracking", "mujoco", "G1BoxTracking")
-    _, flip, _ = _materialize_profile(
-        "offpolicy", "sac/g1_flip_tracking", "mujoco", "G1FlipTrackingSAC"
-    )
+    _, flip, _ = _materialize_profile("sac", "g1_flip_tracking", "mujoco", "G1FlipTrackingSAC")
     _, wall, _ = _materialize_profile(
-        "offpolicy",
-        "sac/g1_wall_flip_tracking",
+        "sac",
+        "g1_wall_flip_tracking",
         "mujoco",
         "G1WallFlipTrackingSAC",
     )
-    _, wbt, _ = _materialize_profile("offpolicy", "sac/g1_wbt_obs", "mujoco", "G1WBTObs")
+    _, wbt, _ = _materialize_profile("sac", "g1_wbt_obs", "mujoco", "G1WBTObs")
     _, x2, _ = _materialize_profile("ppo", "x2_wall_flip_tracking", "mujoco", "X2WallFlipTracking")
 
     assert set(box.scene.entities) == {"robot", "object"}
@@ -486,17 +482,18 @@ def test_joint_acc_reset_updates_selected_rows_without_pairwise_indexing() -> No
 
 
 @pytest.mark.parametrize(
-    ("task", "identity", "backend", "actor_dim", "critic_dim", "action_dim"),
+    ("config_root", "task", "identity", "backend", "actor_dim", "critic_dim", "action_dim"),
     (
-        ("g1_box_tracking", "G1BoxTracking", "mujoco", 154, 298, 29),
-        ("g1_box_tracking", "G1BoxTracking", "motrix", 154, 298, 29),
-        ("x2_wall_flip_tracking", "X2WallFlipTracking", "mujoco", 154, 430, 29),
-        ("x2_wall_flip_tracking", "X2WallFlipTracking", "motrix", 154, 430, 29),
-        ("sac/g1_wbt_obs", "G1WBTObs", "mujoco", 514, 289, 29),
-        ("sac/g1_23dof_wbt_obs", "G1WBTObs23Dof", "mujoco", 412, 259, 23),
+        ("ppo", "g1_box_tracking", "G1BoxTracking", "mujoco", 154, 298, 29),
+        ("ppo", "g1_box_tracking", "G1BoxTracking", "motrix", 154, 298, 29),
+        ("ppo", "x2_wall_flip_tracking", "X2WallFlipTracking", "mujoco", 154, 430, 29),
+        ("ppo", "x2_wall_flip_tracking", "X2WallFlipTracking", "motrix", 154, 430, 29),
+        ("sac", "g1_wbt_obs", "G1WBTObs", "mujoco", 514, 289, 29),
+        ("sac", "g1_23dof_wbt_obs", "G1WBTObs23Dof", "mujoco", 412, 259, 23),
     ),
 )
 def test_representative_motion_profiles_reset_and_step(
+    config_root: str,
     task: str,
     identity: str,
     backend: str,
@@ -513,7 +510,6 @@ def test_representative_motion_profiles_reset_and_step(
     else:
         pytest.importorskip("motrixsim")
 
-    config_root = "offpolicy" if task.startswith("sac/") else "ppo"
     _, _, override = _materialize_profile(config_root, task, backend, identity)
     env = registry.make(identity, num_envs=2, sim_backend=backend, env_cfg_override=override)
     try:

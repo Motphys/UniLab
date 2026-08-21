@@ -32,7 +32,7 @@ mirrors that generated content.
 | Grade | Repository Evidence |
 | --- | --- |
 | `Registered` | The env/backend pair exists in `registry.list_registered_envs()` after `ensure_registries()`. |
-| `Configured` | A matching owner YAML exists under `conf/{ppo,appo,offpolicy}/task/...`. |
+| `Configured` | A matching owner YAML exists under `conf/{ppo,appo,sac,td3,flashsac}/task/...`. |
 | `Tested` | Automated tests under `tests/` cover the entrypoint/task-owner/backend combination, or an explicit maintainer full-training validation with near-risk automated tests exists. `Tested` here does not mean the default recommended path. |
 | `Benchmarked` | A checked-in benchmark manifest exists for the combination. |
 | `Recommended` | Explicit recommendation metadata exists in the repo. |
@@ -129,7 +129,7 @@ recommendation metadata in the repo, so rows do not auto-promote to
 - Registry bootstrap: `src/unilab/envs/**` decorators via
   `unilab.base.registry.ensure_registries()`.
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`,
-  `conf/offpolicy/task/**`.
+  `conf/sac/task/**`, `conf/td3/task/**`, `conf/flashsac/task/**`.
 - Generic compose coverage:
   `tests/config/test_config_system.py::test_supported_task_composes`.
 - Validated mjwarp entrypoints are explicitly recorded in

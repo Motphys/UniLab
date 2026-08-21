@@ -73,7 +73,9 @@ off-policy 算法则使用异步 runner、共享缓冲区，以及位于 `src/un
 
 - `scripts/train_rsl_rl.py`
 - `scripts/train_appo.py`
-- `scripts/train_offpolicy.py`
+- `scripts/train_sac.py`
+- `scripts/train_td3.py`
+- `scripts/train_flashsac.py`
 - `src/unilab/base/np_env.py`
 - `src/unilab/base/backend/base.py`
 - `src/unilab/base/registry.py`

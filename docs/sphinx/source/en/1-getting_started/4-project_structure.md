@@ -24,8 +24,9 @@ The main config roots are:
 
 - `conf/ppo/config.yaml` for torch PPO.
 - `conf/appo/config.yaml` for APPO.
-- `conf/offpolicy/config.yaml` plus `conf/offpolicy/algo/*.yaml` for SAC,
-  TD3, and FlashSAC.
+- `conf/sac/config.yaml`, `conf/td3/config.yaml`, and
+  `conf/flashsac/config.yaml` for SAC, TD3, and FlashSAC, each with its
+  algorithm hyperparameters inlined.
 - `conf/ppo_him/config.yaml` and `conf/hora_distill/config.yaml` for the
   specialized HIM-PPO and HORA paths.
 

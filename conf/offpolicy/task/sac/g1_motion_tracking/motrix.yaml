@@ -1,9 +1,0 @@
-# @package _global_
-# Motrix is the sim2sim eval owner for MuJoCo-trained WBT checkpoints.
-defaults:
-  - /task/sac/g1_motion_tracking/mujoco
-  - _self_
-
-training:
-  task_name: G1MotionTrackingSAC
-  sim_backend: motrix

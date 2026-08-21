@@ -197,8 +197,8 @@ SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "flashsac", "hora_distill")
 _CONFIG_ROOT_BY_ALGO = {
     "ppo": "ppo",
     "appo": "appo",
-    "sac": "offpolicy",
-    "flashsac": "offpolicy",
+    "sac": "sac",
+    "flashsac": "flashsac",
     "hora_distill": "hora_distill",
 }
 _OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "flashsac"}
@@ -262,27 +262,9 @@ def _interactive_overrides_from_cli(
 
 
 def _normalize_interactive_overrides(algo: str, overrides: list[str]) -> list[str]:
-    normalized: list[str] = []
-    has_algo_group = False
-
-    for override in overrides:
-        key = _override_key(override)
-        if algo in _OFFPOLICY_INTERACTIVE_ALGOS and key == "algo":
-            value = override.split("=", 1)[1] if "=" in override else ""
-            if value != algo:
-                raise SystemExit(
-                    f"--algo {algo} cannot be combined with a non-{algo} Hydra algo group."
-                )
-            has_algo_group = True
-        if algo in _OFFPOLICY_INTERACTIVE_ALGOS and key == "task" and "=" in override:
-            value = override.split("=", 1)[1]
-            if not value.startswith(f"{algo}/"):
-                override = f"task={algo}/{value}"
-        normalized.append(override)
-
-    if algo in _OFFPOLICY_INTERACTIVE_ALGOS and not has_algo_group:
-        normalized.insert(0, f"algo={algo}")
-    return normalized
+    # All algos now compose uniformly from their own tree with
+    # `task=<task>/<sim>`; no per-algo override rewriting is needed.
+    return list(overrides)
 
 
 def _compose_interactive_config(algo: str, overrides: list[str]) -> DictConfig:

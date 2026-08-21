@@ -175,8 +175,8 @@ _OWNER_CASES = (
         id="appo-23dof-mujoco",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_flat/mujoco"),
+        "sac",
+        ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         "mujoco",
         29,
@@ -188,8 +188,8 @@ _OWNER_CASES = (
         id="sac-mujoco",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_flat/motrix"),
+        "sac",
+        ("task=g1_walk_flat/motrix",),
         "G1WalkFlat",
         "motrix",
         29,
@@ -201,8 +201,8 @@ _OWNER_CASES = (
         id="sac-motrix",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_flat/mjwarp"),
+        "sac",
+        ("task=g1_walk_flat/mjwarp",),
         "G1WalkFlat",
         "mjwarp",
         29,
@@ -214,8 +214,8 @@ _OWNER_CASES = (
         id="sac-mjwarp",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_rough/mujoco"),
+        "sac",
+        ("task=g1_walk_rough/mujoco",),
         "G1WalkRough",
         "mujoco",
         29,
@@ -227,8 +227,8 @@ _OWNER_CASES = (
         id="sac-rough-mujoco",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_rough/motrix"),
+        "sac",
+        ("task=g1_walk_rough/motrix",),
         "G1WalkRough",
         "motrix",
         29,
@@ -240,8 +240,8 @@ _OWNER_CASES = (
         id="sac-rough-motrix",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_23dof_walk_flat/mujoco"),
+        "sac",
+        ("task=g1_23dof_walk_flat/mujoco",),
         "G1Walk23DofFlat",
         "mujoco",
         23,
@@ -253,8 +253,8 @@ _OWNER_CASES = (
         id="sac-23dof-mujoco",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_23dof_walk_rough/motrix"),
+        "sac",
+        ("task=g1_23dof_walk_rough/motrix",),
         "G1Walk23DofRough",
         "motrix",
         23,
@@ -266,8 +266,8 @@ _OWNER_CASES = (
         id="sac-23dof-rough-motrix",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=td3", "task=td3/g1_walk_flat/mujoco"),
+        "td3",
+        ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         "mujoco",
         29,
@@ -279,8 +279,8 @@ _OWNER_CASES = (
         id="td3-mujoco",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"),
+        "flashsac",
+        ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         "mujoco",
         29,
@@ -358,7 +358,11 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
 ) -> None:
     registry.ensure_registries()
     hydra_cfg, env_cfg, _ = _materialize(config_group, overrides, task_name)
-    case_id = next(case.id for case in _OWNER_CASES if case.values[1] == overrides)
+    case_id = next(
+        case.id
+        for case in _OWNER_CASES
+        if case.values[0] == config_group and case.values[1] == overrides
+    )
 
     assert hydra_cfg.training.task_name == task_name
     assert hydra_cfg.training.sim_backend == backend
@@ -538,8 +542,8 @@ def test_g1_walk_registries_are_manager_only() -> None:
             id="ppo-motrix",
         ),
         pytest.param(
-            "offpolicy",
-            ("algo=sac", "task=sac/g1_walk_flat/mujoco"),
+            "sac",
+            ("task=g1_walk_flat/mujoco",),
             "G1WalkFlat",
             "mujoco",
             29,
@@ -621,9 +625,7 @@ def test_g1_registry_executes_real_manager_runtime(
 def test_g1_walk_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
     """Walk-profile owners scale gyro x0.25, dof_vel x0.05, critic linvel x2.0."""
     registry.ensure_registries()
-    _, _, env_override = _materialize(
-        "offpolicy", ("algo=sac", "task=sac/g1_walk_flat/mujoco"), "G1WalkFlat"
-    )
+    _, _, env_override = _materialize("sac", ("task=g1_walk_flat/mujoco",), "G1WalkFlat")
     # Exact comparison against raw sensor reads requires clean observations.
     env_override["observations"]["policy"]["enable_corruption"] = False
     try:
@@ -684,9 +686,7 @@ def test_g1_legacy_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
 
 def test_g1_penalty_curriculum_scales_negative_weights_from_start() -> None:
     registry.ensure_registries()
-    _, _, env_override = _materialize(
-        "offpolicy", ("algo=sac", "task=sac/g1_walk_flat/mujoco"), "G1WalkFlat"
-    )
+    _, _, env_override = _materialize("sac", ("task=g1_walk_flat/mujoco",), "G1WalkFlat")
     override_snapshot = deepcopy(env_override)
     try:
         env = registry.make(
@@ -738,38 +738,38 @@ def test_g1_penalty_curriculum_scales_negative_weights_from_start() -> None:
 # each env, so these params are now the single source of truth.
 _PENALTY_CURRICULUM_CASES = (
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_flat/mujoco"),
+        "sac",
+        ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         id="sac-walk-flat",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_walk_rough/mujoco"),
+        "sac",
+        ("task=g1_walk_rough/mujoco",),
         "G1WalkRough",
         id="sac-walk-rough",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_23dof_walk_flat/mujoco"),
+        "sac",
+        ("task=g1_23dof_walk_flat/mujoco",),
         "G1Walk23DofFlat",
         id="sac-23dof-walk-flat",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=sac", "task=sac/g1_23dof_walk_rough/mujoco"),
+        "sac",
+        ("task=g1_23dof_walk_rough/mujoco",),
         "G1Walk23DofRough",
         id="sac-23dof-walk-rough",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=td3", "task=td3/g1_walk_flat/mujoco"),
+        "td3",
+        ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         id="td3-walk-flat",
     ),
     pytest.param(
-        "offpolicy",
-        ("algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"),
+        "flashsac",
+        ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         id="flashsac-walk-flat",
     ),

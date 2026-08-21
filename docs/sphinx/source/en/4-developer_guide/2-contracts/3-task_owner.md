@@ -8,8 +8,8 @@ contract is recorded in
 
 - PPO and APPO owner YAMLs use
   `conf/{ppo,appo}/task/<task>/<backend>.yaml`.
-- Off-policy owner YAMLs include the algorithm dimension:
-  `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`.
+- Off-policy algorithms (SAC / TD3 / FlashSAC) each have their own config
+  tree: `conf/<algo>/task/<task>/<backend>.yaml`.
 - Other existing config roots, such as `conf/ppo_him/` and
   `conf/hora_distill/`, follow the same owner-YAML identity rule for their
   supported tasks.
@@ -19,8 +19,8 @@ contract is recorded in
 - Use public CLI flags to switch backend, for example
   `uv run train --algo ppo --task go2_joystick_flat --sim mujoco` or
   `uv run train --algo ppo --task go2_joystick_flat --sim motrix`.
-- For off-policy entrypoints, keep `--algo <algo>` aligned with the internal
-  owner YAML path `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`.
+- For off-policy entrypoints, `--algo <algo>` selects the per-algorithm config
+  tree; the owner YAML path is `conf/<algo>/task/<task>/<backend>.yaml`.
 - `training.sim_backend` is an identity field inside the selected owner YAML. It
   is not an independent backend switch.
 - Backend-specific reward, env, scene, and algorithm differences belong in the
@@ -32,8 +32,7 @@ contract is recorded in
 
 - PPO owner example: `conf/ppo/task/go2_joystick_flat/mujoco.yaml`
 - APPO config root: `conf/appo/config.yaml`
-- Off-policy config root: `conf/offpolicy/config.yaml`
-- Off-policy task/algo guard: `src/unilab/training/common.py`
+- Off-policy config roots: `conf/{sac,td3,flashsac}/config.yaml`
 - Config tests: `tests/config/test_config_system.py`,
   `tests/scripts/test_train_script_configs.py`,
   `tests/envs/locomotion/g1/test_g1_owner_contract.py`

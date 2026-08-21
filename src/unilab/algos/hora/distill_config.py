@@ -15,8 +15,8 @@ from unilab.training.run import resolve_task_checkpoint_path
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # Teacher owner configs are Hydra-composed from their family config tree.
-# SAC teachers live in the shared offpolicy tree behind the `algo` group.
-_TEACHER_TREE_BY_FAMILY = {"sac": "offpolicy"}
+# SAC teachers live in their own per-algo tree; there is no `algo` group anymore.
+_TEACHER_TREE_BY_FAMILY = {"sac": "sac"}
 
 # Teacher -> student `algo.model` mappings expressed in YAML; see
 # conf/hora_distill/student_model/*.yaml. The mapping files interpolate against
@@ -56,8 +56,6 @@ def load_teacher_owner_config(
     algo_family = str(algo_family)
     conf_dir = root / "conf" / _TEACHER_TREE_BY_FAMILY.get(algo_family, algo_family)
     overrides = [f"task={task}"]
-    if algo_family == "sac":
-        overrides.insert(0, "algo=sac")
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(conf_dir.absolute()), version_base="1.3"):
         return compose("config", overrides=overrides)

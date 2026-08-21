@@ -1,0 +1,187 @@
+# @package _global_
+defaults:
+  - /task/g1_23dof_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1WBTObs23Dof
+  sim_backend: mujoco
+
+algo:
+  num_envs: 4096
+  max_iterations: 140000
+  save_interval: 1000
+  gamma: 0.99
+  tau: 0.05
+  num_atoms: 501
+  updates_per_step: 4
+  policy_frequency: 2
+  use_symmetry: false
+  algo_params:
+    alpha_init: 0.1
+    target_entropy_ratio: 0.5
+    max_grad_norm: 10.0
+
+env:
+  sim_dt: 0.005
+  scene:
+    entities:
+      robot:
+        geom_names:
+          - left_foot1_collision
+          - left_foot2_collision
+          - left_foot3_collision
+          - left_foot4_collision
+          - left_foot5_collision
+          - left_foot6_collision
+          - left_foot7_collision
+          - right_foot1_collision
+          - right_foot2_collision
+          - right_foot3_collision
+          - right_foot4_collision
+          - right_foot5_collision
+          - right_foot6_collision
+          - right_foot7_collision
+  observations:
+    actor:
+      terms:
+        motion_anchor_pos_b: null
+        motion_anchor_ori_b:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_anchor_ori_b
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.05
+            n_max: 0.05
+        base_lin_vel: null
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_gyro}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+          history_length: 5
+        joint_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel_biased
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+          history_length: 5
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.5
+            n_max: 0.5
+          history_length: 5
+        actions:
+          func: unilab.envs.mdp.last_action
+          history_length: 5
+    critic:
+      terms:
+        base_ang_vel:
+          params: {sensor_name: pelvis_gyro}
+  actions:
+    joint_pos:
+      scale: 2.0
+      simulate_action_latency: true
+  terminations:
+    anchor_pos:
+      params: {command_name: motion, threshold: 0.4}
+    ee_body_pos:
+      params:
+        command_name: motion
+        threshold: 0.5
+        body_names:
+          - left_ankle_roll_link
+          - right_ankle_roll_link
+          - left_wrist_roll_rubber_hand
+          - right_wrist_roll_rubber_hand
+  events:
+    base_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: pelvis
+        mass_distribution_params: [-1.0, 1.0]
+        operation: add
+        recompute_inertia: false
+    base_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: pelvis
+        com_range:
+          x: [-0.05, 0.05]
+          y: [-0.05, 0.05]
+          z: [-0.05, 0.05]
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [0.9, 1.1]
+        kd_range: [0.85, 1.15]
+        operation: scale
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          actuator_names: ".*"
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: "^(left|right)_foot[1-7]_collision$"
+        ranges: [0.3, 1.2]
+        operation: abs
+        shared_random: true
+    encoder_bias:
+      func: unilab.tasks.motion_tracking.g1.manager_terms.randomize_encoder_bias
+      mode: reset
+      params:
+        bias_range: [-0.01, 0.01]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [4.0, 4.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-1.0, 1.0]
+          y: [-1.0, 1.0]
+          z: [-0.5, 0.5]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
+
+reward:
+  motion_global_root_ori:
+    weight: 1.0
+  motion_body_pos:
+    weight: 1.0
+  action_rate_l2:
+    weight: -0.1
+  joint_limit:
+    weight: -5.0
+  joint_acc_l2:
+    func: unilab.tasks.motion_tracking.g1.manager_terms.joint_acc_l2
+    weight: -2.5e-7
+  joint_torque_l2:
+    func: unilab.tasks.motion_tracking.g1.manager_terms.joint_torque_l2
+    weight: -1.0e-5
+    params: {action_name: joint_pos}
