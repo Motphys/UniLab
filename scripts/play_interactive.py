@@ -50,6 +50,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.training import (
+    algo_config_dict,
     ensure_registries,
     get_entrypoint_log_root,
     resolve_task_checkpoint_path,
@@ -187,10 +188,7 @@ def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     """
     if cfg is None:
         return cast(dict[str, Any], PPOConfig().to_dict())
-    train_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(train_cfg_raw, dict):
-        raise TypeError("cfg.algo must resolve to a dict")
-    return cast(dict[str, Any], train_cfg_raw)
+    return algo_config_dict(cfg)
 
 
 SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "flashsac", "hora_distill")

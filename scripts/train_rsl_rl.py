@@ -31,11 +31,13 @@ from unilab.ipc.dp_launcher import (
 )
 from unilab.training import (
     BackendAdapter,
+    algo_config_dict,
     apply_configured_training_seed,
+    apply_env_nan_guard,
+    build_run_dir_name,
     create_env,
     ensure_registries,
-    get_latest_checkpoint,
-    get_latest_run,
+    format_play_checkpoint_error,
     get_log_root,
     log_playback_plan,
     parse_checkpoint_path,
@@ -107,11 +109,6 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
-def build_ppo_run_dir_name(timestamp: str, sim_backend: str, *, world_size: int = 1) -> str:
-    gpu_suffix = f"_gpux{world_size}" if world_size > 1 else ""
-    return f"{timestamp}_{sim_backend}{gpu_suffix}"
-
-
 def resolve_ppo_log_dir(
     cfg: DictConfig,
     *,
@@ -129,19 +126,12 @@ def resolve_ppo_log_dir(
     return str(
         Path(_get_log_root(cfg))
         / str(cfg.training.task_name)
-        / build_ppo_run_dir_name(
+        / build_run_dir_name(
             timestamp,
             str(cfg.training.sim_backend),
             world_size=world_size,
         )
     )
-
-
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
-    train_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(train_cfg_raw, dict):
-        raise TypeError("cfg.algo must resolve to a dict")
-    return cast(dict[str, Any], train_cfg_raw)
 
 
 def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]:
@@ -192,42 +182,6 @@ def validate_ppo_run_completion_topology(
         )
 
 
-def _format_play_checkpoint_error(
-    cfg: DictConfig,
-    *,
-    task_log_root: Path,
-    load_path: Path | None,
-    load_path_dir: Path | None,
-) -> str:
-    selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
-    checkpoint_hint = (
-        f" algo.checkpoint={selected_checkpoint!r}"
-        if selected_checkpoint not in (None, "", -1, "-1")
-        else ""
-    )
-
-    if load_path_dir is not None and load_path is None and checkpoint_hint:
-        reason = f"Requested checkpoint was not found under resolved_run={load_path_dir}."
-    elif not task_log_root.exists():
-        reason = "Task log root does not exist."
-    else:
-        latest_run = get_latest_run(task_log_root)
-        if latest_run is None:
-            reason = "No run directories were found under the task log root."
-        elif get_latest_checkpoint(latest_run) is None:
-            reason = f"Resolved latest run has no model_*.pt checkpoint files: {latest_run}."
-        else:
-            reason = "Requested run or checkpoint could not be resolved."
-
-    return (
-        "Could not resolve a checkpoint for play mode. "
-        f"{reason} task={cfg.training.task_name} task_log_root={task_log_root} "
-        f"algo.load_run={cfg.algo.load_run!r}{checkpoint_hint}."
-        " Use algo.load_run=<run-dir-or-checkpoint-path> "
-        "and optionally algo.checkpoint=<iteration-or-filename>."
-    )
-
-
 def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
     play_steps = OmegaConf.select(cfg, "training.play_steps", default=None)
     if play_steps is None:
@@ -237,14 +191,14 @@ def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
 
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
-    rl_cfg = _algo_config_dict(cfg)
+    rl_cfg = algo_config_dict(cfg)
     wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
         print(
-            _format_play_checkpoint_error(
+            format_play_checkpoint_error(
                 cfg,
                 task_log_root=task_log_root,
                 load_path=load_path,
@@ -450,26 +404,10 @@ def main(cfg: DictConfig) -> None:
                     env_cfg_override=env_cfg_override,
                 )
                 try:
-                    rl_cfg = _algo_config_dict(cfg)
+                    rl_cfg = algo_config_dict(cfg)
                     wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
-                    nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
-                    if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
-                        from unilab.utils.nan_guard import NanGuard, NanGuardCfg
-
-                        guard = NanGuard(
-                            NanGuardCfg(
-                                enabled=True,
-                                buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
-                                max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
-                                output_dir=getattr(nan_guard_cfg, "output_dir", None),
-                            ),
-                            num_envs=env.num_envs,
-                            supports_state_playback=(
-                                env.play_capabilities.supports_physics_state_playback
-                            ),
-                        )
-                        env.set_nan_guard(guard)
+                    apply_env_nan_guard(env, cfg.training)
 
                     wrapped_env = wrapper_cls(env, device=device)
 

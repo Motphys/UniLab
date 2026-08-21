@@ -19,12 +19,15 @@ sys.path.append(str(ROOT_DIR))
 from unilab.algos.appo.runtime import resolve_appo_runtime
 from unilab.training import (
     BackendAdapter,
+    algo_config_dict,
     apply_configured_training_seed,
+    build_run_dir_name,
     create_env,
     ensure_registries,
     get_log_root,
     log_playback_plan,
     resolve_appo_checkpoint_path,
+    resolve_nan_guard_cfg,
     should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
@@ -45,10 +48,7 @@ def build_appo_runner_kwargs(
     rl_cfg: dict[str, Any] | None = None,
 ) -> dict:
     if rl_cfg is None:
-        rl_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
-        if not isinstance(rl_cfg_raw, dict):
-            raise TypeError("cfg.algo must resolve to a dict")
-        rl_cfg = cast(dict[str, Any], rl_cfg_raw)
+        rl_cfg = algo_config_dict(cfg)
 
     runner_kwargs = {
         "env_name": cfg.training.task_name,
@@ -73,16 +73,9 @@ def build_appo_runner_kwargs(
             raise FileNotFoundError(f"Could not resolve APPO resume checkpoint: {load_run}")
         runner_kwargs["resume_path"] = resume_path
 
-    nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
-    if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
-        from unilab.utils.nan_guard import NanGuardCfg
-
-        runner_kwargs["nan_guard_cfg"] = NanGuardCfg(
-            enabled=True,
-            buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
-            max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
-            output_dir=getattr(nan_guard_cfg, "output_dir", None),
-        )
+    nan_guard_cfg = resolve_nan_guard_cfg(cfg.training)
+    if nan_guard_cfg is not None:
+        runner_kwargs["nan_guard_cfg"] = nan_guard_cfg
     return runner_kwargs
 
 
@@ -330,10 +323,7 @@ def main(cfg: DictConfig) -> None:
     ).build_task_env_cfg_override()
 
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
-    rl_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(rl_cfg_raw, dict):
-        raise TypeError("cfg.algo must resolve to a dict")
-    rl_cfg = cast(dict[str, Any], rl_cfg_raw)
+    rl_cfg = algo_config_dict(cfg)
     apply_appo_runtime_flags(rl_cfg, cfg, training_enabled=not cfg.training.play_only)
     appo_runtime = resolve_appo_runtime(rl_cfg, default_play_fn=play_appo)
 
@@ -343,7 +333,7 @@ def main(cfg: DictConfig) -> None:
         log_dir = os.path.join(
             log_root,
             cfg.training.task_name,
-            f"{timestamp}_{cfg.training.sim_backend}",
+            build_run_dir_name(timestamp, str(cfg.training.sim_backend)),
         )
     else:
         log_dir = cfg.training.log_dir

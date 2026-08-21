@@ -86,6 +86,49 @@ def get_git_info(root_dir: str | Path) -> dict[str, Any]:
     }
 
 
+def _write_json(path: Path, payload: Any, *, trailing_newline: bool = False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, indent=2)
+    if trailing_newline:
+        text += "\n"
+    path.write_text(text, encoding="utf-8")
+
+
+def build_run_config_payload(
+    *,
+    run_metadata: dict[str, Any],
+    full_cfg: Any,
+    contract_snapshot: Any | None = None,
+) -> dict[str, Any]:
+    """Assemble the canonical ``{"run", "config", ...}`` run-config payload."""
+    payload: dict[str, Any] = {
+        "run": _json_safe(run_metadata),
+        "config": _json_safe(_plain_dict(full_cfg)),
+    }
+    if contract_snapshot is not None:
+        payload["contract_snapshot"] = _json_safe(contract_snapshot)
+    return payload
+
+
+def write_run_config_snapshot(
+    log_dir: str | Path,
+    *,
+    run_metadata: dict[str, Any],
+    full_cfg: Any,
+    filename: str = "run_config.json",
+    contract_snapshot: Any | None = None,
+    trailing_newline: bool = False,
+) -> dict[str, Any]:
+    """Write the run-config snapshot into ``log_dir`` and return the payload."""
+    payload = build_run_config_payload(
+        run_metadata=run_metadata,
+        full_cfg=full_cfg,
+        contract_snapshot=contract_snapshot,
+    )
+    _write_json(Path(log_dir) / filename, payload, trailing_newline=trailing_newline)
+    return payload
+
+
 def build_wandb_run_name(algo_name: str, task_name: str, log_dir: str | Path | None) -> str:
     if log_dir is None:
         return f"{algo_name}__{task_name}"
@@ -219,12 +262,12 @@ class ExperimentTracker:
                 seed_payload = {"effective_seed": self.seed_info}
             metadata.update(seed_payload)
 
-        payload = {
-            "run": _json_safe(metadata),
-            "config": _json_safe(_plain_dict(self.full_cfg)),
-            "contract_snapshot": _json_safe(extract_contract_snapshot(self.full_cfg)),
-        }
-        self._write_json(self.log_dir / "run_config.json", payload)
+        payload = write_run_config_snapshot(
+            self.log_dir,
+            run_metadata=metadata,
+            full_cfg=self.full_cfg,
+            contract_snapshot=extract_contract_snapshot(self.full_cfg),
+        )
 
         if not self.enabled:
             return
@@ -318,8 +361,7 @@ class ExperimentTracker:
 
     @staticmethod
     def _write_json(path: Path, payload: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        _write_json(path, payload)
 
 
 def patch_rsl_rl_action_std_logging(runner: Any) -> None:
