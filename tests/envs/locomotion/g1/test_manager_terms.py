@@ -213,6 +213,47 @@ def test_penalty_curriculum_scales_only_negative_weights_and_tracks_episodes():
     )
 
 
+def test_penalty_curriculum_repeated_construction_never_mutates_source_cfg():
+    """Regression guard for the legacy shared-override mutation.
+
+    The legacy PenaltyCurriculum halved the shared override dict in place on
+    every env construction (two probe envs + the collector in each offpolicy
+    runner), so collectors silently trained at 1/8 of the configured penalty
+    weights. The manager runtime must isolate each construction from the
+    source config so repeated env builds keep identical effective weights.
+    """
+    from unilab.managers import RewardManager
+
+    source_cfg = {
+        "pose": RewardTermCfg(func=lambda env: np.zeros(env.num_envs), weight=-0.5),
+        "alive": RewardTermCfg(func=lambda env: np.zeros(env.num_envs), weight=10.0),
+    }
+    effective_weights: list[float] = []
+    for _ in range(3):  # legacy offpolicy runners built probe + probe + collector
+        reward_manager = RewardManager(source_cfg, cast(Any, SimpleNamespace(num_envs=4)))
+        env = SimpleNamespace(
+            num_envs=4,
+            reward_manager=reward_manager,
+            reset_buf=np.zeros(4, dtype=np.bool_),
+            episode_length_buf=np.zeros(4, dtype=np.int64),
+            rng=np.random.default_rng(0),
+        )
+        G1PenaltyCurriculum(
+            RewardTermCfg(
+                func=G1PenaltyCurriculum,
+                weight=1.0,
+                params={"initial_scale": 0.125, "min_scale": 0.125, "max_scale": 0.25},
+            ),
+            cast(Any, env),
+        )
+        effective_weights.append(reward_manager.get_term_cfg("pose").weight)
+
+    assert source_cfg["pose"].weight == -0.5
+    assert source_cfg["alive"].weight == 10.0
+    for weight in effective_weights:
+        assert weight == pytest.approx(-0.0625)
+
+
 def test_penalty_curriculum_shrinks_scale_below_initial_when_min_allows():
     env = _curriculum_env({"pose": -0.5})
     term = G1PenaltyCurriculum(

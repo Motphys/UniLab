@@ -48,6 +48,11 @@ class RewardManager(ManagerBase):
       Regardless of the scaling setting:
         - ``_step_reward`` (via ``get_active_iterable_terms()``) always contains
           the unscaled reward rate (raw_value * weight)
+
+      ``step_reward_extras()`` exposes the latest ``compute()`` call's per-term
+      means as ``reward/<term>`` log entries (weighted, pre-dt rate), matching
+      the legacy envs' per-step reward log contract consumed by training
+      runners.
     """
 
     _env: ManagerBasedRlEnv
@@ -126,6 +131,18 @@ class RewardManager(ManagerBase):
             self._episode_sums[name] += value
             self._step_reward[:, term_idx] = value / scale
         return self._reward_buf
+
+    def step_reward_extras(self) -> dict[str, float]:
+        """Per-term log entries of the latest ``compute()`` call.
+
+        Returns ``reward/<term>`` -> mean weighted reward rate across envs
+        (raw_value * weight, before dt scaling), mirroring the legacy envs'
+        per-step reward log format.
+        """
+        return {
+            f"reward/{name}": float(np.mean(self._step_reward[:, term_idx]))
+            for term_idx, name in enumerate(self._term_names)
+        }
 
     def get_active_iterable_terms(self, env_idx: int) -> list[tuple[str, list[float]]]:
         terms = []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -398,6 +399,30 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert terms["gait_phase"].params["frequency"] == pytest.approx(1.5)
     assert critic_terms["base_lin_vel"].scale == expected_linvel
 
+    # Observation noise reproduces the legacy noise_config: actor-only (the
+    # critic reads clean observations), applied before term scaling.
+    assert env_cfg.observations["policy"].enable_corruption is True
+    assert env_cfg.observations["critic"].enable_corruption is False
+    expected_noise = (
+        {"joint_pos": 0.01, "joint_vel": 0.1}
+        if walk_profile
+        else {
+            "base_ang_vel": 0.2,
+            "projected_gravity": 0.05,
+            "joint_pos": 0.01,
+            "joint_vel": 1.5,
+        }
+    )
+    for name, term in policy_terms.items():
+        if name in expected_noise:
+            assert term.noise is not None
+            assert term.noise.n_max == pytest.approx(expected_noise[name])
+            assert term.noise.n_min == pytest.approx(-expected_noise[name])
+        else:
+            assert term.noise is None
+    for term in critic_terms.values():
+        assert term.noise is None
+
     assert list(env_cfg.actions) == ["joint_pos"]
     assert env_cfg.actions["joint_pos"].scale == pytest.approx(action_scale)
     assert env_cfg.actions["joint_pos"].use_default_offset is True
@@ -599,6 +624,8 @@ def test_g1_walk_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
     _, _, env_override = _materialize(
         "offpolicy", ("algo=sac", "task=sac/g1_walk_flat/mujoco"), "G1WalkFlat"
     )
+    # Exact comparison against raw sensor reads requires clean observations.
+    env_override["observations"]["policy"]["enable_corruption"] = False
     try:
         env = registry.make(
             "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
@@ -633,6 +660,8 @@ def test_g1_legacy_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
     """Legacy-profile owners keep unit scaling on every observation segment."""
     registry.ensure_registries()
     _, _, env_override = _materialize("ppo", ("task=g1_walk_flat/mujoco",), "G1WalkFlat")
+    # Exact comparison against raw sensor reads requires clean observations.
+    env_override["observations"]["policy"]["enable_corruption"] = False
     try:
         env = registry.make(
             "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
@@ -658,21 +687,120 @@ def test_g1_penalty_curriculum_scales_negative_weights_from_start() -> None:
     _, _, env_override = _materialize(
         "offpolicy", ("algo=sac", "task=sac/g1_walk_flat/mujoco"), "G1WalkFlat"
     )
+    override_snapshot = deepcopy(env_override)
     try:
         env = registry.make(
+            "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
+        )
+        # Repeated construction from the same override must not drift: the
+        # legacy env halved the shared override dict on every construction.
+        env_repeat = registry.make(
             "G1WalkFlat", sim_backend="mujoco", env_cfg_override=env_override, num_envs=2
         )
     except ImportError as exc:
         pytest.skip(f"mujoco runtime unavailable: {exc}")
 
     try:
-        assert env.curriculum_manager.active_terms == ["penalty_scaling"]
-        # initial_scale=0.5 halves every negative weight from construction.
-        assert env.reward_manager.get_term_cfg("penalty_orientation").weight == pytest.approx(-5.0)
-        assert env.reward_manager.get_term_cfg("penalty_action_rate").weight == pytest.approx(-2.0)
-        assert env.reward_manager.get_term_cfg("pose").weight == pytest.approx(-0.25)
-        # Positive weights stay untouched.
-        assert env.reward_manager.get_term_cfg("alive").weight == pytest.approx(10.0)
-        assert env.reward_manager.get_term_cfg("feet_phase").weight == pytest.approx(5.0)
+        for built in (env, env_repeat):
+            assert built.curriculum_manager.active_terms == ["penalty_scaling"]
+            # initial_scale=0.125 scales every negative weight from construction,
+            # matching the tuned legacy effective schedule (1/8 initial, 1/4 cap).
+            assert built.reward_manager.get_term_cfg("penalty_orientation").weight == pytest.approx(
+                -1.25
+            )
+            assert built.reward_manager.get_term_cfg("penalty_action_rate").weight == pytest.approx(
+                -0.5
+            )
+            assert built.reward_manager.get_term_cfg("pose").weight == pytest.approx(-0.0625)
+            # Positive weights stay untouched.
+            assert built.reward_manager.get_term_cfg("alive").weight == pytest.approx(10.0)
+            assert built.reward_manager.get_term_cfg("feet_phase").weight == pytest.approx(5.0)
+        # The shared override dict is never mutated in place.
+        assert env_override == override_snapshot
+
+        state = env.step(np.zeros((2, 29), dtype=np.float32))
+        log = state.info["log"]
+        for name in _OFFPOLICY_REWARDS:
+            assert f"reward/{name}" in log
+        assert log["reward/penalty_action_rate"] == pytest.approx(0.0)
     finally:
         env.close()
+        env_repeat.close()
+
+
+# Every task owner carrying the penalty curriculum, with the schedule that
+# reproduces its tuned legacy baseline. Legacy offpolicy runners built three
+# envs per training run (two probe envs + the spawned collector) and the
+# legacy PenaltyCurriculum halved the shared override dict in place on each
+# construction, so collectors effectively trained at 1/8 initial / 1/4 cap of
+# the YAML weights. The on-policy runners built a single env, so their
+# effective schedule was the declared 0.5 -> 1.0. The manager runtime isolates
+# each env, so these params are now the single source of truth.
+_PENALTY_CURRICULUM_CASES = (
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_flat/mujoco"),
+        "G1WalkFlat",
+        id="sac-walk-flat",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_walk_rough/mujoco"),
+        "G1WalkRough",
+        id="sac-walk-rough",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_23dof_walk_flat/mujoco"),
+        "G1Walk23DofFlat",
+        id="sac-23dof-walk-flat",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=sac", "task=sac/g1_23dof_walk_rough/mujoco"),
+        "G1Walk23DofRough",
+        id="sac-23dof-walk-rough",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=td3", "task=td3/g1_walk_flat/mujoco"),
+        "G1WalkFlat",
+        id="td3-walk-flat",
+    ),
+    pytest.param(
+        "offpolicy",
+        ("algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"),
+        "G1WalkFlat",
+        id="flashsac-walk-flat",
+    ),
+)
+
+_OFFPOLICY_ALIGNED_SCHEDULE = {"initial_scale": 0.125, "min_scale": 0.125, "max_scale": 0.25}
+
+
+@pytest.mark.parametrize(
+    "config_group,overrides,task_name",
+    _PENALTY_CURRICULUM_CASES,
+    ids=[case.id for case in _PENALTY_CURRICULUM_CASES],
+)
+def test_offpolicy_penalty_curriculum_matches_legacy_effective_schedule(
+    config_group: str, overrides: tuple[str, ...], task_name: str
+) -> None:
+    _, env_cfg, _ = _materialize(config_group, overrides, task_name)
+    params = env_cfg.curriculum["penalty_scaling"].params
+    for key, expected in _OFFPOLICY_ALIGNED_SCHEDULE.items():
+        assert params[key] == pytest.approx(expected)
+    # Thresholds and annealing rate stay as tuned.
+    assert params["level_down_threshold"] == pytest.approx(150.0)
+    assert params["level_up_threshold"] == pytest.approx(750.0)
+    assert params["degree"] == pytest.approx(0.001)
+
+
+def test_ppo_penalty_curriculum_matches_legacy_effective_schedule() -> None:
+    # The on-policy runner builds a single env per training run, so the legacy
+    # effective schedule equals the declared 0.5 -> 1.0 range.
+    _, env_cfg, _ = _materialize("ppo", ("task=g1_23dof_walk_rough/mujoco",), "G1Walk23DofRough")
+    params = env_cfg.curriculum["penalty_scaling"].params
+    assert params["initial_scale"] == pytest.approx(0.5)
+    assert params["min_scale"] == pytest.approx(0.5)
+    assert params["max_scale"] == pytest.approx(1.0)

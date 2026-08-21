@@ -456,6 +456,7 @@ class ManagerBasedRlEnv(NpEnv):
         np.logical_or(self.reset_terminated, self.reset_time_outs, out=self.reset_buf)
 
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
+        log.update(self.reward_manager.step_reward_extras())
         if self._cfg.sim_substeps == 1:
             self.metrics_manager.compute_substep()
         self.metrics_manager.compute()

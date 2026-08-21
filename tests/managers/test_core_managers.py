@@ -144,6 +144,26 @@ def test_reward_dt_scaling_reset_and_config_immutability(fake_env: FakeEnv) -> N
     assert isinstance(manager.get_term_cfg("stateful").func, StatefulReward)
 
 
+def test_reward_step_extras_report_per_term_weighted_rates(fake_env: FakeEnv) -> None:
+    def ones(env: FakeEnv) -> np.ndarray:
+        return np.ones(env.num_envs, dtype=np.float32)
+
+    cfg = {
+        "pos": RewardTermCfg(func=ones, weight=2.0),
+        "neg": RewardTermCfg(func=lambda env: env.value, weight=-0.5),
+        "zero": RewardTermCfg(func=ones, weight=0.0),
+    }
+    manager = RewardManager(cfg, fake_env)
+    manager.compute(dt=0.25)
+
+    extras = manager.step_reward_extras()
+    assert set(extras) == {"reward/pos", "reward/neg", "reward/zero"}
+    # Weighted reward rate (raw_value * weight), not scaled by dt.
+    assert extras["reward/pos"] == pytest.approx(2.0)
+    assert extras["reward/neg"] == pytest.approx(float(np.mean(fake_env.value)) * -0.5)
+    assert extras["reward/zero"] == 0.0
+
+
 @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
 def test_reward_nonfinite_is_an_error(fake_env: FakeEnv, bad: float) -> None:
     def reward(env: FakeEnv) -> np.ndarray:

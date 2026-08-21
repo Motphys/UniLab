@@ -126,7 +126,13 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "Compatible",
             "complete",
             "Hydra owners materialize shared terrain, height-scan, reset, and curriculum manager terms on the canonical runtime.",
-            "Keep the shared rough-family contract and both backend owners in sync.",
+            "Keep the shared rough-family contract and both backend owners in sync. "
+            "Known intentional divergence from the legacy rough env (recorded 2026-08): "
+            "the legacy reward terms feet_gait, feet_air_time(+variance), "
+            "feet_contact_without_cmd, feet_height_body, feet_slide, contact_forces, "
+            "undesired_contacts, joint_mirror, joint_power, joint_torques_l2, "
+            "joint_acc_l2(+wheel) have no manager port and are not part of the "
+            "manager-based rough reward set.",
         )
     if task_name in _G1_LOCOMOTION_TASKS:
         return TaskMigrationRecord(

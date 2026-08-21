@@ -77,6 +77,10 @@ env:
   max_episode_seconds: 20.0
   observations:
     policy:
+      # Observation noise matches the legacy offpolicy noise_config (level=1.0,
+      # actor-only; gyro/gravity/linvel scales were 0.0 there): joint pos
+      # +/-0.01 and joint vel +/-0.1, applied before term scaling.
+      enable_corruption: true
       terms:
         base_ang_vel:
           func: unilab.envs.mdp.builtin_sensor
@@ -87,9 +91,19 @@ env:
           params: {sensor_name: torso_upvector}
         joint_pos:
           func: unilab.envs.mdp.joint_pos_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+            operation: add
         joint_vel:
           func: unilab.envs.mdp.joint_vel_rel
           scale: 0.05
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.1
+            n_max: 0.1
+            operation: add
         actions:
           func: unilab.envs.mdp.last_action
           params: {action_name: joint_pos}
@@ -198,10 +212,16 @@ env:
   curriculum:
     penalty_scaling:
       func: unilab.tasks.locomotion.g1.manager_terms.G1PenaltyCurriculum
+      # Effective schedule matches the tuned legacy baseline: the legacy env
+      # halved the shared override dict once per env construction (two probe
+      # envs + the collector in every offpolicy runner), so collectors actually
+      # trained at 1/8 initial / 1/4 cap of these YAML weights. The manager
+      # runtime isolates each env, so the tuned effective range is declared
+      # explicitly here.
       params:
-        initial_scale: 0.5
-        min_scale: 0.5
-        max_scale: 1.0
+        initial_scale: 0.125
+        min_scale: 0.125
+        max_scale: 0.25
         level_down_threshold: 150.0
         level_up_threshold: 750.0
         degree: 0.001

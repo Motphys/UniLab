@@ -76,17 +76,41 @@ env:
   max_episode_seconds: 20.0
   observations:
     policy:
+      # Observation noise matches the legacy noise_config (level=1.0, actor-only
+      # since the critic reads clean observations): gyro +/-0.2, gravity +/-0.05,
+      # joint pos +/-0.01, joint vel +/-1.5, applied before term scaling.
+      enable_corruption: true
       terms:
         base_ang_vel:
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: torso_gyro}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+            operation: add
         projected_gravity:
           func: unilab.envs.mdp.projected_gravity_from_sensor
           params: {sensor_name: torso_upvector}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.05
+            n_max: 0.05
+            operation: add
         joint_pos:
           func: unilab.envs.mdp.joint_pos_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+            operation: add
         joint_vel:
           func: unilab.envs.mdp.joint_vel_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -1.5
+            n_max: 1.5
+            operation: add
         actions:
           func: unilab.envs.mdp.last_action
           params: {action_name: joint_pos}
