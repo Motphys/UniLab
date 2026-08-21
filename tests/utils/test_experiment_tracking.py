@@ -332,17 +332,10 @@ def test_build_wandb_settings_defaults_for_shared_workspace():
     assert "mujoco" in settings["tags"]
 
 
-def test_experiment_device_info_uses_benchmark_helper():
-    helper_path = experiment_module._benchmark_device_info_path()
-    assert helper_path is not None
-    assert helper_path.name == "device_info.py"
+def test_experiment_device_info_uses_library_helper():
+    import unilab.utils.device as device_module
 
-    info = experiment_module.get_device_info_dict()
-    assert info["platform"]
-    assert "chip" in info
-    assert "cpu_total_cores" in info
-    assert "memory" in info
-    assert "gpu_name" in info or "gpu_cores" in info
+    assert experiment_module.get_device_info_dict is device_module.get_device_info_dict
 
 
 def test_experiment_tracker_writes_local_run_files(tmp_path, monkeypatch):
