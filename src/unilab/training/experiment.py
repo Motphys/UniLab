@@ -5,10 +5,8 @@ from __future__ import annotations
 import dataclasses
 import getpass
 import importlib
-import importlib.util
 import json
 import os
-import platform
 import socket
 import subprocess
 import time
@@ -19,6 +17,7 @@ from typing import Any
 from omegaconf import OmegaConf
 
 from unilab.training.sim2sim import extract_contract_snapshot
+from unilab.utils.device import get_device_info_dict
 
 
 def _cfg_get(cfg: Any, key: str, default: Any = None) -> Any:
@@ -58,43 +57,6 @@ def _json_safe(value: Any) -> Any:
         return value
     except TypeError:
         return str(value)
-
-
-def _fallback_device_info_dict() -> dict[str, str]:
-    return {
-        "platform": platform.platform(),
-        "chip": platform.processor() or "unknown",
-        "cpu_total_cores": str(os.cpu_count() or "unknown"),
-        "gpu_name": "unknown",
-        "memory": "unknown",
-    }
-
-
-def _benchmark_device_info_path() -> Path | None:
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "scripts" / "benchmark" / "core" / "device_info.py"
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def get_device_info_dict() -> dict[str, str]:
-    try:
-        module_path = _benchmark_device_info_path()
-        if module_path is None:
-            return _fallback_device_info_dict()
-        spec = importlib.util.spec_from_file_location(
-            "unilab_benchmark_device_info",
-            module_path,
-        )
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Unable to load device info module from {module_path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        getter = getattr(module, "get_device_info_dict")
-        return dict(getter())
-    except Exception:
-        return _fallback_device_info_dict()
 
 
 def get_git_info(root_dir: str | Path) -> dict[str, Any]:
