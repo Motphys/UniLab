@@ -10,6 +10,7 @@ from typing import Literal
 import numpy as np
 
 from unilab.assets.hub import resolve_motion_files
+from unilab.utils.rotation import np_quat_angular_velocity, np_quat_ensure_continuity
 
 
 @dataclass
@@ -22,6 +23,126 @@ class MotionData:
     body_quat_w: np.ndarray  # (N, num_bodies, 4)
     body_lin_vel_w: np.ndarray  # (N, num_bodies, 3)
     body_ang_vel_w: np.ndarray  # (N, num_bodies, 3)
+
+
+def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
+    """Spherical linear interpolation between two quaternions (wxyz format).
+
+    The computation runs in the input dtype; pass float64 arrays for a
+    float64 interpolation path.
+    """
+    # Ensure shortest path
+    dot = np.dot(q1, q2)
+    if dot < 0:
+        q2 = -q2
+        dot = -dot
+
+    # If quaternions are very close, use linear interpolation
+    if dot > 0.9995:
+        result = q1 + t * (q2 - q1)
+        return result / np.linalg.norm(result)
+
+    # Compute angle
+    theta = np.arccos(np.clip(dot, -1, 1))
+    sin_theta = np.sin(theta)
+
+    # Compute interpolation weights
+    w1 = np.sin((1 - t) * theta) / sin_theta
+    w2 = np.sin(t * theta) / sin_theta
+
+    return w1 * q1 + w2 * q2
+
+
+@dataclass
+class InterpolatedMotion:
+    """Root/joint trajectory resampled to the output frame rate."""
+
+    output_frames: int
+    base_poss: np.ndarray  # (N, 3)
+    base_rots: np.ndarray  # (N, 4), wxyz
+    dof_poss: np.ndarray  # (N, num_joints)
+    base_lin_vels: np.ndarray  # (N, 3)
+    base_ang_vels: np.ndarray  # (N, 3)
+    dof_vels: np.ndarray  # (N, num_joints)
+
+
+def compute_motion_velocities(
+    base_poss: np.ndarray,
+    base_rots: np.ndarray,
+    dof_poss: np.ndarray,
+    dt: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Numerically differentiate a trajectory into base/dof velocities."""
+    base_lin_vels = np.gradient(base_poss, dt, axis=0)
+    dof_vels = np.gradient(dof_poss, dt, axis=0)
+    base_ang_vels = np_quat_angular_velocity(base_rots, dt)
+    return base_lin_vels, base_ang_vels, dof_vels
+
+
+def compute_frame_blend(
+    times: np.ndarray, duration: float, input_frames: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute frame indices and blend weights for interpolation."""
+    phase = times / duration
+    index_0 = np.floor(phase * (input_frames - 1)).astype(np.int32)
+    index_1 = np.minimum(index_0 + 1, input_frames - 1)
+    blend = phase * (input_frames - 1) - index_0
+    return index_0, index_1, blend
+
+
+def interpolate_motion(
+    base_poss_input: np.ndarray,
+    base_rots_input: np.ndarray,
+    dof_poss_input: np.ndarray,
+    *,
+    input_fps: int,
+    output_fps: int,
+) -> InterpolatedMotion:
+    """Resample a root+joint trajectory from ``input_fps`` to ``output_fps``.
+
+    Positions and joint angles are linearly interpolated, root quaternions
+    (wxyz) use slerp, and velocities are computed by numerical
+    differentiation at the output rate.
+    """
+    input_dt = 1.0 / input_fps
+    output_dt = 1.0 / output_fps
+    input_frames = base_poss_input.shape[0]
+    duration = (input_frames - 1) * input_dt
+
+    times = np.arange(0, duration, output_dt, dtype=np.float32)
+    output_frames = times.shape[0]
+    index_0, index_1, blend = compute_frame_blend(times, duration, input_frames)
+
+    # Linear interpolation for positions
+    base_poss = (
+        base_poss_input[index_0] * (1 - blend[:, None]) + base_poss_input[index_1] * blend[:, None]
+    )
+
+    # Spherical linear interpolation for quaternions
+    base_rots = np.zeros((output_frames, 4), dtype=np.float32)
+    for i in range(output_frames):
+        base_rots[i] = quat_slerp(
+            base_rots_input[index_0[i]], base_rots_input[index_1[i]], blend[i]
+        )
+    base_rots = np_quat_ensure_continuity(base_rots)
+
+    # Linear interpolation for joint positions
+    dof_poss = (
+        dof_poss_input[index_0] * (1 - blend[:, None]) + dof_poss_input[index_1] * blend[:, None]
+    )
+
+    base_lin_vels, base_ang_vels, dof_vels = compute_motion_velocities(
+        base_poss, base_rots, dof_poss, output_dt
+    )
+    return InterpolatedMotion(
+        output_frames=output_frames,
+        base_poss=base_poss,
+        base_rots=base_rots,
+        dof_poss=dof_poss,
+        base_lin_vels=base_lin_vels,
+        base_ang_vels=base_ang_vels,
+        dof_vels=dof_vels,
+    )
 
 
 class MotionLoader:

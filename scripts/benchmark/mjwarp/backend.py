@@ -200,7 +200,7 @@ class MjwarpBackend(SimBackend):
             )
             self._mj_model, self.terrain_origins, self.terrain_surface_sampler = result
         elif scene.fragment_files:
-            from unilab.base.backend.mujoco.xml import materialize_scene_fragments
+            from unilab.base.backend import materialize_scene_fragments
 
             xml_path = materialize_scene_fragments(
                 scene.model_file, fragment_files=scene.fragment_files

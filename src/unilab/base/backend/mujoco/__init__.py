@@ -17,8 +17,15 @@ def __getattr__(name: str):
 
         return getattr(playback, name)
     if name in {
+        "compute_tracking_fk",
+    }:
+        from . import motion_export
+
+        return getattr(motion_export, name)
+    if name in {
         "add_sensor",
         "create_discardvisual_xml",
+        "get_named_bodies",
         "get_named_body_ids",
         "inject_mujoco_tracking_sensors",
         "materialize_mujoco_hfield_attached_scene",
@@ -35,7 +42,9 @@ def __getattr__(name: str):
 __all__ = [
     "MuJoCoBackend",
     "add_sensor",
+    "compute_tracking_fk",
     "create_discardvisual_xml",
+    "get_named_bodies",
     "get_named_body_ids",
     "inject_mujoco_tracking_sensors",
     "materialize_visual_playback_model",

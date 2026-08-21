@@ -33,6 +33,7 @@ _MUJOCO_XML_EXPORTS = frozenset(
     {
         "add_sensor",
         "create_discardvisual_xml",
+        "get_named_bodies",
         "get_named_body_ids",
         "inject_mujoco_tracking_sensors",
         "materialize_mujoco_hfield_attached_scene",
@@ -41,6 +42,7 @@ _MUJOCO_XML_EXPORTS = frozenset(
         "processed_xml",
     }
 )
+_MUJOCO_MOTION_EXPORT_EXPORTS = frozenset({"compute_tracking_fk"})
 _MOTRIX_SCENE_EXPORTS = frozenset(
     {
         "add_motrix_tracking_frame_sensors",
@@ -228,6 +230,10 @@ def __getattr__(name: str):
         from .mujoco import xml
 
         return getattr(xml, name)
+    if name in _MUJOCO_MOTION_EXPORT_EXPORTS:
+        from .mujoco import motion_export
+
+        return getattr(motion_export, name)
     if name in _MOTRIX_SCENE_EXPORTS:
         return _load_motrix_scene_export(name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -244,8 +250,10 @@ __all__ = [
     "DRAKE_AVAILABLE",
     "MJWARP_AVAILABLE",
     "add_sensor",
+    "compute_tracking_fk",
     "create_discardvisual_xml",
     "create_backend",
+    "get_named_bodies",
     "get_named_body_ids",
     "inject_mujoco_tracking_sensors",
     "add_motrix_tracking_frame_sensors",

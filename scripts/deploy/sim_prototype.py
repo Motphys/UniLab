@@ -26,6 +26,14 @@ Differences from training-side eval (deliberate):
   - No noise injected on obs (matches deploy convention).
   - Robot anchor pos in world is locked to the first motion frame's torso pos
     (since real robot has no GPS/SLAM).
+
+Contract anchors (the numpy rewrite above is intentional — keep it standalone):
+  - Training-side obs contract owner: conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml
+    (per-term obs layout + history as assembled by the training ObservationManager).
+  - Alignment test: tests/scripts/test_obs_alignment_g1_wbt.py checks this
+    file's ObsAssembler against training-side and deploy-side (C++) semantics
+    bit-for-bit. If the training obs terms change, that test must keep passing
+    WITHOUT this file importing env classes.
 """
 
 from __future__ import annotations
