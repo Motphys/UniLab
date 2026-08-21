@@ -33,6 +33,62 @@ class RslRlPlaybackConfig:
 
 
 @dataclass
+class PlayInteractiveArgs:
+    """Scalar play arguments shared by interactive playback entrypoints."""
+
+    task: str
+    load_run: str
+    checkpoint: str | None
+    action_mode: str
+    policy_obs_mode: str
+    algo_log_name: str
+    log_root: str | None
+    show_target_bodies: bool
+    show_reward_debug: bool
+    target_show_axes: bool
+    target_body_names: str
+    target_max_bodies: int
+    target_marker_radius: float
+    target_axis_length: float
+    target_marker_alpha: float
+    reward_debug_show_velocity: bool
+    reward_debug_lin_vel_scale: float
+    reward_debug_ang_vel_scale: float
+    reward_debug_show_connectors: bool
+    reward_debug_show_global_anchor: bool
+    camera_follow_body: bool
+    camera_focus_body_name: str
+    camera_height_offset: float
+    camera_distance: float | None
+    camera_elevation: float | None
+    camera_azimuth: float | None
+    use_env_visual_model: bool
+    speed: float
+    start_paused: bool
+    keyboard: bool = False
+    keyboard_step_lin: float = 0.1
+    keyboard_step_ang: float = 0.2
+    require_keyboard_command_obs: bool = True
+    algo: str = "ppo"
+
+
+def build_playback_config(args: Any, *, num_envs: int = 1) -> RslRlPlaybackConfig:
+    """Build an :class:`RslRlPlaybackConfig` from a play-args-like object."""
+    return RslRlPlaybackConfig(
+        task=str(args.task),
+        load_run=str(args.load_run),
+        checkpoint=getattr(args, "checkpoint", None),
+        action_mode=str(args.action_mode),
+        policy_obs_mode=str(args.policy_obs_mode),
+        algo_log_name=str(getattr(args, "algo_log_name", "rsl_rl_ppo")),
+        log_root=getattr(args, "log_root", None),
+        num_envs=num_envs,
+        speed=float(getattr(args, "speed", 1.0)),
+        start_paused=bool(getattr(args, "start_paused", False)),
+    )
+
+
+@dataclass
 class PlaybackControls:
     """Viewer-independent playback control state."""
 
@@ -152,6 +208,8 @@ class RslRlPlaybackSession:
         action_mode: str,
         policy: Callable[[Any], Any] | None,
         num_envs: int,
+        runner: Any | None = None,
+        actor: Any | None = None,
     ) -> None:
         self.env = env
         self.wrapped_env = wrapped_env
@@ -159,6 +217,8 @@ class RslRlPlaybackSession:
         self.action_mode = action_mode
         self.policy = policy
         self.num_envs = int(num_envs)
+        self.runner = runner
+        self.actor = actor
         self.obs: Any | None = None
         self.step_count = 0
 
@@ -358,6 +418,55 @@ def select_torch_device() -> str:
     return "cpu"
 
 
+def infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
+    """Infer the actor MLP input dim from an rsl_rl checkpoint, if detectable."""
+    loaded = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    state_dict = loaded.get("actor_state_dict")
+    if not isinstance(state_dict, dict):
+        return None
+
+    # Common rsl-rl naming: "mlp.0.weight" or nested prefixes ending with ".0.weight".
+    for key in ("mlp.0.weight", "actor.mlp.0.weight"):
+        w = state_dict.get(key)
+        if isinstance(w, torch.Tensor) and w.ndim == 2:
+            return int(w.shape[1])
+
+    for key, w in state_dict.items():
+        if key.endswith(".0.weight") and isinstance(w, torch.Tensor) and w.ndim == 2:
+            return int(w.shape[1])
+    return None
+
+
+def _scene_visual_materializer() -> Any:
+    from unilab.base.backend import materialize_scene_visual_override
+
+    return materialize_scene_visual_override
+
+
+def build_play_backend_adapter(cfg: Any, *, root_dir: str | Path, algo_name: str = "ppo") -> Any:
+    """Build the BackendAdapter used by play entrypoints to derive env cfg overrides."""
+    from unilab.training import BackendAdapter
+
+    return BackendAdapter(
+        cfg,
+        root_dir=root_dir,
+        algo_name=algo_name,
+        scene_materializer=_scene_visual_materializer(),
+    )
+
+
+def available_backends_for_task(task_name: str) -> tuple[str, ...]:
+    """Return the registered backends for a task, or ``()`` when unknown."""
+    from unilab.base import registry
+
+    envs = registry.list_registered_envs()
+    task_meta = envs.get(task_name, {})
+    backends = task_meta.get("available_backends", ())
+    if not isinstance(backends, list):
+        return ()
+    return tuple(str(backend) for backend in backends)
+
+
 def create_rsl_rl_playback_session(
     *,
     playback_cfg: RslRlPlaybackConfig,
@@ -373,6 +482,8 @@ def create_rsl_rl_playback_session(
     policy_obs_dims_getter: Callable[[Any], tuple[int, int]],
     train_cfg_normalizer: Callable[[dict[str, Any]], dict[str, Any]],
     sim2sim_preflight: Callable[[str | None], Any] | None = None,
+    runner_loader: Callable[[Any, str], None] | None = None,
+    guard_algo_name: str | None = None,
     log: LogFn = print,
 ) -> tuple[RslRlPlaybackSession, str, str | None]:
     """Create a playback session and load the selected policy checkpoint."""
@@ -417,6 +528,7 @@ def create_rsl_rl_playback_session(
     train_cfg["runner"]["logger"] = "none"
 
     policy = None
+    runner = None
     if playback_cfg.action_mode == "policy":
         if checkpoint_path is None:
             log("WARNING: no checkpoint found - falling back to zero actions.")
@@ -439,18 +551,21 @@ def create_rsl_rl_playback_session(
             with policy_load_dim_guard(
                 env_obs_dim=policy_obs_dim,
                 env_action_dim=policy_action_dim,
-                algo_name=playback_cfg.algo_log_name,
+                algo_name=guard_algo_name or playback_cfg.algo_log_name,
             ):
-                runner.load(
-                    checkpoint_path,
-                    load_cfg={
-                        "actor": True,
-                        "critic": False,
-                        "optimizer": False,
-                        "iteration": False,
-                        "rnd": False,
-                    },
-                )
+                if runner_loader is not None:
+                    runner_loader(runner, checkpoint_path)
+                else:
+                    runner.load(
+                        checkpoint_path,
+                        load_cfg={
+                            "actor": True,
+                            "critic": False,
+                            "optimizer": False,
+                            "iteration": False,
+                            "rnd": False,
+                        },
+                    )
             policy = runner.get_inference_policy(device=device_name)
 
     log(f"Action mode: {playback_cfg.action_mode}")
@@ -461,15 +576,20 @@ def create_rsl_rl_playback_session(
         action_mode=playback_cfg.action_mode,
         policy=policy,
         num_envs=playback_cfg.num_envs,
+        runner=runner,
     )
     return session, policy_obs_mode, checkpoint_path
 
 
-def _normalize_checkpoint_value(value: object) -> str | None:
+def normalize_checkpoint_value(value: object) -> str | None:
+    """Normalize a raw checkpoint selector value; sentinel values map to ``None``."""
     if value is None:
         return None
     text = str(value)
     return None if text in {"", "-1", "None", "null"} else text
+
+
+_normalize_checkpoint_value = normalize_checkpoint_value
 
 
 def _cfg_checkpoint_value(cfg: Any) -> str | None:
@@ -648,6 +768,7 @@ def create_appo_playback_session(
 
     wrapped_env = selected_wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
     policy = None
+    actor = None
     checkpoint_path: str | None = None
     if playback_cfg.action_mode == "policy":
         checkpoint_path, checkpoint_dir = _resolve_appo_checkpoint_from_cfg(cfg, root_dir=root_dir)
@@ -690,6 +811,7 @@ def create_appo_playback_session(
             action_mode=playback_cfg.action_mode,
             policy=policy,
             num_envs=playback_cfg.num_envs,
+            actor=actor,
         ),
         policy_obs_mode,
         checkpoint_path,
@@ -715,6 +837,7 @@ def create_sac_playback_session(
     from unilab.training.offpolicy import (
         default_device,
         extract_play_obs,
+        load_play_actor,
         resolve_play_actor_spec,
         resolve_play_obs_dims,
     )
@@ -788,10 +911,7 @@ def create_sac_playback_session(
                 env_action_dim=action_dim,
                 algo_name=algo_name,
             ):
-                actor.load_state_dict(checkpoint["actor"])
-                if normalizer is not None and checkpoint.get("obs_normalizer"):
-                    normalizer.load_state_dict(checkpoint["obs_normalizer"])
-                    normalizer.eval()
+                load_play_actor(algo_name, actor, normalizer, checkpoint)
             log(f"Loading {algo_name} checkpoint: {checkpoint_path}")
 
     log(f"Action mode: {playback_cfg.action_mode}")
@@ -821,7 +941,6 @@ def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
     )
     from unilab.algos.hora.distill_config import apply_teacher_defaults
     from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
-    from unilab.base.backend import materialize_scene_visual_override
     from unilab.training import (
         BackendAdapter,
         create_env,
@@ -836,7 +955,7 @@ def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
             cfg,
             root_dir=root_dir,
             algo_name="hora_distill",
-            scene_materializer=materialize_scene_visual_override,
+            scene_materializer=_scene_visual_materializer(),
         ).build_play_env_cfg_override(),
         "build_student_actor_and_normalizer": build_student_actor_and_normalizer,
         "cfg_with_checkpoint_runtime": cfg_with_checkpoint_runtime,
@@ -1022,15 +1141,21 @@ __all__ = [
     "KeyboardCommander",
     "MotionOverlaySelection",
     "OffPolicyPlaybackSession",
+    "PlayInteractiveArgs",
     "PlaybackControls",
     "PlaybackSession",
     "RslRlPlaybackConfig",
     "RslRlPlaybackSession",
+    "available_backends_for_task",
+    "build_play_backend_adapter",
+    "build_playback_config",
     "create_appo_playback_session",
     "create_hora_distill_playback_session",
     "create_rsl_rl_playback_session",
     "create_sac_playback_session",
+    "infer_checkpoint_actor_input_dim",
     "make_sim2sim_preflight",
+    "normalize_checkpoint_value",
     "prepare_motion_overlay_selection",
     "select_torch_device",
 ]

@@ -57,7 +57,12 @@ from unilab.training.rsl_rl import (
 )
 from unilab.visualization.interactive_playback import (
     PlaybackControls,
+    PlayInteractiveArgs,
+    available_backends_for_task,
+    build_play_backend_adapter,
+    build_playback_config,
     create_rsl_rl_playback_session,
+    infer_checkpoint_actor_input_dim,
     make_sim2sim_preflight,
     select_torch_device,
 )
@@ -84,14 +89,7 @@ if not VISER_AVAILABLE:
 
 import mujoco
 import viser  # noqa: E402
-from play_interactive import (  # noqa: E402
-    PlayInteractiveArgs,
-    _available_backends_for_task,
-    _backend_adapter,
-    _build_playback_config,
-    _infer_checkpoint_actor_input_dim,
-    resolve_checkpoint,
-)
+from play_interactive import resolve_checkpoint  # noqa: E402
 
 from unilab.training import algo_config_dict  # noqa: E402
 
@@ -206,7 +204,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     print(f"[play_viser] Device: {device}")
 
     # --- Validate backend ---------------------------------------------------
-    available_backends = _available_backends_for_task(args.task)
+    available_backends = available_backends_for_task(args.task)
     if available_backends and "mujoco" not in available_backends:
         print(
             f"[play_viser] Task {args.task} does not support MuJoCo backend. "
@@ -222,7 +220,9 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
             return registry.make(args.task, num_envs=env_count, sim_backend="mujoco")
         from unilab.training import create_env
 
-        env_cfg_override = _backend_adapter(cfg).build_task_env_cfg_override()
+        env_cfg_override = build_play_backend_adapter(
+            cfg, root_dir=ROOT_DIR
+        ).build_task_env_cfg_override()
         return create_env(
             cfg,
             num_envs=env_count,
@@ -232,13 +232,13 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
         )
 
     playback_session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
-        playback_cfg=_build_playback_config(args, num_envs=num_envs),
+        playback_cfg=build_playback_config(args, num_envs=num_envs),
         env_factory=_create_env,
         algo_config=algo_config_dict(cfg),
         root_dir=ROOT_DIR,
         device=device,
         checkpoint_resolver=resolve_checkpoint,
-        checkpoint_input_dim_reader=_infer_checkpoint_actor_input_dim,
+        checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
         entrypoint_log_root=get_entrypoint_log_root,
         wrapper_cls=RslRlVecEnvWrapper,
         runner_cls=OnPolicyRunner,

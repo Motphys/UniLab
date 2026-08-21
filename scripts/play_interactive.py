@@ -61,16 +61,22 @@ from unilab.training.rsl_rl import (
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+from unilab.utils.rotation import np_matrix_from_quat
 from unilab.visualization.interactive_playback import (
     _HORA_DISTILL_CHECKPOINT_UNAVAILABLE,
     KeyboardCommander,
     PlaybackControls,
-    RslRlPlaybackConfig,
+    PlayInteractiveArgs,
+    available_backends_for_task,
+    build_play_backend_adapter,
+    build_playback_config,
     create_appo_playback_session,
     create_hora_distill_playback_session,
     create_rsl_rl_playback_session,
     create_sac_playback_session,
+    infer_checkpoint_actor_input_dim,
     make_sim2sim_preflight,
+    normalize_checkpoint_value,
     prepare_motion_overlay_selection,
     select_torch_device,
 )
@@ -106,74 +112,6 @@ except ImportError:
 
 import mujoco
 import mujoco.viewer
-
-
-@dataclass
-class PlayInteractiveArgs:
-    task: str
-    load_run: str
-    checkpoint: str | None
-    action_mode: str
-    policy_obs_mode: str
-    algo_log_name: str
-    log_root: str | None
-    show_target_bodies: bool
-    show_reward_debug: bool
-    target_show_axes: bool
-    target_body_names: str
-    target_max_bodies: int
-    target_marker_radius: float
-    target_axis_length: float
-    target_marker_alpha: float
-    reward_debug_show_velocity: bool
-    reward_debug_lin_vel_scale: float
-    reward_debug_ang_vel_scale: float
-    reward_debug_show_connectors: bool
-    reward_debug_show_global_anchor: bool
-    camera_follow_body: bool
-    camera_focus_body_name: str
-    camera_height_offset: float
-    camera_distance: float | None
-    camera_elevation: float | None
-    camera_azimuth: float | None
-    use_env_visual_model: bool
-    speed: float
-    start_paused: bool
-    keyboard: bool = False
-    keyboard_step_lin: float = 0.1
-    keyboard_step_ang: float = 0.2
-    require_keyboard_command_obs: bool = True
-    algo: str = "ppo"
-
-
-def _infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
-    loaded = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    state_dict = loaded.get("actor_state_dict")
-    if not isinstance(state_dict, dict):
-        return None
-
-    # Common rsl-rl naming: "mlp.0.weight" or nested prefixes ending with ".0.weight".
-    for key in ("mlp.0.weight", "actor.mlp.0.weight"):
-        w = state_dict.get(key)
-        if isinstance(w, torch.Tensor) and w.ndim == 2:
-            return int(w.shape[1])
-
-    for key, w in state_dict.items():
-        if key.endswith(".0.weight") and isinstance(w, torch.Tensor) and w.ndim == 2:
-            return int(w.shape[1])
-    return None
-
-
-def _backend_adapter(cfg: DictConfig, *, algo_name: str = "ppo"):
-    from unilab.base.backend import materialize_scene_visual_override
-    from unilab.training import BackendAdapter
-
-    return BackendAdapter(
-        cfg,
-        root_dir=ROOT_DIR,
-        algo_name=algo_name,
-        scene_materializer=materialize_scene_visual_override,
-    )
 
 
 def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
@@ -331,15 +269,7 @@ def _quat_to_rotmat_wxyz(quat: np.ndarray) -> np.ndarray:
     n = np.linalg.norm(q)
     if n < 1e-12:
         return np.eye(3, dtype=np.float64)
-    w, x, y, z = q / n
-    return np.array(
-        [
-            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
-            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
-            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
-        ],
-        dtype=np.float64,
-    )
+    return np_matrix_from_quat(q / n)
 
 
 def _add_sphere_marker(scene, pos: np.ndarray, radius: float, rgba: np.ndarray) -> bool:
@@ -460,15 +390,6 @@ def _default_viewer_camera_distance(mj_model, env: Any, *, follow_body: bool) ->
     if _has_generated_terrain(env):
         return _TERRAIN_FOLLOW_CAMERA_DISTANCE
     return min(extent_distance, _FOLLOW_CAMERA_MAX_DISTANCE)
-
-
-def _available_backends_for_task(task_name: str) -> tuple[str, ...]:
-    envs = registry.list_registered_envs()
-    task_meta = envs.get(task_name, {})
-    backends = task_meta.get("available_backends", ())
-    if not isinstance(backends, list):
-        return ()
-    return tuple(str(backend) for backend in backends)
 
 
 def _can_launch_glfw_viewer() -> bool:
@@ -823,21 +744,6 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
     return playback_model
 
 
-def _build_playback_config(args, *, num_envs: int = 1) -> RslRlPlaybackConfig:
-    return RslRlPlaybackConfig(
-        task=str(args.task),
-        load_run=str(args.load_run),
-        checkpoint=getattr(args, "checkpoint", None),
-        action_mode=str(args.action_mode),
-        policy_obs_mode=str(args.policy_obs_mode),
-        algo_log_name=str(getattr(args, "algo_log_name", "rsl_rl_ppo")),
-        log_root=getattr(args, "log_root", None),
-        num_envs=num_envs,
-        speed=float(getattr(args, "speed", 1.0)),
-        start_paused=bool(getattr(args, "start_paused", False)),
-    )
-
-
 def _build_keyboard_commander(env: Any, args) -> KeyboardCommander | None:
     """Set up keyboard velocity teleop, or return None when unsupported/disabled."""
     if not bool(getattr(args, "keyboard", False)):
@@ -989,7 +895,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     algo = str(algo or getattr(args, "algo", "ppo"))
 
     # Always use a single env for interactive view
-    available_backends = _available_backends_for_task(args.task)
+    available_backends = available_backends_for_task(args.task)
     if available_backends and "mujoco" not in available_backends:
         print(
             "[play_interactive] Task does not support MuJoCo backend: "
@@ -1006,7 +912,9 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=ROOT_DIR)
         else:
-            env_cfg_override = _backend_adapter(cfg, algo_name=algo).build_task_env_cfg_override()
+            env_cfg_override = build_play_backend_adapter(
+                cfg, root_dir=ROOT_DIR, algo_name=algo
+            ).build_task_env_cfg_override()
         try:
             return create_env(
                 cfg,
@@ -1026,7 +934,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             raise
 
     try:
-        playback_cfg = _build_playback_config(args, num_envs=1)
+        playback_cfg = build_playback_config(args, num_envs=1)
         if algo == "ppo":
             wrapper_cls = RslRlVecEnvWrapper
             if cfg is not None:
@@ -1043,7 +951,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 root_dir=ROOT_DIR,
                 device=device,
                 checkpoint_resolver=resolve_checkpoint,
-                checkpoint_input_dim_reader=_infer_checkpoint_actor_input_dim,
+                checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
                 entrypoint_log_root=get_entrypoint_log_root,
                 wrapper_cls=wrapper_cls,
                 runner_cls=OnPolicyRunner,
@@ -1288,18 +1196,11 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     print("[play_interactive] Done.")
 
 
-def _normalize_checkpoint_value(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value)
-    return None if text in {"-1", "None", "null"} else text
-
-
 def _build_play_args(cfg: DictConfig, *, algo: str = "ppo") -> PlayInteractiveArgs:
     return PlayInteractiveArgs(
         task=str(cfg.training.task_name),
         load_run=str(cfg.algo.load_run),
-        checkpoint=_normalize_checkpoint_value(OmegaConf.select(cfg, "algo.checkpoint")),
+        checkpoint=normalize_checkpoint_value(OmegaConf.select(cfg, "algo.checkpoint")),
         action_mode=str(cfg.interactive.action_mode),
         policy_obs_mode=str(cfg.interactive.policy_obs_mode),
         algo_log_name=str(cfg.algo.algo_log_name),
