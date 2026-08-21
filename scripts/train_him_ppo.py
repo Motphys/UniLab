@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import hydra
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 EXPORT_POLICY = False  # set to True in __main__ block
 
@@ -22,10 +22,12 @@ from unilab.algos.him_ppo.runner import HIMOnPolicyRunner
 from unilab.base.backend import materialize_scene_visual_override
 from unilab.training import (
     BackendAdapter,
+    algo_config_dict,
+    apply_env_nan_guard,
+    build_run_dir_name,
     create_env,
     ensure_registries,
-    get_latest_checkpoint,
-    get_latest_run,
+    format_play_checkpoint_error,
     get_log_root,
     parse_checkpoint_path,
 )
@@ -47,57 +49,15 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
-    raw = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(raw, dict):
-        raise TypeError("cfg.algo must resolve to a dict")
-    return cast(dict[str, Any], raw)
-
-
-def _format_play_checkpoint_error(
-    cfg: DictConfig,
-    *,
-    task_log_root: Path,
-    load_path: Path | None,
-    load_path_dir: Path | None,
-) -> str:
-    selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
-    checkpoint_hint = (
-        f" algo.checkpoint={selected_checkpoint!r}"
-        if selected_checkpoint not in (None, "", -1, "-1")
-        else ""
-    )
-    if load_path_dir is not None and load_path is None and checkpoint_hint:
-        reason = f"Requested checkpoint was not found under resolved_run={load_path_dir}."
-    elif not task_log_root.exists():
-        reason = "Task log root does not exist."
-    else:
-        latest_run = get_latest_run(task_log_root)
-        if latest_run is None:
-            reason = "No run directories were found under the task log root."
-        elif get_latest_checkpoint(latest_run) is None:
-            reason = f"Resolved latest run has no model_*.pt checkpoint files: {latest_run}."
-        else:
-            reason = "Requested run or checkpoint could not be resolved."
-
-    return (
-        "Could not resolve a checkpoint for play mode. "
-        f"{reason} task={cfg.training.task_name} task_log_root={task_log_root} "
-        f"algo.load_run={cfg.algo.load_run!r}{checkpoint_hint}."
-        " Use algo.load_run=<run-dir-or-checkpoint-path> "
-        "and optionally algo.checkpoint=<iteration-or-filename>."
-    )
-
-
 def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
     """Play mode for HIM-PPO."""
-    rl_cfg = _algo_config_dict(cfg)
+    rl_cfg = algo_config_dict(cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
         print(
-            _format_play_checkpoint_error(
+            format_play_checkpoint_error(
                 cfg,
                 task_log_root=task_log_root,
                 load_path=load_path,
@@ -202,7 +162,9 @@ def main(cfg: DictConfig) -> None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         log_root = _get_log_root(cfg)
         log_dir = str(
-            Path(log_root) / cfg.training.task_name / f"{timestamp}_{cfg.training.sim_backend}"
+            Path(log_root)
+            / cfg.training.task_name
+            / build_run_dir_name(timestamp, str(cfg.training.sim_backend))
         )
     else:
         log_dir = None
@@ -226,24 +188,10 @@ def main(cfg: DictConfig) -> None:
             env = create_env(cfg, num_envs=cfg.algo.num_envs, env_cfg_override=env_cfg_override)
             from unilab.training.rsl_rl import RslRlVecEnvWrapper
 
-            nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
-            if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
-                from unilab.utils.nan_guard import NanGuard, NanGuardCfg
-
-                guard = NanGuard(
-                    NanGuardCfg(
-                        enabled=True,
-                        buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
-                        max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
-                        output_dir=getattr(nan_guard_cfg, "output_dir", None),
-                    ),
-                    num_envs=env.num_envs,
-                    supports_state_playback=env.play_capabilities.supports_physics_state_playback,
-                )
-                env.set_nan_guard(guard)
+            apply_env_nan_guard(env, cfg.training)
 
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
-            rl_cfg = _algo_config_dict(cfg)
+            rl_cfg = algo_config_dict(cfg)
             runner = HIMOnPolicyRunner(wrapped_env, rl_cfg, log_dir=log_dir, device=device)
 
             if cfg.algo.load_run != "-1":

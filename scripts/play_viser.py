@@ -32,7 +32,7 @@ Camera controls (browser):
 import sys
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import hydra
 import numpy as np
@@ -93,24 +93,11 @@ from play_interactive import (  # noqa: E402
     resolve_checkpoint,
 )
 
+from unilab.training import algo_config_dict  # noqa: E402
+
 # --------------------------------------------------------------------------- #
 # Core viewer                                                                 #
 # --------------------------------------------------------------------------- #
-
-
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
-    """Return the composed PPO algo config as a plain dict.
-
-    Args:
-        cfg: Hydra config for the current playback run.
-
-    Returns:
-        The resolved ``cfg.algo`` subtree as a mutable dict for rsl_rl.
-    """
-    train_cfg_raw = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(train_cfg_raw, dict):
-        raise TypeError("cfg.algo must resolve to a dict")
-    return cast(dict[str, Any], train_cfg_raw)
 
 
 def _load_env_playback_model(env: Any, env_index: int) -> mujoco.MjModel:
@@ -247,7 +234,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     playback_session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
         playback_cfg=_build_playback_config(args, num_envs=num_envs),
         env_factory=_create_env,
-        algo_config=_algo_config_dict(cfg),
+        algo_config=algo_config_dict(cfg),
         root_dir=ROOT_DIR,
         device=device,
         checkpoint_resolver=resolve_checkpoint,

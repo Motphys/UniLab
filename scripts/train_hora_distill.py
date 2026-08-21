@@ -1,5 +1,4 @@
 import datetime
-import json
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -50,7 +49,7 @@ from unilab.training import (
     setup_logger,
     should_run_playback,
 )
-from unilab.training.experiment import get_device_info_dict
+from unilab.training.experiment import get_device_info_dict, write_run_config_snapshot
 
 
 def _write_distill_run_config(
@@ -69,8 +68,9 @@ def _write_distill_run_config(
     Returns:
         None. Writes `distill_run_config.json` into `log_dir`.
     """
-    payload = {
-        "run": {
+    write_run_config_snapshot(
+        log_dir,
+        run_metadata={
             "algo": "hora_distill",
             "task": str(OmegaConf.select(cfg, "training.task_name")),
             "sim_backend": str(OmegaConf.select(cfg, "training.sim_backend")),
@@ -78,11 +78,10 @@ def _write_distill_run_config(
             "hardware": get_device_info_dict(),
             "teacher": teacher_metadata,
         },
-        "config": OmegaConf.to_container(cfg, resolve=True),
-    }
-    with (log_dir / "distill_run_config.json").open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=True)
-        f.write("\n")
+        full_cfg=cfg,
+        filename="distill_run_config.json",
+        trailing_newline=True,
+    )
 
 
 def _build_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:

@@ -33,10 +33,12 @@ from unilab.ipc.dp_launcher import (
 from unilab.training import (
     apply_configured_training_seed,
     assert_offpolicy_task_choice_matches_algo,
+    build_run_dir_name,
     create_env,
     ensure_registries,
     get_log_root,
     log_playback_plan,
+    resolve_nan_guard_cfg,
     should_run_playback,
 )
 from unilab.training.experiment import ExperimentTracker
@@ -57,7 +59,6 @@ from unilab.training.run import (
     resolve_offpolicy_checkpoint_path as resolve_checkpoint_path,
 )
 from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
-from unilab.utils.nan_guard import NanGuardCfg
 
 
 def enable_faulthandler() -> None:
@@ -82,11 +83,6 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     summary["error_type"] = type(exc).__name__
     summary["error"] = str(exc)
     return summary
-
-
-def build_run_dir_name(timestamp: str, sim_backend: str, *, world_size: int = 1) -> str:
-    gpu_suffix = f"_gpux{world_size}" if world_size > 1 else ""
-    return f"{timestamp}_{sim_backend}{gpu_suffix}"
 
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
@@ -149,15 +145,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     )
     apply_torch_thread_runtime(torch_thread_runtime, role="learner")
 
-    nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
-    _nan_guard_cfg: NanGuardCfg | None = None
-    if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
-        _nan_guard_cfg = NanGuardCfg(
-            enabled=True,
-            buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
-            max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
-            output_dir=getattr(nan_guard_cfg, "output_dir", None),
-        )
+    _nan_guard_cfg = resolve_nan_guard_cfg(cfg.training)
 
     replay_prefetch_mode = getattr(cfg.training, "replay_prefetch_mode", "one_tick")
     if replay_prefetch_mode != "one_tick":

@@ -1096,7 +1096,7 @@ def _build_rsl_lifecycle_case(
         return FakeEnv()
 
     monkeypatch.setattr(mod, "create_env", create_env)
-    monkeypatch.setattr(mod, "_algo_config_dict", lambda _cfg: {})
+    monkeypatch.setattr(mod, "algo_config_dict", lambda _cfg: {})
     monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda _rl_cfg: FakeWrapper)
     monkeypatch.setattr(mod, "normalize_ppo_train_cfg", lambda _rl_cfg: {})
     monkeypatch.setattr(mod, "patch_rsl_rl_resume_state", lambda: None)
@@ -3308,6 +3308,7 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
         raise RuntimeError("bootstrap failed")
 
     training_mod.ensure_registries = _fail_bootstrap
+    training_mod.algo_config_dict = lambda cfg: {}
     training_mod.get_entrypoint_log_root = lambda *args, **kwargs: Path("/tmp")
     training_mod.resolve_task_checkpoint_path = lambda *args, **kwargs: (None, None)
     monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
