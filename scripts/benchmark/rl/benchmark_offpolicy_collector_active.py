@@ -497,8 +497,8 @@ def _make_env(
     *,
     env_cfg_override: dict[str, Any] | None,
 ):
+    from unilab.base.config_adapter import create_env
     from unilab.base.observations import get_obs_dims
-    from unilab.training import create_env
 
     env = create_env(cfg, num_envs=int(cfg.algo.num_envs), env_cfg_override=env_cfg_override)
     if env.state is None:
@@ -747,8 +747,9 @@ def _build_and_run_case(
     variant: str = "default",
     profile_numpy_random: bool = False,
 ) -> CollectorResult:
-    from unilab.training import BackendAdapter, ensure_registries
-    from unilab.training.seed import apply_training_seed
+    from unilab.base.config_adapter import BackendAdapter
+    from unilab.training import ensure_registries
+    from unilab.utils.seed import apply_training_seed
 
     algo, task, sim = _parse_case(spec)
     owner_path = _owner_config_path(algo, task, sim)

@@ -29,3 +29,40 @@ def test_library_does_not_import_scripts() -> None:
     ]
 
     assert violations == [], "src/unilab must not import scripts/ modules"
+
+
+def test_algos_does_not_import_training() -> None:
+    violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in sorted((_LIBRARY_PACKAGE / "algos").rglob("*.py"))
+        for module in sorted(_imports(path))
+        if module == "unilab.training" or module.startswith("unilab.training.")
+    ]
+
+    assert violations == [], "src/unilab/algos must not import unilab.training"
+
+
+_UTILS_FORBIDDEN_LAYERS = (
+    "unilab.base",
+    "unilab.envs",
+    "unilab.tasks",
+    "unilab.managers",
+    "unilab.algos",
+    "unilab.training",
+    "unilab.visualization",
+    "unilab.ipc",
+    "unilab.logging",
+)
+
+
+def test_utils_does_not_import_higher_layers() -> None:
+    violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in sorted((_LIBRARY_PACKAGE / "utils").rglob("*.py"))
+        for module in sorted(_imports(path))
+        if any(
+            module == layer or module.startswith(f"{layer}.") for layer in _UTILS_FORBIDDEN_LAYERS
+        )
+    ]
+
+    assert violations == [], "src/unilab/utils must not import higher unilab layers"

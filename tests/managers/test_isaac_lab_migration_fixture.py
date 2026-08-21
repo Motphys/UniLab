@@ -15,9 +15,9 @@ from omegaconf import DictConfig, OmegaConf
 from tests.fixtures.isaac_lab_cartpole import FIXTURE_ENV_NAME
 from tests.fixtures.isaac_lab_cartpole import task as fixture
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRLEnvCfg, ManagerBasedRlEnvCfg
-from unilab.training import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[2]
 FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures" / "isaac_lab_cartpole"

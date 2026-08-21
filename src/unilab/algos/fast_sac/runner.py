@@ -49,7 +49,7 @@ class FastSACRunner(DoubleBufferOffPolicyRunner):
     ):
         from unilab.base import registry
         from unilab.base.registry import ensure_registries
-        from unilab.training.seed import apply_training_seed
+        from unilab.utils.seed import apply_training_seed
 
         device = require_offpolicy_replay_device(device or get_default_device())
         ensure_registries()

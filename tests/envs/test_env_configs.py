@@ -38,7 +38,7 @@ def _allegro_manager_override(
 ) -> dict[str, Any]:
     from hydra import compose, initialize_config_dir
 
-    from unilab.training.backend_adapter import BackendAdapter
+    from unilab.base.config_adapter import BackendAdapter
 
     repo_root = Path(__file__).parents[2]
     with initialize_config_dir(
@@ -53,7 +53,7 @@ def _allegro_manager_override(
 def _g1_manager_override(task: str = "g1_walk_flat") -> dict[str, Any]:
     from hydra import compose, initialize_config_dir
 
-    from unilab.training.backend_adapter import BackendAdapter
+    from unilab.base.config_adapter import BackendAdapter
 
     repo_root = Path(__file__).parents[2]
     if task == "g1_walk_rough":
@@ -77,7 +77,7 @@ def _motion_manager_override(
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
-    from unilab.training.backend_adapter import BackendAdapter
+    from unilab.base.config_adapter import BackendAdapter
 
     repo_root = Path(__file__).parents[2]
     GlobalHydra.instance().clear()

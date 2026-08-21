@@ -507,7 +507,7 @@ def test_hora_appo_play_dim_mismatch_reraises_explicit_sim2sim_diagnostic(
     capsys,
 ) -> None:
     import unilab.algos.hora.appo as hora_appo
-    from unilab.training.sim2sim import CrossBackendIncompatibleError
+    from unilab.utils.sim2sim import CrossBackendIncompatibleError
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)

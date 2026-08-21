@@ -38,7 +38,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 
 ## Sim2Sim 跨后端配置契约
 
-`src/unilab/training/sim2sim.py` 按 dotted path 维护三类字段：
+`src/unilab/utils/sim2sim.py` 按 dotted path 维护三类字段：
 
 - **DENYLIST**（差异即 `CrossBackendIncompatibleError`）：`algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization` / `algo.obs_normalization`、`env.sampling_mode`。`env.*` 子集对**任一方向**的不对称出现也 fail-closed；`algo` 专属字段目标缺省时按设计跳过（跨算法合法）。
 - **WARNING_LIST**：`reward.*`、`env.control_config.simulate_action_latency`、`env.ctrl_dt`。
@@ -58,7 +58,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - shared numeric helpers: `src/unilab/utils/rotation.py`, `src/unilab/utils/geometry.py`
 - config schema: `src/unilab/structured_configs.py`
 - async runner: `src/unilab/ipc/async_runner.py`
-- sim2sim 跨后端契约: `src/unilab/training/sim2sim.py`
+- sim2sim 跨后端契约: `src/unilab/utils/sim2sim.py`
 
 ## GitHub CLI (gh) 速查
 

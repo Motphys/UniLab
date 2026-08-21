@@ -9,8 +9,7 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
-from unilab.algos.rsl_rl_ppo import FinalObservationAwarePPO
-from unilab.training.rsl_rl import (
+from unilab.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
     finish_rsl_rl_distributed,
@@ -19,6 +18,7 @@ from unilab.training.rsl_rl import (
     resolve_rsl_rl_device,
     rsl_rl_single_process_topology,
 )
+from unilab.algos.rsl_rl_ppo import FinalObservationAwarePPO
 
 
 def test_rsl_rl_rank_seed_uses_base_seed_plus_global_rank() -> None:

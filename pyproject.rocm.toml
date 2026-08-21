@@ -155,7 +155,7 @@ exclude = [
     "src/unilab/base/backend/",
     "src/unilab/envs/",
     "src/unilab/terrains/",
-    "src/unilab/training/monitoring.py",
+    "src/unilab/utils/monitoring.py",
     "src/unilab/visualization/",
 ]
 reportMissingImports = "warning"

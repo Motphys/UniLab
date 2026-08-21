@@ -19,7 +19,7 @@ from unilab.algos.appo.worker import (
 from unilab.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.registry import ensure_registries
-from unilab.training.seed import apply_training_seed
+from unilab.utils.seed import apply_training_seed
 
 from .observations import split_hora_obs_with_priv_info
 

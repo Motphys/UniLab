@@ -9,9 +9,9 @@ from typing import Any
 from unilab.algos.common.device import get_env_dims
 from unilab.ipc.async_runner import AsyncRunner
 from unilab.logging import OffPolicyLogger
-from unilab.training.seed import apply_training_seed
 from unilab.utils.device import get_default_device
 from unilab.utils.nan_guard import NanGuardCfg
+from unilab.utils.seed import apply_training_seed
 
 
 def compute_train_start_threshold(batch_size: int, learning_starts: int, num_envs: int) -> int:

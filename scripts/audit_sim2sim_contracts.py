@@ -1,7 +1,7 @@
 """Audit cross-backend sim2sim contract divergences across task owner YAMLs.
 
 For every task with >=2 backend YAMLs, hydra-composes each backend's effective config
-and compares the DENYLIST / WARNING_LIST fields from ``unilab.training.sim2sim``.
+and compares the DENYLIST / WARNING_LIST fields from ``unilab.utils.sim2sim``.
 Off-policy owners now live in separate per-algorithm trees (``sac``, ``td3``,
 ``flashsac``), so SAC, TD3, and FlashSAC are never compared with one another.
 
@@ -23,7 +23,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-from unilab.training.sim2sim import DENYLIST, ENV_STRUCTURAL_DENYLIST, WARNING_LIST, _normalize
+from unilab.utils.sim2sim import DENYLIST, ENV_STRUCTURAL_DENYLIST, WARNING_LIST, _normalize
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONF_ROOT = REPO_ROOT / "conf"

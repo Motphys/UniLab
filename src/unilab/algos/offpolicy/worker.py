@@ -13,7 +13,7 @@ from unilab.algos.offpolicy.thread_budget import apply_torch_thread_runtime
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
 from unilab.base.registry import ensure_registries
-from unilab.training.seed import apply_training_seed
+from unilab.utils.seed import apply_training_seed
 
 # Exclusive phases for one collector loop iteration (one vectorized env.step).
 # Every key is recorded once per iteration so the reported averages share one

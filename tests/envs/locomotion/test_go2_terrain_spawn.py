@@ -14,6 +14,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig
 
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
 from unilab.tasks.locomotion.common.rough_manager_terms import (
@@ -25,8 +26,7 @@ from unilab.tasks.locomotion.common.rough_manager_terms import (
     RoughTerrainReset,
 )
 from unilab.tasks.locomotion.go2w.manager_terms import Go2WMixedAction
-from unilab.training.backend_adapter import BackendAdapter
-from unilab.training.sim2sim import extract_contract_snapshot
+from unilab.utils.sim2sim import extract_contract_snapshot
 
 ROOT_DIR = Path(__file__).parents[3]
 CONF_DIR = ROOT_DIR / "conf" / "ppo"

@@ -20,7 +20,7 @@ from unilab.algos.common.collector_timing import extract_env_step_breakdown_timi
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
 from unilab.base.registry import ensure_registries
-from unilab.training.seed import apply_training_seed
+from unilab.utils.seed import apply_training_seed
 
 
 def put_latest_metrics(metrics_queue: Any, msg: dict[str, Any], *, worker_name: str) -> None:

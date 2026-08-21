@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from unilab.training.rsl_rl import RslRlVecEnvWrapper
+from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 
 
 @dataclass(frozen=True)

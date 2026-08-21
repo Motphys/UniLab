@@ -11,7 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 from unilab.base import registry
 from unilab.base.backend import materialize_scene_visual_override
 from unilab.base.scene import SceneCfg
-from unilab.training.reward import extract_reward_config
+from unilab.utils.reward import extract_reward_config
 
 
 class BackendAdapter:
@@ -114,3 +114,22 @@ class BackendAdapter:
         if not isinstance(resolved, dict):
             return {}
         return {str(key): item for key, item in resolved.items()}
+
+
+def create_env(
+    cfg: DictConfig,
+    *,
+    num_envs: int,
+    env_cfg_override: dict[str, Any] | None = None,
+    sim_backend: str | None = None,
+    task_name: str | None = None,
+):
+    """Construct an environment via the registry using the current Hydra config."""
+    from unilab.base import registry
+
+    return registry.make(
+        task_name or str(OmegaConf.select(cfg, "training.task_name")),
+        num_envs=num_envs,
+        sim_backend=sim_backend or str(OmegaConf.select(cfg, "training.sim_backend")),
+        env_cfg_override=env_cfg_override,
+    )

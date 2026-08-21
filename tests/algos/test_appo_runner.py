@@ -16,8 +16,8 @@ from hydra.core.global_hydra import GlobalHydra
 pytest.importorskip("mujoco")
 
 from unilab.algos.appo.runner import APPORunner
+from unilab.base.config_adapter import BackendAdapter
 from unilab.structured_configs import APPOConfig
-from unilab.training.backend_adapter import BackendAdapter
 
 
 @pytest.mark.slow

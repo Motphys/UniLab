@@ -481,7 +481,7 @@ def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(tmp_path: Path) -
 
 
 def test_create_rsl_rl_playback_session_wraps_load_with_dim_guard(tmp_path: Path) -> None:
-    from unilab.training.sim2sim import CrossBackendIncompatibleError
+    from unilab.utils.sim2sim import CrossBackendIncompatibleError
 
     run_dir = tmp_path / "run_1"
     run_dir.mkdir()
@@ -528,9 +528,9 @@ def test_sac_playback_session_runs_sim2sim_preflight(
     from omegaconf import OmegaConf
 
     import unilab.algos.common.actor_factory as actor_factory
-    import unilab.training.offpolicy as offpolicy_play
-    import unilab.training.run as training_run
+    import unilab.utils.checkpoint as checkpoint_utils
     import unilab.visualization.interactive_playback as interactive_playback
+    import unilab.visualization.interactive_playback as offpolicy_play
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {}}, checkpoint)
@@ -585,7 +585,7 @@ def test_sac_playback_session_runs_sim2sim_preflight(
         lambda algo_name, cfg, *, obs_dim, critic_obs_dim: ("sac", {}),
     )
     monkeypatch.setattr(
-        training_run,
+        checkpoint_utils,
         "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(tmp_path)),
     )
@@ -784,8 +784,8 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
     from omegaconf import OmegaConf
 
     import unilab.algos.common.actor_factory as actor_factory
-    import unilab.training.offpolicy as offpolicy_play
-    import unilab.training.run as training_run
+    import unilab.utils.checkpoint as checkpoint_utils
+    import unilab.visualization.interactive_playback as offpolicy_play
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {}}, checkpoint)
@@ -876,7 +876,7 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
         ),
     )
     monkeypatch.setattr(
-        training_run,
+        checkpoint_utils,
         "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(tmp_path)),
     )
@@ -918,6 +918,7 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
 
     import unilab.algos.hora.distill as distill
     import unilab.algos.hora.rsl_rl as hora_rsl
+    import unilab.base.config_adapter as config_adapter
     import unilab.training as training
 
     checkpoint = tmp_path / "hora_stage2_last.pt"
@@ -989,13 +990,13 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
         def build_play_env_cfg_override(self):
             return {}
 
-    monkeypatch.setattr(training, "BackendAdapter", FakeBackendAdapter)
+    monkeypatch.setattr(config_adapter, "BackendAdapter", FakeBackendAdapter)
     monkeypatch.setattr(
         distill,
         "student_policy",
         lambda actor, hist_normalizer, obs, *, device: torch.ones((1, 2)),
     )
-    monkeypatch.setattr(training, "create_env", lambda *args, **kwargs: fake_env)
+    monkeypatch.setattr(config_adapter, "create_env", lambda *args, **kwargs: fake_env)
     monkeypatch.setattr(hora_rsl, "HoraRslRlVecEnvWrapper", FakeWrapper)
     monkeypatch.setattr(
         distill,
@@ -1202,7 +1203,7 @@ def test_build_play_backend_adapter_injects_root_dir_and_materializer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import unilab.base.backend as backend_pkg
-    import unilab.training as training
+    import unilab.base.config_adapter as config_adapter
     from unilab.visualization.interactive_playback import build_play_backend_adapter
 
     captured: dict[str, Any] = {}
@@ -1213,7 +1214,7 @@ def test_build_play_backend_adapter_injects_root_dir_and_materializer(
             captured["cfg"] = cfg
             captured.update(kwargs)
 
-    monkeypatch.setattr(training, "BackendAdapter", FakeBackendAdapter)
+    monkeypatch.setattr(config_adapter, "BackendAdapter", FakeBackendAdapter)
     monkeypatch.setattr(
         backend_pkg,
         "materialize_scene_visual_override",
@@ -1320,7 +1321,7 @@ def test_create_sac_playback_session_td3_load_filters_noise_scales(
     from omegaconf import OmegaConf
 
     import unilab.algos.common.actor_factory as actor_factory
-    import unilab.training.run as training_run
+    import unilab.utils.checkpoint as checkpoint_utils
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save(
@@ -1367,7 +1368,7 @@ def test_create_sac_playback_session_td3_load_filters_noise_scales(
 
     monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
     monkeypatch.setattr(
-        training_run,
+        checkpoint_utils,
         "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(tmp_path)),
     )

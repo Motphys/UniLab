@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from unilab.utils.support_matrix import render_generated_block, replace_generated_block
+from scripts.tools.support_matrix import render_generated_block, replace_generated_block
 
 VALID_HYDRA_KEYS = {
     "task",

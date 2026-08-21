@@ -14,18 +14,20 @@ from unilab.base.backend.motrix.backend import MotrixBackend
 from unilab.base.backend.motrix.playback import run_motrix_playback
 from unilab.base.backend.mujoco.backend import MuJoCoBackend
 from unilab.base.backend.mujoco.playback import run_mujoco_playback
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.scene import SceneCfg
 from unilab.training import (
-    BackendAdapter,
     format_hora_stage2_checkpoint_error,
+    get_log_root,
+    parse_checkpoint_path,
+    resolve_hora_stage2_checkpoint_path,
+)
+from unilab.utils.checkpoint import (
     get_entrypoint_log_root,
     get_latest_checkpoint,
     get_latest_run,
-    get_log_root,
-    parse_checkpoint_path,
     resolve_appo_checkpoint_path,
     resolve_checkpoint_path,
-    resolve_hora_stage2_checkpoint_path,
     resolve_offpolicy_checkpoint_path,
     resolve_task_checkpoint_path,
 )

@@ -17,9 +17,10 @@ from unilab.algos.hora.rsl_rl_compat import (
     is_rsl_rl_v4,
     is_rsl_rl_v5,
 )
+from unilab.base.backend.base import log_playback_plan
+from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.base.observations import get_obs_dims
-from unilab.training import BackendAdapter, create_env, log_playback_plan
-from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 from .models import build_hora_shared_actor_critic
 from .observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info

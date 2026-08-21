@@ -16,8 +16,8 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
-from unilab.training.sim2sim import extract_contract_snapshot
 from unilab.utils.device import get_device_info_dict
+from unilab.utils.sim2sim import extract_contract_snapshot
 
 
 def _cfg_get(cfg: Any, key: str, default: Any = None) -> Any:

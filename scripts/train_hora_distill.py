@@ -38,13 +38,15 @@ from unilab.algos.hora.distill_config import (
 )
 from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
 from unilab.base.backend import materialize_scene_visual_override
-from unilab.training import (
+from unilab.base.backend.base import log_playback_plan
+from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,
+)
+from unilab.training import (
     ensure_registries,
     format_hora_stage2_checkpoint_error,
     get_log_root,
-    log_playback_plan,
     resolve_hora_stage2_checkpoint_path,
     setup_logger,
     should_run_playback,

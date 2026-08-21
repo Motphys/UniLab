@@ -38,8 +38,8 @@ def test_x2_wall_flip_wires_render_only_visual_twin() -> None:
     from hydra import compose, initialize_config_dir
 
     from unilab.base import registry
+    from unilab.base.config_adapter import BackendAdapter
     from unilab.base.config_materialization import apply_cfg_overrides
-    from unilab.training.backend_adapter import BackendAdapter
 
     repo_root = Path(__file__).parents[3]
     with initialize_config_dir(config_dir=str(repo_root / "conf" / "ppo"), version_base="1.3"):

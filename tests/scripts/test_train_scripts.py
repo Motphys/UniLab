@@ -1448,7 +1448,7 @@ def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode(
 
 
 def test_g1_motion_tracking_appo_reward_extraction_prefers_backend_specific_reward():
-    from unilab.training import BackendAdapter
+    from unilab.base.config_adapter import BackendAdapter
 
     cfg = _appo_cfg(["task=g1_motion_tracking/motrix"])
 
@@ -1867,7 +1867,7 @@ def test_resolve_checkpoint_empty_run_dir(tmp_path):
 
 
 def test_offpolicy_extract_reset_obs_handles_two_tuple():
-    from unilab.training.offpolicy import extract_reset_obs
+    from unilab.visualization.interactive_playback import extract_reset_obs
 
     obs = {"obs": "value"}
 
@@ -1877,7 +1877,7 @@ def test_offpolicy_extract_reset_obs_handles_two_tuple():
 
 
 def test_offpolicy_extract_reset_obs_rejects_three_tuple():
-    from unilab.training.offpolicy import extract_reset_obs
+    from unilab.visualization.interactive_playback import extract_reset_obs
 
     obs = {"obs": "value"}
 
@@ -1886,7 +1886,7 @@ def test_offpolicy_extract_reset_obs_rejects_three_tuple():
 
 
 def test_offpolicy_resolve_play_obs_dim_ignores_critic():
-    from unilab.training.offpolicy import resolve_play_obs_dim
+    from unilab.visualization.interactive_playback import resolve_play_obs_dim
 
     obs_dim = resolve_play_obs_dim({"obs": 98, "critic": 101})
 
@@ -1896,7 +1896,7 @@ def test_offpolicy_resolve_play_obs_dim_ignores_critic():
 def test_offpolicy_extract_play_obs_uses_obs_group_only():
     import numpy as np
 
-    from unilab.training.offpolicy import extract_play_obs
+    from unilab.visualization.interactive_playback import extract_play_obs
 
     obs = {
         "obs": np.ones((2, 98), dtype=np.float32),
@@ -1910,7 +1910,7 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
 
 
 def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
-    from unilab.training.offpolicy import resolve_play_actor_spec
+    from unilab.visualization.interactive_playback import resolve_play_actor_spec
 
     cfg = _offpolicy_cfg(
         [
@@ -1930,7 +1930,7 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
 
 
 def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
-    from unilab.training.offpolicy import resolve_play_actor_spec
+    from unilab.visualization.interactive_playback import resolve_play_actor_spec
 
     sac_cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])
     flashsac_cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"], algo="flashsac")
@@ -1957,7 +1957,7 @@ def test_offpolicy_build_play_actor_preserves_flashsac_model_kwargs(
 ):
     import unilab.algos.common.actor_factory as actor_factory
     import unilab.algos.common.normalization as normalization
-    from unilab.training.offpolicy import build_play_actor
+    from unilab.visualization.interactive_playback import build_play_actor
 
     captured: dict[str, Any] = {}
 
@@ -2013,7 +2013,7 @@ def test_offpolicy_build_play_actor_restores_td3_state_and_normalizer(
     import torch
 
     import unilab.algos.fast_td3.learner as learner_module
-    from unilab.training.offpolicy import build_play_actor, load_play_actor
+    from unilab.visualization.interactive_playback import build_play_actor, load_play_actor
 
     captured: dict[str, Any] = {}
 
@@ -2069,7 +2069,7 @@ def test_offpolicy_build_play_actor_restores_td3_state_and_normalizer(
 
 @pytest.mark.parametrize("algo_name", ["sac", "flashsac"])
 def test_offpolicy_load_play_actor_keeps_sac_state_dict_strict(algo_name: str):
-    from unilab.training.offpolicy import load_play_actor
+    from unilab.visualization.interactive_playback import load_play_actor
 
     captured: dict[str, Any] = {}
 
@@ -2166,10 +2166,10 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
 
-    import unilab.training.run as training_run
+    import unilab.utils.checkpoint as checkpoint_utils
 
     monkeypatch.setattr(
-        training_run,
+        checkpoint_utils,
         "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
@@ -2303,10 +2303,10 @@ def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
 
-    import unilab.training.run as training_run
+    import unilab.utils.checkpoint as checkpoint_utils
 
     monkeypatch.setattr(
-        training_run,
+        checkpoint_utils,
         "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
@@ -2421,7 +2421,7 @@ def _play_interactive():
 
 def test_play_wrapper_imports_shared_implementation():
     """Verify play_interactive.py uses shared RslRlVecEnvWrapper."""
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper as SharedWrapper
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper as SharedWrapper
 
     mod = _play_interactive()
     # The wrapper class in play_interactive should be the shared one
@@ -2433,7 +2433,7 @@ def test_play_wrapper_uses_current_reset_contract():
     import numpy as np
     from tensordict import TensorDict
 
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 
     # Create a fake environment that returns (obs, info) tuple
     class FakeEnv:
@@ -2468,7 +2468,7 @@ def test_play_wrapper_policy_obs_mode_actor():
     """Verify wrapper supports policy_obs_mode='actor'."""
     import numpy as np
 
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):
@@ -2506,7 +2506,7 @@ def test_play_wrapper_policy_obs_mode_actor():
 def test_play_wrapper_flat_policy_excludes_critic_only_group():
     import numpy as np
 
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):
@@ -2614,7 +2614,7 @@ def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     import torch
 
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 
     class FakeEnv:
         def __init__(self):
@@ -3331,8 +3331,6 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
 
     training_mod.ensure_registries = _fail_bootstrap
     training_mod.algo_config_dict = lambda cfg: {}
-    training_mod.get_entrypoint_log_root = lambda *args, **kwargs: Path("/tmp")
-    training_mod.resolve_task_checkpoint_path = lambda *args, **kwargs: (None, None)
     monkeypatch.setitem(sys.modules, "unilab.training", training_mod)
 
     mujoco_mod = cast(Any, types.ModuleType("mujoco"))
