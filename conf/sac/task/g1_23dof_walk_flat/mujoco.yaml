@@ -14,7 +14,6 @@ algo:
   max_iterations: 5000
   save_interval: 1000
   updates_per_step: 8
-  use_symmetry: true
   algo_params:
     alpha_init: 0.001
     target_entropy_ratio: 0.0

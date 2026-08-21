@@ -16,7 +16,6 @@ class HoraSACRuntime(OffPolicyRuntime):
 
     learner_cls: type[Any] | None = HoraSACLearner
     algo_type: str | None = HORA_SAC_RUNTIME_IMPL
-    supports_symmetry: bool = False
     actor_cfg: dict[str, Any] = field(default_factory=dict)
 
     def build_model_kwargs(self, *, obs_dim: int, critic_obs_dim: int) -> dict[str, Any]:

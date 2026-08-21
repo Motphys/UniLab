@@ -905,8 +905,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             log_backend=self._logger_backend(logger_type),
         )
         logger.update_runtime_manifest(self.runtime_manifest)
-        if hasattr(self.learner, "use_symmetry") and self.learner.use_symmetry:
-            logger.log_status("Symmetry augmentation: enabled")
         logger.log_status(format_torch_thread_runtime(self.torch_thread_runtime))
         logger.log_status("Replay storage: device-authoritative bounded ingress")
         logger.log_status(f"Replay prefetch mode: {self.replay_prefetch_mode}")
@@ -1310,7 +1308,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                         **build_offpolicy_sample_info(
                             replay_batch_size_per_rank=self.batch_size,
                             updates_per_step=self.updates_per_step,
-                            learner=self.learner,
                         ),
                     },
                 )

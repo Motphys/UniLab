@@ -276,7 +276,7 @@ def test_offpolicy_logger_terminal_shows_material_blocking_phases():
     logger.close()
 
 
-def test_offpolicy_logger_terminal_shows_replay_rows_when_symmetry_expands_batch():
+def test_offpolicy_logger_terminal_shows_replay_rows_and_effective_batch():
     logger = OffPolicyLogger(
         algo_name="FastSAC",
         env_name="G1WalkFlat",

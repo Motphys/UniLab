@@ -34,30 +34,18 @@ def replay_buffer_ready_for_learning(
     )
 
 
-def get_learner_batch_multiplier(learner: Any) -> int:
-    """Return the effective learner batch multiplier for one replay row."""
-    if not bool(getattr(learner, "use_symmetry", False)):
-        return 1
-    symmetry = getattr(learner, "symmetry", None)
-    multiplier = int(getattr(symmetry, "batch_multiplier", 1) or 1)
-    return max(multiplier, 1)
-
-
 def build_offpolicy_sample_info(
     *,
     replay_batch_size_per_rank: int,
     updates_per_step: int,
-    learner: Any,
 ) -> dict[str, int]:
     """Describe replay rows and effective learner samples for logging."""
     updates_per_step = max(int(updates_per_step), 0)
-    replay_batch_size_per_rank = max(int(replay_batch_size_per_rank), 0)
-    batch_multiplier = get_learner_batch_multiplier(learner)
-    batch_size_per_rank = replay_batch_size_per_rank * batch_multiplier
+    batch_size_per_rank = max(int(replay_batch_size_per_rank), 0)
     return {
         "batch_size_per_rank": batch_size_per_rank,
         "effective_batch_size": batch_size_per_rank,
-        "replay_samples_per_iter": replay_batch_size_per_rank * updates_per_step,
+        "replay_samples_per_iter": batch_size_per_rank * updates_per_step,
         "learner_samples_per_iter": batch_size_per_rank * updates_per_step,
     }
 

@@ -58,7 +58,6 @@ class SACConfig(BaseConfig):
     num_atoms: int = 101
     obs_normalization: bool = False
     use_layer_norm: bool = True
-    use_symmetry: bool = False
     actor: dict[str, Any] = field(default_factory=dict)
     algo_params: SACAlgoParams = field(default_factory=SACAlgoParams)
 

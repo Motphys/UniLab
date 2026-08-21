@@ -10,7 +10,6 @@ def test_offpolicy_runtime_defaults_to_standard_sac_overrides() -> None:
 
     assert runtime.learner_cls is None
     assert runtime.algo_type is None
-    assert runtime.supports_symmetry is True
     assert runtime.build_model_kwargs(obs_dim=4, critic_obs_dim=6) == {}
 
 
@@ -29,7 +28,6 @@ def test_hora_sac_runtime_builds_privileged_actor_kwargs() -> None:
 
     assert runtime is not None
     assert runtime.algo_type == "hora_sac"
-    assert runtime.supports_symmetry is False
     assert runtime.build_model_kwargs(obs_dim=5, critic_obs_dim=8) == {
         "priv_info_dim": 3,
         "priv_info_embed_dim": 7,

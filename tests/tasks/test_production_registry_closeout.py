@@ -41,8 +41,8 @@ ADAPTER_FACTORY = ("unilab.tasks.compatibility", "LegacyFactoryAdapter")
 
 CANONICAL_MANAGER_RUNTIME_FACTORIES = (
     ("unilab.envs.manager_based_rl_env", "make_manager_based_rl_env"),
-    # Approved wrapper: G1WalkManagerBasedEnv subclass providing the NpEnv
-    # build_symmetry_augmentation hook.
+    # Approved wrapper: G1WalkManagerBasedEnv subclass owning the G1 walk
+    # manager-based production runtime.
     ("unilab.tasks.locomotion.g1.manager_terms", "make_g1_walk_env"),
     # Approved wrapper: cold-path untracked X2 mesh resolution before
     # delegating to the generic factory.

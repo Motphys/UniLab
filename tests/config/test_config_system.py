@@ -256,14 +256,6 @@ def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
     assert cfg.env.events.push_robot is None
 
 
-def test_offpolicy_g1_walk_flat_motrix_preserves_backend_specific_algo_value():
-    mujoco_cfg = _compose("sac", overrides=["task=g1_walk_flat/mujoco"])
-    motrix_cfg = _compose("sac", overrides=["task=g1_walk_flat/motrix"])
-
-    assert mujoco_cfg.algo.use_symmetry is True
-    assert motrix_cfg.algo.use_symmetry is False
-
-
 def test_offpolicy_g1_walk_flat_mjwarp_owner_preserves_sac_contract():
     mujoco_cfg = _compose("sac", overrides=["task=g1_walk_flat/mujoco"])
     mjwarp_cfg = _compose("sac", overrides=["task=g1_walk_flat/mjwarp"])
@@ -272,7 +264,6 @@ def test_offpolicy_g1_walk_flat_mjwarp_owner_preserves_sac_contract():
     assert mjwarp_cfg.training.no_play is False
     assert mjwarp_cfg.training.play_render_mode == "record"
     assert mjwarp_cfg.algo.num_envs == mujoco_cfg.algo.num_envs
-    assert mjwarp_cfg.algo.use_symmetry is mujoco_cfg.algo.use_symmetry is True
     assert mjwarp_cfg.env.actions.joint_pos.scale == pytest.approx(
         mujoco_cfg.env.actions.joint_pos.scale
     )

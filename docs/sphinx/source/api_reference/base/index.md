@@ -10,7 +10,6 @@ in this reference, read this one.
 | `Registry` | Task / backend / algorithm registration and lookup |
 | `Scene` | Cold-path scene materialization |
 | `observations`, `final_observation` | Observation builders & terminal handling |
-| `augmentation` | Symmetry / mirror augmentation utilities |
 | `curriculum` | Curriculum schedule primitives |
 
 ```{eval-rst}

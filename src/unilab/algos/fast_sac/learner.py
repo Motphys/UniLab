@@ -22,7 +22,6 @@ import torch.optim as optim
 
 from unilab.algos.common.compile import get_torch_compile_for_cuda
 from unilab.algos.common.normalization import EmpiricalNormalization
-from unilab.base.augmentation import SymmetryAugmentation
 
 
 @contextmanager
@@ -418,7 +417,6 @@ class FastSACLearner:
         weight_decay: float = 0.001,
         max_grad_norm: float = 0.0,
         use_autotune: bool = True,
-        use_symmetry: bool = False,
         use_amp: bool = False,
         amp_dtype: str = "auto",
         use_compile: bool = False,
@@ -428,7 +426,6 @@ class FastSACLearner:
         use_cuda_graph_critic_packed_staging: bool = False,
         use_cuda_graph_actor_packed_staging: bool = False,
         nvtx_profile_ranges: bool = False,
-        symmetry_augmentation: SymmetryAugmentation | None = None,
     ):
         self.device = device
         self._device_type = torch.device(device).type
@@ -550,15 +547,8 @@ class FastSACLearner:
             requested_cuda_graph_actor_packed_staging
             and self.use_cuda_graph_actor
             and self.scaler is None
-            and not use_symmetry
         )
 
-        self.symmetry = symmetry_augmentation
-        if use_symmetry and symmetry_augmentation is None:
-            raise ValueError(
-                "FastSACLearner use_symmetry=True requires a symmetry_augmentation contract"
-            )
-        self.use_symmetry = use_symmetry
         self._cuda_graph_critic: torch.cuda.CUDAGraph | None = None
         self._cuda_graph_critic_static_inputs: dict[str, torch.Tensor] | None = None
         self._cuda_graph_critic_static_packed_input: torch.Tensor | None = None
@@ -1326,7 +1316,7 @@ class FastSACLearner:
             return self.update_actor(batch)
         if self._device_type != "cuda":
             return self.update_actor(batch)
-        if self.scaler is not None or self.use_symmetry:
+        if self.scaler is not None:
             return self.update_actor(batch)
         if self._cuda_graph_actor_shapes != self._actor_graph_input_shapes(batch):
             self._reset_actor_cuda_graph()
@@ -1356,39 +1346,6 @@ class FastSACLearner:
         critic_next_obs = batch["next_critic"]
         dones = batch["dones"]
         truncated = batch["truncated"]
-
-        # Apply symmetry augmentation
-        if self.use_symmetry:
-            with _cuda_nvtx_range("critic/symmetry_augment", self.nvtx_profile_ranges):
-                assert self.symmetry is not None
-                with _cuda_nvtx_range("critic/symmetry_obs_actions", self.nvtx_profile_ranges):
-                    obs, actions = self.symmetry.augment_obs_and_actions(
-                        obs,
-                        actions,
-                        obs_group="obs",
-                    )
-                with _cuda_nvtx_range("critic/symmetry_next_obs", self.nvtx_profile_ranges):
-                    next_obs = self.symmetry.augment_obs(
-                        next_obs,
-                        obs_group="obs",
-                    )
-
-                with _cuda_nvtx_range("critic/symmetry_critic_obs", self.nvtx_profile_ranges):
-                    critic_obs = self.symmetry.augment_obs(
-                        critic_obs,
-                        obs_group="critic",
-                    )
-                with _cuda_nvtx_range("critic/symmetry_critic_next_obs", self.nvtx_profile_ranges):
-                    critic_next_obs = self.symmetry.augment_obs(
-                        critic_next_obs,
-                        obs_group="critic",
-                    )
-
-                # Double the batch size for other tensors
-                with _cuda_nvtx_range("critic/symmetry_aux_repeat", self.nvtx_profile_ranges):
-                    rewards = rewards.repeat(2)
-                    dones = dones.repeat(2)
-                    truncated = truncated.repeat(2)
 
         self.normalize_obs(obs, update=True)
         next_obs = self.normalize_obs(next_obs, update=False)
@@ -1466,15 +1423,6 @@ class FastSACLearner:
         obs = batch["obs"]
         critic_obs = batch["critic"]
 
-        # Apply symmetry augmentation
-        if self.use_symmetry:
-            with _cuda_nvtx_range("actor/symmetry_augment", self.nvtx_profile_ranges):
-                assert self.symmetry is not None
-                with _cuda_nvtx_range("actor/symmetry_obs", self.nvtx_profile_ranges):
-                    obs = self.symmetry.augment_obs(obs, obs_group="obs")
-                with _cuda_nvtx_range("actor/symmetry_critic_obs", self.nvtx_profile_ranges):
-                    critic_obs = self.symmetry.augment_obs(critic_obs, obs_group="critic")
-
         obs = self.normalize_obs(obs, update=False)
         with _cuda_nvtx_range("actor/loss_compiled", self.nvtx_profile_ranges):
             actor_loss, policy_entropy, action_std = self._actor_loss_tensors(obs, critic_obs)
@@ -1551,7 +1499,7 @@ class FastSACLearner:
             sync is not None
             and (
                 (self.use_cuda_graph_critic and self.scaler is None)
-                or (self.use_cuda_graph_actor and self.scaler is None and not self.use_symmetry)
+                or (self.use_cuda_graph_actor and self.scaler is None)
             )
         )
 

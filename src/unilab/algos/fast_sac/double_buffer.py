@@ -41,28 +41,10 @@ def build_sac_double_buffer_runner(
         assert action_shape
         obs_dim, critic_obs_dim = get_obs_dims(env.obs_groups_spec)
         action_dim = int(action_shape[0])
-        symmetry_augmentation = None
-        if (
-            custom_runtime is not None
-            and cfg.algo.use_symmetry
-            and not custom_runtime.supports_symmetry
-        ):
-            raise ValueError("Selected SAC off-policy runtime does not support symmetry.")
-        if cfg.algo.use_symmetry:
-            symmetry_augmentation = env.build_symmetry_augmentation(device=device)
-            if symmetry_augmentation is None:
-                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
     finally:
         env.close()
 
     batch_size = cfg.algo.batch_size
-    if symmetry_augmentation is not None:
-        if batch_size % symmetry_augmentation.batch_multiplier != 0:
-            raise ValueError(
-                "Symmetry augmentation requires batch_size divisible by "
-                f"{symmetry_augmentation.batch_multiplier}, got {batch_size}"
-            )
-        batch_size = batch_size // symmetry_augmentation.batch_multiplier
 
     learner_cls: type[Any] = FastSACLearner
     algo_type = "sac"
@@ -110,8 +92,6 @@ def build_sac_double_buffer_runner(
             getattr(cfg.algo.algo_params, "use_cuda_graph_actor_packed_staging", False)
         ),
         "nvtx_profile_ranges": bool(getattr(cfg.training, "nvtx_profile_ranges", False)),
-        "use_symmetry": cfg.algo.use_symmetry,
-        "symmetry_augmentation": symmetry_augmentation,
         "critic_obs_dim": critic_obs_dim,
     }
     learner_kwargs.update(learner_extra_kwargs)

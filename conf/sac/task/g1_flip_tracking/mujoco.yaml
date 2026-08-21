@@ -17,7 +17,6 @@ algo:
   num_atoms: 501
   updates_per_step: 4
   policy_frequency: 2
-  use_symmetry: false
   algo_params:
     alpha_init: 0.005
     target_entropy_ratio: 0.05

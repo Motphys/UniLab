@@ -592,7 +592,6 @@ def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
 
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
-    assert cfg.algo.use_symmetry is False
 
 
 def test_offpolicy_g1_walk_flat_env_cfg_override_has_rewards_and_events():
@@ -602,14 +601,6 @@ def test_offpolicy_g1_walk_flat_env_cfg_override_has_rewards_and_events():
 
     assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(2.2)
     assert env_cfg_override["events"]["pd_gains"] is None
-
-
-def test_offpolicy_g1_walk_flat_backend_scoped_use_symmetry():
-    mujoco_cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])
-    motrix_cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
-
-    assert mujoco_cfg.algo.use_symmetry is True
-    assert motrix_cfg.algo.use_symmetry is False
 
 
 def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():

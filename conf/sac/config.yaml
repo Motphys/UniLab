@@ -10,8 +10,7 @@ algo:
   load_run: "-1"
   seed: 1
   num_envs: 4096
-  # Learner batch size for one SAC update. Symmetry may sample fewer replay rows
-  # and expand them inside the learner.
+  # Learner batch size for one SAC update.
   batch_size: 8192
   replay_buffer_n: 512
   updates_per_step: 4
@@ -28,7 +27,6 @@ algo:
   num_atoms: 101
   obs_normalization: false
   use_layer_norm: true
-  use_symmetry: false
   actor: {}
   algo_params:
     alpha_lr: 3.0e-4

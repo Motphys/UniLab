@@ -1,14 +1,11 @@
 """FastSAC runner using unified OffPolicyRunner."""
 
-import logging
 from typing import Any
 
 from unilab.algos.fast_sac.learner import FastSACLearner
 from unilab.algos.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 from unilab.utils.device import get_default_device
-
-logger = logging.getLogger(__name__)
 
 
 class FastSACRunner(DoubleBufferOffPolicyRunner):
@@ -44,7 +41,6 @@ class FastSACRunner(DoubleBufferOffPolicyRunner):
         use_cuda_graph_critic: bool = False,
         use_cuda_graph_actor: bool = False,
         sim_backend: str = "mujoco",
-        use_symmetry: bool = False,
         seed: int | None = None,
         trace_enabled: bool = False,
         trace_output_dir: str | None = None,
@@ -67,14 +63,6 @@ class FastSACRunner(DoubleBufferOffPolicyRunner):
         act_space_shape = env.action_space.shape
         assert act_space_shape is not None
         action_dim = act_space_shape[0]
-        symmetry_augmentation = None
-        if use_symmetry:
-            symmetry_augmentation = env.build_symmetry_augmentation(device=device)
-            if symmetry_augmentation is None:
-                env.close()
-                raise ValueError(
-                    f"{env_name} with backend={sim_backend} does not provide symmetry augmentation"
-                )
         env.close()
 
         learner = FastSACLearner(
@@ -98,23 +86,8 @@ class FastSACRunner(DoubleBufferOffPolicyRunner):
             obs_normalization=obs_normalization,
             use_cuda_graph_critic=use_cuda_graph_critic,
             use_cuda_graph_actor=use_cuda_graph_actor,
-            use_symmetry=use_symmetry,
-            symmetry_augmentation=symmetry_augmentation,
             critic_obs_dim=critic_obs_dim,
         )
-
-        if symmetry_augmentation is not None:
-            if batch_size % symmetry_augmentation.batch_multiplier != 0:
-                raise ValueError(
-                    "Symmetry augmentation requires algo.batch_size to be divisible by "
-                    f"{symmetry_augmentation.batch_multiplier}, got {batch_size}"
-                )
-            batch_size = batch_size // symmetry_augmentation.batch_multiplier
-            logger.info(
-                "[FastSAC] Symmetry enabled: batch_size adjusted to %d (effective: %d)",
-                batch_size,
-                batch_size * symmetry_augmentation.batch_multiplier,
-            )
 
         super().__init__(
             learner=learner,

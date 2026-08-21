@@ -153,9 +153,9 @@ or IPC path.
 
 Two maintainer-approved factory wrappers are the only registered exceptions to
 the generic-factory rule: `make_g1_walk_env`
-(`src/unilab/tasks/locomotion/g1/manager_terms.py`) constructs a
-`G1WalkManagerBasedEnv` subclass that provides the `NpEnv`
-`build_symmetry_augmentation` symmetry hook, and `make_x2_wall_flip_env`
+(`src/unilab/tasks/locomotion/g1/manager_terms.py`) constructs the
+`G1WalkManagerBasedEnv` subclass that owns the G1 walk manager-based runtime,
+and `make_x2_wall_flip_env`
 (`src/unilab/tasks/motion_tracking/x2/__init__.py`) resolves untracked X2
 meshes on the cold path before delegating to `make_manager_based_rl_env`.
 Every other Compatible task registers `make_manager_based_rl_env` directly.

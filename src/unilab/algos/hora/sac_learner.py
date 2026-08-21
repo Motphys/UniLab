@@ -49,12 +49,8 @@ class HoraSACLearner(FastSACLearner):
         use_layer_norm: bool = True,
         actor_lr: float = 3e-4,
         weight_decay: float = 0.001,
-        use_symmetry: bool = False,
-        symmetry_augmentation: Any | None = None,
         **kwargs: Any,
     ) -> None:
-        if use_symmetry or symmetry_augmentation is not None:
-            raise ValueError("HORA-SAC does not support symmetry augmentation.")
         if int(priv_info_dim) <= 0:
             raise ValueError(f"HORA-SAC requires positive priv_info_dim, got {priv_info_dim}.")
 
@@ -70,8 +66,6 @@ class HoraSACLearner(FastSACLearner):
             use_layer_norm=use_layer_norm,
             actor_lr=actor_lr,
             weight_decay=weight_decay,
-            use_symmetry=False,
-            symmetry_augmentation=None,
             **kwargs,
         )
         self.use_cuda_graph_critic = False
