@@ -1876,22 +1876,28 @@ def test_resolve_checkpoint_empty_run_dir(tmp_path):
 
 
 def test_offpolicy_extract_reset_obs_handles_two_tuple():
+    from unilab.training.offpolicy import extract_reset_obs
+
     obs = {"obs": "value"}
 
-    result = _offpolicy().extract_reset_obs((obs, {"info": 1}))
+    result = extract_reset_obs((obs, {"info": 1}))
 
     assert result is obs
 
 
 def test_offpolicy_extract_reset_obs_rejects_three_tuple():
+    from unilab.training.offpolicy import extract_reset_obs
+
     obs = {"obs": "value"}
 
     with pytest.raises(ValueError, match="Unexpected env.reset return format"):
-        _offpolicy().extract_reset_obs(("ignored", obs, {"info": 1}))
+        extract_reset_obs(("ignored", obs, {"info": 1}))
 
 
 def test_offpolicy_resolve_play_obs_dim_ignores_critic():
-    obs_dim = _offpolicy().resolve_play_obs_dim({"obs": 98, "critic": 101})
+    from unilab.training.offpolicy import resolve_play_obs_dim
+
+    obs_dim = resolve_play_obs_dim({"obs": 98, "critic": 101})
 
     assert obs_dim == 98
 
@@ -1899,12 +1905,14 @@ def test_offpolicy_resolve_play_obs_dim_ignores_critic():
 def test_offpolicy_extract_play_obs_uses_obs_group_only():
     import numpy as np
 
+    from unilab.training.offpolicy import extract_play_obs
+
     obs = {
         "obs": np.ones((2, 98), dtype=np.float32),
         "critic": np.full((2, 101), 2.0, dtype=np.float32),
     }
 
-    play_obs = _offpolicy().extract_play_obs(obs)
+    play_obs = extract_play_obs(obs)
 
     assert play_obs.shape == (2, 98)
     assert np.allclose(play_obs, 1.0)
@@ -2141,7 +2149,10 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
             self.state = type(
                 "State",
                 (),
-                {"obs": {"obs": np.ones((batch, 4), dtype=np.float32)}},
+                {
+                    "obs": {"obs": np.ones((batch, 4), dtype=np.float32)},
+                    "info": {},
+                },
             )()
             captured["actions_shape"] = actions.shape
             return self.state
@@ -2158,11 +2169,17 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
     monkeypatch.setattr(mod, "build_offpolicy_env_cfg_override", lambda algo_name, cfg: {})
     monkeypatch.setattr(mod, "default_device", lambda torch_module, preferred=None: "cpu")
     monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
-    monkeypatch.setattr(mod, "resolve_play_obs_dim", lambda obs_groups_spec: 4)
-    monkeypatch.setattr(mod, "extract_play_obs", lambda obs_dict: obs_dict["obs"])
     monkeypatch.setattr(
         mod,
         "resolve_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+
+    import unilab.training.run as training_run
+
+    monkeypatch.setattr(
+        training_run,
+        "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
     monkeypatch.setattr(
@@ -2292,6 +2309,14 @@ def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
     monkeypatch.setattr(
         mod,
         "resolve_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+
+    import unilab.training.run as training_run
+
+    monkeypatch.setattr(
+        training_run,
+        "resolve_offpolicy_checkpoint_path",
         lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
     )
 
@@ -2896,6 +2921,8 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
     class FakeEnv:
         def __init__(self):
             self.cfg = type("Cfg", (), {"render_spacing": 2.5, "render_offset_mode": "zero"})()
+            self.obs_groups_spec = {"obs": 1}
+            self.action_space = type("Space", (), {"shape": (1,)})()
 
         def run_playback_mode(self, **kwargs):
             assert kwargs["play_render_mode"] == "auto"
@@ -2921,9 +2948,10 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
             return None
 
     class FakeWrapper:
-        def __init__(self, env, device):
+        def __init__(self, env, device, policy_obs_mode="flat"):
             self.env = env
             self.device = device
+            self.policy_obs_mode = policy_obs_mode
 
         def reset(self):
             return 0, {}
@@ -2986,6 +3014,8 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     class FakeEnv:
         def __init__(self):
             self.cfg = type("Cfg", (), {"render_spacing": 1.0, "render_offset_mode": "grid"})()
+            self.obs_groups_spec = {"obs": 1}
+            self.action_space = type("Space", (), {"shape": (1,)})()
 
         def run_playback_mode(self, **kwargs):
             assert kwargs["play_render_mode"] == "record"
@@ -3011,9 +3041,10 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
             return str(plan.output_video)
 
     class FakeWrapper:
-        def __init__(self, env, device):
+        def __init__(self, env, device, policy_obs_mode="flat"):
             self.env = env
             self.device = device
+            self.policy_obs_mode = policy_obs_mode
 
         def reset(self):
             return 0, {}
@@ -3028,9 +3059,9 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
             self.log_dir = log_dir
             self.device = device
 
-        def load(self, path, map_location=None):
+        def load(self, path, **kwargs):
             self.loaded_path = path
-            self.map_location = map_location
+            self.load_kwargs = kwargs
 
         def get_inference_policy(self, device):
             return lambda obs: obs
@@ -3325,3 +3356,387 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
 
     with pytest.raises(RuntimeError, match="bootstrap failed"):
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# Unified play entrypoints — shared playback session factories (issue #1242)
+# ---------------------------------------------------------------------------
+
+
+def _him_ppo_cfg(overrides=None):
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo_him"), version_base="1.3"):
+        return compose(
+            "config",
+            overrides=["task=go2_arm_manip_loco/mujoco", *(overrides or [])],
+        )
+
+
+def _train_him_ppo():
+    return _load_script("train_him_ppo")
+
+
+class _FakePlaybackEnv:
+    """Env stand-in driving one initialize/step cycle through run_playback_mode."""
+
+    def __init__(self, video_path: str):
+        self.cfg = types.SimpleNamespace(render_spacing=1.0, render_offset_mode="grid")
+        self.video_path = video_path
+        self.captured: dict[str, Any] = {}
+
+    def run_playback_mode(self, **kwargs: Any) -> str:
+        self.captured.update(kwargs)
+        self.captured["init_obs"] = kwargs["initialize"]()
+        self.captured["next_obs"] = kwargs["step"](self.captured["init_obs"])
+        return self.video_path
+
+
+def test_train_rsl_rl_play_uses_shared_playback_session_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(
+        [
+            "task=go1_joystick_flat/mujoco",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.play_steps=5",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_37.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+    captured: dict[str, Any] = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.env = _FakePlaybackEnv(str(run_dir / "play_video.mp4"))
+            self.runner = object()
+            self.reset_calls = 0
+            self.step_calls = 0
+
+        def reset(self):
+            self.reset_calls += 1
+            return "obs_0"
+
+        def step_once(self):
+            self.step_calls += 1
+            return "obs_1"
+
+    fake_session = FakeSession()
+    sentinel_wrapper_cls = type("SentinelWrapper", (), {})
+
+    def fake_create_session(**kwargs: Any):
+        captured["factory_kwargs"] = kwargs
+        return fake_session, "flat", str(checkpoint)
+
+    monkeypatch.setattr(mod, "EXPORT_POLICY", False, raising=False)
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
+    monkeypatch.setattr(mod, "_resolve_ppo_wrapper_cls", lambda rl_cfg: sentinel_wrapper_cls)
+    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", fake_create_session)
+
+    result = mod.play_rsl_rl(cfg, device="cpu")
+
+    assert result == str(run_dir / "play_video.mp4")
+    factory_kwargs = captured["factory_kwargs"]
+    playback_cfg = factory_kwargs["playback_cfg"]
+    assert playback_cfg.task == cfg.training.task_name
+    assert playback_cfg.action_mode == "policy"
+    assert playback_cfg.policy_obs_mode == "flat"
+    assert playback_cfg.algo_log_name == cfg.algo.algo_log_name
+    assert playback_cfg.num_envs == cfg.training.play_env_num
+    assert factory_kwargs["device"] == "cpu"
+    assert factory_kwargs["root_dir"] == mod.ROOT_DIR
+    assert factory_kwargs["wrapper_cls"] is sentinel_wrapper_cls
+    assert factory_kwargs["runner_cls"] is mod.OnPolicyRunner
+    assert factory_kwargs["guard_algo_name"] == "ppo"
+    assert factory_kwargs.get("runner_loader") is None
+    assert factory_kwargs["checkpoint_resolver"]() == str(checkpoint)
+    assert callable(factory_kwargs["sim2sim_preflight"])
+    assert fake_session.reset_calls == 1
+    assert fake_session.step_calls == 1
+    env_captured = fake_session.env.captured
+    assert env_captured["play_render_mode"] == "record"
+    assert env_captured["play_steps"] == 5
+    assert env_captured["init_obs"] == "obs_0"
+    assert env_captured["next_obs"] == "obs_1"
+
+
+def test_train_him_ppo_play_missing_checkpoint_returns_none_without_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    mod = _train_him_ppo()
+    cfg = _him_ppo_cfg(["training.play_only=true"])
+
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (None, None))
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("play_him_ppo should not create an env before checkpoint resolution")
+        ),
+    )
+
+    result = mod.play_him_ppo(cfg, device="cpu")
+
+    assert result is None
+    assert "Could not resolve a checkpoint for play mode." in capsys.readouterr().out
+
+
+def test_train_him_ppo_play_uses_shared_playback_session_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    mod = _train_him_ppo()
+    cfg = _him_ppo_cfg(["training.play_only=true"])
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_37.pt"
+    mod.torch.save({"actor_state_dict": {}}, checkpoint)
+    captured: dict[str, Any] = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.env = types.SimpleNamespace(
+                cfg=types.SimpleNamespace(render_spacing=1.0),
+            )
+            self.runner = object()
+            self.policy = lambda obs: obs
+            self.reset_calls = 0
+            self.step_calls = 0
+
+        def reset(self):
+            self.reset_calls += 1
+            return {"actor": "obs_0"}
+
+        def step_once(self):
+            self.step_calls += 1
+            return {"actor": "obs_1"}
+
+    fake_session = FakeSession()
+
+    def fake_create_session(**kwargs: Any):
+        captured["factory_kwargs"] = kwargs
+        return fake_session, "actor", str(checkpoint)
+
+    def fake_render_play_mode(env, **kwargs: Any):
+        captured["render_kwargs"] = kwargs
+        captured["init_obs"] = kwargs["initialize"]()
+        captured["next_obs"] = kwargs["step"](captured["init_obs"])
+
+    monkeypatch.setattr(mod, "EXPORT_POLICY", False, raising=False)
+    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
+    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", fake_create_session)
+    monkeypatch.setattr(mod, "render_play_mode", fake_render_play_mode)
+
+    result = mod.play_him_ppo(cfg, device="cpu")
+
+    assert result == str(run_dir / "play_video.mp4")
+    factory_kwargs = captured["factory_kwargs"]
+    playback_cfg = factory_kwargs["playback_cfg"]
+    assert playback_cfg.task == cfg.training.task_name
+    assert playback_cfg.action_mode == "policy"
+    assert playback_cfg.num_envs == cfg.training.play_env_num
+    assert factory_kwargs["device"] == "cpu"
+    assert factory_kwargs["wrapper_cls"] is mod.RslRlVecEnvWrapper
+    assert factory_kwargs["runner_cls"] is mod.HIMOnPolicyRunner
+    assert factory_kwargs["guard_algo_name"] == "him_ppo"
+    assert callable(factory_kwargs["runner_loader"])
+    assert factory_kwargs["checkpoint_resolver"]() == str(checkpoint)
+    assert callable(factory_kwargs["sim2sim_preflight"])
+    assert fake_session.reset_calls == 1
+    assert fake_session.step_calls == 1
+    assert captured["init_obs"] == "obs_0"
+    assert captured["next_obs"] == "obs_1"
+    assert captured["render_kwargs"]["output_video"] == run_dir / "play_video.mp4"
+
+
+def test_play_appo_missing_checkpoint_returns_none_without_env(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    mod = _train_appo()
+    cfg = _appo_cfg(["task=g1_walk_flat/mujoco", "training.play_only=true"])
+
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("play_appo should not create an env before checkpoint resolution")
+        ),
+    )
+
+    result = mod.play_appo(cfg, {}, resolve_checkpoint_path=lambda _cfg: (None, None))
+
+    assert result is None
+    assert "Could not find run to load." in capsys.readouterr().out
+
+
+def test_play_appo_uses_shared_playback_session_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    import torch
+
+    mod = _train_appo()
+    cfg = _appo_cfg(
+        [
+            "task=g1_walk_flat/mujoco",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_37.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def __init__(self):
+            self.mlp = torch.nn.Linear(4, 2)
+
+    class FakeSession:
+        def __init__(self):
+            self.env = _FakePlaybackEnv(str(run_dir / "play_video.mp4"))
+            self.actor = FakeActor()
+            self.wrapped_env = types.SimpleNamespace(num_obs=4)
+            self.reset_calls = 0
+            self.step_calls = 0
+
+        def reset(self):
+            self.reset_calls += 1
+            return "obs_0"
+
+        def step_once(self):
+            self.step_calls += 1
+            return "obs_1"
+
+    fake_session = FakeSession()
+    rl_cfg: dict[str, Any] = {"seed": 1}
+
+    def fake_create_session(**kwargs: Any):
+        captured["factory_kwargs"] = kwargs
+        return fake_session, "flat", str(checkpoint)
+
+    monkeypatch.setattr(mod, "create_appo_playback_session", fake_create_session)
+    monkeypatch.setattr(
+        mod, "export_policy_onnx", lambda *args, **kwargs: captured.setdefault("onnx_export", args)
+    )
+    monkeypatch.setattr(mod, "verify_policy_onnx", lambda *args, **kwargs: None)
+
+    result = mod.play_appo(
+        cfg,
+        rl_cfg,
+        resolve_checkpoint_path=lambda _cfg: (str(checkpoint), str(run_dir)),
+    )
+
+    assert result == str(run_dir / "play_video.mp4")
+    factory_kwargs = captured["factory_kwargs"]
+    playback_cfg = factory_kwargs["playback_cfg"]
+    assert playback_cfg.task == cfg.training.task_name
+    assert playback_cfg.action_mode == "policy"
+    assert playback_cfg.algo_log_name == cfg.algo.algo_log_name
+    assert playback_cfg.num_envs == cfg.training.play_env_num
+    assert factory_kwargs["cfg"] is cfg
+    assert factory_kwargs["rl_cfg"] is rl_cfg
+    assert factory_kwargs["root_dir"] == mod.ROOT_DIR
+    assert factory_kwargs["wrapper_cls"] is mod.RslRlVecEnvWrapper
+    assert "onnx_export" in captured
+    assert fake_session.reset_calls == 1
+    assert fake_session.step_calls == 1
+    env_captured = fake_session.env.captured
+    assert env_captured["play_render_mode"] == "record"
+    assert env_captured["init_obs"] == "obs_0"
+    assert env_captured["next_obs"] == "obs_1"
+
+
+def test_play_offpolicy_missing_checkpoint_returns_none_without_env(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco", "training.play_only=true"])
+
+    monkeypatch.setattr(mod, "resolve_checkpoint_path", lambda *args, **kwargs: (None, None))
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("play_offpolicy should not create an env before checkpoint resolution")
+        ),
+    )
+
+    result = mod.play_offpolicy("sac", cfg)
+
+    assert result is None
+    assert "Could not find checkpoint." in capsys.readouterr().out
+
+
+def test_play_offpolicy_uses_shared_playback_session_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "task=g1_walk_flat/mujoco",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.export_onnx=false",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_5000.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    captured: dict[str, Any] = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.env = _FakePlaybackEnv(str(run_dir / "play_video.mp4"))
+            self.actor = object()
+            self.normalizer = None
+            self.actor_algo_type = "sac"
+            self.reset_calls = 0
+            self.step_calls = 0
+
+        def reset(self):
+            self.reset_calls += 1
+            return "obs_0"
+
+        def step_once(self):
+            self.step_calls += 1
+            return "obs_1"
+
+    fake_session = FakeSession()
+
+    def fake_create_session(**kwargs: Any):
+        captured["factory_kwargs"] = kwargs
+        return fake_session, "actor", str(checkpoint)
+
+    monkeypatch.setattr(mod, "default_device", lambda torch_module, preferred=None: "cpu")
+    monkeypatch.setattr(
+        mod,
+        "resolve_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+    monkeypatch.setattr(mod, "create_sac_playback_session", fake_create_session)
+
+    result = mod.play_offpolicy("sac", cfg)
+
+    assert result == str(run_dir / "play_video.mp4")
+    factory_kwargs = captured["factory_kwargs"]
+    playback_cfg = factory_kwargs["playback_cfg"]
+    assert playback_cfg.task == cfg.training.task_name
+    assert playback_cfg.action_mode == "policy"
+    assert playback_cfg.policy_obs_mode == "actor"
+    assert playback_cfg.algo_log_name == cfg.algo.algo_log_name
+    assert playback_cfg.num_envs == cfg.training.play_env_num
+    assert factory_kwargs["algo_name"] == "sac"
+    assert factory_kwargs["device"] == "cpu"
+    assert factory_kwargs["cfg"] is cfg
+    assert factory_kwargs["root_dir"] == mod.ROOT_DIR
+    assert callable(factory_kwargs["env_factory"])
+    assert fake_session.reset_calls == 1
+    assert fake_session.step_calls == 1
+    env_captured = fake_session.env.captured
+    assert env_captured["play_render_mode"] == "record"
+    assert env_captured["init_obs"] == "obs_0"
+    assert env_captured["next_obs"] == "obs_1"

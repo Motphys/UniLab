@@ -46,19 +46,18 @@ from unilab.training.offpolicy import (
     build_offpolicy_env_cfg_override as _build_offpolicy_env_cfg_override,
 )
 from unilab.training.offpolicy import (
-    build_play_actor,
     default_device,
-    extract_play_obs,
-    extract_reset_obs,
-    load_play_actor,
-    resolve_play_obs_dim,
+    resolve_play_actor_spec,
     resolve_play_obs_dims,
 )
 from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
 from unilab.training.run import (
     resolve_offpolicy_checkpoint_path as resolve_checkpoint_path,
 )
-from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from unilab.visualization.interactive_playback import (
+    RslRlPlaybackConfig,
+    create_sac_playback_session,
+)
 
 
 def enable_faulthandler() -> None:
@@ -209,10 +208,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
 
 def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     """Play pipeline for off-policy algorithms."""
-    import numpy as np
     import torch
-
-    from unilab.algos.offpolicy.worker import resolve_offpolicy_actor_priv_info
 
     load_path, load_path_dir = resolve_checkpoint_path(
         ROOT_DIR,
@@ -224,55 +220,46 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         print(f"Could not find checkpoint. load_path={load_path}")
         return None
 
-    cfg = (
-        resolve_sim2sim_config(
-            load_path_dir,
-            cfg,
-            algo_name=algo_name,
-            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
-        )
-        or cfg
-    )
-
-    env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
-
     devices = resolve_dp_topology(cfg.training.devices)
     device = default_device(torch, resolve_dp_rank_device(devices, current_dp_rank()))
     print(f"Using device for play: {device}")
 
-    env = cast(
-        Any,
-        create_env(
+    playback_cfg = RslRlPlaybackConfig(
+        task=str(cfg.training.task_name),
+        load_run=str(cfg.algo.load_run),
+        checkpoint=None,
+        action_mode="policy",
+        policy_obs_mode="actor",
+        algo_log_name=str(cfg.algo.algo_log_name),
+        log_root=None,
+        num_envs=int(cfg.training.play_env_num),
+    )
+    session, _policy_obs_mode, _checkpoint_path = create_sac_playback_session(
+        playback_cfg=playback_cfg,
+        cfg=cfg,
+        env_factory=lambda n: create_env(
             cfg,
-            num_envs=cfg.training.play_env_num,
-            env_cfg_override=env_cfg_override,
+            num_envs=n,
+            env_cfg_override=build_offpolicy_env_cfg_override(algo_name, cfg),
         ),
-    )
-    obs_dim, critic_obs_dim = resolve_play_obs_dims(env.obs_groups_spec)
-    action_shape = env.action_space.shape
-    if action_shape is None:
-        raise ValueError("env.action_space.shape must be defined")
-    action_dim = int(action_shape[0])
-    actor, normalizer, actor_algo_type, actor_kwargs = build_play_actor(
-        algo_name,
-        cfg,
-        obs_dim=obs_dim,
-        critic_obs_dim=critic_obs_dim,
-        action_dim=action_dim,
+        root_dir=ROOT_DIR,
         device=device,
+        algo_name=algo_name,
     )
-    print(f"Loading model: {load_path}")
-    checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-    with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name=algo_name):
-        load_play_actor(
-            algo_name,
-            actor,
-            normalizer,
-            checkpoint,
-        )
+    env = cast(Any, session.env)
+    actor = session.actor
+    normalizer = session.normalizer
+    actor_algo_type = session.actor_algo_type
 
     # Export actor to ONNX
     if load_path_dir is not None and bool(getattr(cfg.training, "export_onnx", True)):
+        obs_dim, critic_obs_dim = resolve_play_obs_dims(env.obs_groups_spec)
+        _, actor_kwargs = resolve_play_actor_spec(
+            algo_name,
+            cfg,
+            obs_dim=obs_dim,
+            critic_obs_dim=critic_obs_dim,
+        )
         onnx_path = os.path.join(load_path_dir, "policy.onnx")
         dummy_input = torch.randn(1, obs_dim, device=device)
         dummy_priv_info = (
@@ -313,72 +300,13 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     elif load_path_dir is not None:
         print("Skipping ONNX export because training.export_onnx=false.")
 
-    if env.state is None:
-        env.init_state()
-
-    current_priv_info: np.ndarray | None = None
-
-    def _resolve_play_priv_info(obs_dict: dict[str, np.ndarray], info: dict | None) -> np.ndarray:
-        if actor_algo_type != "hora_sac":
-            raise ValueError("Privileged play info was requested for a non-HORA actor.")
-        from unilab.base.observations import split_obs_dict
-
-        actor_obs_np, critic_np = split_obs_dict(obs_dict)
-        priv_info = resolve_offpolicy_actor_priv_info(
-            algo_type=actor_algo_type,
-            obs_np=np.asarray(actor_obs_np, dtype=np.float32),
-            critic_np=np.asarray(critic_np, dtype=np.float32),
-            info=info,
-        )
-        if priv_info is None:
-            raise ValueError("HORA-SAC play step is missing privileged info.")
-        return priv_info
-
-    def _extract_reset_play_obs(reset_result) -> np.ndarray:
-        nonlocal current_priv_info
-        if not isinstance(reset_result, tuple) or len(reset_result) != 2:
-            raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
-        obs_out, info_out = reset_result
-        if actor_algo_type == "hora_sac":
-            current_priv_info = _resolve_play_priv_info(obs_out, info_out)
-        return np.asarray(extract_play_obs(obs_out), dtype=np.float32)
-
-    def _policy_step(obs_np: np.ndarray) -> np.ndarray:
-        nonlocal current_priv_info
-        obs_torch = torch.from_numpy(obs_np).to(device)
-        if normalizer:
-            obs_torch = normalizer(obs_torch, update=False)
-        if actor_algo_type == "hora_sac":
-            if current_priv_info is None:
-                raise ValueError("HORA-SAC play step is missing privileged info.")
-            priv_info_torch = torch.from_numpy(current_priv_info).to(device)
-            actions_np = (
-                actor.explore(
-                    obs_torch,
-                    priv_info_torch,
-                    deterministic=True,
-                )
-                .cpu()
-                .numpy()
-            )
-        elif algo_name in ("sac", "flashsac"):
-            actions_np = actor.explore(obs_torch, deterministic=True).cpu().numpy()
-        else:
-            actions_np = actor(obs_torch).cpu().numpy()
-        state = env.step(actions_np)
-        if actor_algo_type == "hora_sac":
-            current_priv_info = _resolve_play_priv_info(state.obs, state.info)
-        return np.asarray(extract_play_obs(state.obs), dtype=np.float32)
-
     with torch.inference_mode():
         play_video_path = env.run_playback_mode(
             play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
             play_steps=getattr(cfg.training, "play_steps", None),
             output_video=os.path.join(load_path_dir, "play_video.mp4") if load_path_dir else None,
-            initialize=lambda: _extract_reset_play_obs(
-                env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))
-            ),
-            step=_policy_step,
+            initialize=session.reset,
+            step=lambda _obs: session.step_once(),
             camera_kwargs={
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,

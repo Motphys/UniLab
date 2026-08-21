@@ -7,7 +7,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import hydra
 import torch
@@ -32,7 +32,12 @@ from unilab.training import (
 )
 from unilab.training.experiment import ExperimentTracker
 from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
-from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from unilab.training.rsl_rl import RslRlVecEnvWrapper
+from unilab.visualization.interactive_playback import (
+    RslRlPlaybackConfig,
+    create_appo_playback_session,
+    normalize_checkpoint_value,
+)
 
 
 def _training_resume_requested(load_run: Any) -> bool:
@@ -155,9 +160,6 @@ def play_appo(
         native Motrix viewer or when no checkpoint could be resolved.
     """
     del root_dir
-    import numpy as np
-    from rsl_rl.utils import resolve_callable
-    from tensordict import TensorDict
 
     if resolve_checkpoint_path is not None:
         load_path, load_path_dir = resolve_checkpoint_path(cfg)
@@ -170,20 +172,6 @@ def play_appo(
         print(f"Could not find run to load. load_path={load_path}")
         return None
 
-    cfg = (
-        resolve_sim2sim_config(
-            load_path_dir,
-            cfg,
-            algo_name="appo",
-            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
-        )
-        or cfg
-    )
-
-    env_cfg_override = BackendAdapter(
-        cfg, root_dir=ROOT_DIR, algo_name="appo"
-    ).build_task_env_cfg_override()
-
     device = cfg.training.device or (
         "cuda"
         if torch.cuda.is_available()
@@ -193,58 +181,37 @@ def play_appo(
     )
     print(f"Using device for play: {device}")
 
-    env = cast(
-        Any,
-        create_env(
-            cfg,
-            num_envs=cfg.training.play_env_num,
-            env_cfg_override=env_cfg_override,
+    playback_cfg = RslRlPlaybackConfig(
+        task=str(cfg.training.task_name),
+        load_run=str(cfg.algo.load_run),
+        checkpoint=normalize_checkpoint_value(
+            OmegaConf.select(cfg, "algo.checkpoint", default=None)
         ),
+        action_mode="policy",
+        policy_obs_mode="flat",
+        algo_log_name=str(cfg.algo.algo_log_name),
+        log_root=None,
+        num_envs=cfg.training.play_env_num,
     )
-    from unilab.base.observations import get_obs_dims
-
-    obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
-    action_shape = env.action_space.shape
-    if action_shape is None:
-        raise ValueError("env.action_space.shape must be defined")
-    action_dim = int(action_shape[0])
-
-    rl_cfg_dict = dict(rl_cfg)
-    if "obs_groups" not in rl_cfg_dict:
-        rl_cfg_dict["obs_groups"] = {
-            "actor": {"policy": obs_dim},
-            "critic": {"policy": critic_dim if critic_dim > 0 else obs_dim},
-        }
-    else:
-        actor_group = rl_cfg_dict["obs_groups"].get(
-            "actor", rl_cfg_dict["obs_groups"].get("policy", {})
-        )
-        if isinstance(actor_group, dict) and "policy" in actor_group:
-            actor_group["policy"] = obs_dim
-        critic_group = rl_cfg_dict["obs_groups"].get("critic")
-        if critic_group is None:
-            rl_cfg_dict["obs_groups"]["critic"] = {
-                "policy": critic_dim if critic_dim > 0 else obs_dim
-            }
-        elif isinstance(critic_group, dict) and "policy" in critic_group:
-            critic_group["policy"] = critic_dim if critic_dim > 0 else obs_dim
-
-    from copy import deepcopy
-
-    obs_example = torch.zeros((cfg.training.play_env_num, obs_dim), device=device)
-    td_example = TensorDict({"policy": obs_example}, batch_size=cfg.training.play_env_num)
-
-    actor_cfg = deepcopy(rl_cfg_dict["actor"])
-    actor_cls = resolve_callable(actor_cfg.pop("class_name"))
-    actor_cfg.pop("num_actions", None)
-    actor = actor_cls(td_example, rl_cfg_dict["obs_groups"], "actor", action_dim, **actor_cfg)
-    actor = actor.to(device)
-    actor.eval()
-
-    print(f"Loading model: {load_path}")
-    checkpoint = torch.load(load_path, map_location=device, weights_only=True)
-    with policy_load_dim_guard(env_obs_dim=obs_dim, env_action_dim=action_dim, algo_name="appo"):
-        actor.load_state_dict(checkpoint["actor"])
+    session, _policy_obs_mode, _checkpoint_path = create_appo_playback_session(
+        playback_cfg=playback_cfg,
+        cfg=cfg,
+        rl_cfg=rl_cfg,
+        env_factory=lambda n: create_env(
+            cfg,
+            num_envs=n,
+            env_cfg_override=BackendAdapter(
+                cfg, root_dir=ROOT_DIR, algo_name="appo"
+            ).build_task_env_cfg_override(),
+        ),
+        root_dir=ROOT_DIR,
+        device=device,
+        wrapper_cls=RslRlVecEnvWrapper,
+    )
+    env = session.env
+    actor = session.actor
+    # The checkpoint early-return above guarantees a loaded actor here.
+    assert actor is not None
 
     # Export actor to ONNX
     if load_path_dir is not None:
@@ -260,15 +227,13 @@ def play_appo(
 
         export_module = _DeterministicAPPOActor(actor.mlp)
         onnx_path = os.path.join(load_path_dir, "policy.onnx")
+        obs_dim = int(session.wrapped_env.num_obs)
         dummy_input = torch.randn(1, obs_dim, device=device)
         export_policy_onnx(export_module, onnx_path, (dummy_input,), input_names=["obs"])
 
         # Verify ONNX output matches PyTorch
         verify_input = torch.randn(1, obs_dim, device=device)
         verify_policy_onnx(export_module, onnx_path, (verify_input,), input_names=["obs"])
-
-    if env.state is None:
-        env.init_state()
 
     with torch.inference_mode():
         play_video_path = env.run_playback_mode(
@@ -278,24 +243,8 @@ def play_appo(
             render_spacing=float(
                 getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
             ),
-            initialize=lambda: np.asarray(
-                env.reset(np.arange(cfg.training.play_env_num, dtype=np.int32))[0]["obs"],
-                dtype=np.float32,
-            ),
-            step=lambda obs_np: np.asarray(
-                env.step(
-                    actor(
-                        TensorDict(
-                            {"policy": torch.from_numpy(obs_np).to(device)},
-                            batch_size=cfg.training.play_env_num,
-                        )
-                    )
-                    .cpu()
-                    .numpy()
-                    .astype(np.float32)
-                ).obs["obs"],
-                dtype=np.float32,
-            ),
+            initialize=session.reset,
+            step=lambda _obs: session.step_once(),
             camera_kwargs={
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,

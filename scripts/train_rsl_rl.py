@@ -38,6 +38,7 @@ from unilab.training import (
     create_env,
     ensure_registries,
     format_play_checkpoint_error,
+    get_entrypoint_log_root,
     get_log_root,
     log_playback_plan,
     parse_checkpoint_path,
@@ -53,13 +54,20 @@ from unilab.training.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
     finish_rsl_rl_distributed,
+    get_policy_obs_dims,
     normalize_ppo_train_cfg,
     ppo_samples_per_iteration,
     resolve_rsl_rl_device,
     rsl_rl_single_process_topology,
 )
-from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 from unilab.utils.device import get_default_device
+from unilab.visualization.interactive_playback import (
+    RslRlPlaybackConfig,
+    create_rsl_rl_playback_session,
+    infer_checkpoint_actor_input_dim,
+    make_sim2sim_preflight,
+    normalize_checkpoint_value,
+)
 
 try:
     from rsl_rl.runners import OnPolicyRunner
@@ -192,7 +200,6 @@ def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = algo_config_dict(cfg)
-    wrapper_cls = _resolve_ppo_wrapper_cls(rl_cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
@@ -216,42 +223,48 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = (
-        resolve_sim2sim_config(
-            load_path_dir,
-            cfg,
-            algo_name="ppo",
-            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
-        )
-        or cfg
-    )
+    def _normalize_play_train_cfg(train_cfg: dict[str, Any]) -> dict[str, Any]:
+        normalized = normalize_ppo_train_cfg(train_cfg)
+        apply_ppo_runtime_flags(normalized, cfg, training_enabled=False)
+        return normalized
 
-    env_cfg_override = build_ppo_play_env_cfg_override(cfg)
-
-    env = create_env(
-        cfg,
+    playback_cfg = RslRlPlaybackConfig(
+        task=str(cfg.training.task_name),
+        load_run=str(cfg.algo.load_run),
+        checkpoint=normalize_checkpoint_value(
+            OmegaConf.select(cfg, "algo.checkpoint", default=None)
+        ),
+        action_mode="policy",
+        policy_obs_mode="flat",
+        algo_log_name=str(cfg.algo.algo_log_name),
+        log_root=None,
         num_envs=cfg.training.play_env_num,
-        env_cfg_override=env_cfg_override,
     )
-    wrapped_env = wrapper_cls(env, device=device)
-    train_cfg = normalize_ppo_train_cfg(rl_cfg)
-    apply_ppo_runtime_flags(train_cfg, cfg, training_enabled=False)
-    if "runner" not in train_cfg:
-        train_cfg["runner"] = {}
-    train_cfg["runner"]["logger"] = "none"
-
-    runner = cast(
-        Any,
-        OnPolicyRunner(cast(Any, wrapped_env), train_cfg, log_dir=None, device=device),
+    session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
+        playback_cfg=playback_cfg,
+        env_factory=lambda n: create_env(
+            cfg,
+            num_envs=n,
+            env_cfg_override=build_ppo_play_env_cfg_override(cfg),
+        ),
+        algo_config=rl_cfg,
+        root_dir=ROOT_DIR,
+        device=device,
+        checkpoint_resolver=lambda *_args: str(load_path),
+        checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
+        entrypoint_log_root=get_entrypoint_log_root,
+        wrapper_cls=_resolve_ppo_wrapper_cls(rl_cfg),
+        runner_cls=OnPolicyRunner,
+        policy_obs_dims_getter=get_policy_obs_dims,
+        train_cfg_normalizer=_normalize_play_train_cfg,
+        sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),
+        guard_algo_name="ppo",
     )
-    with policy_load_dim_guard(
-        env_obs_dim=getattr(wrapped_env, "num_obs", None),
-        env_action_dim=getattr(wrapped_env, "num_actions", None),
-        algo_name="ppo",
-    ):
-        runner.load(str(load_path), map_location=device)
-    policy = runner.get_inference_policy(device=device)
+    env = session.env
+    runner = session.runner
     if EXPORT_POLICY:
+        # The checkpoint early-returns above guarantee a loaded runner here.
+        assert runner is not None
         runner.export_policy_to_onnx(path=str(load_path_dir))
         runner.export_policy_to_jit(path=str(load_path_dir))
     num_steps = _resolve_play_num_steps(cfg)
@@ -273,8 +286,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                     getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
                 ),
                 render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
-                initialize=lambda: wrapped_env.reset()[0],
-                step=lambda obs: wrapped_env.step(policy(obs))[0],
+                initialize=session.reset,
+                step=lambda _obs: session.step_once(),
                 camera_kwargs={
                     "cam_distance": cfg.training.cam_distance,
                     "cam_elevation": cfg.training.cam_elevation,

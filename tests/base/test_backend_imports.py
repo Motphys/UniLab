@@ -9,10 +9,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MATERIALIZER_CONSUMERS = (
     "src/unilab/training/backend_adapter.py",
+    "src/unilab/visualization/interactive_playback.py",
     "scripts/train_rsl_rl.py",
     "scripts/train_him_ppo.py",
     "scripts/train_hora_distill.py",
-    "scripts/play_interactive.py",
     "scripts/manip_loco/benchmark_site_jacobian.py",
 )
 

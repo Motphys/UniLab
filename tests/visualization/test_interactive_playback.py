@@ -767,6 +767,7 @@ def test_appo_hora_playback_session_uses_hora_wrapper_and_actor_checkpoint(
 
     session.reset()
     assert session.advance(PlaybackControls()) is True
+    assert isinstance(session.actor, FakeActor)
     assert policy_obs_mode == "actor"
     assert resolved_checkpoint == str(checkpoint)
     assert captured["wrapper_cls"] == "hora"
@@ -1038,3 +1039,362 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
     assert captured["policy_obs_mode"] == "actor"
     assert captured["loaded_checkpoint"] == checkpoint
     torch.testing.assert_close(captured["actions"], torch.ones((1, 2)))
+
+
+def test_infer_checkpoint_actor_input_dim_mlp_key(tmp_path: Path) -> None:
+    from unilab.visualization.interactive_playback import infer_checkpoint_actor_input_dim
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save({"actor_state_dict": {"mlp.0.weight": torch.zeros((8, 42))}}, checkpoint)
+
+    assert infer_checkpoint_actor_input_dim(str(checkpoint)) == 42
+
+
+def test_infer_checkpoint_actor_input_dim_actor_prefixed_key(tmp_path: Path) -> None:
+    from unilab.visualization.interactive_playback import infer_checkpoint_actor_input_dim
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save(
+        {"actor_state_dict": {"actor.mlp.0.weight": torch.zeros((8, 17))}},
+        checkpoint,
+    )
+
+    assert infer_checkpoint_actor_input_dim(str(checkpoint)) == 17
+
+
+def test_infer_checkpoint_actor_input_dim_generic_first_layer_key(tmp_path: Path) -> None:
+    from unilab.visualization.interactive_playback import infer_checkpoint_actor_input_dim
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save(
+        {"actor_state_dict": {"encoder.0.weight": torch.zeros((4, 23))}},
+        checkpoint,
+    )
+
+    assert infer_checkpoint_actor_input_dim(str(checkpoint)) == 23
+
+
+def test_infer_checkpoint_actor_input_dim_returns_none_when_undetectable(
+    tmp_path: Path,
+) -> None:
+    from unilab.visualization.interactive_playback import infer_checkpoint_actor_input_dim
+
+    not_a_dict = tmp_path / "model_list.pt"
+    torch.save({"actor_state_dict": ["not", "a", "dict"]}, not_a_dict)
+    missing = tmp_path / "model_missing.pt"
+    torch.save({"model_state_dict": {}}, missing)
+    no_matching_key = tmp_path / "model_other.pt"
+    torch.save(
+        {"actor_state_dict": {"mlp.2.weight": torch.zeros((8, 8))}},
+        no_matching_key,
+    )
+
+    assert infer_checkpoint_actor_input_dim(str(not_a_dict)) is None
+    assert infer_checkpoint_actor_input_dim(str(missing)) is None
+    assert infer_checkpoint_actor_input_dim(str(no_matching_key)) is None
+
+
+@pytest.mark.parametrize("value", [None, "", "-1", "None", "null"])
+def test_normalize_checkpoint_value_maps_sentinels_to_none(value: object) -> None:
+    from unilab.visualization.interactive_playback import normalize_checkpoint_value
+
+    assert normalize_checkpoint_value(value) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("12", "12"), (12, "12"), ("run_2024", "run_2024"), ("/abs/model_5.pt", "/abs/model_5.pt")],
+)
+def test_normalize_checkpoint_value_keeps_real_values(value: object, expected: str) -> None:
+    from unilab.visualization.interactive_playback import normalize_checkpoint_value
+
+    assert normalize_checkpoint_value(value) == expected
+
+
+def _play_interactive_args(**overrides: Any) -> Any:
+    from unilab.visualization.interactive_playback import PlayInteractiveArgs
+
+    defaults: dict[str, Any] = {
+        "task": "MyTask",
+        "load_run": "-1",
+        "checkpoint": None,
+        "action_mode": "policy",
+        "policy_obs_mode": "auto",
+        "algo_log_name": "rsl_rl_ppo",
+        "log_root": None,
+        "show_target_bodies": False,
+        "show_reward_debug": False,
+        "target_show_axes": False,
+        "target_body_names": "",
+        "target_max_bodies": 32,
+        "target_marker_radius": 0.05,
+        "target_axis_length": 0.2,
+        "target_marker_alpha": 0.7,
+        "reward_debug_show_velocity": False,
+        "reward_debug_lin_vel_scale": 1.0,
+        "reward_debug_ang_vel_scale": 1.0,
+        "reward_debug_show_connectors": False,
+        "reward_debug_show_global_anchor": False,
+        "camera_follow_body": False,
+        "camera_focus_body_name": "",
+        "camera_height_offset": 0.0,
+        "camera_distance": None,
+        "camera_elevation": None,
+        "camera_azimuth": None,
+        "use_env_visual_model": False,
+        "speed": 1.0,
+        "start_paused": False,
+    }
+    defaults.update(overrides)
+    return PlayInteractiveArgs(**defaults)
+
+
+def test_build_playback_config_maps_play_interactive_args() -> None:
+    from unilab.visualization.interactive_playback import build_playback_config
+
+    args = _play_interactive_args(
+        task="OtherTask",
+        load_run="run_1",
+        checkpoint="12",
+        action_mode="random",
+        policy_obs_mode="flat",
+        algo_log_name="custom_ppo",
+        log_root="/tmp/logs",
+        speed=2.5,
+        start_paused=True,
+    )
+
+    playback_cfg = build_playback_config(args, num_envs=3)
+
+    assert playback_cfg == RslRlPlaybackConfig(
+        task="OtherTask",
+        load_run="run_1",
+        checkpoint="12",
+        action_mode="random",
+        policy_obs_mode="flat",
+        algo_log_name="custom_ppo",
+        log_root="/tmp/logs",
+        num_envs=3,
+        speed=2.5,
+        start_paused=True,
+    )
+
+
+def test_available_backends_for_task_reads_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unilab.base import registry
+    from unilab.visualization.interactive_playback import available_backends_for_task
+
+    monkeypatch.setattr(
+        registry,
+        "list_registered_envs",
+        lambda: {
+            "KnownTask": {"available_backends": ["mujoco", "motrix"]},
+            "BadTask": {"available_backends": "mujoco"},
+        },
+    )
+
+    assert available_backends_for_task("KnownTask") == ("mujoco", "motrix")
+    assert available_backends_for_task("UnknownTask") == ()
+    assert available_backends_for_task("BadTask") == ()
+
+
+def test_build_play_backend_adapter_injects_root_dir_and_materializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import unilab.base.backend as backend_pkg
+    import unilab.training as training
+    from unilab.visualization.interactive_playback import build_play_backend_adapter
+
+    captured: dict[str, Any] = {}
+    sentinel_materializer = object()
+
+    class FakeBackendAdapter:
+        def __init__(self, cfg: Any, **kwargs: Any) -> None:
+            captured["cfg"] = cfg
+            captured.update(kwargs)
+
+    monkeypatch.setattr(training, "BackendAdapter", FakeBackendAdapter)
+    monkeypatch.setattr(
+        backend_pkg,
+        "materialize_scene_visual_override",
+        sentinel_materializer,
+    )
+
+    cfg = SimpleNamespace(training=SimpleNamespace(task_name="Task"))
+    adapter = build_play_backend_adapter(cfg, root_dir="/repo", algo_name="appo")
+
+    assert isinstance(adapter, FakeBackendAdapter)
+    assert captured == {
+        "cfg": cfg,
+        "root_dir": "/repo",
+        "algo_name": "appo",
+        "scene_materializer": sentinel_materializer,
+    }
+
+
+def test_create_rsl_rl_playback_session_uses_runner_loader_and_exposes_runner(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run_1"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_10.pt"
+    torch.save({"actor_state_dict": {}}, checkpoint)
+    captured: dict[str, Any] = {}
+
+    class Runner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            pass
+
+        def load(self, checkpoint, load_cfg):
+            raise AssertionError("runner.load must be bypassed when runner_loader is injected")
+
+        def get_inference_policy(self, *, device):
+            return lambda obs: torch.ones((1, 2))
+
+    def runner_loader(runner, path):
+        captured["loader_runner"] = runner
+        captured["loader_path"] = path
+
+    kwargs = _rsl_rl_session_kwargs(tmp_path)
+    kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
+    kwargs["runner_cls"] = Runner
+    kwargs["runner_loader"] = runner_loader
+
+    session, _mode, resolved = create_rsl_rl_playback_session(**kwargs)
+
+    assert resolved == str(checkpoint)
+    assert isinstance(captured["loader_runner"], Runner)
+    assert captured["loader_path"] == str(checkpoint)
+    assert session.runner is captured["loader_runner"]
+
+
+def test_create_rsl_rl_playback_session_forwards_guard_algo_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import unilab.visualization.interactive_playback as interactive_playback
+
+    run_dir = tmp_path / "run_1"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_10.pt"
+    torch.save({"actor_state_dict": {}}, checkpoint)
+    captured: dict[str, Any] = {}
+
+    class Runner:
+        def __init__(self, wrapped_env, train_cfg, log_dir, device):
+            pass
+
+        def load(self, checkpoint, load_cfg):
+            pass
+
+        def get_inference_policy(self, *, device):
+            return lambda obs: torch.ones((1, 2))
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def fake_dim_guard(**kwargs):
+        captured["dim_guard"] = kwargs
+        yield
+
+    monkeypatch.setattr(interactive_playback, "policy_load_dim_guard", fake_dim_guard)
+
+    kwargs = _rsl_rl_session_kwargs(tmp_path)
+    kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
+    kwargs["runner_cls"] = Runner
+    kwargs["guard_algo_name"] = "him_ppo"
+
+    create_rsl_rl_playback_session(**kwargs)
+
+    assert captured["dim_guard"] == {
+        "env_obs_dim": 5,
+        "env_action_dim": 2,
+        "algo_name": "him_ppo",
+    }
+
+
+def test_create_sac_playback_session_td3_load_filters_noise_scales(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from omegaconf import OmegaConf
+
+    import unilab.algos.common.actor_factory as actor_factory
+    import unilab.training.run as training_run
+
+    checkpoint = tmp_path / "model_10.pt"
+    torch.save(
+        {"actor": {"weight": torch.ones(1), "noise_scales": torch.zeros(1)}},
+        checkpoint,
+    )
+    captured: dict[str, Any] = {}
+
+    class FakeActor:
+        def eval(self):
+            return self
+
+        def load_state_dict(self, state_dict, strict=True):
+            captured["actor_load"] = (state_dict, strict)
+
+    class FakeEnv:
+        num_envs = 1
+        obs_groups_spec = {"obs": 3, "critic": 5}
+        action_space = SimpleNamespace(
+            shape=(2,),
+            low=np.full((2,), -1.0),
+            high=np.full((2,), 1.0),
+        )
+        state = SimpleNamespace(info={})
+
+        def get_physics_state_snapshot(self):
+            return np.zeros((1, 4), dtype=np.float32)
+
+    cfg = OmegaConf.create(
+        {
+            "training": {"task_name": "Task", "device": None},
+            "algo": {
+                "algo_log_name": "td3",
+                "load_run": "run",
+                "actor_hidden_dim": 16,
+                "use_layer_norm": False,
+            },
+        }
+    )
+
+    def fake_build_actor(algo_type, *args, **kwargs):
+        captured["build_actor_algo_type"] = algo_type
+        return FakeActor()
+
+    monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
+    monkeypatch.setattr(
+        training_run,
+        "resolve_offpolicy_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(tmp_path)),
+    )
+
+    session, policy_obs_mode, resolved = create_sac_playback_session(
+        playback_cfg=RslRlPlaybackConfig(
+            task="Task",
+            load_run="run",
+            checkpoint=None,
+            action_mode="policy",
+            policy_obs_mode="actor",
+            algo_log_name="td3",
+            log_root=None,
+        ),
+        cfg=cfg,
+        env_factory=lambda num_envs: FakeEnv(),
+        root_dir=tmp_path,
+        device="cpu",
+        algo_name="td3",
+        log=lambda message: None,
+    )
+
+    assert resolved == str(checkpoint)
+    assert policy_obs_mode == "actor"
+    assert captured["build_actor_algo_type"] == "td3"
+    assert isinstance(session.actor, FakeActor)
+    assert session.actor_algo_type == "td3"
+    loaded_state, strict = captured["actor_load"]
+    assert set(loaded_state.keys()) == {"weight"}
+    assert strict is False
