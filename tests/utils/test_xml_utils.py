@@ -105,8 +105,6 @@ def test_inject_mujoco_tracking_sensors_uses_mjspec_and_preserves_contract() -> 
             "track_angvel_w_pelvis",
             "track_pos_b_pelvis",
             "track_quat_b_pelvis",
-            "track_linvel_b_pelvis",
-            "track_angvel_b_pelvis",
         ):
             assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name) >= 0
     finally:
@@ -126,8 +124,6 @@ def test_materialize_motrix_scene_adds_tracking_frame_sensors() -> None:
     for sensor_name in (
         "track_pos_b_pelvis",
         "track_quat_b_pelvis",
-        "track_linvel_b_pelvis",
-        "track_angvel_b_pelvis",
     ):
         assert model.get_sensor_value(sensor_name, data).shape[0] == 1
 

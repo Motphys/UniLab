@@ -64,11 +64,11 @@ def np_quat_mul_batched(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
 
 
 def np_quat_conjugate(q: np.ndarray) -> np.ndarray:
-    """Conjugate of unit quaternions (N, 4) or (4,), w-first."""
+    """Conjugate of unit quaternions (..., 4), w-first."""
     if q.ndim == 1:
         return np.array([q[0], -q[1], -q[2], -q[3]])
     conj = q.copy()
-    conj[:, 1:] *= -1
+    conj[..., 1:] *= -1
     return conj  # type: ignore[no-any-return]
 
 
@@ -256,6 +256,15 @@ def np_quat_apply_batched(q: np.ndarray, v: np.ndarray) -> np.ndarray:
 def np_quat_apply_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
     """Rotate vector(s) by inverse quaternion(s)."""
     return np_quat_apply(np_quat_inv(q), v)
+
+
+def np_quat_apply_inverse_batched(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate broadcast-compatible vector arrays by inverse quaternions.
+
+    ``q`` has shape (..., 4), ``v`` has shape (..., 3), and leading dimensions
+    are broadcast. Batched counterpart of ``np_quat_apply_inverse``.
+    """
+    return np_quat_apply_batched(np_quat_conjugate(q), v)
 
 
 def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:

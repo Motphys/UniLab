@@ -93,6 +93,52 @@ def _allegro_state() -> tuple[np.ndarray, np.ndarray]:
     return qpos, qvel
 
 
+# Base-motion state used by the get_body_*_vel_b semantic tests: a 30-degree
+# yawed base with a non-zero velocity. Free-joint convention (shared by the
+# backends' set_state): qvel[:3] is linear velocity in the world frame,
+# qvel[3:6] is angular velocity in the body-local frame.
+_BASE_YAW = np.deg2rad(30.0)
+_BASE_LIN_VEL_W = np.array([0.5, -0.2, 0.8])
+_BASE_ANG_VEL_B = np.array([0.3, -0.1, 0.2])
+
+
+def _tilted_motion_state(bkd) -> tuple[np.ndarray, np.ndarray]:
+    nq = bkd.get_dof_pos().shape[-1] + 7
+    nv = bkd.get_dof_vel().shape[-1] + 6
+    qpos = np.tile(_identity_qpos_mujoco(nq), (NUM_ENVS, 1))
+    qpos[:, 3] = np.cos(_BASE_YAW / 2)
+    qpos[:, 6] = np.sin(_BASE_YAW / 2)
+    qvel = np.zeros((NUM_ENVS, nv))
+    qvel[:, :3] = _BASE_LIN_VEL_W
+    qvel[:, 3:6] = _BASE_ANG_VEL_B
+    return qpos, qvel
+
+
+def _yaw_world_to_body_rot() -> np.ndarray:
+    c, s = np.cos(_BASE_YAW), np.sin(_BASE_YAW)
+    return np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def _assert_root_vel_b_matches_world_vel_in_body_frame(bkd, root_id: int, atol: float) -> None:
+    """Root-body vel_b must be the world-frame velocity expressed in the body
+    frame (mjlab/Isaac-style analytical contract), not degenerate zero."""
+    qpos, qvel = _tilted_motion_state(bkd)
+    bkd.set_state(np.arange(NUM_ENVS), qpos, qvel)
+    ids = np.array([root_id])
+    rot_w2b = _yaw_world_to_body_rot()
+    np.testing.assert_allclose(
+        bkd.get_body_lin_vel_b(ids)[:, 0, :],
+        np.tile(rot_w2b @ _BASE_LIN_VEL_W, (NUM_ENVS, 1)),
+        atol=atol,
+    )
+    # qvel[3:6] is already body-local, so ang_vel_b must reproduce it exactly.
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_b(ids)[:, 0, :],
+        np.tile(_BASE_ANG_VEL_B, (NUM_ENVS, 1)),
+        atol=atol,
+    )
+
+
 # ---------------------------------------------------------------------------
 # MuJoCo — basic, 3 robots, no body sensors
 # ---------------------------------------------------------------------------
@@ -583,6 +629,12 @@ class TestMuJoCoBodySensors:
     def test_get_body_ang_vel_b_shape(self, bkd, body_ids):
         _shape(bkd.get_body_ang_vel_b(body_ids), NUM_ENVS, len(body_ids), 3)
 
+    def test_root_body_vel_b_matches_world_vel_in_body_frame(self, bkd):
+        mujoco = _mujoco_module()
+
+        root_id = int(mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_BODY, _G1["base_name"]))
+        _assert_root_vel_b_matches_world_vel_in_body_frame(bkd, root_id, atol=1e-5)
+
     # sensors
 
     def test_get_sensor_data_w_shape(self, bkd, body_ids):
@@ -887,6 +939,10 @@ class TestMotrixBodySensors:
     def test_get_body_ang_vel_b_shape(self, bkd, body_ids):
         _shape(bkd.get_body_ang_vel_b(body_ids), NUM_ENVS, len(body_ids), 3)
 
+    def test_root_body_vel_b_matches_world_vel_in_body_frame(self, bkd):
+        root_id = int(bkd.model.get_body_index(_G1["base_name"]))
+        _assert_root_vel_b_matches_world_vel_in_body_frame(bkd, root_id, atol=1e-4)
+
     # sensors
 
     def test_get_sensor_data_b_shape(self, bkd, body_ids):
@@ -1088,6 +1144,25 @@ class TestCrossBackendBodySensors:
     def test_body_ang_vel_b(self, synced, body_pairs):
         mj, mx = synced
         mj_ids, mx_ids = body_pairs
+        np.testing.assert_allclose(
+            mj.get_body_ang_vel_b(mj_ids),
+            mx.get_body_ang_vel_b(mx_ids),
+            atol=self.ATOL,
+        )
+
+    def test_body_vel_b_parity_under_base_motion(self, synced, body_pairs):
+        """vel_b parity must hold with non-zero base motion (root included)."""
+        mj, mx = synced
+        qpos, qvel = _tilted_motion_state(mj)
+        env_idx = np.arange(NUM_ENVS)
+        mj.set_state(env_idx, qpos, qvel)
+        mx.set_state(env_idx, qpos, qvel)
+        mj_ids, mx_ids = body_pairs
+        np.testing.assert_allclose(
+            mj.get_body_lin_vel_b(mj_ids),
+            mx.get_body_lin_vel_b(mx_ids),
+            atol=self.ATOL,
+        )
         np.testing.assert_allclose(
             mj.get_body_ang_vel_b(mj_ids),
             mx.get_body_ang_vel_b(mx_ids),

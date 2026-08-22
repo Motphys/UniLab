@@ -851,7 +851,14 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        """Return selected body linear velocities in the baselink frame.
+        """Return selected body linear velocities expressed in each body's own frame.
+
+        The value is the body's world-frame velocity rotated by the inverse of
+        the body's world-frame orientation, i.e.
+        ``quat_apply_inverse(quat_w, lin_vel_w)`` (mjlab/Isaac-style analytical
+        definition). It is well-defined for every body — including the root
+        body — and must NOT be implemented as the motion relative to the
+        baselink frame (which degenerates to zero for the root body).
 
         Args:
             body_ids: Body ID array.
@@ -862,7 +869,14 @@ class SimBackend(abc.ABC):
 
     @abc.abstractmethod
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        """Return selected body angular velocities in the baselink frame.
+        """Return selected body angular velocities expressed in each body's own frame.
+
+        The value is the body's world-frame angular velocity rotated by the
+        inverse of the body's world-frame orientation, i.e.
+        ``quat_apply_inverse(quat_w, ang_vel_w)`` (mjlab/Isaac-style analytical
+        definition). It is well-defined for every body — including the root
+        body — and must NOT be implemented as the motion relative to the
+        baselink frame (which degenerates to zero for the root body).
 
         Args:
             body_ids: Body ID array.

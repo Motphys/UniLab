@@ -132,7 +132,14 @@ def _motrix_world_link_names(world: World) -> list[str]:
 
 
 def add_motrix_tracking_frame_sensors(world: World, *, base_name: str) -> None:
-    """Add Motrix-native frame sensors matching the legacy tracking sensor contract."""
+    """Add Motrix-native frame sensors matching the legacy tracking sensor contract.
+
+    Only pose sensors are added: body-frame velocities are computed
+    analytically from the world-frame link state (see
+    ``MotrixBackend.get_body_*_vel_b``), because MotrixSim frame velocity
+    sensors report motion relative to the baselink and degenerate to zero for
+    the root body.
+    """
     import motrixsim.msd as msd
 
     link_names = _motrix_world_link_names(world)
@@ -143,8 +150,6 @@ def add_motrix_tracking_frame_sensors(world: World, *, base_name: str) -> None:
     sensor_specs = (
         ("track_pos_b", msd.FrameSensorType.FramePos),
         ("track_quat_b", msd.FrameSensorType.FrameQuat),
-        ("track_linvel_b", msd.FrameSensorType.FrameLinVel),
-        ("track_angvel_b", msd.FrameSensorType.FrameAngVel),
     )
     ref_frame = msd.FrameSensorRef.object(msd.ObjectType.link(base_name))
     for link_name in link_names:

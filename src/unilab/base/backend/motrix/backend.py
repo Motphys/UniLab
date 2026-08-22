@@ -22,6 +22,7 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+from unilab.utils.rotation import np_quat_apply_inverse_batched
 
 try:
     import motrixsim as mtx
@@ -1175,10 +1176,19 @@ class MotrixBackend(SimBackend):
         return self._xyzw_to_wxyz(self._get_body_sensor_values(body_ids, "track_quat_b"))
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._get_body_sensor_values(body_ids, "track_linvel_b")
+        # Analytical per the SimBackend contract: world-frame velocity rotated
+        # into each body's own frame. MotrixSim frame sensors report motion
+        # relative to the baselink and degenerate to zero for the root body.
+        ids = self._as_body_ids(body_ids)
+        return np_quat_apply_inverse_batched(
+            self.get_body_quat_w(ids), self._get_link_lin_vel_w(ids)
+        )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._get_body_sensor_values(body_ids, "track_angvel_b")
+        ids = self._as_body_ids(body_ids)
+        return np_quat_apply_inverse_batched(
+            self.get_body_quat_w(ids), self._get_link_ang_vel_w(ids)
+        )
 
     # ------------------------------------------------------------------ #
     # Sensors                                                            #
