@@ -26,8 +26,8 @@ def test_resolve_callable_loads_hora_ppo_from_package_export() -> None:
 
 def test_rsl_rl_runtime_resolver_loads_hora_wrapper_from_owner_marker() -> None:
     from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper
     from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
 
     runtime = resolve_rsl_rl_ppo_runtime(
         {
@@ -41,8 +41,8 @@ def test_rsl_rl_runtime_resolver_loads_hora_wrapper_from_owner_marker() -> None:
 
 
 def test_rsl_rl_runtime_resolver_rejects_unresolved_custom_runtime() -> None:
+    from unilab.algos.rsl_rl import RslRlVecEnvWrapper
     from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
 
     with pytest.raises(ValueError, match="runtime_impl='hora_ppo'.*runtime_resolver"):
         resolve_rsl_rl_ppo_runtime(

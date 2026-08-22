@@ -22,11 +22,11 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 
+from unilab.algos.rsl_rl import normalize_ppo_train_cfg
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.registry import ensure_registries
 from unilab.structured_configs import PPOConfig
-from unilab.training.backend_adapter import BackendAdapter
-from unilab.training.rsl_rl import normalize_ppo_train_cfg
 from unilab.utils.tensor import to_torch
 
 ensure_registries()

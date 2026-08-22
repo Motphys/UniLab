@@ -19,21 +19,23 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.algos.him_ppo.runner import HIMOnPolicyRunner
+from unilab.algos.rsl_rl import RslRlVecEnvWrapper, get_policy_obs_dims
 from unilab.base.backend import materialize_scene_visual_override
-from unilab.training import (
+from unilab.base.config_adapter import (
     BackendAdapter,
+    create_env,
+)
+from unilab.training import (
     algo_config_dict,
     apply_env_nan_guard,
     build_run_dir_name,
-    create_env,
     ensure_registries,
     format_play_checkpoint_error,
-    get_entrypoint_log_root,
     get_log_root,
     parse_checkpoint_path,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.training.rsl_rl import RslRlVecEnvWrapper, get_policy_obs_dims
+from unilab.utils.checkpoint import get_entrypoint_log_root
 from unilab.visualization import render_play_mode
 from unilab.visualization.interactive_playback import (
     RslRlPlaybackConfig,

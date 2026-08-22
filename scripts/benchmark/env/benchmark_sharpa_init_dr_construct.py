@@ -208,7 +208,8 @@ def _construct_once(
     init_dr_enabled: bool,
     force_pool: bool,
 ) -> tuple[float, dict[str, Any]]:
-    from unilab.training import BackendAdapter, create_env, ensure_registries
+    from unilab.base.config_adapter import BackendAdapter, create_env
+    from unilab.training import ensure_registries
 
     ensure_registries()
 

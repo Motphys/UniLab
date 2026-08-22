@@ -212,6 +212,21 @@ def normalize_play_render_mode(play_render_mode: str | None) -> str:
     return mode
 
 
+def log_playback_plan(plan: BackendPlayRenderPlan, *, prefix: str = "") -> None:
+    """Print user-facing playback status for a resolved backend plan."""
+    if plan.mode == "none":
+        print(f"{prefix}Skipping playback because training.play_render_mode=none.")
+        return
+    if plan.record_video:
+        print(f"{prefix}Rendering video to {plan.output_video}...")
+    elif plan.mode == "interactive":
+        print(f"{prefix}Starting interactive visualization...")
+        print(f"{prefix}Use the renderer window or browser URL reported by the backend.")
+    else:
+        print(f"{prefix}Running playback without video recording...")
+    print(f"{prefix}Rendering playback frames...")
+
+
 class SimBackend(abc.ABC):
     """Unified simulation backend contract."""
 

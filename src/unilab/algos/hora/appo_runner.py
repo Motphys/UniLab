@@ -31,7 +31,7 @@ from unilab.base.observations import get_critic_base_dim, get_obs_dims
 from unilab.base.registry import ensure_registries
 from unilab.ipc import RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
-from unilab.training.seed import apply_training_seed, derive_worker_seed
+from unilab.utils.seed import apply_training_seed, derive_worker_seed
 
 
 def _validate_hora_shared_checkpoint(checkpoint: dict[str, Any]) -> None:

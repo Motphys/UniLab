@@ -20,7 +20,11 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from unilab.base.backend import materialize_scene_visual_override
-from unilab.training import BackendAdapter, create_env, ensure_registries
+from unilab.base.config_adapter import (
+    BackendAdapter,
+    create_env,
+)
+from unilab.training import ensure_registries
 
 
 def _coerce_str_list(value: Any, *, name: str) -> list[str]:

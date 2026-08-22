@@ -76,5 +76,5 @@ def reward_termination(self, state):
 ## See also
 
 - {doc}`5-task_config_translation`
-- `unilab.training.reward`
+- `unilab.utils.reward`
 - `unilab.tasks.locomotion.common.rewards`

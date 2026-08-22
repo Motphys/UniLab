@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 
 from unilab.base import registry
 from unilab.base.base import EnvCfg
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
@@ -16,7 +17,6 @@ from unilab.base.config_overrides import (
 from unilab.base.registry import apply_cfg_overrides
 from unilab.envs.manager_based_rl_env import ManagerBasedRlEnvCfg
 from unilab.managers import RewardTermCfg
-from unilab.training.backend_adapter import BackendAdapter
 
 _MANAGER_ENV = "_TestManagerRewardRoute"
 _MANAGER_FACTORY_ENV = "_TestManagerFactoryRewardRoute"

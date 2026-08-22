@@ -35,7 +35,7 @@ from unilab.ipc.replay_pipelines.gpu_resident import (
     require_offpolicy_replay_device,
 )
 from unilab.logging import OffPolicyLogger, TraceRecorder
-from unilab.training.seed import derive_worker_seed
+from unilab.utils.seed import derive_worker_seed
 
 # Terminal/W&B display names for the off-policy algo types. Keep these
 # user-facing (no internal "Fast*" implementation prefixes).

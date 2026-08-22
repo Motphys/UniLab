@@ -22,8 +22,8 @@ from unilab.algos.appo.staging import RolloutStagingPool
 from unilab.algos.appo.worker import appo_collector_fn
 from unilab.ipc import AsyncRunner, RolloutRingBuffer, SharedWeightSync
 from unilab.logging import OffPolicyLogger
-from unilab.training.seed import apply_training_seed, derive_worker_seed
 from unilab.utils.nan_guard import NanGuardCfg
+from unilab.utils.seed import apply_training_seed, derive_worker_seed
 
 
 def _optimizer_lr_from_state(optimizer: torch.optim.Optimizer) -> float:

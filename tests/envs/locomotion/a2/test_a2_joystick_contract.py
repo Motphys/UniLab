@@ -16,10 +16,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, mdp
 from unilab.tasks.locomotion.common import manager_terms
-from unilab.training.backend_adapter import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[4]
 CONF_DIR = ROOT_DIR / "conf"

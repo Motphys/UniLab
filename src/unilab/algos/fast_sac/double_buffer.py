@@ -9,8 +9,9 @@ from omegaconf import DictConfig, OmegaConf
 from unilab.algos.fast_sac.learner import FastSACLearner
 from unilab.algos.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 from unilab.algos.offpolicy.runtime import resolve_custom_offpolicy_runtime
+from unilab.base.config_adapter import create_env
 from unilab.base.np_env import NpEnv
-from unilab.training import create_env, ensure_registries
+from unilab.base.registry import ensure_registries
 from unilab.utils.nan_guard import NanGuardCfg
 
 if TYPE_CHECKING:

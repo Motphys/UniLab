@@ -31,9 +31,13 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / "src"))
 
+from unilab.algos.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 from unilab.base.backend.mujoco.xml import materialize_scene_visual_override  # noqa: E402
-from unilab.training import BackendAdapter, create_env, ensure_registries  # noqa: E402
-from unilab.training.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
+from unilab.base.config_adapter import (
+    BackendAdapter,
+    create_env,
+)
+from unilab.training import ensure_registries  # noqa: E402
 from unilab.utils.nan_guard import NanGuard, NanGuardCfg  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -103,8 +107,8 @@ def build_him_ppo(num_envs: int, log_dir: Path, output_dir: Path):
 def build_ppo_rsl_rl(num_envs: int, log_dir: Path, output_dir: Path):
     from rsl_rl.runners import OnPolicyRunner
 
+    from unilab.algos.rsl_rl import normalize_ppo_train_cfg
     from unilab.training.experiment import patch_rsl_rl_resume_state
-    from unilab.training.rsl_rl import normalize_ppo_train_cfg
 
     # Import apply_ppo_runtime_flags from train_rsl_rl script
     sys.path.insert(0, str(ROOT_DIR / "scripts"))

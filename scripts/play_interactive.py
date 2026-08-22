@@ -49,17 +49,18 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.training import (
-    algo_config_dict,
-    ensure_registries,
-    get_entrypoint_log_root,
-    resolve_task_checkpoint_path,
-)
-from unilab.training.offpolicy import build_offpolicy_env_cfg_override
-from unilab.training.rsl_rl import (
+from unilab.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
+)
+from unilab.training import (
+    algo_config_dict,
+    ensure_registries,
+)
+from unilab.utils.checkpoint import (
+    get_entrypoint_log_root,
+    resolve_task_checkpoint_path,
 )
 from unilab.utils.rotation import np_matrix_from_quat
 from unilab.visualization.interactive_playback import (
@@ -68,6 +69,7 @@ from unilab.visualization.interactive_playback import (
     PlaybackControls,
     PlayInteractiveArgs,
     available_backends_for_task,
+    build_offpolicy_env_cfg_override,
     build_play_backend_adapter,
     build_playback_config,
     create_appo_playback_session,
@@ -907,7 +909,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     def _create_env(num_envs: int):
         if cfg is None:
             return registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
-        from unilab.training import create_env
+        from unilab.base.config_adapter import create_env
 
         if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=ROOT_DIR)

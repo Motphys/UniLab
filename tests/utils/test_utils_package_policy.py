@@ -6,12 +6,16 @@ import unilab.utils
 ALLOWED_UTILS_API = {"get_default_device", "to_numpy", "to_torch"}
 ALLOWED_UTILS_MODULES = {
     "__init__",
+    "checkpoint",
     "device",
     "geometry",
+    "monitoring",
     "nan_guard",
     "nan_viz",
+    "reward",
     "rotation",
-    "support_matrix",
+    "seed",
+    "sim2sim",
     "tensor",
 }
 REMOVED_UTILS_SHIMS = {

@@ -18,8 +18,8 @@ from hydra.core.global_hydra import GlobalHydra
 from unilab.base import registry
 from unilab.base.backend import create_backend
 from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.scene import SceneCfg
-from unilab.training.backend_adapter import BackendAdapter
 
 pytestmark = pytest.mark.slow
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
@@ -78,22 +77,3 @@ def setup_logger(
         logger.addHandler(stream_handler)
 
     return logger
-
-
-def create_env(
-    cfg: DictConfig,
-    *,
-    num_envs: int,
-    env_cfg_override: dict[str, Any] | None = None,
-    sim_backend: str | None = None,
-    task_name: str | None = None,
-):
-    """Construct an environment via the registry using the current Hydra config."""
-    from unilab.base import registry
-
-    return registry.make(
-        task_name or str(OmegaConf.select(cfg, "training.task_name")),
-        num_envs=num_envs,
-        sim_backend=sim_backend or str(OmegaConf.select(cfg, "training.sim_backend")),
-        env_cfg_override=env_cfg_override,
-    )

@@ -14,7 +14,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-from unilab.training.sim2sim import (
+from unilab.utils.sim2sim import (
     ALLOWLIST,
     DENYLIST,
     ENV_STRUCTURAL_DENYLIST,

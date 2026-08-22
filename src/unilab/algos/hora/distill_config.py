@@ -10,7 +10,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
 
-from unilab.training.run import resolve_task_checkpoint_path
+from unilab.utils.checkpoint import resolve_task_checkpoint_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 

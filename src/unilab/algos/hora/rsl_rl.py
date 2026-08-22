@@ -9,8 +9,8 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 
+from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 from unilab.base.final_observation import resolve_terminal_observation_contract
-from unilab.training.rsl_rl import RslRlVecEnvWrapper
 from unilab.utils.tensor import to_numpy, to_torch
 
 from .observations import build_hora_obs_tensordict

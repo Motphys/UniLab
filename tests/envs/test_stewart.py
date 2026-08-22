@@ -14,6 +14,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, make_manager_based_rl_env
 from unilab.managers import ObservationTermCfg, RewardTermCfg, TerminationTermCfg
@@ -24,7 +25,6 @@ from unilab.tasks.manipulation.stewart.balance import (
     StewartTiltAction,
     StewartTiltActionCfg,
 )
-from unilab.training.backend_adapter import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[2]
 CONF_DIR = ROOT_DIR / "conf"

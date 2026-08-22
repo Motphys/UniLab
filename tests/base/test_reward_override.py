@@ -7,8 +7,8 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.registry import ensure_registries
-from unilab.training.backend_adapter import BackendAdapter
 
 ROOT_DIR = Path(__file__).parents[2]
 

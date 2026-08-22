@@ -117,7 +117,7 @@ language-independent absolute path.
    creating a duplicate.
 4. Gather evidence near the claim:
    - algorithms and tasks: `conf/`, `scripts/train_*.py`, `src/unilab/algos/`
-   - env contract: `src/unilab/base/np_env.py`, `src/unilab/training/rsl_rl.py`
+   - env contract: `src/unilab/base/np_env.py`, `src/unilab/algos/rsl_rl.py`
    - backend contract: `src/unilab/base/backend/base.py`
    - registry: `src/unilab/base/registry.py`
    - runner/IPC: `src/unilab/ipc/`, `src/unilab/training/run.py`

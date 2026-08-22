@@ -35,9 +35,13 @@ sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / "src"))
 
 from unilab.algos.him_ppo.runner import HIMOnPolicyRunner  # noqa: E402
+from unilab.algos.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 from unilab.base.backend.mujoco.xml import materialize_scene_visual_override  # noqa: E402
-from unilab.training import BackendAdapter, create_env, ensure_registries  # noqa: E402
-from unilab.training.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
+from unilab.base.config_adapter import (
+    BackendAdapter,
+    create_env,
+)
+from unilab.training import ensure_registries  # noqa: E402
 from unilab.utils.nan_guard import NanGuard, NanGuardCfg  # noqa: E402
 
 

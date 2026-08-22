@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.utils.support_matrix import BACKENDS, EvidenceLevel, build_support_rows
+from scripts.tools.support_matrix import BACKENDS, EvidenceLevel, build_support_rows
 
 
 def _row(entrypoint_label: str, task_slug: str):

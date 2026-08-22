@@ -46,15 +46,13 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.training import (
-    ensure_registries,
-    get_entrypoint_log_root,
-)
-from unilab.training.rsl_rl import (
+from unilab.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+from unilab.training import ensure_registries
+from unilab.utils.checkpoint import get_entrypoint_log_root
 from unilab.visualization.interactive_playback import (
     PlaybackControls,
     PlayInteractiveArgs,
@@ -218,7 +216,7 @@ def play_viser(args: PlayInteractiveArgs, cfg: DictConfig) -> None:
     def _create_env(env_count: int):
         if cfg is None:
             return registry.make(args.task, num_envs=env_count, sim_backend="mujoco")
-        from unilab.training import create_env
+        from unilab.base.config_adapter import create_env
 
         env_cfg_override = build_play_backend_adapter(
             cfg, root_dir=ROOT_DIR

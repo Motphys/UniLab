@@ -174,8 +174,8 @@ def _owner_yaml_cfg(
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
+    from unilab.base.config_adapter import BackendAdapter
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.training import BackendAdapter
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / config_root), version_base="1.3"):
@@ -365,9 +365,9 @@ def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
+    from unilab.base.config_adapter import BackendAdapter
     from unilab.base.registry import apply_cfg_overrides
     from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
-    from unilab.training import BackendAdapter
 
     yaml_backend = _hydra_yaml_backend(backend)
     GlobalHydra.instance().clear()
