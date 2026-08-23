@@ -1056,6 +1056,37 @@ def test_pure_reset_event_does_not_request_backend_state_capability() -> None:
     assert not hasattr(backend, "get_default_qpos")
 
 
+def test_partial_reset_reports_mba_reset_timing_keys() -> None:
+    # No time_out term: only the explicit failure action triggers a reset.
+    cfg = _make_cfg()
+    cfg.terminations = {"failure": TerminationTermCfg(func=_failure)}
+    env, _ = _make_env(cfg)
+    env.init_state()
+
+    state = env.step(np.array([[1.0], [0.0]], dtype=np.float32))  # env 0 autoresets
+    timing = state.info["timing"]
+    sub_step_keys = (
+        "mba_reset_curriculum_ms",
+        "mba_reset_event_apply_ms",
+        "mba_reset_command_reset_ms",
+        "mba_reset_set_state_ms",
+        "mba_reset_manager_reset_ms",
+        "mba_reset_command_compute_ms",
+        "mba_reset_obs_build_ms",
+        "mba_reset_internal_gap_ms",
+    )
+    for key in ("mba_reset_total_ms", *sub_step_keys, "mba_reset_event_term_reset_ms"):
+        assert key in timing
+        assert timing[key] >= 0.0
+    assert sum(timing[key] for key in sub_step_keys) == pytest.approx(timing["mba_reset_total_ms"])
+
+    # Steps without a reset zero-fill both fixed and per-term MBA keys.
+    state = env.step(np.array([[0.0], [0.0]], dtype=np.float32))
+    timing = state.info["timing"]
+    assert timing["mba_reset_total_ms"] == 0.0
+    assert timing["mba_reset_event_term_reset_ms"] == 0.0
+
+
 def test_partial_reset_preserves_other_env_counter_and_terminal_obs() -> None:
     env, _ = _make_env()
     env.init_state()
