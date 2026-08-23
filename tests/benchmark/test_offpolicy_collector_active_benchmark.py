@@ -291,6 +291,45 @@ def test_write_csv_includes_backend_set_state_sub_timing_columns(tmp_path) -> No
         assert key in header, f"CSV header missing {key!r}"
 
 
+def test_write_csv_includes_mba_reset_sub_step_columns(tmp_path) -> None:
+    """CSV headers must expose the fixed MBA reset sub-step keys."""
+    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
+    out_csv = tmp_path / "collector.csv"
+
+    bench._write_csv(out_csv, [result])
+
+    header = out_csv.read_text(encoding="utf-8").splitlines()[0]
+    for key in (
+        "mba_reset_total_ms",
+        "mba_reset_curriculum_ms",
+        "mba_reset_event_apply_ms",
+        "mba_reset_command_reset_ms",
+        "mba_reset_set_state_ms",
+        "mba_reset_manager_reset_ms",
+        "mba_reset_command_compute_ms",
+        "mba_reset_obs_build_ms",
+        "mba_reset_internal_gap_ms",
+    ):
+        assert key in header, f"CSV header missing {key!r}"
+
+
+def test_print_result_includes_mba_reset_and_per_term_event_timings(capsys) -> None:
+    """Console breakdown shows MBA reset sub-steps and dynamic per-term keys."""
+    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
+    result.env_step_timing_ms_per_vector_step["mba_reset_total_ms"] = bench.TimingStats(
+        [5.0], 5.0, 5.0, 0.0, 5.0, 5.0
+    )
+    result.env_step_timing_ms_per_vector_step["mba_reset_event_term_reset_root_ms"] = (
+        bench.TimingStats([2.0], 2.0, 2.0, 0.0, 2.0, 2.0)
+    )
+
+    bench._print_result(result)
+
+    out = capsys.readouterr().out
+    assert "np_env_mba_reset_total_ms" in out
+    assert "np_env_mba_reset_event_term_reset_root_ms" in out
+
+
 def test_format_set_state_detail_table_reports_sub_key_percentages() -> None:
     """The detail table shows each sub-key next to its share of
     ``dr_reset_set_state_ms`` (percentages must appear)."""

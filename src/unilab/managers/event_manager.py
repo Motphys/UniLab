@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -79,6 +80,9 @@ class EventManager(ManagerBase):
         self._mode_term_names: dict[EventMode, list[str]] = dict()
         self._mode_term_cfgs: dict[EventMode, list[EventTermCfg]] = dict()
         self._mode_class_term_cfgs: dict[EventMode, list[EventTermCfg]] = dict()
+        # Per-term wall time (ms) of the latest mode="reset" apply(); all reset
+        # term names are pre-registered at 0.0 in _prepare_terms.
+        self._reset_term_timing_ms: dict[str, float] = dict()
 
         super().__init__(env=env)
 
@@ -112,6 +116,15 @@ class EventManager(ManagerBase):
     @property
     def available_modes(self) -> list[EventMode]:
         return list(self._mode_term_names.keys())
+
+    @property
+    def last_reset_term_timing_ms(self) -> dict[str, float]:
+        """Per-term wall time (ms) of the latest ``mode="reset"`` apply.
+
+        All reset-mode term names are always present; terms gated out by
+        ``min_step_count_between_reset`` report 0.0 for that apply.
+        """
+        return dict(self._reset_term_timing_ms)
 
     # Methods.
 
@@ -169,6 +182,10 @@ class EventManager(ManagerBase):
         if mode == "step" and dt is None:
             raise ValueError(f"Event mode '{mode}' requires the time-step of the environment.")
 
+        if mode == "reset":
+            for term_name in self._reset_term_timing_ms:
+                self._reset_term_timing_ms[term_name] = 0.0
+
         for index, term_cfg in enumerate(self._mode_term_cfgs[mode]):
             if mode == "interval":
                 time_left = self._interval_term_time_left[index]
@@ -203,7 +220,12 @@ class EventManager(ManagerBase):
                 if min_step_count == 0:
                     self._reset_term_last_triggered_step_id[index][env_ids] = global_env_step_count
                     self._reset_term_last_triggered_once[index][env_ids] = True
+                    term_t0 = time.perf_counter()
                     term_cfg.func(self._env, env_ids, **term_cfg.params)
+                    term_name = self._mode_term_names[mode][index]
+                    self._reset_term_timing_ms[term_name] += (
+                        time.perf_counter() - term_t0
+                    ) * 1000.0
                 else:
                     last_triggered_step = self._reset_term_last_triggered_step_id[index][env_ids]
                     triggered_at_least_once = self._reset_term_last_triggered_once[index][env_ids]
@@ -219,7 +241,12 @@ class EventManager(ManagerBase):
                         self._reset_term_last_triggered_step_id[index][valid_env_ids] = (
                             global_env_step_count
                         )
+                        term_t0 = time.perf_counter()
                         term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
+                        term_name = self._mode_term_names[mode][index]
+                        self._reset_term_timing_ms[term_name] += (
+                            time.perf_counter() - term_t0
+                        ) * 1000.0
             else:
                 term_cfg.func(self._env, env_ids, **term_cfg.params)
 
@@ -267,6 +294,7 @@ class EventManager(ManagerBase):
                 self._reset_term_last_triggered_step_id.append(step_count)
                 no_trigger = np.zeros(self.num_envs, dtype=np.bool_)
                 self._reset_term_last_triggered_once.append(no_trigger)
+                self._reset_term_timing_ms[term_name] = 0.0
 
             func = term_cfg.func
             if hasattr(func, "model_fields"):

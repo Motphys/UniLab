@@ -78,6 +78,30 @@ def test_event_validation_and_model_mutation_failure(fake_env: FakeEnv) -> None:
     empty.apply("interval")
 
 
+def test_event_reset_term_timing_is_tracked_per_term(fake_env: FakeEnv) -> None:
+    cfg = {
+        "always": EventTermCfg(func=_record, params={"label": "always"}, mode="reset"),
+        "gated": EventTermCfg(
+            func=_record,
+            params={"label": "gated"},
+            mode="reset",
+            min_step_count_between_reset=100,
+        ),
+    }
+    manager = EventManager(cfg, fake_env)
+
+    # First reset: the gated term fires once via the never-triggered exemption.
+    manager.apply("reset", env_ids=np.array([1, 3]), global_env_step_count=1)
+    # Second reset: the gated term is throttled out and must report 0.0.
+    manager.apply("reset", env_ids=np.array([1, 3]), global_env_step_count=2)
+
+    timing = manager.last_reset_term_timing_ms
+    assert set(timing) == {"always", "gated"}
+    assert timing["always"] >= 0.0
+    assert timing["gated"] == 0.0
+    assert [label for label, _ in fake_env.calls] == ["always", "gated", "always"]
+
+
 def test_event_interval_rng_is_reproducible() -> None:
     cfg = {
         "interval": EventTermCfg(

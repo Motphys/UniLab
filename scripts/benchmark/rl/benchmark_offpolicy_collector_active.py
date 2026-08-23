@@ -101,6 +101,19 @@ NP_ENV_STEP_TIMING_KEYS = (
     "dr_reset_obs_get_body_pose_ms",
     "dr_reset_observation_compute_obs_ms",
     "dr_reset_observation_internal_gap_ms",
+    # Manager-Based (MBA) reset sub-steps (see RESET_DONE_DETAIL_TIMING_KEYS in
+    # src/unilab/base/np_env.py). Task-dependent per-term event timings with the
+    # mba_reset_event_term_<name>_ms prefix are discovered dynamically at sample
+    # time (JSON/console only; not part of the fixed CSV header).
+    "mba_reset_total_ms",
+    "mba_reset_curriculum_ms",
+    "mba_reset_event_apply_ms",
+    "mba_reset_command_reset_ms",
+    "mba_reset_set_state_ms",
+    "mba_reset_manager_reset_ms",
+    "mba_reset_command_compute_ms",
+    "mba_reset_obs_build_ms",
+    "mba_reset_internal_gap_ms",
     # Backend set_state internals (see BACKEND_SET_STATE_DETAIL_TIMING_KEYS in
     # src/unilab/base/np_env.py). All backends emit the same key set for column
     # stability; sub-keys that don't apply report 0.0.
@@ -123,6 +136,9 @@ NP_ENV_STEP_TIMING_KEYS = (
 )
 NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
 NP_ENV_STEP_SAMPLE_KEYS = (*NP_ENV_STEP_TIMING_KEYS, *NP_ENV_STEP_COUNT_KEYS)
+# Task-dependent per-term event reset timings emitted by ManagerBasedRlEnv;
+# discovered dynamically from info["timing"] since term names vary per task.
+MBA_RESET_EVENT_TERM_PREFIX = "mba_reset_event_term_"
 NP_RANDOM_PROFILE_FUNCTIONS = (
     "uniform",
     "randint",
@@ -160,6 +176,15 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("dr_reset_obs_get_body_pose_ms", "dr_reset_obs_get_body_pose_ms"),
     ("dr_reset_observation_compute_obs_ms", "dr_reset_observation_compute_obs_ms"),
     ("dr_reset_observation_internal_gap_ms", "dr_reset_observation_internal_gap_ms"),
+    ("mba_reset_total_ms", "mba_reset_total_ms"),
+    ("mba_reset_curriculum_ms", "mba_reset_curriculum_ms"),
+    ("mba_reset_event_apply_ms", "mba_reset_event_apply_ms"),
+    ("mba_reset_command_reset_ms", "mba_reset_command_reset_ms"),
+    ("mba_reset_set_state_ms", "mba_reset_set_state_ms"),
+    ("mba_reset_manager_reset_ms", "mba_reset_manager_reset_ms"),
+    ("mba_reset_command_compute_ms", "mba_reset_command_compute_ms"),
+    ("mba_reset_obs_build_ms", "mba_reset_obs_build_ms"),
+    ("mba_reset_internal_gap_ms", "mba_reset_internal_gap_ms"),
     ("set_state_mask_ms", "set_state_mask_ms"),
     ("set_state_data_slice_ms", "set_state_data_slice_ms"),
     ("set_state_data_reset_ms", "set_state_data_reset_ms"),
@@ -607,6 +632,14 @@ def _run_active_window_case(
                 )
             else:
                 env_step_timing_values["env_step_internal_gap_ms"] = None
+            # Task-dependent MBA per-term event timings (zero-filled by NpEnv on
+            # steps without reset, once the key set has been discovered).
+            for key, value in _timing.items():
+                if (
+                    key.startswith(MBA_RESET_EVENT_TERM_PREFIX)
+                    and key not in env_step_timing_values
+                ):
+                    env_step_timing_values[key] = value
 
             phase_start_ns = time.perf_counter_ns()
             next_obs_np, next_critic_np = split_obs_dict(state.obs)
@@ -688,7 +721,7 @@ def _run_active_window_case(
                     aux_samples["env_step_overhead_ms"].append(env_step_ms - physics_ms)
                 for key, value in env_step_timing_values.items():
                     if value is not None:
-                        env_step_timing_samples[key].append(value)
+                        env_step_timing_samples.setdefault(key, []).append(value)
     finally:
         if random_profiler is not None:
             random_profiler.uninstall()
@@ -1139,14 +1172,17 @@ def _format_np_env_value(result: CollectorResult, key: str, *, digits: int = 1) 
 def _format_set_state_sub_ms(result: CollectorResult, key: str) -> str:
     """Format a backend set_state sub-timing as ``ms (%of set_state)``.
 
-    The percentage is relative to ``dr_reset_set_state_ms`` (the outer
-    wall-clock measurement in DomainRandomizationManager), not to env_step_ms,
-    so a reader can see which sub-step dominates set_state.
+    The percentage is relative to the outer set_state wall-clock measurement —
+    ``dr_reset_set_state_ms`` on the direct path, ``mba_reset_set_state_ms`` on
+    the MBA path — not to env_step_ms, so a reader can see which sub-step
+    dominates set_state.
     """
     stat = result.env_step_timing_ms_per_vector_step.get(key)
     if stat is None:
         return "n/a"
     outer = result.env_step_timing_ms_per_vector_step.get("dr_reset_set_state_ms")
+    if outer is None or outer.mean_ms <= 0.0:
+        outer = result.env_step_timing_ms_per_vector_step.get("mba_reset_set_state_ms")
     if outer is None or outer.mean_ms <= 0.0:
         return f"{stat.mean_ms:.3f} (n/a)"
     pct = 100.0 * stat.mean_ms / outer.mean_ms
@@ -1534,10 +1570,29 @@ def _print_result(result: CollectorResult) -> None:
             "dr_reset_observation_getters_ms",
             "dr_reset_obs_get_body_pose_ms",
             "dr_reset_observation_compute_obs_ms",
+            "mba_reset_total_ms",
+            "mba_reset_curriculum_ms",
+            "mba_reset_event_apply_ms",
+            "mba_reset_command_reset_ms",
+            "mba_reset_set_state_ms",
+            "mba_reset_manager_reset_ms",
+            "mba_reset_command_compute_ms",
+            "mba_reset_obs_build_ms",
+            "mba_reset_internal_gap_ms",
         ):
             stat = result.env_step_timing_ms_per_vector_step.get(key)
             if stat is None:
                 continue
+            print(
+                f"  {('np_env_' + key):<18} mean={stat.mean_ms:8.3f} ms  "
+                f"pct_env={_env_step_child_env_pct(result, stat.mean_ms):5.1f}% "
+                f"pct_active={_env_step_child_pct(result, stat.mean_ms):5.1f}%"
+            )
+        # Task-dependent MBA per-term event timings (reset-mode terms).
+        for key in sorted(result.env_step_timing_ms_per_vector_step):
+            if not key.startswith(MBA_RESET_EVENT_TERM_PREFIX):
+                continue
+            stat = result.env_step_timing_ms_per_vector_step[key]
             print(
                 f"  {('np_env_' + key):<18} mean={stat.mean_ms:8.3f} ms  "
                 f"pct_env={_env_step_child_env_pct(result, stat.mean_ms):5.1f}% "

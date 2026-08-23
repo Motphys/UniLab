@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import secrets
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -253,6 +254,9 @@ class ManagerBasedRlEnv(NpEnv):
         self._all_env_ids.setflags(write=False)
         self._has_transition = False
         self._uses_pre_step_control = False
+        # Sub-step wall time (ms) of the most recent partial reset; consumed by
+        # NpEnv._reset_done_envs via _collect_manager_reset_timing_ms().
+        self._last_reset_timing_ms: dict[str, float] = {}
 
         self._load_managers()
         self._mapped_obs_dims = self._validate_observation_mapping()
@@ -513,17 +517,31 @@ class ManagerBasedRlEnv(NpEnv):
         if self._has_transition and len(done_ids) > 0:
             self.recorder_manager.record_pre_reset(done_ids)
 
+        reset_t0 = time.perf_counter()
         log: dict[str, Any] = {}
+        t0 = time.perf_counter()
         self.curriculum_manager.compute(env_ids=ids)
+        curriculum_ms = (time.perf_counter() - t0) * 1000.0
+        scoped_t0 = time.perf_counter()
         with self._reset_state.scoped(ids):
+            t0 = time.perf_counter()
             if "reset" in self.event_manager.available_modes:
                 self.event_manager.apply(
                     mode="reset",
                     env_ids=ids,
                     global_env_step_count=self.step_counter,
                 )
+            event_apply_ms = (time.perf_counter() - t0) * 1000.0
+            t0 = time.perf_counter()
             log.update(self.command_manager.reset(ids))
+            command_reset_ms = (time.perf_counter() - t0) * 1000.0
+        # The transaction commits (backend set_state) on scoped-exit, so the
+        # remainder of the scoped block is the set_state wall time.
+        set_state_ms = (
+            (time.perf_counter() - scoped_t0) * 1000.0 - event_apply_ms - command_reset_ms
+        )
 
+        t0 = time.perf_counter()
         for manager in (
             self.observation_manager,
             self.action_manager,
@@ -534,6 +552,7 @@ class ManagerBasedRlEnv(NpEnv):
             self.termination_manager,
         ):
             log.update(manager.reset(ids))
+        manager_reset_ms = (time.perf_counter() - t0) * 1000.0
 
         self.episode_length_buf[ids] = 0
         self._control[ids] = 0.0
@@ -541,11 +560,15 @@ class ManagerBasedRlEnv(NpEnv):
         if self._state is not None:
             self._state.info["steps"][ids] = 0
 
+        t0 = time.perf_counter()
         self.command_manager.compute(dt=0.0, env_ids=ids)
         self.command_manager.post_compute()
+        command_compute_ms = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
         manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
         mapped_obs = self._map_observations(manager_obs)
         reset_obs = {name: values[ids].copy() for name, values in mapped_obs.items()}
+        obs_build_ms = (time.perf_counter() - t0) * 1000.0
 
         if self._state is not None:
             for name, values in reset_obs.items():
@@ -560,7 +583,36 @@ class ManagerBasedRlEnv(NpEnv):
         self.obs_buf = self._state.obs if self._state is not None else mapped_obs
         self.extras = self._state.info if self._state is not None else {"log": log}
         self.recorder_manager.record_post_reset(ids)
+
+        total_ms = (time.perf_counter() - reset_t0) * 1000.0
+        measured_ms = (
+            curriculum_ms
+            + event_apply_ms
+            + command_reset_ms
+            + set_state_ms
+            + manager_reset_ms
+            + command_compute_ms
+            + obs_build_ms
+        )
+        reset_timing: dict[str, float] = {
+            "mba_reset_total_ms": total_ms,
+            "mba_reset_curriculum_ms": curriculum_ms,
+            "mba_reset_event_apply_ms": event_apply_ms,
+            "mba_reset_command_reset_ms": command_reset_ms,
+            "mba_reset_set_state_ms": set_state_ms,
+            "mba_reset_manager_reset_ms": manager_reset_ms,
+            "mba_reset_command_compute_ms": command_compute_ms,
+            "mba_reset_obs_build_ms": obs_build_ms,
+            "mba_reset_internal_gap_ms": total_ms - measured_ms,
+        }
+        for term_name, term_ms in self.event_manager.last_reset_term_timing_ms.items():
+            reset_timing[f"mba_reset_event_term_{term_name}_ms"] = term_ms
+        reset_timing.update(self._reset_state.last_set_state_timing_ms)
+        self._last_reset_timing_ms = reset_timing
         return reset_obs, {"log": log}
+
+    def _collect_manager_reset_timing_ms(self) -> dict[str, float]:
+        return dict(self._last_reset_timing_ms)
 
     def _normalize_reset_ids(
         self,

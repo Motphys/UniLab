@@ -45,6 +45,20 @@ RESET_DONE_DETAIL_TIMING_KEYS = (
     "dr_reset_obs_get_body_pose_ms",
     "dr_reset_observation_compute_obs_ms",
     "dr_reset_observation_internal_gap_ms",
+    # Manager-Based (MBA) reset sub-steps, reported by ManagerBasedRlEnv.reset().
+    # mba_reset_set_state_ms is the ResetStateTransaction commit wall time; its
+    # backend internals are merged into the set_state_* keys below. Per-term
+    # event timings (mba_reset_event_term_<name>_ms) are task-dependent and are
+    # zero-filled via the env's dynamic extra-key set instead of this tuple.
+    "mba_reset_total_ms",
+    "mba_reset_curriculum_ms",
+    "mba_reset_event_apply_ms",
+    "mba_reset_command_reset_ms",
+    "mba_reset_set_state_ms",
+    "mba_reset_manager_reset_ms",
+    "mba_reset_command_compute_ms",
+    "mba_reset_obs_build_ms",
+    "mba_reset_internal_gap_ms",
     # Backend-internal set_state sub-timings. All backends report the same key
     # set for column stability; sub-keys that don't apply report 0.0.
     "set_state_mask_ms",
@@ -114,6 +128,9 @@ class NpEnv(ABEnv):
         self.step_counter = 0
         self._dr_manager: DomainRandomizationManager | None = None
         self._init_randomization_applied = False
+        # Task-dependent reset detail keys (e.g. MBA per-event-term timings)
+        # merged into info["timing"]; zero-filled alongside the fixed keys.
+        self._reset_detail_extra_keys: set[str] = set()
         self._nan_guard: NanGuard | None = None
         self._autoreset = True
         self._autoreset_reset_active = False
@@ -289,6 +306,12 @@ class NpEnv(ABEnv):
         detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - t0) * 1000.0
         if self._dr_manager is not None:
             detail_timing.update(self._dr_manager.last_reset_timing_ms)
+        manager_timing = self._collect_manager_reset_timing_ms()
+        if manager_timing:
+            self._reset_detail_extra_keys.update(
+                key for key in manager_timing if key not in RESET_DONE_DETAIL_TIMING_KEYS
+            )
+            detail_timing.update(manager_timing)
 
         t0 = time.perf_counter()
         for key in self._state.obs:
@@ -324,6 +347,16 @@ class NpEnv(ABEnv):
     def _clear_reset_done_detail_timing(self, timing: dict[str, Any]) -> None:
         for key in RESET_DONE_DETAIL_TIMING_KEYS:
             timing[key] = 0.0
+        for key in self._reset_detail_extra_keys:
+            timing[key] = 0.0
+
+    def _collect_manager_reset_timing_ms(self) -> dict[str, float]:
+        """Detail timing from the most recent manager-driven reset.
+
+        Direct envs report nothing (the DR manager merge covers them);
+        ManagerBasedRlEnv overrides this hook with MBA reset sub-step timings.
+        """
+        return {}
 
     def _resolve_nan_guard_model_file(self) -> str:
         scene = getattr(self._cfg, "scene", None)
