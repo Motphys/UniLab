@@ -1087,6 +1087,54 @@ def test_partial_reset_reports_mba_reset_timing_keys() -> None:
     assert timing["mba_reset_event_term_reset_ms"] == 0.0
 
 
+def test_update_state_reports_mba_block_term_and_getter_timing_keys() -> None:
+    env, _ = _make_env()
+    env.init_state()
+
+    state = env.step(np.array([[0.0], [0.0]], dtype=np.float32))
+    timing = state.info["timing"]
+    block_names = (
+        "termination",
+        "reward",
+        "metrics",
+        "events",
+        "command",
+        "obs_compute",
+        "obs_map",
+    )
+    fixed_keys = (
+        "mba_update_total_ms",
+        "mba_update_internal_gap_ms",
+        "mba_getters_total_ms",
+        "mba_obs_noise_ms",
+        "mba_obs_clip_scale_ms",
+        "mba_obs_nan_check_ms",
+        "mba_obs_delay_ms",
+        "mba_obs_history_ms",
+        "mba_obs_concat_ms",
+        *(f"mba_{name}_ms" for name in block_names),
+        *(f"mba_{name}_getter_ms" for name in block_names),
+    )
+    # Task-dependent per-term keys discovered dynamically.
+    term_keys = (
+        "mba_reward_term_track_ms",
+        "mba_reward_term_track_getter_ms",
+        "mba_obs_term_actor_policy_ms",
+        "mba_obs_term_actor_policy_getter_ms",
+        "mba_obs_term_value_critic_ms",
+        "mba_obs_term_value_critic_getter_ms",
+    )
+    for key in (*fixed_keys, *term_keys):
+        assert key in timing, f"timing missing {key!r}"
+        assert timing[key] >= 0.0
+    # Block decomposition closes against the update_state wall time.
+    assert sum(timing[f"mba_{name}_ms"] for name in block_names) + timing[
+        "mba_update_internal_gap_ms"
+    ] == pytest.approx(timing["mba_update_total_ms"])
+    # update_state detail is refreshed every step, including steps with no reset.
+    assert timing["mba_update_total_ms"] <= timing["update_state_ms"] + 1e-6
+
+
 def test_partial_reset_preserves_other_env_counter_and_terminal_obs() -> None:
     env, _ = _make_env()
     env.init_state()

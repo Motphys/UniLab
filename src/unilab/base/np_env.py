@@ -102,6 +102,37 @@ BACKEND_SET_STATE_DETAIL_TIMING_KEYS = (
 )
 
 
+# Fixed MBA update_state detail keys reported by ManagerBasedRlEnv.update_state()
+# (issue #1256). All envs emit the same fixed key set for column stability;
+# direct envs report 0.0. Task-dependent keys (mba_obs_term_*, mba_reward_term_*,
+# mba_getter_<method>_ms) are zero-filled via the env's dynamic extra-key set.
+UPDATE_STATE_DETAIL_TIMING_KEYS = (
+    "mba_update_total_ms",
+    "mba_termination_ms",
+    "mba_reward_ms",
+    "mba_metrics_ms",
+    "mba_events_ms",
+    "mba_command_ms",
+    "mba_obs_compute_ms",
+    "mba_obs_map_ms",
+    "mba_termination_getter_ms",
+    "mba_reward_getter_ms",
+    "mba_metrics_getter_ms",
+    "mba_events_getter_ms",
+    "mba_command_getter_ms",
+    "mba_obs_compute_getter_ms",
+    "mba_obs_map_getter_ms",
+    "mba_update_internal_gap_ms",
+    "mba_getters_total_ms",
+    "mba_obs_noise_ms",
+    "mba_obs_clip_scale_ms",
+    "mba_obs_nan_check_ms",
+    "mba_obs_delay_ms",
+    "mba_obs_history_ms",
+    "mba_obs_concat_ms",
+)
+
+
 @dataclass
 class NpEnvState:
     obs: dict[str, np.ndarray]
@@ -131,6 +162,9 @@ class NpEnv(ABEnv):
         # Task-dependent reset detail keys (e.g. MBA per-event-term timings)
         # merged into info["timing"]; zero-filled alongside the fixed keys.
         self._reset_detail_extra_keys: set[str] = set()
+        # Task-dependent update_state detail keys (MBA obs/reward term and
+        # per-method getter timings); zero-filled every step.
+        self._update_detail_extra_keys: set[str] = set()
         self._nan_guard: NanGuard | None = None
         self._autoreset = True
         self._autoreset_reset_active = False
@@ -247,6 +281,18 @@ class NpEnv(ABEnv):
         timing["step_core_ms"] = step_core_time * 1000.0
         timing["update_state_ms"] = update_state_time * 1000.0
         timing["reset_done_ms"] = reset_done_time * 1000.0
+        # update_state detail runs every step, so fixed keys are simply
+        # overwritten; dynamic keys discovered so far are zero-filled first.
+        for key in UPDATE_STATE_DETAIL_TIMING_KEYS:
+            timing[key] = 0.0
+        for key in self._update_detail_extra_keys:
+            timing[key] = 0.0
+        manager_update_timing = self._collect_manager_update_timing_ms()
+        if manager_update_timing:
+            self._update_detail_extra_keys.update(
+                key for key in manager_update_timing if key not in UPDATE_STATE_DETAIL_TIMING_KEYS
+            )
+            timing.update(manager_update_timing)
         if backend_result is not None:
             backend_timing = backend_result.get("timing")
             if backend_timing:
@@ -355,6 +401,14 @@ class NpEnv(ABEnv):
 
         Direct envs report nothing (the DR manager merge covers them);
         ManagerBasedRlEnv overrides this hook with MBA reset sub-step timings.
+        """
+        return {}
+
+    def _collect_manager_update_timing_ms(self) -> dict[str, float]:
+        """Detail timing from the most recent manager-driven update_state.
+
+        Direct envs report nothing; ManagerBasedRlEnv overrides this hook with
+        MBA update_state block/term/getter timings.
         """
         return {}
 
