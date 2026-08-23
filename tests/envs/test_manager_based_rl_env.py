@@ -155,6 +155,31 @@ class _ResetBackend(_FakeBackend):
         self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
 
 
+class _StateBackend(_ResetBackend):
+    def __init__(self, num_envs: int) -> None:
+        super().__init__(num_envs)
+        self.dof_pos = np.zeros((num_envs, 1), dtype=np.float32)
+        self.dof_pos_calls = 0
+
+    def get_dof_pos(self) -> np.ndarray:
+        self.dof_pos_calls += 1
+        return self.dof_pos.copy()
+
+    def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+        super().step(ctrl, nsteps)
+        self.dof_pos += 1.0
+
+    def set_state(
+        self,
+        env_ids: np.ndarray,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+        randomization=None,
+    ) -> None:
+        super().set_state(env_ids, qpos, qvel, randomization=randomization)
+        self.dof_pos[env_ids, 0] = qpos[:, 3]
+
+
 class _KeyframeBackend(_ResetBackend):
     def __init__(
         self,
@@ -293,6 +318,23 @@ def _reward(env: _TestEnv) -> np.ndarray:
     return env.action_manager.action[:, 0].copy()
 
 
+def _joint_state_obs(env: _TestEnv) -> np.ndarray:
+    return env.scene["robot"].data.joint_pos
+
+
+def _joint_state_reward(env: _TestEnv) -> np.ndarray:
+    return env.scene["robot"].data.joint_pos[:, 0]
+
+
+def _joint_state_termination(env: _TestEnv) -> np.ndarray:
+    return env.scene["robot"].data.joint_pos[:, 0] > 100.0
+
+
+def _mutate_joint_state_step_event(env: _TestEnv, env_ids: np.ndarray | None) -> None:
+    assert env_ids is None
+    cast(_StateBackend, env._backend).dof_pos += 10.0
+
+
 def _failure(env: _TestEnv) -> np.ndarray:
     return env.action_manager.action[:, 0] > 0.8
 
@@ -399,6 +441,41 @@ def _make_env(
         num_envs,
     )
     return env, backend
+
+
+def _make_state_env(
+    *,
+    commands: dict[str, CommandTermCfg | None] | None = None,
+    events: dict[str, EventTermCfg | None] | None = None,
+    terminations: dict[str, TerminationTermCfg | None] | None = None,
+) -> tuple[_TestEnv, _StateBackend]:
+    cfg = _make_cfg(
+        sim_substeps=1,
+        observations={
+            "actor": ObservationGroupCfg(
+                terms={"joint": ObservationTermCfg(func=_joint_state_obs)}
+            ),
+            "value": ObservationGroupCfg(
+                terms={"joint": ObservationTermCfg(func=_joint_state_obs)}
+            ),
+        },
+        include_optional_managers=False,
+    )
+    cfg.scene.entities["robot"] = EntityCfg(
+        joint_names=("joint",),
+        actuator_names=("motor",),
+    )
+    cfg.scale_rewards_by_dt = False
+    cfg.rewards = {"joint": RewardTermCfg(func=_joint_state_reward, weight=1.0)}
+    cfg.terminations = (
+        {"joint": TerminationTermCfg(func=_joint_state_termination)}
+        if terminations is None
+        else terminations
+    )
+    cfg.commands = {} if commands is None else commands
+    cfg.events = {} if events is None else events
+    backend = _StateBackend(2)
+    return _TestEnv(cfg, cast(SimBackend, backend), 2), backend
 
 
 def test_public_names_are_spelling_only_aliases() -> None:
@@ -1133,6 +1210,81 @@ def test_update_state_reports_mba_block_term_and_getter_timing_keys() -> None:
     ] == pytest.approx(timing["mba_update_total_ms"])
     # update_state detail is refreshed every step, including steps with no reset.
     assert timing["mba_update_total_ms"] <= timing["update_state_ms"] + 1e-6
+
+
+def test_update_state_reuses_backend_state_once_and_refreshes_after_physics() -> None:
+    env, backend = _make_state_env()
+    env.init_state()
+
+    before = backend.dof_pos_calls
+    state = env.step(np.zeros((2, 1), dtype=np.float32))
+    assert backend.dof_pos_calls == before + 1
+    np.testing.assert_array_equal(state.reward, [1.0, 1.0])
+    np.testing.assert_array_equal(state.obs["obs"], [[1.0], [1.0]])
+    np.testing.assert_array_equal(state.obs["critic"], [[1.0], [1.0]])
+
+    before = backend.dof_pos_calls
+    state = env.step(np.zeros((2, 1), dtype=np.float32))
+    assert backend.dof_pos_calls == before + 1
+    np.testing.assert_array_equal(state.reward, [2.0, 2.0])
+    np.testing.assert_array_equal(state.obs["obs"], [[2.0], [2.0]])
+
+
+def test_update_state_invalidates_cache_after_command_set_state() -> None:
+    env, backend = _make_state_env(
+        commands={
+            "writer": _StateWritingCommandCfg(resampling_time_range=(0.01, 0.01)),
+        }
+    )
+    env.init_state()
+
+    before = backend.dof_pos_calls
+    state = env.step(np.zeros((2, 1), dtype=np.float32))
+
+    # Physics advances the pre-command state to 1.75. The command then commits
+    # 0.75 through set_state, so post-command observations must not reuse the
+    # termination/reward snapshot.
+    assert backend.dof_pos_calls == before + 2
+    np.testing.assert_array_equal(state.reward, [1.75, 1.75])
+    np.testing.assert_array_equal(state.obs["obs"], [[0.75], [0.75]])
+    np.testing.assert_array_equal(state.obs["critic"], [[0.75], [0.75]])
+
+
+def test_update_state_invalidates_cache_after_runtime_event() -> None:
+    env, backend = _make_state_env(
+        events={
+            "mutate": EventTermCfg(func=_mutate_joint_state_step_event, mode="step"),
+        }
+    )
+    env.init_state()
+
+    before = backend.dof_pos_calls
+    state = env.step(np.zeros((2, 1), dtype=np.float32))
+
+    assert backend.dof_pos_calls == before + 2
+    np.testing.assert_array_equal(state.reward, [1.0, 1.0])
+    np.testing.assert_array_equal(state.obs["obs"], [[11.0], [11.0]])
+    np.testing.assert_array_equal(state.obs["critic"], [[11.0], [11.0]])
+
+
+def test_partial_reset_observation_reads_post_set_state_rows() -> None:
+    env, backend = _make_state_env(
+        events={
+            "joint_state": EventTermCfg(func=_write_reset_joint_state, mode="reset"),
+        },
+        terminations={"failure": TerminationTermCfg(func=_failure)},
+    )
+    env.init_state()
+
+    state = env.step(np.array([[1.0], [0.0]], dtype=np.float32))
+
+    np.testing.assert_array_equal(state.reward, [1.25, 1.25])
+    np.testing.assert_array_equal(state.terminated, [True, False])
+    np.testing.assert_array_equal(state.obs["obs"], [[0.25], [1.25]])
+    np.testing.assert_array_equal(state.obs["critic"], [[0.25], [1.25]])
+    assert state.final_observation is not None
+    np.testing.assert_array_equal(state.final_observation["obs"][0], [1.25])
+    np.testing.assert_array_equal(backend.dof_pos[:, 0], [0.25, 1.25])
 
 
 def test_partial_reset_preserves_other_env_counter_and_terminal_obs() -> None:

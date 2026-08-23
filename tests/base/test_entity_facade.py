@@ -216,6 +216,49 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
     )
 
 
+def test_state_read_cache_is_scoped_shared_and_explicitly_invalidated() -> None:
+    backend, scene = _scene()
+    robot = scene["robot"]
+    before = backend.calls.copy()
+
+    with scene._scoped_state_reads():
+        np.testing.assert_array_equal(robot.data.joint_pos, robot.data.joint_pos)
+        np.testing.assert_array_equal(robot.data.joint_vel, robot.data.joint_vel)
+        np.testing.assert_array_equal(robot.data.heading_w, robot.data.projected_gravity_b[:, 0])
+        np.testing.assert_array_equal(robot.data.root_link_pos_w, robot.data.root_link_pos_w)
+        np.testing.assert_array_equal(robot.data.body_link_pos_w, robot.data.body_link_pos_w)
+
+        assert backend.calls["joint position state"] == before["joint position state"] + 1
+        assert backend.calls["joint velocity state"] == before["joint velocity state"] + 1
+        assert backend.calls["body quaternion state"] == before["body quaternion state"] + 1
+        # Root and full-body selectors remain distinct cache entries.
+        assert backend.calls["body position state"] == before["body position state"] + 2
+
+        scene._invalidate_state_reads()
+        _ = robot.data.joint_pos
+        assert backend.calls["joint position state"] == before["joint position state"] + 2
+
+    # Reads outside the env-owned phase retain the previous per-access behavior.
+    _ = robot.data.joint_pos
+    _ = robot.data.joint_pos
+    assert backend.calls["joint position state"] == before["joint position state"] + 4
+
+
+def test_state_read_cache_scope_closes_after_exception() -> None:
+    backend, scene = _scene()
+    robot = scene["robot"]
+    before = backend.calls["joint position state"]
+
+    with pytest.raises(RuntimeError, match="term failed"):
+        with scene._scoped_state_reads():
+            _ = robot.data.joint_pos
+            raise RuntimeError("term failed")
+
+    with scene._scoped_state_reads():
+        _ = robot.data.joint_pos
+    assert backend.calls["joint position state"] == before + 2
+
+
 def test_scene_entity_cfg_resolves_only_against_cached_names() -> None:
     backend, scene = _scene()
     cold_path_calls = backend.calls.copy()

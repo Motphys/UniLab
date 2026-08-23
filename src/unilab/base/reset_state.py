@@ -56,6 +56,7 @@ class ResetStateTransaction:
         self._requesting_terms: set[str] = set()
         # Backend sub-timings from the most recent commit()'s set_state call.
         self._last_set_state_timing_ms: dict[str, float] = {}
+        self._last_commit_had_writes = False
 
     @property
     def active(self) -> bool:
@@ -66,6 +67,11 @@ class ResetStateTransaction:
     def last_set_state_timing_ms(self) -> dict[str, float]:
         """Backend-reported set_state sub-timings of the most recent commit."""
         return dict(self._last_set_state_timing_ms)
+
+    @property
+    def last_commit_had_writes(self) -> bool:
+        """Whether the most recent scoped commit submitted dirty rows to set_state."""
+        return self._last_commit_had_writes
 
     @contextmanager
     def scoped(self, env_ids: np.ndarray) -> Iterator[ResetStateTransaction]:
@@ -92,6 +98,7 @@ class ResetStateTransaction:
             mask.fill(False)
         self._requesting_terms.clear()
         self._last_set_state_timing_ms = {}
+        self._last_commit_had_writes = False
         self._active = True
 
     def bind_body_mass_write(
@@ -534,6 +541,7 @@ class ResetStateTransaction:
         """Commit all staged rows through one public backend call."""
         self._require_active()
         dirty_ids = np.flatnonzero(self._dirty_mask).astype(np.int32, copy=False)
+        self._last_commit_had_writes = bool(dirty_ids.size)
         try:
             if dirty_ids.size == 0:
                 return None
