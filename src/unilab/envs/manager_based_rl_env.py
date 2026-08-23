@@ -629,9 +629,11 @@ class ManagerBasedRlEnv(NpEnv):
         self.command_manager.post_compute()
         command_compute_ms = (time.perf_counter() - t0) * 1000.0
         t0 = time.perf_counter()
+        # Row-scoped reset rebuild (issue #1259 R2): the observation manager
+        # returns only the reset rows, so no full-batch slice is needed here.
         manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
-        mapped_obs = self._map_observations(manager_obs)
-        reset_obs = {name: values[ids].copy() for name, values in mapped_obs.items()}
+        mapped_obs = self._map_observations(manager_obs, num_rows=len(ids))
+        reset_obs = {name: values.copy() for name, values in mapped_obs.items()}
         obs_build_ms = (time.perf_counter() - t0) * 1000.0
 
         if self._state is not None:
@@ -711,6 +713,7 @@ class ManagerBasedRlEnv(NpEnv):
     def _map_observations(
         self,
         manager_obs: dict[str, np.ndarray | dict[str, np.ndarray]],
+        num_rows: int | None = None,
     ) -> dict[str, np.ndarray]:
         mapping = {"obs": self._cfg.policy_observation_group}
         if self._cfg.critic_observation_group is not None:
@@ -723,7 +726,10 @@ class ManagerBasedRlEnv(NpEnv):
                     f"ManagerBasedRlEnv observation group '{group_name}' returned "
                     f"{type(value).__name__}, expected np.ndarray"
                 )
-            expected = (self.num_envs, self._mapped_obs_dims[output_name])
+            expected = (
+                self.num_envs if num_rows is None else num_rows,
+                self._mapped_obs_dims[output_name],
+            )
             if value.shape != expected:
                 raise ValueError(
                     f"ManagerBasedRlEnv observation group '{group_name}' returned shape "
