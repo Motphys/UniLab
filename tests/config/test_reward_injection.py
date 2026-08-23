@@ -40,7 +40,7 @@ def test_resolve_reward_dict_reads_task_reward():
 
     assert reward_dict["tracking_lin_vel"]["weight"] == 1.0
     assert reward_dict["tracking_ang_vel"]["weight"] == 0.2
-    assert reward_dict["tracking_lin_vel"]["func"].endswith("manager_terms.track_lin_vel")
+    assert reward_dict["tracking_lin_vel"]["func"].endswith("track_lin_vel_xy_exp")
 
 
 def test_reward_config_conversion():
