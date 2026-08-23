@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -185,6 +187,10 @@ class MotionCommand(CommandTerm):
         self._env_error = np.empty(self.num_envs, dtype=dtype)
         self._reward_term = np.empty(self.num_envs, dtype=dtype)
         self._robot_cache_step = -1
+        # Env ids of the most recent scoped (reset-path) compute; None after a
+        # per-step compute. Written by `_update_command`, consumed by
+        # `post_compute` to restrict refresh work to the reset rows.
+        self._post_compute_env_ids: np.ndarray | None = None
         self._robot_body_pos_w = np.empty_like(self._body_pos_w)
         self._robot_body_quat_w = np.empty((self.num_envs, num_bodies, 4), dtype=dtype)
         self._robot_body_lin_vel_w = np.empty_like(self._body_pos_w)
@@ -341,29 +347,55 @@ class MotionCommand(CommandTerm):
         )
         return super().reset(ids)
 
-    def _refresh_motion(self) -> None:
-        self.motion.get_motion_at_frame(self.time_steps, out=self._motion_data)
-        np.add(
-            self._motion_data.body_pos_w,
-            self._env.scene.env_origins[:, None, :],
-            out=self._body_pos_w,
-        )
-        width = self.motion.num_joints
-        self._command[:, :width] = self._motion_data.joint_pos
-        self._command[:, width:] = self._motion_data.joint_vel
+    def _refresh_motion(self, env_ids: np.ndarray | None = None) -> None:
+        """Refresh motion-reference buffers from the current frame indices.
 
-    def _refresh_robot_state(self, *, force: bool = False) -> None:
+        With env_ids=None all rows are refreshed in place; with env_ids only
+        those rows are gathered and scattered (partial-reset path). Rows outside
+        env_ids keep the values produced by the last per-step refresh, which are
+        still valid because untouched envs did not advance or resample frames.
+        """
+        if env_ids is None:
+            self.motion.get_motion_at_frame(self.time_steps, out=self._motion_data)
+            np.add(
+                self._motion_data.body_pos_w,
+                self._env.scene.env_origins[:, None, :],
+                out=self._body_pos_w,
+            )
+            width = self.motion.num_joints
+            self._command[:, :width] = self._motion_data.joint_pos
+            self._command[:, width:] = self._motion_data.joint_vel
+            return
+        data = self.motion.get_motion_at_frame(self.time_steps[env_ids])
+        for motion_field in dataclasses.fields(data):
+            value = getattr(data, motion_field.name)
+            target = getattr(self._motion_data, motion_field.name)
+            if value is None or target is None:
+                continue
+            target[env_ids] = value
+        self._body_pos_w[env_ids] = data.body_pos_w + self._env.scene.env_origins[env_ids, None, :]
+        width = self.motion.num_joints
+        self._command[env_ids, :width] = data.joint_pos
+        self._command[env_ids, width:] = data.joint_vel
+
+    def _refresh_robot_state(
+        self, *, force: bool = False, env_ids: np.ndarray | None = None
+    ) -> None:
         step = self._env.common_step_counter
         if not force and self._robot_cache_step == step:
             return
+        sel: np.ndarray | slice = slice(None) if env_ids is None else env_ids
         body_index = self._robot_body_ids
-        self._robot_body_pos_w[:] = self.robot.data.body_link_pos_w[:, body_index]
-        self._robot_body_quat_w[:] = self.robot.data.body_link_quat_w[:, body_index]
-        self._robot_body_lin_vel_w[:] = self.robot.data.body_link_lin_vel_w[:, body_index]
-        self._robot_body_ang_vel_w[:] = self.robot.data.body_link_ang_vel_w[:, body_index]
+        self._robot_body_pos_w[sel] = self.robot.data.body_link_pos_w[sel][:, body_index]
+        self._robot_body_quat_w[sel] = self.robot.data.body_link_quat_w[sel][:, body_index]
+        self._robot_body_lin_vel_w[sel] = self.robot.data.body_link_lin_vel_w[sel][:, body_index]
+        self._robot_body_ang_vel_w[sel] = self.robot.data.body_link_ang_vel_w[sel][:, body_index]
         self._robot_cache_step = step
 
-    def _refresh_relative_state(self) -> None:
+    def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:
+        if env_ids is not None:
+            self._refresh_relative_state_rows(env_ids)
+            return
         update_relative_transforms(
             self,
             self._motion_data,
@@ -391,39 +423,111 @@ class MotionCommand(CommandTerm):
             self.robot_body_ori_b,
         )
 
-    def _update_metrics(self) -> None:
-        self.metrics["error_anchor_pos"][:] = np.linalg.norm(
-            self.anchor_pos_w - self.robot_anchor_pos_w, axis=-1
+    def _refresh_relative_state_rows(self, env_ids: np.ndarray) -> None:
+        """Row-scoped variant of `_refresh_relative_state` for partial resets.
+
+        Computes the same transforms on the gathered reset rows and scatters the
+        results back; untouched rows keep their per-step values.
+        """
+        num_rows = len(env_ids)
+        num_bodies = self._robot_body_pos_w.shape[1]
+        dtype = self._body_pos_w.dtype
+        robot_pos_rows = self._robot_body_pos_w[env_ids]
+        robot_quat_rows = self._robot_body_quat_w[env_ids]
+        motion_rows = SimpleNamespace(
+            body_pos_w=self._motion_data.body_pos_w[env_ids],
+            body_quat_w=self._motion_data.body_quat_w[env_ids],
         )
-        self.metrics["error_anchor_rot"][:] = np.sqrt(
-            np_quat_error_magnitude_squared_batched(self.anchor_quat_w, self.robot_anchor_quat_w)
+        # `update_relative_transforms` reads/writes these attributes on the env;
+        # a namespace with row-sized scratch keeps the shared buffers untouched.
+        scratch = SimpleNamespace(
+            anchor_body_idx=self.anchor_body_idx,
+            _delta_pos_w=np.empty((num_rows, 3), dtype=dtype),
+            _delta_ori_w=np.empty((num_rows, 4), dtype=dtype),
+            body_quat_relative_w=np.empty((num_rows, num_bodies, 4), dtype=dtype),
+            body_pos_relative_w=np.empty((num_rows, num_bodies, 3), dtype=dtype),
+            _body_vec_error=np.empty((num_rows, num_bodies, 3), dtype=dtype),
+            _env_error=np.empty(num_rows, dtype=dtype),
+            _reward_term=np.empty(num_rows, dtype=dtype),
         )
-        self.metrics["error_anchor_lin_vel"][:] = np.linalg.norm(
-            self.anchor_lin_vel_w - self.robot_anchor_lin_vel_w, axis=-1
+        update_relative_transforms(scratch, motion_rows, robot_pos_rows, robot_quat_rows)
+        self.body_pos_relative_w[env_ids] = scratch.body_pos_relative_w
+        self.body_quat_relative_w[env_ids] = scratch.body_quat_relative_w
+
+        anchor_idx = self.anchor_body_idx
+        robot_anchor_pos_rows = robot_pos_rows[:, anchor_idx]
+        robot_anchor_quat_rows = robot_quat_rows[:, anchor_idx]
+        anchor_pos_rows = self._body_pos_w[env_ids][:, anchor_idx]
+        anchor_quat_rows = motion_rows.body_quat_w[:, anchor_idx]
+        motion_anchor_pos_b = np.empty((num_rows, 3), dtype=dtype)
+        motion_anchor_ori_b = np.empty((num_rows, 6), dtype=dtype)
+        np_write_relative_anchor_transform_pos_rot6d(
+            robot_anchor_pos_rows,
+            robot_anchor_quat_rows,
+            anchor_pos_rows,
+            anchor_quat_rows,
+            motion_anchor_pos_b,
+            motion_anchor_ori_b,
         )
-        self.metrics["error_anchor_ang_vel"][:] = np.linalg.norm(
-            self.anchor_ang_vel_w - self.robot_anchor_ang_vel_w, axis=-1
+        self.motion_anchor_pos_b[env_ids] = motion_anchor_pos_b
+        self.motion_anchor_ori_b[env_ids] = motion_anchor_ori_b
+        robot_body_pos_b = np.empty((num_rows, num_bodies, 3), dtype=dtype)
+        write_body_pos_in_anchor_frame(
+            robot_anchor_pos_rows,
+            robot_anchor_quat_rows,
+            robot_pos_rows,
+            robot_body_pos_b,
+            body_vec_error=scratch._body_vec_error,
         )
-        self.metrics["error_body_pos"][:] = np.linalg.norm(
-            self.body_pos_relative_w - self.robot_body_pos_w, axis=-1
-        ).mean(axis=-1)
-        self.metrics["error_body_rot"][:] = np.sqrt(
+        self.robot_body_pos_b[env_ids] = robot_body_pos_b
+        robot_body_ori_b = np.empty((num_rows, num_bodies, 6), dtype=dtype)
+        write_body_ori6_in_anchor_frame(
+            robot_anchor_quat_rows,
+            robot_quat_rows,
+            robot_body_ori_b,
+        )
+        self.robot_body_ori_b[env_ids] = robot_body_ori_b
+
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        # All error metrics are row-wise functions of the motion/robot buffers;
+        # on the reset path only the reset rows are recomputed since other rows
+        # are unchanged since the per-step update.
+        sel: np.ndarray | slice = slice(None) if env_ids is None else env_ids
+        self.metrics["error_anchor_pos"][sel] = np.linalg.norm(
+            self.anchor_pos_w[sel] - self.robot_anchor_pos_w[sel], axis=-1
+        )
+        self.metrics["error_anchor_rot"][sel] = np.sqrt(
             np_quat_error_magnitude_squared_batched(
-                self.body_quat_relative_w, self.robot_body_quat_w
+                self.anchor_quat_w[sel], self.robot_anchor_quat_w[sel]
+            )
+        )
+        self.metrics["error_anchor_lin_vel"][sel] = np.linalg.norm(
+            self.anchor_lin_vel_w[sel] - self.robot_anchor_lin_vel_w[sel], axis=-1
+        )
+        self.metrics["error_anchor_ang_vel"][sel] = np.linalg.norm(
+            self.anchor_ang_vel_w[sel] - self.robot_anchor_ang_vel_w[sel], axis=-1
+        )
+        self.metrics["error_body_pos"][sel] = np.linalg.norm(
+            self.body_pos_relative_w[sel] - self.robot_body_pos_w[sel], axis=-1
+        ).mean(axis=-1)
+        self.metrics["error_body_rot"][sel] = np.sqrt(
+            np_quat_error_magnitude_squared_batched(
+                self.body_quat_relative_w[sel], self.robot_body_quat_w[sel]
             )
         ).mean(axis=-1)
-        self.metrics["error_body_lin_vel"][:] = np.linalg.norm(
-            self.body_lin_vel_w - self.robot_body_lin_vel_w, axis=-1
+        self.metrics["error_body_lin_vel"][sel] = np.linalg.norm(
+            self.body_lin_vel_w[sel] - self.robot_body_lin_vel_w[sel], axis=-1
         ).mean(axis=-1)
-        self.metrics["error_body_ang_vel"][:] = np.linalg.norm(
-            self.body_ang_vel_w - self.robot_body_ang_vel_w, axis=-1
+        self.metrics["error_body_ang_vel"][sel] = np.linalg.norm(
+            self.body_ang_vel_w[sel] - self.robot_body_ang_vel_w[sel], axis=-1
         ).mean(axis=-1)
-        self.metrics["error_joint_pos"][:] = np.linalg.norm(
-            self.joint_pos - self.robot_joint_pos, axis=-1
+        self.metrics["error_joint_pos"][sel] = np.linalg.norm(
+            self.joint_pos[sel] - self.robot_joint_pos[sel], axis=-1
         )
-        self.metrics["error_joint_vel"][:] = np.linalg.norm(
-            self.joint_vel - self.robot_joint_vel, axis=-1
+        self.metrics["error_joint_vel"][sel] = np.linalg.norm(
+            self.joint_vel[sel] - self.robot_joint_vel[sel], axis=-1
         )
+        # Sampler statistics are global scalars, so every row tracks them.
         self.metrics["sampling_entropy"].fill(self.sampler.sampling_entropy)
         self.metrics["sampling_top1_prob"].fill(self.sampler.sampling_top1_prob)
         self.metrics["sampling_top1_bin"].fill(self.sampler.sampling_top1_bin)
@@ -459,8 +563,9 @@ class MotionCommand(CommandTerm):
         self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
 
     def _update_command(self, env_ids: np.ndarray | None) -> None:
+        self._post_compute_env_ids = env_ids
         if env_ids is not None:
-            self._refresh_motion()
+            self._refresh_motion(env_ids)
             return
         self.sampler.update_failure_stats(self._env.termination_manager.terminated)
         active_ids = np.flatnonzero(~self._env.reset_buf).astype(np.int32, copy=False)
@@ -470,8 +575,11 @@ class MotionCommand(CommandTerm):
         self._refresh_motion()
 
     def post_compute(self) -> None:
-        self._refresh_robot_state(force=True)
-        self._refresh_relative_state()
+        # On the reset path only the reset rows changed (via the committed
+        # set_state writes and the motion resample), so refresh just those rows.
+        env_ids = self._post_compute_env_ids
+        self._refresh_robot_state(force=True, env_ids=env_ids)
+        self._refresh_relative_state(env_ids)
 
 
 @dataclass(kw_only=True)

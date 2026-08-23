@@ -87,7 +87,8 @@ class CommandTerm(ManagerTermBase):
 
         With env_ids=None (the per-step path) all envs are updated; with env_ids
         (the reset path) timers and the command update are scoped to those envs.
-        Metrics are always refreshed.
+        Metrics are refreshed each call; terms may scope per-row metric work to
+        env_ids since other rows are unchanged since the per-step update.
 
         dt may be a scalar (all envs) or a per-env tensor (auto-reset path,
         where freshly reset envs get zero to keep their timers full). A tensor
@@ -104,7 +105,7 @@ class CommandTerm(ManagerTermBase):
         dt_is_finite = np.isfinite(dt).all() if isinstance(dt, np.ndarray) else np.isfinite(dt)
         if not dt_is_finite:
             raise ValueError(f"CommandTerm '{self.name}' received non-finite dt.")
-        self._update_metrics()
+        self._update_metrics(env_ids)
         self._validate_metrics()
         if env_ids is None:
             self.time_left -= dt
@@ -156,8 +157,13 @@ class CommandTerm(ManagerTermBase):
             self.command_counter[env_ids] += 1
 
     @abc.abstractmethod
-    def _update_metrics(self) -> None:
-        """Update the metrics based on the current state."""
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        """Update the metrics based on the current state.
+
+        env_ids is None on the per-step update (all envs) and the reset env ids on
+        the reset path. Terms may scope per-row metric work to env_ids; rows outside
+        env_ids are unchanged since the last per-step update and stay valid.
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
