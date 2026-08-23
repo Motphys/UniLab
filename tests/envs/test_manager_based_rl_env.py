@@ -226,7 +226,7 @@ class _Command(CommandTerm):
     def command(self) -> np.ndarray:
         return self._command
 
-    def _update_metrics(self) -> None:
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
         return None
 
     def _resample_command(self, env_ids: np.ndarray) -> None:

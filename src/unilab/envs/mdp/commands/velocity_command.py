@@ -117,7 +117,8 @@ class UniformVelocityCommand(CommandTerm):
     def command(self) -> np.ndarray:
         return self.vel_command_b
 
-    def _update_metrics(self) -> None:
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        del env_ids  # Metrics accumulate over all rows on every compute.
         max_command_steps = self.cfg.resampling_time_range[1] / self._env.step_dt
         self.metrics["error_vel_xy"] += (
             np.linalg.norm(

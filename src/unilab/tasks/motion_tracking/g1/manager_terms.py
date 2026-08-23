@@ -80,12 +80,15 @@ class BoxMotionCommand(MotionCommand):
     def object_state_b(self) -> np.ndarray:
         return self._object_obs_b
 
-    def _refresh_motion(self) -> None:
-        super()._refresh_motion()
+    def _refresh_motion(self, env_ids: np.ndarray | None = None) -> None:
+        super()._refresh_motion(env_ids)
         value = self.box_motion.object_pos_w
         if value is None:
             raise RuntimeError("Box motion object position was not materialized")
-        np.add(value, self._env.scene.env_origins, out=self._object_pos_w)
+        if env_ids is None:
+            np.add(value, self._env.scene.env_origins, out=self._object_pos_w)
+        else:
+            self._object_pos_w[env_ids] = value[env_ids] + self._env.scene.env_origins[env_ids]
 
     def _resample_command(self, env_ids: np.ndarray) -> None:
         super()._resample_command(env_ids)
@@ -111,23 +114,43 @@ class BoxMotionCommand(MotionCommand):
         )
         self.object.write_root_state_to_sim(object_state, env_ids=env_ids)
 
-    def _refresh_object_state(self) -> None:
+    def _refresh_object_state(self, env_ids: np.ndarray | None = None) -> None:
+        if env_ids is None:
+            np_write_relative_anchor_transform_pos_rot6d(
+                self.robot_anchor_pos_w,
+                self.robot_anchor_quat_w,
+                self.object.data.root_link_pos_w,
+                self.object.data.root_link_quat_w,
+                self._object_obs_b[:, :3],
+                self._object_obs_b[:, 3:9],
+            )
+            self._object_obs_b[:, 9:12] = np_quat_apply_inverse(
+                self.robot_anchor_quat_w,
+                self.object.data.root_link_lin_vel_w,
+            )
+            return
+        num_rows = len(env_ids)
+        dtype = self._object_obs_b.dtype
+        pos_b = np.empty((num_rows, 3), dtype=dtype)
+        rot_b = np.empty((num_rows, 6), dtype=dtype)
         np_write_relative_anchor_transform_pos_rot6d(
-            self.robot_anchor_pos_w,
-            self.robot_anchor_quat_w,
-            self.object.data.root_link_pos_w,
-            self.object.data.root_link_quat_w,
-            self._object_obs_b[:, :3],
-            self._object_obs_b[:, 3:9],
+            self.robot_anchor_pos_w[env_ids],
+            self.robot_anchor_quat_w[env_ids],
+            self.object.data.root_link_pos_w[env_ids],
+            self.object.data.root_link_quat_w[env_ids],
+            pos_b,
+            rot_b,
         )
-        self._object_obs_b[:, 9:12] = np_quat_apply_inverse(
-            self.robot_anchor_quat_w,
-            self.object.data.root_link_lin_vel_w,
+        self._object_obs_b[env_ids, :3] = pos_b
+        self._object_obs_b[env_ids, 3:9] = rot_b
+        self._object_obs_b[env_ids, 9:12] = np_quat_apply_inverse(
+            self.robot_anchor_quat_w[env_ids],
+            self.object.data.root_link_lin_vel_w[env_ids],
         )
 
     def post_compute(self) -> None:
         super().post_compute()
-        self._refresh_object_state()
+        self._refresh_object_state(self._post_compute_env_ids)
 
 
 def _box_command(env: ManagerBasedRlEnv, command_name: str) -> BoxMotionCommand:
