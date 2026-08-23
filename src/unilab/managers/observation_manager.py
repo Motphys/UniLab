@@ -278,13 +278,21 @@ class ObservationManager(ManagerBase):
                 mod.reset(env_ids=env_ids)
         return {}
 
-    def _check_and_handle_nans(self, tensor: np.ndarray, context: str, policy: str) -> np.ndarray:
+    def _check_and_handle_nans(
+        self,
+        tensor: np.ndarray,
+        context: str,
+        policy: str,
+        env_ids: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Check for NaN/Inf and handle according to policy.
 
         Args:
-          tensor: Observation tensor to check.
+          tensor: Observation tensor to check. On the reset path this holds only
+            the reset rows; pass env_ids so diagnostics report real env indices.
           context: Context string for error/warning messages (e.g., "actor/base_lin_vel").
           policy: NaN handling policy ("disabled", "warn", "sanitize", "error").
+          env_ids: Optional mapping from tensor rows to env indices (reset path).
 
         Returns:
           The tensor, potentially sanitized depending on policy.
@@ -301,10 +309,17 @@ class ObservationManager(ManagerBase):
         if not (has_nan or has_inf):
             return tensor
 
+        def _row_env_ids(mask: np.ndarray) -> list[int]:
+            rows = np.flatnonzero(np.asarray(mask, dtype=bool))
+            if env_ids is not None:
+                rows = np.asarray(env_ids)[rows]
+            result: list[int] = rows.tolist()
+            return result
+
         if policy == "error":
             invalid = ~np.isfinite(tensor)
-            nan_mask = invalid.reshape(self.num_envs, -1).any(axis=1)
-            nan_env_ids = np.flatnonzero(nan_mask).tolist()
+            nan_mask = np.asarray(invalid.reshape(tensor.shape[0], -1).any(axis=1))
+            nan_env_ids = _row_env_ids(nan_mask)
             invalid_kind = (
                 "NaN"
                 if has_nan and not has_inf
@@ -319,8 +334,8 @@ class ObservationManager(ManagerBase):
 
         if policy == "warn":
             invalid = ~np.isfinite(tensor)
-            nan_mask = invalid.reshape(self.num_envs, -1).any(axis=1)
-            nan_env_ids = np.flatnonzero(nan_mask).tolist()
+            nan_mask = np.asarray(invalid.reshape(tensor.shape[0], -1).any(axis=1))
+            nan_env_ids = _row_env_ids(nan_mask)
             print(
                 f"[ObservationManager] NaN/Inf in '{context}' "
                 f"(envs: {nan_env_ids[:5]}). Sanitizing to 0."
@@ -337,10 +352,14 @@ class ObservationManager(ManagerBase):
         """Compute observations for all groups.
 
         With env_ids=None (the per-step path), history and delay buffers advance
-        for all envs. With env_ids (the reset path), only the reset envs' buffers
-        receive their post-reset frame (a backfill); other envs' buffers, delay
-        schedules, and lag draws are untouched, so a partial reset does not
-        advance their observation timelines.
+        for all envs and the returned arrays cover the full batch. With env_ids
+        (the reset path), only the reset envs' buffers receive their post-reset
+        frame (a backfill); other envs' buffers, delay schedules, and lag draws
+        are untouched, so a partial reset does not advance their observation
+        timelines. The returned arrays then hold only the reset rows, in env_ids
+        order, and the observation cache is left invalidated (the next per-step
+        compute refreshes it); noise is still drawn with full-batch shapes so
+        the shared RNG stream matches the full-batch implementation exactly.
         """
         if env_ids is not None and not update_history:
             raise ValueError("env_ids is only meaningful with update_history=True.")
@@ -354,7 +373,8 @@ class ObservationManager(ManagerBase):
         self._last_compute_timing_ms = {}
         for group_name in self._group_obs_term_names:
             obs_buffer[group_name] = self.compute_group(group_name, update_history, env_ids)
-        self._obs_buffer = obs_buffer
+        if env_ids is None:
+            self._obs_buffer = obs_buffer
         return obs_buffer
 
     def compute_group(
@@ -381,6 +401,13 @@ class ObservationManager(ManagerBase):
         }
         term_timing: dict[str, float] = {}
         obs_terms = zip(group_term_names, self._group_obs_term_cfgs[group_name], strict=False)
+        # Reset path (issue #1259 R2): when no term in this group uses delay or
+        # history buffers, everything downstream of the term call is row
+        # independent, so only the reset rows are processed. Term calls and
+        # noise stay full-batch: term funcs are contracted to return
+        # (num_envs, ...) and full-shape noise draws keep the shared RNG stream
+        # and per-row noise values identical to the full-batch path.
+        row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
         for term_name, term_cfg in obs_terms:
             term_t0 = time.perf_counter()
             term_getter0 = self._env._mba_getter_total_ms()
@@ -395,13 +422,17 @@ class ObservationManager(ManagerBase):
                     f"ObservationManager term '{group_name}/{term_name}' returned shape "
                     f"{obs.shape}, expected (num_envs, ...) with num_envs={self.num_envs}."
                 )
-            obs = obs.copy()
+            if not row_scoped:
+                obs = obs.copy()
             t0 = time.perf_counter()
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
                 obs = term_cfg.noise.apply(obs, rng=self._env.rng)
             elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
                 obs = self._group_obs_class_instances[group_name][term_name](obs)
             phase_ms["noise"] += time.perf_counter() - t0
+            if row_scoped:
+                # Fresh row copy; safe for the in-place clip/scale below.
+                obs = obs[env_ids]
             t0 = time.perf_counter()
             if term_cfg.clip:
                 np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
@@ -415,7 +446,10 @@ class ObservationManager(ManagerBase):
             t0 = time.perf_counter()
             if group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
                 obs = self._check_and_handle_nans(
-                    obs, context=f"{group_name}/{term_name}", policy=group_cfg.nan_policy
+                    obs,
+                    context=f"{group_name}/{term_name}",
+                    policy=group_cfg.nan_policy,
+                    env_ids=env_ids if row_scoped else None,
                 )
             phase_ms["nan_check"] += time.perf_counter() - t0
 
@@ -464,6 +498,7 @@ class ObservationManager(ManagerBase):
                         group_obs[term_name],
                         context=f"{group_name}/{term_name}",
                         policy=group_cfg.nan_policy,
+                        env_ids=env_ids if row_scoped else None,
                     )
         phase_ms["nan_check"] += time.perf_counter() - t0
 
@@ -477,12 +512,24 @@ class ObservationManager(ManagerBase):
             t0 = time.perf_counter()
             if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
                 result = self._check_and_handle_nans(
-                    result, context=group_name, policy=group_cfg.nan_policy
+                    result,
+                    context=group_name,
+                    policy=group_cfg.nan_policy,
+                    env_ids=env_ids if row_scoped else None,
                 )
             phase_ms["nan_check"] += time.perf_counter() - t0
         else:
             phase_ms["concat"] += time.perf_counter() - t0
             result = group_obs
+
+        if env_ids is not None and not row_scoped:
+            # Groups with delay/history terms ran the full-batch pipeline above
+            # (buffer readout stays full-batch); slice the reset rows to match
+            # the reset-path return contract.
+            if isinstance(result, dict):
+                result = {name: values[env_ids] for name, values in result.items()}
+            else:
+                result = result[env_ids]
 
         timing = self._last_compute_timing_ms
         for phase_name, elapsed_s in phase_ms.items():
@@ -501,6 +548,9 @@ class ObservationManager(ManagerBase):
         self._group_obs_class_instances: dict[str, dict[str, noise_model.NoiseModel]] = {}
         self._group_obs_term_delay_buffer: dict[str, dict[str, DelayBuffer]] = dict()
         self._group_obs_term_history_buffer: dict[str, dict[str, CircularBuffer]] = dict()
+        # Whether any term in the group uses delay/history buffers. Groups
+        # without temporal terms can be row-scoped on the reset path.
+        self._group_obs_temporal: dict[str, bool] = dict()
 
         for group_name, group_cfg in self.cfg.items():
             if group_cfg is None:
@@ -630,3 +680,7 @@ class ObservationManager(ManagerBase):
 
             self._group_obs_term_delay_buffer[group_name] = group_entry_delay_buffer
             self._group_obs_term_history_buffer[group_name] = group_entry_history_buffer
+            self._group_obs_temporal[group_name] = any(
+                term_cfg.delay_max_lag > 0 or term_cfg.history_length > 0
+                for term_cfg in self._group_obs_term_cfgs[group_name]
+            )
