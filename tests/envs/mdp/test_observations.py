@@ -154,6 +154,7 @@ def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
             action_manager=_ActionManager(),
             command_manager=_CommandManager(),
             rng=np.random.default_rng(4),
+            _mba_getter_total_ms=lambda: 0.0,
         ),
     )
     return env, backend

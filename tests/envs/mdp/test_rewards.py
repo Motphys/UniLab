@@ -88,6 +88,7 @@ def _env() -> ManagerBasedRlEnv:
                 terminated=np.asarray([False, True, False], dtype=np.bool_)
             ),
             max_episode_length_s=2.0,
+            _mba_getter_total_ms=lambda: 0.0,
         ),
     )
 

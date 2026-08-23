@@ -133,12 +133,42 @@ NP_ENV_STEP_TIMING_KEYS = (
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
     "set_state_internal_gap_ms",
+    # Manager-Based (MBA) update_state blocks, reported every step by
+    # ManagerBasedRlEnv.update_state() (see UPDATE_STATE_DETAIL_TIMING_KEYS in
+    # src/unilab/base/np_env.py). Task-dependent per-term and per-method keys
+    # (mba_obs_term_*, mba_reward_term_*, mba_getter_<method>_ms) are discovered
+    # dynamically at sample time (JSON/console only; not part of the fixed CSV
+    # header).
+    "mba_update_total_ms",
+    "mba_termination_ms",
+    "mba_reward_ms",
+    "mba_metrics_ms",
+    "mba_events_ms",
+    "mba_command_ms",
+    "mba_obs_compute_ms",
+    "mba_obs_map_ms",
+    "mba_termination_getter_ms",
+    "mba_reward_getter_ms",
+    "mba_metrics_getter_ms",
+    "mba_events_getter_ms",
+    "mba_command_getter_ms",
+    "mba_obs_compute_getter_ms",
+    "mba_obs_map_getter_ms",
+    "mba_update_internal_gap_ms",
+    "mba_getters_total_ms",
+    "mba_obs_noise_ms",
+    "mba_obs_clip_scale_ms",
+    "mba_obs_nan_check_ms",
+    "mba_obs_delay_ms",
+    "mba_obs_history_ms",
+    "mba_obs_concat_ms",
 )
 NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
 NP_ENV_STEP_SAMPLE_KEYS = (*NP_ENV_STEP_TIMING_KEYS, *NP_ENV_STEP_COUNT_KEYS)
-# Task-dependent per-term event reset timings emitted by ManagerBasedRlEnv;
-# discovered dynamically from info["timing"] since term names vary per task.
-MBA_RESET_EVENT_TERM_PREFIX = "mba_reset_event_term_"
+# Task-dependent MBA timings emitted by ManagerBasedRlEnv (per-term reset event
+# timings, per-term obs/reward timings, per-method getter timings); discovered
+# dynamically from info["timing"] since term/method names vary per task.
+MBA_DYNAMIC_KEY_PREFIX = "mba_"
 NP_RANDOM_PROFILE_FUNCTIONS = (
     "uniform",
     "randint",
@@ -201,6 +231,29 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("set_state_pool_reset_ms", "set_state_pool_reset_ms"),
     ("set_state_state_scatter_ms", "set_state_state_scatter_ms"),
     ("set_state_internal_gap_ms", "set_state_internal_gap_ms"),
+    ("mba_update_total_ms", "mba_update_total_ms"),
+    ("mba_termination_ms", "mba_termination_ms"),
+    ("mba_reward_ms", "mba_reward_ms"),
+    ("mba_metrics_ms", "mba_metrics_ms"),
+    ("mba_events_ms", "mba_events_ms"),
+    ("mba_command_ms", "mba_command_ms"),
+    ("mba_obs_compute_ms", "mba_obs_compute_ms"),
+    ("mba_obs_map_ms", "mba_obs_map_ms"),
+    ("mba_termination_getter_ms", "mba_termination_getter_ms"),
+    ("mba_reward_getter_ms", "mba_reward_getter_ms"),
+    ("mba_metrics_getter_ms", "mba_metrics_getter_ms"),
+    ("mba_events_getter_ms", "mba_events_getter_ms"),
+    ("mba_command_getter_ms", "mba_command_getter_ms"),
+    ("mba_obs_compute_getter_ms", "mba_obs_compute_getter_ms"),
+    ("mba_obs_map_getter_ms", "mba_obs_map_getter_ms"),
+    ("mba_update_internal_gap_ms", "mba_update_internal_gap_ms"),
+    ("mba_getters_total_ms", "mba_getters_total_ms"),
+    ("mba_obs_noise_ms", "mba_obs_noise_ms"),
+    ("mba_obs_clip_scale_ms", "mba_obs_clip_scale_ms"),
+    ("mba_obs_nan_check_ms", "mba_obs_nan_check_ms"),
+    ("mba_obs_delay_ms", "mba_obs_delay_ms"),
+    ("mba_obs_history_ms", "mba_obs_history_ms"),
+    ("mba_obs_concat_ms", "mba_obs_concat_ms"),
 )
 
 
@@ -632,13 +685,11 @@ def _run_active_window_case(
                 )
             else:
                 env_step_timing_values["env_step_internal_gap_ms"] = None
-            # Task-dependent MBA per-term event timings (zero-filled by NpEnv on
-            # steps without reset, once the key set has been discovered).
+            # Task-dependent MBA dynamic keys (reset event terms, obs/reward
+            # terms, per-method getter timings); zero-filled by NpEnv on steps
+            # where they don't apply, once the key set has been discovered.
             for key, value in _timing.items():
-                if (
-                    key.startswith(MBA_RESET_EVENT_TERM_PREFIX)
-                    and key not in env_step_timing_values
-                ):
+                if key.startswith(MBA_DYNAMIC_KEY_PREFIX) and key not in env_step_timing_values:
                     env_step_timing_values[key] = value
 
             phase_start_ns = time.perf_counter_ns()
@@ -1579,6 +1630,20 @@ def _print_result(result: CollectorResult) -> None:
             "mba_reset_command_compute_ms",
             "mba_reset_obs_build_ms",
             "mba_reset_internal_gap_ms",
+            "mba_update_total_ms",
+            "mba_termination_ms",
+            "mba_reward_ms",
+            "mba_metrics_ms",
+            "mba_events_ms",
+            "mba_command_ms",
+            "mba_obs_compute_ms",
+            "mba_obs_map_ms",
+            "mba_update_internal_gap_ms",
+            "mba_getters_total_ms",
+            "mba_obs_noise_ms",
+            "mba_obs_clip_scale_ms",
+            "mba_obs_nan_check_ms",
+            "mba_obs_concat_ms",
         ):
             stat = result.env_step_timing_ms_per_vector_step.get(key)
             if stat is None:
@@ -1588,9 +1653,10 @@ def _print_result(result: CollectorResult) -> None:
                 f"pct_env={_env_step_child_env_pct(result, stat.mean_ms):5.1f}% "
                 f"pct_active={_env_step_child_pct(result, stat.mean_ms):5.1f}%"
             )
-        # Task-dependent MBA per-term event timings (reset-mode terms).
+        # Task-dependent MBA dynamic keys (reset event terms, obs/reward terms,
+        # per-method getter timings) not already printed above.
         for key in sorted(result.env_step_timing_ms_per_vector_step):
-            if not key.startswith(MBA_RESET_EVENT_TERM_PREFIX):
+            if not key.startswith(MBA_DYNAMIC_KEY_PREFIX) or key in NP_ENV_STEP_SAMPLE_KEYS:
                 continue
             stat = result.env_step_timing_ms_per_vector_step[key]
             print(

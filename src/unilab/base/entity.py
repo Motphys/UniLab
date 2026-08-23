@@ -8,10 +8,11 @@ public :class:`~unilab.base.backend.base.SimBackend` contract.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import numpy as np
 
@@ -132,6 +133,28 @@ def _resolve_matching_names(
     return [item[1] for item in matches], [item[2] for item in matches]
 
 
+class GetterTimingRecorder:
+    """Per-step wall-time accumulator for leaf backend state getters.
+
+    One recorder per :class:`EntityData` instance; the owning env aggregates and
+    resets the recorders around its ``update_state`` pass (see
+    ``ManagerBasedRlEnv``). Timing is always on: two ``perf_counter_ns`` calls
+    per getter invocation, negligible against the getter itself.
+    """
+
+    def __init__(self) -> None:
+        self.method_ms: dict[str, float] = {}
+        self.total_ms: float = 0.0
+
+    def record(self, method: str, elapsed_ms: float) -> None:
+        self.method_ms[method] = self.method_ms.get(method, 0.0) + elapsed_ms
+        self.total_ms += elapsed_ms
+
+    def reset(self) -> None:
+        self.method_ms.clear()
+        self.total_ms = 0.0
+
+
 class EntityData:
     """Hot-path NumPy state surface backed by cached backend IDs."""
 
@@ -176,6 +199,16 @@ class EntityData:
         self._actuator_ids = actuator_ids
         self._actuator_ctrl_range = actuator_ctrl_range
         self._control_buffer = control_buffer
+        # Always-on leaf getter timing; aggregated/reset per update_state by the
+        # owning env (MBA update_state instrumentation, issue #1256).
+        self.getter_timing = GetterTimingRecorder()
+
+    def _timed_getter(self, method: str, fn: Any, *args: Any) -> np.ndarray:
+        t0 = time.perf_counter_ns()
+        try:
+            return fn(*args)
+        finally:
+            self.getter_timing.record(method, (time.perf_counter_ns() - t0) / 1e6)
 
     def _require(self, value, capability: str):
         if value is None:
@@ -188,32 +221,32 @@ class EntityData:
     @property
     def root_link_pos_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._backend.get_body_pos_w(ids)[:, 0]
+        return self._timed_getter("body_pos_w", self._backend.get_body_pos_w, ids)[:, 0]
 
     @property
     def root_link_quat_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._backend.get_body_quat_w(ids)[:, 0]
+        return self._timed_getter("body_quat_w", self._backend.get_body_quat_w, ids)[:, 0]
 
     @property
     def root_link_lin_vel_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._backend.get_body_lin_vel_w(ids)[:, 0]
+        return self._timed_getter("body_lin_vel_w", self._backend.get_body_lin_vel_w, ids)[:, 0]
 
     @property
     def root_link_ang_vel_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._backend.get_body_ang_vel_w(ids)[:, 0]
+        return self._timed_getter("body_ang_vel_w", self._backend.get_body_ang_vel_w, ids)[:, 0]
 
     @property
     def root_link_lin_vel_b(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._backend.get_body_lin_vel_b(ids)[:, 0]
+        return self._timed_getter("body_lin_vel_b", self._backend.get_body_lin_vel_b, ids)[:, 0]
 
     @property
     def root_link_ang_vel_b(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._backend.get_body_ang_vel_b(ids)[:, 0]
+        return self._timed_getter("body_ang_vel_b", self._backend.get_body_ang_vel_b, ids)[:, 0]
 
     @property
     def heading_w(self) -> np.ndarray:
@@ -253,12 +286,12 @@ class EntityData:
     @property
     def joint_pos(self) -> np.ndarray:
         index = self._require(self._joint_pos_index, "joint position")
-        return self._backend.get_dof_pos()[:, index]
+        return self._timed_getter("dof_pos", self._backend.get_dof_pos)[:, index]
 
     @property
     def joint_vel(self) -> np.ndarray:
         index = self._require(self._joint_vel_index, "joint velocity")
-        return self._backend.get_dof_vel()[:, index]
+        return self._timed_getter("dof_vel", self._backend.get_dof_vel)[:, index]
 
     @property
     def joint_pos_biased(self) -> np.ndarray:
@@ -288,22 +321,22 @@ class EntityData:
     @property
     def body_link_pos_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._backend.get_body_pos_w(ids)
+        return self._timed_getter("body_pos_w", self._backend.get_body_pos_w, ids)
 
     @property
     def body_link_quat_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._backend.get_body_quat_w(ids)
+        return self._timed_getter("body_quat_w", self._backend.get_body_quat_w, ids)
 
     @property
     def body_link_lin_vel_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._backend.get_body_lin_vel_w(ids)
+        return self._timed_getter("body_lin_vel_w", self._backend.get_body_lin_vel_w, ids)
 
     @property
     def body_link_ang_vel_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._backend.get_body_ang_vel_w(ids)
+        return self._timed_getter("body_ang_vel_w", self._backend.get_body_ang_vel_w, ids)
 
     @property
     def body_link_pose_w(self) -> np.ndarray:

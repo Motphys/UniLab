@@ -257,6 +257,9 @@ class ManagerBasedRlEnv(NpEnv):
         # Sub-step wall time (ms) of the most recent partial reset; consumed by
         # NpEnv._reset_done_envs via _collect_manager_reset_timing_ms().
         self._last_reset_timing_ms: dict[str, float] = {}
+        # Block/term/getter wall time (ms) of the most recent update_state;
+        # consumed by NpEnv.step via _collect_manager_update_timing_ms().
+        self._last_update_timing_ms: dict[str, float] = {}
 
         self._load_managers()
         self._mapped_obs_dims = self._validate_observation_mapping()
@@ -437,15 +440,38 @@ class ManagerBasedRlEnv(NpEnv):
             self.action_manager.apply_action()
         return self._control
 
+    def _mba_getter_total_ms(self) -> float:
+        """Accumulated leaf backend getter time (ms) across all scene entities.
+
+        EntityData records every leaf getter call into a per-entity
+        GetterTimingRecorder; update_state resets the recorders at block start
+        and reads deltas around blocks/terms for attribution (issue #1256).
+        """
+        return sum(entity.data.getter_timing.total_ms for entity in self.scene.values())
+
     def update_state(self, state: NpEnvState) -> NpEnvState:
         log: dict[str, Any] = {}
         state.info["log"] = log
         self.extras = state.info
 
+        # Reset leaf getter accumulators so this pass measures only update_state.
+        for entity in self.scene.values():
+            entity.data.getter_timing.reset()
+        update_t0 = time.perf_counter()
+        update_timing: dict[str, float] = {}
+
         np.add(state.info["steps"], 1, out=self.episode_length_buf)
         self.common_step_counter = self.step_counter + 1
         self._sim_step_counter = self.common_step_counter * self._cfg.sim_substeps
 
+        def _mark(name: str, t0: float, getter0: float) -> tuple[float, float]:
+            now = time.perf_counter()
+            getter_now = self._mba_getter_total_ms()
+            update_timing[f"mba_{name}_ms"] = (now - t0) * 1000.0
+            update_timing[f"mba_{name}_getter_ms"] = getter_now - getter0
+            return now, getter_now
+
+        t_prev, g_prev = time.perf_counter(), self._mba_getter_total_ms()
         self.termination_manager.compute()
         if self._cfg.is_finite_horizon:
             np.logical_or(
@@ -458,26 +484,61 @@ class ManagerBasedRlEnv(NpEnv):
             np.copyto(self.reset_terminated, self.termination_manager.terminated)
             np.copyto(self.reset_time_outs, self.termination_manager.time_outs)
         np.logical_or(self.reset_terminated, self.reset_time_outs, out=self.reset_buf)
+        t_prev, g_prev = _mark("termination", t_prev, g_prev)
 
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
         log.update(self.reward_manager.step_reward_extras())
+        t_prev, g_prev = _mark("reward", t_prev, g_prev)
+        update_timing.update(self.reward_manager.last_compute_timing_ms)
+
         if self._cfg.sim_substeps == 1:
             self.metrics_manager.compute_substep()
         self.metrics_manager.compute()
+        t_prev, g_prev = _mark("metrics", t_prev, g_prev)
 
         if "step" in self.event_manager.available_modes:
             self.event_manager.apply(mode="step", dt=self.step_dt)
         if "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
+        t_prev, g_prev = _mark("events", t_prev, g_prev)
 
         self._command_dt.fill(self.step_dt)
         self._command_dt[self.reset_buf] = 0.0
         with self._reset_state.scoped(self._all_env_ids):
             self.command_manager.compute(dt=self._command_dt)
         self.command_manager.post_compute()
+        t_prev, g_prev = _mark("command", t_prev, g_prev)
+
         manager_obs = self.observation_manager.compute(update_history=True)
+        t_prev, g_prev = _mark("obs_compute", t_prev, g_prev)
+        update_timing.update(self.observation_manager.last_compute_timing_ms)
+
         self.obs_buf = self._map_observations(manager_obs)
+        t_prev, g_prev = _mark("obs_map", t_prev, g_prev)
         self._has_transition = True
+
+        update_total_ms = (time.perf_counter() - update_t0) * 1000.0
+        block_names = (
+            "termination",
+            "reward",
+            "metrics",
+            "events",
+            "command",
+            "obs_compute",
+            "obs_map",
+        )
+        update_timing["mba_update_total_ms"] = update_total_ms
+        update_timing["mba_update_internal_gap_ms"] = update_total_ms - sum(
+            update_timing[f"mba_{name}_ms"] for name in block_names
+        )
+        getter_method_ms: dict[str, float] = {}
+        for entity in self.scene.values():
+            for method, elapsed_ms in entity.data.getter_timing.method_ms.items():
+                getter_method_ms[method] = getter_method_ms.get(method, 0.0) + elapsed_ms
+        update_timing["mba_getters_total_ms"] = g_prev
+        for method, elapsed_ms in getter_method_ms.items():
+            update_timing[f"mba_getter_{method}_ms"] = elapsed_ms
+        self._last_update_timing_ms = update_timing
 
         return state.replace(
             obs=self.obs_buf,
@@ -486,6 +547,9 @@ class ManagerBasedRlEnv(NpEnv):
             truncated=self.reset_time_outs,
             info=state.info,
         )
+
+    def _collect_manager_update_timing_ms(self) -> dict[str, float]:
+        return dict(self._last_update_timing_ms)
 
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         del state

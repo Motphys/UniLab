@@ -250,6 +250,10 @@ class ManagerBasedRlEnv(Protocol):
     @property
     def max_episode_length_s(self) -> float: ...
 
+    def _mba_getter_total_ms(self) -> float:
+        """Accumulated leaf backend getter time (ms); 0.0 when uninstrumented."""
+        ...
+
     # Concrete task terms may still type their own richer env subclass.  The
     # standalone manager core deliberately depends only on the properties above.
 
