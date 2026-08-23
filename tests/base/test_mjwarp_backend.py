@@ -48,18 +48,38 @@ def _stand_state(backend: Any, count: int) -> tuple[np.ndarray, np.ndarray]:
     return qpos.astype(np.float32), qvel
 
 
-def test_real_cuda_init_reset_step() -> None:
+def test_real_cuda_init_reset_step(monkeypatch: pytest.MonkeyPatch) -> None:
     backend = _backend(2)
     assert backend.backend_type == "mjwarp"
     assert backend.num_actuators == 29
     assert backend.num_dof_vel == 29
 
+    graph_launches: list[Any] = []
+    original_capture_launch = backend._warp.capture_launch
+
+    def capture_launch(graph: Any) -> None:
+        graph_launches.append(graph)
+        original_capture_launch(graph)
+
+    monkeypatch.setattr(backend._warp, "capture_launch", capture_launch)
+
     qpos, qvel = _stand_state(backend, 2)
     backend.set_state(np.asarray([0, 1], dtype=np.int32), qpos, qvel)
     before = backend.get_base_pos().copy()
-    result = backend.step(np.tile(qpos[0, -backend.num_actuators :], (2, 1)), nsteps=1)
+    result = backend.step(np.tile(qpos[0, -backend.num_actuators :], (2, 1)), nsteps=3)
 
     assert set(result["timing"]) == {"control_upload_ms", "physics_ms", "host_cache_refresh_ms"}
+    if backend._cuda_graph_enabled:
+        assert graph_launches == [
+            backend._reset_graph,
+            backend._forward_graph,
+            backend._step_graph,
+            backend._step_graph,
+            backend._step_graph,
+        ]
+    else:
+        assert graph_launches == []
+        assert backend._cuda_graph_disable_reason
     assert np.isfinite(backend.get_base_pos()).all()
     assert np.isfinite(backend.get_dof_pos()).all()
     assert np.isfinite(backend.get_sensor_data("torso_upvector")).all()
