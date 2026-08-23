@@ -129,33 +129,24 @@ env:
   critic_observation_group: critic
 
 reward:
-  # Base-velocity terms bind the IMU-style XML sensors (local_linvel / gyro)
-  # like the legacy task; Entity root_link_*_vel_b reads base-relative frame
-  # sensors that are identically zero for the root body on Motrix.
   tracking_lin_vel:
-    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
     weight: 3.0
     params:
-      tracking_sigma: 0.25
+      std: 0.5
       command_name: twist
-      sensor_name: local_linvel
   tracking_ang_vel:
-    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel
+    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel_z_exp
     weight: 1.5
     params:
-      tracking_sigma: 0.25
+      std: 0.5
       command_name: twist
-      sensor_name: gyro
   lin_vel_z:
-    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z
+    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z_l2
     weight: -2.0
-    params:
-      sensor_name: local_linvel
   ang_vel_xy:
-    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy
+    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy_l2
     weight: -0.05
-    params:
-      sensor_name: gyro
   action_rate:
     func: unilab.envs.mdp.action_rate_l2
     weight: -0.01

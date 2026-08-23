@@ -32,6 +32,7 @@ from unilab.dr.types import (
     ResetRandomizationPayload,
 )
 from unilab.dtype_config import get_global_dtype
+from unilab.utils.rotation import np_quat_apply_inverse_batched
 
 from ..base import (
     BackendHeightScanner,
@@ -437,8 +438,6 @@ class MuJoCoBackend(SimBackend):
             # Local (baselink) sensors
             self._tracked_pos_b_all = _get_sensor_view("track_pos_b", 3)
             self._tracked_quat_b_all = _get_sensor_view("track_quat_b", 4)
-            self._tracked_linvel_b_all = _get_sensor_view("track_linvel_b", 3)
-            self._tracked_angvel_b_all = _get_sensor_view("track_angvel_b", 3)
 
     def _load_base_model(self) -> mujoco.MjModel:
         if isinstance(self._model_file, mujoco.MjModel):
@@ -1438,10 +1437,19 @@ class MuJoCoBackend(SimBackend):
         return self._tracked_quat_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._tracked_linvel_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
+        # Analytical per the SimBackend contract: world-frame velocity rotated
+        # into each body's own frame. MuJoCo framelinvel sensors with a baselink
+        # reference report relative motion and degenerate to zero for the root.
+        idx = self._get_mapped_indices(body_ids)
+        return np_quat_apply_inverse_batched(
+            self._tracked_quat_w_all[:, idx, :], self._tracked_linvel_w_all[:, idx, :]
+        )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        return self._tracked_angvel_b_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
+        idx = self._get_mapped_indices(body_ids)
+        return np_quat_apply_inverse_batched(
+            self._tracked_quat_w_all[:, idx, :], self._tracked_angvel_w_all[:, idx, :]
+        )
 
     # ------------------------------------------------------------------ #
     # Sensors                                                            #

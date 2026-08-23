@@ -133,6 +133,10 @@ def _add_w_sensors(spec, valid_bnames: list[str]) -> None:
 
 
 def _add_b_sensors(spec, valid_bnames: list[str], baselink_name: str) -> None:
+    # Body-frame velocities are computed analytically from the world-frame
+    # tracking sensors (see MuJoCoBackend.get_body_*_vel_b); framelinvel /
+    # frameangvel sensors with a baselink reference report relative motion and
+    # degenerate to zero for the root body, so they are intentionally absent.
     mujoco = _mujoco_module()
     for bname in valid_bnames:
         spec.add_sensor(
@@ -147,24 +151,6 @@ def _add_b_sensors(spec, valid_bnames: list[str], baselink_name: str) -> None:
         spec.add_sensor(
             name=f"track_quat_b_{bname}",
             type=mujoco.mjtSensor.mjSENS_FRAMEQUAT,
-            objtype=mujoco.mjtObj.mjOBJ_XBODY,
-            objname=bname,
-            reftype=mujoco.mjtObj.mjOBJ_XBODY,
-            refname=baselink_name,
-        )
-    for bname in valid_bnames:
-        spec.add_sensor(
-            name=f"track_linvel_b_{bname}",
-            type=mujoco.mjtSensor.mjSENS_FRAMELINVEL,
-            objtype=mujoco.mjtObj.mjOBJ_XBODY,
-            objname=bname,
-            reftype=mujoco.mjtObj.mjOBJ_XBODY,
-            refname=baselink_name,
-        )
-    for bname in valid_bnames:
-        spec.add_sensor(
-            name=f"track_angvel_b_{bname}",
-            type=mujoco.mjtSensor.mjSENS_FRAMEANGVEL,
             objtype=mujoco.mjtObj.mjOBJ_XBODY,
             objname=bname,
             reftype=mujoco.mjtObj.mjOBJ_XBODY,

@@ -713,19 +713,23 @@ class DrakeBackend(SimBackend):
         return _quat_multiply(base_inv[:, None, :], body_quat)
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        base_rot = _quat_to_rotation_matrix(self.get_base_quat())
+        # Analytical per the SimBackend contract: world-frame velocity
+        # expressed in each body's own frame.
+        body_state = self._body_state(body_ids)
+        body_rot = _quat_to_rotation_matrix(body_state["quat"])
         return np.einsum(
-            "nij,nkj->nki",
-            np.swapaxes(base_rot, 1, 2),
-            self._body_state(body_ids)["linvel"],
+            "nkij,nkj->nki",
+            np.swapaxes(body_rot, -1, -2),
+            body_state["linvel"],
         )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        base_rot = _quat_to_rotation_matrix(self.get_base_quat())
+        body_state = self._body_state(body_ids)
+        body_rot = _quat_to_rotation_matrix(body_state["quat"])
         return np.einsum(
-            "nij,nkj->nki",
-            np.swapaxes(base_rot, 1, 2),
-            self._body_state(body_ids)["angvel"],
+            "nkij,nkj->nki",
+            np.swapaxes(body_rot, -1, -2),
+            body_state["angvel"],
         )
 
     def get_sensor_data(self, name: str) -> np.ndarray:

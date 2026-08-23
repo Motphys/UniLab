@@ -13,7 +13,6 @@ import numpy as np
 from unilab.dtype_config import get_global_dtype
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.tasks.locomotion.common.sensor_terms import SensorTermBase
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -229,116 +228,6 @@ def stand_still_l1(
         joint_deviation_l1(env, asset_cfg=asset_cfg) * stopped,
         dtype=get_global_dtype(),
     )
-
-
-# ---------------------------------------------------------------------------
-# Sensor-bound base velocity terms (legacy quadruped equations)
-# ---------------------------------------------------------------------------
-#
-# These terms read the named IMU-style XML sensors (``local_linvel`` /
-# ``gyro``) exactly like the legacy Go1/Go2 joystick tasks.  They deliberately
-# avoid ``Entity.data.root_link_*_vel_b``: on backends that realize body-frame
-# velocity through base-relative frame sensors (Motrix), the root body's value
-# is identically zero, which silently zeroes every base-velocity reward term.
-
-
-class _NamedSensorTerm(SensorTermBase):
-    """Single-sensor binding with a configurable ``sensor_name`` parameter."""
-
-    _allowed_params: ClassVar[frozenset[str]] = frozenset({"sensor_name"})
-    _default_sensor_name: ClassVar[str] = ""
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        sensor_name = cfg.params.get("sensor_name", self._default_sensor_name)
-        if not isinstance(sensor_name, str) or not sensor_name:
-            raise ValueError(f"{self.name} sensor_name must be a non-empty string")
-        self._sensor_name = sensor_name
-        self._view = self._bind((sensor_name,))
-
-    def _read_sensor(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        value = self._read(self._view, self.name)
-        return _state(self.name, f"sensor '{self._sensor_name}'", value, (env.num_envs, 3))
-
-
-class _LinVelSensorTerm(_NamedSensorTerm):
-    _default_sensor_name: ClassVar[str] = "local_linvel"
-
-
-class _GyroSensorTerm(_NamedSensorTerm):
-    _default_sensor_name: ClassVar[str] = "gyro"
-
-
-class track_lin_vel(_LinVelSensorTerm):
-    """Exponential reward for tracking commanded xy linear velocity."""
-
-    _allowed_params = _NamedSensorTerm._allowed_params | {"tracking_sigma", "command_name"}
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._sigma = _real(
-            self.name,
-            "tracking_sigma",
-            cfg.params.get("tracking_sigma", 0.25),
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        command_name = cfg.params.get("command_name", "twist")
-        if not isinstance(command_name, str) or not command_name:
-            raise ValueError(f"{self.name} command_name must be a non-empty string")
-        self._command_name = command_name
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        linvel = self._read_sensor(env)
-        command = _command(env, self.name, self._command_name)
-        error = np.sum(np.square(command[:, :2] - linvel[:, :2]), axis=1)
-        return np.asarray(np.exp(-error / self._sigma), dtype=get_global_dtype())
-
-
-class track_ang_vel(_GyroSensorTerm):
-    """Exponential reward for tracking commanded yaw angular velocity."""
-
-    _allowed_params = _NamedSensorTerm._allowed_params | {"tracking_sigma", "command_name"}
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._sigma = _real(
-            self.name,
-            "tracking_sigma",
-            cfg.params.get("tracking_sigma", 0.25),
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        command_name = cfg.params.get("command_name", "twist")
-        if not isinstance(command_name, str) or not command_name:
-            raise ValueError(f"{self.name} command_name must be a non-empty string")
-        self._command_name = command_name
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        gyro = self._read_sensor(env)
-        command = _command(env, self.name, self._command_name)
-        error = np.square(command[:, 2] - gyro[:, 2])
-        return np.asarray(np.exp(-error / self._sigma), dtype=get_global_dtype())
-
-
-class lin_vel_z(_LinVelSensorTerm):
-    """Penalty for vertical (z) linear velocity."""
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        linvel = self._read_sensor(env)
-        return np.asarray(np.square(linvel[:, 2]), dtype=get_global_dtype())
-
-
-class ang_vel_xy(_GyroSensorTerm):
-    """Penalty for roll/pitch angular velocity."""
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        gyro = self._read_sensor(env)
-        return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1), dtype=get_global_dtype())
 
 
 class _GaitTerm(ManagerTermBase):
@@ -584,19 +473,15 @@ class feet_air_while_standing(ManagerTermBase):
 
 
 __all__ = [
-    "ang_vel_xy",
     "ang_vel_xy_l2",
     "base_height_l2",
     "feet_air_while_standing",
     "feet_phase_contact",
     "feet_phase_swing_height",
     "joint_deviation_l1",
-    "lin_vel_z",
     "lin_vel_z_l2",
     "quadruped_gait_phase",
     "stand_still_l1",
-    "track_ang_vel",
     "track_ang_vel_z_exp",
-    "track_lin_vel",
     "track_lin_vel_xy_exp",
 ]
