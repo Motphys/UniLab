@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -138,8 +139,8 @@ class GetterTimingRecorder:
 
     One recorder per :class:`EntityData` instance; the owning env aggregates and
     resets the recorders around its ``update_state`` pass (see
-    ``ManagerBasedRlEnv``). Timing is always on: two ``perf_counter_ns`` calls
-    per getter invocation, negligible against the getter itself.
+    ``ManagerBasedRlEnv``). Timing is always on for actual backend reads: cache
+    hits add no synthetic getter time.
     """
 
     def __init__(self) -> None:
@@ -153,6 +154,48 @@ class GetterTimingRecorder:
     def reset(self) -> None:
         self.method_ms.clear()
         self.total_ms = 0.0
+
+
+_StateReadKey = tuple[str, tuple[int, ...] | None]
+
+
+class _EntityStateReadCache:
+    """Update-phase cache shared by every entity bound to one backend scene."""
+
+    def __init__(self) -> None:
+        self._active = False
+        self._values: dict[_StateReadKey, np.ndarray] = {}
+
+    def get(self, key: _StateReadKey) -> np.ndarray | None:
+        if not self._active:
+            return None
+        return self._values.get(key)
+
+    def put(self, key: _StateReadKey, value: np.ndarray) -> None:
+        if self._active:
+            self._values[key] = value
+
+    def invalidate(self) -> None:
+        self._values.clear()
+
+    @contextmanager
+    def scoped(self) -> Iterator[None]:
+        if self._active:
+            raise RuntimeError("Entity state-read cache phase is already active")
+        self._active = True
+        self._values.clear()
+        try:
+            yield
+        finally:
+            self._values.clear()
+            self._active = False
+
+
+def _state_selector_key(ids: np.ndarray | None) -> tuple[int, ...] | None:
+    """Freeze a cold-path backend selector into a cheap hot-path cache key."""
+    if ids is None:
+        return None
+    return tuple(int(value) for value in ids)
 
 
 class EntityData:
@@ -177,11 +220,13 @@ class EntityData:
         control_buffer: np.ndarray | None,
         entity_name: str,
         backend_type: str,
+        state_read_cache: _EntityStateReadCache,
     ) -> None:
         self._backend = backend
         self._entity_name = entity_name
         self._backend_type = backend_type
         self._root_body_ids = root_body_ids
+        self._root_body_state_key = _state_selector_key(root_body_ids)
         self._joint_pos_index = None if joint_pos_ids is None else _as_column_index(joint_pos_ids)
         self._joint_vel_index = None if joint_vel_ids is None else _as_column_index(joint_vel_ids)
         self._default_root_state = default_root_state
@@ -196,19 +241,33 @@ class EntityData:
             else np.zeros(default_joint_pos.shape, dtype=default_joint_pos.dtype)
         )
         self._body_ids = body_ids
+        self._body_state_key = _state_selector_key(body_ids)
         self._actuator_ids = actuator_ids
         self._actuator_ctrl_range = actuator_ctrl_range
         self._control_buffer = control_buffer
+        self._state_read_cache = state_read_cache
         # Always-on leaf getter timing; aggregated/reset per update_state by the
         # owning env (MBA update_state instrumentation, issue #1256).
         self.getter_timing = GetterTimingRecorder()
 
-    def _timed_getter(self, method: str, fn: Any, *args: Any) -> np.ndarray:
+    def _timed_getter(
+        self,
+        method: str,
+        fn: Any,
+        *args: Any,
+        selector: tuple[int, ...] | None = None,
+    ) -> np.ndarray:
+        key = (method, selector)
+        cached = self._state_read_cache.get(key)
+        if cached is not None:
+            return cached
         t0 = time.perf_counter_ns()
         try:
-            return fn(*args)
+            value = fn(*args)
         finally:
             self.getter_timing.record(method, (time.perf_counter_ns() - t0) / 1e6)
+        self._state_read_cache.put(key, value)
+        return value
 
     def _require(self, value, capability: str):
         if value is None:
@@ -221,32 +280,62 @@ class EntityData:
     @property
     def root_link_pos_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._timed_getter("body_pos_w", self._backend.get_body_pos_w, ids)[:, 0]
+        return self._timed_getter(
+            "body_pos_w",
+            self._backend.get_body_pos_w,
+            ids,
+            selector=self._root_body_state_key,
+        )[:, 0]
 
     @property
     def root_link_quat_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._timed_getter("body_quat_w", self._backend.get_body_quat_w, ids)[:, 0]
+        return self._timed_getter(
+            "body_quat_w",
+            self._backend.get_body_quat_w,
+            ids,
+            selector=self._root_body_state_key,
+        )[:, 0]
 
     @property
     def root_link_lin_vel_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._timed_getter("body_lin_vel_w", self._backend.get_body_lin_vel_w, ids)[:, 0]
+        return self._timed_getter(
+            "body_lin_vel_w",
+            self._backend.get_body_lin_vel_w,
+            ids,
+            selector=self._root_body_state_key,
+        )[:, 0]
 
     @property
     def root_link_ang_vel_w(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._timed_getter("body_ang_vel_w", self._backend.get_body_ang_vel_w, ids)[:, 0]
+        return self._timed_getter(
+            "body_ang_vel_w",
+            self._backend.get_body_ang_vel_w,
+            ids,
+            selector=self._root_body_state_key,
+        )[:, 0]
 
     @property
     def root_link_lin_vel_b(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._timed_getter("body_lin_vel_b", self._backend.get_body_lin_vel_b, ids)[:, 0]
+        return self._timed_getter(
+            "body_lin_vel_b",
+            self._backend.get_body_lin_vel_b,
+            ids,
+            selector=self._root_body_state_key,
+        )[:, 0]
 
     @property
     def root_link_ang_vel_b(self) -> np.ndarray:
         ids = self._require(self._root_body_ids, "root body state")
-        return self._timed_getter("body_ang_vel_b", self._backend.get_body_ang_vel_b, ids)[:, 0]
+        return self._timed_getter(
+            "body_ang_vel_b",
+            self._backend.get_body_ang_vel_b,
+            ids,
+            selector=self._root_body_state_key,
+        )[:, 0]
 
     @property
     def heading_w(self) -> np.ndarray:
@@ -321,22 +410,42 @@ class EntityData:
     @property
     def body_link_pos_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._timed_getter("body_pos_w", self._backend.get_body_pos_w, ids)
+        return self._timed_getter(
+            "body_pos_w",
+            self._backend.get_body_pos_w,
+            ids,
+            selector=self._body_state_key,
+        )
 
     @property
     def body_link_quat_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._timed_getter("body_quat_w", self._backend.get_body_quat_w, ids)
+        return self._timed_getter(
+            "body_quat_w",
+            self._backend.get_body_quat_w,
+            ids,
+            selector=self._body_state_key,
+        )
 
     @property
     def body_link_lin_vel_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._timed_getter("body_lin_vel_w", self._backend.get_body_lin_vel_w, ids)
+        return self._timed_getter(
+            "body_lin_vel_w",
+            self._backend.get_body_lin_vel_w,
+            ids,
+            selector=self._body_state_key,
+        )
 
     @property
     def body_link_ang_vel_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
-        return self._timed_getter("body_ang_vel_w", self._backend.get_body_ang_vel_w, ids)
+        return self._timed_getter(
+            "body_ang_vel_w",
+            self._backend.get_body_ang_vel_w,
+            ids,
+            selector=self._body_state_key,
+        )
 
     @property
     def body_link_pose_w(self) -> np.ndarray:
@@ -460,6 +569,7 @@ class Entity:
         reset_state: ResetStateTransaction | None = None,
         *,
         default_qpos: np.ndarray | None = None,
+        state_read_cache: _EntityStateReadCache | None = None,
     ) -> None:
         if not name:
             raise ValueError("Entity name must be a non-empty string")
@@ -576,6 +686,9 @@ class Entity:
             control_buffer=control_buffer,
             entity_name=self.name,
             backend_type=self._backend_type,
+            state_read_cache=(
+                state_read_cache if state_read_cache is not None else _EntityStateReadCache()
+            ),
         )
 
     @property
@@ -1793,6 +1906,7 @@ class EntityScene(Mapping[str, Entity]):
         default_qpos: np.ndarray | None = None,
     ) -> None:
         self._backend = backend
+        self._state_read_cache = _EntityStateReadCache()
         materialized: dict[str, Entity] = {}
         for name, cfg in entities.items():
             if not isinstance(name, str) or not name:
@@ -1808,6 +1922,7 @@ class EntityScene(Mapping[str, Entity]):
                 control_buffer,
                 reset_state,
                 default_qpos=default_qpos,
+                state_read_cache=self._state_read_cache,
             )
         self._entities = MappingProxyType(materialized)
         self._reset_state = reset_state
@@ -1842,6 +1957,16 @@ class EntityScene(Mapping[str, Entity]):
     def env_origins(self) -> np.ndarray:
         """Read-only per-environment origins; flat UniLab scenes default to zero."""
         return self._env_origins
+
+    @contextmanager
+    def _scoped_state_reads(self) -> Iterator[None]:
+        """Internal ManagerBasedRlEnv boundary for one stable update phase."""
+        with self._state_read_cache.scoped():
+            yield
+
+    def _invalidate_state_reads(self) -> None:
+        """Discard cached backend state after an in-phase simulation mutation."""
+        self._state_read_cache.invalidate()
 
     def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None:
         """Stage a full-scene default state in the active reset transaction."""

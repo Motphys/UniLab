@@ -450,6 +450,12 @@ class ManagerBasedRlEnv(NpEnv):
         return sum(entity.data.getter_timing.total_ms for entity in self.scene.values())
 
     def update_state(self, state: NpEnvState) -> NpEnvState:
+        # Physics stepping and reset/set_state lifecycles sit outside this private
+        # scope. In-phase mutations explicitly invalidate it below.
+        with self.scene._scoped_state_reads():
+            return self._update_state_in_read_phase(state)
+
+    def _update_state_in_read_phase(self, state: NpEnvState) -> NpEnvState:
         log: dict[str, Any] = {}
         state.info["log"] = log
         self.extras = state.info
@@ -496,16 +502,26 @@ class ManagerBasedRlEnv(NpEnv):
         self.metrics_manager.compute()
         t_prev, g_prev = _mark("metrics", t_prev, g_prev)
 
+        applied_runtime_event = False
         if "step" in self.event_manager.available_modes:
             self.event_manager.apply(mode="step", dt=self.step_dt)
+            applied_runtime_event = True
         if "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
+            applied_runtime_event = True
+        if applied_runtime_event:
+            # Event terms may mutate simulation state through their formal
+            # interval/step capabilities; EventManager does not expose whether a
+            # particular interval fired, so this boundary stays fail-closed.
+            self.scene._invalidate_state_reads()
         t_prev, g_prev = _mark("events", t_prev, g_prev)
 
         self._command_dt.fill(self.step_dt)
         self._command_dt[self.reset_buf] = 0.0
         with self._reset_state.scoped(self._all_env_ids):
             self.command_manager.compute(dt=self._command_dt)
+        if self._reset_state.last_commit_had_writes:
+            self.scene._invalidate_state_reads()
         self.command_manager.post_compute()
         t_prev, g_prev = _mark("command", t_prev, g_prev)
 

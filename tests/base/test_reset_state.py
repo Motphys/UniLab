@@ -110,6 +110,26 @@ def test_transaction_is_lazy_and_combines_terms_into_one_commit() -> None:
     assert len(backend.set_state_calls) == 2
 
 
+def test_transaction_reports_only_committed_dirty_rows_as_writes() -> None:
+    backend = _Backend()
+    transaction = _transaction(backend)
+
+    assert not transaction.last_commit_had_writes
+    with transaction.scoped(np.array([0], dtype=np.int32)):
+        pass
+    assert not transaction.last_commit_had_writes
+
+    with transaction.scoped(np.array([0], dtype=np.int32)):
+        transaction.reset_to_default(np.array([0], dtype=np.int32), term_name="dirty")
+    assert transaction.last_commit_had_writes
+
+    with pytest.raises(RuntimeError, match="abort"):
+        with transaction.scoped(np.array([1], dtype=np.int32)):
+            transaction.reset_to_default(np.array([1], dtype=np.int32), term_name="aborted")
+            raise RuntimeError("abort")
+    assert not transaction.last_commit_had_writes
+
+
 def test_exception_aborts_without_backend_mutation_and_next_reset_is_clean() -> None:
     backend = _Backend()
     transaction = _transaction(backend)
