@@ -100,7 +100,6 @@ def _env(counter: int = 0, scene: _Scene | None = None) -> ManagerBasedRlEnv:
             step_dt=0.02,
             scene=scene or _Scene(),
             command_manager=_Commands(),
-            _mba_getter_total_ms=lambda: 0.0,
         ),
     )
 
@@ -137,7 +136,6 @@ def _parity_env() -> ManagerBasedRlEnv:
             scene=_ParityScene(),
             command_manager=_Commands(),
             max_episode_length_s=20.0,
-            _mba_getter_total_ms=lambda: 0.0,
         ),
     )
 

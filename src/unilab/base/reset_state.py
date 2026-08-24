@@ -54,19 +54,12 @@ class ResetStateTransaction:
         self._randomization_values: dict[str, np.ndarray] = {}
         self._randomization_dirty_masks: dict[str, np.ndarray] = {}
         self._requesting_terms: set[str] = set()
-        # Backend sub-timings from the most recent commit()'s set_state call.
-        self._last_set_state_timing_ms: dict[str, float] = {}
         self._last_commit_had_writes = False
 
     @property
     def active(self) -> bool:
         """Whether a reset lifecycle currently owns the transaction."""
         return self._active
-
-    @property
-    def last_set_state_timing_ms(self) -> dict[str, float]:
-        """Backend-reported set_state sub-timings of the most recent commit."""
-        return dict(self._last_set_state_timing_ms)
 
     @property
     def last_commit_had_writes(self) -> bool:
@@ -97,7 +90,6 @@ class ResetStateTransaction:
         for mask in self._randomization_dirty_masks.values():
             mask.fill(False)
         self._requesting_terms.clear()
-        self._last_set_state_timing_ms = {}
         self._last_commit_had_writes = False
         self._active = True
 
@@ -549,20 +541,12 @@ class ResetStateTransaction:
             assert self._qvel is not None
             randomization = self._build_randomization_payload(dirty_ids)
             try:
-                result = self._backend.set_state(
+                return self._backend.set_state(
                     dirty_ids,
                     self._qpos[dirty_ids],
                     self._qvel[dirty_ids],
                     randomization=randomization,
                 )
-                backend_timing = result.get("timing") if isinstance(result, dict) else None
-                if isinstance(backend_timing, dict):
-                    self._last_set_state_timing_ms = {
-                        str(key): float(value)
-                        for key, value in backend_timing.items()
-                        if isinstance(value, (int, float))
-                    }
-                return result
             except (AttributeError, NotImplementedError) as exc:
                 terms = ", ".join(sorted(self._requesting_terms))
                 raise NotImplementedError(

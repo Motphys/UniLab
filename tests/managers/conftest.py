@@ -52,10 +52,6 @@ class FakeEnv:
         self.obs_buf: dict[str, np.ndarray] = {}
         self.reset_buf = np.zeros(num_envs, dtype=np.bool_)
 
-    def _mba_getter_total_ms(self) -> float:
-        """Stand-in for ManagerBasedRlEnv's leaf getter timing probe."""
-        return 0.0
-
 
 @pytest.fixture
 def fake_env() -> FakeEnv:

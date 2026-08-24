@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import time
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -73,9 +72,6 @@ class RewardManager(ManagerBase):
         self.cfg = deepcopy(cfg)
         super().__init__(env=env)
         self._episode_sums = dict()
-        # Per-compute() term timing consumed by the env's update_state
-        # instrumentation (issue #1256), keyed mba_reward_term_<name>_[getter_]ms.
-        self._last_compute_timing_ms: dict[str, float] = {}
         for term_name in self._term_names:
             self._episode_sums[term_name] = np.zeros(self.num_envs, dtype=np.float32)
         self._reward_buf = np.zeros(self.num_envs, dtype=np.float32)
@@ -102,11 +98,6 @@ class RewardManager(ManagerBase):
     def active_terms(self) -> list[str]:
         return self._term_names
 
-    @property
-    def last_compute_timing_ms(self) -> dict[str, float]:
-        """Per-term wall time and leaf-getter share (ms) of the latest compute()."""
-        return dict(self._last_compute_timing_ms)
-
     # Methods.
 
     def reset(self, env_ids: np.ndarray | slice | None = None) -> dict[str, float]:
@@ -126,26 +117,19 @@ class RewardManager(ManagerBase):
             raise ValueError(f"RewardManager received invalid dt {dt}.")
         self._reward_buf[:] = 0.0
         scale = dt if self._scale_by_dt else 1.0
-        term_timing: dict[str, float] = {}
         for term_idx, (name, term_cfg) in enumerate(
             zip(self._term_names, self._term_cfgs, strict=False)
         ):
             if term_cfg.weight == 0.0:
                 self._step_reward[:, term_idx] = 0.0
                 continue
-            term_t0 = time.perf_counter()
-            term_getter0 = self._env._mba_getter_total_ms()
             value = term_cfg.func(self._env, **term_cfg.params)
-            term_getter_ms = self._env._mba_getter_total_ms() - term_getter0
             self._check_term_shape(name, value)
             self._check_term_finite(name, value)
             value = value * term_cfg.weight * scale
             self._reward_buf += value
             self._episode_sums[name] += value
             self._step_reward[:, term_idx] = value / scale
-            term_timing[f"mba_reward_term_{name}_ms"] = (time.perf_counter() - term_t0) * 1000.0
-            term_timing[f"mba_reward_term_{name}_getter_ms"] = term_getter_ms
-        self._last_compute_timing_ms = term_timing
         return self._reward_buf
 
     def step_reward_extras(self) -> dict[str, float]:
