@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, ClassVar, Sequence
 
 import numpy as np
 from prettytable import PrettyTable
@@ -45,6 +45,14 @@ class ActionTerm(ManagerTermBase):
 
     The action term is responsible for processing the raw actions sent to the environment
     and applying them to the entity managed by the term.
+    """
+
+    requires_substep_state_feedback: ClassVar[bool] = False
+    """Whether ``apply_actions`` needs state produced by the previous physics substep.
+
+    ``False`` declares that the generated control is invariant across all physics
+    substeps in one control step, so the env may apply it once before a batched
+    backend step. State-feedback terms must override this declaration with ``True``.
     """
 
     def __init__(self, cfg: ActionTermCfg, env: ManagerBasedRlEnv):
@@ -133,6 +141,11 @@ class ActionManager(ManagerBase):
     def active_terms(self) -> list[str]:
         return self._term_names
 
+    @property
+    def requires_substep_state_feedback(self) -> bool:
+        """Return whether any active action term needs per-substep state feedback."""
+        return any(term.requires_substep_state_feedback for term in self._terms.values())
+
     # Methods.
 
     def get_term(self, name: str) -> ActionTerm:
@@ -185,8 +198,9 @@ class ActionManager(ManagerBase):
     def apply_action(self) -> None:
         """Write processed actions to entity actuator targets.
 
-        Called on every decimation substep (physics step), not just once per policy
-        step. Each term writes its most recently processed targets to the simulation.
+        Called once per control step when all terms produce substep-invariant control.
+        If any term requires state feedback, the env calls this before every physics
+        substep so all terms retain their configured manager order.
         """
         for name, term in self._terms.items():
             try:
@@ -220,6 +234,13 @@ class ActionManager(ManagerBase):
             if not isinstance(term.action_dim, int) or term.action_dim < 0:
                 raise ValueError(
                     f"ActionManager term '{term_name}' has invalid action_dim {term.action_dim}."
+                )
+            feedback = term.requires_substep_state_feedback
+            if not isinstance(feedback, bool):
+                raise TypeError(
+                    "ActionManager term "
+                    f"'{term_name}' requires_substep_state_feedback must be bool, "
+                    f"got {type(feedback).__name__}."
                 )
             self._term_names.append(term_name)
             self._terms[term_name] = term

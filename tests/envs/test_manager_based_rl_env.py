@@ -55,6 +55,7 @@ class _FakeBackend:
         self.reject_materialize = reject_materialize
         self.pre_step_control = None
         self.applied_controls: list[np.ndarray] = []
+        self.step_nsteps: list[int] = []
         self.cleanup_calls = 0
         self.materialize_calls = 0
         self.lifecycle: list[str] = []
@@ -84,6 +85,7 @@ class _FakeBackend:
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
         assert self.materialize_calls == 1
+        self.step_nsteps.append(nsteps)
         native = ctrl
         for _ in range(nsteps):
             if self.pre_step_control is not None:
@@ -236,6 +238,16 @@ class _DriveAction(ActionTerm):
         self._entity.data.write_ctrl(self._processed)
 
 
+class _FeedbackDriveAction(_DriveAction):
+    requires_substep_state_feedback = True
+
+
+@dataclass(kw_only=True)
+class _FeedbackDriveCfg(_DriveCfg):
+    def build(self, env) -> ActionTerm:
+        return _FeedbackDriveAction(self, env)
+
+
 @dataclass(kw_only=True)
 class _CommandCfg(CommandTermCfg):
     def build(self, env) -> CommandTerm:
@@ -386,6 +398,7 @@ def _make_cfg(
     auto_reset: bool = True,
     metrics: dict[str, MetricsTermCfg | None] | None = None,
     observations: dict[str, ObservationGroupCfg | None] | None = None,
+    actions: dict[str, ActionTermCfg | None] | None = None,
     include_optional_managers: bool = True,
 ) -> ManagerBasedRlEnvCfg:
     if observations is None:
@@ -403,7 +416,7 @@ def _make_cfg(
         max_episode_seconds=1.0,
         seed=7,
         observations=observations,
-        actions={"drive": _DriveCfg(entity_name="robot")},
+        actions={"drive": _DriveCfg(entity_name="robot")} if actions is None else actions,
         rewards={"track": RewardTermCfg(func=_reward, weight=1.0)},
         terminations={
             "failure": TerminationTermCfg(func=_failure),
@@ -1030,8 +1043,10 @@ def test_np_env_owns_substeps_autoreset_and_final_observation() -> None:
     assert env._dr_manager is None
 
     state = env.step(np.array([[0.25], [0.5]], dtype=np.float32))
+    assert backend.pre_step_control is None
+    assert backend.step_nsteps == [2]
     assert len(backend.applied_controls) == 2
-    assert env.action_sim_steps == [1, 2]
+    assert env.action_sim_steps == [2]
     np.testing.assert_allclose(backend.applied_controls[0][:, 0], [0.25, 0.5])
     np.testing.assert_allclose(backend.applied_controls[1][:, 0], [0.25, 0.5])
     np.testing.assert_allclose(state.reward, [0.005, 0.01])
@@ -1350,9 +1365,101 @@ def test_per_substep_metrics_fail_without_post_substep_backend_hook() -> None:
         _make_env(cfg)
 
 
-def test_multisubstep_action_fails_when_backend_rejects_callback() -> None:
-    with pytest.raises(NotImplementedError, match="ActionManager.*every physics substep.*fake"):
-        _make_env(reject_pre_step=True)
+def test_multisubstep_state_independent_action_skips_callback() -> None:
+    env, backend = _make_env(reject_pre_step=True)
+    try:
+        assert backend.pre_step_control is None
+        assert not env.action_manager.requires_substep_state_feedback
+    finally:
+        env.close()
+
+
+def test_multisubstep_state_feedback_action_uses_callback() -> None:
+    cfg = _make_cfg(
+        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+    )
+    env, backend = _make_env(cfg)
+    try:
+        env.init_state()
+        env.step(np.array([[0.25], [0.5]], dtype=np.float32))
+
+        assert env.action_manager.requires_substep_state_feedback
+        assert backend.pre_step_control is not None
+        assert backend.step_nsteps == [2]
+        assert env.action_sim_steps == [1, 2]
+        assert len(backend.applied_controls) == 2
+    finally:
+        env.close()
+
+
+def test_multisubstep_state_feedback_action_fails_when_backend_rejects_callback() -> None:
+    cfg = _make_cfg(
+        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+    )
+    with pytest.raises(
+        NotImplementedError,
+        match="ActionManager.*state-feedback actions.*every physics substep.*fake",
+    ):
+        _make_env(cfg, reject_pre_step=True)
+
+
+def test_single_substep_feedback_action_does_not_require_callback() -> None:
+    cfg = _make_cfg(
+        sim_substeps=1,
+        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+    )
+    env, backend = _make_env(cfg, reject_pre_step=True)
+    try:
+        env.init_state()
+        env.step(np.array([[0.25], [0.5]], dtype=np.float32))
+
+        assert backend.pre_step_control is None
+        assert backend.step_nsteps == [1]
+        assert env.action_sim_steps == [1]
+    finally:
+        env.close()
+
+
+def test_empty_action_manager_does_not_require_callback() -> None:
+    observations = {
+        "actor": ObservationGroupCfg(
+            terms={"episode_step": ObservationTermCfg(func=_episode_step_observation)}
+        ),
+        "value": ObservationGroupCfg(
+            terms={"episode_step": ObservationTermCfg(func=_episode_step_observation)}
+        ),
+    }
+    env, backend = _make_env(
+        _make_cfg(actions={}, observations=observations),
+        reject_pre_step=True,
+    )
+    try:
+        assert env.action_manager.active_terms == []
+        assert not env.action_manager.requires_substep_state_feedback
+        assert backend.pre_step_control is None
+    finally:
+        env.close()
+
+
+def test_state_feedback_action_error_propagates_from_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(
+        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+    )
+    env, _ = _make_env(cfg)
+    env.init_state()
+    term = env.action_manager.get_term("drive")
+
+    def fail() -> None:
+        raise ValueError("feedback failed")
+
+    monkeypatch.setattr(term, "apply_actions", fail)
+    try:
+        with pytest.raises(ValueError, match="ActionManager term 'drive'.*feedback failed"):
+            env.step(np.zeros((2, 1), dtype=np.float32))
+    finally:
+        env.close()
 
 
 @pytest.mark.parametrize(
@@ -1387,7 +1494,11 @@ def test_observation_mapping_fails_closed(mutate, error, match: str) -> None:
 
 
 def test_close_unhooks_callback_and_closes_owned_resources() -> None:
-    env, backend = _make_env()
+    cfg = _make_cfg(
+        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+    )
+    env, backend = _make_env(cfg)
+    assert backend.pre_step_control is not None
     env.close()
     assert backend.pre_step_control is None
     assert backend.cleanup_calls == 1

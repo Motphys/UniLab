@@ -37,6 +37,10 @@ _ACTUATOR_NAMES = tuple(name.removesuffix("_joint") for name in _JOINT_NAMES)
 _HOME_JOINT_POS = np.asarray([0.0, 0.8, -1.5] * 4 + [0.0] * 4, dtype=np.float32)
 
 
+def test_go2w_mixed_action_declares_substep_state_feedback() -> None:
+    assert Go2WMixedAction.requires_substep_state_feedback is True
+
+
 def _compose(backend: str) -> DictConfig:
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):

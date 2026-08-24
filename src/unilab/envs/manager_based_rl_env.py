@@ -388,13 +388,17 @@ class ManagerBasedRlEnv(NpEnv):
             )
 
     def _configure_action_control(self) -> None:
-        if self._cfg.sim_substeps <= 1 or not self.action_manager.active_terms:
+        if (
+            self._cfg.sim_substeps <= 1
+            or not self.action_manager.active_terms
+            or not self.action_manager.requires_substep_state_feedback
+        ):
             return
         try:
             self._backend.set_pre_step_control(self._apply_manager_control)
         except NotImplementedError as exc:
             raise NotImplementedError(
-                "ActionManager capability 'apply actions on every physics substep' is "
+                "ActionManager capability 'state-feedback actions on every physics substep' is "
                 f"unavailable on backend '{self._backend.backend_type}': {exc}"
             ) from exc
         self._uses_pre_step_control = True
