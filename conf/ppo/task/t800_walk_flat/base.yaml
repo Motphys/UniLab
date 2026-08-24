@@ -1,0 +1,287 @@
+# @package _global_
+# Canonical EngineAI T800 25-DoF walk-flat Manager-Based task declaration.
+env:
+  scene:
+    model_file: src/unilab/assets/robots/t800/scene_flat.xml
+    default_keyframe_name: stand
+    entities:
+      robot:
+        root_body_name: LINK_BASE
+        joint_names:
+          - J00_HIP_PITCH_L
+          - J01_HIP_ROLL_L
+          - J02_HIP_YAW_L
+          - J03_KNEE_PITCH_L
+          - J04_ANKLE_PITCH_L
+          - J05_ANKLE_ROLL_L
+          - J06_HIP_PITCH_R
+          - J07_HIP_ROLL_R
+          - J08_HIP_YAW_R
+          - J09_KNEE_PITCH_R
+          - J10_ANKLE_PITCH_R
+          - J11_ANKLE_ROLL_R
+          - J12_TORSO_YAW
+          - J13_SHOULDER_PITCH_L
+          - J14_SHOULDER_ROLL_L
+          - J15_SHOULDER_YAW_L
+          - J16_ELBOW_PITCH_L
+          - J17_ELBOW_YAW_L
+          - J18_SHOULDER_PITCH_R
+          - J19_SHOULDER_ROLL_R
+          - J20_SHOULDER_YAW_R
+          - J21_ELBOW_PITCH_R
+          - J22_ELBOW_YAW_R
+          - J23_HEAD_PITCH
+          - J24_HEAD_YAW
+        actuator_names:
+          - J00_HIP_PITCH_L
+          - J01_HIP_ROLL_L
+          - J02_HIP_YAW_L
+          - J03_KNEE_PITCH_L
+          - J04_ANKLE_PITCH_L
+          - J05_ANKLE_ROLL_L
+          - J06_HIP_PITCH_R
+          - J07_HIP_ROLL_R
+          - J08_HIP_YAW_R
+          - J09_KNEE_PITCH_R
+          - J10_ANKLE_PITCH_R
+          - J11_ANKLE_ROLL_R
+          - J12_TORSO_YAW
+          - J13_SHOULDER_PITCH_L
+          - J14_SHOULDER_ROLL_L
+          - J15_SHOULDER_YAW_L
+          - J16_ELBOW_PITCH_L
+          - J17_ELBOW_YAW_L
+          - J18_SHOULDER_PITCH_R
+          - J19_SHOULDER_ROLL_R
+          - J20_SHOULDER_YAW_R
+          - J21_ELBOW_PITCH_R
+          - J22_ELBOW_YAW_R
+          - J23_HEAD_PITCH
+          - J24_HEAD_YAW
+        body_names: [LINK_BASE]
+  sim_dt: 0.002
+  ctrl_dt: 0.01
+  max_episode_seconds: 20.0
+  observations:
+    policy:
+      enable_corruption: true
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: torso_gyro}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+            operation: add
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: torso_upvector}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.05
+            n_max: 0.05
+            operation: add
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              joint_names: [J00_HIP_PITCH_L, J01_HIP_ROLL_L, J02_HIP_YAW_L, J03_KNEE_PITCH_L, J04_ANKLE_PITCH_L, J05_ANKLE_ROLL_L, J06_HIP_PITCH_R, J07_HIP_ROLL_R, J08_HIP_YAW_R, J09_KNEE_PITCH_R, J10_ANKLE_PITCH_R, J11_ANKLE_ROLL_R, J13_SHOULDER_PITCH_L, J14_SHOULDER_ROLL_L, J15_SHOULDER_YAW_L, J16_ELBOW_PITCH_L, J17_ELBOW_YAW_L, J18_SHOULDER_PITCH_R, J19_SHOULDER_ROLL_R, J20_SHOULDER_YAW_R, J21_ELBOW_PITCH_R, J22_ELBOW_YAW_R]
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+            operation: add
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              joint_names: [J00_HIP_PITCH_L, J01_HIP_ROLL_L, J02_HIP_YAW_L, J03_KNEE_PITCH_L, J04_ANKLE_PITCH_L, J05_ANKLE_ROLL_L, J06_HIP_PITCH_R, J07_HIP_ROLL_R, J08_HIP_YAW_R, J09_KNEE_PITCH_R, J10_ANKLE_PITCH_R, J11_ANKLE_ROLL_R, J13_SHOULDER_PITCH_L, J14_SHOULDER_ROLL_L, J15_SHOULDER_YAW_L, J16_ELBOW_PITCH_L, J17_ELBOW_YAW_L, J18_SHOULDER_PITCH_R, J19_SHOULDER_ROLL_R, J20_SHOULDER_YAW_R, J21_ELBOW_PITCH_R, J22_ELBOW_YAW_R]
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -1.5
+            n_max: 1.5
+            operation: add
+        actions:
+          func: unilab.envs.mdp.last_action
+          params: {action_name: joint_pos}
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        gait_phase:
+          func: unilab.tasks.locomotion.g1.manager_terms.G1GaitPhase
+          params: {frequency: 1.5, init_mode: offset_phase}
+    critic:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: torso_gyro}
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: torso_upvector}
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              joint_names: [J00_HIP_PITCH_L, J01_HIP_ROLL_L, J02_HIP_YAW_L, J03_KNEE_PITCH_L, J04_ANKLE_PITCH_L, J05_ANKLE_ROLL_L, J06_HIP_PITCH_R, J07_HIP_ROLL_R, J08_HIP_YAW_R, J09_KNEE_PITCH_R, J10_ANKLE_PITCH_R, J11_ANKLE_ROLL_R, J13_SHOULDER_PITCH_L, J14_SHOULDER_ROLL_L, J15_SHOULDER_YAW_L, J16_ELBOW_PITCH_L, J17_ELBOW_YAW_L, J18_SHOULDER_PITCH_R, J19_SHOULDER_ROLL_R, J20_SHOULDER_YAW_R, J21_ELBOW_PITCH_R, J22_ELBOW_YAW_R]
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              joint_names: [J00_HIP_PITCH_L, J01_HIP_ROLL_L, J02_HIP_YAW_L, J03_KNEE_PITCH_L, J04_ANKLE_PITCH_L, J05_ANKLE_ROLL_L, J06_HIP_PITCH_R, J07_HIP_ROLL_R, J08_HIP_YAW_R, J09_KNEE_PITCH_R, J10_ANKLE_PITCH_R, J11_ANKLE_ROLL_R, J13_SHOULDER_PITCH_L, J14_SHOULDER_ROLL_L, J15_SHOULDER_YAW_L, J16_ELBOW_PITCH_L, J17_ELBOW_YAW_L, J18_SHOULDER_PITCH_R, J19_SHOULDER_ROLL_R, J20_SHOULDER_YAW_R, J21_ELBOW_PITCH_R, J22_ELBOW_YAW_R]
+        actions:
+          func: unilab.envs.mdp.last_action
+          params: {action_name: joint_pos}
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        gait_phase:
+          func: unilab.tasks.locomotion.g1.manager_terms.G1GaitPhase
+          params: {frequency: 1.5, init_mode: offset_phase}
+        base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_local_linvel}
+  policy_observation_group: policy
+  critic_observation_group: critic
+  actions:
+    joint_pos:
+      _target_: unilab.tasks.locomotion.t800.manager_terms.T800JointPositionActionCfg
+      entity_name: robot
+      actuator_names: [J00_HIP_PITCH_L, J01_HIP_ROLL_L, J02_HIP_YAW_L, J03_KNEE_PITCH_L, J04_ANKLE_PITCH_L, J05_ANKLE_ROLL_L, J06_HIP_PITCH_R, J07_HIP_ROLL_R, J08_HIP_YAW_R, J09_KNEE_PITCH_R, J10_ANKLE_PITCH_R, J11_ANKLE_ROLL_R, J13_SHOULDER_PITCH_L, J14_SHOULDER_ROLL_L, J15_SHOULDER_YAW_L, J16_ELBOW_PITCH_L, J17_ELBOW_YAW_L, J18_SHOULDER_PITCH_R, J19_SHOULDER_ROLL_R, J20_SHOULDER_YAW_R, J21_ELBOW_PITCH_R, J22_ELBOW_YAW_R]
+      held_actuator_names: [J12_TORSO_YAW, J23_HEAD_PITCH, J24_HEAD_YAW]
+      scale:
+        J00_HIP_PITCH_L: 0.5
+        J01_HIP_ROLL_L: 0.2
+        J02_HIP_YAW_L: 0.2
+        J03_KNEE_PITCH_L: 0.5
+        J04_ANKLE_PITCH_L: 0.5
+        J05_ANKLE_ROLL_L: 0.2
+        J06_HIP_PITCH_R: 0.5
+        J07_HIP_ROLL_R: 0.2
+        J08_HIP_YAW_R: 0.2
+        J09_KNEE_PITCH_R: 0.5
+        J10_ANKLE_PITCH_R: 0.5
+        J11_ANKLE_ROLL_R: 0.2
+        J13_SHOULDER_PITCH_L: 0.2
+        J14_SHOULDER_ROLL_L: 0.2
+        J15_SHOULDER_YAW_L: 0.05
+        J16_ELBOW_PITCH_L: 0.2
+        J17_ELBOW_YAW_L: 0.05
+        J18_SHOULDER_PITCH_R: 0.2
+        J19_SHOULDER_ROLL_R: 0.2
+        J20_SHOULDER_YAW_R: 0.05
+        J21_ELBOW_PITCH_R: 0.2
+        J22_ELBOW_YAW_R: 0.05
+      use_default_offset: true
+  commands:
+    twist:
+      _target_: unilab.tasks.locomotion.g1.manager_terms.G1VelocityCommandCfg
+      entity_name: robot
+      resampling_time_range: [20.0, 20.0]
+      heading_command: false
+      heading_control_stiffness: 0.5
+      rel_standing_envs: 0.0
+      rel_heading_envs: 0.0
+      rel_world_envs: 0.0
+      rel_forward_envs: 0.0
+      init_velocity_prob: 0.0
+      planar_dead_zone: 0.2
+      ranges:
+        lin_vel_x: [-0.6, 1.0]
+        lin_vel_y: [-0.4, 0.4]
+        ang_vel_z: [-0.8, 0.8]
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_root_state_uniform:
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.0]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.5, 0.5]
+          roll: [-0.5, 0.5]
+          pitch: [-0.5, 0.5]
+          yaw: [-0.5, 0.5]
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [0.9, 1.1]
+        kd_range: [0.9, 1.1]
+        operation: scale
+  terminations:
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    tilt:
+      func: unilab.tasks.locomotion.g1.manager_terms.g1_tilt_exceeded
+      params: {max_tilt_deg: 25.0}
+    base_height:
+      func: unilab.envs.mdp.root_height_below_minimum
+      params: {minimum_height: 0.7165}
+
+reward:
+  tracking_lin_vel:
+    func: unilab.tasks.locomotion.g1.manager_terms.track_lin_vel
+    weight: 2.0
+    params: {tracking_sigma: 0.25, command_name: twist}
+  tracking_ang_vel:
+    func: unilab.tasks.locomotion.g1.manager_terms.track_ang_vel
+    weight: 0.2
+    params: {tracking_sigma: 0.25, command_name: twist}
+  feet_phase:
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_phase
+    weight: 1.5
+    params:
+      frequency: 1.5
+      swing_height: 0.13
+      tracking_sigma: 0.014
+      min_forward_speed: 0.0
+      command_name: twist
+  lin_vel_z:
+    func: unilab.tasks.locomotion.g1.manager_terms.lin_vel_z
+    weight: -1.0
+  ang_vel_xy:
+    func: unilab.tasks.locomotion.g1.manager_terms.ang_vel_xy
+    weight: -0.25
+  base_height:
+    func: unilab.tasks.locomotion.g1.manager_terms.base_height
+    weight: -500.0
+    params: {target_height: 1.0165}
+  orientation:
+    func: unilab.tasks.locomotion.g1.manager_terms.orientation
+    weight: -5.0
+  penalty_feet_ori:
+    func: unilab.tasks.locomotion.g1.manager_terms.penalty_feet_ori
+    weight: -10.0
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.01
+  pose:
+    func: unilab.tasks.locomotion.g1.manager_terms.weighted_pose
+    weight: -0.1
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: [J00_HIP_PITCH_L, J01_HIP_ROLL_L, J02_HIP_YAW_L, J03_KNEE_PITCH_L, J04_ANKLE_PITCH_L, J05_ANKLE_ROLL_L, J06_HIP_PITCH_R, J07_HIP_ROLL_R, J08_HIP_YAW_R, J09_KNEE_PITCH_R, J10_ANKLE_PITCH_R, J11_ANKLE_ROLL_R, J13_SHOULDER_PITCH_L, J14_SHOULDER_ROLL_L, J15_SHOULDER_YAW_L, J16_ELBOW_PITCH_L, J17_ELBOW_YAW_L, J18_SHOULDER_PITCH_R, J19_SHOULDER_ROLL_R, J20_SHOULDER_YAW_R, J21_ELBOW_PITCH_R, J22_ELBOW_YAW_R]
+      pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]

@@ -1,0 +1,28 @@
+# @package _global_
+# MuJoCo owner for the standalone T800 Manager-Based PPO task.
+defaults:
+  - /task/t800_walk_flat/base
+  - _self_
+
+training:
+  task_name: T800WalkFlat
+  sim_backend: mujoco
+  play_steps: 2000
+
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - policy
+    critic:
+      - critic
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
