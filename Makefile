@@ -88,7 +88,7 @@ clean:
 	find . -type d -name ".ruff_cache" -exec rm -rf {} +
 	find . -type d -name "htmlcov" -exec rm -rf {} +
 	find . -type f -name ".coverage" -delete
-	rm -f train_appo.log train_offpolicy.log train_rsl_rl.log MUJOCO_LOG.TXT
+	rm -f train_appo.log train_sac.log train_flashsac.log train_rsl_rl.log MUJOCO_LOG.TXT
 	find src/unilab/assets/.cache -type f ! -name '.gitkeep' -delete 2>/dev/null || true
 	find src/unilab/assets/caches -type f ! -name '.gitkeep' -delete 2>/dev/null || true
 	find src/unilab/assets/checkpoints -type f ! -name '.gitkeep' -delete 2>/dev/null || true
