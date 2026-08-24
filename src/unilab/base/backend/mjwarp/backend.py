@@ -208,15 +208,20 @@ class MjwarpBackend(SimBackend):
         ).copy()
         self._joint_range = self._bind_joint_range()
 
-        # All legacy getters below return views into these stable host buffers.
-        # They are refreshed only by _refresh_host_cache(), called after a
-        # device step or a reset/forward lifecycle barrier.
-        self._qpos_cache = np.zeros((self._num_envs, self._nq), dtype=np.float32)
-        self._qvel_cache = np.zeros((self._num_envs, self._nv), dtype=np.float32)
+        # All legacy getters below return views into these stable pinned host
+        # buffers. They are refreshed only by _refresh_host_cache(), called
+        # after a device step or a reset/forward lifecycle barrier. Keeping the
+        # Warp storage alive lets D2H copies target the public NumPy cache
+        # directly instead of allocating a temporary array on every refresh.
+        self._qpos_cache_storage, self._qpos_cache = self._allocate_pinned_host_cache(
+            self._device_data.qpos
+        )
+        self._qvel_cache_storage, self._qvel_cache = self._allocate_pinned_host_cache(
+            self._device_data.qvel
+        )
         self._time_cache = np.zeros((self._num_envs,), dtype=np.float32)
-        self._sensor_cache = np.zeros(
-            (self._num_envs, int(self._cpu_model.nsensordata)),
-            dtype=np.float32,
+        self._sensor_cache_storage, self._sensor_cache = self._allocate_pinned_host_cache(
+            self._device_data.sensordata
         )
         self._ctrl_staging = np.zeros((self._num_envs, self._nu), dtype=np.float32)
         self._reset_mask_host = np.zeros((self._num_envs,), dtype=np.bool_)
@@ -375,17 +380,28 @@ class MjwarpBackend(SimBackend):
     # Explicit host-cache barriers                                        #
     # ------------------------------------------------------------------ #
 
+    def _allocate_pinned_host_cache(self, device_array: Any) -> tuple[Any, np.ndarray]:
+        """Allocate stable CPU storage for one fixed-shape device-state cache."""
+        storage = self._warp.empty(
+            device_array.shape,
+            dtype=device_array.dtype,
+            device="cpu",
+            pinned=True,
+        )
+        return storage, storage.numpy()
+
     def _refresh_host_cache(self) -> None:
         """Copy all legacy-visible device state at one explicit lifecycle barrier."""
-        self._download(self._device_data.qpos, self._qpos_cache)
-        self._download(self._device_data.qvel, self._qvel_cache)
-        self._download(self._device_data.sensordata, self._sensor_cache)
+        self._download(self._device_data.qpos, self._qpos_cache_storage)
+        self._download(self._device_data.qvel, self._qvel_cache_storage)
+        self._download(self._device_data.sensordata, self._sensor_cache_storage)
+        self._synchronize()
 
     def _upload(self, device_array: Any, host_array: np.ndarray) -> None:
         device_array.assign(host_array)
 
-    def _download(self, device_array: Any, host_array: np.ndarray) -> None:
-        np.copyto(host_array, device_array.numpy())
+    def _download(self, device_array: Any, host_array: Any) -> None:
+        self._warp.copy(host_array, device_array)
 
     def _synchronize(self) -> None:
         self._warp.synchronize_device()
