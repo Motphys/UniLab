@@ -264,7 +264,7 @@ class A2ArmPosForceState(CommandTerm):
 
     def __init__(self, cfg: A2ArmPosForceCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
-        self._dtype = np.float32
+        self._dtype = np.dtype(np.float32)
         self._command = np.zeros((self.num_envs, NUM_COMMANDS), dtype=self._dtype)
         self._last_control_token: int | None = None
         self._last_transition_token: int | None = None

@@ -182,8 +182,12 @@ def make_teleop_from_state(state: A2ArmPosForceState) -> TeleopState:
     return TeleopState(
         velocity_low=np.asarray([item[0] for item in cfg.velocity_ranges]),
         velocity_high=np.asarray([item[1] for item in cfg.velocity_ranges]),
-        sphere_low=np.asarray([cfg.goal_radius_range[0], cfg.goal_pitch_range[0], cfg.goal_yaw_range[0]]),
-        sphere_high=np.asarray([cfg.goal_radius_range[1], cfg.goal_pitch_range[1], cfg.goal_yaw_range[1]]),
+        sphere_low=np.asarray(
+            [cfg.goal_radius_range[0], cfg.goal_pitch_range[0], cfg.goal_yaw_range[0]]
+        ),
+        sphere_high=np.asarray(
+            [cfg.goal_radius_range[1], cfg.goal_pitch_range[1], cfg.goal_yaw_range[1]]
+        ),
         ee_init=np.asarray(cfg.goal_start, dtype=np.float64),
         ee_ramp=max(1, int(cfg.force_duration[0])),
         ee_hold=int(cfg.gripper_settling),
@@ -289,7 +293,9 @@ def _add_sphere(scene: Any, pos: np.ndarray, radius: float, rgba: np.ndarray) ->
     scene.ngeom += 1
 
 
-def _add_arrow(scene: Any, p0: np.ndarray, vec: np.ndarray, scale: float, width: float, rgba: np.ndarray) -> None:
+def _add_arrow(
+    scene: Any, p0: np.ndarray, vec: np.ndarray, scale: float, width: float, rgba: np.ndarray
+) -> None:
     import mujoco
 
     if np.linalg.norm(vec) < 1e-6 or scene.ngeom >= scene.maxgeom:
@@ -340,7 +346,11 @@ def _add_line(scene: Any, p0: np.ndarray, p1: np.ndarray, width: float, rgba: np
 def _sphere_point(center: np.ndarray, yaw_quat: np.ndarray, sphere: np.ndarray) -> np.ndarray:
     length, pitch, yaw = np.asarray(sphere, dtype=np.float64)
     cart = np.asarray(
-        [length * np.cos(pitch) * np.cos(yaw), length * np.cos(pitch) * np.sin(yaw), length * np.sin(pitch)]
+        [
+            length * np.cos(pitch) * np.cos(yaw),
+            length * np.cos(pitch) * np.sin(yaw),
+            length * np.sin(pitch),
+        ]
     )
     return np.asarray(center + np_quat_apply(yaw_quat[None, :], cart[None, :])[0], dtype=np.float64)
 

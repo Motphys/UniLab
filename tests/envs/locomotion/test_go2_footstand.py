@@ -301,6 +301,8 @@ def test_footstand_registry_has_no_legacy_config_or_factory() -> None:
 def test_footstand_real_runtime_preserves_history_action_and_partial_reset(
     backend: str,
 ) -> None:
+    if backend == "motrix":
+        pytest.importorskip("motrixsim", reason="motrixsim not installed")
     registry.ensure_registries()
     env = _make_env(backend)
     try:

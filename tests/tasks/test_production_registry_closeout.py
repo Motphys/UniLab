@@ -6,7 +6,7 @@ registration can come back:
 - the production registry matches the #1042 migration matrix exactly,
 - only the three approved families use the frozen LegacyFactoryAdapter seam,
 - every other registered factory is one of the canonical manager-runtime
-  callables (generic factory plus the three maintainer-approved wrappers),
+  callables (generic factory plus the four maintainer-approved wrappers),
 - the deleted ``unilab.envs.{locomotion,manipulation,motion_tracking}``
   packages stay removed (``unilab.envs`` itself remains: it owns the
   manager-based runtime such as ``manager_based_rl_env`` and ``mdp``).
@@ -47,9 +47,18 @@ CANONICAL_MANAGER_RUNTIME_FACTORIES = (
     # Approved wrapper: cold-path untracked X2 mesh resolution before
     # delegating to the generic factory.
     ("unilab.tasks.motion_tracking.x2", "make_x2_wall_flip_env"),
+<<<<<<< HEAD
     # Approved wrapper: cold-path T800 OBJ/texture resolution before
     # delegating to the generic factory.
     ("unilab.tasks.locomotion.t800", "make_t800_walk_env"),
+    # Approved wrapper: cold-path A2Arm mesh resolution before delegating to
+    # the generic manager-based factory.
+    ("unilab.tasks.locomotion.a2arm", "make_a2arm_pos_force_env"),
+=======
+    # Approved wrapper: cold-path A2Arm mesh resolution before delegating to
+    # the generic manager-based factory.
+    ("unilab.tasks.locomotion.a2arm", "make_a2arm_pos_force_env"),
+>>>>>>> b0fb7f55 (test: close manager-based migration validation gaps)
 )
 
 REMOVED_LEGACY_ENV_PACKAGES = (

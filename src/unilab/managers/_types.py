@@ -134,6 +134,58 @@ class ManagerEntity(Protocol):
         env_ids: np.ndarray | slice | None = None,
     ) -> None: ...
 
+    @property
+    def data(self) -> Any: ...
+
+    def bind_body_mass_write(self, body_ids: Sequence[int], *, term_name: str) -> Any: ...
+
+    def bind_body_ipos_write(self, body_ids: Sequence[int], *, term_name: str) -> Any: ...
+
+    def bind_geom_friction_write(self, geom_ids: Sequence[int], *, term_name: str) -> Any: ...
+
+    def bind_body_force(self, *, term_name: str) -> None: ...
+
+    def apply_body_force(self, values: np.ndarray, *, term_name: str) -> None: ...
+
+    def apply_root_linear_velocity_delta_to_sim(
+        self, values: np.ndarray, *, term_name: str
+    ) -> None: ...
+
+    def write_root_link_pose_to_sim(
+        self, root_pose: np.ndarray, env_ids: np.ndarray | slice | None = None
+    ) -> None: ...
+
+    def write_root_link_velocity_to_sim(
+        self, root_velocity: np.ndarray, env_ids: np.ndarray | slice | None = None
+    ) -> None: ...
+
+    def write_body_mass_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: Sequence[int],
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str,
+    ) -> None: ...
+
+    def write_body_ipos_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: Sequence[int],
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str,
+    ) -> None: ...
+
+    def write_geom_friction_to_sim(
+        self,
+        values: np.ndarray,
+        geom_ids: Sequence[int],
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str,
+    ) -> None: ...
+
 
 class ManagerSensorView(Protocol):
     """Backend-owned named-sensor view retained by a manager term."""
@@ -243,6 +295,9 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def common_step_counter(self) -> int: ...
+
+    @property
+    def step_counter(self) -> int: ...
 
     @property
     def max_episode_length(self) -> int: ...

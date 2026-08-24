@@ -121,9 +121,11 @@ class CSEPPO:
                 values = self.transition.values
                 assert values is not None
             correction = self.gamma * torch.squeeze(values * mask.unsqueeze(1), 1)
-            if self.transition.rewards.ndim == 2 and self.transition.rewards.shape[-1] == 1:
+            rewards = self.transition.rewards
+            assert rewards is not None
+            if rewards.ndim == 2 and rewards.shape[-1] == 1:
                 correction = correction.unsqueeze(1)
-            self.transition.rewards += correction
+            self.transition.rewards = rewards + correction
         assert self.storage is not None
         self.storage.add_transition(self.transition)
         self.transition.clear()

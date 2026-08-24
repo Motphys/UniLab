@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from unilab.managers import ManagerTermBase, ObservationTermCfg
+from unilab.tasks.locomotion.a2arm.actions import A2ArmPdAction
 from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_quat
 
 from .constants import (
@@ -48,7 +49,7 @@ class _HistoryTerm(ManagerTermBase):
     def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
         self._state: A2ArmPosForceState = env.command_manager.get_term("task_state")
-        self._action = env.action_manager.get_term("joint_pd")
+        self._action = cast(A2ArmPdAction, env.action_manager.get_term("joint_pd"))
         self._actor_history = np.zeros(
             (env.num_envs, ACTOR_HISTORY, ACTOR_STEP_DIM), dtype=np.float32
         )

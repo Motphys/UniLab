@@ -220,7 +220,7 @@ class CSEOnPolicyRunner:
         os.makedirs(path, exist_ok=True)
         with torch.inference_mode():
             traced = torch.jit.trace(PolicyExport(), (torch.zeros(1, ac.num_actor_obs),))
-        traced.save(os.path.join(path, filename))
+        cast(Any, traced).save(os.path.join(path, filename))
         self.actor_critic.to(original_device)
 
     def _print_iter(

@@ -285,6 +285,8 @@ def test_go2_flat_registry_has_no_legacy_config_fallback() -> None:
     (("mujoco", "task=go2_joystick_flat/mujoco"), ("motrix", "task=go2_joystick_flat/motrix")),
 )
 def test_go2_flat_registry_executes_real_manager_runtime(backend: str, owner: str) -> None:
+    if backend == "motrix":
+        pytest.importorskip("motrixsim", reason="motrixsim not installed")
     registry.ensure_registries()
     hydra_cfg, _, env_override = _materialize("ppo", (owner,))
     env = registry.make(
