@@ -76,6 +76,15 @@ def test_real_cuda_init_reset_step(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(backend._warp, "capture_launch", capture_launch)
 
+    graph_launches: list[Any] = []
+    original_capture_launch = backend._warp.capture_launch
+
+    def capture_launch(graph: Any) -> None:
+        graph_launches.append(graph)
+        original_capture_launch(graph)
+
+    monkeypatch.setattr(backend._warp, "capture_launch", capture_launch)
+
     qpos, qvel = _stand_state(backend, 2)
     backend.set_state(np.asarray([0, 1], dtype=np.int32), qpos, qvel)
     before = backend.get_base_pos().copy()
