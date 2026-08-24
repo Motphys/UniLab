@@ -1,0 +1,20 @@
+# @package _global_
+# MuJoCo owner for the standalone T800 Manager-Based SAC task.
+defaults:
+  - /task/t800_walk_flat/base
+  - _self_
+
+training:
+  task_name: T800WalkFlat
+  sim_backend: mujoco
+
+algo:
+  num_envs: 2048
+  max_iterations: 5000
+  save_interval: 1000
+  learning_starts: 10
+  updates_per_step: 8
+  gamma: 0.98488578
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
