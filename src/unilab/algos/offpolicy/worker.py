@@ -10,6 +10,7 @@ import torch
 
 from unilab.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.algos.offpolicy.thread_budget import apply_torch_thread_runtime
+from unilab.base.backend.process_device import configure_backend_process_device
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
 from unilab.base.registry import ensure_registries
@@ -156,6 +157,7 @@ def off_policy_collector_fn(
     algo_type: str = "sac",
     metrics_queue=None,
     sim_backend: str = "mujoco",
+    backend_device: str | None = None,
     env_cfg_override: dict | None = None,
     seed: int | None = None,
     trace_enabled: bool = False,
@@ -179,6 +181,7 @@ def off_policy_collector_fn(
         algo_type=algo_type,
         metrics_queue=metrics_queue,
         sim_backend=sim_backend,
+        backend_device=backend_device,
         env_cfg_override=env_cfg_override,
         seed=seed,
         trace_enabled=trace_enabled,
@@ -199,6 +202,7 @@ def _run_collector(
     algo_type,
     metrics_queue,
     sim_backend,
+    backend_device,
     env_cfg_override,
     seed,
     trace_enabled,
@@ -209,6 +213,7 @@ def _run_collector(
     from unilab.base import registry
 
     apply_torch_thread_runtime(torch_thread_runtime, role="collector", torch_module=torch)
+    configured_backend_device = configure_backend_process_device(sim_backend, backend_device)
     ensure_registries()
     apply_training_seed(seed, torch_runtime=False, cuda=False)
 
@@ -265,6 +270,8 @@ def _run_collector(
         "actor_owned": False,
         "weight_sync_attached": False,
         "torch_inference": False,
+        "collector_accelerator_context": configured_backend_device is not None,
+        "collector_backend_device": configured_backend_device,
         "cuda_context_initialized": bool(torch.cuda.is_initialized()),
     }
     if trace_recorder:

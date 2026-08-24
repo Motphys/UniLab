@@ -27,6 +27,7 @@ from unilab.algos.offpolicy.thread_budget import (
     torch_thread_env,
 )
 from unilab.algos.offpolicy.worker import off_policy_collector_fn, sample_offpolicy_actions
+from unilab.base.backend.process_device import resolve_backend_process_device
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.inference_slot import SharedInferenceSlot
 from unilab.ipc.replay_buffer import DEFAULT_REPLAY_INGRESS_DEPTH, ReplayBuffer
@@ -159,6 +160,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         **kwargs,
     ):
         kwargs["device"] = require_offpolicy_replay_device(kwargs.get("device"))
+        collector_backend_device = resolve_backend_process_device(
+            str(kwargs.get("sim_backend", "mujoco")),
+            kwargs["device"],
+        )
         super().__init__(**kwargs)
         if replay_prefetch_mode != "one_tick":
             raise ValueError(
@@ -168,6 +173,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         # Per-rank CPU block owned by this rank's collector (multi-GPU DP);
         # merged into the collector-only env override at collector startup.
         self.collector_cpu_ids = list(collector_cpu_ids) if collector_cpu_ids is not None else None
+        self.collector_backend_device = collector_backend_device
         # Multi-GPU synchronous data parallelism (None = the bit-identical
         # single-rank path): startup model broadcast, then gradient averaging
         # before every actor/critic/temperature optimizer step.
@@ -181,7 +187,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         self.runtime_manifest = {
             "inference_owner": "learner",
             "collector_actor": False,
-            "collector_accelerator_context": False,
+            "collector_accelerator_context": self.collector_backend_device is not None,
+            "collector_backend_device": self.collector_backend_device,
             "collector_torch_inference": False,
             "learner_actor_reused": True,
             "logger_owner_rank": 0,
@@ -918,7 +925,9 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 f"({self.replay_transfer_backend.get('device_family')})"
             )
         logger.log_status(f"Inference owner: learner.actor ({self.device})")
-        logger.log_status("Collector model/accelerator ownership: none")
+        if self.collector_backend_device is not None:
+            logger.log_status(f"Collector backend device: {self.collector_backend_device}")
+        logger.log_status("Collector actor/inference ownership: none")
         logger.log_status("Replay learner lightweight: fixed (log_interval=1)")
         self._active_logger = logger
         logger.start()
@@ -943,6 +952,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "inference_request_queue": inference_request_queue,
                 "inference_response_queue": inference_response_queue,
                 "sim_backend": self.sim_backend,
+                "backend_device": self.collector_backend_device,
                 "env_cfg_override": self._collector_env_cfg_override(),
                 "inference_slot": inference_slot,
                 "seed": derive_worker_seed(self.seed, worker_index=0),

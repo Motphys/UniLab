@@ -305,7 +305,13 @@ class _FakeLogger:
         return 0.0
 
 
-def _make_device_runner(monkeypatch: pytest.MonkeyPatch, learner=None):
+def _make_device_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    learner=None,
+    *,
+    device: str = "cuda",
+    sim_backend: str = "mujoco",
+):
     monkeypatch.setattr(
         device_runner_module, "require_offpolicy_replay_device", lambda value: value
     )
@@ -321,8 +327,61 @@ def _make_device_runner(monkeypatch: pytest.MonkeyPatch, learner=None):
         updates_per_step=2,
         policy_frequency=1,
         env_steps_per_sync=1,
-        device="cuda",
+        device=device,
+        sim_backend=sim_backend,
     )
+
+
+def test_mjwarp_collector_backend_device_follows_learner_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _make_device_runner(
+        monkeypatch,
+        device="cuda:3",
+        sim_backend="mjwarp",
+    )
+
+    assert runner.device == "cuda:3"
+    assert runner.collector_backend_device == "cuda:3"
+    assert runner.runtime_manifest["collector_accelerator_context"] is True
+    assert runner.runtime_manifest["collector_backend_device"] == "cuda:3"
+
+
+def test_mjwarp_collector_start_forwards_learner_device(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    _FakePipeline.close_calls = 0
+    monkeypatch.setattr(device_runner_module, "ReplayBuffer", _FakeReplayBuffer)
+    monkeypatch.setattr(device_runner_module, "GPUResidentReplayPipeline", _FakePipeline)
+    monkeypatch.setattr(device_runner_module, "OffPolicyLogger", _FakeLogger)
+    monkeypatch.setattr(device_runner_module.torch, "save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(device_runner_module.time, "sleep", lambda seconds: None)
+
+    real_empty = torch.empty
+
+    def empty_without_cuda(*args, **kwargs):
+        if str(kwargs.get("device", "")).startswith("cuda"):
+            kwargs["device"] = "cpu"
+        return real_empty(*args, **kwargs)
+
+    monkeypatch.setattr(device_runner_module.torch, "empty", empty_without_cuda)
+    runner = _make_device_runner(
+        monkeypatch,
+        device="cuda:3",
+        sim_backend="mjwarp",
+    )
+    collector_kwargs = {}
+
+    def capture_collector(*, target_fn, kwargs):
+        del target_fn
+        collector_kwargs.update(kwargs)
+
+    monkeypatch.setattr(runner, "_start_collector", capture_collector)
+    runner.learn(max_iterations=0, save_interval=0, log_dir=str(tmp_path))
+
+    assert collector_kwargs["sim_backend"] == "mjwarp"
+    assert collector_kwargs["backend_device"] == "cuda:3"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
