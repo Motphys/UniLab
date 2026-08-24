@@ -138,3 +138,95 @@ def test_g1_walk_flat_owner_one_step(
     assert np.isfinite(state.obs["obs"]).all()
     assert np.isfinite(state.obs["critic"]).all()
     assert np.isfinite(state.reward).all()
+
+
+def test_body_state_matches_mujoco_backend() -> None:
+    """Tracked body kinematics on mjwarp match the MuJoCo backend on identical state."""
+    import mujoco
+
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    _require_cuda_mjwarp()
+    num_envs = 2
+    sim_dt = 0.02 / 3.0
+    scene = _scene()
+    mujoco_backend = MuJoCoBackend(
+        scene,
+        num_envs,
+        sim_dt,
+        base_name="pelvis",
+        add_body_sensors=True,
+    )
+    mujoco_backend.materialize()
+    mjwarp_backend = create_backend(
+        "mjwarp",
+        scene,
+        num_envs,
+        sim_dt,
+        base_name="pelvis",
+        body_state_required=True,
+    )
+
+    rng = np.random.default_rng(0)
+    qpos = np.tile(mjwarp_backend.get_keyframe_qpos("stand"), (num_envs, 1))
+    qvel = rng.uniform(-0.5, 0.5, size=(num_envs, int(mujoco_backend.model.nv))).astype(np.float32)
+    rows = np.arange(num_envs, dtype=np.int32)
+    mujoco_backend.set_state(rows, qpos, qvel)
+    mjwarp_backend.set_state(rows, qpos, qvel)
+
+    body_names = ["pelvis", "left_hip_pitch_link", "left_knee_link"]
+    body_ids = np.asarray(
+        [
+            mujoco.mj_name2id(mujoco_backend.model, mujoco.mjtObj.mjOBJ_BODY, name)
+            for name in body_names
+        ],
+        dtype=np.int32,
+    )
+    assert (body_ids > 0).all()
+
+    atol = 2e-3
+    np.testing.assert_allclose(
+        mjwarp_backend.get_body_pos_w(body_ids),
+        mujoco_backend.get_body_pos_w(body_ids),
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        mjwarp_backend.get_body_quat_w(body_ids),
+        mujoco_backend.get_body_quat_w(body_ids),
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        mjwarp_backend.get_body_lin_vel_w(body_ids),
+        mujoco_backend.get_body_lin_vel_w(body_ids),
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        mjwarp_backend.get_body_ang_vel_w(body_ids),
+        mujoco_backend.get_body_ang_vel_w(body_ids),
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        mjwarp_backend.get_body_lin_vel_b(body_ids),
+        mujoco_backend.get_body_lin_vel_b(body_ids),
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        mjwarp_backend.get_body_ang_vel_b(body_ids),
+        mujoco_backend.get_body_ang_vel_b(body_ids),
+        atol=atol,
+    )
+
+
+def test_body_state_untracked_body_ids_fail_closed() -> None:
+    """Body ids outside the injected tracking set raise instead of wrapping around."""
+    _require_cuda_mjwarp()
+    backend = create_backend(
+        "mjwarp",
+        _scene(),
+        1,
+        0.02 / 3.0,
+        base_name="pelvis",
+        body_state_required=True,
+    )
+    with pytest.raises(ValueError, match="without injected tracking sensors"):
+        backend.get_body_pos_w(np.asarray([0], dtype=np.int32))

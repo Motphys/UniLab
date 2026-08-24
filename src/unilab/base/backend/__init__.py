@@ -157,6 +157,8 @@ def create_backend(
         return cast(SimBackend, MuJoCoBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "mjwarp":
         MjwarpBackend = _load_mjwarp_backend()
+        if body_state_required:
+            kwargs["add_body_sensors"] = True
         if position_actuator_gains is not None:
             raise ValueError(
                 "mjwarp does not accept position_actuator_gains in the host compatibility "
