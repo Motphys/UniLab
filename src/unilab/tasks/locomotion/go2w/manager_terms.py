@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from numbers import Real
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 
@@ -81,6 +81,7 @@ class Go2WMixedActionCfg(ActionTermCfg):
 class Go2WMixedAction(ActionTerm):
     """Convert one community action term into Go2W motor torques per substep."""
 
+    requires_substep_state_feedback: ClassVar[bool] = True
     cfg: Go2WMixedActionCfg
     _entity: Entity
 

@@ -59,6 +59,16 @@ class DummyActionCfg(ActionTermCfg):
         return DummyAction(self, env)
 
 
+class FeedbackDummyAction(DummyAction):
+    requires_substep_state_feedback = True
+
+
+@dataclass(kw_only=True)
+class FeedbackDummyActionCfg(DummyActionCfg):
+    def build(self, env: FakeEnv) -> FeedbackDummyAction:
+        return FeedbackDummyAction(self, env)
+
+
 def test_action_split_history_apply_and_partial_reset(fake_env: FakeEnv) -> None:
     manager = ActionManager(
         {
@@ -69,6 +79,7 @@ def test_action_split_history_apply_and_partial_reset(fake_env: FakeEnv) -> None
         fake_env,
     )
     assert manager.active_terms == ["legs", "arm"]
+    assert not manager.requires_substep_state_feedback
     first = np.arange(12, dtype=np.float32).reshape(4, 3)
     second = first + 20
     manager.process_action(first)
@@ -81,6 +92,28 @@ def test_action_split_history_apply_and_partial_reset(fake_env: FakeEnv) -> None
     manager.reset(np.array([1, 3]))
     np.testing.assert_array_equal(manager.action[[1, 3]], 0.0)
     np.testing.assert_array_equal(manager.action[[0, 2]], second[[0, 2]])
+
+
+def test_action_manager_aggregates_substep_state_feedback(fake_env: FakeEnv) -> None:
+    manager = ActionManager(
+        {
+            "invariant": DummyActionCfg(entity_name="robot", dim=1),
+            "feedback": FeedbackDummyActionCfg(entity_name="robot", dim=1),
+        },
+        fake_env,
+    )
+
+    assert manager.requires_substep_state_feedback
+
+
+def test_action_feedback_declaration_must_be_bool(
+    fake_env: FakeEnv,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(DummyAction, "requires_substep_state_feedback", "yes")
+
+    with pytest.raises(TypeError, match="requires_substep_state_feedback must be bool"):
+        ActionManager({"invalid": DummyActionCfg(entity_name="robot", dim=1)}, fake_env)
 
 
 @pytest.mark.parametrize(
