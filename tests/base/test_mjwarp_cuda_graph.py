@@ -94,6 +94,8 @@ def _backend(warp: _FakeWarp, mujoco_warp: _FakeMujocoWarp) -> MjwarpBackend:
     backend._device_model = object()
     backend._device_data = object()
     backend._reset_mask_device = object()
+    backend._reset_scratch_capacity = 0
+    backend._reset_scratch_data = None
     return backend
 
 
@@ -151,6 +153,25 @@ def test_cuda_graph_capture_replays_fixed_address_operations() -> None:
         mujoco_warp.forward_calls,
         mujoco_warp.reset_calls,
     ) == capture_calls
+
+
+def test_cuda_graph_capture_includes_materialized_reset_scratch() -> None:
+    warp = _FakeWarp(driver=(12, 4), mempool=True)
+    mujoco_warp = _FakeMujocoWarp()
+    backend = _backend(warp, mujoco_warp)
+    backend._reset_scratch_capacity = 4
+    backend._reset_scratch_data = object()
+    backend._reset_scratch_mask_device = object()
+
+    backend._initialize_cuda_graphs(_FakeDevice())
+
+    assert backend._cuda_graph_enabled is True
+    assert backend._reset_scratch_reset_graph == "graph-3"
+    assert backend._reset_scratch_forward_graph == "graph-4"
+    assert mujoco_warp.reset_calls == 2
+    assert mujoco_warp.forward_calls == 2
+    assert backend._can_use_reset_scratch(4) is True
+    assert backend._can_use_reset_scratch(5) is False
 
 
 def test_ineligible_cuda_graph_warns_and_uses_eager_operations() -> None:
