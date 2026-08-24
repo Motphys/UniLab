@@ -997,41 +997,58 @@ class MuJoCoBackend(SimBackend):
     def _step_with_pre_step_control(
         self, ctrl: np.ndarray, nsteps: int
     ) -> dict[str, dict[str, float]]:
+        # Single pool dispatch for all substeps (#1259 M1b): the upstream
+        # control_callback recomputes the Manager-Based action before every
+        # substep. callback_sensordata=False because action terms only read
+        # physics-state-backed getters (joint pos/vel); _sensor_data is
+        # refreshed once from the final-step return, as observation/metric
+        # terms only consume it after the full step.
         set_ctrl_ms = 0.0
-        physics_ms = 0.0
         refresh_cache_ms = 0.0
         has_pending_xfrc = bool(np.any(self._pending_xfrc_applied))
+        control_spec = int(mujoco.mjtState.mjSTATE_CTRL)
+        if has_pending_xfrc:
+            control_spec |= int(mujoco.mjtState.mjSTATE_XFRC_APPLIED)
 
-        for _ in range(nsteps):
+        def _control_callback(
+            step_index: int, state: np.ndarray, sensordata: np.ndarray | None
+        ) -> np.ndarray:
+            nonlocal set_ctrl_ms, refresh_cache_ms
+            if step_index > 0:
+                # step_index == 0 receives the initial state, which is already
+                # what _physics_state holds.
+                t0 = time.perf_counter()
+                self._physics_state[:] = state.astype(self._np_dtype)
+                refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
+
             t0 = time.perf_counter()
             native_ctrl = self._apply_pre_step_control(ctrl)
-            control_traj = native_ctrl[:, None, :]
-            control_spec = int(mujoco.mjtState.mjSTATE_CTRL)
+            control_out = np.ascontiguousarray(native_ctrl, dtype=np.float64)
             if has_pending_xfrc:
-                control_spec |= int(mujoco.mjtState.mjSTATE_XFRC_APPLIED)
-                xfrc_traj = self._pending_xfrc_applied[:, None, :]
-                control_traj = np.concatenate((control_traj, xfrc_traj), axis=-1)
+                control_out = np.concatenate((control_out, self._pending_xfrc_applied), axis=-1)
             set_ctrl_ms += (time.perf_counter() - t0) * 1000.0
+            return control_out
 
-            t0 = time.perf_counter()
-            state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
-                self._physics_state,
-                nstep=1,
-                control=control_traj,
-                control_spec=control_spec,
-                chunk_size=self._chunk_size,
-                return_sensor=True,
-                post_step_forward_sensor=self._post_step_forward_sensor,
-            )
-            self._physics_state[:] = state_np.astype(self._np_dtype)
-            physics_ms += (time.perf_counter() - t0) * 1000.0
-
-            t0 = time.perf_counter()
-            self._sensor_data[:] = sensor_np.astype(self._np_dtype)
-            refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        state_np, sensor_np = self._pool.step(  # type: ignore[union-attr]
+            self._physics_state,
+            nstep=nsteps,
+            control_spec=control_spec,
+            control_callback=_control_callback,
+            callback_sensordata=False,
+            chunk_size=self._chunk_size,
+            return_sensor=True,
+            post_step_forward_sensor=self._post_step_forward_sensor,
+        )
+        physics_ms = (time.perf_counter() - t0) * 1000.0 - set_ctrl_ms - refresh_cache_ms
 
         if has_pending_xfrc:
             self._pending_xfrc_applied.fill(0.0)
+
+        t0 = time.perf_counter()
+        self._physics_state[:] = state_np.astype(self._np_dtype)
+        self._sensor_data[:] = sensor_np.astype(self._np_dtype)
+        refresh_cache_ms += (time.perf_counter() - t0) * 1000.0
 
         return {
             "timing": {

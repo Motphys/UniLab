@@ -46,29 +46,48 @@ class _FakeMuJoCoPool:
     def __init__(self) -> None:
         self.step_calls: list[dict] = []
         self.forward_calls: list[np.ndarray] = []
+        self.callback_controls: list[np.ndarray] = []
 
     def step(
         self,
         state,
         *,
         nstep,
-        control,
+        control=None,
         control_spec,
         return_sensor=False,
         post_step_forward_sensor=False,
         chunk_size=None,
+        control_callback=None,
+        callback_sensordata=True,
     ):
         self.step_calls.append(
             {
                 "nstep": nstep,
-                "control": np.array(control, copy=True),
+                "control": None if control is None else np.array(control, copy=True),
                 "control_spec": control_spec,
                 "return_sensor": return_sensor,
                 "post_step_forward_sensor": post_step_forward_sensor,
                 "chunk_size": chunk_size,
+                "control_callback": control_callback,
+                "callback_sensordata": callback_sensordata,
             }
         )
-        state_out = np.asarray(state) + 1.0
+        state_out = np.ascontiguousarray(np.asarray(state), dtype=np.float64)
+        if control_callback is not None:
+            # Emulate the upstream per-substep control_callback protocol:
+            # callback(0) sees the initial state and sensordata=None; each
+            # substep adds 1.0; callback(t>0) sees fresh state and sensordata
+            # only when callback_sensordata is true.
+            for t in range(nstep):
+                sensor_arg = None
+                if t > 0 and callback_sensordata:
+                    sensor_arg = state_out[:, :1]
+                cb_control = control_callback(t, state_out, sensor_arg)
+                self.callback_controls.append(np.array(cb_control, copy=True))
+                state_out = state_out + 1.0
+        else:
+            state_out = state_out + 1.0
         if return_sensor:
             return state_out, state_out[:, :1]
         return state_out
@@ -126,32 +145,65 @@ def test_mujoco_step_honors_post_step_forward_sensor_flag() -> None:
     assert backend._pool.step_calls[0]["post_step_forward_sensor"] is True
 
 
-def test_mujoco_step_with_pre_step_control_recomputes_each_physics_step() -> None:
+def test_mujoco_step_with_pre_step_control_uses_single_dispatch_callback() -> None:
+    seen_states: list[np.ndarray] = []
     seen_sensors: list[np.ndarray] = []
 
     backend = _fake_mujoco_backend(post_step_forward_sensor=True)
 
     def hook(current_backend, owner_ctrl: np.ndarray) -> np.ndarray:
+        seen_states.append(current_backend._physics_state.copy())
         seen_sensors.append(current_backend._sensor_data.copy())
-        return owner_ctrl + len(seen_sensors)
+        return owner_ctrl + len(seen_states)
 
     backend.set_pre_step_control(hook)
     ctrl = np.array([[0.5, -0.5]], dtype=np.float32)
 
     backend.step(ctrl, nsteps=3)
 
-    assert len(backend._pool.step_calls) == 3
-    assert [call["nstep"] for call in backend._pool.step_calls] == [1, 1, 1]
-    assert all(call["return_sensor"] is True for call in backend._pool.step_calls)
-    assert all(call["post_step_forward_sensor"] is True for call in backend._pool.step_calls)
-    assert all(call["chunk_size"] is None for call in backend._pool.step_calls)
-    assert backend._pool.forward_calls == []
-    np.testing.assert_allclose(seen_sensors, [[[0.0]], [[1.0]], [[2.0]]])
-    np.testing.assert_allclose(backend._pool.step_calls[0]["control"], (ctrl + 1)[:, None, :])
-    np.testing.assert_allclose(backend._pool.step_calls[1]["control"], (ctrl + 2)[:, None, :])
-    np.testing.assert_allclose(backend._pool.step_calls[2]["control"], (ctrl + 3)[:, None, :])
+    pool = backend._pool
+    assert len(pool.step_calls) == 1
+    call = pool.step_calls[0]
+    assert call["nstep"] == 3
+    assert call["control"] is None
+    assert call["control_callback"] is not None
+    assert call["callback_sensordata"] is False
+    assert call["return_sensor"] is True
+    assert call["post_step_forward_sensor"] is True
+    assert call["chunk_size"] is None
+    assert pool.forward_calls == []
+    # The hook sees the physics state refreshed before every substep.
+    np.testing.assert_allclose(seen_states, [[[0.0]], [[1.0]], [[2.0]]])
+    # _sensor_data is no longer refreshed per substep (action terms only read
+    # physics-state-backed getters); it is refreshed once from the final
+    # return below.
+    np.testing.assert_allclose(seen_sensors, [[[0.0]], [[0.0]], [[0.0]]])
+    assert len(pool.callback_controls) == 3
+    np.testing.assert_allclose(pool.callback_controls[0], ctrl + 1)
+    np.testing.assert_allclose(pool.callback_controls[1], ctrl + 2)
+    np.testing.assert_allclose(pool.callback_controls[2], ctrl + 3)
+    assert pool.callback_controls[0].dtype == np.float64
     np.testing.assert_allclose(backend._physics_state, [[3.0]])
     np.testing.assert_allclose(backend._sensor_data, [[3.0]])
+
+
+def test_mujoco_step_with_pre_step_control_appends_pending_xfrc_each_substep() -> None:
+    mujoco = pytest.importorskip("mujoco")
+    backend = _fake_mujoco_backend()
+    backend._pending_xfrc_applied = np.full((1, 2), 7.0, dtype=np.float64)
+
+    backend.set_pre_step_control(lambda current_backend, owner_ctrl: owner_ctrl + 1.0)
+    ctrl = np.array([[0.5, -0.5]], dtype=np.float32)
+
+    backend.step(ctrl, nsteps=2)
+
+    pool = backend._pool
+    assert len(pool.step_calls) == 1
+    assert pool.step_calls[0]["control_spec"] & int(mujoco.mjtState.mjSTATE_XFRC_APPLIED)
+    assert len(pool.callback_controls) == 2
+    for cb_control in pool.callback_controls:
+        np.testing.assert_allclose(cb_control, [[1.5, 0.5, 7.0, 7.0]])
+    np.testing.assert_allclose(backend._pending_xfrc_applied, [[0.0, 0.0]])
 
 
 class _FakeMotrixModel:

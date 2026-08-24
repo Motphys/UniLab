@@ -53,7 +53,7 @@ mujoco = [
     # (uv prefer-locked semantics). The tested window is >=3.5,<3.11 — switch
     # within it via `make mujoco MJ=<version>`.
     "mujoco>=3.5",
-    "mujoco-uni-runtime==0.3.1",
+    "mujoco-uni-runtime==0.4.0",
     # pybind11/wheel are build requirements of mujoco-uni-runtime, which is
     # compiled in this environment (see no-build-isolation-package below).
     "pybind11>=2.12",
