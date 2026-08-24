@@ -180,6 +180,66 @@ def test_observation_default_finite_policy_fails_closed(fake_env: FakeEnv, bad: 
         manager.compute()
 
 
+@pytest.mark.parametrize(
+    ("invalid_values", "invalid_kind"),
+    [
+        ((np.nan, 0.0), "NaN"),
+        ((np.inf, 0.0), "Inf"),
+        ((np.nan, np.inf), "NaN/Inf"),
+    ],
+)
+def test_observation_finite_error_keeps_kind_term_and_env_diagnostics(
+    fake_env: FakeEnv,
+    invalid_values: tuple[float, float],
+    invalid_kind: str,
+) -> None:
+    def invalid(env: FakeEnv) -> np.ndarray:
+        result = env.obs.copy()
+        result[2] = invalid_values
+        return result
+
+    manager = ObservationManager(
+        {"policy": ObservationGroupCfg(terms={"bad": ObservationTermCfg(func=invalid)})},
+        fake_env,
+    )
+    match = rf"{invalid_kind} detected.*'policy/bad'.*environments: \[2\]"
+    with pytest.raises(ValueError, match=match):
+        manager.compute()
+
+
+def test_observation_finite_warn_sanitizes_and_disabled_preserves(
+    fake_env: FakeEnv, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def invalid(env: FakeEnv) -> np.ndarray:
+        result = env.obs.copy()
+        result[1, 0] = np.nan
+        return result
+
+    warn = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={"bad": ObservationTermCfg(func=invalid)}, nan_policy="warn"
+            )
+        },
+        fake_env,
+    )
+    warned = warn.compute()["policy"]
+    assert np.isfinite(warned).all()
+    warning = capsys.readouterr().out
+    assert "policy/bad" in warning
+    assert "envs: [1]" in warning
+
+    disabled = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={"bad": ObservationTermCfg(func=invalid)}, nan_policy="disabled"
+            )
+        },
+        fake_env,
+    )
+    assert np.isnan(disabled.compute()["policy"][1, 0])
+
+
 def test_observation_explicit_sanitize_and_shape_error(fake_env: FakeEnv) -> None:
     sanitize = ObservationManager(
         {
