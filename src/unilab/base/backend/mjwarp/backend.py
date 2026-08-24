@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from os import PathLike
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 
@@ -29,6 +29,7 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+from unilab.utils.rotation import np_quat_apply_inverse_batched
 
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
@@ -55,6 +56,7 @@ class MjwarpBackend(SimBackend):
         push_body_name: str | None = None,
         nconmax: int | None = None,
         njmax: int | None = None,
+        add_body_sensors: bool = False,
         **unexpected_kwargs: Any,
     ) -> None:
         if unexpected_kwargs:
@@ -64,6 +66,10 @@ class MjwarpBackend(SimBackend):
             raise ValueError(f"num_envs must be a positive integer, got {num_envs!r}")
         if float(sim_dt) <= 0.0:
             raise ValueError(f"sim_dt must be positive, got {sim_dt!r}")
+        if not isinstance(add_body_sensors, bool):
+            raise TypeError(
+                f"MjwarpBackend add_body_sensors must be bool, got {type(add_body_sensors).__name__}"
+            )
         nconmax = self._require_capacity(nconmax, name="nconmax", default=512)
         njmax = self._require_capacity(njmax, name="njmax", default=512)
         if push_body_name is not None:
@@ -80,7 +86,7 @@ class MjwarpBackend(SimBackend):
                 "host or select the mujoco backend."
             )
 
-        scene_context = materialize_mjwarp_scene(scene)
+        scene_context = materialize_mjwarp_scene(scene, add_body_sensors=add_body_sensors)
         self._scene_cleanup_handle = scene_context.cleanup_handle
         self.scene_model_file = scene_context.diagnostic_model_file
         self.scene_visual_model_file = str(scene.visual_model_file or scene.model_file)
@@ -92,11 +98,19 @@ class MjwarpBackend(SimBackend):
         self._base_name = base_name
         self._nconmax = nconmax
         self._njmax = njmax
+        self._add_body_sensors = add_body_sensors
+        self._tracked_body_names = scene_context.tracked_body_names
 
         self._mujoco = deps.mujoco
         self._mujoco_warp = deps.mujoco_warp
         self._warp = deps.warp
-        self._cpu_model = deps.mujoco.MjModel.from_xml_path(scene_context.source_model_file)
+        try:
+            self._cpu_model = deps.mujoco.MjModel.from_xml_path(scene_context.source_model_file)
+        finally:
+            # The materialized source (fragment merge and/or injected tracking
+            # sensors) is only needed to compile the model; release the
+            # temporary files immediately like the MuJoCo backend does.
+            self.cleanup_scene_assets()
         self._cpu_model.opt.timestep = self._sim_dt
         self._device_model = deps.mujoco_warp.put_model(self._cpu_model)
         self._device_data = deps.mujoco_warp.make_data(
@@ -163,6 +177,11 @@ class MjwarpBackend(SimBackend):
         self._ctrl_staging = np.zeros((self._num_envs, self._nu), dtype=np.float32)
         self._reset_mask_host = np.zeros((self._num_envs,), dtype=np.bool_)
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
+        # Tracked-body views are zero-copy slices of _sensor_cache; they must be
+        # bound before the first forward barrier refreshes the cache below.
+        self._body_id_to_tracked_idx: np.ndarray | None = None
+        if self._add_body_sensors:
+            self._bind_tracked_body_state()
         # Begin from explicit model defaults, run a forward barrier, and cache
         # the resulting sensors/kinematics.  This avoids an uninitialized host
         # cache before NpEnv's first selected-row reset.
@@ -236,6 +255,76 @@ class MjwarpBackend(SimBackend):
         mask = np.asarray(self._cpu_model.jnt_type, dtype=np.int32) != free_joint
         joint_range = np.asarray(self._cpu_model.jnt_range, dtype=np.float32)[mask]
         return None if joint_range.size == 0 else joint_range.copy()
+
+    def _bind_tracked_body_state(self) -> None:
+        """Bind zero-copy tracked-body views into the per-step sensor cache.
+
+        Sensor columns follow the ``tracked_body_names`` insertion order from
+        the cold-path injection; body ids are rebuilt from the compiled model
+        because MjSpec compilation can reorder bodies (same reasoning as the
+        MuJoCo backend).
+        """
+        names = self._tracked_body_names
+        if not names:
+            raise ValueError(
+                "mjwarp add_body_sensors requires at least one named body in the model"
+            )
+        body_type = self._mujoco.mjtObj.mjOBJ_BODY
+        tracked_ids = [self._mujoco.mj_name2id(self._cpu_model, body_type, name) for name in names]
+        missing = [name for name, body_id in zip(names, tracked_ids, strict=True) if body_id < 0]
+        if missing:
+            raise ValueError(
+                "Injected mjwarp body tracking sensors reference bodies missing from "
+                f"the compiled model: {missing}"
+            )
+        mapping = np.full(self._nbody, -1, dtype=np.intp)
+        for index, body_id in enumerate(tracked_ids):
+            mapping[body_id] = index
+        self._body_id_to_tracked_idx = mapping
+        self._tracked_pos_w_all = self._tracked_sensor_view("track_pos_w", 3)
+        self._tracked_quat_w_all = self._tracked_sensor_view("track_quat_w", 4)
+        self._tracked_linvel_w_all = self._tracked_sensor_view("track_linvel_w", 3)
+        self._tracked_angvel_w_all = self._tracked_sensor_view("track_angvel_w", 3)
+
+    def _tracked_sensor_view(self, prefix: str, dim: int) -> np.ndarray:
+        count = len(self._tracked_body_names)
+        addresses = []
+        for name in self._tracked_body_names:
+            sensor_name = f"{prefix}_{name}"
+            try:
+                address, sensor_dim = self._sensor_slots[sensor_name]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Injected mjwarp tracking sensor {sensor_name!r} is missing from the "
+                    "compiled model"
+                ) from exc
+            if sensor_dim != dim:
+                raise ValueError(
+                    f"Injected mjwarp tracking sensor {sensor_name!r} has dim {sensor_dim}; "
+                    f"expected {dim}"
+                )
+            addresses.append(address)
+        first = addresses[0]
+        if addresses != [first + index * dim for index in range(count)]:
+            raise ValueError(
+                f"Injected mjwarp tracking sensors {prefix}_* are not one contiguous "
+                "sensor block in tracked-body order"
+            )
+        return self._sensor_cache[:, first : first + count * dim].reshape(
+            self._num_envs, count, dim
+        )
+
+    def _mapped_tracked_ids(self, operation: str, body_ids: np.ndarray) -> np.ndarray:
+        mapping = self._body_id_to_tracked_idx
+        if mapping is None:
+            self._unsupported_body_kinematics(operation)
+        mapped = mapping[np.asarray(body_ids, dtype=np.intp)]
+        if np.any(mapped < 0):
+            raise ValueError(
+                f"mjwarp {operation} received body ids without injected tracking sensors: "
+                f"{np.asarray(body_ids)[mapped < 0].tolist()}"
+            )
+        return mapped
 
     # ------------------------------------------------------------------ #
     # Explicit host-cache barriers                                        #
@@ -771,27 +860,28 @@ class MjwarpBackend(SimBackend):
     def get_dof_vel(self) -> np.ndarray:
         return self._qvel_cache[:, self._root_qvel_dim :]
 
-    def _unsupported_body_kinematics(self, operation: str) -> None:
+    def _unsupported_body_kinematics(self, operation: str) -> NoReturn:
         raise NotImplementedError(
             f"mjwarp host_numpy profile does not expose {operation}; the G1 host adapter "
-            "supports only base, dof, and configured sensor cache reads."
+            "supports base, dof, and configured sensor cache reads, plus tracked body "
+            "kinematics when constructed with body_state_required/add_body_sensors."
         )
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_body_kinematics("world-frame body positions")
+        mapped = self._mapped_tracked_ids("world-frame body positions", body_ids)
+        return self._tracked_pos_w_all[:, mapped, :]
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_body_kinematics("world-frame body orientations")
+        mapped = self._mapped_tracked_ids("world-frame body orientations", body_ids)
+        return self._tracked_quat_w_all[:, mapped, :]
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_body_kinematics("world-frame body linear velocities")
+        mapped = self._mapped_tracked_ids("world-frame body linear velocities", body_ids)
+        return self._tracked_linvel_w_all[:, mapped, :]
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_body_kinematics("world-frame body angular velocities")
+        mapped = self._mapped_tracked_ids("world-frame body angular velocities", body_ids)
+        return self._tracked_angvel_w_all[:, mapped, :]
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
         del body_ids
@@ -802,12 +892,20 @@ class MjwarpBackend(SimBackend):
         self._unsupported_body_kinematics("base-frame body orientations")
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_body_kinematics("base-frame body linear velocities")
+        # Analytical per the SimBackend contract (#1254): world-frame velocity
+        # rotated into each body's own frame, matching MuJoCoBackend.
+        mapped = self._mapped_tracked_ids("base-frame body linear velocities", body_ids)
+        return np_quat_apply_inverse_batched(
+            self._tracked_quat_w_all[:, mapped, :],
+            self._tracked_linvel_w_all[:, mapped, :],
+        )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_body_kinematics("base-frame body angular velocities")
+        mapped = self._mapped_tracked_ids("base-frame body angular velocities", body_ids)
+        return np_quat_apply_inverse_batched(
+            self._tracked_quat_w_all[:, mapped, :],
+            self._tracked_angvel_w_all[:, mapped, :],
+        )
 
     def get_sensor_data(self, name: str) -> np.ndarray:
         try:

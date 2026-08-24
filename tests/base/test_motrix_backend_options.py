@@ -828,7 +828,37 @@ def test_create_backend_maps_body_state_request_inside_motrix_adapter(monkeypatc
     assert captured["kwargs"]["add_body_sensors"] is True
 
 
-@pytest.mark.parametrize("backend_type", ["drake", "mjwarp"])
+@pytest.mark.parametrize("body_state_required", [False, True])
+def test_create_backend_maps_body_state_request_inside_mjwarp_adapter(
+    monkeypatch, body_state_required: bool
+) -> None:
+    import unilab.base.backend as backend_factory
+    from unilab.base.scene import SceneCfg
+
+    captured: dict[str, Any] = {}
+
+    class FakeMjwarpBackend:
+        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(backend_factory, "_load_mjwarp_backend", lambda: FakeMjwarpBackend)
+
+    backend_factory.create_backend(
+        "mjwarp",
+        SceneCfg(model_file="model.xml"),
+        num_envs=1,
+        sim_dt=0.01,
+        body_state_required=body_state_required,
+    )
+
+    assert "body_state_required" not in captured["kwargs"]
+    if body_state_required:
+        assert captured["kwargs"]["add_body_sensors"] is True
+    else:
+        assert "add_body_sensors" not in captured["kwargs"]
+
+
+@pytest.mark.parametrize("backend_type", ["drake"])
 def test_create_backend_keeps_body_state_request_out_of_native_state_adapters(
     monkeypatch, backend_type: str
 ) -> None:
