@@ -54,6 +54,8 @@ _G1_LOCOMOTION_TASKS = frozenset(
     }
 )
 
+_T800_LOCOMOTION_TASKS = frozenset({"T800WalkFlat"})
+
 _CUSTOM_COMPAT_TASKS = frozenset(
     {
         "Go2ArmManipLoco",
@@ -97,6 +99,7 @@ PRODUCTION_TASK_NAMES = frozenset(
     _MBA_TASKS
     | _ROUGH_TASKS
     | _G1_LOCOMOTION_TASKS
+    | _T800_LOCOMOTION_TASKS
     | _CUSTOM_COMPAT_TASKS
     | _MOTION_CORE_TASKS
     | _MOTION_TASKS
@@ -142,6 +145,15 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "complete",
             "Hydra owners materialize biped gait, sensor, command, and penalty-curriculum manager terms on the canonical runtime.",
             "Keep the manager contract and regression evidence current.",
+        )
+    if task_name in _T800_LOCOMOTION_TASKS:
+        return TaskMigrationRecord(
+            task_name,
+            "t800_locomotion",
+            "Compatible",
+            "complete",
+            "Hydra owner YAML materializes the T800 walk-flat task on the canonical NumPy Manager-Based runtime.",
+            "Keep the Manager-Based owner and cold-path asset resolver contract current.",
         )
     if task_name in _CUSTOM_COMPAT_TASKS:
         family = "go2_arm" if task_name == "Go2ArmManipLoco" else "sharpa"
