@@ -303,11 +303,17 @@ class ObservationManager(ManagerBase):
         if policy == "disabled":
             return tensor
 
-        has_nan = np.isnan(tensor).any()
-        has_inf = np.isinf(tensor).any()
-
-        if not (has_nan or has_inf):
+        # The overwhelmingly common path is finite.  Use one full tensor scan
+        # here instead of separate isnan/isinf scans for every term.  On the
+        # exceptional path the same allocation is reused as the invalid mask
+        # so diagnostics and sanitization retain their existing semantics.
+        finite = np.isfinite(tensor)
+        if finite.all():
             return tensor
+        invalid = np.logical_not(finite, out=finite)
+        invalid_values = tensor[invalid]
+        has_nan = np.isnan(invalid_values).any()
+        has_inf = np.isinf(invalid_values).any()
 
         def _row_env_ids(mask: np.ndarray) -> list[int]:
             rows = np.flatnonzero(np.asarray(mask, dtype=bool))
@@ -317,7 +323,6 @@ class ObservationManager(ManagerBase):
             return result
 
         if policy == "error":
-            invalid = ~np.isfinite(tensor)
             nan_mask = np.asarray(invalid.reshape(tensor.shape[0], -1).any(axis=1))
             nan_env_ids = _row_env_ids(nan_mask)
             invalid_kind = (
@@ -333,7 +338,6 @@ class ObservationManager(ManagerBase):
             )
 
         if policy == "warn":
-            invalid = ~np.isfinite(tensor)
             nan_mask = np.asarray(invalid.reshape(tensor.shape[0], -1).any(axis=1))
             nan_env_ids = _row_env_ids(nan_mask)
             print(
