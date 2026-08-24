@@ -256,6 +256,7 @@ def test_write_csv_includes_all_phase_columns(tmp_path) -> None:
     assert "env_step_overhead_ms" in header
     assert "physics_pct" in header
     assert "env_step_overhead_pct" in header
+    assert "mba_" not in header
     for key in bench.COLLECTOR_PHASES:
         assert key in header
 
@@ -289,106 +290,6 @@ def test_write_csv_includes_backend_set_state_sub_timing_columns(tmp_path) -> No
     )
     for key in expected_keys:
         assert key in header, f"CSV header missing {key!r}"
-
-
-def test_write_csv_includes_mba_reset_sub_step_columns(tmp_path) -> None:
-    """CSV headers must expose the fixed MBA reset sub-step keys."""
-    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
-    out_csv = tmp_path / "collector.csv"
-
-    bench._write_csv(out_csv, [result])
-
-    header = out_csv.read_text(encoding="utf-8").splitlines()[0]
-    for key in (
-        "mba_reset_total_ms",
-        "mba_reset_curriculum_ms",
-        "mba_reset_event_apply_ms",
-        "mba_reset_command_reset_ms",
-        "mba_reset_set_state_ms",
-        "mba_reset_manager_reset_ms",
-        "mba_reset_command_compute_ms",
-        "mba_reset_obs_build_ms",
-        "mba_reset_internal_gap_ms",
-    ):
-        assert key in header, f"CSV header missing {key!r}"
-
-
-def test_write_csv_includes_mba_update_state_columns(tmp_path) -> None:
-    """CSV headers must expose the fixed MBA update_state block/phase keys."""
-    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
-    out_csv = tmp_path / "collector.csv"
-
-    bench._write_csv(out_csv, [result])
-
-    header = out_csv.read_text(encoding="utf-8").splitlines()[0]
-    for key in (
-        "mba_update_total_ms",
-        "mba_termination_ms",
-        "mba_reward_ms",
-        "mba_metrics_ms",
-        "mba_events_ms",
-        "mba_command_ms",
-        "mba_obs_compute_ms",
-        "mba_obs_map_ms",
-        "mba_termination_getter_ms",
-        "mba_reward_getter_ms",
-        "mba_metrics_getter_ms",
-        "mba_events_getter_ms",
-        "mba_command_getter_ms",
-        "mba_obs_compute_getter_ms",
-        "mba_obs_map_getter_ms",
-        "mba_update_internal_gap_ms",
-        "mba_getters_total_ms",
-        "mba_obs_noise_ms",
-        "mba_obs_clip_scale_ms",
-        "mba_obs_nan_check_ms",
-        "mba_obs_delay_ms",
-        "mba_obs_history_ms",
-        "mba_obs_concat_ms",
-    ):
-        assert key in header, f"CSV header missing {key!r}"
-
-
-def test_print_result_includes_mba_update_and_dynamic_term_timings(capsys) -> None:
-    """Console breakdown shows MBA update blocks and dynamic per-term keys."""
-    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
-    result.env_step_timing_ms_per_vector_step["mba_update_total_ms"] = bench.TimingStats(
-        [5.0], 5.0, 5.0, 0.0, 5.0, 5.0
-    )
-    result.env_step_timing_ms_per_vector_step["mba_obs_term_actor_joint_pos_ms"] = (
-        bench.TimingStats([2.0], 2.0, 2.0, 0.0, 2.0, 2.0)
-    )
-    result.env_step_timing_ms_per_vector_step["mba_reward_term_pose_getter_ms"] = bench.TimingStats(
-        [1.0], 1.0, 1.0, 0.0, 1.0, 1.0
-    )
-    result.env_step_timing_ms_per_vector_step["mba_getter_dof_pos_ms"] = bench.TimingStats(
-        [0.5], 0.5, 0.5, 0.0, 0.5, 0.5
-    )
-
-    bench._print_result(result)
-
-    out = capsys.readouterr().out
-    assert "np_env_mba_update_total_ms" in out
-    assert "np_env_mba_obs_term_actor_joint_pos_ms" in out
-    assert "np_env_mba_reward_term_pose_getter_ms" in out
-    assert "np_env_mba_getter_dof_pos_ms" in out
-
-
-def test_print_result_includes_mba_reset_and_per_term_event_timings(capsys) -> None:
-    """Console breakdown shows MBA reset sub-steps and dynamic per-term keys."""
-    result = _make_result(num_envs=2, throughput=2000.0, include_env_step_breakdown=True)
-    result.env_step_timing_ms_per_vector_step["mba_reset_total_ms"] = bench.TimingStats(
-        [5.0], 5.0, 5.0, 0.0, 5.0, 5.0
-    )
-    result.env_step_timing_ms_per_vector_step["mba_reset_event_term_reset_root_ms"] = (
-        bench.TimingStats([2.0], 2.0, 2.0, 0.0, 2.0, 2.0)
-    )
-
-    bench._print_result(result)
-
-    out = capsys.readouterr().out
-    assert "np_env_mba_reset_total_ms" in out
-    assert "np_env_mba_reset_event_term_reset_root_ms" in out
 
 
 def test_format_set_state_detail_table_reports_sub_key_percentages() -> None:

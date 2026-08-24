@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Sequence
@@ -158,11 +157,6 @@ class ObservationManager(ManagerBase):
                 self._group_obs_dim[group_name] = group_term_dims
 
         self._obs_buffer: dict[str, np.ndarray | dict[str, np.ndarray]] | None = None
-        # Per-compute() timing breakdown consumed by the env's update_state
-        # instrumentation (issue #1256): per-term totals/getter shares and
-        # cross-term pipeline phases (noise/clip_scale/nan_check/delay/history/
-        # concat), keyed with the mba_obs_* prefix.
-        self._last_compute_timing_ms: dict[str, float] = {}
 
     def __str__(self) -> str:
         msg = f"<ObservationManager> contains {len(self._group_obs_term_names)} groups.\n"
@@ -240,11 +234,6 @@ class ObservationManager(ManagerBase):
     @property
     def group_obs_concatenate(self) -> dict[str, bool]:
         return self._group_obs_concatenate
-
-    @property
-    def last_compute_timing_ms(self) -> dict[str, float]:
-        """Per-term and per-phase wall times (ms) of the latest compute() call."""
-        return dict(self._last_compute_timing_ms)
 
     # Methods.
 
@@ -374,7 +363,6 @@ class ObservationManager(ManagerBase):
             return self._obs_buffer
 
         obs_buffer: dict[str, np.ndarray | dict[str, np.ndarray]] = dict()
-        self._last_compute_timing_ms = {}
         for group_name in self._group_obs_term_names:
             obs_buffer[group_name] = self.compute_group(group_name, update_history, env_ids)
         if env_ids is None:
@@ -392,18 +380,6 @@ class ObservationManager(ManagerBase):
             raise KeyError(f"Observation group '{group_name}' is disabled.")
         group_term_names = self._group_obs_term_names[group_name]
         group_obs: dict[str, np.ndarray] = {}
-        # Per-compute() instrumentation (issue #1256): per-term wall time with
-        # leaf-getter share, plus cross-term pipeline phase aggregation. Timing
-        # keys are merged into self._last_compute_timing_ms with mba_obs_* names.
-        phase_ms = {
-            "noise": 0.0,
-            "clip_scale": 0.0,
-            "nan_check": 0.0,
-            "delay": 0.0,
-            "history": 0.0,
-            "concat": 0.0,
-        }
-        term_timing: dict[str, float] = {}
         obs_terms = zip(group_term_names, self._group_obs_term_cfgs[group_name], strict=False)
         # Reset path (issue #1259 R2): when no term in this group uses delay or
         # history buffers, everything downstream of the term call is row
@@ -413,8 +389,6 @@ class ObservationManager(ManagerBase):
         # and per-row noise values identical to the full-batch path.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
         for term_name, term_cfg in obs_terms:
-            term_t0 = time.perf_counter()
-            term_getter0 = self._env._mba_getter_total_ms()
             obs = term_cfg.func(self._env, **term_cfg.params)
             if not isinstance(obs, np.ndarray):
                 raise TypeError(
@@ -428,26 +402,21 @@ class ObservationManager(ManagerBase):
                 )
             if not row_scoped:
                 obs = obs.copy()
-            t0 = time.perf_counter()
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
                 obs = term_cfg.noise.apply(obs, rng=self._env.rng)
             elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
                 obs = self._group_obs_class_instances[group_name][term_name](obs)
-            phase_ms["noise"] += time.perf_counter() - t0
             if row_scoped:
                 # Fresh row copy; safe for the in-place clip/scale below.
                 obs = obs[env_ids]
-            t0 = time.perf_counter()
             if term_cfg.clip:
                 np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
             if term_cfg.scale is not None:
                 scale = term_cfg.scale
                 assert isinstance(scale, np.ndarray)
                 np.multiply(obs, scale, out=obs)
-            phase_ms["clip_scale"] += time.perf_counter() - t0
 
             # Check for NaN/Inf before delay/history buffers (per-term checking).
-            t0 = time.perf_counter()
             if group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
                 obs = self._check_and_handle_nans(
                     obs,
@@ -455,9 +424,7 @@ class ObservationManager(ManagerBase):
                     policy=group_cfg.nan_policy,
                     env_ids=env_ids if row_scoped else None,
                 )
-            phase_ms["nan_check"] += time.perf_counter() - t0
 
-            t0 = time.perf_counter()
             if term_cfg.delay_max_lag > 0:
                 delay_buffer = self._group_obs_term_delay_buffer[group_name][term_name]
                 if env_ids is None or not delay_buffer.is_initialized:
@@ -466,8 +433,6 @@ class ObservationManager(ManagerBase):
                 else:
                     delay_buffer.backfill(obs, env_ids)
                     obs = delay_buffer.peek()
-            phase_ms["delay"] += time.perf_counter() - t0
-            t0 = time.perf_counter()
             if term_cfg.history_length > 0:
                 circular_buffer = self._group_obs_term_history_buffer[group_name][term_name]
                 if env_ids is None or not circular_buffer.is_initialized:
@@ -482,16 +447,8 @@ class ObservationManager(ManagerBase):
                     group_obs[term_name] = circular_buffer.buffer
             else:
                 group_obs[term_name] = obs
-            phase_ms["history"] += time.perf_counter() - t0
-
-            term_prefix = f"mba_obs_term_{group_name}_{term_name}"
-            term_timing[f"{term_prefix}_ms"] = (time.perf_counter() - term_t0) * 1000.0
-            term_timing[f"{term_prefix}_getter_ms"] = (
-                self._env._mba_getter_total_ms() - term_getter0
-            )
 
         # Final NaN check for non-per-term checking.
-        t0 = time.perf_counter()
         if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
             if self._group_obs_concatenate[group_name]:
                 # Will check after concatenation below.
@@ -504,16 +461,12 @@ class ObservationManager(ManagerBase):
                         policy=group_cfg.nan_policy,
                         env_ids=env_ids if row_scoped else None,
                     )
-        phase_ms["nan_check"] += time.perf_counter() - t0
 
-        t0 = time.perf_counter()
         if self._group_obs_concatenate[group_name]:
             result = np.concatenate(
                 list(group_obs.values()), axis=self._group_obs_concatenate_dim[group_name]
             )
-            phase_ms["concat"] += time.perf_counter() - t0
             # Final check for concatenated result (non-per-term checking).
-            t0 = time.perf_counter()
             if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
                 result = self._check_and_handle_nans(
                     result,
@@ -521,9 +474,7 @@ class ObservationManager(ManagerBase):
                     policy=group_cfg.nan_policy,
                     env_ids=env_ids if row_scoped else None,
                 )
-            phase_ms["nan_check"] += time.perf_counter() - t0
         else:
-            phase_ms["concat"] += time.perf_counter() - t0
             result = group_obs
 
         if env_ids is not None and not row_scoped:
@@ -535,11 +486,6 @@ class ObservationManager(ManagerBase):
             else:
                 result = result[env_ids]
 
-        timing = self._last_compute_timing_ms
-        for phase_name, elapsed_s in phase_ms.items():
-            key = f"mba_obs_{phase_name}_ms"
-            timing[key] = timing.get(key, 0.0) + elapsed_s * 1000.0
-        timing.update(term_timing)
         return result
 
     def _prepare_terms(self) -> None:
