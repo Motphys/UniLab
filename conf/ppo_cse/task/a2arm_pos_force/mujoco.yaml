@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - /task/a2arm_pos_force/base
+  - _self_
+training:
+  task_name: A2ArmPosForce
+  sim_backend: mujoco
+algo:
+  num_envs: 1024
+  max_iterations: 20000
+  num_one_step_obs: 73
+  num_actor_history: 32
+  num_critic_history: 3
+  empirical_normalization: false
+  policy:
+    init_noise_std: 1.0
+  algorithm:
+    learning_rate: 5.0e-4
+    entropy_coef: 1.0e-2
+    num_learning_epochs: 5
+    desired_kl: 0.01
+    min_learning_rate: 1.0e-5
+  estimator:
+    target_start: 0
+    target_group_sizes: [3, 3, 3, 3]
+    target_weights: [0.2, 0.2, 1.0, 1.0]

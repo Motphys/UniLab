@@ -27,6 +27,7 @@ class TaskMigrationRecord:
 _MBA_TASKS = frozenset(
     {
         "A2JoystickFlat",
+        "A2ArmPosForce",
         "AllegroInhandRotation",
         "AllegroInhandRotationGrasp",
         "Go1JoystickFlat",

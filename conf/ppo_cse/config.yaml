@@ -1,0 +1,89 @@
+defaults:
+  - _self_
+  - task: a2arm_pos_force/mujoco
+
+algo:
+  algo_log_name: ppo_cse
+  seed: 1
+  num_envs: 1024
+  num_steps_per_env: 24
+  max_iterations: 20000
+  save_interval: 500
+  empirical_normalization: false
+  load_run: "-1"
+  checkpoint: -1
+  num_one_step_obs: 73
+  num_actor_history: 32
+  num_critic_history: 3
+  policy:
+    init_noise_std: 1.0
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+    activation: elu
+  estimator:
+    num_pred: 12
+    enc_hidden_dims: [512, 256, 128]
+    latent_dim: 64
+    dec_hidden_dims: [128, 64]
+    learning_rate: 1.0e-5
+    target_start: 0
+    target_group_sizes: [3, 3, 3, 3]
+    target_weights: [0.2, 0.2, 1.0, 1.0]
+  algorithm:
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    entropy_coef: 1.0e-2
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 5.0e-4
+    schedule: adaptive
+    desired_kl: 0.01
+    min_learning_rate: 1.0e-5
+    max_learning_rate: 1.0e-2
+    min_policy_std: 1.0e-2
+    max_policy_std: 0.7
+    gamma: 0.99
+    lam: 0.95
+    max_grad_norm: 1.0
+    use_amp: false
+
+training:
+  task_name: A2ArmPosForce
+  device: null
+  logger: tensorboard
+  wandb_project: unilab
+  sim_backend: mujoco
+  play_only: false
+  no_play: false
+  play_env_num: 4
+  play_steps: 800
+  render_spacing: 1.0
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  cam_lookat: null
+  cam_tracking: false
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 2
+  log_root: null
+  num_timesteps: null
+  log_dir: null
+  nan_guard:
+    enabled: true
+    buffer_size: 100
+    max_envs_to_dump: 5
+    output_dir: null
+
+env:
+  post_step_forward_sensor: false
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

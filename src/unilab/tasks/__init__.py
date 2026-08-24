@@ -18,6 +18,7 @@ __unilab_registry_modules__ = (
     "unilab.tasks.manipulation.stewart",
     "unilab.tasks.motion_tracking.g1",
     "unilab.tasks.motion_tracking.x2",
+    "unilab.tasks.locomotion.a2arm",
 )
 
 __all__ = ["__unilab_registry_modules__"]

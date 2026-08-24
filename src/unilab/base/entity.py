@@ -1548,6 +1548,36 @@ class Entity:
                 f"EventManager term '{term_name}': {exc}",
             ) from exc
 
+    def bind_body_force(self, *, term_name: str) -> None:
+        """Validate the formal interval body-force capability on the cold path."""
+        if self._body_ids is None:
+            raise self._capability_error("interval body force", "body_names were not declared")
+        try:
+            capabilities = self._backend.get_dr_capabilities()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error("interval body force", str(exc)) from exc
+        if not capabilities.supports_interval_body_force:
+            raise self._capability_error(
+                "interval body force",
+                f"term '{term_name}' requested an unsupported backend capability",
+            )
+
+    def apply_body_force(self, values: np.ndarray, *, term_name: str) -> None:
+        """Apply a world-frame force to this entity's declared body partition."""
+        body_ids = self._body_ids
+        if body_ids is None:
+            raise self._capability_error("interval body force", "body_names were not declared")
+        if not isinstance(values, np.ndarray) or values.shape != (self._backend.num_envs, 3):
+            raise ValueError(
+                f"Entity '{self.name}' term '{term_name}' body force must have shape "
+                f"({self._backend.num_envs}, 3)"
+            )
+        if not np.isfinite(values).all():
+            raise ValueError(f"Entity '{self.name}' term '{term_name}' body force is non-finite")
+        payload = np.zeros((self._backend.num_envs, len(body_ids), 3), dtype=values.dtype)
+        payload[:, 0, :] = values
+        self._backend.apply_body_force(body_ids, payload)
+
     def write_root_link_pose_to_sim(
         self,
         root_pose: np.ndarray,
