@@ -39,6 +39,8 @@ from .materialization import materialize_mjwarp_scene
 from .playback import run_mjwarp_playback, validate_mjwarp_visual_model
 
 _GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
+_RESET_SCRATCH_CAPACITY = 128
+_RESET_SCRATCH_MIN_BATCH_SIZE = 8 * _RESET_SCRATCH_CAPACITY
 
 
 @contextmanager
@@ -226,6 +228,18 @@ class MjwarpBackend(SimBackend):
         self._ctrl_staging = np.zeros((self._num_envs, self._nu), dtype=np.float32)
         self._reset_mask_host = np.zeros((self._num_envs,), dtype=np.bool_)
         self._reset_mask_device = deps.warp.zeros(self._num_envs, dtype=bool)
+        # A bounded secondary Data avoids running reset-time forward over every
+        # production world when only a small row set terminated.  It is built
+        # only for batches large enough to amortize the extra graph and copies.
+        self._reset_scratch_capacity = (
+            _RESET_SCRATCH_CAPACITY if self._num_envs >= _RESET_SCRATCH_MIN_BATCH_SIZE else 0
+        )
+        self._reset_scratch_data: Any | None = None
+        self._reset_scratch_mask_device: Any | None = None
+        self._reset_scratch_qpos_staging: np.ndarray | None = None
+        self._reset_scratch_qvel_staging: np.ndarray | None = None
+        self._reset_scratch_sensor_storage: Any | None = None
+        self._reset_scratch_sensor_cache: np.ndarray | None = None
         # Tracked-body views are zero-copy slices of _sensor_cache; they must be
         # bound before the first forward barrier refreshes the cache below.
         self._body_id_to_tracked_idx: np.ndarray | None = None
@@ -412,7 +426,44 @@ class MjwarpBackend(SimBackend):
         self._step_graph = None
         self._forward_graph = None
         self._reset_graph = None
+        self._reset_scratch_reset_graph = None
+        self._reset_scratch_forward_graph = None
         self._cuda_graph_disable_reason: str | None = reason
+
+    def _prepare_reset_scratch(self) -> None:
+        """Materialize and warm the bounded reset-forward data on the cold path."""
+        if self._reset_scratch_capacity == 0 or self._reset_scratch_data is not None:
+            return
+
+        capacity = self._reset_scratch_capacity
+        data = self._mujoco_warp.make_data(
+            self._cpu_model,
+            nworld=capacity,
+            nconmax=self._nconmax,
+            njmax=self._njmax,
+        )
+        qpos = np.broadcast_to(
+            np.asarray(self._cpu_model.qpos0, dtype=np.float32),
+            (capacity, self._nq),
+        ).copy()
+        qvel = np.zeros((capacity, self._nv), dtype=np.float32)
+        reset_mask = self._warp.ones(capacity, dtype=bool)
+        sensor_storage, sensor_cache = self._allocate_pinned_host_cache(data.sensordata)
+
+        self._reset_scratch_data = data
+        self._reset_scratch_mask_device = reset_mask
+        self._reset_scratch_qpos_staging = qpos
+        self._reset_scratch_qvel_staging = qvel
+        self._reset_scratch_sensor_storage = sensor_storage
+        self._reset_scratch_sensor_cache = sensor_cache
+
+        # Warm dynamically specialized reset/forward kernels before capture;
+        # compiling or allocating from inside a CUDA capture is unsupported.
+        self._mujoco_warp.reset_data(self._device_model, data, reset=reset_mask)
+        self._upload(data.qpos, qpos)
+        self._upload(data.qvel, qvel)
+        self._mujoco_warp.forward(self._device_model, data)
+        self._synchronize()
 
     def _initialize_cuda_graphs(self, device: Any) -> None:
         """Capture fixed-address device operations or retain the eager fallback.
@@ -434,6 +485,7 @@ class MjwarpBackend(SimBackend):
             return
 
         try:
+            self._prepare_reset_scratch()
             # Assign only after all captures succeed. This keeps step/reset on
             # one execution mode if any MJWarp operation is not capturable.
             with _suspend_gc(), self._warp.ScopedDevice(device):
@@ -447,9 +499,32 @@ class MjwarpBackend(SimBackend):
                         self._device_data,
                         reset=self._reset_mask_device,
                     )
+                reset_scratch_reset_capture = None
+                reset_scratch_forward_capture = None
+                if self._reset_scratch_data is not None:
+                    assert self._reset_scratch_mask_device is not None
+                    with self._warp.ScopedCapture() as reset_scratch_reset_capture:
+                        self._mujoco_warp.reset_data(
+                            self._device_model,
+                            self._reset_scratch_data,
+                            reset=self._reset_scratch_mask_device,
+                        )
+                    with self._warp.ScopedCapture() as reset_scratch_forward_capture:
+                        self._mujoco_warp.forward(
+                            self._device_model,
+                            self._reset_scratch_data,
+                        )
             step_graph = step_capture.graph
             forward_graph = forward_capture.graph
             reset_graph = reset_capture.graph
+            reset_scratch_reset_graph = (
+                None if reset_scratch_reset_capture is None else reset_scratch_reset_capture.graph
+            )
+            reset_scratch_forward_graph = (
+                None
+                if reset_scratch_forward_capture is None
+                else reset_scratch_forward_capture.graph
+            )
         except Exception as exc:
             reason = f"capture failed: {type(exc).__name__}: {exc}"
             self._disable_cuda_graphs(reason)
@@ -463,6 +538,8 @@ class MjwarpBackend(SimBackend):
         self._step_graph = step_graph
         self._forward_graph = forward_graph
         self._reset_graph = reset_graph
+        self._reset_scratch_reset_graph = reset_scratch_reset_graph
+        self._reset_scratch_forward_graph = reset_scratch_forward_graph
         self._cuda_graph_enabled = True
         self._cuda_graph_disable_reason = None
 
@@ -495,6 +572,47 @@ class MjwarpBackend(SimBackend):
             self._warp.capture_launch(self._forward_graph)
             return
         self._mujoco_warp.forward(self._device_model, self._device_data)
+
+    def _can_use_reset_scratch(self, num_rows: int) -> bool:
+        return (
+            self._cuda_graph_enabled
+            and 0 < num_rows <= self._reset_scratch_capacity
+            and self._reset_scratch_data is not None
+            and self._reset_scratch_reset_graph is not None
+            and self._reset_scratch_forward_graph is not None
+        )
+
+    def _execute_reset_scratch_forward(
+        self,
+        qpos: np.ndarray,
+        qvel: np.ndarray,
+    ) -> None:
+        """Forward reset rows in bounded scratch storage without touching main rows."""
+        data = self._reset_scratch_data
+        qpos_staging = self._reset_scratch_qpos_staging
+        qvel_staging = self._reset_scratch_qvel_staging
+        assert data is not None
+        assert qpos_staging is not None and qvel_staging is not None
+        assert self._reset_scratch_reset_graph is not None
+        assert self._reset_scratch_forward_graph is not None
+
+        num_rows = len(qpos)
+        np.copyto(qpos_staging[:num_rows], qpos)
+        np.copyto(qvel_staging[:num_rows], qvel)
+        self._warp.capture_launch(self._reset_scratch_reset_graph)
+        self._upload(data.qpos, qpos_staging)
+        self._upload(data.qvel, qvel_staging)
+        self._warp.capture_launch(self._reset_scratch_forward_graph)
+
+    def _refresh_reset_scratch_cache(self, row_ids: np.ndarray) -> None:
+        """Publish scratch sensor rows while retaining complement host-cache rows."""
+        data = self._reset_scratch_data
+        storage = self._reset_scratch_sensor_storage
+        cache = self._reset_scratch_sensor_cache
+        assert data is not None and storage is not None and cache is not None
+        self._download(data.sensordata, storage)
+        self._synchronize()
+        self._sensor_cache[row_ids] = cache[: len(row_ids)]
 
     def _validate_rows(self, env_indices: np.ndarray) -> np.ndarray:
         rows = np.asarray(env_indices, dtype=np.intp)
@@ -771,6 +889,8 @@ class MjwarpBackend(SimBackend):
         row_ids: np.ndarray,
         qpos: np.ndarray,
         qvel: np.ndarray,
+        reset_qpos: np.ndarray,
+        reset_qvel: np.ndarray,
     ) -> dict[str, float]:
         """Commit one explicit reset barrier from host staging.
 
@@ -779,6 +899,7 @@ class MjwarpBackend(SimBackend):
         forward/sync, then cache D2H.
         """
 
+        use_scratch = self._can_use_reset_scratch(len(row_ids))
         t0 = time.perf_counter()
         self._reset_mask_host.fill(False)
         self._reset_mask_host[row_ids] = True
@@ -790,15 +911,21 @@ class MjwarpBackend(SimBackend):
         # one explicit barrier.
         self._upload(self._device_data.qpos, qpos)
         self._upload(self._device_data.qvel, qvel)
+        if use_scratch:
+            self._execute_reset_scratch_forward(reset_qpos, reset_qvel)
         reset_upload_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        self._execute_device_forward()
+        if not use_scratch:
+            self._execute_device_forward()
         self._synchronize()
         reset_forward_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        self._refresh_host_cache()
+        if use_scratch:
+            self._refresh_reset_scratch_cache(row_ids)
+        else:
+            self._refresh_host_cache()
         self._time_cache[row_ids] = 0.0
         host_cache_ms = (time.perf_counter() - t0) * 1000.0
         return {
@@ -852,7 +979,13 @@ class MjwarpBackend(SimBackend):
 
         self._qpos_cache[rows] = qpos_array
         self._qvel_cache[rows] = qvel_array
-        timings = self._execute_host_reset(rows, self._qpos_cache, self._qvel_cache)
+        timings = self._execute_host_reset(
+            rows,
+            self._qpos_cache,
+            self._qvel_cache,
+            qpos_array,
+            qvel_array,
+        )
         return {
             "timing": {
                 "set_state_reset_ms": timings["reset_upload_ms"] + timings["reset_forward_ms"],

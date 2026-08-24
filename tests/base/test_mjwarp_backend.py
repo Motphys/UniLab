@@ -123,6 +123,74 @@ def test_selected_row_reset_isolated() -> None:
     assert np.isfinite(backend.get_sensor_data("pelvis_local_linvel")).all()
 
 
+def test_large_batch_sparse_reset_matches_full_forward(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bounded reset graph preserves reset sensors and the following step."""
+    num_envs = 1024
+    backend = create_backend(
+        "mjwarp",
+        _scene(),
+        num_envs,
+        0.02 / 3.0,
+        base_name="pelvis",
+        body_state_required=True,
+    )
+    capacity = backend._reset_scratch_capacity
+    assert capacity == 128
+    assert backend._reset_scratch_forward_graph is not None
+
+    rng = np.random.default_rng(7)
+    all_rows = np.arange(num_envs, dtype=np.int32)
+    all_qpos, all_qvel = _stand_state(backend, num_envs)
+    rows = np.sort(rng.choice(num_envs, 32, replace=False)).astype(np.int32)
+    reset_qpos, reset_qvel = _stand_state(backend, len(rows))
+    reset_qpos[:, 0] += rng.uniform(-0.2, 0.2, len(rows)).astype(np.float32)
+    reset_qvel[:] = rng.uniform(-0.2, 0.2, reset_qvel.shape).astype(np.float32)
+    ctrl = np.zeros((num_envs, backend.num_actuators), dtype=np.float32)
+
+    def snapshot() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        return (
+            backend._qpos_cache[rows].copy(),
+            backend._qvel_cache[rows].copy(),
+            backend._sensor_cache[rows].copy(),
+        )
+
+    backend.set_state(all_rows, all_qpos, all_qvel)
+    backend._reset_scratch_capacity = 0
+    backend.set_state(rows, reset_qpos, reset_qvel)
+    full_reset = snapshot()
+    backend.step(ctrl, nsteps=3)
+    full_step = snapshot()
+
+    backend._reset_scratch_capacity = capacity
+    backend.set_state(all_rows, all_qpos, all_qvel)
+    graph_launches: list[Any] = []
+    original_capture_launch = backend._warp.capture_launch
+
+    def capture_launch(graph: Any) -> None:
+        graph_launches.append(graph)
+        original_capture_launch(graph)
+
+    monkeypatch.setattr(backend._warp, "capture_launch", capture_launch)
+    backend.set_state(rows, reset_qpos, reset_qvel)
+    assert graph_launches == [
+        backend._reset_graph,
+        backend._reset_scratch_reset_graph,
+        backend._reset_scratch_forward_graph,
+    ]
+    sparse_reset = snapshot()
+    backend.step(ctrl, nsteps=3)
+    sparse_step = snapshot()
+
+    for actual, expected in zip(sparse_reset[:2], full_reset[:2], strict=True):
+        np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_allclose(sparse_reset[2], full_reset[2], rtol=1e-3, atol=1e-3)
+    np.testing.assert_allclose(sparse_step[0], full_step[0], rtol=1e-3, atol=2e-5)
+    np.testing.assert_allclose(sparse_step[1], full_step[1], rtol=1e-3, atol=1e-3)
+    np.testing.assert_allclose(sparse_step[2], full_step[2], rtol=1e-3, atol=1e-2)
+
+
 @pytest.mark.parametrize(
     ("config_group", "overrides", "algo_name"),
     [
