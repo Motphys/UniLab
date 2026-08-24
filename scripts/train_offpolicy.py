@@ -20,6 +20,7 @@ ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from unilab.base.backend.base import log_playback_plan
+from unilab.base.backend.process_device import configure_backend_process_device
 from unilab.base.config_adapter import create_env
 from unilab.ipc.dp_launcher import (
     UNILAB_DP_LOG_DIR,
@@ -106,6 +107,10 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     from unilab.utils.device import get_default_device
 
     rank_device = resolve_dp_rank_device(dp_devices, dp_rank) or get_default_device()
+    # Bind backend-global device state before algorithm builders materialize
+    # their probe envs. The spawned collector repeats this binding in its own
+    # process using the same rank-local device.
+    configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
     host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:

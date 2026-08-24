@@ -365,6 +365,7 @@ def _build_sac_runner_with_fakes(
     overrides: list[str],
     *,
     cpu_count: int = 128,
+    backend_binding_calls: list[tuple[str, str]] | None = None,
 ):
     """build_runner("sac", ...) with learner/env/runner fakes; returns captured state."""
     module = _offpolicy()
@@ -377,6 +378,12 @@ def _build_sac_runner_with_fakes(
         return _FakeEnv()
 
     monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
+    if backend_binding_calls is not None:
+        monkeypatch.setattr(
+            module,
+            "configure_backend_process_device",
+            lambda backend, device: backend_binding_calls.append((str(backend), str(device))),
+        )
 
     import unilab.algos.fast_sac.double_buffer as owner_module
 
@@ -389,6 +396,23 @@ def _build_sac_runner_with_fakes(
     return runner, probe_env_calls
 
 
+def test_build_runner_binds_mjwarp_rank_process_to_learner_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(UNILAB_DP_RANK, "1")
+    monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/offpolicy_test_run")
+    bindings: list[tuple[str, str]] = []
+
+    runner, _ = _build_sac_runner_with_fakes(
+        monkeypatch,
+        ["task=g1_walk_flat/mjwarp", "training.devices=[0,1]"],
+        backend_binding_calls=bindings,
+    )
+
+    assert bindings == [("mjwarp", "cuda:1")]
+    assert runner.kwargs["device"] == "cuda:1"
+
+
 def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.MonkeyPatch):
     # Spawned rank: rank comes from the env, world_size from training.devices.
     monkeypatch.setenv(UNILAB_DP_RANK, "1")
@@ -399,6 +423,7 @@ def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.Mon
         cpu_count=128,
     )
     assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
+    assert runner.kwargs["device"] == "cuda:1"
     # The thread budget is resolved against the rank's CPU share, not the host.
     assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
     # The num_envs=1 probe env must never see cpu_ids (it would size its

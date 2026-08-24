@@ -7,7 +7,7 @@ current log name is `fast_sac`.
 
 ## Runtime Model
 
-The off-policy runner decouples CPU simulation from accelerator learning through
+The off-policy runner decouples simulation collection from accelerator learning through
 bounded shared memory. A collector subprocess publishes packed transitions
 through two ingress slots, while the complete replay ring is authoritative on
 one CUDA or Apple MPS learner device. Host replay allocation therefore does not
@@ -44,3 +44,17 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
   algo.max_iterations=1000 \
   training.no_play=true
 ```
+
+## Single-node multi-GPU device placement
+
+`training.devices` assigns rank i's learner to `cuda:devices[i]`; each rank owns one
+collector. For mjwarp, the rank process and its collector process explicitly bind Warp's
+default/current device to that same learner device before probe or production environment
+materialization. The collector therefore does not fall back to Warp's fresh-process default
+of `cuda:0`. The local binding is recorded as `collector_backend_device` in the runtime
+manifest.
+
+MuJoCo has a committed multi-GPU scaling benchmark. The mjwarp per-rank placement contract is
+covered by `tests/base/backend/test_process_device.py` and the off-policy runner/worker unit
+tests; the repository does not currently contain an mjwarp multi-GPU throughput or convergence
+benchmark.

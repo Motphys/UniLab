@@ -6,6 +6,7 @@ import threading
 import pytest
 import torch
 
+import unilab.algos.offpolicy.worker as worker_module
 from unilab.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.algos.offpolicy.worker import (
     _publish_inference_tick,
@@ -14,6 +15,55 @@ from unilab.algos.offpolicy.worker import (
     resolve_offpolicy_actor_priv_info,
     sample_offpolicy_actions,
 )
+
+
+def test_collector_binds_backend_device_before_env_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, ...]] = []
+
+    class _EnvMaterializedError(RuntimeError):
+        pass
+
+    def configure(backend_type: str, device: str | None) -> str:
+        events.append(("bind", backend_type, str(device)))
+        return str(device)
+
+    def make_env(name: str, **kwargs):
+        events.append(("make", name, str(kwargs["sim_backend"])))
+        raise _EnvMaterializedError
+
+    from unilab.base import registry
+
+    monkeypatch.setattr(worker_module, "configure_backend_process_device", configure)
+    monkeypatch.setattr(worker_module, "apply_torch_thread_runtime", lambda *args, **kwargs: None)
+    monkeypatch.setattr(worker_module, "ensure_registries", lambda: None)
+    monkeypatch.setattr(worker_module, "apply_training_seed", lambda *args, **kwargs: None)
+    monkeypatch.setattr(registry, "make", make_env)
+
+    with pytest.raises(_EnvMaterializedError):
+        worker_module._run_collector(
+            stop_event=None,
+            env_name="DummyEnv",
+            num_envs=2,
+            replay_buffer=None,
+            inference_slot=None,
+            inference_request_queue=None,
+            inference_response_queue=None,
+            algo_type="sac",
+            metrics_queue=None,
+            sim_backend="mjwarp",
+            backend_device="cuda:3",
+            env_cfg_override=None,
+            seed=None,
+            trace_enabled=False,
+            trace_thread_time=False,
+        )
+
+    assert events == [
+        ("bind", "mjwarp", "cuda:3"),
+        ("make", "DummyEnv", "mjwarp"),
+    ]
 
 
 def test_inference_request_publish_timeout_is_explicit() -> None:
