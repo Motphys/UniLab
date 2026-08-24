@@ -21,6 +21,17 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
     assert row.cells["motrix"].level == EvidenceLevel.TESTED
 
 
+def test_support_matrix_marks_t800_ppo_and_sac_mujoco_tested_only():
+    """T800 owner evidence is limited to the configured MuJoCo paths."""
+    ppo_row = _row("PPO (torch)", "t800_walk_flat")
+    sac_row = _row("SAC (torch)", "t800_walk_flat")
+
+    for row in (ppo_row, sac_row):
+        assert row.cells["mujoco"].level == EvidenceLevel.TESTED
+        assert row.cells["mjwarp"].level == EvidenceLevel.MISSING
+        assert row.cells["motrix"].level == EvidenceLevel.MISSING
+
+
 def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     torch_row = _row("PPO (torch)", "g1_walk_flat")
     sac_row = _row("SAC (torch)", "g1_walk_flat")
