@@ -9,8 +9,11 @@ transfer.
 
 from __future__ import annotations
 
+import gc
 import time
-from collections.abc import Sequence
+import warnings
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from os import PathLike
 from typing import Any
 
@@ -32,6 +35,47 @@ from unilab.dr.types import (
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
 from .playback import run_mjwarp_playback, validate_mjwarp_visual_model
+
+_GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
+
+
+@contextmanager
+def _suspend_gc() -> Iterator[None]:
+    """Keep graph finalizers from running inside a new Warp capture."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
+def _cuda_graph_eligibility(warp: Any, device: Any) -> tuple[bool, str | None]:
+    """Return the cold-path CUDA graph decision and a fallback diagnostic."""
+    if not bool(device.is_cuda):
+        return False, "active Warp device is not CUDA"
+
+    try:
+        driver_version = warp.get_cuda_driver_version()
+    except Exception as exc:
+        return False, f"CUDA driver query failed: {type(exc).__name__}: {exc}"
+    if driver_version is None:
+        return False, "CUDA driver version is unavailable"
+
+    try:
+        mempool_enabled = bool(warp.is_mempool_enabled(device))
+    except Exception as exc:
+        return False, f"CUDA mempool query failed: {type(exc).__name__}: {exc}"
+
+    reasons: list[str] = []
+    if tuple(driver_version) < _GRAPH_CAPTURE_MIN_DRIVER:
+        reasons.append(f"CUDA driver {driver_version[0]}.{driver_version[1]} is older than 12.4")
+    if not mempool_enabled:
+        reasons.append("CUDA mempool is disabled")
+    if reasons:
+        return False, "; ".join(reasons)
+    return True, None
 
 
 class MjwarpBackend(SimBackend):
@@ -176,6 +220,7 @@ class MjwarpBackend(SimBackend):
         self._mujoco_warp.forward(self._device_model, self._device_data)
         self._synchronize()
         self._refresh_host_cache()
+        self._initialize_cuda_graphs(device)
 
     # ------------------------------------------------------------------ #
     # Cold-path model binding                                             #
@@ -254,6 +299,96 @@ class MjwarpBackend(SimBackend):
 
     def _synchronize(self) -> None:
         self._warp.synchronize_device()
+
+    def _disable_cuda_graphs(self, reason: str) -> None:
+        """Atomically select the eager path and release any captured graphs."""
+        self._cuda_graph_enabled = False
+        self._step_graph = None
+        self._forward_graph = None
+        self._reset_graph = None
+        self._cuda_graph_disable_reason: str | None = reason
+
+    def _initialize_cuda_graphs(self, device: Any) -> None:
+        """Capture fixed-address device operations or retain the eager fallback.
+
+        Current uploads mutate existing Warp arrays with ``assign``. Any future
+        owner-layer operation that replaces a model or data array must call this
+        method afterward so captured pointers cannot become stale.
+        """
+        self._disable_cuda_graphs("CUDA graph capture has not been initialized")
+        eligible, reason = _cuda_graph_eligibility(self._warp, device)
+        if not eligible:
+            assert reason is not None
+            self._cuda_graph_disable_reason = reason
+            warnings.warn(
+                f"mjwarp CUDA graphs disabled; using eager execution: {reason}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return
+
+        try:
+            # Assign only after all captures succeed. This keeps step/reset on
+            # one execution mode if any MJWarp operation is not capturable.
+            with _suspend_gc(), self._warp.ScopedDevice(device):
+                with self._warp.ScopedCapture() as step_capture:
+                    self._mujoco_warp.step(self._device_model, self._device_data)
+                with self._warp.ScopedCapture() as forward_capture:
+                    self._mujoco_warp.forward(self._device_model, self._device_data)
+                with self._warp.ScopedCapture() as reset_capture:
+                    self._mujoco_warp.reset_data(
+                        self._device_model,
+                        self._device_data,
+                        reset=self._reset_mask_device,
+                    )
+            step_graph = step_capture.graph
+            forward_graph = forward_capture.graph
+            reset_graph = reset_capture.graph
+        except Exception as exc:
+            reason = f"capture failed: {type(exc).__name__}: {exc}"
+            self._disable_cuda_graphs(reason)
+            warnings.warn(
+                f"mjwarp CUDA graphs disabled; using eager execution: {reason}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return
+
+        self._step_graph = step_graph
+        self._forward_graph = forward_graph
+        self._reset_graph = reset_graph
+        self._cuda_graph_enabled = True
+        self._cuda_graph_disable_reason = None
+
+    def _execute_device_steps(self, nsteps: int) -> None:
+        """Advance fixed-shape device state through graph replay or eager calls."""
+        if self._cuda_graph_enabled:
+            assert self._step_graph is not None
+            for _ in range(nsteps):
+                self._warp.capture_launch(self._step_graph)
+            return
+        for _ in range(nsteps):
+            self._mujoco_warp.step(self._device_model, self._device_data)
+
+    def _execute_device_reset(self) -> None:
+        """Clear selected device rows before the host state upload."""
+        if self._cuda_graph_enabled:
+            assert self._reset_graph is not None
+            self._warp.capture_launch(self._reset_graph)
+            return
+        self._mujoco_warp.reset_data(
+            self._device_model,
+            self._device_data,
+            reset=self._reset_mask_device,
+        )
+
+    def _execute_device_forward(self) -> None:
+        """Refresh kinematics after the host state upload."""
+        if self._cuda_graph_enabled:
+            assert self._forward_graph is not None
+            self._warp.capture_launch(self._forward_graph)
+            return
+        self._mujoco_warp.forward(self._device_model, self._device_data)
 
     def _validate_rows(self, env_indices: np.ndarray) -> np.ndarray:
         rows = np.asarray(env_indices, dtype=np.intp)
@@ -441,8 +576,7 @@ class MjwarpBackend(SimBackend):
         control_upload_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        for _ in range(nsteps):
-            self._mujoco_warp.step(self._device_model, self._device_data)
+        self._execute_device_steps(nsteps)
         self._synchronize()
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -473,11 +607,7 @@ class MjwarpBackend(SimBackend):
         self._reset_mask_host.fill(False)
         self._reset_mask_host[row_ids] = True
         self._upload(self._reset_mask_device, self._reset_mask_host)
-        self._mujoco_warp.reset_data(
-            self._device_model,
-            self._device_data,
-            reset=self._reset_mask_device,
-        )
+        self._execute_device_reset()
         # Full-cache uploads are intentional for the host compatibility
         # profile: they preserve complement worlds after reset_data cleared
         # selected transient state, while keeping all D2H materialization at
@@ -487,7 +617,7 @@ class MjwarpBackend(SimBackend):
         reset_upload_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        self._mujoco_warp.forward(self._device_model, self._device_data)
+        self._execute_device_forward()
         self._synchronize()
         reset_forward_ms = (time.perf_counter() - t0) * 1000.0
 
