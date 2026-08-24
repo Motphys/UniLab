@@ -53,6 +53,16 @@ def test_real_cuda_init_reset_step(monkeypatch: pytest.MonkeyPatch) -> None:
     assert backend.backend_type == "mjwarp"
     assert backend.num_actuators == 29
     assert backend.num_dof_vel == 29
+    caches = (
+        (backend._qpos_cache_storage, backend._qpos_cache),
+        (backend._qvel_cache_storage, backend._qvel_cache),
+        (backend._sensor_cache_storage, backend._sensor_cache),
+    )
+    for storage, cache in caches:
+        assert storage.device.is_cpu
+        assert storage.pinned
+        assert cache.ctypes.data == storage.ptr
+    cache_pointers = tuple(cache.ctypes.data for _, cache in caches)
     root_layout = backend.get_root_state_layout("pelvis")
     assert root_layout.qpos_indices == tuple(range(7))
     assert root_layout.qvel_indices == tuple(range(6))
@@ -87,6 +97,7 @@ def test_real_cuda_init_reset_step(monkeypatch: pytest.MonkeyPatch) -> None:
     assert np.isfinite(backend.get_dof_pos()).all()
     assert np.isfinite(backend.get_sensor_data("torso_upvector")).all()
     assert not np.array_equal(backend.get_base_pos(), before)
+    assert tuple(cache.ctypes.data for _, cache in caches) == cache_pointers
 
 
 def test_selected_row_reset_isolated() -> None:
