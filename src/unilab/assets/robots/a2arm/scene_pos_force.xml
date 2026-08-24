@@ -1,0 +1,93 @@
+<mujoco model="a2arm pos_force scene">
+  <!-- Scene for the A2ArmPosForce task (A2 + P7v3 joint3+joint5-frozen 5-DOF + UMI).
+       Self-contained: wraps the direct-torque robot (a2arm.xml) whose meshdir
+       points at this dir's own meshes/. Active arm joints are joint1,2,4,6,7
+       (joint3 upper-arm ROLL and joint5 wrist ROLL frozen). The robot mirrors the
+       Go2/A2 pos-force sensor/geom/ordering contract (legs FL,FR,RL,RR; named
+       foot/base/leg geoms; Go2-named IMU/foot/thigh sensors). Contact sensors +
+       keyframe live here at task/scene level, per the asset contract. -->
+  <include file="a2arm.xml"/>
+
+  <statistic center="0 0 0.1" extent="0.9" meansize="0.05"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-130" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+  </worldbody>
+
+  <sensor>
+    <contact name="FL_foot_contact" geom1="floor" geom2="FL" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_foot_contact" geom1="floor" geom2="FR" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_foot_contact" geom1="floor" geom2="RL" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_foot_contact" geom1="floor" geom2="RR" data="found" num="1" reduce="mindist"/>
+
+    <!-- Foot contact force vectors (UniFP feet_contact_forces / feet_drag rewards). -->
+    <contact name="FL_foot_force" geom1="floor" geom2="FL" data="force" num="1" reduce="mindist"/>
+    <contact name="FR_foot_force" geom1="floor" geom2="FR" data="force" num="1" reduce="mindist"/>
+    <contact name="RL_foot_force" geom1="floor" geom2="RL" data="force" num="1" reduce="mindist"/>
+    <contact name="RR_foot_force" geom1="floor" geom2="RR" data="force" num="1" reduce="mindist"/>
+
+    <contact name="base1_contact" geom1="floor" geom2="base1" data="found" num="1" reduce="mindist"/>
+    <contact name="base2_contact" geom1="floor" geom2="base2" data="found" num="1" reduce="mindist"/>
+    <contact name="base3_contact" geom1="floor" geom2="base3" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_thigh_contact" geom1="floor" geom2="fl_thigh_0" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_thigh_contact" geom1="floor" geom2="fr_thigh_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_thigh_contact" geom1="floor" geom2="rl_thigh_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_thigh_contact" geom1="floor" geom2="rr_thigh_0" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_calf_contact1" geom1="floor" geom2="fl_calf_0" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_calf_contact1" geom1="floor" geom2="fr_calf_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_calf_contact1" geom1="floor" geom2="rl_calf_0" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_calf_contact1" geom1="floor" geom2="rr_calf_0" data="found" num="1" reduce="mindist"/>
+
+    <contact name="FL_calf_contact2" geom1="floor" geom2="fl_calf_1" data="found" num="1" reduce="mindist"/>
+    <contact name="FR_calf_contact2" geom1="floor" geom2="fr_calf_1" data="found" num="1" reduce="mindist"/>
+    <contact name="RL_calf_contact2" geom1="floor" geom2="rl_calf_1" data="found" num="1" reduce="mindist"/>
+    <contact name="RR_calf_contact2" geom1="floor" geom2="rr_calf_1" data="found" num="1" reduce="mindist"/>
+  </sensor>
+
+  <!-- Home: A2 per-pair stand (A2's front/rear thigh ranges differ ~0.78 rad, so
+       uniform angles overload the rear and the arm's pitching moment knees it —
+       per-pair angles plant the rear foot further back for a ~100 mm wider
+       fore-aft support polygon and a level, stable stand). FRONT thigh/calf
+       0.75/-1.5, REAR 1.0/-1.5.
+       HIP SIGNS — NEUTRAL STANCE (2026-07-12). All four hips are 0, so the feet
+       sit directly under the hips: a ~0.406 m stance, between the official Unitree
+       A2 narrow (~0.324 m, L_hip -0.1 / R_hip +0.1, unitree_rl_mjlab a2_constants.py
+       INIT_STATE) and the earlier wide experiment (~0.485 m, FL/RL +0.1). Neutral
+       reads as the most natural stance (feet vertical); the hip_pos reward holds
+       the trained pose at this default. (a2arm already deviates from the official
+       thigh/calf/height for the arm, so this stance is custom regardless.) base z
+       is 0.45 so the legs start just above grounded (neutral static-grounds ~0.434,
+       dynamic-settles ~0.394).
+       P7v3 arm (joint3+joint5-frozen 5-DOF): EE FK is invariant to the hip sign
+       (arm mounts on base_link). The DATACLASS sphere center z_invariant_offset is
+       0.735 (= base z 0.45 + 0.285, the fixed EE-to-center gap), so the EE-to-center
+       vector — and thus init_pos_start/end and the arm keyframe — are UNCHANGED, and
+       home still lands at (0.2,0,0.735) as [0.4494 m, 0.8115 rad, 0]
+       (test_a2arm_home_pose_fk). If you change base z, move z_invariant_offset by
+       the same delta (keep the 0.285 gap) or home FK self-consistency breaks.
+       Training sphere center + sampling shell are OVERRIDDEN in the task YAML
+       (env.goal_ee).
+       qpos order = base(7) + 12 leg (FL,FR,RL,RR x hip,thigh,calf) + 5 arm
+       (joint1,2,4,6,7). ctrl all-zero (motors take raw torque from env PD law). -->
+  <keyframe>
+    <key name="home"
+      qpos="0 0 0.45 1 0 0 0  0 0.75 -1.5  0 0.75 -1.5  0 1.0 -1.5  0 1.0 -1.5  -0.0461 -0.7427 -1.069 0.1581 -0.4808"
+      ctrl="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"/>
+  </keyframe>
+</mujoco>
