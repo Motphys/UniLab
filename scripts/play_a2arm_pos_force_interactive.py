@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, cast
 
 import hydra
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 ROOT_DIR = Path(__file__).parent.parent
 SRC_DIR = ROOT_DIR / "src"
@@ -21,6 +22,7 @@ if str(ROOT_DIR) not in sys.path:
 from unilab.algos.cse_ppo import CSEOnPolicyRunner
 from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 from unilab.base.backend import materialize_scene_visual_override
+from unilab.base.backend.mujoco.playback import resolve_render_play_model_files
 from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.tasks.locomotion.a2arm.state import A2ArmPosForceState
 from unilab.training import ensure_registries, parse_checkpoint_path
@@ -63,6 +65,19 @@ def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     )
 
 
+def _interactive_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
+    play_cfg = cast(
+        DictConfig,
+        OmegaConf.merge(cfg, {"training": {"play_only": True}}),
+    )
+    with open_dict(play_cfg):
+        play_cfg.play_profile = OmegaConf.to_container(
+            cfg.interactive_play_profile,
+            resolve=False,
+        )
+    return cast(dict[str, Any], _backend_adapter(play_cfg).build_play_env_cfg_override())
+
+
 def _load_checkpoint(cfg: DictConfig) -> Path | None:
     path, _directory = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if path is None or not path.is_file():
@@ -90,6 +105,17 @@ def _print_force_estimate(runner: CSEOnPolicyRunner, env: Any, obs: torch.Tensor
     )
 
 
+def _load_viewer_model(env: Any) -> Any:
+    import mujoco
+
+    with tempfile.TemporaryDirectory(prefix="unilab-a2arm-interactive-") as tmp_dir:
+        model_files = resolve_render_play_model_files(env, num_envs=1, tmp_dir=tmp_dir)
+        model_file = model_files[0] if isinstance(model_files, list) else model_files
+        if Path(model_file).suffix.lower() == ".mjb":
+            return mujoco.MjModel.from_binary_path(str(model_file))
+        return mujoco.MjModel.from_xml_path(str(model_file))
+
+
 def play_interactive(cfg: DictConfig, device: str) -> None:
     import mujoco
     import mujoco.viewer
@@ -97,7 +123,7 @@ def play_interactive(cfg: DictConfig, device: str) -> None:
     checkpoint = _load_checkpoint(cfg)
     if checkpoint is None:
         return
-    override = cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
+    override = _interactive_env_cfg_override(cfg)
     env = create_env(
         cfg,
         num_envs=1,
@@ -137,7 +163,7 @@ def play_interactive(cfg: DictConfig, device: str) -> None:
     obs_td, _info = wrapped.reset()
     obs = obs_td["actor"]
     install_teleop_override(env, teleop)
-    model = env.get_playback_model(0)
+    model = _load_viewer_model(env)
     data = mujoco.MjData(model)
     print_legend()
     print(f"[play] loading {checkpoint}; close the viewer or press Escape to quit")

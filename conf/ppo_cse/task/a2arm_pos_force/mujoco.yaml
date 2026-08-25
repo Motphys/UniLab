@@ -5,6 +5,12 @@ defaults:
 training:
   task_name: A2ArmPosForce
   sim_backend: mujoco
+interactive_play_profile:
+  enabled: true
+  env:
+    terminations:
+      time_out: null
+      fallen: null
 algo:
   num_envs: 1024
   max_iterations: 20000

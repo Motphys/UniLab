@@ -120,6 +120,134 @@ def test_mujoco_visual_xml_paths_prefer_backend_visual_scene(tmp_path: Path):
     assert robot == robot_xml
 
 
+def test_a2arm_interactive_override_disables_terminations_only_for_play():
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    mod = _load_script("play_a2arm_pos_force_interactive")
+    root = _SCRIPTS_DIR.parent
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(root / "conf" / "ppo_cse"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=["task=a2arm_pos_force/mujoco", "algo.num_envs=1"],
+        )
+
+    training_override = mod._backend_adapter(cfg).build_task_env_cfg_override()
+    standard_play_cfg = mod.OmegaConf.merge(cfg, {"training": {"play_only": True}})
+    standard_play_override = mod._backend_adapter(standard_play_cfg).build_play_env_cfg_override()
+    interactive_override = mod._interactive_env_cfg_override(cfg)
+
+    assert cfg.training.play_only is False
+    assert training_override["terminations"]["time_out"] is not None
+    assert training_override["terminations"]["fallen"] is not None
+    assert standard_play_override["terminations"]["time_out"] is not None
+    assert standard_play_override["terminations"]["fallen"] is not None
+    assert interactive_override["terminations"]["time_out"] is None
+    assert interactive_override["terminations"]["fallen"] is None
+
+
+def test_a2arm_interactive_viewer_loads_resolved_visual_model(tmp_path: Path):
+    import mujoco
+
+    mod = _load_script("play_a2arm_pos_force_interactive")
+    visual_xml = tmp_path / "visual.xml"
+    visual_xml.write_text(
+        """
+<mujoco>
+  <worldbody>
+    <body name="robot">
+      <freejoint/>
+      <geom name="robot_visual" type="box" size="0.2 0.1 0.05"
+            group="2" contype="0" conaffinity="0"/>
+      <geom name="robot_collision" type="box" size="0.1 0.05 0.025" group="3"/>
+    </body>
+  </worldbody>
+</mujoco>
+""".strip(),
+        encoding="utf-8",
+    )
+    physics_model = mujoco.MjModel.from_xml_string(
+        """
+<mujoco>
+  <worldbody>
+    <body name="robot">
+      <freejoint/>
+      <geom name="robot_collision" type="box" size="0.1 0.05 0.025" group="3"/>
+    </body>
+  </worldbody>
+</mujoco>
+""".strip()
+    )
+
+    class FakeBackend:
+        scene_visual_model_file = str(visual_xml)
+
+    class FakeEnv:
+        _backend = FakeBackend()
+
+        def get_playback_model(self, env_index: int):
+            assert env_index == 0
+            return physics_model
+
+    viewer_model = mod._load_viewer_model(FakeEnv())
+
+    assert int(viewer_model.ngeom) == 2
+    assert set(np.asarray(viewer_model.geom_group, dtype=int).tolist()) == {2, 3}
+
+
+def test_a2arm_interactive_real_env_runs_past_timeout_with_visual_state_compatibility():
+    import mujoco
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    from unilab.base.config_adapter import create_env
+    from unilab.training import ensure_registries
+
+    mod = _load_script("play_a2arm_pos_force_interactive")
+    root = _SCRIPTS_DIR.parent
+    GlobalHydra.instance().clear()
+    ensure_registries()
+    with initialize_config_dir(config_dir=str(root / "conf" / "ppo_cse"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=["task=a2arm_pos_force/mujoco", "algo.num_envs=1"],
+        )
+
+    env = create_env(
+        cfg,
+        num_envs=1,
+        env_cfg_override=mod._interactive_env_cfg_override(cfg),
+        sim_backend="mujoco",
+    )
+    try:
+        env.reset()
+        assert env.termination_manager.active_terms == []
+        assert env.state is not None
+        env.state.info["steps"][:] = env.max_episode_length - 1
+        zero_actions = np.zeros((1, env.action_space.shape[0]), dtype=np.float32)
+        transitions = [env.step(zero_actions), env.step(zero_actions)]
+        assert not any(bool(np.any(state.terminated | state.truncated)) for state in transitions)
+
+        viewer_model = mod._load_viewer_model(env)
+        assert mujoco.mj_name2id(viewer_model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
+        assert np.any(viewer_model.geom_type == mujoco.mjtGeom.mjGEOM_MESH)
+        viewer_data = mujoco.MjData(viewer_model)
+        snapshot = env.get_physics_state_snapshot()[0]
+        assert snapshot.shape == (
+            mujoco.mj_stateSize(viewer_model, mujoco.mjtState.mjSTATE_FULLPHYSICS),
+        )
+        mujoco.mj_setState(
+            viewer_model,
+            viewer_data,
+            snapshot,
+            mujoco.mjtState.mjSTATE_FULLPHYSICS,
+        )
+        mujoco.mj_forward(viewer_model, viewer_data)
+    finally:
+        env.close()
+
+
 def _keyboard_env(
     with_commands: bool = True,
     *,
