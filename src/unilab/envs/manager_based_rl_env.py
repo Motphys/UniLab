@@ -49,6 +49,9 @@ from unilab.managers import (
     TerminationManager,
     TerminationTermCfg,
 )
+from unilab.utils.term_profiling import (  # PROFILING_TEMP (#1293, TODO: remove after #1292)
+    TERM_PROFILER,
+)
 
 
 def _manager_terms_field() -> Any:
@@ -315,6 +318,9 @@ class ManagerBasedRlEnv(NpEnv):
 
     def _load_managers(self) -> None:
         """Construct managers in the pinned community dependency order."""
+        # PROFILING_TEMP (#1293, TODO: remove after #1292): a new env means a new
+        # benchmark case — dump the previous case's per-term stats and reset.
+        TERM_PROFILER.reset()
         self.event_manager = EventManager(self._cfg.events, self)
         self.command_manager = (
             CommandManager(self._cfg.commands, self) if self._cfg.commands else NullCommandManager()

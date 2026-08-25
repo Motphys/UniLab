@@ -13,6 +13,9 @@ import numpy as np
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
+from unilab.utils.term_profiling import (
+    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
+)
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -100,17 +103,19 @@ class TerminationManager(ManagerBase):
         self._truncated_buf[:] = False
         self._terminated_buf[:] = False
         for name, term_cfg in zip(self._term_names, self._term_cfgs, strict=False):
-            value = term_cfg.func(self._env, **term_cfg.params)
-            self._check_term_shape(name, value)
-            if value.dtype != np.bool_:
-                raise TypeError(
-                    f"TerminationManager term '{name}' returned dtype {value.dtype}, expected bool."
-                )
-            if term_cfg.time_out:
-                self._truncated_buf |= value
-            else:
-                self._terminated_buf |= value
-            self._term_dones[name][:] = value
+            # PROFILING_TEMP (#1293, TODO: remove after #1292)
+            with profile_term(f"termination/{name}"):
+                value = term_cfg.func(self._env, **term_cfg.params)
+                self._check_term_shape(name, value)
+                if value.dtype != np.bool_:
+                    raise TypeError(
+                        f"TerminationManager term '{name}' returned dtype {value.dtype}, expected bool."
+                    )
+                if term_cfg.time_out:
+                    self._truncated_buf |= value
+                else:
+                    self._terminated_buf |= value
+                self._term_dones[name][:] = value
         return self._truncated_buf | self._terminated_buf
 
     def get_term(self, name: str) -> np.ndarray:

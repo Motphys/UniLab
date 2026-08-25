@@ -13,6 +13,9 @@ import numpy as np
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
+from unilab.utils.term_profiling import (
+    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
+)
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -210,9 +213,11 @@ class MetricsManager(ManagerBase):
     def _compute_term(self, idx: int) -> np.ndarray:
         name = self._term_names[idx]
         term_cfg = self._term_cfgs[idx]
-        value = term_cfg.func(self._env, **term_cfg.params)
-        self._check_term_shape(name, value)
-        self._check_term_finite(name, value)
+        # PROFILING_TEMP (#1293, TODO: remove after #1292)
+        with profile_term(f"metrics/{name}"):
+            value = term_cfg.func(self._env, **term_cfg.params)
+            self._check_term_shape(name, value)
+            self._check_term_finite(name, value)
         return value
 
 
