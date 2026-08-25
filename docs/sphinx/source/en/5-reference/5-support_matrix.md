@@ -90,6 +90,7 @@ recommendation metadata in the repo, so rows do not auto-promote to
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested |
+| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | - | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
@@ -116,6 +117,7 @@ recommendation metadata in the repo, so rows do not auto-promote to
 | SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Registered |
 | SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | - | Registered |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered |
+| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | - | - |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
