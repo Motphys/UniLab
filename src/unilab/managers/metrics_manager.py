@@ -57,22 +57,12 @@ class MetricsManager(ManagerBase):
 
     _env: ManagerBasedRlEnv
 
-    def __init__(
-        self,
-        cfg: dict[str, MetricsTermCfg | None],
-        env: ManagerBasedRlEnv,
-        *,
-        finite_check_interval: int = 1,
-    ):
+    def __init__(self, cfg: dict[str, MetricsTermCfg | None], env: ManagerBasedRlEnv):
         self._term_names: list[str] = list()
         self._term_cfgs: list[MetricsTermCfg] = list()
         self._class_term_cfgs: list[MetricsTermCfg] = list()
         self._step_term_indices: list[int] = list()
         self._substep_term_indices: list[int] = list()
-        # NaN/Inf check cadence: every ``finite_check_interval`` compute() calls,
-        # starting with the first. 1 keeps the historical every-step behavior.
-        self._finite_check_interval = max(1, int(finite_check_interval))
-        self._finite_check_clock = 0
 
         self.cfg = deepcopy(cfg)
         super().__init__(env=env)
@@ -177,8 +167,6 @@ class MetricsManager(ManagerBase):
 
     def compute(self) -> None:
         self._step_count += 1
-        # Same cadence rule as RewardManager: first compute always checks.
-        self._finite_check_clock += 1
         if self._substep_term_indices and self._substep_count > 0:
             for i, idx in enumerate(self._substep_term_indices):
                 avg = self._substep_accum[i] / self._substep_count
@@ -224,8 +212,7 @@ class MetricsManager(ManagerBase):
         term_cfg = self._term_cfgs[idx]
         value = term_cfg.func(self._env, **term_cfg.params)
         self._check_term_shape(name, value)
-        if (self._finite_check_clock - 1) % self._finite_check_interval == 0:
-            self._check_term_finite(name, value)
+        self._check_term_finite(name, value)
         return value
 
 

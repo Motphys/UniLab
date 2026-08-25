@@ -81,11 +81,6 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     is_finite_horizon: bool = False
     auto_reset: bool = True
     scale_rewards_by_dt: bool = True
-    finite_check_interval: int = 1
-    """Run the per-term NaN/Inf finite check in reward/metrics managers every N
-    control steps. 1 (default) checks every step — the historical behavior.
-    N > 1 bounds NaN detection latency to N control steps while removing the
-    per-step full ``np.isfinite(...).all()`` scans from the hot path."""
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
 
@@ -134,13 +129,6 @@ class ManagerBasedRlEnvCfg(EnvCfg):
         for name in ("is_finite_horizon", "auto_reset", "scale_rewards_by_dt"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"ManagerBasedRlEnvCfg {name} must be bool")
-        if isinstance(self.finite_check_interval, bool) or not isinstance(
-            self.finite_check_interval, (int, np.integer)
-        ):
-            raise TypeError("ManagerBasedRlEnvCfg finite_check_interval must be an int")
-        if self.finite_check_interval < 1:
-            raise ValueError("ManagerBasedRlEnvCfg finite_check_interval must be >= 1")
-        self.finite_check_interval = int(self.finite_check_interval)
         if not isinstance(self.policy_observation_group, str) or not self.policy_observation_group:
             raise ValueError("policy_observation_group must be a non-empty string")
         if self.critic_observation_group is not None:
@@ -338,7 +326,6 @@ class ManagerBasedRlEnv(NpEnv):
             self._cfg.rewards,
             self,
             scale_by_dt=self._cfg.scale_rewards_by_dt,
-            finite_check_interval=self._cfg.finite_check_interval,
         )
         self.curriculum_manager = (
             CurriculumManager(self._cfg.curriculum, self)
@@ -346,13 +333,7 @@ class ManagerBasedRlEnv(NpEnv):
             else NullCurriculumManager()
         )
         self.metrics_manager = (
-            MetricsManager(
-                self._cfg.metrics,
-                self,
-                finite_check_interval=self._cfg.finite_check_interval,
-            )
-            if self._cfg.metrics
-            else NullMetricsManager()
+            MetricsManager(self._cfg.metrics, self) if self._cfg.metrics else NullMetricsManager()
         )
         self.recorder_manager = (
             RecorderManager(self._cfg.recorders, self)

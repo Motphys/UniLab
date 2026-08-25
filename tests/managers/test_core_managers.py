@@ -209,35 +209,6 @@ def test_reward_nonfinite_is_an_error(fake_env: FakeEnv, bad: float) -> None:
         manager.compute(0.01)
 
 
-def test_reward_finite_check_sampling(fake_env: FakeEnv) -> None:
-    """Issue #1294: with finite_check_interval=N the NaN/Inf scan runs on the
-    first compute() and then every Nth call; NaN still raises within the
-    configured window."""
-
-    def bad_reward(env: FakeEnv) -> np.ndarray:
-        value = np.ones(env.num_envs, dtype=np.float32)
-        value[2] = np.nan
-        return value
-
-    cfg = {"bad_reward": RewardTermCfg(func=bad_reward, weight=1.0)}
-    manager = RewardManager(cfg, fake_env, finite_check_interval=3)
-    # First compute is always checked (fail-fast at startup).
-    with pytest.raises(ValueError, match="RewardManager term 'bad_reward'"):
-        manager.compute(0.01)
-    # Clocks 1 and 2 skip the scan.
-    manager.compute(0.01)
-    manager.compute(0.01)
-    # Clock 3 scans again and catches the NaN inside the window.
-    with pytest.raises(ValueError, match="RewardManager term 'bad_reward'"):
-        manager.compute(0.01)
-
-    # interval=1 keeps the historical every-step behavior.
-    strict = RewardManager(cfg, fake_env)
-    for _ in range(3):
-        with pytest.raises(ValueError, match="RewardManager term 'bad_reward'"):
-            strict.compute(0.01)
-
-
 def test_reward_and_termination_shape_validation(fake_env: FakeEnv) -> None:
     reward = RewardManager(
         {"bad": RewardTermCfg(func=lambda env: np.zeros((env.num_envs, 1)), weight=1.0)},
