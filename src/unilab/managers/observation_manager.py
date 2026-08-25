@@ -410,12 +410,20 @@ class ObservationManager(ManagerBase):
             # PROFILING_TEMP (#1293, TODO: remove after #1292): manager-level
             # per-term post-processing (copy/noise/clip/scale/nan check).
             with profile_term(f"obs_post/{group_name}/{term_name}|{phase}"):
-                if not row_scoped:
-                    obs = obs.copy()
+                fresh = False
                 if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
+                    # NoiseCfg.apply always returns a newly allocated array.
                     obs = term_cfg.noise.apply(obs, rng=self._env.rng)
+                    fresh = True
                 elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
+                    # NoiseModel.__call__ likewise returns a new array.
                     obs = self._group_obs_class_instances[group_name][term_name](obs)
+                    fresh = True
+                if not row_scoped and not fresh:
+                    # Terms may return backend/command-owned buffers; copy before the
+                    # in-place clip/scale below. Skipped when noise already produced
+                    # a fresh array (issue #1296).
+                    obs = obs.copy()
                 if row_scoped:
                     # Fresh row copy; safe for the in-place clip/scale below.
                     obs = obs[env_ids]

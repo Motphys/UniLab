@@ -384,12 +384,40 @@ class MotionCommand(CommandTerm):
         step = self._env.common_step_counter
         if not force and self._robot_cache_step == step:
             return
-        sel: np.ndarray | slice = slice(None) if env_ids is None else env_ids
         body_index = self._robot_body_ids
-        self._robot_body_pos_w[sel] = self.robot.data.body_link_pos_w[sel][:, body_index]
-        self._robot_body_quat_w[sel] = self.robot.data.body_link_quat_w[sel][:, body_index]
-        self._robot_body_lin_vel_w[sel] = self.robot.data.body_link_lin_vel_w[sel][:, body_index]
-        self._robot_body_ang_vel_w[sel] = self.robot.data.body_link_ang_vel_w[sel][:, body_index]
+        if env_ids is None:
+            # Single gather straight into the destination buffers; the previous
+            # src[:][:, body_index] form materialized two intermediate copies.
+            np.take(self.robot.data.body_link_pos_w, body_index, axis=1, out=self._robot_body_pos_w)
+            np.take(
+                self.robot.data.body_link_quat_w, body_index, axis=1, out=self._robot_body_quat_w
+            )
+            np.take(
+                self.robot.data.body_link_lin_vel_w,
+                body_index,
+                axis=1,
+                out=self._robot_body_lin_vel_w,
+            )
+            np.take(
+                self.robot.data.body_link_ang_vel_w,
+                body_index,
+                axis=1,
+                out=self._robot_body_ang_vel_w,
+            )
+        else:
+            # np.ix_ gathers rows and bodies in one copy instead of two.
+            self._robot_body_pos_w[env_ids] = self.robot.data.body_link_pos_w[
+                np.ix_(env_ids, body_index)
+            ]
+            self._robot_body_quat_w[env_ids] = self.robot.data.body_link_quat_w[
+                np.ix_(env_ids, body_index)
+            ]
+            self._robot_body_lin_vel_w[env_ids] = self.robot.data.body_link_lin_vel_w[
+                np.ix_(env_ids, body_index)
+            ]
+            self._robot_body_ang_vel_w[env_ids] = self.robot.data.body_link_ang_vel_w[
+                np.ix_(env_ids, body_index)
+            ]
         self._robot_cache_step = step
 
     def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:
@@ -697,8 +725,12 @@ def motion_global_anchor_position_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
 ) -> np.ndarray:
     command = _command(env, command_name)
-    error = np.sum(np.square(command.anchor_pos_w - command.robot_anchor_pos_w), axis=-1)
-    return np.exp(-error / _positive_std(std, term_name="motion anchor position") ** 2)
+    diff = command.anchor_pos_w - command.robot_anchor_pos_w
+    np.square(diff, out=diff)
+    error = np.sum(diff, axis=-1)
+    scale = _positive_std(std, term_name="motion anchor position")
+    np.divide(error, -(scale**2), out=error)
+    return np.exp(error, out=error)
 
 
 def motion_global_anchor_orientation_error_exp(
@@ -708,7 +740,9 @@ def motion_global_anchor_orientation_error_exp(
     error = np_quat_error_magnitude_squared_batched(
         command.anchor_quat_w, command.robot_anchor_quat_w
     )
-    return np.exp(-error / _positive_std(std, term_name="motion anchor orientation") ** 2)
+    scale = _positive_std(std, term_name="motion anchor orientation")
+    np.divide(error, -(scale**2), out=error)
+    return np.exp(error, out=error)
 
 
 class _BodyTerm(ManagerTermBase):
@@ -732,6 +766,34 @@ class _BodyTerm(ManagerTermBase):
             self._body_ids = np.asarray(
                 [command.cfg.body_names.index(name) for name in requested], dtype=np.intp
             )
+        # Lazily allocated scratch for squared-error reductions (issue #1296);
+        # shapes depend on the selected body set, so they are sized on first use.
+        self._diff_scratch: np.ndarray | None = None
+        self._err_scratch: np.ndarray | None = None
+
+    def _squared_error_3d(self, ref: np.ndarray, actual: np.ndarray) -> np.ndarray:
+        """Per-body squared 3D error with reused scratch, same op order as the
+        naive ``np.square(ref - actual).sum(axis=-1)`` (bit-identical)."""
+        if (
+            self._diff_scratch is None
+            or self._err_scratch is None
+            or self._diff_scratch.shape != ref.shape
+        ):
+            self._diff_scratch = np.empty(ref.shape, dtype=ref.dtype)
+            self._err_scratch = np.empty(ref.shape[:-1], dtype=ref.dtype)
+        diff = self._diff_scratch
+        err = self._err_scratch
+        np.subtract(ref, actual, out=diff)
+        np.square(diff, out=diff)
+        np.sum(diff, axis=-1, out=err)
+        return err
+
+    @staticmethod
+    def _exp_neg_scaled(error: np.ndarray, scale: float) -> np.ndarray:
+        """``np.exp(-error / scale**2)`` without intermediate temporaries; the
+        input buffer is consumed and returned (callers own it)."""
+        np.divide(error, -(scale**2), out=error)
+        return np.exp(error, out=error)
 
     def _validate(self, command_name: str, std: float) -> tuple[MotionCommand, float]:
         if command_name != self._command_name:
@@ -751,14 +813,11 @@ class motion_relative_body_position_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = np.sum(
-            np.square(
-                command.body_pos_relative_w[:, self._body_ids]
-                - command.robot_body_pos_w[:, self._body_ids]
-            ),
-            axis=-1,
+        error = self._squared_error_3d(
+            command.body_pos_relative_w[:, self._body_ids],
+            command.robot_body_pos_w[:, self._body_ids],
         )
-        return np.exp(-error.mean(axis=-1) / scale**2)
+        return self._exp_neg_scaled(error.mean(axis=-1), scale)
 
 
 class motion_relative_body_orientation_error_exp(_BodyTerm):
@@ -775,7 +834,7 @@ class motion_relative_body_orientation_error_exp(_BodyTerm):
             command.body_quat_relative_w[:, self._body_ids],
             command.robot_body_quat_w[:, self._body_ids],
         )
-        return np.exp(-error.mean(axis=-1) / scale**2)
+        return self._exp_neg_scaled(error.mean(axis=-1), scale)
 
 
 class motion_global_body_linear_velocity_error_exp(_BodyTerm):
@@ -788,14 +847,11 @@ class motion_global_body_linear_velocity_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = np.sum(
-            np.square(
-                command.body_lin_vel_w[:, self._body_ids]
-                - command.robot_body_lin_vel_w[:, self._body_ids]
-            ),
-            axis=-1,
+        error = self._squared_error_3d(
+            command.body_lin_vel_w[:, self._body_ids],
+            command.robot_body_lin_vel_w[:, self._body_ids],
         )
-        return np.exp(-error.mean(axis=-1) / scale**2)
+        return self._exp_neg_scaled(error.mean(axis=-1), scale)
 
 
 class motion_global_body_angular_velocity_error_exp(_BodyTerm):
@@ -808,14 +864,11 @@ class motion_global_body_angular_velocity_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = np.sum(
-            np.square(
-                command.body_ang_vel_w[:, self._body_ids]
-                - command.robot_body_ang_vel_w[:, self._body_ids]
-            ),
-            axis=-1,
+        error = self._squared_error_3d(
+            command.body_ang_vel_w[:, self._body_ids],
+            command.robot_body_ang_vel_w[:, self._body_ids],
         )
-        return np.exp(-error.mean(axis=-1) / scale**2)
+        return self._exp_neg_scaled(error.mean(axis=-1), scale)
 
 
 class motion_relative_body_position_z_error_exp(_BodyTerm):
@@ -832,23 +885,31 @@ class motion_relative_body_position_z_error_exp(_BodyTerm):
             command.body_pos_relative_w[:, self._body_ids, 2]
             - command.robot_body_pos_w[:, self._body_ids, 2]
         )
-        return np.exp(-error.mean(axis=-1) / scale**2)
+        return self._exp_neg_scaled(error.mean(axis=-1), scale)
 
 
 def motion_joint_position_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
 ) -> np.ndarray:
     command = _command(env, command_name)
-    error = np.square(command.joint_pos - command.robot_joint_pos).mean(axis=-1)
-    return np.exp(-error / _positive_std(std, term_name="motion joint position") ** 2)
+    diff = command.joint_pos - command.robot_joint_pos
+    np.square(diff, out=diff)
+    error = diff.mean(axis=-1)
+    scale = _positive_std(std, term_name="motion joint position")
+    np.divide(error, -(scale**2), out=error)
+    return np.exp(error, out=error)
 
 
 def motion_joint_velocity_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
 ) -> np.ndarray:
     command = _command(env, command_name)
-    error = np.square(command.joint_vel - command.robot_joint_vel).mean(axis=-1)
-    return np.exp(-error / _positive_std(std, term_name="motion joint velocity") ** 2)
+    diff = command.joint_vel - command.robot_joint_vel
+    np.square(diff, out=diff)
+    error = diff.mean(axis=-1)
+    scale = _positive_std(std, term_name="motion joint velocity")
+    np.divide(error, -(scale**2), out=error)
+    return np.exp(error, out=error)
 
 
 def joint_pos_limits(
@@ -859,9 +920,15 @@ def joint_pos_limits(
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
     limits = asset.data.soft_joint_pos_limits[asset_cfg.joint_ids]
-    lower_error = np.maximum(limits[:, 0] - joint_pos, 0.0)
-    upper_error = np.maximum(joint_pos - limits[:, 1], 0.0)
-    return np.sum(np.square(lower_error + upper_error), axis=-1)
+    # Same op order as the naive form (maximum -> add -> square -> sum),
+    # chained in place to avoid intermediate allocations.
+    error = np.subtract(limits[:, 0], joint_pos)
+    np.maximum(error, 0.0, out=error)
+    upper = np.subtract(joint_pos, limits[:, 1])
+    np.maximum(upper, 0.0, out=upper)
+    error += upper
+    np.square(error, out=error)
+    return np.sum(error, axis=-1)
 
 
 class undesired_body_contacts(_BodyTerm):
