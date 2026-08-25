@@ -1004,13 +1004,17 @@ def test_g1_motion_core_registrations_are_manager_only() -> None:
         "G1MotionTrackingDeploy",
         "G1MotionTracking23Dof",
         "G1MotionTracking23DofDeploy",
-        "G1MotionTrackingSAC",
         "G1MotionTrackingSAC23Dof",
     ):
         assert metadata[task_name] == {
             "config_factory": "ManagerBasedRlEnvCfg",
             "available_backends": ["mujoco", "motrix"],
         }
+    # mjwarp is registered for G1MotionTrackingSAC only (benchmark scope, #1292).
+    assert metadata["G1MotionTrackingSAC"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco", "motrix", "mjwarp"],
+    }
 
 
 def test_g1_motion_manager_ppo_wraps_only_active_rows_in_one_state_commit(

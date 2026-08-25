@@ -14,6 +14,9 @@ Usage:
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --cases auto --backend motrix
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --cases sac/g1_walk_flat/mujoco
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --cases sac/g1_walk_flat/motrixsim
+    # mjwarp (GPU) is opt-in and requires the optional mjwarp extra:
+    uv run --extra mjwarp scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
+        --cases sac/g1_motion_tracking/mjwarp
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --num-envs 1024 --measure-steps 100
 """
 
@@ -32,6 +35,7 @@ import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from importlib.util import find_spec
 from pathlib import Path
 from statistics import mean, median, pstdev
 from typing import Any, Sequence, cast
@@ -61,6 +65,10 @@ DEFAULT_CASE_TEMPLATES = (
 DEFAULT_ALGOS = ("sac", "flashsac", "td3")
 DEFAULT_BACKEND = "motrix"
 BENCHMARK_BACKENDS = ("mujoco", "motrix")
+# mjwarp (GPU) is opt-in only: it requires the optional ``mjwarp`` extra
+# (mujoco-warp + warp-lang) and is never part of --all. Request it explicitly
+# via --backend mjwarp or an explicit <algo>/<task>/mjwarp case.
+OPTIONAL_BACKENDS = ("mjwarp",)
 DEFAULT_COLLECTOR_CPU_THREADS = 8
 COLLECTOR_CPU_THREADS_ENV = "UNILAB_COLLECTOR_TORCH_THREADS"
 BACKEND_ALIASES = {
@@ -417,9 +425,23 @@ def _discover_cases(*, algos: list[str], sim: str) -> list[str]:
 def _resolve_backend_selection(*, backend: str, all_backends: bool) -> tuple[str, ...]:
     if all_backends:
         return BENCHMARK_BACKENDS
+    if backend in OPTIONAL_BACKENDS:
+        _check_optional_backend_deps(backend)
+        return (backend,)
     if backend not in BENCHMARK_BACKENDS:
-        raise ValueError(f"unsupported backend {backend!r}; expected one of {BENCHMARK_BACKENDS}")
+        raise ValueError(
+            f"unsupported backend {backend!r}; expected one of "
+            f"{BENCHMARK_BACKENDS + OPTIONAL_BACKENDS}"
+        )
     return (backend,)
+
+
+def _check_optional_backend_deps(backend: str) -> None:
+    if backend == "mjwarp" and (find_spec("mujoco_warp") is None or find_spec("warp") is None):
+        raise SystemExit(
+            "backend=mjwarp requires the mjwarp extra. Install it with `uv sync --extra mjwarp` "
+            "or run this benchmark with `uv run --extra mjwarp ...`."
+        )
 
 
 def _default_case_specs(backends: Sequence[str]) -> list[str]:
@@ -1562,9 +1584,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=BENCHMARK_BACKENDS,
+        choices=(*BENCHMARK_BACKENDS, *OPTIONAL_BACKENDS),
         default=DEFAULT_BACKEND,
-        help="Backend to benchmark for --cases default/auto. Default: motrix.",
+        help=(
+            "Backend to benchmark for --cases default/auto. Default: motrix. "
+            "mjwarp is opt-in and requires the mjwarp extra."
+        ),
     )
     parser.add_argument(
         "--all",
@@ -1574,7 +1599,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--sim",
-        choices=(*BENCHMARK_BACKENDS, *BACKEND_ALIASES.keys()),
+        choices=(*BENCHMARK_BACKENDS, *OPTIONAL_BACKENDS, *BACKEND_ALIASES.keys()),
         default=None,
         help=argparse.SUPPRESS,
     )
@@ -1634,6 +1659,12 @@ def main() -> int:
     specs = _resolve_case_specs(args.cases, algos_arg=args.algos, backends=backends)
     if not specs:
         raise SystemExit("No benchmark cases resolved.")
+    # Explicit <algo>/<task>/<sim> cases bypass --backend, so check optional
+    # backend deps per resolved case as well.
+    for spec in specs:
+        _, _, spec_sim = _parse_case(spec)
+        if spec_sim in OPTIONAL_BACKENDS:
+            _check_optional_backend_deps(spec_sim)
 
     hardware_info = _get_benchmark_hardware_info()
     print(f"Device: {get_device_info_line()}")

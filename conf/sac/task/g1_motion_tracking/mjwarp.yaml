@@ -1,0 +1,14 @@
+# @package _global_
+# mjwarp (GPU) owner for G1 WBT. Benchmark/support scope: collector active-window
+# throughput measurement for issue #1292; mujoco-warp + warp-lang stay optional
+# deps. Inherits the MuJoCo owner verbatim so sim2sim DENYLIST fields keep parity;
+# mjwarp capacity knobs stay at backend defaults (nconmax/njmax=512).
+# NOTE: mjwarp rejects reset/interval domain randomization and push terms; this
+# owner inherits the MuJoCo DR-free config, so no extra disables are needed.
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: mjwarp

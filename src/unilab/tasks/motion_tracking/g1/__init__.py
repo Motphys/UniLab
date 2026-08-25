@@ -33,5 +33,10 @@ for _task_name in G1_MOTION_TASKS:
     registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="mujoco")
     registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="motrix")
 
+# mjwarp is registered only for G1MotionTrackingSAC (benchmark scope, issue #1292);
+# mujoco-warp + warp-lang remain optional deps and other motion tasks keep
+# mujoco/motrix until their mjwarp paths are validated.
+registry.register_env("G1MotionTrackingSAC", make_manager_based_rl_env, sim_backend="mjwarp")
+
 
 __all__ = ["BoxMotionData", "BoxMotionLoader", "G1_MOTION_TASKS"]

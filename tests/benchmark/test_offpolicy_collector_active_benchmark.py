@@ -98,6 +98,18 @@ def test_all_backend_selection_expands_default_cases() -> None:
     assert "flashsac/g1_walk_flat/motrix" in specs
 
 
+def test_mjwarp_backend_is_opt_in_and_never_part_of_all() -> None:
+    # --all stays on the default backends; mjwarp must be requested explicitly.
+    assert "mjwarp" not in bench._resolve_backend_selection(backend="mujoco", all_backends=True)
+    if bench.find_spec("mujoco_warp") is None or bench.find_spec("warp") is None:
+        with pytest.raises(SystemExit, match="mjwarp extra"):
+            bench._resolve_backend_selection(backend="mjwarp", all_backends=False)
+    else:
+        assert bench._resolve_backend_selection(backend="mjwarp", all_backends=False) == (
+            "mjwarp",
+        )
+
+
 def test_resolve_case_specs_deduplicates_explicit_specs() -> None:
     specs = bench._resolve_case_specs(
         "sac/g1_walk_flat/mujoco,sac/g1_walk_flat/mujoco,td3/g1_walk_flat/mujoco",
