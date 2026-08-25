@@ -13,6 +13,9 @@ import numpy as np
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
+from unilab.utils.term_profiling import (
+    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
+)
 
 if TYPE_CHECKING:
     from unilab.managers._types import DebugVisualizer, ManagerBasedRlEnv
@@ -123,13 +126,15 @@ class RewardManager(ManagerBase):
             if term_cfg.weight == 0.0:
                 self._step_reward[:, term_idx] = 0.0
                 continue
-            value = term_cfg.func(self._env, **term_cfg.params)
-            self._check_term_shape(name, value)
-            self._check_term_finite(name, value)
-            value = value * term_cfg.weight * scale
-            self._reward_buf += value
-            self._episode_sums[name] += value
-            self._step_reward[:, term_idx] = value / scale
+            # PROFILING_TEMP (#1293, TODO: remove after #1292)
+            with profile_term(f"reward/{name}"):
+                value = term_cfg.func(self._env, **term_cfg.params)
+                self._check_term_shape(name, value)
+                self._check_term_finite(name, value)
+                value = value * term_cfg.weight * scale
+                self._reward_buf += value
+                self._episode_sums[name] += value
+                self._step_reward[:, term_idx] = value / scale
         return self._reward_buf
 
     def step_reward_extras(self) -> dict[str, float]:

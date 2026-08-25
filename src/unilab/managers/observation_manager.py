@@ -20,6 +20,9 @@ from unilab.managers._buffers import CircularBuffer, DelayBuffer
 from unilab.managers._noise import noise_cfg, noise_model
 from unilab.managers._noise.noise_cfg import NoiseCfg, NoiseModelCfg
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
+from unilab.utils.term_profiling import (
+    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
+)
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -388,8 +391,12 @@ class ObservationManager(ManagerBase):
         # (num_envs, ...) and full-shape noise draws keep the shared RNG stream
         # and per-row noise values identical to the full-batch path.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
+        # PROFILING_TEMP (#1293, TODO: remove after #1292)
+        phase = "reset" if env_ids is not None else "step"
         for term_name, term_cfg in obs_terms:
-            obs = term_cfg.func(self._env, **term_cfg.params)
+            # PROFILING_TEMP (#1293, TODO: remove after #1292)
+            with profile_term(f"obs/{group_name}/{term_name}|{phase}"):
+                obs = term_cfg.func(self._env, **term_cfg.params)
             if not isinstance(obs, np.ndarray):
                 raise TypeError(
                     f"ObservationManager term '{group_name}/{term_name}' returned "
@@ -400,30 +407,33 @@ class ObservationManager(ManagerBase):
                     f"ObservationManager term '{group_name}/{term_name}' returned shape "
                     f"{obs.shape}, expected (num_envs, ...) with num_envs={self.num_envs}."
                 )
-            if not row_scoped:
-                obs = obs.copy()
-            if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
-                obs = term_cfg.noise.apply(obs, rng=self._env.rng)
-            elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
-                obs = self._group_obs_class_instances[group_name][term_name](obs)
-            if row_scoped:
-                # Fresh row copy; safe for the in-place clip/scale below.
-                obs = obs[env_ids]
-            if term_cfg.clip:
-                np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
-            if term_cfg.scale is not None:
-                scale = term_cfg.scale
-                assert isinstance(scale, np.ndarray)
-                np.multiply(obs, scale, out=obs)
+            # PROFILING_TEMP (#1293, TODO: remove after #1292): manager-level
+            # per-term post-processing (copy/noise/clip/scale/nan check).
+            with profile_term(f"obs_post/{group_name}/{term_name}|{phase}"):
+                if not row_scoped:
+                    obs = obs.copy()
+                if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
+                    obs = term_cfg.noise.apply(obs, rng=self._env.rng)
+                elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
+                    obs = self._group_obs_class_instances[group_name][term_name](obs)
+                if row_scoped:
+                    # Fresh row copy; safe for the in-place clip/scale below.
+                    obs = obs[env_ids]
+                if term_cfg.clip:
+                    np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
+                if term_cfg.scale is not None:
+                    scale = term_cfg.scale
+                    assert isinstance(scale, np.ndarray)
+                    np.multiply(obs, scale, out=obs)
 
-            # Check for NaN/Inf before delay/history buffers (per-term checking).
-            if group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
-                obs = self._check_and_handle_nans(
-                    obs,
-                    context=f"{group_name}/{term_name}",
-                    policy=group_cfg.nan_policy,
-                    env_ids=env_ids if row_scoped else None,
-                )
+                # Check for NaN/Inf before delay/history buffers (per-term checking).
+                if group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
+                    obs = self._check_and_handle_nans(
+                        obs,
+                        context=f"{group_name}/{term_name}",
+                        policy=group_cfg.nan_policy,
+                        env_ids=env_ids if row_scoped else None,
+                    )
 
             if term_cfg.delay_max_lag > 0:
                 delay_buffer = self._group_obs_term_delay_buffer[group_name][term_name]
@@ -448,43 +458,46 @@ class ObservationManager(ManagerBase):
             else:
                 group_obs[term_name] = obs
 
-        # Final NaN check for non-per-term checking.
-        if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
+        # PROFILING_TEMP (#1293, TODO: remove after #1292): group-level
+        # post-processing (group nan check / concatenate / reset row slice).
+        with profile_term(f"obs_group_post/{group_name}|{phase}"):
+            # Final NaN check for non-per-term checking.
+            if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
+                if self._group_obs_concatenate[group_name]:
+                    # Will check after concatenation below.
+                    pass
+                else:
+                    for term_name in group_obs:
+                        group_obs[term_name] = self._check_and_handle_nans(
+                            group_obs[term_name],
+                            context=f"{group_name}/{term_name}",
+                            policy=group_cfg.nan_policy,
+                            env_ids=env_ids if row_scoped else None,
+                        )
+
             if self._group_obs_concatenate[group_name]:
-                # Will check after concatenation below.
-                pass
-            else:
-                for term_name in group_obs:
-                    group_obs[term_name] = self._check_and_handle_nans(
-                        group_obs[term_name],
-                        context=f"{group_name}/{term_name}",
+                result = np.concatenate(
+                    list(group_obs.values()), axis=self._group_obs_concatenate_dim[group_name]
+                )
+                # Final check for concatenated result (non-per-term checking).
+                if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
+                    result = self._check_and_handle_nans(
+                        result,
+                        context=group_name,
                         policy=group_cfg.nan_policy,
                         env_ids=env_ids if row_scoped else None,
                     )
-
-        if self._group_obs_concatenate[group_name]:
-            result = np.concatenate(
-                list(group_obs.values()), axis=self._group_obs_concatenate_dim[group_name]
-            )
-            # Final check for concatenated result (non-per-term checking).
-            if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
-                result = self._check_and_handle_nans(
-                    result,
-                    context=group_name,
-                    policy=group_cfg.nan_policy,
-                    env_ids=env_ids if row_scoped else None,
-                )
-        else:
-            result = group_obs
-
-        if env_ids is not None and not row_scoped:
-            # Groups with delay/history terms ran the full-batch pipeline above
-            # (buffer readout stays full-batch); slice the reset rows to match
-            # the reset-path return contract.
-            if isinstance(result, dict):
-                result = {name: values[env_ids] for name, values in result.items()}
             else:
-                result = result[env_ids]
+                result = group_obs
+
+            if env_ids is not None and not row_scoped:
+                # Groups with delay/history terms ran the full-batch pipeline above
+                # (buffer readout stays full-batch); slice the reset rows to match
+                # the reset-path return contract.
+                if isinstance(result, dict):
+                    result = {name: values[env_ids] for name, values in result.items()}
+                else:
+                    result = result[env_ids]
 
         return result
 
