@@ -17,9 +17,6 @@ ALLOWED_UTILS_MODULES = {
     "seed",
     "sim2sim",
     "tensor",
-    # PROFILING_TEMP (#1293, TODO: remove after #1292): temporary per-term
-    # profiling instrumentation; removed together with the module.
-    "term_profiling",
 }
 REMOVED_UTILS_SHIMS = {
     "algo_utils",

@@ -13,9 +13,6 @@ import numpy as np
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
-from unilab.utils.term_profiling import (
-    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
-)
 
 if TYPE_CHECKING:
     from unilab.managers._types import DebugVisualizer, ManagerBasedRlEnv
@@ -139,26 +136,24 @@ class RewardManager(ManagerBase):
             if term_cfg.weight == 0.0:
                 self._step_reward[:, term_idx] = 0.0
                 continue
-            # PROFILING_TEMP (#1293, TODO: remove after #1292)
-            with profile_term(f"reward/{name}"):
-                value = term_cfg.func(self._env, **term_cfg.params)
-                self._check_term_shape(name, value)
-                if check_finite:
-                    self._check_term_finite(name, value)
-                # Weighted value goes through the shared scratch (same op order as
-                # ``value * weight * scale``); terms may return internal buffers, so
-                # ``value`` itself is never written to. Scratch dtype matches the
-                # expression result dtype (e.g. int term values promote to float64,
-                # as the pre-refactor temporary did).
-                scratch = self._term_weight_scratch
-                out_dtype = np.result_type(value, term_cfg.weight)
-                if scratch.dtype != out_dtype:
-                    scratch = self._term_weight_scratch = np.empty(self.num_envs, dtype=out_dtype)
-                np.multiply(value, term_cfg.weight, out=scratch)
-                scratch *= scale
-                self._reward_buf += scratch
-                self._episode_sums[name] += scratch
-                np.divide(scratch, scale, out=self._step_reward[:, term_idx])
+            value = term_cfg.func(self._env, **term_cfg.params)
+            self._check_term_shape(name, value)
+            if check_finite:
+                self._check_term_finite(name, value)
+            # Weighted value goes through the shared scratch (same op order as
+            # ``value * weight * scale``); terms may return internal buffers, so
+            # ``value`` itself is never written to. Scratch dtype matches the
+            # expression result dtype (e.g. int term values promote to float64,
+            # as the pre-refactor temporary did).
+            scratch = self._term_weight_scratch
+            out_dtype = np.result_type(value, term_cfg.weight)
+            if scratch.dtype != out_dtype:
+                scratch = self._term_weight_scratch = np.empty(self.num_envs, dtype=out_dtype)
+            np.multiply(value, term_cfg.weight, out=scratch)
+            scratch *= scale
+            self._reward_buf += scratch
+            self._episode_sums[name] += scratch
+            np.divide(scratch, scale, out=self._step_reward[:, term_idx])
         return self._reward_buf
 
     def step_reward_extras(self) -> dict[str, float]:

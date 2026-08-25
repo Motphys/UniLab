@@ -13,9 +13,6 @@ import numpy as np
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
-from unilab.utils.term_profiling import (
-    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
-)
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -173,8 +170,6 @@ class EventManager(ManagerBase):
             raise ValueError(f"Event mode '{mode}' requires the time-step of the environment.")
 
         for index, term_cfg in enumerate(self._mode_term_cfgs[mode]):
-            # PROFILING_TEMP (#1293, TODO: remove after #1292)
-            pkey = f"event/{mode}/{self._mode_term_names[mode][index]}"
             if mode == "interval":
                 time_left = self._interval_term_time_left[index]
                 assert dt is not None
@@ -185,8 +180,7 @@ class EventManager(ManagerBase):
                         lower, upper = term_cfg.interval_range_s
                         sampled_interval = self._env.rng.uniform(lower, upper, 1)
                         self._interval_term_time_left[index][:] = sampled_interval
-                        with profile_term(pkey):  # PROFILING_TEMP (#1293)
-                            term_cfg.func(self._env, None, **term_cfg.params)
+                        term_cfg.func(self._env, None, **term_cfg.params)
                 else:
                     valid_env_ids = np.flatnonzero(time_left < 1e-6)
                     if len(valid_env_ids) > 0:
@@ -194,11 +188,9 @@ class EventManager(ManagerBase):
                         lower, upper = term_cfg.interval_range_s
                         sampled_time = self._env.rng.uniform(lower, upper, len(valid_env_ids))
                         self._interval_term_time_left[index][valid_env_ids] = sampled_time
-                        with profile_term(pkey):  # PROFILING_TEMP (#1293)
-                            term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
+                        term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
             elif mode == "step":
-                with profile_term(pkey):  # PROFILING_TEMP (#1293)
-                    term_cfg.func(self._env, None, **term_cfg.params)
+                term_cfg.func(self._env, None, **term_cfg.params)
             elif mode == "reset":
                 assert global_env_step_count is not None
                 # Reset events require concrete indices: callers (e.g. ManagerBasedRlEnv)
@@ -211,8 +203,7 @@ class EventManager(ManagerBase):
                 if min_step_count == 0:
                     self._reset_term_last_triggered_step_id[index][env_ids] = global_env_step_count
                     self._reset_term_last_triggered_once[index][env_ids] = True
-                    with profile_term(pkey):  # PROFILING_TEMP (#1293)
-                        term_cfg.func(self._env, env_ids, **term_cfg.params)
+                    term_cfg.func(self._env, env_ids, **term_cfg.params)
                 else:
                     last_triggered_step = self._reset_term_last_triggered_step_id[index][env_ids]
                     triggered_at_least_once = self._reset_term_last_triggered_once[index][env_ids]
@@ -228,11 +219,9 @@ class EventManager(ManagerBase):
                         self._reset_term_last_triggered_step_id[index][valid_env_ids] = (
                             global_env_step_count
                         )
-                        with profile_term(pkey):  # PROFILING_TEMP (#1293)
-                            term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
+                        term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
             else:
-                with profile_term(pkey):  # PROFILING_TEMP (#1293)
-                    term_cfg.func(self._env, env_ids, **term_cfg.params)
+                term_cfg.func(self._env, env_ids, **term_cfg.params)
 
     def _prepare_terms(self) -> None:
         self._interval_term_time_left: list[np.ndarray] = list()

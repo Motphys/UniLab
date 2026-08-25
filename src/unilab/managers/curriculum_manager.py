@@ -13,9 +13,6 @@ import numpy as np
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
-from unilab.utils.term_profiling import (
-    profile_term,  # PROFILING_TEMP (#1293, TODO: remove after #1292)
-)
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -114,16 +111,12 @@ class CurriculumManager(ManagerBase):
         return extras
 
     def compute(self, env_ids: np.ndarray | slice | None = None) -> None:
-        # PROFILING_TEMP (#1293, TODO: remove after #1292)
-        phase = "reset" if env_ids is not None else "step"
         if env_ids is None:
             env_ids = slice(None)
         for name, term_cfg in zip(self._term_names, self._term_cfgs, strict=False):
-            # PROFILING_TEMP (#1293, TODO: remove after #1292)
-            with profile_term(f"curriculum/{name}|{phase}"):
-                state = term_cfg.func(self._env, env_ids, **term_cfg.params)
-                self._validate_state(name, state)
-                self._curriculum_state[name] = state
+            state = term_cfg.func(self._env, env_ids, **term_cfg.params)
+            self._validate_state(name, state)
+            self._curriculum_state[name] = state
 
     def _validate_state(self, term_name: str, state: Any) -> None:
         values = state.values() if isinstance(state, dict) else (state,)
