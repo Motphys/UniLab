@@ -304,6 +304,12 @@ def test_body_state_matches_mujoco_backend() -> None:
         mujoco_backend.get_body_ang_vel_w(body_ids),
         atol=atol,
     )
+    expected_state = mjwarp_backend.get_body_state_w(body_ids)
+    outputs = tuple(np.empty_like(value) for value in expected_state)
+    result = mjwarp_backend.copy_body_state_w(body_ids, *outputs)
+    assert result == outputs
+    for actual, expected in zip(outputs, expected_state, strict=True):
+        np.testing.assert_allclose(actual, expected, atol=atol)
     np.testing.assert_allclose(
         mjwarp_backend.get_body_lin_vel_b(body_ids),
         mujoco_backend.get_body_lin_vel_b(body_ids),

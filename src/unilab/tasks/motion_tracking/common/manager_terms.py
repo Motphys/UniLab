@@ -137,6 +137,7 @@ class MotionCommand(CommandTerm):
             )
         self._robot_body_ids = np.asarray(body_ids, dtype=np.intp)
         self._robot_body_ids.setflags(write=False)
+        self._copy_robot_body_state = self.robot.bind_body_state_copy(self._robot_body_ids)
         motion_body_ids = self.robot.motion_body_ids[self._robot_body_ids]
         self.motion = self._make_motion_loader(cfg.motion_file, motion_body_ids)
         if self.motion.num_joints != len(self.robot.joint_names):
@@ -393,24 +394,11 @@ class MotionCommand(CommandTerm):
         if not force and self._robot_cache_step == step:
             return
         if env_ids is None:
-            body_index = self._robot_body_ids
-            # Single gather straight into the destination buffers (issue #1296);
-            # the previous src[:][:, body_index] form materialized two copies.
-            np.take(self.robot.data.body_link_pos_w, body_index, axis=1, out=self._robot_body_pos_w)
-            np.take(
-                self.robot.data.body_link_quat_w, body_index, axis=1, out=self._robot_body_quat_w
-            )
-            np.take(
-                self.robot.data.body_link_lin_vel_w,
-                body_index,
-                axis=1,
-                out=self._robot_body_lin_vel_w,
-            )
-            np.take(
-                self.robot.data.body_link_ang_vel_w,
-                body_index,
-                axis=1,
-                out=self._robot_body_ang_vel_w,
+            self._copy_robot_body_state(
+                self._robot_body_pos_w,
+                self._robot_body_quat_w,
+                self._robot_body_lin_vel_w,
+                self._robot_body_ang_vel_w,
             )
         else:
             # Partial-reset path (issue #1295): gather only the reset rows from
