@@ -1,0 +1,398 @@
+<mujoco model="t800">
+  <compiler angle="radian" autolimits="true" eulerseq="zyx" />
+  <option timestep="0.002" integrator="implicitfast" tolerance="1e-10" />
+  <default>
+    <default class="biped">
+      <default class="collision">
+        <geom group="3" contype="1" conaffinity="1" friction="1.0 0.005 0.0001" rgba="0.804 0.361 0.031 0.5" />
+        <default class="collision_head">
+          <geom type="sphere" size="0.09" pos="0.018 0 0.08" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_torso_upper_box">
+          <geom type="box" size="0.11 0.14 0.095" pos="-0.007 -0.001 0.25" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_torso_lower_box">
+          <geom type="box" size="0.09 0.10 0.07" pos="-0.007 -0.001 0.075" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_base">
+          <geom type="sphere" size="0.09" pos="-0.01 0 0.01" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_left_fore_foot">
+          <geom type="box" size="0.057 0.055 0.01" pos="0.1 0.00166 -0.054" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_left_hind_foot">
+          <geom type="box" size="0.03 0.05 0.01" pos="-0.053 0.00166 -0.054" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_left_foot_toe">
+          <geom type="box" size="0.013 0.06 0.01" quat="0.998 0 -0.061 0" pos="0.172 0.00166 -0.021" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_left_foot_heel">
+          <geom type="box" size="0.018 0.05 0.01" quat="0.956 0 0.292 0" pos="-0.092 0.00166 -0.045" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_right_fore_foot">
+          <geom type="box" size="0.057 0.055 0.01" pos="0.1 -0.00166 -0.054" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_right_hind_foot">
+          <geom type="box" size="0.03 0.05 0.01" pos="-0.053 0.00166 -0.054" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_right_foot_toe">
+          <geom type="box" size="0.013 0.06 0.01" quat="0.998 0 -0.061 0" pos="0.172 -0.00166 -0.021" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_right_foot_heel">
+          <geom type="box" size="0.018 0.05 0.01" quat="0.956 0 0.292 0" pos="-0.092 0.00166 -0.045" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_left_wrist_end">
+          <geom type="sphere" size="0.05" pos="0.026 -0.009 -0.06" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_shoulder_yaw_left">
+          <geom type="cylinder" size="0.042 0.06" pos="0.0 0.0 -0.04" quat="1 0 0 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_elbow_pitch_left">
+          <geom type="sphere" size="0.05" pos="0.0 0.0 -0.0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_elbow_yaw_left">
+          <geom type="box" size="0.035 0.035 0.08" quat="0.988 0.011 -0.087 0.130" pos="0.014 0.005 -0.05" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_shoulder_yaw_right">
+          <geom type="cylinder" size="0.042 0.06" pos="0.0 0.0 -0.04" quat="1 0 0 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_elbow_pitch_right">
+          <geom type="sphere" size="0.05" pos="0.0 -0.0 -0.0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_elbow_yaw_right">
+          <geom type="box" size="0.035 0.035 0.08" quat="0.988 -0.011 -0.087 -0.130" pos="0.014 -0.005 -0.05" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_right_wrist_end">
+          <geom type="sphere" size="0.05" pos="0.026 0.009 -0.06" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_hip_left">
+          <geom type="cylinder" size="0.062 0.08" pos="0.0 0.04 -0.10" quat="1 0 1 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_hip_yaw_left">
+          <geom type="box" size="0.06 0.06 0.11" pos="0.0 0.002 -0.10" quat="1 0 0 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_hip_right">
+          <geom type="cylinder" size="0.062 0.08" pos="0.0 -0.04 -0.10" quat="1 0 1 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_hip_yaw_right">
+          <geom type="box" size="0.06 0.06 0.11" pos="0.0 -0.002 -0.10" quat="1 0 0 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_knee_left_1">
+          <geom type="sphere" size="0.08" pos="-0.0 -0.0 -0.0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_knee_left_2">
+          <geom type="box" size="0.05 0.05 0.14" pos="-0.02 -0.0 -0.25" quat="1 0 0 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_knee_right_1">
+          <geom type="sphere" size="0.08" pos="-0.0 0.0 -0.0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_knee_right_2">
+          <geom type="box" size="0.05 0.05 0.14" pos="-0.02 0.0 -0.25" quat="1 0 0 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_shoulder_roll_left">
+          <geom type="cylinder" size="0.042 0.06" pos="0.0 0.0 -0.0" quat="1 0 1 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+        <default class="collision_shoulder_roll_right">
+          <geom type="cylinder" size="0.042 0.06" pos="0.0 0.0 -0.0" quat="1 0 1 0" rgba="0.804 0.361 0.031 0.5" />
+        </default>
+      </default>
+      <default class="visual">
+        <geom contype="0" conaffinity="0" group="2" />
+      </default>
+      <default class="joint">
+        <joint damping="0.6" frictionloss="0.8" />
+      </default>
+    </default>
+  </default>
+  <asset>
+    <material name="LINK_BASE" texture="LINK_BASE" />
+    <material name="LINK_HIP_PITCH" texture="LINK_HIP_PITCH" />
+    <material name="LINK_HIP_ROLL" texture="LINK_HIP_ROLL" />
+    <material name="LINK_HIP_YAW" texture="LINK_HIP_YAW" />
+    <material name="LINK_KNEE_PITCH" texture="LINK_KNEE_PITCH" />
+    <material name="LINK_ANKLE_ROLL" texture="LINK_ANKLE_ROLL" />
+    <material name="LINK_TORSO_YAW" texture="LINK_TORSO_YAW" />
+    <material name="LINK_SHOULDER_PITCH" texture="LINK_SHOULDER_PITCH" />
+    <material name="LINK_SHOULDER_ROLL" texture="LINK_SHOULDER_ROLL" />
+    <material name="LINK_SHOULDER_YAW" texture="LINK_SHOULDER_YAW" />
+    <material name="LINK_ELBOW_PITCH_L" texture="LINK_ELBOW_PITCH_L" />
+    <material name="LINK_ELBOW_PITCH_R" texture="LINK_ELBOW_PITCH_R" />
+    <material name="LINK_ELBOW_YAW_L" texture="LINK_ELBOW_YAW_L" />
+    <material name="LINK_ELBOW_YAW_R" texture="LINK_ELBOW_YAW_R" />
+    <material name="LINK_HEAD_YAW" texture="LINK_HEAD_YAW" />
+    <texture type="2d" name="LINK_BASE" file="textures/LINK_BASE.png" />
+    <texture type="2d" name="LINK_HIP_PITCH" file="textures/LINK_HIP_PITCH_L.png" />
+    <texture type="2d" name="LINK_HIP_ROLL" file="textures/LINK_HIP_ROLL_L.png" />
+    <texture type="2d" name="LINK_HIP_YAW" file="textures/LINK_HIP_YAW_L.png" />
+    <texture type="2d" name="LINK_KNEE_PITCH" file="textures/LINK_KNEE_PITCH_L.png" />
+    <texture type="2d" name="LINK_ANKLE_ROLL" file="textures/LINK_ANKLE_ROLL_L.png" />
+    <texture type="2d" name="LINK_TORSO_YAW" file="textures/LINK_TORSO_YAW.png" />
+    <texture type="2d" name="LINK_SHOULDER_PITCH" file="textures/LINK_SHOULDER_PITCH_L.png" />
+    <texture type="2d" name="LINK_SHOULDER_ROLL" file="textures/LINK_SHOULDER_ROLL_L.png" />
+    <texture type="2d" name="LINK_SHOULDER_YAW" file="textures/LINK_SHOULDER_YAW_L.png" />
+    <texture type="2d" name="LINK_ELBOW_PITCH_L" file="textures/LINK_ELBOW_PITCH_L.png" />
+    <texture type="2d" name="LINK_ELBOW_PITCH_R" file="textures/LINK_ELBOW_PITCH_R.png" />
+    <texture type="2d" name="LINK_ELBOW_YAW_L" file="textures/LINK_ELBOW_YAW_L.png" />
+    <texture type="2d" name="LINK_ELBOW_YAW_R" file="textures/LINK_ELBOW_YAW_R.png" />
+    <texture type="2d" name="LINK_HEAD_YAW" file="textures/LINK_HEAD_YAW.png" />
+    <mesh name="LINK_BASE" file="assets/LINK_BASE.obj" />
+    <mesh name="LINK_HIP_PITCH_L" file="assets/LINK_HIP_PITCH_L.obj" />
+    <mesh name="LINK_HIP_ROLL_L" file="assets/LINK_HIP_ROLL_L.obj" />
+    <mesh name="LINK_HIP_YAW_L" file="assets/LINK_HIP_YAW_L.obj" />
+    <mesh name="LINK_KNEE_PITCH_L" file="assets/LINK_KNEE_PITCH_L.obj" />
+    <mesh name="LINK_ANKLE_PITCH_L" file="assets/LINK_ANKLE_PITCH_L.obj" />
+    <mesh name="LINK_ANKLE_ROLL_L" file="assets/LINK_ANKLE_ROLL_L.obj" />
+    <mesh name="LINK_HIP_PITCH_R" file="assets/LINK_HIP_PITCH_R.obj" />
+    <mesh name="LINK_HIP_ROLL_R" file="assets/LINK_HIP_ROLL_R.obj" />
+    <mesh name="LINK_HIP_YAW_R" file="assets/LINK_HIP_YAW_R.obj" />
+    <mesh name="LINK_KNEE_PITCH_R" file="assets/LINK_KNEE_PITCH_R.obj" />
+    <mesh name="LINK_ANKLE_PITCH_R" file="assets/LINK_ANKLE_PITCH_R.obj" />
+    <mesh name="LINK_ANKLE_ROLL_R" file="assets/LINK_ANKLE_ROLL_R.obj" />
+    <mesh name="LINK_WAIST_YAW" file="assets/LINK_TORSO_YAW.obj" />
+    <mesh name="LINK_SHOULDER_PITCH_L" file="assets/LINK_SHOULDER_PITCH_L.obj" />
+    <mesh name="LINK_SHOULDER_ROLL_L" file="assets/LINK_SHOULDER_ROLL_L.obj" />
+    <mesh name="LINK_SHOULDER_YAW_L" file="assets/LINK_SHOULDER_YAW_L.obj" />
+    <mesh name="LINK_ELBOW_PITCH_L" file="assets/LINK_ELBOW_PITCH_L.obj" />
+    <mesh name="LINK_ELBOW_YAW_L" file="assets/LINK_ELBOW_YAW_L.obj" />
+    <mesh name="LINK_SHOULDER_PITCH_R" file="assets/LINK_SHOULDER_PITCH_R.obj" />
+    <mesh name="LINK_SHOULDER_ROLL_R" file="assets/LINK_SHOULDER_ROLL_R.obj" />
+    <mesh name="LINK_SHOULDER_YAW_R" file="assets/LINK_SHOULDER_YAW_R.obj" />
+    <mesh name="LINK_ELBOW_PITCH_R" file="assets/LINK_ELBOW_PITCH_R.obj" />
+    <mesh name="LINK_ELBOW_YAW_R" file="assets/LINK_ELBOW_YAW_R.obj" />
+    <mesh name="LINK_HEAD_PITCH" file="assets/LINK_HEAD_PITCH.obj" />
+    <mesh name="LINK_HEAD_YAW" file="assets/LINK_HEAD_YAW.obj" />
+  </asset>
+  <worldbody>
+    <body name="LINK_BASE" pos="0 0 1.03">
+      <inertial pos="0.01487209 -0.00011942 0.1673244" mass="10.083072" fullinertia="0.05060425 0.03390366 0.03284694 -7.548e-05 -0.00053095 -4.685e-05" />
+      <geom type="mesh" rgba="0.79216 0.81961 0.93333 1" mesh="LINK_BASE" material="LINK_BASE" class="visual" />
+      <geom class="collision_base" />
+      <site name="base" pos="0.017949 -6.844E-05 0.21642" />
+      <site name="imu" pos="0.0219 0 0.1252" />
+      <freejoint />
+      <body name="LINK_HIP_PITCH_L" pos="0 0.079178 0">
+        <inertial pos="0.0061914 0.039194 -0.0989976" quat="0.703048 -0.000940502 -0.0835001 0.706222" mass="3.53619" diaginertia="0.00795732 0.00716152 0.00476425" />
+        <joint name="J00_HIP_PITCH_L" pos="0 0 0" axis="0 0.965926 -0.258819" range="-3.316 2.269" actuatorfrcrange="-415 415" armature="0.2427264 " />
+        <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HIP_PITCH_L" material="LINK_HIP_PITCH" class="visual" />
+        <geom class="collision_hip_left" />
+        <body name="LINK_HIP_ROLL_L" pos="0.004662 0.040322 -0.10752">
+          <inertial pos="0.0375309 4.95e-06 -0.0348455" quat="0.954117 -3.76557e-05 0.299433 -0.000109257" mass="0.851442" diaginertia="0.00291994 0.00257237 0.0014565" />
+          <joint name="J01_HIP_ROLL_L" pos="0 0 0" axis="1 0 0" range="-1.082 2.059" actuatorfrcrange="-370 370" armature="0.14110848" />
+          <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HIP_ROLL_L" material="LINK_HIP_ROLL" class="visual" />
+          <body name="LINK_HIP_YAW_L" pos="0.0094616 0 -0.080512">
+            <inertial pos="-0.0182984 0.00236123 -0.176347" quat="0.709176 0.0588188 0.0462079 0.701053" mass="7.19482" diaginertia="0.115656 0.11402 0.0107766" />
+            <joint name="J02_HIP_YAW_L" pos="0 0 0" axis="0 0 1" range="-1.42245 3.60228" actuatorfrcrange="-222 222" armature="0.0448737" />
+            <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HIP_YAW_L" material="LINK_HIP_YAW" class="visual" />
+            <geom class="collision_hip_yaw_left" />
+            <body name="LINK_KNEE_PITCH_L" pos="-0.037707 0 -0.28792">
+              <inertial pos="-0.0197449 0.00139162 -0.211907" quat="0.475454 0.0210361 0.0168989 0.879327" mass="5.99503" diaginertia="0.0858454 0.0856511 0.0115715" />
+              <joint name="J03_KNEE_PITCH_L" pos="0 0 0" axis="0 1 0" range="-0.261667 2.355" actuatorfrcrange="-415 415" armature="0.2427264 " />
+              <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_KNEE_PITCH_L" material="LINK_KNEE_PITCH" class="visual" />
+              <geom class="collision_knee_left_1" />
+              <geom class="collision_knee_left_2" />
+              <body name="LINK_ANKLE_PITCH_L" pos="-0.0027168 0 -0.43867">
+                <inertial pos="-3.678e-05 0 -0.00887033" quat="0.707027 -0.0106245 -0.0106245 0.707027" mass="0.144221" diaginertia="8.493e-05 6.78768e-05 3.82432e-05" />
+                <joint name="J04_ANKLE_PITCH_L" pos="0 0 0" axis="0 1 0" range="-0.68068 0.68068" actuatorfrcrange="-160 160" armature="0.0354625" />
+                <geom type="mesh" rgba="0.796078 0.823529 0.937255 1" mesh="LINK_ANKLE_PITCH_L" class="visual" />
+                <body name="LINK_ANKLE_ROLL_L" pos="0.0011073 0 -0.037928">
+                  <inertial pos="-0.00128738 -0.00120638 -0.0229558" quat="0.462135 0.542362 0.559636 0.423182" mass="1.49439" diaginertia="0.00707073 0.0069149 0.00202774" />
+                  <joint name="J05_ANKLE_ROLL_L" pos="0 0 0" axis="1 0 0" range="-0.3491 0.1745" actuatorfrcrange="-160 160" armature="0.0354625" />
+                  <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ANKLE_ROLL_L" material="LINK_ANKLE_ROLL" class="visual" />
+                  <body name="LINK_FOOT_L">
+                    <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-12 1e-12 1e-12" />
+                    <geom class="collision_left_fore_foot" name="left_foot_contact_0_geom" />
+                    <geom name="left_foot_contact_3_geom" class="collision_left_foot_toe" />
+                    <geom class="collision_left_hind_foot" name="left_foot_contact_1_geom" />
+                    <geom class="collision_left_foot_heel" name="left_foot_contact_2_geom" />
+                    <site name="force_sensor_left_foot" />
+                    <site name="torque_sensor_left_foot" />
+                    <site name="left_foot" pos="0.04 0 -0.064" size="0.01" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="LINK_HIP_PITCH_R" pos="0 -0.079178 0">
+        <inertial pos="0.0061914 -0.039194 -0.0989976" quat="0.706222 -0.0835001 -0.000940502 0.703048" mass="3.53619" diaginertia="0.00795732 0.00716152 0.00476425" />
+        <joint name="J06_HIP_PITCH_R" pos="0 0 0" axis="0 0.965926 0.258819" range="-3.316 2.269" actuatorfrcrange="-415 415" armature="0.2427264 " />
+        <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HIP_PITCH_R" material="LINK_HIP_PITCH" class="visual" />
+        <geom class="collision_hip_right" />
+        <body name="LINK_HIP_ROLL_R" pos="0.004662 -0.040322 -0.10752">
+          <inertial pos="0.0375309 -4.95e-06 -0.0348455" quat="0.954117 3.76557e-05 0.299433 0.000109257" mass="0.851442" diaginertia="0.00291994 0.00257237 0.0014565" />
+          <joint name="J07_HIP_ROLL_R" pos="0 0 0" axis="1 0 0" range="-2.059 1.082" actuatorfrcrange="-370 370" armature="0.14110848" />
+          <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HIP_ROLL_R" material="LINK_HIP_ROLL" class="visual" />
+          <body name="LINK_HIP_YAW_R" pos="0.0094616 0 -0.080512">
+            <inertial pos="-0.0182984 -0.00236123 -0.176347" quat="0.701053 0.0462079 0.0588188 0.709176" mass="7.19482" diaginertia="0.115656 0.11402 0.0107766" />
+            <joint name="J08_HIP_YAW_R" pos="0 0 0" axis="0 0 1" range="-3.60228 1.42245" actuatorfrcrange="-222 222" armature="0.0448737" />
+            <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HIP_YAW_R" material="LINK_HIP_YAW" class="visual" />
+            <geom class="collision_hip_yaw_right" />
+            <body name="LINK_KNEE_PITCH_R" pos="-0.037707 0 -0.28792">
+              <inertial pos="-0.0197449 -0.00139162 -0.211907" quat="0.879327 0.0168989 0.0210361 0.475454" mass="5.99503" diaginertia="0.0858454 0.0856511 0.0115715" />
+              <joint name="J09_KNEE_PITCH_R" pos="0 0 0" axis="0 1 0" range="-0.261667 2.355" actuatorfrcrange="-415 415" armature="0.2427264 " />
+              <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_KNEE_PITCH_R" material="LINK_KNEE_PITCH" class="visual" />
+              <geom class="collision_knee_right_1" />
+              <geom class="collision_knee_right_2" />
+              <body name="LINK_ANKLE_PITCH_R" pos="-0.0027168 0 -0.43867">
+                <inertial pos="-3.678e-05 0 -0.00887033" quat="0.707027 -0.0106245 -0.0106245 0.707027" mass="0.144221" diaginertia="8.493e-05 6.78768e-05 3.82432e-05" />
+                <joint name="J10_ANKLE_PITCH_R" pos="0 0 0" axis="0 1 0" range="-0.68068 0.68068" actuatorfrcrange="-160 160" armature="0.0354625" />
+                <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ANKLE_PITCH_R" class="visual" />
+                <body name="LINK_ANKLE_ROLL_R" pos="0.0011073 0 -0.037928">
+                  <inertial pos="-0.00128738 0.00120638 -0.0229558" quat="0.423182 0.559636 0.542362 0.462135" mass="1.49439" diaginertia="0.00707073 0.0069149 0.00202774" />
+                  <joint name="J11_ANKLE_ROLL_R" pos="0 0 0" axis="1 0 0" range="-0.1745 0.3491" actuatorfrcrange="-160 160" armature="0.0354625" />
+                  <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ANKLE_ROLL_R" material="LINK_ANKLE_ROLL" class="visual" />
+                  <body name="LINK_FOOT_R">
+                    <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-12 1e-12 1e-12" />
+                    <geom class="collision_right_fore_foot" name="right_foot_contact_0_geom" />
+                    <geom name="right_foot_contact_3_geom" class="collision_right_foot_toe" />
+                    <geom class="collision_right_hind_foot" name="right_foot_contact_1_geom" />
+                    <geom class="collision_right_foot_heel" name="right_foot_contact_2_geom" />
+                    <site name="force_sensor_right_foot" />
+                    <site name="torque_sensor_right_foot" />
+                    <site name="right_foot" pos="0.04 0 -0.064" size="0.01" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="LINK_WAIST_YAW" pos="0 0 0.10384">
+        <inertial pos="-0.00880845 -0.0006861 0.222762" quat="0.998368 -0.00027422 -0.0570422 -0.0028246" mass="19.4108" diaginertia="0.256742 0.207512 0.15304" />
+        <joint name="J12_TORSO_YAW" pos="0 0 0" axis="0 0 1" range="-4.381 1.2392" actuatorfrcrange="-222 222" armature="0.0448737" />
+        <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_WAIST_YAW" material="LINK_TORSO_YAW" class="visual" />
+        <geom class="collision_torso_lower_box" />
+        <geom class="collision_torso_upper_box" />
+        <body name="LINK_SHOULDER_PITCH_L" pos="-0.011 0.16303 0.27889">
+          <inertial pos="-0.00615457 0.0528418 -0.0124871" quat="0.835175 0.547699 0.0286813 0.0410699" mass="1.76883" diaginertia="0.00240978 0.00213951 0.00130718" />
+          <joint name="J13_SHOULDER_PITCH_L" pos="0 0 0" axis="0 0.996779 0.0801989" range="-2.967 2.793" actuatorfrcrange="-160 160" armature="0.0354625" />
+          <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_SHOULDER_PITCH_L" material="LINK_SHOULDER_PITCH" class="visual" />
+          <body name="LINK_SHOULDER_ROLL_L" pos="0 0.062533 -0.015455">
+            <inertial pos="-0.00557192 0.00446659 -0.0271293" quat="0.699304 -0.0958375 -0.196856 0.680468" mass="0.682893" diaginertia="0.00216819 0.00159945 0.0014132" />
+            <joint name="J14_SHOULDER_ROLL_L" pos="0 0 0" axis="1 0 0" range="-0.384 2.443" actuatorfrcrange="-160 160" armature="0.0354625" />
+            <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_SHOULDER_ROLL_L" material="LINK_SHOULDER_ROLL" class="visual" />
+            <geom class="collision_shoulder_roll_left" />
+            <body name="LINK_SHOULDER_YAW_L" pos="3.4602e-05 0.0085246 -0.082712">
+              <inertial pos="0.00062214 0.00554981 -0.0898056" quat="0.706399 0.0160146 -0.024757 0.7072" mass="2.55202" diaginertia="0.00997961 0.00983419 0.00114425" />
+              <joint name="J15_SHOULDER_YAW_L" pos="0 0 0" axis="0 -0.0714971 0.997441" range="-2.618 2.618" actuatorfrcrange="-160 160" armature="0.0354625" />
+              <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_SHOULDER_YAW_L" material="LINK_SHOULDER_YAW" class="visual" />
+              <geom class="collision_shoulder_yaw_left" />
+              <body name="LINK_ELBOW_PITCH_L" pos="0.0019252 0.013597 -0.15075">
+                <inertial pos="-0.00883497 0.00295203 -0.0733334" quat="0.992911 0.0869004 0.0117583 0.0802349" mass="1.19527" diaginertia="0.00319667 0.00310646 0.00126793" />
+                <joint name="J16_ELBOW_PITCH_L" pos="0 0 0" axis="0 0.997441 0.0714971" range="-2.286 0.262" actuatorfrcrange="-160 160" armature="0.0354625" />
+                <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ELBOW_PITCH_L" material="LINK_ELBOW_PITCH_L" class="visual" />
+                <geom class="collision_elbow_pitch_left" />
+                <body name="LINK_ELBOW_YAW_L" pos="-0.0022091 0.0094362 -0.13182">
+                  <inertial pos="0.0130094 0.00447975 -0.0584384" quat="0.702494 -0.0450935 -0.106593 0.702216" mass="1.07882" diaginertia="0.00215017 0.00201667 0.000854073" />
+                  <joint name="J17_ELBOW_YAW_L" pos="0 0 0" axis="-0.216439 -0.0698028 0.973797" range="-2.618 2.618" actuatorfrcrange="-52 52" armature="0.00671625" />
+                  <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ELBOW_YAW_L" material="LINK_ELBOW_YAW_L" class="visual" />
+                  <geom class="collision_elbow_yaw_left" />
+                  <body name="LINK_WRIST_END_L" pos="0.029436 0.0124855 -0.13222151">
+                    <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-12 1e-12 1e-12" />
+                    <geom class="collision_left_wrist_end" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="LINK_SHOULDER_PITCH_R" pos="-0.011 -0.16303 0.27889">
+          <inertial pos="-0.00615457 -0.0528418 -0.0124871" quat="0.547699 0.835175 -0.0410699 -0.0286813" mass="1.76883" diaginertia="0.00240978 0.00213951 0.00130718" />
+          <joint name="J18_SHOULDER_PITCH_R" pos="0 0 0" axis="0 0.996779 -0.0801989" range="-2.967 2.793" actuatorfrcrange="-160 160" armature="0.0354625" />
+          <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_SHOULDER_PITCH_R" material="LINK_SHOULDER_PITCH" class="visual" />
+          <body name="LINK_SHOULDER_ROLL_R" pos="0 -0.062533 -0.015455">
+            <inertial pos="-0.00557192 -0.00446659 -0.0271293" quat="0.680468 -0.196856 -0.0958375 0.699304" mass="0.682893" diaginertia="0.00216819 0.00159945 0.0014132" />
+            <joint name="J19_SHOULDER_ROLL_R" pos="0 0 0" axis="1 0 0" range="-2.443 0.384" actuatorfrcrange="-160 160" armature="0.0354625" />
+            <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_SHOULDER_ROLL_R" material="LINK_SHOULDER_ROLL" class="visual" />
+            <geom class="collision_shoulder_roll_right" />
+            <body name="LINK_SHOULDER_YAW_R" pos="3.4602e-05 -0.0085246 -0.082712">
+              <inertial pos="0.00062214 -0.00554981 -0.0898056" quat="0.7072 -0.024757 0.0160146 0.706399" mass="2.55202" diaginertia="0.00997961 0.00983419 0.00114425" />
+              <joint name="J20_SHOULDER_YAW_R" pos="0 0 0" axis="0 0.0714971 0.997441" range="-2.618 2.618" actuatorfrcrange="-160 160" armature="0.0354625" />
+              <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_SHOULDER_YAW_R" material="LINK_SHOULDER_YAW" class="visual" />
+              <geom class="collision_shoulder_yaw_right" />
+              <body name="LINK_ELBOW_PITCH_R" pos="0.0019252 -0.013597 -0.15075">
+                <inertial pos="-0.00883497 -0.00295203 -0.0733334" quat="0.992911 -0.0869004 0.0117583 -0.0802349" mass="1.19527" diaginertia="0.00319667 0.00310646 0.00126793" />
+                <joint name="J21_ELBOW_PITCH_R" pos="0 0 0" axis="0 0.997441 -0.0714971" range="-2.286 0.262" actuatorfrcrange="-160 160" armature="0.0354625" />
+                <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ELBOW_PITCH_R" material="LINK_ELBOW_PITCH_R" class="visual" />
+                <geom class="collision_elbow_pitch_right" />
+                <body name="LINK_ELBOW_YAW_R" pos="-0.0022091 -0.0094362 -0.13182">
+                  <inertial pos="0.0130094 -0.00447975 -0.0584384" quat="0.702216 -0.106593 -0.0450935 0.702494" mass="1.07882" diaginertia="0.00215017 0.00201667 0.000854073" />
+                  <joint name="J22_ELBOW_YAW_R" pos="0 0 0" axis="-0.216439 0.0698028 0.973797" range="-2.618 2.618" actuatorfrcrange="-52 52" armature="0.00671625" />
+                  <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_ELBOW_YAW_R" material="LINK_ELBOW_YAW_R" class="visual" />
+                  <geom class="collision_elbow_yaw_right" />
+                  <body name="LINK_WRIST_END_R" pos="0.029436 -0.0124855 -0.13222151">
+                    <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-12 1e-12 1e-12" />
+                    <geom class="collision_right_wrist_end" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="LINK_HEAD_PITCH" pos="-0.0113 0 0.38604">
+          <inertial pos="0.00012689 0.00010014 0.0672953" quat="0.999045 -0.0436093 0.00159275 0.00209103" mass="0.707966" diaginertia="0.000660474 0.000564278 0.000455089" />
+          <joint name="J23_HEAD_PITCH" pos="0 0 0" axis="0 1 0" range="-0.523 0.523" actuatorfrcrange="-52 52" armature="0.00671625" />
+          <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HEAD_PITCH" class="visual" />
+          <body name="LINK_HEAD_YAW" pos="0 0 0.040199">
+            <inertial pos="0.0181326 4.92e-06 0.0928944" quat="0.338158 0.621066 0.621323 0.337468" mass="1.72377" diaginertia="0.00848513 0.00826129 0.0065396" />
+            <joint name="J24_HEAD_YAW" pos="0 0 0" axis="0 0 1" range="-1.222 1.222" actuatorfrcrange="-52 52" armature="0.00671625" />
+            <geom type="mesh" rgba="0.792157 0.819608 0.933333 1" mesh="LINK_HEAD_YAW" material="LINK_HEAD_YAW" class="visual" />
+            <geom class="collision_head" />
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="J00_HIP_PITCH_L" joint="J00_HIP_PITCH_L" kp="180" kv="5" forcerange="-415 415" ctrlrange="-3.316 2.269" ctrllimited="true" forcelimited="true" />
+    <position name="J01_HIP_ROLL_L" joint="J01_HIP_ROLL_L" kp="100" kv="3" forcerange="-370 370" ctrlrange="-1.082 2.059" ctrllimited="true" forcelimited="true" />
+    <position name="J02_HIP_YAW_L" joint="J02_HIP_YAW_L" kp="100" kv="3" forcerange="-222 222" ctrlrange="-1.42245 3.60228" ctrllimited="true" forcelimited="true" />
+    <position name="J03_KNEE_PITCH_L" joint="J03_KNEE_PITCH_L" kp="180" kv="5" forcerange="-415 415" ctrlrange="-0.261667 2.355" ctrllimited="true" forcelimited="true" />
+    <position name="J04_ANKLE_PITCH_L" joint="J04_ANKLE_PITCH_L" kp="40" kv="0.3" forcerange="-160 160" ctrlrange="-0.68068 0.68068" ctrllimited="true" forcelimited="true" />
+    <position name="J05_ANKLE_ROLL_L" joint="J05_ANKLE_ROLL_L" kp="40" kv="0.3" forcerange="-160 160" ctrlrange="-0.3491 0.1745" ctrllimited="true" forcelimited="true" />
+    <position name="J06_HIP_PITCH_R" joint="J06_HIP_PITCH_R" kp="180" kv="5" forcerange="-415 415" ctrlrange="-3.316 2.269" ctrllimited="true" forcelimited="true" />
+    <position name="J07_HIP_ROLL_R" joint="J07_HIP_ROLL_R" kp="100" kv="3" forcerange="-370 370" ctrlrange="-2.059 1.082" ctrllimited="true" forcelimited="true" />
+    <position name="J08_HIP_YAW_R" joint="J08_HIP_YAW_R" kp="100" kv="3" forcerange="-222 222" ctrlrange="-3.60228 1.42245" ctrllimited="true" forcelimited="true" />
+    <position name="J09_KNEE_PITCH_R" joint="J09_KNEE_PITCH_R" kp="180" kv="5" forcerange="-415 415" ctrlrange="-0.261667 2.355" ctrllimited="true" forcelimited="true" />
+    <position name="J10_ANKLE_PITCH_R" joint="J10_ANKLE_PITCH_R" kp="40" kv="0.3" forcerange="-160 160" ctrlrange="-0.68068 0.68068" ctrllimited="true" forcelimited="true" />
+    <position name="J11_ANKLE_ROLL_R" joint="J11_ANKLE_ROLL_R" kp="40" kv="0.3" forcerange="-160 160" ctrlrange="-0.1745 0.3491" ctrllimited="true" forcelimited="true" />
+    <position name="J12_TORSO_YAW" joint="J12_TORSO_YAW" kp="100" kv="5" forcerange="-222 222" ctrlrange="-4.381 1.2392" ctrllimited="true" forcelimited="true" />
+    <position name="J13_SHOULDER_PITCH_L" joint="J13_SHOULDER_PITCH_L" kp="60" kv="0.3" forcerange="-160 160" ctrlrange="-2.967 2.793" ctrllimited="true" forcelimited="true" />
+    <position name="J14_SHOULDER_ROLL_L" joint="J14_SHOULDER_ROLL_L" kp="50" kv="0.3" forcerange="-160 160" ctrlrange="-0.384 2.443" ctrllimited="true" forcelimited="true" />
+    <position name="J15_SHOULDER_YAW_L" joint="J15_SHOULDER_YAW_L" kp="50" kv="0.3" forcerange="-160 160" ctrlrange="-2.618 2.618" ctrllimited="true" forcelimited="true" />
+    <position name="J16_ELBOW_PITCH_L" joint="J16_ELBOW_PITCH_L" kp="60" kv="0.3" forcerange="-160 160" ctrlrange="-2.286 0.262" ctrllimited="true" forcelimited="true" />
+    <position name="J17_ELBOW_YAW_L" joint="J17_ELBOW_YAW_L" kp="50" kv="0.3" forcerange="-52 52" ctrlrange="-2.618 2.618" ctrllimited="true" forcelimited="true" />
+    <position name="J18_SHOULDER_PITCH_R" joint="J18_SHOULDER_PITCH_R" kp="60" kv="0.3" forcerange="-160 160" ctrlrange="-2.967 2.793" ctrllimited="true" forcelimited="true" />
+    <position name="J19_SHOULDER_ROLL_R" joint="J19_SHOULDER_ROLL_R" kp="50" kv="0.3" forcerange="-160 160" ctrlrange="-2.443 0.384" ctrllimited="true" forcelimited="true" />
+    <position name="J20_SHOULDER_YAW_R" joint="J20_SHOULDER_YAW_R" kp="50" kv="0.3" forcerange="-160 160" ctrlrange="-2.618 2.618" ctrllimited="true" forcelimited="true" />
+    <position name="J21_ELBOW_PITCH_R" joint="J21_ELBOW_PITCH_R" kp="60" kv="0.3" forcerange="-160 160" ctrlrange="-2.286 0.262" ctrllimited="true" forcelimited="true" />
+    <position name="J22_ELBOW_YAW_R" joint="J22_ELBOW_YAW_R" kp="50" kv="0.3" forcerange="-52 52" ctrlrange="-2.618 2.618" ctrllimited="true" forcelimited="true" />
+    <position name="J23_HEAD_PITCH" joint="J23_HEAD_PITCH" kp="100" kv="1" forcerange="-52 52" ctrlrange="-0.523 0.523" ctrllimited="true" forcelimited="true" />
+    <position name="J24_HEAD_YAW" joint="J24_HEAD_YAW" kp="100" kv="1" forcerange="-52 52" ctrlrange="-1.222 1.222" ctrllimited="true" forcelimited="true" />
+  </actuator>
+  <sensor>
+    <framequat name="base_link_quaternion" objtype="site" objname="base" />
+    <framepos name="base_link_position" objtype="site" objname="base" />
+    <framelinvel name="base_link_linear_velocity" objtype="site" objname="base" />
+    <frameangvel name="base_link_angular_velocity" objtype="site" objname="base" />
+    <framequat name="imu_link_quaternion" objtype="site" objname="imu" />
+    <framepos name="imu_link_position" objtype="site" objname="imu" />
+    <framelinvel name="imu_link_linear_velocity" objtype="site" objname="imu" />
+    <frameangvel name="imu_link_angular_velocity" objtype="site" objname="imu" />
+    <framequat name="imu_quaternion" objtype="site" objname="imu" />
+    <accelerometer name="imu_linear_acceleration" noise="0" cutoff="0" site="imu" />
+    <gyro name="imu_angular_velocity" noise="0" cutoff="0" site="imu" />
+    <force name="force_left_foot" site="force_sensor_left_foot" />
+    <torque name="torque_left_foot" site="torque_sensor_left_foot" />
+    <force name="force_right_foot" site="force_sensor_right_foot" />
+    <torque name="torque_right_foot" site="torque_sensor_right_foot" />
+    <velocimeter site="imu" name="pelvis_local_linvel" />
+    <gyro site="imu" name="torso_gyro" />
+    <framezaxis objtype="site" objname="imu" name="torso_upvector" />
+    <framepos objtype="site" objname="left_foot" name="left_foot_pos" />
+    <framequat objtype="site" objname="left_foot" name="left_foot_quat" />
+    <framepos objtype="site" objname="right_foot" name="right_foot_pos" />
+    <framequat objtype="site" objname="right_foot" name="right_foot_quat" />
+  </sensor>
+</mujoco>

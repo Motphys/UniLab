@@ -105,9 +105,7 @@ def test_mjwarp_backend_is_opt_in_and_never_part_of_all() -> None:
         with pytest.raises(SystemExit, match="mjwarp extra"):
             bench._resolve_backend_selection(backend="mjwarp", all_backends=False)
     else:
-        assert bench._resolve_backend_selection(backend="mjwarp", all_backends=False) == (
-            "mjwarp",
-        )
+        assert bench._resolve_backend_selection(backend="mjwarp", all_backends=False) == ("mjwarp",)
 
 
 def test_resolve_case_specs_deduplicates_explicit_specs() -> None:
