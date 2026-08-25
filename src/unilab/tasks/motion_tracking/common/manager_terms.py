@@ -23,6 +23,14 @@ from unilab.utils.rotation import (
     np_quat_mul,
 )
 
+from .kernels import (
+    configure_motion_kernel_runtime,
+    reward_motion_body_ang_vel_kernel,
+    reward_motion_body_lin_vel_kernel,
+    reward_motion_body_ori_kernel,
+    reward_motion_body_pos_kernel,
+    termination_anchor_pos_kernel,
+)
 from .motion_loader import MotionData, MotionLoader, MotionSampler
 from .observations import write_body_ori6_in_anchor_frame, write_body_pos_in_anchor_frame
 from .transforms import update_relative_transforms
@@ -807,7 +815,37 @@ class _BodyTerm(ManagerTermBase):
         return _command(self._env, command_name), _positive_std(std, term_name=type(self).__name__)
 
 
-class motion_relative_body_position_error_exp(_BodyTerm):
+class _NumbaBodyTerm(_BodyTerm):
+    """Shared cold-path setup for the four fixed parallel body reward kernels."""
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        configure_motion_kernel_runtime()
+        command = _command(env, self._command_name)
+        if isinstance(self._body_ids, slice):
+            body_ids = np.arange(len(command.cfg.body_names), dtype=np.intp)
+        else:
+            body_ids = self._body_ids
+        body_ids.setflags(write=False)
+        self._kernel_body_ids = body_ids
+        self._kernel_result = np.empty(self.num_envs, dtype=command.body_pos_relative_w.dtype)
+
+    def _kernel_std(self, scale: float) -> float:
+        return cast(float, self._kernel_result.dtype.type(scale))
+
+
+class motion_relative_body_position_error_exp(_NumbaBodyTerm):
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        command = _command(env, self._command_name)
+        reward_motion_body_pos_kernel(
+            command.body_pos_relative_w,
+            command.robot_body_pos_w,
+            self._kernel_body_ids,
+            self._kernel_std(1.0),
+            self._kernel_result,
+        )
+
     def __call__(
         self,
         env: ManagerBasedRlEnv,
@@ -817,14 +855,28 @@ class motion_relative_body_position_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = self._squared_error_3d(
-            command.body_pos_relative_w[:, self._body_ids],
-            command.robot_body_pos_w[:, self._body_ids],
+        reward_motion_body_pos_kernel(
+            command.body_pos_relative_w,
+            command.robot_body_pos_w,
+            self._kernel_body_ids,
+            self._kernel_std(scale),
+            self._kernel_result,
         )
-        return self._exp_neg_scaled(error.mean(axis=-1), scale)
+        return self._kernel_result
 
 
-class motion_relative_body_orientation_error_exp(_BodyTerm):
+class motion_relative_body_orientation_error_exp(_NumbaBodyTerm):
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        command = _command(env, self._command_name)
+        reward_motion_body_ori_kernel(
+            command.body_quat_relative_w,
+            command.robot_body_quat_w,
+            self._kernel_body_ids,
+            self._kernel_std(1.0),
+            self._kernel_result,
+        )
+
     def __call__(
         self,
         env: ManagerBasedRlEnv,
@@ -834,14 +886,28 @@ class motion_relative_body_orientation_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = np_quat_error_magnitude_squared_batched(
-            command.body_quat_relative_w[:, self._body_ids],
-            command.robot_body_quat_w[:, self._body_ids],
+        reward_motion_body_ori_kernel(
+            command.body_quat_relative_w,
+            command.robot_body_quat_w,
+            self._kernel_body_ids,
+            self._kernel_std(scale),
+            self._kernel_result,
         )
-        return self._exp_neg_scaled(error.mean(axis=-1), scale)
+        return self._kernel_result
 
 
-class motion_global_body_linear_velocity_error_exp(_BodyTerm):
+class motion_global_body_linear_velocity_error_exp(_NumbaBodyTerm):
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        command = _command(env, self._command_name)
+        reward_motion_body_lin_vel_kernel(
+            command.body_lin_vel_w,
+            command.robot_body_lin_vel_w,
+            self._kernel_body_ids,
+            self._kernel_std(1.0),
+            self._kernel_result,
+        )
+
     def __call__(
         self,
         env: ManagerBasedRlEnv,
@@ -851,14 +917,28 @@ class motion_global_body_linear_velocity_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = self._squared_error_3d(
-            command.body_lin_vel_w[:, self._body_ids],
-            command.robot_body_lin_vel_w[:, self._body_ids],
+        reward_motion_body_lin_vel_kernel(
+            command.body_lin_vel_w,
+            command.robot_body_lin_vel_w,
+            self._kernel_body_ids,
+            self._kernel_std(scale),
+            self._kernel_result,
         )
-        return self._exp_neg_scaled(error.mean(axis=-1), scale)
+        return self._kernel_result
 
 
-class motion_global_body_angular_velocity_error_exp(_BodyTerm):
+class motion_global_body_angular_velocity_error_exp(_NumbaBodyTerm):
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        command = _command(env, self._command_name)
+        reward_motion_body_ang_vel_kernel(
+            command.body_ang_vel_w,
+            command.robot_body_ang_vel_w,
+            self._kernel_body_ids,
+            self._kernel_std(1.0),
+            self._kernel_result,
+        )
+
     def __call__(
         self,
         env: ManagerBasedRlEnv,
@@ -868,11 +948,14 @@ class motion_global_body_angular_velocity_error_exp(_BodyTerm):
     ) -> np.ndarray:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        error = self._squared_error_3d(
-            command.body_ang_vel_w[:, self._body_ids],
-            command.robot_body_ang_vel_w[:, self._body_ids],
+        reward_motion_body_ang_vel_kernel(
+            command.body_ang_vel_w,
+            command.robot_body_ang_vel_w,
+            self._kernel_body_ids,
+            self._kernel_std(scale),
+            self._kernel_result,
         )
-        return self._exp_neg_scaled(error.mean(axis=-1), scale)
+        return self._kernel_result
 
 
 class motion_relative_body_position_z_error_exp(_BodyTerm):
@@ -948,11 +1031,48 @@ class undesired_body_contacts(_BodyTerm):
         return np.sum(command.robot_body_pos_w[:, self._body_ids, 2] < threshold, axis=-1)
 
 
-def bad_anchor_pos_z_only(
-    env: ManagerBasedRlEnv, command_name: str, threshold: float
-) -> np.ndarray:
-    command = _command(env, command_name)
-    return np.abs(command.anchor_pos_w[:, 2] - command.robot_anchor_pos_w[:, 2]) > threshold
+class bad_anchor_pos_z_only(ManagerTermBase):
+    """Anchor-height termination backed by a parallel, pre-warmed Numba kernel."""
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        configure_motion_kernel_runtime()
+        command_name = cfg.params.get("command_name")
+        if not isinstance(command_name, str) or not command_name:
+            raise ValueError(f"{type(self).__name__} requires a non-empty command_name")
+        self._command_name = command_name
+        self._result = np.empty(self.num_envs, dtype=np.bool_)
+        command = _command(env, command_name)
+        threshold = command.body_pos_w.dtype.type(cfg.params.get("threshold", 0.0))
+        termination_anchor_pos_kernel(
+            command.body_pos_w,
+            command.robot_body_pos_w,
+            command.anchor_body_idx,
+            threshold,
+            self._result,
+        )
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        command_name: str,
+        threshold: float,
+    ) -> np.ndarray:
+        del env
+        if command_name != self._command_name:
+            raise ValueError(
+                f"{type(self).__name__} was bound to '{self._command_name}', got '{command_name}'"
+            )
+        command = _command(self._env, command_name)
+        threshold_value = command.body_pos_w.dtype.type(threshold)
+        termination_anchor_pos_kernel(
+            command.body_pos_w,
+            command.robot_body_pos_w,
+            command.anchor_body_idx,
+            threshold_value,
+            self._result,
+        )
+        return self._result
 
 
 def bad_anchor_ori(
