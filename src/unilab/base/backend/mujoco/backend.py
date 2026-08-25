@@ -1081,6 +1081,9 @@ class MuJoCoBackend(SimBackend):
             "set_state_qpos_convert_ms": 0.0,
             "set_state_pool_reset_ms": 0.0,
             "set_state_state_scatter_ms": 0.0,
+            "set_state_reset_upload_ms": 0.0,
+            "set_state_reset_forward_ms": 0.0,
+            "set_state_host_cache_refresh_ms": 0.0,
             "set_state_internal_gap_ms": 0.0,
         }
         if len(env_indices) == 0:
@@ -1416,6 +1419,14 @@ class MuJoCoBackend(SimBackend):
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._tracked_angvel_w_all[:, self._get_mapped_indices(body_ids), :]  # type: ignore[no-any-return]
+
+    def get_body_lin_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self._tracked_linvel_w_all[rows[:, None], self._get_mapped_indices(body_ids)]  # type: ignore[no-any-return]
+
+    def get_body_ang_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self._tracked_angvel_w_all[rows[:, None], self._get_mapped_indices(body_ids)]  # type: ignore[no-any-return]
 
     def get_body_state_w(
         self, body_ids: np.ndarray

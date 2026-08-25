@@ -739,6 +739,9 @@ class MotrixBackend(SimBackend):
             "set_state_qpos_convert_ms": 0.0,
             "set_state_pool_reset_ms": 0.0,
             "set_state_state_scatter_ms": 0.0,
+            "set_state_reset_upload_ms": 0.0,
+            "set_state_reset_forward_ms": 0.0,
+            "set_state_host_cache_refresh_ms": 0.0,
             "set_state_internal_gap_ms": 0.0,
         }
         outer_t0 = time.perf_counter()
@@ -1163,6 +1166,14 @@ class MotrixBackend(SimBackend):
         ids = self._as_body_ids(body_ids)
         velocities = np.ascontiguousarray(self._ensure_link_velocity_cache()[:, ids, :])
         return velocities[:, :, :3], velocities[:, :, 3:]
+
+    def get_body_lin_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self._ensure_link_velocity_cache()[rows[:, None], self._as_body_ids(body_ids), :3]  # type: ignore[no-any-return]
+
+    def get_body_ang_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self._ensure_link_velocity_cache()[rows[:, None], self._as_body_ids(body_ids), 3:]  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                   #

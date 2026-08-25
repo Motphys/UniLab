@@ -952,6 +952,26 @@ class MjwarpBackend(SimBackend):
         timings = self._execute_host_step(ctrl_array, int(nsteps))
         return {"timing": timings}
 
+    # All backends report the same set_state key set for column stability;
+    # sub-keys that don't apply to the mjwarp host profile report 0.0.
+    _SET_STATE_TIMING_ZERO_KEYS = (
+        "set_state_mask_ms",
+        "set_state_data_slice_ms",
+        "set_state_data_reset_ms",
+        "set_state_clear_forces_ms",
+        "set_state_geom_overrides_ms",
+        "set_state_reset_rand_ms",
+        "set_state_set_dof_vel_ms",
+        "set_state_set_dof_pos_ms",
+        "set_state_actuator_ctrl_ms",
+        "set_state_forward_kinematic_ms",
+        "set_state_refresh_pose_cache_ms",
+        "set_state_invalidate_velocity_ms",
+        "set_state_qpos_convert_ms",
+        "set_state_pool_reset_ms",
+        "set_state_state_scatter_ms",
+    )
+
     def set_state(
         self,
         env_indices: np.ndarray,
@@ -974,9 +994,19 @@ class MjwarpBackend(SimBackend):
             raise ValueError(f"qpos must have shape {expected_qpos}, got {qpos_array.shape}")
         if qvel_array.shape != expected_qvel:
             raise ValueError(f"qvel must have shape {expected_qvel}, got {qvel_array.shape}")
+        timing: dict[str, float] = {key: 0.0 for key in self._SET_STATE_TIMING_ZERO_KEYS}
+        timing.update(
+            {
+                "set_state_reset_upload_ms": 0.0,
+                "set_state_reset_forward_ms": 0.0,
+                "set_state_host_cache_refresh_ms": 0.0,
+                "set_state_internal_gap_ms": 0.0,
+            }
+        )
         if rows.size == 0:
-            return {"timing": {"set_state_reset_ms": 0.0, "set_state_cache_refresh_ms": 0.0}}
+            return {"timing": timing}
 
+        outer_t0 = time.perf_counter()
         self._qpos_cache[rows] = qpos_array
         self._qvel_cache[rows] = qvel_array
         timings = self._execute_host_reset(
@@ -986,12 +1016,17 @@ class MjwarpBackend(SimBackend):
             qpos_array,
             qvel_array,
         )
-        return {
-            "timing": {
-                "set_state_reset_ms": timings["reset_upload_ms"] + timings["reset_forward_ms"],
-                "set_state_cache_refresh_ms": timings["host_cache_refresh_ms"],
-            }
-        }
+        timing["set_state_reset_upload_ms"] = timings["reset_upload_ms"]
+        timing["set_state_reset_forward_ms"] = timings["reset_forward_ms"]
+        timing["set_state_host_cache_refresh_ms"] = timings["host_cache_refresh_ms"]
+        outer_total_ms = (time.perf_counter() - outer_t0) * 1000.0
+        measured_ms = (
+            timing["set_state_reset_upload_ms"]
+            + timing["set_state_reset_forward_ms"]
+            + timing["set_state_host_cache_refresh_ms"]
+        )
+        timing["set_state_internal_gap_ms"] = outer_total_ms - measured_ms
+        return {"timing": timing}
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         """Advertise no legacy DR until per-world model mutation is effect-tested."""

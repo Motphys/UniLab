@@ -384,10 +384,10 @@ class MotionCommand(CommandTerm):
         step = self._env.common_step_counter
         if not force and self._robot_cache_step == step:
             return
-        body_index = self._robot_body_ids
         if env_ids is None:
-            # Single gather straight into the destination buffers; the previous
-            # src[:][:, body_index] form materialized two intermediate copies.
+            body_index = self._robot_body_ids
+            # Single gather straight into the destination buffers (issue #1296);
+            # the previous src[:][:, body_index] form materialized two copies.
             np.take(self.robot.data.body_link_pos_w, body_index, axis=1, out=self._robot_body_pos_w)
             np.take(
                 self.robot.data.body_link_quat_w, body_index, axis=1, out=self._robot_body_quat_w
@@ -405,18 +405,22 @@ class MotionCommand(CommandTerm):
                 out=self._robot_body_ang_vel_w,
             )
         else:
-            # np.ix_ gathers rows and bodies in one copy instead of two.
-            self._robot_body_pos_w[env_ids] = self.robot.data.body_link_pos_w[
-                np.ix_(env_ids, body_index)
+            # Partial-reset path (issue #1295): gather only the reset rows from
+            # the backend instead of full-batch body reads sliced afterwards.
+            # _robot_body_ids selects the tracked subset afterwards, so the
+            # row getters fetch all entity bodies for just these rows.
+            data = self.robot.data
+            self._robot_body_pos_w[env_ids] = data.body_link_pos_w_rows(env_ids)[
+                :, self._robot_body_ids
             ]
-            self._robot_body_quat_w[env_ids] = self.robot.data.body_link_quat_w[
-                np.ix_(env_ids, body_index)
+            self._robot_body_quat_w[env_ids] = data.body_link_quat_w_rows(env_ids)[
+                :, self._robot_body_ids
             ]
-            self._robot_body_lin_vel_w[env_ids] = self.robot.data.body_link_lin_vel_w[
-                np.ix_(env_ids, body_index)
+            self._robot_body_lin_vel_w[env_ids] = data.body_link_lin_vel_w_rows(env_ids)[
+                :, self._robot_body_ids
             ]
-            self._robot_body_ang_vel_w[env_ids] = self.robot.data.body_link_ang_vel_w[
-                np.ix_(env_ids, body_index)
+            self._robot_body_ang_vel_w[env_ids] = data.body_link_ang_vel_w_rows(env_ids)[
+                :, self._robot_body_ids
             ]
         self._robot_cache_step = step
 

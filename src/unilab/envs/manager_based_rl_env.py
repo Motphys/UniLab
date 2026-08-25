@@ -589,11 +589,15 @@ class ManagerBasedRlEnv(NpEnv):
         if self._state is not None:
             self._state.info["steps"][ids] = 0
 
-        self.command_manager.compute(dt=0.0, env_ids=ids)
-        self.command_manager.post_compute()
-        # Row-scoped reset rebuild (issue #1259 R2): the observation manager
-        # returns only the reset rows, so no full-batch slice is needed here.
-        manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
+        # The read phase starts only after the reset-state transaction above
+        # committed, so cached getter values are post-set_state reads shared
+        # across terms (issue #1295).
+        with self.scene._scoped_state_reads():
+            self.command_manager.compute(dt=0.0, env_ids=ids)
+            self.command_manager.post_compute()
+            # Row-scoped reset rebuild (issue #1259 R2): the observation manager
+            # returns only the reset rows, so no full-batch slice is needed here.
+            manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
         mapped_obs = self._map_observations(manager_obs, num_rows=len(ids))
         reset_obs = {name: values.copy() for name, values in mapped_obs.items()}
 
@@ -611,6 +615,11 @@ class ManagerBasedRlEnv(NpEnv):
         self.extras = self._state.info if self._state is not None else {"log": log}
         self.recorder_manager.record_post_reset(ids)
         return reset_obs, {"log": log}
+
+    def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
+        timing = dict(super()._collect_reset_backend_timing_ms())
+        timing.update(self._reset_state.last_set_state_timing_ms)
+        return timing
 
     def _normalize_reset_ids(
         self,

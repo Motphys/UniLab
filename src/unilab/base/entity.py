@@ -421,6 +421,26 @@ class EntityData:
     def body_link_pose_w(self) -> np.ndarray:
         return np.concatenate((self.body_link_pos_w, self.body_link_quat_w), axis=-1)
 
+    def body_link_pos_w_rows(self, env_ids: np.ndarray) -> np.ndarray:
+        """Row-scoped variant of body_link_pos_w for partial-reset rebuilds."""
+        ids = self._require(self._body_ids, "body state")
+        return self._backend.get_body_pose_w_rows(env_ids, ids)[0]
+
+    def body_link_quat_w_rows(self, env_ids: np.ndarray) -> np.ndarray:
+        """Row-scoped variant of body_link_quat_w for partial-reset rebuilds."""
+        ids = self._require(self._body_ids, "body state")
+        return self._backend.get_body_pose_w_rows(env_ids, ids)[1]
+
+    def body_link_lin_vel_w_rows(self, env_ids: np.ndarray) -> np.ndarray:
+        """Row-scoped variant of body_link_lin_vel_w for partial-reset rebuilds."""
+        ids = self._require(self._body_ids, "body state")
+        return self._backend.get_body_lin_vel_w_rows(env_ids, ids)
+
+    def body_link_ang_vel_w_rows(self, env_ids: np.ndarray) -> np.ndarray:
+        """Row-scoped variant of body_link_ang_vel_w for partial-reset rebuilds."""
+        ids = self._require(self._body_ids, "body state")
+        return self._backend.get_body_ang_vel_w_rows(env_ids, ids)
+
     @property
     def body_link_vel_w(self) -> np.ndarray:
         return np.concatenate((self.body_link_lin_vel_w, self.body_link_ang_vel_w), axis=-1)

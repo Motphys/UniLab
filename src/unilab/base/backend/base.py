@@ -823,6 +823,16 @@ class SimBackend(abc.ABC):
         rows = np.asarray(env_ids, dtype=np.intp)
         return self.get_body_pos_w(body_ids)[rows], self.get_body_quat_w(body_ids)[rows]
 
+    def get_body_lin_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        """Get selected env rows of world-frame body linear velocity."""
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self.get_body_lin_vel_w(body_ids)[rows]
+
+    def get_body_ang_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        """Get selected env rows of world-frame body angular velocity."""
+        rows = np.asarray(env_ids, dtype=np.intp)
+        return self.get_body_ang_vel_w(body_ids)[rows]
+
     # ------------------------------------------------------------------ #
     # Body kinematics — baselink frame                                     #
     # ------------------------------------------------------------------ #
