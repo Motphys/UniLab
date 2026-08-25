@@ -45,7 +45,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
 
-`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
+`mjwarp` 完成训练验证的只有 `g1_walk_flat` host adapter：PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。SAC `t800_walk_flat` 的 mjwarp owner 只有 owner YAML 与 compose 覆盖，标记为 `Configured`，不代表训练验证。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
 
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
@@ -84,7 +84,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested |
-| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | - | - |
+| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
@@ -111,7 +111,7 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Registered |
 | SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | - | Registered |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered |
-| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | - | - |
+| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Configured | - |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |

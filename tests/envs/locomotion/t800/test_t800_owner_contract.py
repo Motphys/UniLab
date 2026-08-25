@@ -11,22 +11,23 @@ from unilab.tasks import __unilab_registry_modules__
 
 
 def test_t800_registry_metadata_is_manager_based_and_bootstrapped_explicitly() -> None:
-    """The production bootstrap exposes only the Manager-Based MuJoCo owner."""
+    """The production bootstrap exposes the Manager-Based MuJoCo and mjwarp owners."""
     registry.ensure_registries()
 
     assert "unilab.tasks.locomotion.t800" in __unilab_registry_modules__
     metadata = registry.list_registered_envs()
     assert metadata["T800WalkFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco"],
+        "available_backends": ["mujoco", "mjwarp"],
     }
 
     t800 = importlib.import_module("unilab.tasks.locomotion.t800")
-    factory = registry._envs["T800WalkFlat"].env_factory_dict["mujoco"]
-    assert factory is t800.make_t800_walk_env
-    assert callable(factory)
-    assert factory.__name__ == "make_t800_walk_env"
-    assert factory.__module__ == "unilab.tasks.locomotion.t800"
+    for backend in ("mujoco", "mjwarp"):
+        factory = registry._envs["T800WalkFlat"].env_factory_dict[backend]
+        assert factory is t800.make_t800_walk_env
+        assert callable(factory)
+        assert factory.__name__ == "make_t800_walk_env"
+        assert factory.__module__ == "unilab.tasks.locomotion.t800"
     assert registry._envs["T800WalkFlat"].env_cfg_factory is ManagerBasedRlEnvCfg
 
     try:

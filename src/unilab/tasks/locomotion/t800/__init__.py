@@ -18,6 +18,7 @@ def make_t800_walk_env(
 
 registry.register_env_config("T800WalkFlat", ManagerBasedRlEnvCfg)
 registry.register_env("T800WalkFlat", make_t800_walk_env, sim_backend="mujoco")
+registry.register_env("T800WalkFlat", make_t800_walk_env, sim_backend="mjwarp")
 
 
 __all__ = ["make_t800_walk_env"]

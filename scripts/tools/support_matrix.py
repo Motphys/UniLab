@@ -294,8 +294,10 @@ def render_support_matrix(root: Path | None = None) -> str:
         "`Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo "
         "owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
         "",
-        "`mjwarp` 只支持 `g1_walk_flat` host adapter。PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 "
-        "backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。"
+        "`mjwarp` 完成训练验证的只有 `g1_walk_flat` host adapter：PPO (torch) 与 SAC (torch) owner "
+        "已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。"
+        "SAC `t800_walk_flat` 的 mjwarp owner 只有 owner YAML 与 compose 覆盖，标记为 `Configured`，"
+        "不代表训练验证。"
         "mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、"
         "interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry "
         "identity，不代表对应算法、terrain、完整 DR 或 production training 支持。",
