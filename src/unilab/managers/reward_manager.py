@@ -63,11 +63,16 @@ class RewardManager(ManagerBase):
         env: ManagerBasedRlEnv,
         *,
         scale_by_dt: bool = True,
+        finite_check_interval: int = 1,
     ):
         self._term_names: list[str] = list()
         self._term_cfgs: list[RewardTermCfg] = list()
         self._class_term_cfgs: list[RewardTermCfg] = list()
         self._scale_by_dt = scale_by_dt
+        # NaN/Inf check cadence: every ``finite_check_interval`` compute() calls,
+        # starting with the first. 1 keeps the historical every-step behavior.
+        self._finite_check_interval = max(1, int(finite_check_interval))
+        self._finite_check_clock = 0
 
         self.cfg = deepcopy(cfg)
         super().__init__(env=env)
@@ -117,6 +122,10 @@ class RewardManager(ManagerBase):
             raise ValueError(f"RewardManager received invalid dt {dt}.")
         self._reward_buf[:] = 0.0
         scale = dt if self._scale_by_dt else 1.0
+        # Increment before the term loop so a raised NaN still advances the
+        # cadence; clock 1 (first compute) always checks.
+        self._finite_check_clock += 1
+        check_finite = (self._finite_check_clock - 1) % self._finite_check_interval == 0
         for term_idx, (name, term_cfg) in enumerate(
             zip(self._term_names, self._term_cfgs, strict=False)
         ):
@@ -125,7 +134,8 @@ class RewardManager(ManagerBase):
                 continue
             value = term_cfg.func(self._env, **term_cfg.params)
             self._check_term_shape(name, value)
-            self._check_term_finite(name, value)
+            if check_finite:
+                self._check_term_finite(name, value)
             value = value * term_cfg.weight * scale
             self._reward_buf += value
             self._episode_sums[name] += value
