@@ -40,9 +40,7 @@ def body_setup(monkeypatch: pytest.MonkeyPatch):
     )
     # Snapshot inputs so tests can assert the terms never mutate them.
     snapshots = {
-        key: value.copy()
-        for key, value in vars(command).items()
-        if isinstance(value, np.ndarray)
+        key: value.copy() for key, value in vars(command).items() if isinstance(value, np.ndarray)
     }
     monkeypatch.setattr(mt, "_command", lambda env, name: command)
     return command, _make_env(command), snapshots
@@ -62,8 +60,8 @@ def test_anchor_position_error_exp_bit_parity(body_setup) -> None:
 def test_joint_position_error_exp_bit_parity(body_setup) -> None:
     command, env, snapshots = body_setup
     out = mt.motion_joint_position_error_exp(env, "motion", std=0.2)
-    expected = (
-        np.exp(-np.square(snapshots["joint_pos"] - snapshots["robot_joint_pos"]).mean(axis=-1) / 0.2**2)
+    expected = np.exp(
+        -np.square(snapshots["joint_pos"] - snapshots["robot_joint_pos"]).mean(axis=-1) / 0.2**2
     )
     np.testing.assert_array_equal(out, expected)
 
@@ -118,9 +116,7 @@ def test_joint_pos_limits_bit_parity() -> None:
     rng = np.random.default_rng(123)
     joint_pos = rng.standard_normal((8, 5), dtype=np.float32)
     limits = np.asarray([[-1.0, 1.0]] * 5, dtype=np.float32)
-    asset = SimpleNamespace(
-        data=SimpleNamespace(joint_pos=joint_pos, soft_joint_pos_limits=limits)
-    )
+    asset = SimpleNamespace(data=SimpleNamespace(joint_pos=joint_pos, soft_joint_pos_limits=limits))
     env = SimpleNamespace(scene={"robot": asset})
     asset_cfg = SimpleNamespace(name="robot", joint_ids=np.array([4, 2, 0], dtype=np.intp))
 

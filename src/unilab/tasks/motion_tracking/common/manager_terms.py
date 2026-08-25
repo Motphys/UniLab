@@ -388,9 +388,7 @@ class MotionCommand(CommandTerm):
         if env_ids is None:
             # Single gather straight into the destination buffers; the previous
             # src[:][:, body_index] form materialized two intermediate copies.
-            np.take(
-                self.robot.data.body_link_pos_w, body_index, axis=1, out=self._robot_body_pos_w
-            )
+            np.take(self.robot.data.body_link_pos_w, body_index, axis=1, out=self._robot_body_pos_w)
             np.take(
                 self.robot.data.body_link_quat_w, body_index, axis=1, out=self._robot_body_quat_w
             )
@@ -776,13 +774,19 @@ class _BodyTerm(ManagerTermBase):
     def _squared_error_3d(self, ref: np.ndarray, actual: np.ndarray) -> np.ndarray:
         """Per-body squared 3D error with reused scratch, same op order as the
         naive ``np.square(ref - actual).sum(axis=-1)`` (bit-identical)."""
-        if self._diff_scratch is None or self._diff_scratch.shape != ref.shape:
+        if (
+            self._diff_scratch is None
+            or self._err_scratch is None
+            or self._diff_scratch.shape != ref.shape
+        ):
             self._diff_scratch = np.empty(ref.shape, dtype=ref.dtype)
             self._err_scratch = np.empty(ref.shape[:-1], dtype=ref.dtype)
-        np.subtract(ref, actual, out=self._diff_scratch)
-        np.square(self._diff_scratch, out=self._diff_scratch)
-        np.sum(self._diff_scratch, axis=-1, out=self._err_scratch)
-        return self._err_scratch
+        diff = self._diff_scratch
+        err = self._err_scratch
+        np.subtract(ref, actual, out=diff)
+        np.square(diff, out=diff)
+        np.sum(diff, axis=-1, out=err)
+        return err
 
     @staticmethod
     def _exp_neg_scaled(error: np.ndarray, scale: float) -> np.ndarray:
