@@ -521,6 +521,17 @@ def test_mujoco_copy_body_state_matches_split_queries():
     np.testing.assert_allclose(out_lin_vel, expected_lin_vel)
     np.testing.assert_allclose(out_ang_vel, expected_ang_vel)
 
+    # Issue #1295: row-scoped velocity getters are parity with full+slice.
+    row_ids = np.array([1, 0, 1], dtype=np.int32)
+    np.testing.assert_allclose(
+        bkd.get_body_lin_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_lin_vel_w(body_ids)[row_ids],
+    )
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_ang_vel_w(body_ids)[row_ids],
+    )
+
 
 def test_motrix_model_properties_smoke():
     pytest.importorskip("motrixsim")
@@ -576,6 +587,15 @@ def test_motrix_copy_body_state_matches_split_queries():
     np.testing.assert_allclose(
         bkd.get_sensor_data_rows("pelvis_local_linvel", row_ids),
         bkd.get_sensor_data("pelvis_local_linvel")[row_ids],
+    )
+    # Issue #1295: row-scoped velocity getters are parity with full+slice.
+    np.testing.assert_allclose(
+        bkd.get_body_lin_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_lin_vel_w(body_ids)[row_ids],
+    )
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_ang_vel_w(body_ids)[row_ids],
     )
 
 

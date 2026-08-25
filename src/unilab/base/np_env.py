@@ -62,6 +62,9 @@ RESET_DONE_DETAIL_TIMING_KEYS = (
     "set_state_qpos_convert_ms",
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
+    "set_state_reset_upload_ms",
+    "set_state_reset_forward_ms",
+    "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
 )
 
@@ -84,6 +87,9 @@ BACKEND_SET_STATE_DETAIL_TIMING_KEYS = (
     "set_state_qpos_convert_ms",
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
+    "set_state_reset_upload_ms",
+    "set_state_reset_forward_ms",
+    "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
 )
 
@@ -287,8 +293,10 @@ class NpEnv(ABEnv):
         finally:
             self._autoreset_reset_active = False
         detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - t0) * 1000.0
-        if self._dr_manager is not None:
-            detail_timing.update(self._dr_manager.last_reset_timing_ms)
+        collected = self._collect_reset_backend_timing_ms()
+        detail_timing.update(
+            {key: value for key, value in collected.items() if key in detail_timing}
+        )
         t0 = time.perf_counter()
         for key in self._state.obs:
             self._state.obs[key][env_indices] = new_obs[key]
@@ -323,6 +331,18 @@ class NpEnv(ABEnv):
     def _clear_reset_done_detail_timing(self, timing: dict[str, Any]) -> None:
         for key in RESET_DONE_DETAIL_TIMING_KEYS:
             timing[key] = 0.0
+
+    def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
+        """Backend-sourced reset sub-timings for the last reset call.
+
+        The monolithic DR path reports through the DR manager; manager-based
+        envs override this to surface the reset-state transaction's set_state
+        timings. Keys outside RESET_DONE_DETAIL_TIMING_KEYS are dropped by the
+        caller so stale keys never leak into ``info["timing"]``.
+        """
+        if self._dr_manager is not None:
+            return self._dr_manager.last_reset_timing_ms
+        return {}
 
     def _resolve_nan_guard_model_file(self) -> str:
         scene = getattr(self._cfg, "scene", None)

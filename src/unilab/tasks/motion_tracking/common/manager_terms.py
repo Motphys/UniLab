@@ -384,12 +384,30 @@ class MotionCommand(CommandTerm):
         step = self._env.common_step_counter
         if not force and self._robot_cache_step == step:
             return
-        sel: np.ndarray | slice = slice(None) if env_ids is None else env_ids
-        body_index = self._robot_body_ids
-        self._robot_body_pos_w[sel] = self.robot.data.body_link_pos_w[sel][:, body_index]
-        self._robot_body_quat_w[sel] = self.robot.data.body_link_quat_w[sel][:, body_index]
-        self._robot_body_lin_vel_w[sel] = self.robot.data.body_link_lin_vel_w[sel][:, body_index]
-        self._robot_body_ang_vel_w[sel] = self.robot.data.body_link_ang_vel_w[sel][:, body_index]
+        if env_ids is None:
+            body_index = self._robot_body_ids
+            self._robot_body_pos_w[:] = self.robot.data.body_link_pos_w[:, body_index]
+            self._robot_body_quat_w[:] = self.robot.data.body_link_quat_w[:, body_index]
+            self._robot_body_lin_vel_w[:] = self.robot.data.body_link_lin_vel_w[:, body_index]
+            self._robot_body_ang_vel_w[:] = self.robot.data.body_link_ang_vel_w[:, body_index]
+        else:
+            # Partial-reset path (issue #1295): gather only the reset rows from
+            # the backend instead of full-batch body reads sliced afterwards.
+            # _robot_body_ids selects the tracked subset afterwards, so the
+            # row getters fetch all entity bodies for just these rows.
+            data = self.robot.data
+            self._robot_body_pos_w[env_ids] = data.body_link_pos_w_rows(env_ids)[
+                :, self._robot_body_ids
+            ]
+            self._robot_body_quat_w[env_ids] = data.body_link_quat_w_rows(env_ids)[
+                :, self._robot_body_ids
+            ]
+            self._robot_body_lin_vel_w[env_ids] = data.body_link_lin_vel_w_rows(env_ids)[
+                :, self._robot_body_ids
+            ]
+            self._robot_body_ang_vel_w[env_ids] = data.body_link_ang_vel_w_rows(env_ids)[
+                :, self._robot_body_ids
+            ]
         self._robot_cache_step = step
 
     def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:

@@ -76,15 +76,6 @@ def test_real_cuda_init_reset_step(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(backend._warp, "capture_launch", capture_launch)
 
-    graph_launches: list[Any] = []
-    original_capture_launch = backend._warp.capture_launch
-
-    def capture_launch(graph: Any) -> None:
-        graph_launches.append(graph)
-        original_capture_launch(graph)
-
-    monkeypatch.setattr(backend._warp, "capture_launch", capture_launch)
-
     qpos, qvel = _stand_state(backend, 2)
     backend.set_state(np.asarray([0, 1], dtype=np.int32), qpos, qvel)
     before = backend.get_base_pos().copy()
@@ -323,6 +314,45 @@ def test_body_state_matches_mujoco_backend() -> None:
         mujoco_backend.get_body_ang_vel_b(body_ids),
         atol=atol,
     )
+
+
+def test_set_state_returns_schema_conformant_timing() -> None:
+    """Issue #1295: mjwarp set_state reports the shared keyset plus its granular
+    reset_upload / reset_forward / host_cache_refresh sub-timings."""
+    from unilab.base.np_env import BACKEND_SET_STATE_DETAIL_TIMING_KEYS
+
+    backend = _backend(2)
+    qpos, qvel = _stand_state(backend, 2)
+
+    result = backend.set_state(np.asarray([0, 1], dtype=np.int32), qpos, qvel)
+    timing = result["timing"]
+    missing = [key for key in BACKEND_SET_STATE_DETAIL_TIMING_KEYS if key not in timing]
+    assert not missing, f"missing keys in set_state timing: {missing}"
+    for key in BACKEND_SET_STATE_DETAIL_TIMING_KEYS:
+        value = timing[key]
+        assert isinstance(value, float), f"{key} must be float, got {type(value)!r}"
+        if not key.endswith("internal_gap_ms"):
+            assert value >= 0.0, f"{key} must be non-negative, got {value}"
+    assert abs(timing["set_state_internal_gap_ms"]) < 5.0
+    # mjwarp populates its own sub-keys; other backends' sub-keys stay 0.0.
+    assert timing["set_state_reset_upload_ms"] > 0.0
+    assert timing["set_state_reset_forward_ms"] > 0.0
+    assert timing["set_state_host_cache_refresh_ms"] > 0.0
+    assert timing["set_state_mask_ms"] == 0.0
+    assert timing["set_state_pool_reset_ms"] == 0.0
+    # Legacy collapsed keys are gone.
+    assert "set_state_reset_ms" not in timing
+    assert "set_state_cache_refresh_ms" not in timing
+
+    empty = backend.set_state(
+        np.asarray([], dtype=np.int32),
+        np.zeros((0, qpos.shape[1]), dtype=np.float32),
+        np.zeros((0, qvel.shape[1]), dtype=np.float32),
+    )
+    empty_timing = empty["timing"]
+    missing = [key for key in BACKEND_SET_STATE_DETAIL_TIMING_KEYS if key not in empty_timing]
+    assert not missing, f"missing keys in empty set_state timing: {missing}"
+    assert all(value == 0.0 for value in empty_timing.values())
 
 
 def test_body_state_untracked_body_ids_fail_closed() -> None:
