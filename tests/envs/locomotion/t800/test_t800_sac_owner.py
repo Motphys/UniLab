@@ -86,7 +86,7 @@ def test_t800_sac_owner_materializes_complete_contract() -> None:
     assert cfg.algo.updates_per_step == 8
     assert cfg.algo.algo_params.alpha_init == pytest.approx(0.001)
     assert cfg.algo.algo_params.target_entropy_ratio == pytest.approx(0.0)
-    assert cfg.algo.max_iterations == 5000
+    assert cfg.algo.max_iterations == 100000
     assert cfg.algo.save_interval == 1000
     assert env_cfg.sim_dt == pytest.approx(0.002)
     assert env_cfg.ctrl_dt == pytest.approx(0.01)

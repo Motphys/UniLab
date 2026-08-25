@@ -11,7 +11,7 @@ training:
 
 algo:
   num_envs: 2048
-  max_iterations: 2200
+  max_iterations: 5000
   empirical_normalization: false
   obs_groups:
     actor:
