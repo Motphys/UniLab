@@ -34,6 +34,7 @@ from unilab.dr.types import (
 )
 from unilab.utils.rotation import np_quat_apply_inverse_batched
 
+from ..body_state import copy_selected_body_state
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
 from .playback import run_mjwarp_playback, validate_mjwarp_visual_model
@@ -1196,6 +1197,28 @@ class MjwarpBackend(SimBackend):
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         mapped = self._mapped_tracked_ids("world-frame body angular velocities", body_ids)
         return self._tracked_angvel_w_all[:, mapped, :]
+
+    def copy_body_state_w(
+        self,
+        body_ids: np.ndarray,
+        out_pos: np.ndarray,
+        out_quat: np.ndarray,
+        out_lin_vel: np.ndarray,
+        out_ang_vel: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        mapped = self._mapped_tracked_ids("world-frame body state", body_ids)
+        copy_selected_body_state(
+            self._tracked_pos_w_all,
+            self._tracked_quat_w_all,
+            self._tracked_linvel_w_all,
+            self._tracked_angvel_w_all,
+            mapped,
+            out_pos,
+            out_quat,
+            out_lin_vel,
+            out_ang_vel,
+        )
+        return out_pos, out_quat, out_lin_vel, out_ang_vel
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
         del body_ids
