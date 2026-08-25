@@ -81,6 +81,10 @@ src/unilab/assets/motions/x2/*.csv
 
 # Robot mesh assets (downloaded from HF at runtime)
 src/unilab/assets/robots/x2/meshes/*.STL
+src/unilab/assets/robots/t800/assets/*
+!src/unilab/assets/robots/t800/assets/.gitkeep
+src/unilab/assets/robots/t800/textures/*
+!src/unilab/assets/robots/t800/textures/.gitkeep
 
 # Grasp cache assets (downloaded from HF at runtime)
 src/unilab/assets/caches/*.npy

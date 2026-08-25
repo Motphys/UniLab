@@ -10,9 +10,10 @@ mirrors that generated content.
 
 - The default backend is `mujoco`.
 - Switch to Motrix with `--sim motrix` on the unified CLI.
-- `--sim mjwarp` currently maps only to the `g1_walk_flat` host adapter; PPO
-  (torch) and SAC (torch) are Tested, other entrypoints follow the matrix
-  below, and using it requires installing the `mjwarp` extra.
+- `--sim mjwarp` has completed training validation only on the `g1_walk_flat`
+  host adapter, where PPO (torch) and SAC (torch) are Tested; the SAC
+  `t800_walk_flat` mjwarp owner is Configured only, other entrypoints follow
+  the matrix below, and using it requires installing the `mjwarp` extra.
 - `--algo`, `--task`, and `--sim` jointly select the owner YAML.
 - Do not treat `training.sim_backend` as a standalone backend switch.
 
@@ -42,9 +43,12 @@ training validation; it does not imply the combination has all the backend
 capabilities of the same-named MuJoCo owner. For example, a phase-1 Motrix
 owner may only cover training smoke and an explicitly enabled DR subset.
 
-`mjwarp` only supports the `g1_walk_flat` host adapter. The PPO (torch) and SAC
-(torch) owners have completed training validation and have backend, contract,
-and playback automated coverage, so they are marked `Tested`. mjwarp playback
+`mjwarp` has completed training validation only on the `g1_walk_flat` host
+adapter: the PPO (torch) and SAC (torch) owners have completed training
+validation and have backend, contract, and playback automated coverage, so
+they are marked `Tested`. The SAC `t800_walk_flat` mjwarp owner only has an
+owner YAML and compose coverage, so it is marked `Configured`, which does not
+imply training validation. mjwarp playback
 only supports explicit, finite-step `record` and reuses the MuJoCo offline
 renderer; it does not support `auto`, interactive, or native playback. A
 `Registered` mark on other entrypoints only denotes env/backend registry
@@ -90,6 +94,7 @@ recommendation metadata in the repo, so rows do not auto-promote to
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested |
+| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
@@ -116,6 +121,7 @@ recommendation metadata in the repo, so rows do not auto-promote to
 | SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Registered |
 | SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | - | Registered |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered |
+| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Configured | - |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
