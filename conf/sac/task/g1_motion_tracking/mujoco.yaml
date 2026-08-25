@@ -21,6 +21,9 @@ algo:
 
 env:
   seed: null
+  # Issue #1294: sample the per-term NaN/Inf finite check every 16 control
+  # steps (detection latency <= 16 steps) instead of scanning every step.
+  finite_check_interval: 16
   scene:
     model_file: src/unilab/assets/robots/g1/scene_flat.xml
     default_keyframe_name: stand
@@ -79,6 +82,9 @@ env:
   observations:
     actor:
       enable_corruption: true
+      # Issue #1294: check the concatenated group output instead of scanning
+      # every term every step; nan_policy stays fail-closed at group level.
+      nan_check_per_term: false
       terms:
         command: &command_obs
           func: unilab.envs.mdp.generated_commands
@@ -119,6 +125,8 @@ env:
         actions: &actions_obs
           func: unilab.envs.mdp.last_action
     critic:
+      # Issue #1294: see actor group.
+      nan_check_per_term: false
       terms:
         command: *command_obs
         motion_anchor_pos_b: *anchor_pos_obs

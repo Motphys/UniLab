@@ -81,6 +81,11 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     is_finite_horizon: bool = False
     auto_reset: bool = True
     scale_rewards_by_dt: bool = True
+    finite_check_interval: int = 1
+    """Run the per-term NaN/Inf finite check in reward/metrics managers every N
+    control steps. 1 (default) checks every step — the historical behavior.
+    N > 1 bounds NaN detection latency to N control steps while removing the
+    per-step full ``np.isfinite(...).all()`` scans from the hot path."""
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
 
@@ -129,6 +134,13 @@ class ManagerBasedRlEnvCfg(EnvCfg):
         for name in ("is_finite_horizon", "auto_reset", "scale_rewards_by_dt"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"ManagerBasedRlEnvCfg {name} must be bool")
+        if isinstance(self.finite_check_interval, bool) or not isinstance(
+            self.finite_check_interval, (int, np.integer)
+        ):
+            raise TypeError("ManagerBasedRlEnvCfg finite_check_interval must be an int")
+        if self.finite_check_interval < 1:
+            raise ValueError("ManagerBasedRlEnvCfg finite_check_interval must be >= 1")
+        self.finite_check_interval = int(self.finite_check_interval)
         if not isinstance(self.policy_observation_group, str) or not self.policy_observation_group:
             raise ValueError("policy_observation_group must be a non-empty string")
         if self.critic_observation_group is not None:
@@ -326,6 +338,7 @@ class ManagerBasedRlEnv(NpEnv):
             self._cfg.rewards,
             self,
             scale_by_dt=self._cfg.scale_rewards_by_dt,
+            finite_check_interval=self._cfg.finite_check_interval,
         )
         self.curriculum_manager = (
             CurriculumManager(self._cfg.curriculum, self)
@@ -333,7 +346,13 @@ class ManagerBasedRlEnv(NpEnv):
             else NullCurriculumManager()
         )
         self.metrics_manager = (
-            MetricsManager(self._cfg.metrics, self) if self._cfg.metrics else NullMetricsManager()
+            MetricsManager(
+                self._cfg.metrics,
+                self,
+                finite_check_interval=self._cfg.finite_check_interval,
+            )
+            if self._cfg.metrics
+            else NullMetricsManager()
         )
         self.recorder_manager = (
             RecorderManager(self._cfg.recorders, self)
@@ -564,11 +583,15 @@ class ManagerBasedRlEnv(NpEnv):
         if self._state is not None:
             self._state.info["steps"][ids] = 0
 
-        self.command_manager.compute(dt=0.0, env_ids=ids)
-        self.command_manager.post_compute()
-        # Row-scoped reset rebuild (issue #1259 R2): the observation manager
-        # returns only the reset rows, so no full-batch slice is needed here.
-        manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
+        # The read phase starts only after the reset-state transaction above
+        # committed, so cached getter values are post-set_state reads shared
+        # across terms (issue #1295).
+        with self.scene._scoped_state_reads():
+            self.command_manager.compute(dt=0.0, env_ids=ids)
+            self.command_manager.post_compute()
+            # Row-scoped reset rebuild (issue #1259 R2): the observation manager
+            # returns only the reset rows, so no full-batch slice is needed here.
+            manager_obs = self.observation_manager.compute(update_history=True, env_ids=ids)
         mapped_obs = self._map_observations(manager_obs, num_rows=len(ids))
         reset_obs = {name: values.copy() for name, values in mapped_obs.items()}
 
@@ -586,6 +609,11 @@ class ManagerBasedRlEnv(NpEnv):
         self.extras = self._state.info if self._state is not None else {"log": log}
         self.recorder_manager.record_post_reset(ids)
         return reset_obs, {"log": log}
+
+    def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
+        timing = dict(super()._collect_reset_backend_timing_ms())
+        timing.update(self._reset_state.last_set_state_timing_ms)
+        return timing
 
     def _normalize_reset_ids(
         self,

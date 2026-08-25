@@ -7,6 +7,7 @@ nothing about task configuration, IPC, runners, or backend-private state.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -55,6 +56,7 @@ class ResetStateTransaction:
         self._randomization_dirty_masks: dict[str, np.ndarray] = {}
         self._requesting_terms: set[str] = set()
         self._last_commit_had_writes = False
+        self._last_set_state_timing_ms: dict[str, float] = {}
 
     @property
     def active(self) -> bool:
@@ -65,6 +67,17 @@ class ResetStateTransaction:
     def last_commit_had_writes(self) -> bool:
         """Whether the most recent scoped commit submitted dirty rows to set_state."""
         return self._last_commit_had_writes
+
+    @property
+    def last_set_state_timing_ms(self) -> dict[str, float]:
+        """Sub-timings from the most recent commit's set_state call.
+
+        Always includes ``dr_reset_set_state_ms`` (outer wall-clock around the
+        backend call); backend-reported ``set_state_*_ms`` sub-keys are merged
+        in when the backend returns them. Empty when the last commit had no
+        dirty rows.
+        """
+        return self._last_set_state_timing_ms
 
     @contextmanager
     def scoped(self, env_ids: np.ndarray) -> Iterator[ResetStateTransaction]:
@@ -91,6 +104,7 @@ class ResetStateTransaction:
             mask.fill(False)
         self._requesting_terms.clear()
         self._last_commit_had_writes = False
+        self._last_set_state_timing_ms = {}
         self._active = True
 
     def bind_body_mass_write(
@@ -541,12 +555,22 @@ class ResetStateTransaction:
             assert self._qvel is not None
             randomization = self._build_randomization_payload(dirty_ids)
             try:
-                return self._backend.set_state(
+                set_state_t0 = time.perf_counter()
+                result = self._backend.set_state(
                     dirty_ids,
                     self._qpos[dirty_ids],
                     self._qvel[dirty_ids],
                     randomization=randomization,
                 )
+                timing: dict[str, float] = {
+                    "dr_reset_set_state_ms": (time.perf_counter() - set_state_t0) * 1000.0
+                }
+                if isinstance(result, dict):
+                    backend_timing = result.get("timing")
+                    if isinstance(backend_timing, dict):
+                        timing.update(backend_timing)
+                self._last_set_state_timing_ms = timing
+                return result
             except (AttributeError, NotImplementedError) as exc:
                 terms = ", ".join(sorted(self._requesting_terms))
                 raise NotImplementedError(

@@ -127,6 +127,9 @@ NP_ENV_STEP_TIMING_KEYS = (
     "set_state_qpos_convert_ms",
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
+    "set_state_reset_upload_ms",
+    "set_state_reset_forward_ms",
+    "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
 )
 NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
@@ -183,6 +186,9 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("set_state_qpos_convert_ms", "set_state_qpos_convert_ms"),
     ("set_state_pool_reset_ms", "set_state_pool_reset_ms"),
     ("set_state_state_scatter_ms", "set_state_state_scatter_ms"),
+    ("set_state_reset_upload_ms", "set_state_reset_upload_ms"),
+    ("set_state_reset_forward_ms", "set_state_reset_forward_ms"),
+    ("set_state_host_cache_refresh_ms", "set_state_host_cache_refresh_ms"),
     ("set_state_internal_gap_ms", "set_state_internal_gap_ms"),
 )
 
@@ -1315,6 +1321,13 @@ _SET_STATE_MUJOCO_KEYS = (
     ("set_state_internal_gap_ms", "Gap"),
 )
 
+_SET_STATE_MJWARP_KEYS = (
+    ("set_state_reset_upload_ms", "Reset upload"),
+    ("set_state_reset_forward_ms", "Reset forward"),
+    ("set_state_host_cache_refresh_ms", "Host cache refresh"),
+    ("set_state_internal_gap_ms", "Gap"),
+)
+
 
 def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
     """Backend set_state sub-timing table (motrix keyset).
@@ -1370,6 +1383,32 @@ def _format_set_state_mujoco_table(results: list[CollectorResult]) -> str:
                 result.case.runtime_sim_backend,
                 _format_np_env_timing(result, "dr_reset_set_state_ms"),
                 *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MUJOCO_KEYS),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_set_state_mjwarp_table(results: list[CollectorResult]) -> str:
+    """Backend set_state sub-timing table (mjwarp keyset)."""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MJWARP_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MJWARP_KEYS),
             )
         )
     return _format_table(headers, rows)
@@ -1750,6 +1789,8 @@ def main() -> int:
         print(_format_set_state_detail_table(results))
         print("\nBackend set_state detail — mujoco keyset:")
         print(_format_set_state_mujoco_table(results))
+        print("\nBackend set_state detail — mjwarp keyset:")
+        print(_format_set_state_mjwarp_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1

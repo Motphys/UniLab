@@ -188,6 +188,22 @@ def test_metrics_reductions_substeps_reset_and_finite_failure(fake_env: FakeEnv)
     assert NullMetricsManager().reset() == {}
 
 
+def test_metrics_finite_check_sampling(fake_env: FakeEnv) -> None:
+    """Issue #1294: same sampling cadence as RewardManager — first compute is
+    always checked, then every finite_check_interval calls."""
+
+    def bad(env: FakeEnv) -> np.ndarray:
+        return np.full(env.num_envs, np.nan, dtype=np.float32)
+
+    manager = MetricsManager({"bad": MetricsTermCfg(func=bad)}, fake_env, finite_check_interval=3)
+    with pytest.raises(ValueError, match="MetricsManager term 'bad'"):
+        manager.compute()
+    manager.compute()
+    manager.compute()
+    with pytest.raises(ValueError, match="MetricsManager term 'bad'"):
+        manager.compute()
+
+
 class TraceRecorder(RecorderTerm):
     def __init__(self, cfg: RecorderTermCfg, env: FakeEnv):
         super().__init__(cfg, env)

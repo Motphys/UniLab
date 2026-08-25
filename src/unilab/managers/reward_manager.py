@@ -63,11 +63,16 @@ class RewardManager(ManagerBase):
         env: ManagerBasedRlEnv,
         *,
         scale_by_dt: bool = True,
+        finite_check_interval: int = 1,
     ):
         self._term_names: list[str] = list()
         self._term_cfgs: list[RewardTermCfg] = list()
         self._class_term_cfgs: list[RewardTermCfg] = list()
         self._scale_by_dt = scale_by_dt
+        # NaN/Inf check cadence: every ``finite_check_interval`` compute() calls,
+        # starting with the first. 1 keeps the historical every-step behavior.
+        self._finite_check_interval = max(1, int(finite_check_interval))
+        self._finite_check_clock = 0
 
         self.cfg = deepcopy(cfg)
         super().__init__(env=env)
@@ -76,6 +81,10 @@ class RewardManager(ManagerBase):
             self._episode_sums[term_name] = np.zeros(self.num_envs, dtype=np.float32)
         self._reward_buf = np.zeros(self.num_envs, dtype=np.float32)
         self._step_reward = np.zeros((self.num_envs, len(self._term_names)), dtype=np.float32)
+        # Scratch for the weighted term value, reused across terms to avoid a
+        # temporary per term per step (issue #1296). Re-allocated if a term
+        # returns a non-float32 dtype.
+        self._term_weight_scratch = np.zeros(self.num_envs, dtype=np.float32)
 
     def __str__(self) -> str:
         msg = f"<RewardManager> contains {len(self._term_names)} active terms.\n"
@@ -117,6 +126,10 @@ class RewardManager(ManagerBase):
             raise ValueError(f"RewardManager received invalid dt {dt}.")
         self._reward_buf[:] = 0.0
         scale = dt if self._scale_by_dt else 1.0
+        # Increment before the term loop so a raised NaN still advances the
+        # cadence; clock 1 (first compute) always checks.
+        self._finite_check_clock += 1
+        check_finite = (self._finite_check_clock - 1) % self._finite_check_interval == 0
         for term_idx, (name, term_cfg) in enumerate(
             zip(self._term_names, self._term_cfgs, strict=False)
         ):
@@ -125,11 +138,22 @@ class RewardManager(ManagerBase):
                 continue
             value = term_cfg.func(self._env, **term_cfg.params)
             self._check_term_shape(name, value)
-            self._check_term_finite(name, value)
-            value = value * term_cfg.weight * scale
-            self._reward_buf += value
-            self._episode_sums[name] += value
-            self._step_reward[:, term_idx] = value / scale
+            if check_finite:
+                self._check_term_finite(name, value)
+            # Weighted value goes through the shared scratch (same op order as
+            # ``value * weight * scale``); terms may return internal buffers, so
+            # ``value`` itself is never written to. Scratch dtype matches the
+            # expression result dtype (e.g. int term values promote to float64,
+            # as the pre-refactor temporary did).
+            scratch = self._term_weight_scratch
+            out_dtype = np.result_type(value, term_cfg.weight)
+            if scratch.dtype != out_dtype:
+                scratch = self._term_weight_scratch = np.empty(self.num_envs, dtype=out_dtype)
+            np.multiply(value, term_cfg.weight, out=scratch)
+            scratch *= scale
+            self._reward_buf += scratch
+            self._episode_sums[name] += scratch
+            np.divide(scratch, scale, out=self._step_reward[:, term_idx])
         return self._reward_buf
 
     def step_reward_extras(self) -> dict[str, float]:
