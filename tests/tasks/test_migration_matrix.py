@@ -17,8 +17,8 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
 
     assert PRODUCTION_TASK_NAMES <= registered.keys()
     assert {record.task_name for record in records} == set(PRODUCTION_TASK_NAMES)
-    assert len(records) == 40
-    assert sum(record.status == "Compatible" for record in records) == 37
+    assert len(records) == 41
+    assert sum(record.status == "Compatible" for record in records) == 38
     assert sum(record.target == "compatibility" for record in records) == 3
 
 
