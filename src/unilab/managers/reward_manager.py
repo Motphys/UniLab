@@ -76,6 +76,10 @@ class RewardManager(ManagerBase):
             self._episode_sums[term_name] = np.zeros(self.num_envs, dtype=np.float32)
         self._reward_buf = np.zeros(self.num_envs, dtype=np.float32)
         self._step_reward = np.zeros((self.num_envs, len(self._term_names)), dtype=np.float32)
+        # Scratch for the weighted term value, reused across terms to avoid a
+        # temporary per term per step (issue #1296). Re-allocated if a term
+        # returns a non-float32 dtype.
+        self._term_weight_scratch = np.zeros(self.num_envs, dtype=np.float32)
 
     def __str__(self) -> str:
         msg = f"<RewardManager> contains {len(self._term_names)} active terms.\n"
@@ -126,10 +130,20 @@ class RewardManager(ManagerBase):
             value = term_cfg.func(self._env, **term_cfg.params)
             self._check_term_shape(name, value)
             self._check_term_finite(name, value)
-            value = value * term_cfg.weight * scale
-            self._reward_buf += value
-            self._episode_sums[name] += value
-            self._step_reward[:, term_idx] = value / scale
+            # Weighted value goes through the shared scratch (same op order as
+            # ``value * weight * scale``); terms may return internal buffers, so
+            # ``value`` itself is never written to. Scratch dtype matches the
+            # expression result dtype (e.g. int term values promote to float64,
+            # as the pre-refactor temporary did).
+            scratch = self._term_weight_scratch
+            out_dtype = np.result_type(value, term_cfg.weight)
+            if scratch.dtype != out_dtype:
+                scratch = self._term_weight_scratch = np.empty(self.num_envs, dtype=out_dtype)
+            np.multiply(value, term_cfg.weight, out=scratch)
+            scratch *= scale
+            self._reward_buf += scratch
+            self._episode_sums[name] += scratch
+            np.divide(scratch, scale, out=self._step_reward[:, term_idx])
         return self._reward_buf
 
     def step_reward_extras(self) -> dict[str, float]:
