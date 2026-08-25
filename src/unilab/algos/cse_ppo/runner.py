@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import time
 from collections import deque
 from typing import Any, Callable, cast
 
@@ -84,15 +83,6 @@ class CSEOnPolicyRunner:
         start = self.current_learning_iteration
         for iteration in range(start, start + int(num_learning_iterations)):
             infos: dict[str, Any] = {}
-            timing_accum = {
-                "step_core_ms": 0.0,
-                "backend_physics_ms": 0.0,
-                "update_state_ms": 0.0,
-                "apply_action_ms": 0.0,
-                "reset_done_ms": 0.0,
-                "env_step_total_ms": 0.0,
-            }
-            collect_start = time.time()
             with torch.inference_mode():
                 for _ in range(self.num_steps_per_env):
                     actions = self.alg.act(obs, critic_obs)
@@ -111,50 +101,21 @@ class CSEOnPolicyRunner:
                         self._ep_lengths[done_ids] = 0
                     self.alg.process_env_step(obs_td, rewards, dones, infos)
                     obs, critic_obs = next_obs, next_critic_obs
-                    step_timing = infos.get("timing")
-                    if step_timing:
-                        for key in timing_accum:
-                            timing_accum[key] += float(step_timing.get(key, 0.0))
                 self.alg.compute_returns(critic_obs)
-            collection_time = time.time() - collect_start
-            learn_start = time.time()
             value_loss, surrogate_loss, estimation_loss = self.alg.update()
             self.current_learning_iteration = iteration + 1
             self.logger.tot_timesteps += self.num_steps_per_env * self.env.num_envs
-            learn_time = time.time() - learn_start
-            elapsed = collection_time + learn_time
-            num_steps = self.num_steps_per_env * self.env.num_envs
             stats = {
                 "value_loss": value_loss,
                 "surrogate_loss": surrogate_loss,
                 "estimation_loss": estimation_loss,
                 "learning_rate": self.alg.learning_rate,
                 "mean_noise_std": float(self.actor_critic.std.mean().detach()),
-                "collection_time": collection_time,
-                "learn_time": learn_time,
-                "fps": int(num_steps / max(elapsed, 1e-9)),
-                "wf_physics": timing_accum["backend_physics_ms"],
-                "wf_slow_path": max(
-                    0.0, timing_accum["step_core_ms"] - timing_accum["backend_physics_ms"]
-                ),
-                "wf_update_state": timing_accum["update_state_ms"],
-                "wf_apply_action": timing_accum["apply_action_ms"],
-                "wf_reset_done": timing_accum["reset_done_ms"],
-                "wf_env_misc": max(
-                    0.0,
-                    timing_accum["env_step_total_ms"]
-                    - timing_accum["step_core_ms"]
-                    - timing_accum["update_state_ms"]
-                    - timing_accum["apply_action_ms"]
-                    - timing_accum["reset_done_ms"],
-                ),
-                "wf_learn": learn_time * 1000.0,
             }
             self._print_iter(
                 self.current_learning_iteration,
                 start + int(num_learning_iterations),
                 stats,
-                elapsed,
                 infos,
             )
             if self._writer is not None:
@@ -165,7 +126,6 @@ class CSEOnPolicyRunner:
                     ("Loss/estimation", estimation_loss),
                     ("Loss/learning_rate", self.alg.learning_rate),
                     ("Policy/mean_noise_std", float(self.actor_critic.std.mean())),
-                    ("Perf/learning_time", time.time() - learn_start),
                 ):
                     self._writer.add_scalar(key, value, step)
                 for key, value in (infos.get("log") or {}).items():
@@ -228,7 +188,6 @@ class CSEOnPolicyRunner:
         it: int,
         tot: int,
         stats: dict[str, float],
-        elapsed: float,
         infos: dict[str, Any],
     ) -> None:
         """Print the established CSE-PPO iteration summary."""
@@ -243,12 +202,8 @@ class CSEOnPolicyRunner:
             if self.logger.lenbuffer
             else 0.0
         )
-        time_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-        eta = elapsed / it * (tot - it) if it > 0 else 0.0
-        eta_str = time.strftime("%H:%M:%S", time.gmtime(eta))
         print(sep)
         print(f"{'Iteration':>40}: {it}/{tot}")
-        print(f"{'Computation (fps)':>40}: {int(stats['fps'])} steps/s")
         print(f"{'Mean value loss':>40}: {stats['value_loss']:.4f}")
         print(f"{'Mean surrogate loss':>40}: {stats['surrogate_loss']:.4f}")
         print(f"{'Mean estimation loss':>40}: {stats['estimation_loss']:.4f}")
@@ -261,21 +216,4 @@ class CSEOnPolicyRunner:
         for key, value in sorted((infos.get("log") or {}).items()):
             print(f"{key:>40}: {value:.4f}")
         print(f"{'Total timesteps':>40}: {self.logger.tot_timesteps}")
-        print(f"{'Iteration time':>40}: {stats['collection_time'] + stats['learn_time']:.2f}s")
-        if "wf_physics" in stats:
-            total_ms = (stats["collection_time"] + stats["learn_time"]) * 1000.0
-            waterfall = [
-                ("physics", stats["wf_physics"]),
-                ("learn", stats["wf_learn"]),
-                ("update_state", stats["wf_update_state"]),
-                ("apply_action", stats["wf_apply_action"]),
-                ("reset_done", stats["wf_reset_done"]),
-                ("env_misc(nan_guard/reset)", stats["wf_env_misc"]),
-                ("slow_path", stats["wf_slow_path"]),
-            ]
-            print(f"{'Iter waterfall (ms/iter, %)':>40}: total={total_ms:.0f}ms")
-            for name, value in sorted(waterfall, key=lambda item: -item[1]):
-                print(f"{name:>40}: {value:7.1f} ms  ({100.0 * value / max(1e-9, total_ms):4.1f}%)")
-        print(f"{'Time elapsed':>40}: {time_str}")
-        print(f"{'ETA':>40}: {eta_str}")
         print(sep)
