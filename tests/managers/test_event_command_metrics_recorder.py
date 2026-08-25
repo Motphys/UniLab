@@ -195,16 +195,13 @@ def test_metrics_finite_check_sampling(fake_env: FakeEnv) -> None:
     def bad(env: FakeEnv) -> np.ndarray:
         return np.full(env.num_envs, np.nan, dtype=np.float32)
 
-    manager = MetricsManager(
-        {"bad": MetricsTermCfg(func=bad)}, fake_env, finite_check_interval=3
-    )
+    manager = MetricsManager({"bad": MetricsTermCfg(func=bad)}, fake_env, finite_check_interval=3)
     with pytest.raises(ValueError, match="MetricsManager term 'bad'"):
         manager.compute()
     manager.compute()
     manager.compute()
     with pytest.raises(ValueError, match="MetricsManager term 'bad'"):
         manager.compute()
-
 
 
 class TraceRecorder(RecorderTerm):
