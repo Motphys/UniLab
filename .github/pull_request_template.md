@@ -7,12 +7,14 @@
 ## Linked Work
 
 - Issue:
+- Parent roadmap (when applicable):
+- Roadmap declared base (when applicable):
 - Milestone:
+- Base branch:
 
 ## Validation
 
-- [ ] `make check`
-- [ ] `uv run pytest -m "not slow"`
+- [ ] `make test-all` passed on the final local head before this PR was created or updated
 - [ ] Additional task-specific validation listed below
 
 Commands actually run:
@@ -20,6 +22,11 @@ Commands actually run:
 ```bash
 # paste exact commands here
 ```
+
+Remote CI route:
+
+- Base `main`: record the current-head CI link and status here.
+- Any other base: write `not scheduled; local make test-all is the test gate`.
 
 ## Impact
 
