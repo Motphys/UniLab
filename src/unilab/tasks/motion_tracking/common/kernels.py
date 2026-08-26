@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from math import atan2, sqrt
+from math import atan2, cos, sin, sqrt
 
 import numpy as np
 from numba import config, njit, prange, set_num_threads
@@ -49,6 +49,293 @@ def _quat_error_squared(
     clipped_w = min(max(rel_w, -1.0), 1.0)
     angle = 2.0 * atan2(xyz_norm, clipped_w)
     return angle * angle
+
+
+@njit(inline="always")
+def _quat_mul_components(
+    w1: float,
+    x1: float,
+    y1: float,
+    z1: float,
+    w2: float,
+    x2: float,
+    y2: float,
+    z2: float,
+) -> tuple[float, float, float, float]:
+    """Hamilton product for scalar quaternion components."""
+    return (
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+    )
+
+
+@njit(inline="always")
+def _quat_apply_inverse_components(
+    w: float,
+    x: float,
+    y: float,
+    z: float,
+    vx: float,
+    vy: float,
+    vz: float,
+) -> tuple[float, float, float]:
+    """Rotate one vector by the inverse of a unit quaternion."""
+    qx = -x
+    qy = -y
+    qz = -z
+    tx = 2.0 * (qy * vz - qz * vy)
+    ty = 2.0 * (qz * vx - qx * vz)
+    tz = 2.0 * (qx * vy - qy * vx)
+    return (
+        vx + w * tx + qy * tz - qz * ty,
+        vy + w * ty + qz * tx - qx * tz,
+        vz + w * tz + qx * ty - qy * tx,
+    )
+
+
+@njit(inline="always")
+def _quat_to_rot6d_components(
+    w: float,
+    x: float,
+    y: float,
+    z: float,
+) -> tuple[float, float, float, float, float, float]:
+    """Flatten the first two rotation-matrix columns."""
+    xx = x * x
+    yy = y * y
+    zz = z * z
+    xy = x * y
+    xz = x * z
+    yz = y * z
+    wx = w * x
+    wy = w * y
+    wz = w * z
+    return (
+        1.0 - 2.0 * (yy + zz),
+        2.0 * (xy - wz),
+        2.0 * (xy + wz),
+        1.0 - 2.0 * (xx + zz),
+        2.0 * (xz - wy),
+        2.0 * (yz + wx),
+    )
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def update_motion_relative_state_kernel(
+    env_ids: np.ndarray,
+    anchor_body_idx: int,
+    motion_body_pos_local_w: np.ndarray,
+    motion_body_pos_w: np.ndarray,
+    motion_body_quat_w: np.ndarray,
+    robot_body_pos_w: np.ndarray,
+    robot_body_quat_w: np.ndarray,
+    body_pos_relative_w: np.ndarray,
+    body_quat_relative_w: np.ndarray,
+    motion_anchor_pos_b: np.ndarray,
+    motion_anchor_ori_b: np.ndarray,
+    robot_body_pos_b: np.ndarray,
+    robot_body_ori_b: np.ndarray,
+) -> None:
+    """Write all MotionCommand relative transforms for selected rows."""
+    num_bodies = motion_body_pos_local_w.shape[1]
+    for row in prange(env_ids.shape[0]):
+        env_idx = env_ids[row]
+        motion_anchor_x = motion_body_pos_local_w[env_idx, anchor_body_idx, 0]
+        motion_anchor_y = motion_body_pos_local_w[env_idx, anchor_body_idx, 1]
+        motion_anchor_z = motion_body_pos_local_w[env_idx, anchor_body_idx, 2]
+        motion_anchor_w = motion_body_quat_w[env_idx, anchor_body_idx, 0]
+        motion_anchor_qx = motion_body_quat_w[env_idx, anchor_body_idx, 1]
+        motion_anchor_qy = motion_body_quat_w[env_idx, anchor_body_idx, 2]
+        motion_anchor_qz = motion_body_quat_w[env_idx, anchor_body_idx, 3]
+        robot_anchor_x = robot_body_pos_w[env_idx, anchor_body_idx, 0]
+        robot_anchor_y = robot_body_pos_w[env_idx, anchor_body_idx, 1]
+        robot_anchor_z = robot_body_pos_w[env_idx, anchor_body_idx, 2]
+        robot_anchor_w = robot_body_quat_w[env_idx, anchor_body_idx, 0]
+        robot_anchor_qx = robot_body_quat_w[env_idx, anchor_body_idx, 1]
+        robot_anchor_qy = robot_body_quat_w[env_idx, anchor_body_idx, 2]
+        robot_anchor_qz = robot_body_quat_w[env_idx, anchor_body_idx, 3]
+
+        yaw_w, yaw_x, yaw_y, yaw_z = _quat_mul_components(
+            robot_anchor_w,
+            robot_anchor_qx,
+            robot_anchor_qy,
+            robot_anchor_qz,
+            motion_anchor_w,
+            -motion_anchor_qx,
+            -motion_anchor_qy,
+            -motion_anchor_qz,
+        )
+        half_yaw = 0.5 * atan2(
+            2.0 * (yaw_w * yaw_z + yaw_x * yaw_y),
+            1.0 - 2.0 * (yaw_y * yaw_y + yaw_z * yaw_z),
+        )
+        delta_w = cos(half_yaw)
+        delta_z = sin(half_yaw)
+        yaw_cross = 2.0 * delta_w * delta_z
+        yaw_z2 = 2.0 * delta_z * delta_z
+
+        anchor_vx = motion_body_pos_w[env_idx, anchor_body_idx, 0] - robot_anchor_x
+        anchor_vy = motion_body_pos_w[env_idx, anchor_body_idx, 1] - robot_anchor_y
+        anchor_vz = motion_body_pos_w[env_idx, anchor_body_idx, 2] - robot_anchor_z
+        anchor_pos_x, anchor_pos_y, anchor_pos_z = _quat_apply_inverse_components(
+            robot_anchor_w,
+            robot_anchor_qx,
+            robot_anchor_qy,
+            robot_anchor_qz,
+            anchor_vx,
+            anchor_vy,
+            anchor_vz,
+        )
+        motion_anchor_pos_b[env_idx, 0] = anchor_pos_x
+        motion_anchor_pos_b[env_idx, 1] = anchor_pos_y
+        motion_anchor_pos_b[env_idx, 2] = anchor_pos_z
+        rel_w, rel_x, rel_y, rel_z = _quat_mul_components(
+            robot_anchor_w,
+            -robot_anchor_qx,
+            -robot_anchor_qy,
+            -robot_anchor_qz,
+            motion_anchor_w,
+            motion_anchor_qx,
+            motion_anchor_qy,
+            motion_anchor_qz,
+        )
+        anchor_rot6d = _quat_to_rot6d_components(rel_w, rel_x, rel_y, rel_z)
+        for component in range(6):
+            motion_anchor_ori_b[env_idx, component] = anchor_rot6d[component]
+
+        for body_idx in range(num_bodies):
+            body_motion_w = motion_body_quat_w[env_idx, body_idx, 0]
+            body_motion_x = motion_body_quat_w[env_idx, body_idx, 1]
+            body_motion_y = motion_body_quat_w[env_idx, body_idx, 2]
+            body_motion_z = motion_body_quat_w[env_idx, body_idx, 3]
+            out_w, out_x, out_y, out_z = _quat_mul_components(
+                delta_w,
+                0.0,
+                0.0,
+                delta_z,
+                body_motion_w,
+                body_motion_x,
+                body_motion_y,
+                body_motion_z,
+            )
+            body_quat_relative_w[env_idx, body_idx, 0] = out_w
+            body_quat_relative_w[env_idx, body_idx, 1] = out_x
+            body_quat_relative_w[env_idx, body_idx, 2] = out_y
+            body_quat_relative_w[env_idx, body_idx, 3] = out_z
+
+            vx = motion_body_pos_local_w[env_idx, body_idx, 0] - motion_anchor_x
+            vy = motion_body_pos_local_w[env_idx, body_idx, 1] - motion_anchor_y
+            vz = motion_body_pos_local_w[env_idx, body_idx, 2] - motion_anchor_z
+            relative_x = vx
+            relative_x -= yaw_cross * vy
+            relative_x -= yaw_z2 * vx
+            relative_x += robot_anchor_x
+            relative_y = vy
+            relative_y += yaw_cross * vx
+            relative_y -= yaw_z2 * vy
+            relative_y += robot_anchor_y
+            body_pos_relative_w[env_idx, body_idx, 0] = relative_x
+            body_pos_relative_w[env_idx, body_idx, 1] = relative_y
+            body_pos_relative_w[env_idx, body_idx, 2] = vz + motion_anchor_z
+
+            robot_vx = robot_body_pos_w[env_idx, body_idx, 0] - robot_anchor_x
+            robot_vy = robot_body_pos_w[env_idx, body_idx, 1] - robot_anchor_y
+            robot_vz = robot_body_pos_w[env_idx, body_idx, 2] - robot_anchor_z
+            robot_pos_x, robot_pos_y, robot_pos_z = _quat_apply_inverse_components(
+                robot_anchor_w,
+                robot_anchor_qx,
+                robot_anchor_qy,
+                robot_anchor_qz,
+                robot_vx,
+                robot_vy,
+                robot_vz,
+            )
+            robot_body_pos_b[env_idx, body_idx, 0] = robot_pos_x
+            robot_body_pos_b[env_idx, body_idx, 1] = robot_pos_y
+            robot_body_pos_b[env_idx, body_idx, 2] = robot_pos_z
+            body_robot_w = robot_body_quat_w[env_idx, body_idx, 0]
+            body_robot_x = robot_body_quat_w[env_idx, body_idx, 1]
+            body_robot_y = robot_body_quat_w[env_idx, body_idx, 2]
+            body_robot_z = robot_body_quat_w[env_idx, body_idx, 3]
+            robot_rel_w, robot_rel_x, robot_rel_y, robot_rel_z = _quat_mul_components(
+                robot_anchor_w,
+                -robot_anchor_qx,
+                -robot_anchor_qy,
+                -robot_anchor_qz,
+                body_robot_w,
+                body_robot_x,
+                body_robot_y,
+                body_robot_z,
+            )
+            robot_rot6d = _quat_to_rot6d_components(
+                robot_rel_w,
+                robot_rel_x,
+                robot_rel_y,
+                robot_rel_z,
+            )
+            for component in range(6):
+                robot_body_ori_b[env_idx, body_idx, component] = robot_rot6d[component]
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def update_object_relative_state_kernel(
+    env_ids: np.ndarray,
+    robot_anchor_pos_w: np.ndarray,
+    robot_anchor_quat_w: np.ndarray,
+    object_pos_w: np.ndarray,
+    object_quat_w: np.ndarray,
+    object_lin_vel_w: np.ndarray,
+    object_state_b: np.ndarray,
+) -> None:
+    """Write BoxMotionCommand object pose and velocity for selected rows."""
+    for row in prange(env_ids.shape[0]):
+        env_idx = env_ids[row]
+        anchor_x = robot_anchor_pos_w[env_idx, 0]
+        anchor_y = robot_anchor_pos_w[env_idx, 1]
+        anchor_z = robot_anchor_pos_w[env_idx, 2]
+        anchor_w = robot_anchor_quat_w[env_idx, 0]
+        anchor_qx = robot_anchor_quat_w[env_idx, 1]
+        anchor_qy = robot_anchor_quat_w[env_idx, 2]
+        anchor_qz = robot_anchor_quat_w[env_idx, 3]
+        pos_x, pos_y, pos_z = _quat_apply_inverse_components(
+            anchor_w,
+            anchor_qx,
+            anchor_qy,
+            anchor_qz,
+            object_pos_w[env_idx, 0] - anchor_x,
+            object_pos_w[env_idx, 1] - anchor_y,
+            object_pos_w[env_idx, 2] - anchor_z,
+        )
+        object_state_b[env_idx, 0] = pos_x
+        object_state_b[env_idx, 1] = pos_y
+        object_state_b[env_idx, 2] = pos_z
+        rel_w, rel_x, rel_y, rel_z = _quat_mul_components(
+            anchor_w,
+            -anchor_qx,
+            -anchor_qy,
+            -anchor_qz,
+            object_quat_w[env_idx, 0],
+            object_quat_w[env_idx, 1],
+            object_quat_w[env_idx, 2],
+            object_quat_w[env_idx, 3],
+        )
+        rot6d = _quat_to_rot6d_components(rel_w, rel_x, rel_y, rel_z)
+        for component in range(6):
+            object_state_b[env_idx, 3 + component] = rot6d[component]
+        vel_x, vel_y, vel_z = _quat_apply_inverse_components(
+            anchor_w,
+            anchor_qx,
+            anchor_qy,
+            anchor_qz,
+            object_lin_vel_w[env_idx, 0],
+            object_lin_vel_w[env_idx, 1],
+            object_lin_vel_w[env_idx, 2],
+        )
+        object_state_b[env_idx, 9] = vel_x
+        object_state_b[env_idx, 10] = vel_y
+        object_state_b[env_idx, 11] = vel_z
 
 
 @njit(cache=True, nogil=True, parallel=True)
@@ -328,4 +615,6 @@ __all__ = [
     "reward_motion_body_pos_kernel",
     "termination_anchor_pos_kernel",
     "update_motion_metrics_kernel",
+    "update_motion_relative_state_kernel",
+    "update_object_relative_state_kernel",
 ]
