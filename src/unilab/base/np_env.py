@@ -14,6 +14,7 @@ import numpy as np
 from unilab.base.backend import SimBackend
 from unilab.base.backend.base import BackendPlayRenderPlan
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
+from unilab.base.cpu_runtime import apply_env_cpu_runtime
 from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 from unilab.dtype_config import get_global_dtype
@@ -111,6 +112,12 @@ class NpEnv(ABEnv):
     """Backend-agnostic numpy environment base class."""
 
     def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
+        # Cold-path process confinement for envs that own an explicit CPU
+        # block (multi-rank DP collectors): keeps host-side NumPy/Numba compute
+        # inside the same CPUs the backend pool workers are pinned to. Runs
+        # before managers/materialization so Numba's lazily-launched pool
+        # inherits the confined mask.
+        apply_env_cpu_runtime(cfg.cpu_ids)
         self._cfg = cfg
         self._backend: SimBackend = backend
         self._num_envs = num_envs

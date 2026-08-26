@@ -40,9 +40,12 @@ class EnvCfg:
     post_step_forward_sensor: bool = False
     adaptive_chunk_size: bool = True
     chunk_size: Optional[int] = None
-    # Explicit worker CPU affinity for the MuJoCo BatchEnvPool (Linux only).
-    # ``cpu_ids[i]`` pins pool worker thread ``i`` to one CPU; ``None`` keeps
-    # the default OS scheduling behavior.
+    # Explicit CPU block owned by this env's process (Linux affinity only).
+    # ``cpu_ids[i]`` pins MuJoCo BatchEnvPool worker thread ``i`` to one CPU;
+    # env construction also confines the owning process to the same block and
+    # sizes Numba's parallel pool to ``len(cpu_ids)`` so host-side post-step
+    # compute stays inside the rank's partition. ``None`` keeps the default
+    # OS scheduling behavior.
     cpu_ids: Optional[list[int]] = None
     # ``mjwarp`` owns contact/constraint storage independently from MuJoCo.
     # Keep its capacity knobs explicit in the task owner configuration so a
