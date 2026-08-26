@@ -25,7 +25,7 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
 ## Read Before You Start
 
 - Before changing training entrypoints, runners, env contracts, or backend paths, read [RL Infrastructure Development Standard](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)
-- Before changing collaboration flow or issue / milestone rules, read [Collaboration Workflow](docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md)
+- Before changing collaboration flow or issue / milestone rules, read [Collaboration Workflow](docs/sphinx/source/en/4-developer_guide/5-contributing_workflow.md)
 
 ## Common Commands
 
@@ -37,7 +37,7 @@ make check          # format + type (required before code-related commits)
 make test           # non-slow tests
 make test-cov       # non-slow tests + coverage report
 make test-slow      # slow integration and training smoke tests
-make test-all       # make check && make test-cov
+make test-all       # make check + make test-cov + benchmark entrypoint smoke
 ```
 
 ## Commit Conventions
@@ -54,14 +54,27 @@ Use Conventional Commits:
 
 ## Pull Request Workflow
 
-1. For code or config changes, run `make check` locally so lint, mypy, and pyright pass.
-2. For code changes, run `make test` locally so non-slow tests pass.
-3. If you touched IPC, Runner, or Config, add or update the matching tests.
-4. For docs-only changes, run `uv run pytest tests/scripts/test_check_docs.py -q` at minimum.
-5. If you touched repository hygiene rules, run `uv run pytest tests/scripts/test_repo_hygiene.py -q`.
-6. Link the relevant GitHub issue and fill in validation plus impact scope in the PR template.
-7. Open the PR against `main` and wait for green CI.
-8. Wait for code review.
+1. Choose and record the PR base before development. A roadmap child branches from its current integration branch; other work branches from its intended target branch.
+2. Run the tests nearest the changed contract. IPC, Runner, Config, docs, and repository-hygiene changes include their matching focused tests.
+3. Run `make test-all` on the final local head before creating or updating every PR, then record the command and result in the PR template.
+4. Link the driving issue and describe validation plus impact scope in the PR template.
+5. Open the PR against its intended base and complete code review.
+6. A PR whose base is `main` completes the applicable remote CI for its current head. A PR to another base uses the recorded local `make test-all` result as its complete test gate; remote execution occurs when an integrated result later reaches a `main`-base PR.
+
+## Roadmap Integration Workflow
+
+Once a roadmap issue is approved for development, record its declared base
+branch and create `dev/issue-<roadmap-number>-<slug>` from that base's latest
+head. The declared base may be `main` or another roadmap's integration branch.
+Create each child-issue branch from the latest integration branch using the
+repository's conventional type prefix, such as
+`feat/issue-<number>-<slug>` or `fix/issue-<number>-<slug>`, and set the child
+PR base to the integration branch. After the approved child issues are
+integrated, open the roadmap's final PR back to its declared base. Remote CI is
+required when that actual PR base is `main`.
+
+The detailed scope, authorization, and branch-update rules live in
+[Collaboration Workflow](docs/sphinx/source/en/4-developer_guide/5-contributing_workflow.md).
 
 ## Issue Reports
 
@@ -70,6 +83,6 @@ Use GitHub Issues to report bugs or propose features.
 ## Deep References
 
 - **Architecture & contracts**: [RL Infrastructure Development Standard](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)
-- **Collaboration & ADR governance**: [Collaboration Workflow](docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md)
+- **Collaboration & ADR governance**: [Collaboration Workflow](docs/sphinx/source/en/4-developer_guide/5-contributing_workflow.md)
 - **Test layout & markers**: [Development Standard §Testing](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)
 - **Configuration system**: [Development Standard §Configuration](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)

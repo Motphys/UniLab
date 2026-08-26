@@ -5,6 +5,18 @@ labels:
   - enhancement
 body:
   - type: dropdown
+    id: scope_level
+    attributes:
+      label: Scope level
+      description: Choose roadmap for an integrated outcome delivered through multiple child PRs; choose implementation for one cohesive review unit.
+      options:
+        - implementation
+        - roadmap
+        - research
+    validations:
+      required: true
+
+  - type: dropdown
     id: work_type
     attributes:
       label: Work type
@@ -50,7 +62,7 @@ body:
     id: deliverable
     attributes:
       label: Deliverable
-      description: What concrete output is expected?
+      description: What cohesive, reviewable output is expected? Include the code, config, tests, and docs needed to make that result complete.
       placeholder: |
         Examples:
         - merged code
@@ -61,12 +73,33 @@ body:
       required: true
 
   - type: textarea
+    id: scope
+    attributes:
+      label: Scope and delivery boundaries
+      description: Describe the work kept together for this outcome and the independently valuable work tracked elsewhere.
+      placeholder: |
+        In this work item:
+        - ...
+
+        Related follow-up or separate outcomes:
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: roadmap
+    attributes:
+      label: Roadmap relationship and target branch
+      description: For a roadmap, record its declared base branch, child issues, and planned dev/issue-<number>-<slug> integration branch. For a child issue, link the parent roadmap and use its integration branch as the PR base.
+
+  - type: textarea
     id: done
     attributes:
       label: Definition of done
       description: List the acceptance criteria.
       placeholder: |
-        - CI green
+        - make test-all passes on the final local head
+        - current-head remote CI passes when the PR base is main
         - benchmark attached
         - docs updated
     validations:

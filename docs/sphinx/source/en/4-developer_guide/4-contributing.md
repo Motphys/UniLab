@@ -71,7 +71,8 @@ make test-slow
 make test-all
 ```
 
-For docs-only changes, run:
+For documentation changes, run these focused checks in addition to
+`make test-all`:
 
 ```bash
 uv run pytest tests/scripts/test_check_docs.py -q
@@ -79,9 +80,10 @@ cd docs/sphinx
 UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
 ```
 
-The `Docs` GitHub Actions workflow runs the same prose-only build on matching
-PRs and pushes, and it can also be started from the GitHub Actions web UI via
-`workflow_dispatch`. It does not install UniLab with `pip install -e .`, does
+The `Docs` GitHub Actions workflow runs the same prose-only build for matching
+PRs whose base is `main` and for pushes to `main`. It can also be started from
+the GitHub Actions web UI via `workflow_dispatch`. It does not install UniLab
+with `pip install -e .`, does
 not generate API reference pages, and does not publish the external docs
 repository.
 
@@ -100,8 +102,13 @@ uv run --no-sync sphinx-build -j auto -b html -n source build/html
 
 - Use Conventional Commits such as `feat:`, `fix:`, `docs:`, `refactor:`,
   `test:`, and `chore:`.
+- Use `main` as the base for an ordinary PR. Use the roadmap's
+  `dev/issue-<roadmap-number>-<slug>` integration branch as the base for a child
+  PR. See {doc}`5-contributing_workflow` for the complete convention.
 - Link the driving issue in the PR.
 - List the validation commands actually run.
+- Pass `make test-all` on the final local head before creating or updating every
+  PR.
 - State whether behavior differs between MuJoCo, Motrix, macOS, or Linux.
 - For code/config changes, run the nearest tests for the changed contract before
   relying on top-level smoke commands.
@@ -154,10 +161,23 @@ Notes for `make test-slow`:
 
 ## CI Workflow
 
-Pull requests to `main` run five jobs in `.github/workflows/ci.yml`:
-`ruff-lint`, `ruff-format`, `mypy`, `pyright`, and `test`. Each is a required
-check, and the workflow can also be triggered manually via `workflow_dispatch`.
-In-progress runs on the same branch are cancelled automatically.
+Remote CI is routed by the PR base:
+
+| PR base | Local gate | Remote gate |
+| --- | --- | --- |
+| `main` | `make test-all` passes on the final local head | All applicable checks for the current PR head complete successfully |
+| Any other branch, including a roadmap integration branch | `make test-all` passes on the final local head | The local result is the complete test gate; a later PR whose actual base is `main` provides remote execution |
+
+A child PR can therefore merge into its integration branch after local
+validation and review. A roadmap's final PR returns to its declared base: a
+`main` base runs remote integration, while another base continues with the local
+gate. Record the actual local commands and results in every PR, and add the
+current-head remote status when the base is `main`.
+
+Pull requests to `main` run six jobs in `.github/workflows/ci.yml`:
+`ruff-lint`, `ruff-format`, `mypy`, `pyright`, `benchmark-smoke`, and `test`.
+They can also be triggered with `workflow_dispatch` for mainline-boundary
+diagnostics. In-progress runs on the same branch are cancelled automatically.
 
 | Job | What it runs |
 | --- | --- |
@@ -165,7 +185,8 @@ In-progress runs on the same branch are cancelled automatically.
 | `ruff-format` | `uv run --no-sync ruff format --check .` |
 | `mypy` | `uv run mypy src/unilab` |
 | `pyright` | `uv run pyright` |
-| `test` | `uv sync --extra motrix` (CPU torch), then `uv run --no-sync pytest -m "not slow" --cov=unilab --cov-fail-under=25` |
+| `benchmark-smoke` | `uv run --no-sync python scripts/benchmark/smoke_test.py` in a CPU torch environment |
+| `test` | `uv sync --extra mujoco --extra motrix` (CPU torch), then `uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-fail-under=25` |
 
 The `test` job enforces a coverage gate (`--cov-fail-under=25`); the floor only
 ratchets up as test guardrails improve. Documentation changes are validated by

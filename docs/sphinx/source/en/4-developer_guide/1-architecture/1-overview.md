@@ -63,8 +63,8 @@ validation at the boundary a change actually touched.
 | Backend path | the matching backend smoke run, plus a slow test when needed |
 | Training entrypoint | the relevant tests plus a 1-iteration smoke run |
 
-Use `make test` for the fast path and `make test-all` (`make check` plus
-`make test-cov`) before opening a PR.
+Use `make test` for the fast path and `make test-all` (`make check`,
+`make test-cov`, and `make test-benchmark-smoke`) before opening a PR.
 
 ## Review Checklist
 
