@@ -13,7 +13,15 @@ from numba import config, get_num_threads, threading_layer
 from unilab.managers import RewardTermCfg, TerminationTermCfg
 from unilab.tasks.motion_tracking.common import kernels
 from unilab.tasks.motion_tracking.common import manager_terms as mt
-from unilab.utils.rotation import np_quat_error_magnitude_squared_batched
+from unilab.utils.rotation import (
+    np_matrix_first_two_cols_from_quat,
+    np_quat_apply_batched,
+    np_quat_apply_inverse_batched,
+    np_quat_error_magnitude_squared_batched,
+    np_quat_inv,
+    np_quat_mul_batched,
+    np_yaw_quat,
+)
 
 
 def _make_env(command: Any) -> SimpleNamespace:
@@ -318,6 +326,241 @@ def test_motion_hot_kernels_compile_parallel_on_term_construction(body_setup) ->
         assert threading_layer() == "workqueue"
     if "NUMBA_NUM_THREADS" not in os.environ:
         assert get_num_threads() == min(8, config.NUMBA_DEFAULT_NUM_THREADS)
+
+
+def test_motion_metrics_kernel_matches_numpy_and_scopes_rows() -> None:
+    rng = np.random.default_rng(1701)
+    num_envs, num_bodies, num_joints = 257, 12, 29
+    anchor_body_idx = 4
+    motion_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    robot_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    relative_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    motion_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
+    robot_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
+    relative_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
+    motion_lin = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    robot_lin = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    motion_ang = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    robot_ang = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    motion_joint_pos = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
+    robot_joint_pos = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
+    motion_joint_vel = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
+    robot_joint_vel = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
+    inputs = (
+        motion_pos,
+        robot_pos,
+        motion_quat,
+        robot_quat,
+        motion_lin,
+        robot_lin,
+        motion_ang,
+        robot_ang,
+        relative_pos,
+        relative_quat,
+        motion_joint_pos,
+        robot_joint_pos,
+        motion_joint_vel,
+        robot_joint_vel,
+    )
+    snapshots = tuple(value.copy() for value in inputs)
+    expected = (
+        np.linalg.norm(motion_pos[:, anchor_body_idx] - robot_pos[:, anchor_body_idx], axis=-1),
+        np.sqrt(
+            np_quat_error_magnitude_squared_batched(
+                motion_quat[:, anchor_body_idx], robot_quat[:, anchor_body_idx]
+            )
+        ),
+        np.linalg.norm(motion_lin[:, anchor_body_idx] - robot_lin[:, anchor_body_idx], axis=-1),
+        np.linalg.norm(motion_ang[:, anchor_body_idx] - robot_ang[:, anchor_body_idx], axis=-1),
+        np.linalg.norm(relative_pos - robot_pos, axis=-1).mean(axis=-1),
+        np.sqrt(np_quat_error_magnitude_squared_batched(relative_quat, robot_quat)).mean(axis=-1),
+        np.linalg.norm(motion_lin - robot_lin, axis=-1).mean(axis=-1),
+        np.linalg.norm(motion_ang - robot_ang, axis=-1).mean(axis=-1),
+        np.linalg.norm(motion_joint_pos - robot_joint_pos, axis=-1),
+        np.linalg.norm(motion_joint_vel - robot_joint_vel, axis=-1),
+    )
+    outputs = tuple(np.full(num_envs, -123.0, dtype=np.float32) for _ in expected)
+
+    def run(rows: np.ndarray) -> None:
+        kernels.update_motion_metrics_kernel(
+            rows,
+            anchor_body_idx,
+            motion_pos,
+            robot_pos,
+            motion_quat,
+            robot_quat,
+            motion_lin,
+            robot_lin,
+            motion_ang,
+            robot_ang,
+            relative_pos,
+            relative_quat,
+            motion_joint_pos,
+            robot_joint_pos,
+            motion_joint_vel,
+            robot_joint_vel,
+            *outputs,
+        )
+
+    selected = np.asarray([0, 3, 128, 256], dtype=np.int32)
+    run(selected)
+    untouched = np.ones(num_envs, dtype=bool)
+    untouched[selected] = False
+    for actual, reference in zip(outputs, expected, strict=True):
+        np.testing.assert_allclose(actual[selected], reference[selected], rtol=2e-6, atol=1e-5)
+        np.testing.assert_array_equal(actual[untouched], -123.0)
+
+    run(np.arange(num_envs, dtype=np.int32))
+    for actual, reference in zip(outputs, expected, strict=True):
+        np.testing.assert_allclose(actual, reference, rtol=2e-6, atol=1e-5)
+    for actual, snapshot in zip(inputs, snapshots, strict=True):
+        np.testing.assert_array_equal(actual, snapshot)
+    assert kernels.update_motion_metrics_kernel.targetoptions["nopython"] is True
+    assert kernels.update_motion_metrics_kernel.targetoptions["nogil"] is True
+    assert kernels.update_motion_metrics_kernel.targetoptions["parallel"] is True
+    assert kernels.update_motion_metrics_kernel.signatures
+
+
+def test_motion_relative_state_kernel_matches_numpy_and_scopes_rows() -> None:
+    rng = np.random.default_rng(1818)
+    num_envs, num_bodies = 257, 12
+    anchor_body_idx = 4
+    motion_pos_local = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    env_origins = rng.standard_normal((num_envs, 1, 3), dtype=np.float32)
+    motion_pos_world = motion_pos_local + env_origins
+    motion_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
+    robot_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
+    robot_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
+    inputs = (motion_pos_local, motion_pos_world, motion_quat, robot_pos, robot_quat)
+    snapshots = tuple(value.copy() for value in inputs)
+
+    motion_anchor_pos_local = motion_pos_local[:, anchor_body_idx]
+    motion_anchor_quat = motion_quat[:, anchor_body_idx]
+    robot_anchor_pos = robot_pos[:, anchor_body_idx]
+    robot_anchor_quat = robot_quat[:, anchor_body_idx]
+    delta_pos = robot_anchor_pos.copy()
+    delta_pos[:, 2] = motion_anchor_pos_local[:, 2]
+    delta_quat = np_yaw_quat(
+        np_quat_mul_batched(robot_anchor_quat, np_quat_inv(motion_anchor_quat))
+    )
+    expected_body_pos_relative = np_quat_apply_batched(
+        delta_quat[:, None],
+        motion_pos_local - motion_anchor_pos_local[:, None],
+    )
+    expected_body_pos_relative += delta_pos[:, None]
+    expected_body_quat_relative = np_quat_mul_batched(delta_quat[:, None], motion_quat)
+    expected_motion_anchor_pos = np_quat_apply_inverse_batched(
+        robot_anchor_quat,
+        motion_pos_world[:, anchor_body_idx] - robot_anchor_pos,
+    )
+    expected_motion_anchor_ori = np_matrix_first_two_cols_from_quat(
+        np_quat_mul_batched(np_quat_inv(robot_anchor_quat), motion_anchor_quat)
+    )
+    expected_robot_body_pos = np_quat_apply_inverse_batched(
+        robot_anchor_quat[:, None],
+        robot_pos - robot_anchor_pos[:, None],
+    )
+    expected_robot_body_ori = np_matrix_first_two_cols_from_quat(
+        np_quat_mul_batched(np_quat_inv(robot_anchor_quat)[:, None], robot_quat)
+    )
+    expected = (
+        expected_body_pos_relative,
+        expected_body_quat_relative,
+        expected_motion_anchor_pos,
+        expected_motion_anchor_ori,
+        expected_robot_body_pos,
+        expected_robot_body_ori,
+    )
+    outputs = tuple(np.full(value.shape, -123.0, dtype=np.float32) for value in expected)
+    output_addresses = tuple(value.ctypes.data for value in outputs)
+
+    def run(rows: np.ndarray) -> None:
+        kernels.update_motion_relative_state_kernel(
+            rows,
+            anchor_body_idx,
+            motion_pos_local,
+            motion_pos_world,
+            motion_quat,
+            robot_pos,
+            robot_quat,
+            *outputs,
+        )
+
+    selected = np.asarray([0, 3, 128, 256], dtype=np.int32)
+    run(selected)
+    untouched = np.ones(num_envs, dtype=bool)
+    untouched[selected] = False
+    for actual, reference in zip(outputs, expected, strict=True):
+        np.testing.assert_allclose(actual[selected], reference[selected], rtol=3e-6, atol=2e-6)
+        np.testing.assert_array_equal(actual[untouched], -123.0)
+
+    run(np.arange(num_envs, dtype=np.int32))
+    for actual, reference in zip(outputs, expected, strict=True):
+        np.testing.assert_allclose(actual, reference, rtol=3e-6, atol=2e-6)
+    for actual, snapshot in zip(inputs, snapshots, strict=True):
+        np.testing.assert_array_equal(actual, snapshot)
+    assert tuple(value.ctypes.data for value in outputs) == output_addresses
+    assert kernels.update_motion_relative_state_kernel.targetoptions["nopython"] is True
+    assert kernels.update_motion_relative_state_kernel.targetoptions["nogil"] is True
+    assert kernels.update_motion_relative_state_kernel.targetoptions["parallel"] is True
+    assert kernels.update_motion_relative_state_kernel.signatures
+
+
+def test_object_relative_state_kernel_matches_numpy_and_scopes_rows() -> None:
+    rng = np.random.default_rng(1819)
+    num_envs = 257
+    anchor_pos = rng.standard_normal((num_envs, 3), dtype=np.float32)
+    anchor_quat = _unit_quat(rng.standard_normal((num_envs, 4), dtype=np.float32))
+    object_pos = rng.standard_normal((num_envs, 3), dtype=np.float32)
+    object_quat = _unit_quat(rng.standard_normal((num_envs, 4), dtype=np.float32))
+    object_lin_vel = rng.standard_normal((num_envs, 3), dtype=np.float32)
+    inputs = (anchor_pos, anchor_quat, object_pos, object_quat, object_lin_vel)
+    snapshots = tuple(value.copy() for value in inputs)
+    expected = np.concatenate(
+        (
+            np_quat_apply_inverse_batched(anchor_quat, object_pos - anchor_pos),
+            np_matrix_first_two_cols_from_quat(
+                np_quat_mul_batched(np_quat_inv(anchor_quat), object_quat)
+            ),
+            np_quat_apply_inverse_batched(anchor_quat, object_lin_vel),
+        ),
+        axis=-1,
+    )
+    output = np.full(expected.shape, -123.0, dtype=np.float32)
+    output_address = output.ctypes.data
+
+    selected = np.asarray([0, 3, 128, 256], dtype=np.int32)
+    kernels.update_object_relative_state_kernel(
+        selected,
+        anchor_pos,
+        anchor_quat,
+        object_pos,
+        object_quat,
+        object_lin_vel,
+        output,
+    )
+    untouched = np.ones(num_envs, dtype=bool)
+    untouched[selected] = False
+    np.testing.assert_allclose(output[selected], expected[selected], rtol=3e-6, atol=2e-6)
+    np.testing.assert_array_equal(output[untouched], -123.0)
+
+    kernels.update_object_relative_state_kernel(
+        np.arange(num_envs, dtype=np.int32),
+        anchor_pos,
+        anchor_quat,
+        object_pos,
+        object_quat,
+        object_lin_vel,
+        output,
+    )
+    np.testing.assert_allclose(output, expected, rtol=3e-6, atol=2e-6)
+    for actual, snapshot in zip(inputs, snapshots, strict=True):
+        np.testing.assert_array_equal(actual, snapshot)
+    assert output.ctypes.data == output_address
+    assert kernels.update_object_relative_state_kernel.targetoptions["nopython"] is True
+    assert kernels.update_object_relative_state_kernel.targetoptions["nogil"] is True
+    assert kernels.update_object_relative_state_kernel.targetoptions["parallel"] is True
+    assert kernels.update_object_relative_state_kernel.signatures
 
 
 def test_joint_pos_limits_bit_parity() -> None:

@@ -95,6 +95,28 @@ def test_noise_configs_use_supplied_generator() -> None:
     np.testing.assert_array_equal(ConstantNoiseCfg(bias=2.0, operation="abs").apply(data), 2.0)
 
 
+@pytest.mark.parametrize("operation", ["add", "scale", "abs"])
+def test_uniform_noise_inplace_matches_reference_expression(operation: str) -> None:
+    data = np.arange(24, dtype=np.float32).reshape(8, 3)
+    n_min = np.asarray([-0.2, -0.1, -0.05], dtype=np.float32)
+    n_max = np.asarray([0.3, 0.4, 0.5], dtype=np.float32)
+    cfg = UniformNoiseCfg(n_min=tuple(n_min), n_max=tuple(n_max), operation=operation)
+
+    reference_rng = np.random.default_rng(1702)
+    unit = reference_rng.random(data.shape).astype(data.dtype, copy=False)
+    noise = unit * (n_max - n_min) + n_min
+    if operation == "add":
+        expected = data + noise
+    elif operation == "scale":
+        expected = data * noise
+    else:
+        expected = noise
+
+    actual = cfg.apply(data, rng=np.random.default_rng(1702))
+    np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(data, np.arange(24, dtype=np.float32).reshape(8, 3))
+
+
 def test_additive_bias_noise_supports_scalar_terms() -> None:
     from unilab.managers._noise import NoiseModelWithAdditiveBias
 
@@ -141,6 +163,86 @@ def test_observation_groups_pipeline_order_and_history(fake_env: FakeEnv) -> Non
     np.testing.assert_array_equal(second[:, :2], expected_first)
     np.testing.assert_array_equal(second[:, 2:4], expected_second)
     assert manager.get_active_iterable_terms(0)[0][0] == "policy-state"
+
+
+def test_concatenated_result_owns_each_result_and_protects_term_buffers(
+    fake_env: FakeEnv,
+) -> None:
+    source = fake_env.obs
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "source": ObservationTermCfg(func=lambda env: env.obs),
+                    "constant": ObservationTermCfg(
+                        func=lambda env: np.ones((env.num_envs, 1), dtype=np.float32)
+                    ),
+                }
+            )
+        },
+        fake_env,
+    )
+
+    first = manager.compute(update_history=True)["policy"]
+    assert isinstance(first, np.ndarray)
+    first_address = first.ctypes.data
+    expected_first = np.concatenate((source.copy(), np.ones((fake_env.num_envs, 1))), axis=1)
+    np.testing.assert_array_equal(first, expected_first)
+
+    fake_env.obs += 100.0
+    second = manager.compute(update_history=True)["policy"]
+    assert isinstance(second, np.ndarray)
+    assert second.ctypes.data != first_address
+    np.testing.assert_array_equal(first, expected_first)
+    np.testing.assert_array_equal(second[:, :2], fake_env.obs)
+    assert not np.shares_memory(second, fake_env.obs)
+
+
+def test_concatenated_nan_sanitize_does_not_mutate_term_owned_input(
+    fake_env: FakeEnv,
+) -> None:
+    source = fake_env.obs.copy()
+    source[0, 0] = np.nan
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={"state": ObservationTermCfg(func=lambda env: source)},
+                nan_policy="sanitize",
+                nan_check_per_term=False,
+            )
+        },
+        fake_env,
+    )
+
+    result = manager.compute(update_history=True)["policy"]
+    assert isinstance(result, np.ndarray)
+    assert np.isfinite(result).all()
+    assert np.isnan(source[0, 0])
+
+
+def test_concatenated_nan_error_still_identifies_offending_term(fake_env: FakeEnv) -> None:
+    def invalid(env: FakeEnv) -> np.ndarray:
+        result = np.ones((env.num_envs, 1), dtype=np.float32)
+        result[2, 0] = np.nan
+        return result
+
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "finite": ObservationTermCfg(func=lambda env: env.obs),
+                    "invalid": ObservationTermCfg(func=invalid),
+                }
+            )
+        },
+        fake_env,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"NaN detected.*'policy/invalid'.*environments: \[2\]",
+    ):
+        manager.compute(update_history=True)
 
 
 def test_observation_noise_model_delay_and_seed_reproducibility() -> None:

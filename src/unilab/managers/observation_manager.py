@@ -335,7 +335,7 @@ class ObservationManager(ManagerBase):
             )
 
         # Sanitize (applies to both "warn" and "sanitize" policies).
-        return np.nan_to_num(tensor, nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(tensor, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
     def compute(
         self,
@@ -381,6 +381,17 @@ class ObservationManager(ManagerBase):
         group_term_names = self._group_obs_term_names[group_name]
         group_obs: dict[str, np.ndarray] = {}
         obs_terms = zip(group_term_names, self._group_obs_term_cfgs[group_name], strict=False)
+        # In the strict default policy a finite result is by far the common
+        # case.  For concatenated groups, scan the assembled output once and
+        # only inspect individual slices when an error is actually found; this
+        # retains the per-term diagnostic while removing repeated full scans
+        # from the hot path.
+        defer_error_nan_check = (
+            self._group_obs_concatenate[group_name]
+            and not self._group_obs_temporal[group_name]
+            and group_cfg.nan_check_per_term
+            and group_cfg.nan_policy == "error"
+        )
         # Reset path (issue #1259 R2): when no term in this group uses delay or
         # history buffers, everything downstream of the term call is row
         # independent, so only the reset rows are processed. Term calls and
@@ -409,10 +420,28 @@ class ObservationManager(ManagerBase):
                 # NoiseModel.__call__ likewise returns a new array.
                 obs = self._group_obs_class_instances[group_name][term_name](obs)
                 fresh = True
-            if not row_scoped and not fresh:
-                # Terms may return backend/command-owned buffers; copy before the
-                # in-place clip/scale below. Skipped when noise already produced
-                # a fresh array (issue #1296).
+            sanitizes_per_term = group_cfg.nan_check_per_term and group_cfg.nan_policy in (
+                "warn",
+                "sanitize",
+            )
+            exposes_term_output = (
+                not self._group_obs_concatenate[group_name]
+                and term_cfg.delay_max_lag == 0
+                and term_cfg.history_length == 0
+            )
+            if (
+                not row_scoped
+                and not fresh
+                and (
+                    term_cfg.clip is not None
+                    or term_cfg.scale is not None
+                    or sanitizes_per_term
+                    or exposes_term_output
+                )
+            ):
+                # Concatenation and temporal buffers already copy their inputs.
+                # Only take a defensive copy when this pipeline may mutate the
+                # term or expose it directly to callers.
                 obs = obs.copy()
             if row_scoped:
                 # Fresh row copy; safe for the in-place clip/scale below.
@@ -425,7 +454,11 @@ class ObservationManager(ManagerBase):
                 np.multiply(obs, scale, out=obs)
 
             # Check for NaN/Inf before delay/history buffers (per-term checking).
-            if group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
+            if (
+                group_cfg.nan_check_per_term
+                and group_cfg.nan_policy != "disabled"
+                and not defer_error_nan_check
+            ):
                 obs = self._check_and_handle_nans(
                     obs,
                     context=f"{group_name}/{term_name}",
@@ -474,6 +507,33 @@ class ObservationManager(ManagerBase):
             result = np.concatenate(
                 list(group_obs.values()), axis=self._group_obs_concatenate_dim[group_name]
             )
+            if defer_error_nan_check:
+                finite = np.isfinite(result)
+                if not finite.all():
+                    axis = self._group_obs_concatenate_dim[group_name]
+                    axis = axis if axis >= 0 else result.ndim + axis
+                    offset = 0
+                    for term_name, term_dims in zip(
+                        group_term_names,
+                        self._group_obs_term_dim[group_name],
+                        strict=True,
+                    ):
+                        width = int(term_dims[axis - 1])
+                        selectors = [slice(None)] * result.ndim
+                        selectors[axis] = slice(offset, offset + width)
+                        selector = tuple(selectors)
+                        if not finite[selector].all():
+                            # Reuse the established diagnostic path so the
+                            # error still names the first offending term and
+                            # reports reset-row IDs when applicable.
+                            self._check_and_handle_nans(
+                                result[selector],
+                                context=f"{group_name}/{term_name}",
+                                policy=group_cfg.nan_policy,
+                                env_ids=env_ids if row_scoped else None,
+                            )
+                            break
+                        offset += width
             # Final check for concatenated result (non-per-term checking).
             if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
                 result = self._check_and_handle_nans(
