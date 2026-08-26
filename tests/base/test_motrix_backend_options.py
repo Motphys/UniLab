@@ -312,6 +312,55 @@ def test_motrix_backend_uses_cached_batch_link_velocities() -> None:
     np.testing.assert_allclose(ang_vel, backend._link_velocities[:, body_ids, 3:])
 
 
+def test_motrix_copy_body_state_uses_cached_state_and_reuses_scratch() -> None:
+    import unilab.base.backend.motrix.backend as mod
+
+    num_envs, num_bodies = 2, 4
+    poses = np.arange(num_envs * num_bodies * 7, dtype=np.float32).reshape(num_envs, num_bodies, 7)
+    velocities = np.arange(num_envs * num_bodies * 6, dtype=np.float32).reshape(
+        num_envs, num_bodies, 6
+    )
+
+    backend = object.__new__(mod.MotrixBackend)
+    backend._num_envs = num_envs
+    backend._np_dtype = np.float32
+    backend._link_poses = poses
+    backend._link_velocities = velocities
+    backend._link_velocity_cache_valid = True
+    backend._link_velocity_cache = None
+    body_ids = np.asarray([3, 1], dtype=np.int32)
+    shape = (num_envs, len(body_ids), 3)
+    out_pos = np.empty(shape, dtype=np.float32)
+    out_quat = np.empty((num_envs, len(body_ids), 4), dtype=np.float32)
+    out_lin_vel = np.empty(shape, dtype=np.float32)
+    out_ang_vel = np.empty(shape, dtype=np.float32)
+
+    result = backend.copy_body_state_w(
+        body_ids,
+        out_pos,
+        out_quat,
+        out_lin_vel,
+        out_ang_vel,
+    )
+
+    assert result[0] is out_pos
+    assert result[1] is out_quat
+    assert result[2] is out_lin_vel
+    assert result[3] is out_ang_vel
+    np.testing.assert_array_equal(out_pos, poses[:, body_ids, :3])
+    np.testing.assert_array_equal(out_quat[:, :, 0], poses[:, body_ids, 6])
+    np.testing.assert_array_equal(out_quat[:, :, 1:], poses[:, body_ids, 3:6])
+    np.testing.assert_array_equal(out_lin_vel, velocities[:, body_ids, :3])
+    np.testing.assert_array_equal(out_ang_vel, velocities[:, body_ids, 3:])
+
+    first_scratch = backend._link_velocity_cache
+    velocities += 1000.0
+    backend.copy_body_state_w(body_ids, out_pos, out_quat, out_lin_vel, out_ang_vel)
+
+    assert backend._link_velocity_cache is first_scratch
+    np.testing.assert_array_equal(out_lin_vel, velocities[:, body_ids, :3])
+
+
 def test_motrix_backend_get_body_pose_w_slices_cached_poses_once() -> None:
     import unilab.base.backend.motrix.backend as mod
 
