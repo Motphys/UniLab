@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from unilab.base.backend.mjwarp.backend import MjwarpBackend, _cuda_graph_eligibility
+from unilab.base.backend.mjwarp.backend import (
+    MjwarpBackend,
+    _cuda_graph_eligibility,
+    _reset_scratch_capacity_for_batch,
+)
 
 
 class _FakeDevice:
@@ -172,6 +176,23 @@ def test_cuda_graph_capture_includes_materialized_reset_scratch() -> None:
     assert mujoco_warp.forward_calls == 2
     assert backend._can_use_reset_scratch(4) is True
     assert backend._can_use_reset_scratch(5) is False
+
+
+@pytest.mark.parametrize(
+    ("num_envs", "expected_capacity"),
+    [
+        (512, 0),
+        (1024, 128),
+        (2048, 128),
+        (4096, 256),
+        (8192, 512),
+        (16384, 512),
+    ],
+)
+def test_reset_scratch_capacity_scales_with_batch_and_stays_bounded(
+    num_envs: int, expected_capacity: int
+) -> None:
+    assert _reset_scratch_capacity_for_batch(num_envs) == expected_capacity
 
 
 def test_ineligible_cuda_graph_warns_and_uses_eager_operations() -> None:

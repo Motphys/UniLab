@@ -144,3 +144,38 @@ def test_host_reset_routes_small_row_sets_through_scratch() -> None:
         "scratch-refresh",
     ]
     assert not any(event[0] in {"main-forward", "main-refresh"} for event in events)
+
+
+def test_row_body_getters_gather_selected_rows_without_full_batch_reads() -> None:
+    """MJWarp's partial-reset getters must not materialize the full env batch."""
+    backend = object.__new__(MjwarpBackend)
+    backend._body_id_to_tracked_idx = np.asarray([2, 0, 1], dtype=np.intp)
+    backend._tracked_pos_w_all = np.arange(4 * 3 * 3, dtype=np.float32).reshape(4, 3, 3)
+    backend._tracked_quat_w_all = np.arange(4 * 3 * 4, dtype=np.float32).reshape(4, 3, 4)
+    backend._tracked_linvel_w_all = np.arange(4 * 3 * 3, dtype=np.float32).reshape(4, 3, 3) + 1000
+    backend._tracked_angvel_w_all = np.arange(4 * 3 * 3, dtype=np.float32).reshape(4, 3, 3) + 2000
+
+    def fail_full_getter(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("row getter must not call a full-batch getter")
+
+    backend.get_body_pos_w = fail_full_getter  # type: ignore[method-assign]
+    backend.get_body_quat_w = fail_full_getter  # type: ignore[method-assign]
+    backend.get_body_lin_vel_w = fail_full_getter  # type: ignore[method-assign]
+    backend.get_body_ang_vel_w = fail_full_getter  # type: ignore[method-assign]
+
+    rows = np.asarray([3, 1, 3], dtype=np.int32)
+    body_ids = np.asarray([1, 2], dtype=np.int32)
+    mapped = np.asarray([0, 1], dtype=np.intp)
+    expected_index = (rows[:, None], mapped)
+
+    pose_pos, pose_quat = backend.get_body_pose_w_rows(rows, body_ids)
+    np.testing.assert_array_equal(pose_pos, backend._tracked_pos_w_all[expected_index])
+    np.testing.assert_array_equal(pose_quat, backend._tracked_quat_w_all[expected_index])
+    np.testing.assert_array_equal(
+        backend.get_body_lin_vel_w_rows(rows, body_ids),
+        backend._tracked_linvel_w_all[expected_index],
+    )
+    np.testing.assert_array_equal(
+        backend.get_body_ang_vel_w_rows(rows, body_ids),
+        backend._tracked_angvel_w_all[expected_index],
+    )
