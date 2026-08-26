@@ -76,7 +76,9 @@ rank 子目录或任何日志文件。
 `training.log_dir` 保持原样。
 
 collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段），可用
-`training.dp_collector_cpu_ids` 显式指定。
+`training.dp_collector_cpu_ids` 显式指定。该核区经 `EnvCfg.cpu_ids` 生效：除
+MuJoCo worker 线程逐核绑定外，collector 进程本身（含 Numba 并行 kernel 线程池，池
+大小取核区长度）也被限制在同一核区内，避免跨 rank 抢占。
 
 当前限制：
 
