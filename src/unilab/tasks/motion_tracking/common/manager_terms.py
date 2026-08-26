@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import math
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -13,9 +12,6 @@ import numpy as np
 from unilab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
 from unilab.managers import CommandTerm, CommandTermCfg, ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.utils.geometry import (
-    np_write_relative_anchor_transform_pos_rot6d,
-)
 from unilab.utils.rotation import (
     np_quat_apply_inverse,
     np_quat_error_magnitude_squared_batched,
@@ -31,10 +27,9 @@ from .kernels import (
     reward_motion_body_pos_kernel,
     termination_anchor_pos_kernel,
     update_motion_metrics_kernel,
+    update_motion_relative_state_kernel,
 )
 from .motion_loader import MotionData, MotionLoader, MotionSampler
-from .observations import write_body_ori6_in_anchor_frame, write_body_pos_in_anchor_frame
-from .transforms import update_relative_transforms
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -191,11 +186,6 @@ class MotionCommand(CommandTerm):
         self.robot_body_pos_b = np.empty_like(self._body_pos_w)
         self.robot_body_ori_b = np.empty((self.num_envs, num_bodies, 6), dtype=dtype)
         self.joint_default_bias = np.zeros((self.num_envs, num_joints), dtype=dtype)
-        self._delta_pos_w = np.empty((self.num_envs, 3), dtype=dtype)
-        self._delta_ori_w = np.empty((self.num_envs, 4), dtype=dtype)
-        self._body_vec_error = np.empty_like(self._body_pos_w)
-        self._env_error = np.empty(self.num_envs, dtype=dtype)
-        self._reward_term = np.empty(self.num_envs, dtype=dtype)
         self._robot_cache_step = -1
         self._all_env_ids = np.arange(self.num_envs, dtype=np.int32)
         self._all_env_ids.setflags(write=False)
@@ -226,10 +216,10 @@ class MotionCommand(CommandTerm):
             self.metrics[name] = np.zeros(self.num_envs, dtype=dtype)
         self._refresh_motion()
         self._refresh_robot_state(force=True)
-        self._refresh_relative_state()
-        # Compile and execute the metrics kernel on the cold path so the first
-        # measured command-manager step contains no Numba dispatch/JIT latency.
+        # Configure and compile both fused kernels on the cold path so the first
+        # measured manager step contains no Numba worker/JIT initialization.
         configure_motion_kernel_runtime()
+        self._refresh_relative_state()
         self._update_metrics()
 
     def _make_motion_loader(
@@ -428,100 +418,22 @@ class MotionCommand(CommandTerm):
         self._robot_cache_step = step
 
     def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:
-        if env_ids is not None:
-            self._refresh_relative_state_rows(env_ids)
-            return
-        update_relative_transforms(
-            self,
-            self._motion_data,
+        rows = self._all_env_ids if env_ids is None else env_ids
+        update_motion_relative_state_kernel(
+            rows,
+            self.anchor_body_idx,
+            self._motion_data.body_pos_w,
+            self._body_pos_w,
+            self._motion_data.body_quat_w,
             self._robot_body_pos_w,
             self._robot_body_quat_w,
-        )
-        np_write_relative_anchor_transform_pos_rot6d(
-            self.robot_anchor_pos_w,
-            self.robot_anchor_quat_w,
-            self.anchor_pos_w,
-            self.anchor_quat_w,
+            self.body_pos_relative_w,
+            self.body_quat_relative_w,
             self.motion_anchor_pos_b,
             self.motion_anchor_ori_b,
-        )
-        write_body_pos_in_anchor_frame(
-            self.robot_anchor_pos_w,
-            self.robot_anchor_quat_w,
-            self._robot_body_pos_w,
             self.robot_body_pos_b,
-            body_vec_error=self._body_vec_error,
-        )
-        write_body_ori6_in_anchor_frame(
-            self.robot_anchor_quat_w,
-            self._robot_body_quat_w,
             self.robot_body_ori_b,
         )
-
-    def _refresh_relative_state_rows(self, env_ids: np.ndarray) -> None:
-        """Row-scoped variant of `_refresh_relative_state` for partial resets.
-
-        Computes the same transforms on the gathered reset rows and scatters the
-        results back; untouched rows keep their per-step values.
-        """
-        num_rows = len(env_ids)
-        num_bodies = self._robot_body_pos_w.shape[1]
-        dtype = self._body_pos_w.dtype
-        robot_pos_rows = self._robot_body_pos_w[env_ids]
-        robot_quat_rows = self._robot_body_quat_w[env_ids]
-        motion_rows = SimpleNamespace(
-            body_pos_w=self._motion_data.body_pos_w[env_ids],
-            body_quat_w=self._motion_data.body_quat_w[env_ids],
-        )
-        # `update_relative_transforms` reads/writes these attributes on the env;
-        # a namespace with row-sized scratch keeps the shared buffers untouched.
-        scratch = SimpleNamespace(
-            anchor_body_idx=self.anchor_body_idx,
-            _delta_pos_w=np.empty((num_rows, 3), dtype=dtype),
-            _delta_ori_w=np.empty((num_rows, 4), dtype=dtype),
-            body_quat_relative_w=np.empty((num_rows, num_bodies, 4), dtype=dtype),
-            body_pos_relative_w=np.empty((num_rows, num_bodies, 3), dtype=dtype),
-            _body_vec_error=np.empty((num_rows, num_bodies, 3), dtype=dtype),
-            _env_error=np.empty(num_rows, dtype=dtype),
-            _reward_term=np.empty(num_rows, dtype=dtype),
-        )
-        update_relative_transforms(scratch, motion_rows, robot_pos_rows, robot_quat_rows)
-        self.body_pos_relative_w[env_ids] = scratch.body_pos_relative_w
-        self.body_quat_relative_w[env_ids] = scratch.body_quat_relative_w
-
-        anchor_idx = self.anchor_body_idx
-        robot_anchor_pos_rows = robot_pos_rows[:, anchor_idx]
-        robot_anchor_quat_rows = robot_quat_rows[:, anchor_idx]
-        anchor_pos_rows = self._body_pos_w[env_ids][:, anchor_idx]
-        anchor_quat_rows = motion_rows.body_quat_w[:, anchor_idx]
-        motion_anchor_pos_b = np.empty((num_rows, 3), dtype=dtype)
-        motion_anchor_ori_b = np.empty((num_rows, 6), dtype=dtype)
-        np_write_relative_anchor_transform_pos_rot6d(
-            robot_anchor_pos_rows,
-            robot_anchor_quat_rows,
-            anchor_pos_rows,
-            anchor_quat_rows,
-            motion_anchor_pos_b,
-            motion_anchor_ori_b,
-        )
-        self.motion_anchor_pos_b[env_ids] = motion_anchor_pos_b
-        self.motion_anchor_ori_b[env_ids] = motion_anchor_ori_b
-        robot_body_pos_b = np.empty((num_rows, num_bodies, 3), dtype=dtype)
-        write_body_pos_in_anchor_frame(
-            robot_anchor_pos_rows,
-            robot_anchor_quat_rows,
-            robot_pos_rows,
-            robot_body_pos_b,
-            body_vec_error=scratch._body_vec_error,
-        )
-        self.robot_body_pos_b[env_ids] = robot_body_pos_b
-        robot_body_ori_b = np.empty((num_rows, num_bodies, 6), dtype=dtype)
-        write_body_ori6_in_anchor_frame(
-            robot_anchor_quat_rows,
-            robot_quat_rows,
-            robot_body_ori_b,
-        )
-        self.robot_body_ori_b[env_ids] = robot_body_ori_b
 
     def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
         # All row-wise metrics are written by one Numba kernel.  Passing an

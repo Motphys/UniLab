@@ -9,16 +9,13 @@ import numpy as np
 
 from unilab.managers import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.tasks.motion_tracking.common.kernels import update_object_relative_state_kernel
 from unilab.tasks.motion_tracking.common.manager_terms import (
     MotionCommand,
     MotionCommandCfg,
     MotionJointPositionAction,
 )
-from unilab.utils.geometry import np_write_relative_anchor_transform_pos_rot6d
-from unilab.utils.rotation import (
-    np_quat_apply_inverse,
-    np_quat_error_magnitude_squared_batched,
-)
+from unilab.utils.rotation import np_quat_error_magnitude_squared_batched
 
 from .motion_box_loader import BoxMotionData, BoxMotionLoader
 
@@ -115,37 +112,15 @@ class BoxMotionCommand(MotionCommand):
         self.object.write_root_state_to_sim(object_state, env_ids=env_ids)
 
     def _refresh_object_state(self, env_ids: np.ndarray | None = None) -> None:
-        if env_ids is None:
-            np_write_relative_anchor_transform_pos_rot6d(
-                self.robot_anchor_pos_w,
-                self.robot_anchor_quat_w,
-                self.object.data.root_link_pos_w,
-                self.object.data.root_link_quat_w,
-                self._object_obs_b[:, :3],
-                self._object_obs_b[:, 3:9],
-            )
-            self._object_obs_b[:, 9:12] = np_quat_apply_inverse(
-                self.robot_anchor_quat_w,
-                self.object.data.root_link_lin_vel_w,
-            )
-            return
-        num_rows = len(env_ids)
-        dtype = self._object_obs_b.dtype
-        pos_b = np.empty((num_rows, 3), dtype=dtype)
-        rot_b = np.empty((num_rows, 6), dtype=dtype)
-        np_write_relative_anchor_transform_pos_rot6d(
-            self.robot_anchor_pos_w[env_ids],
-            self.robot_anchor_quat_w[env_ids],
-            self.object.data.root_link_pos_w[env_ids],
-            self.object.data.root_link_quat_w[env_ids],
-            pos_b,
-            rot_b,
-        )
-        self._object_obs_b[env_ids, :3] = pos_b
-        self._object_obs_b[env_ids, 3:9] = rot_b
-        self._object_obs_b[env_ids, 9:12] = np_quat_apply_inverse(
-            self.robot_anchor_quat_w[env_ids],
-            self.object.data.root_link_lin_vel_w[env_ids],
+        rows = self._all_env_ids if env_ids is None else env_ids
+        update_object_relative_state_kernel(
+            rows,
+            self.robot_anchor_pos_w,
+            self.robot_anchor_quat_w,
+            self.object.data.root_link_pos_w,
+            self.object.data.root_link_quat_w,
+            self.object.data.root_link_lin_vel_w,
+            self._object_obs_b,
         )
 
     def post_compute(self) -> None:
