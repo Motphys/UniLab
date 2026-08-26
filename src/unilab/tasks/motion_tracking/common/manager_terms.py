@@ -30,6 +30,7 @@ from .kernels import (
     reward_motion_body_ori_kernel,
     reward_motion_body_pos_kernel,
     termination_anchor_pos_kernel,
+    update_motion_metrics_kernel,
 )
 from .motion_loader import MotionData, MotionLoader, MotionSampler
 from .observations import write_body_ori6_in_anchor_frame, write_body_pos_in_anchor_frame
@@ -196,6 +197,8 @@ class MotionCommand(CommandTerm):
         self._env_error = np.empty(self.num_envs, dtype=dtype)
         self._reward_term = np.empty(self.num_envs, dtype=dtype)
         self._robot_cache_step = -1
+        self._all_env_ids = np.arange(self.num_envs, dtype=np.int32)
+        self._all_env_ids.setflags(write=False)
         # Env ids of the most recent scoped (reset-path) compute; None after a
         # per-step compute. Written by `_update_command`, consumed by
         # `post_compute` to restrict refresh work to the reset rows.
@@ -224,6 +227,10 @@ class MotionCommand(CommandTerm):
         self._refresh_motion()
         self._refresh_robot_state(force=True)
         self._refresh_relative_state()
+        # Compile and execute the metrics kernel on the cold path so the first
+        # measured command-manager step contains no Numba dispatch/JIT latency.
+        configure_motion_kernel_runtime()
+        self._update_metrics()
 
     def _make_motion_loader(
         self,
@@ -517,43 +524,37 @@ class MotionCommand(CommandTerm):
         self.robot_body_ori_b[env_ids] = robot_body_ori_b
 
     def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
-        # All error metrics are row-wise functions of the motion/robot buffers;
-        # on the reset path only the reset rows are recomputed since other rows
-        # are unchanged since the per-step update.
-        sel: np.ndarray | slice = slice(None) if env_ids is None else env_ids
-        self.metrics["error_anchor_pos"][sel] = np.linalg.norm(
-            self.anchor_pos_w[sel] - self.robot_anchor_pos_w[sel], axis=-1
-        )
-        self.metrics["error_anchor_rot"][sel] = np.sqrt(
-            np_quat_error_magnitude_squared_batched(
-                self.anchor_quat_w[sel], self.robot_anchor_quat_w[sel]
-            )
-        )
-        self.metrics["error_anchor_lin_vel"][sel] = np.linalg.norm(
-            self.anchor_lin_vel_w[sel] - self.robot_anchor_lin_vel_w[sel], axis=-1
-        )
-        self.metrics["error_anchor_ang_vel"][sel] = np.linalg.norm(
-            self.anchor_ang_vel_w[sel] - self.robot_anchor_ang_vel_w[sel], axis=-1
-        )
-        self.metrics["error_body_pos"][sel] = np.linalg.norm(
-            self.body_pos_relative_w[sel] - self.robot_body_pos_w[sel], axis=-1
-        ).mean(axis=-1)
-        self.metrics["error_body_rot"][sel] = np.sqrt(
-            np_quat_error_magnitude_squared_batched(
-                self.body_quat_relative_w[sel], self.robot_body_quat_w[sel]
-            )
-        ).mean(axis=-1)
-        self.metrics["error_body_lin_vel"][sel] = np.linalg.norm(
-            self.body_lin_vel_w[sel] - self.robot_body_lin_vel_w[sel], axis=-1
-        ).mean(axis=-1)
-        self.metrics["error_body_ang_vel"][sel] = np.linalg.norm(
-            self.body_ang_vel_w[sel] - self.robot_body_ang_vel_w[sel], axis=-1
-        ).mean(axis=-1)
-        self.metrics["error_joint_pos"][sel] = np.linalg.norm(
-            self.joint_pos[sel] - self.robot_joint_pos[sel], axis=-1
-        )
-        self.metrics["error_joint_vel"][sel] = np.linalg.norm(
-            self.joint_vel[sel] - self.robot_joint_vel[sel], axis=-1
+        # All row-wise metrics are written by one Numba kernel.  Passing an
+        # explicit all-row index buffer for normal steps lets the same kernel
+        # serve partial-reset rows without retaining a NumPy runtime formula.
+        rows = self._all_env_ids if env_ids is None else env_ids
+        update_motion_metrics_kernel(
+            rows,
+            self.anchor_body_idx,
+            self._body_pos_w,
+            self._robot_body_pos_w,
+            self._motion_data.body_quat_w,
+            self._robot_body_quat_w,
+            self._motion_data.body_lin_vel_w,
+            self._robot_body_lin_vel_w,
+            self._motion_data.body_ang_vel_w,
+            self._robot_body_ang_vel_w,
+            self.body_pos_relative_w,
+            self.body_quat_relative_w,
+            self._motion_data.joint_pos,
+            self.robot_joint_pos,
+            self._motion_data.joint_vel,
+            self.robot_joint_vel,
+            self.metrics["error_anchor_pos"],
+            self.metrics["error_anchor_rot"],
+            self.metrics["error_anchor_lin_vel"],
+            self.metrics["error_anchor_ang_vel"],
+            self.metrics["error_body_pos"],
+            self.metrics["error_body_rot"],
+            self.metrics["error_body_lin_vel"],
+            self.metrics["error_body_ang_vel"],
+            self.metrics["error_joint_pos"],
+            self.metrics["error_joint_vel"],
         )
         # Sampler statistics are global scalars, so every row tracks them.
         self.metrics["sampling_entropy"].fill(self.sampler.sampling_entropy)
