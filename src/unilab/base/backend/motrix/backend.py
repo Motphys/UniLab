@@ -53,7 +53,6 @@ from ..motrix_camera import (
     resolve_system_camera_view,
     tracking_camera_lookat,
 )
-from .body_state import copy_selected_motrix_body_state
 from .playback import run_motrix_playback
 
 logger = logging.getLogger(__name__)
@@ -329,6 +328,7 @@ class MotrixBackend(SimBackend):
         self._render_offsets_np: np.ndarray | None = None
         self._render_tracking_camera: MotrixTrackingCamera | None = None
         self.backend_type = "motrix"
+        self._link_velocity_cache: np.ndarray | None = None
 
         # Pre-cache link objects to avoid repeated get_link() lookups.
         self._link_cache: dict[int, "mtx.Link"] = {}
@@ -1135,15 +1135,31 @@ class MotrixBackend(SimBackend):
         out_ang_vel: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ids = self._as_body_ids(body_ids)
-        copy_selected_motrix_body_state(
-            self._link_poses,
-            self._ensure_link_velocity_cache(),
-            ids,
-            out_pos,
-            out_quat,
-            out_lin_vel,
-            out_ang_vel,
-        )
+        poses_w = self._get_link_poses_w(ids)
+        out_pos[..., 0] = poses_w[..., 0]
+        out_pos[..., 1] = poses_w[..., 1]
+        out_pos[..., 2] = poses_w[..., 2]
+        out_quat[..., 0] = poses_w[..., 6]
+        out_quat[..., 1] = poses_w[..., 3]
+        out_quat[..., 2] = poses_w[..., 4]
+        out_quat[..., 3] = poses_w[..., 5]
+
+        link_velocity_cache = self._ensure_link_velocity_cache()
+        if self._link_velocity_cache is None or self._link_velocity_cache.shape != (
+            self._num_envs,
+            len(ids),
+            6,
+        ):
+            self._link_velocity_cache = np.empty(
+                (self._num_envs, len(ids), 6), dtype=self._np_dtype
+            )
+        np.take(link_velocity_cache, ids, axis=1, out=self._link_velocity_cache)
+        out_lin_vel[..., 0] = self._link_velocity_cache[..., 0]
+        out_lin_vel[..., 1] = self._link_velocity_cache[..., 1]
+        out_lin_vel[..., 2] = self._link_velocity_cache[..., 2]
+        out_ang_vel[..., 0] = self._link_velocity_cache[..., 3]
+        out_ang_vel[..., 1] = self._link_velocity_cache[..., 4]
+        out_ang_vel[..., 2] = self._link_velocity_cache[..., 5]
         return out_pos, out_quat, out_lin_vel, out_ang_vel
 
     def get_body_vel_w(self, body_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
