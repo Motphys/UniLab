@@ -122,6 +122,13 @@ class SceneMetadata:
     sensors: dict[str, SceneSensorSpec] = field(default_factory=dict)
     unsupported_sensors: dict[str, UnsupportedSensorSpec] = field(default_factory=dict)
     keyframes: dict[str, np.ndarray] = field(default_factory=dict)
+    joint_names: tuple[str, ...] = ()
+    """Single-DoF joint names in MJCF document order (the qpos[7:] layout).
+
+    Note: ``<include>`` splicing order is approximated by file-visit order;
+    scenes whose joints live in more than one file are not supported by the
+    keyframe application path.
+    """
 
 
 def _iter_scene_files(model_file: Path) -> list[Path]:
@@ -186,6 +193,12 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
                 )
             elif child.tag == "geom" and child.get("name"):
                 metadata["geom_body"][child.get("name")] = body_name
+            elif child.tag == "joint" and child.get("name"):
+                # Single-DoF joint names in MJCF document order, matching the
+                # joint section of keyframe/qpos (qpos[7:]). Free joints are
+                # excluded (they are the root 7/6 columns); ball joints are
+                # outside the backend's 1-dof-per-joint contract.
+                metadata["joint_names"].append(child.get("name"))
             elif child.tag == "body":
                 walk_body(child)
 
@@ -353,6 +366,7 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
         "geom_body": {},
         "sensors": [],
         "keyframes": {},
+        "joint_names": [],
     }
     for scene_file in _iter_scene_files(path):
         _scan_one_file(scene_file, raw)
@@ -377,6 +391,7 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
         sensors=sensors,
         unsupported_sensors=unsupported,
         keyframes=raw["keyframes"],
+        joint_names=tuple(str(name) for name in raw["joint_names"]),
     )
 
 

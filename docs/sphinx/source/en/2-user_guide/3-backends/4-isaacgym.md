@@ -112,6 +112,13 @@ tar -xzf "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNILAB_I
   is a valid gzip tarball. If it fails, delete
   `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` and re-run, or pass
   a manually downloaded package with `--tarball <path>`.
+- **First INIT handshake times out (worker unresponsive)**: the first
+  `gymtorch` import JIT-compiles a C++ extension (several minutes, cached
+  under `~/.cache/torch_extensions/py38_cu121/gymtorch/`). The setup script's
+  self-check pre-warms this compile. If a compile process was ever killed
+  hard, a stale `lock` file in that directory blocks later loads forever —
+  delete it and retry. The worker needs the env's `bin/` on `PATH` (for
+  ninja); `IsaacGymBackend` injects it automatically.
 - **`GLIBCXX_3.4.32 not found` on Ubuntu 24.04**: the prebuilt IsaacGym
   libraries link against a newer libstdc++ than the system provides. The setup
   script installs conda-forge `libstdcxx-ng` into the `hsgym` environment to

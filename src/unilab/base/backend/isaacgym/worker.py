@@ -69,8 +69,9 @@ class _WorkerContext:
         isaacgym_python = payload["isaacgym_python"]
         if isaacgym_python not in sys.path:
             sys.path.insert(0, isaacgym_python)
+        # isaacgym must be imported before torch (it enforces this itself).
+        from isaacgym import gymapi, gymtorch  # noqa: PLC0415, I001
         import torch  # noqa: PLC0415
-        from isaacgym import gymapi, gymtorch  # noqa: PLC0415
 
         self.gymapi = gymapi
         self.gymtorch = gymtorch
@@ -151,13 +152,20 @@ class _WorkerContext:
 
         self.num_dof = int(self.gym.get_asset_dof_count(asset))
         self.num_bodies = int(self.gym.get_asset_rigid_body_count(asset))
+        self.dof_names: List[str] = list(self.gym.get_asset_dof_names(asset))
+        keyframe_qpos = payload.get("keyframe_qpos")
+        if keyframe_qpos is not None:
+            # Apply the scene's task-initial pose (AGENTS.md: the keyframe is
+            # the task initial state) so the post-INIT state matches the
+            # host-side get_default_qpos()/get_default_dof_pos() contract.
+            self._apply_initial_keyframe(keyframe_qpos, payload.get("mjcf_joint_names") or [])
         lower = np.asarray(dof_props["lower"], dtype=np.float64)
         upper = np.asarray(dof_props["upper"], dtype=np.float64)
         effort = np.asarray(dof_props["effort"], dtype=np.float64)
         return {
             "num_dof": self.num_dof,
             "num_bodies": self.num_bodies,
-            "dof_names": list(self.gym.get_asset_dof_names(asset)),
+            "dof_names": list(self.dof_names),
             "body_names": list(self.gym.get_asset_rigid_body_names(asset)),
             "dof_lower": lower.tolist(),
             "dof_upper": upper.tolist(),
@@ -165,6 +173,69 @@ class _WorkerContext:
             "gravity": [0.0, 0.0, -9.81],
             "use_gpu_pipeline": self.use_gpu_pipeline,
         }
+
+    def _apply_initial_keyframe(self, qpos_values: Any, joint_names: Any) -> None:
+        """Write the scene keyframe pose into every env via the tensor API.
+
+        ``qpos_values`` follows the MJCF layout: 7 free-root columns
+        (xyz + wxyz quat) plus one column per single-DoF joint in document
+        order (``joint_names``).  DoF values are mapped onto the asset's dofs
+        by NAME, because IsaacGym's MJCF importer is free to reorder joints.
+        """
+        protocol = self.protocol
+        torch = self.torch
+        qpos = np.asarray(qpos_values, dtype=np.float32).reshape(-1)
+        expected = 7 + self.num_dof
+        if qpos.size != expected:
+            raise RuntimeError(
+                "keyframe qpos has %d entries; expected %d (7 root + %d dofs)"
+                % (qpos.size, expected, self.num_dof)
+            )
+        joint_names = [str(name) for name in joint_names]
+        if len(joint_names) != self.num_dof:
+            raise RuntimeError(
+                "mjcf_joint_names has %d entries but the asset exposes %d dofs; "
+                "IsaacGym's MJCF importer must preserve one dof per single-DoF joint"
+                % (len(joint_names), self.num_dof)
+            )
+        index_by_name = {}
+        for index, name in enumerate(joint_names):
+            index_by_name[name] = index
+        dof_pos = np.zeros((self.num_envs, self.num_dof), dtype=np.float32)
+        for dof_index, dof_name in enumerate(self.dof_names):
+            if dof_name not in index_by_name:
+                raise RuntimeError(
+                    "isaacgym asset dof %r is missing from mjcf_joint_names; the MJCF "
+                    "importer may have dropped or renamed the joint" % dof_name
+                )
+            dof_pos[:, dof_index] = qpos[7 + index_by_name[dof_name]]
+
+        env_ids = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
+        root = np.zeros((self.num_envs, 13), dtype=np.float32)
+        root[:, 0:3] = qpos[0:3]
+        root[:, 3:7] = protocol.wxyz_to_xyzw(qpos[None, 3:7])
+        root_view = self._root_state.view(self.num_envs, -1, 13)
+        root_view[:, 0, :] = torch.from_numpy(root).to(self.device)
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            self.gymtorch.unwrap_tensor(self._root_state),
+            self.gymtorch.unwrap_tensor(env_ids),
+            self.num_envs,
+        )
+        dof = np.zeros((self.num_envs, self.num_dof, 2), dtype=np.float32)
+        dof[:, :, 0] = dof_pos
+        dof_view = self._dof_state.view(self.num_envs, self.num_dof, 2)
+        dof_view[:, :, :] = torch.from_numpy(dof).to(self.device)
+        self.gym.set_dof_state_tensor_indexed(
+            self.sim,
+            self.gymtorch.unwrap_tensor(self._dof_state),
+            self.gymtorch.unwrap_tensor(env_ids),
+            self.num_envs,
+        )
+        # Root/dof tensors read back coherently without a physics step; rigid
+        # body states stay at the spawn pose until the first STEP (the same
+        # documented staleness as SET_STATE).
+        self._refresh_tensors()
 
     def _acquire_tensors(self) -> None:
         gym = self.gym
@@ -347,7 +418,13 @@ def main(argv: List[str]) -> int:
     ctx = _WorkerContext(protocol)
 
     stdin = sys.stdin.buffer
-    stdout = sys.stdout.buffer
+    # IsaacGym's native extension prints banners straight to fd 1, which would
+    # corrupt the framed protocol. Keep a private copy of the original stdout
+    # for protocol messages and reroute fd 1 (and with it sys.stdout) to
+    # stderr, where the parent captures it for crash diagnostics.
+    protocol_out = os.fdopen(os.dup(1), "wb")
+    os.dup2(2, 1)
+    stdout = protocol_out
     while True:
         try:
             message = protocol.recv_message(stdin)

@@ -8,6 +8,8 @@ dedicated conda env created by ``scripts/tools/setup_isaacgym_env.sh`` under
 - ``miniconda3/envs/hsgym/bin/python3.8`` — the worker interpreter,
 - ``miniconda3/envs/hsgym/lib`` — prepended to the worker's
   ``LD_LIBRARY_PATH`` (conda ``libstdcxx-ng`` fixes the GLIBCXX mismatch),
+- ``miniconda3/envs/hsgym/bin`` — prepended to the worker's ``PATH`` so the
+  pip-installed ``ninja`` is reachable for the one-time gymtorch JIT compile,
 - ``isaacgym/python`` — appended to the worker's ``sys.path``.
 
 ``UNILAB_ISAACGYM_PYTHON`` overrides the interpreter path explicitly.
@@ -28,8 +30,7 @@ _ISAACGYM_PYTHON_REL = Path("isaacgym") / "python"
 _SETUP_HINT = (
     "Install the dedicated IsaacGym worker environment with "
     "scripts/tools/setup_isaacgym_env.sh (see the IsaacGym backend page in "
-    "docs/sphinx/source/*/2-user_guide/3-backends/4-isaacgym.md). The script "
-    "requires a manually downloaded IsaacGym Preview 4 tarball."
+    "docs/sphinx/source/*/2-user_guide/3-backends/4-isaacgym.md)."
 )
 
 
@@ -107,10 +108,19 @@ def isaacgym_runtime_available() -> bool:
 
 
 def build_worker_env(runtime: IsaacGymRuntime) -> dict[str, str]:
-    """Build the worker process environment with the conda lib path prepended."""
+    """Build the worker process environment.
+
+    Prepends the conda env's ``lib`` to ``LD_LIBRARY_PATH`` (the
+    ``libstdcxx-ng`` GLIBCXX fix and ``libpython3.8``) and its ``bin`` to
+    ``PATH`` (the pip-installed ``ninja`` must be reachable for the one-time
+    gymtorch JIT compile on a fresh machine).
+    """
     env = dict(os.environ)
     existing = env.get("LD_LIBRARY_PATH", "")
     env["LD_LIBRARY_PATH"] = f"{runtime.lib_path}:{existing}" if existing else str(runtime.lib_path)
+    env_bin = str(runtime.lib_path.parent / "bin")
+    existing_path = env.get("PATH", "")
+    env["PATH"] = f"{env_bin}:{existing_path}" if existing_path else env_bin
     return env
 
 

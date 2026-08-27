@@ -285,6 +285,7 @@ class IsaacGymBackend(SimBackend):
         self._worker_dead_error: IsaacGymWorkerError | None = None
         self._model_info: IsaacGymModelInfo | None = None
         self._scene_metadata: SceneMetadata | None = None
+        self._initial_qpos: np.ndarray | None = None
         self._sensor_map: dict[str, tuple[SceneSensorSpec, int]] = {}
         self._body_id_by_name: dict[str, int] = {}
         self._dof_id_by_name: dict[str, int] = {}
@@ -300,6 +301,10 @@ class IsaacGymBackend(SimBackend):
         """Spawn the worker, run the handshake, and bind shared-memory slots."""
         if self._proc is not None:
             return
+        # Parent-side MJCF scan (sensors, keyframes, joint document order)
+        # runs before spawn so the INIT payload can carry the keyframe pose.
+        self._scene_metadata = scan_scene_metadata(str(Path(self._scene.model_file).expanduser()))
+        self._initial_qpos = self._select_initial_keyframe(self._scene_metadata)
         runtime: IsaacGymRuntime | None = None
         if self._worker_command is None:
             runtime = resolve_isaacgym_runtime()
@@ -333,16 +338,20 @@ class IsaacGymBackend(SimBackend):
                     "device_id": self._device_id,
                     "headless": self._headless,
                     "isaacgym_python": isaacgym_python,
+                    "keyframe_qpos": (
+                        None
+                        if self._initial_qpos is None
+                        else [float(value) for value in self._initial_qpos]
+                    ),
+                    "mjcf_joint_names": list(self._scene_metadata.joint_names),
                 },
                 expect=protocol.CMD_META,
             )
             self._bind_model_metadata(meta)
+            self._validate_initial_keyframe()
             self._allocate_slots()
             self._request(
                 protocol.CMD_ATTACH, {"slots": self._slot_specs()}, expect=protocol.CMD_READY
-            )
-            self._scene_metadata = scan_scene_metadata(
-                str(Path(self._scene.model_file).expanduser())
             )
             self._sensor_map = self._resolve_sensor_map()
             if self._base_name is not None:
@@ -358,6 +367,49 @@ class IsaacGymBackend(SimBackend):
         # Subprocess liveness cannot rely on __del__ alone during interpreter
         # teardown; the atexit hook is unregistered by close().
         atexit.register(self.close)
+
+    def _select_initial_keyframe(self, metadata: SceneMetadata) -> np.ndarray | None:
+        """Pick the scene's task-initial keyframe (cold path).
+
+        ``SceneCfg.default_keyframe_name`` wins when set; a scene with exactly
+        one keyframe uses it implicitly (AGENTS.md: the keyframe is the task
+        initial pose); a scene without (or with ambiguous) keyframes falls back
+        to the all-zero qpos convention.  The selected qpos becomes the
+        backend's default state, so ``get_default_qpos``/``get_default_dof_pos``
+        match the post-INIT worker state.
+        """
+        name = self._scene.default_keyframe_name
+        if name is not None:
+            if name not in metadata.keyframes:
+                available = ", ".join(sorted(metadata.keyframes))
+                raise ValueError(
+                    f"scene default_keyframe_name {name!r} not found in MJCF keyframes; "
+                    f"available: {available}"
+                )
+            qpos = metadata.keyframes[name]
+        elif len(metadata.keyframes) == 1:
+            qpos = next(iter(metadata.keyframes.values()))
+        else:
+            return None
+        if qpos.size != _ROOT_QPOS_DIM + len(metadata.joint_names):
+            raise ValueError(
+                f"keyframe qpos has {qpos.size} entries; expected "
+                f"{_ROOT_QPOS_DIM + len(metadata.joint_names)} (7 root + "
+                f"{len(metadata.joint_names)} joints in document order)"
+            )
+        return qpos.astype(np.float32, copy=True)
+
+    def _validate_initial_keyframe(self) -> None:
+        """Check the selected keyframe against the worker's actual dof count."""
+        if self._initial_qpos is None:
+            return
+        info = self._require_materialized()
+        expected = _ROOT_QPOS_DIM + info.num_dof
+        if self._initial_qpos.size != expected:
+            raise ValueError(
+                f"scene keyframe qpos has {self._initial_qpos.size} entries; the IsaacGym "
+                f"asset exposes {info.num_dof} dofs, expected {expected}"
+            )
 
     def _bind_model_metadata(self, meta: dict[str, Any]) -> None:
         num_dof = int(meta["num_dof"])
@@ -622,12 +674,18 @@ class IsaacGymBackend(SimBackend):
 
     def get_default_qpos(self) -> np.ndarray:
         info = self._require_materialized()
+        if self._initial_qpos is not None:
+            # The selected scene keyframe is the backend default state (and the
+            # post-INIT worker state).
+            return self._initial_qpos.copy()
         qpos = np.zeros((_ROOT_QPOS_DIM + info.num_dof,), dtype=np.float32)
         qpos[3] = 1.0
         return qpos
 
     def get_default_dof_pos(self) -> np.ndarray:
         info = self._require_materialized()
+        if self._initial_qpos is not None:
+            return self._initial_qpos[_ROOT_QPOS_DIM:].copy()
         return np.zeros((info.num_dof,), dtype=np.float32)
 
     def get_init_qvel(self) -> np.ndarray:

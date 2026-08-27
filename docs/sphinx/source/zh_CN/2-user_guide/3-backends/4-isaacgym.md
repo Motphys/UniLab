@@ -100,6 +100,11 @@ tar -xzf "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNILAB_I
 - **tarball 下载或校验失败**：脚本会对下载结果做 gzip 校验；失败时删除
   `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` 后重跑，或用
   `--tarball <path>` 指定手动下载的安装包。
+- **首次 INIT 握手超时（worker 无响应）**：`gymtorch` 首次 import 会 JIT 编译
+  C++ 扩展（数分钟，缓存于 `~/.cache/torch_extensions/py38_cu121/gymtorch/`）。
+  安装脚本的自检已预热该编译；若编译进程曾被强杀，可能残留 `lock` 文件导致
+  永久等待——删除该目录下的 `lock` 后重试。worker 环境需要 env 的 `bin/`
+  在 `PATH` 上（提供 ninja），`IsaacGymBackend` 会自动注入。
 - **Ubuntu 24.04 报 `GLIBCXX_3.4.32 not found`**：IsaacGym 预编译库链接的
   libstdc++ 比系统自带的旧；安装脚本已在 `hsgym` 环境中安装 conda-forge 的
   `libstdcxx-ng` 解决，运行时把 `LD_LIBRARY_PATH` 指向该 env 的 `lib/` 即可。

@@ -142,10 +142,14 @@ else
   "$ENV_ROOT/bin/pip" install -e "$ISAACGYM_DIR/python"
 fi
 
-# Step 5: self-check the import with the env's lib/ on LD_LIBRARY_PATH.
-log "running isaacgym import self-check"
-LD_LIBRARY_PATH="$ENV_ROOT/lib" "$HSGYM_PYTHON" \
-  -c "from isaacgym import gymapi; print('isaacgym import OK')"
+# Step 5: self-check the import with the env's lib/ on LD_LIBRARY_PATH. The
+# gymtorch import triggers a one-time JIT compile of its C++ extension
+# (several minutes on a fresh machine, cached afterwards); doing it here keeps
+# the first backend INIT handshake fast. ninja must be reachable via the env's
+# bin/ on PATH.
+log "running isaacgym import self-check (first run compiles the gymtorch extension)"
+PATH="$ENV_ROOT/bin:$PATH" LD_LIBRARY_PATH="$ENV_ROOT/lib" "$HSGYM_PYTHON" \
+  -c "from isaacgym import gymapi, gymtorch; print('isaacgym import OK')"
 
 # Step 6: print the exports and verification command for the user's shell rc.
 cat <<EOF

@@ -99,6 +99,28 @@ class _MockSim:
             self.root[:, 0:3] += self.root[:, 7:10] * dt
         self.write_state_slots()
 
+    def apply_keyframe(self, qpos_values: Any, joint_names: List[str]) -> None:
+        """Apply the INIT keyframe pose with the same name-mapping rules as the
+        real worker (root columns pass through in the mock's wxyz convention)."""
+        qpos = np.asarray(qpos_values, dtype=np.float32).reshape(-1)
+        expected = 7 + self.num_dof
+        if qpos.size != expected:
+            raise RuntimeError("keyframe qpos has %d entries; expected %d" % (qpos.size, expected))
+        index_by_name = {name: index for index, name in enumerate(joint_names)}
+        if len(joint_names) != self.num_dof:
+            raise RuntimeError(
+                "mjcf_joint_names has %d entries but the asset exposes %d dofs"
+                % (len(joint_names), self.num_dof)
+            )
+        for dof_index, dof_name in enumerate(self.dof_names):
+            if dof_name not in index_by_name:
+                raise RuntimeError(
+                    "isaacgym asset dof %r is missing from mjcf_joint_names" % dof_name
+                )
+            self.dof[:, dof_index, 0] = qpos[7 + index_by_name[dof_name]]
+        self.root[:, 0:3] = qpos[0:3]
+        self.root[:, 3:7] = qpos[3:7]
+
     def set_state(self, count: int) -> None:
         env_ids = self.slots["reset_env_ids"][:count].astype(np.int64)
         qpos = self.slots["reset_qpos"][:count]
@@ -162,6 +184,9 @@ def main(argv: List[str]) -> int:
                 dof_names=_csv_env("UNILAB_ISAACGYM_MOCK_DOF_NAMES", ["j0", "j1", "j2"]),
                 body_names=_csv_env("UNILAB_ISAACGYM_MOCK_BODY_NAMES", ["base", "link0", "link1"]),
             )
+            keyframe_qpos = payload.get("keyframe_qpos")
+            if keyframe_qpos is not None:
+                sim.apply_keyframe(keyframe_qpos, payload.get("mjcf_joint_names") or [])
             return protocol.CMD_META, sim.meta()
         assert sim is not None
         if cmd == protocol.CMD_ATTACH:

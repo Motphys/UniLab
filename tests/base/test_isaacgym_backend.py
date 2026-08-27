@@ -266,9 +266,10 @@ def test_materialize_binds_metadata_and_slots(backend: IsaacGymBackend) -> None:
 
     default_qpos = backend.get_default_qpos()
     assert default_qpos.shape == (10,)
-    np.testing.assert_allclose(default_qpos, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0], atol=1e-7)
+    # The sole scene keyframe ("home") is selected as the initial/default state.
+    np.testing.assert_allclose(default_qpos, [0, 0, 0.8, 1, 0, 0, 0, 0.1, 0.2, 0.3], atol=1e-7)
     np.testing.assert_allclose(backend.get_init_qvel(), np.zeros(9))
-    np.testing.assert_allclose(backend.get_default_dof_pos(), np.zeros(3))
+    np.testing.assert_allclose(backend.get_default_dof_pos(), [0.1, 0.2, 0.3], atol=1e-7)
     np.testing.assert_allclose(
         backend.get_keyframe_qpos("home"), [0, 0, 0.8, 1, 0, 0, 0, 0.1, 0.2, 0.3]
     )
@@ -288,10 +289,96 @@ def test_materialize_binds_metadata_and_slots(backend: IsaacGymBackend) -> None:
         backend.get_joint_state_qvel_indices(["j1"]), np.array([7], dtype=np.int32)
     )
 
-    # Initial state written by the mock at ATTACH.
-    np.testing.assert_allclose(backend.get_base_pos(), [[0, 0, 1], [0, 0, 1]], atol=1e-6)
+    # Initial state written by the mock at ATTACH reflects the scene keyframe:
+    # root at z=0.8, dofs at the keyframe joint positions.
+    np.testing.assert_allclose(backend.get_base_pos(), [[0, 0, 0.8], [0, 0, 0.8]], atol=1e-6)
+    np.testing.assert_allclose(backend.get_dof_pos(), [[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]], atol=1e-6)
     np.testing.assert_allclose(np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0)
     assert backend.model.num_bodies == 3
+
+
+def test_init_applies_scene_keyframe(scene_file: str) -> None:
+    """INIT applies the scene keyframe as the initial root pose + dof pos."""
+    backend = _make_backend(scene_file)
+    backend.materialize()
+    try:
+        np.testing.assert_allclose(backend.get_dof_pos(), [[0.1, 0.2, 0.3]] * NUM_ENVS, atol=1e-6)
+        np.testing.assert_allclose(backend.get_base_pos(), [[0.0, 0.0, 0.8]] * NUM_ENVS, atol=1e-6)
+        np.testing.assert_allclose(
+            backend.get_base_quat(), [[1.0, 0.0, 0.0, 0.0]] * NUM_ENVS, atol=1e-6
+        )
+        # The default-state contract matches the post-INIT worker state.
+        np.testing.assert_allclose(
+            backend.get_default_dof_pos(), backend.get_dof_pos()[0], atol=1e-7
+        )
+    finally:
+        backend.close()
+
+
+def test_init_keyframe_selection_prefers_default_keyframe_name(tmp_path: Path) -> None:
+    scene = textwrap.dedent(_SCENE_XML).replace(
+        '<key name="home" qpos="0 0 0.8 1 0 0 0 0.1 0.2 0.3"/>',
+        '<key name="home" qpos="0 0 0.8 1 0 0 0 0.1 0.2 0.3"/>'
+        '<key name="crouch" qpos="0 0 0.5 1 0 0 0 -0.1 -0.2 -0.3"/>',
+    )
+    (tmp_path / "robot.xml").write_text(textwrap.dedent(_ROBOT_XML), encoding="utf-8")
+    (tmp_path / "scene.xml").write_text(scene, encoding="utf-8")
+    scene_file = str(tmp_path / "scene.xml")
+
+    # Ambiguous keyframes without default_keyframe_name keep the zero default.
+    backend = _make_backend(scene_file)
+    backend.materialize()
+    try:
+        np.testing.assert_allclose(backend.get_default_dof_pos(), np.zeros(3))
+        np.testing.assert_allclose(backend.get_dof_pos(), np.zeros((NUM_ENVS, 3)))
+    finally:
+        backend.close()
+
+    # An explicit default_keyframe_name selects that keyframe.
+    backend = create_backend(
+        "isaacgym",
+        SceneCfg(model_file=scene_file, default_keyframe_name="crouch"),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+        worker_command=[sys.executable, _MOCK_WORKER],
+        worker_timeout_s=30.0,
+    )
+    assert isinstance(backend, IsaacGymBackend)
+    backend.materialize()
+    try:
+        np.testing.assert_allclose(
+            backend.get_dof_pos(), [[-0.1, -0.2, -0.3]] * NUM_ENVS, atol=1e-6
+        )
+        np.testing.assert_allclose(backend.get_base_pos(), [[0.0, 0.0, 0.5]] * NUM_ENVS, atol=1e-6)
+    finally:
+        backend.close()
+
+    # A missing default_keyframe_name fails fast at materialize.
+    backend = create_backend(
+        "isaacgym",
+        SceneCfg(model_file=scene_file, default_keyframe_name="missing"),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+        worker_command=[sys.executable, _MOCK_WORKER],
+        worker_timeout_s=30.0,
+    )
+    with pytest.raises(ValueError, match="default_keyframe_name 'missing' not found"):
+        backend.materialize()
+    backend.close()
+
+
+def test_init_keyframe_dof_name_mismatch_fails(
+    scene_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_DOF_NAMES", "j0,j1,renamed_joint")
+    backend = _make_backend(scene_file)
+    try:
+        with pytest.raises(IsaacGymWorkerError, match="renamed_joint.*mjcf_joint_names"):
+            backend.materialize()
+    finally:
+        backend.close()
 
 
 def test_step_integrates_mock_physics(backend: IsaacGymBackend) -> None:
@@ -300,15 +387,20 @@ def test_step_integrates_mock_physics(backend: IsaacGymBackend) -> None:
     assert "timing" in result
     assert "physics_ms" in result["timing"]
 
-    # Mock: dof_vel += ctrl*dt; dof_pos += dof_vel*dt per substep.
+    # Mock: dof_vel += ctrl*dt; dof_pos += dof_vel*dt per substep, starting
+    # from the keyframe joint positions [0.1, 0.2, 0.3].
     expected_vel = np.float32(2 * SIM_DT)
-    expected_pos = np.float32(SIM_DT * SIM_DT) + np.float32(2 * SIM_DT * SIM_DT)
     np.testing.assert_allclose(backend.get_dof_vel(), expected_vel, atol=1e-7)
-    np.testing.assert_allclose(backend.get_dof_pos(), expected_pos, atol=1e-7)
+    expected_pos = np.array([[0.1, 0.2, 0.3]], dtype=np.float32) + (
+        np.float32(SIM_DT * SIM_DT) + np.float32(2 * SIM_DT * SIM_DT)
+    )
+    np.testing.assert_allclose(
+        backend.get_dof_pos(), np.broadcast_to(expected_pos, (NUM_ENVS, 3)), atol=1e-7
+    )
 
-    # Free fall: v_z after 2 substeps, z += v_z*dt each substep.
+    # Free fall from the keyframe root height: v_z after 2 substeps, z += v_z*dt.
     expected_vz = 2 * (-9.81) * SIM_DT
-    expected_z = 1.0 + (-9.81 * SIM_DT * SIM_DT) + (-9.81 * 2 * SIM_DT * SIM_DT)
+    expected_z = 0.8 + (-9.81 * SIM_DT * SIM_DT) + (-9.81 * 2 * SIM_DT * SIM_DT)
     np.testing.assert_allclose(backend.get_base_lin_vel()[:, 2], expected_vz, rtol=1e-6, atol=1e-7)
     np.testing.assert_allclose(backend.get_base_pos()[:, 2], expected_z, rtol=1e-6, atol=1e-7)
 
@@ -339,7 +431,7 @@ def test_set_state_roundtrip_and_cache_refresh(backend: IsaacGymBackend) -> None
     np.testing.assert_allclose(backend.get_dof_pos()[0], [0.1, 0.2, 0.3], atol=1e-6)
     np.testing.assert_allclose(backend.get_dof_vel()[0], [1.0, 2.0, 3.0], atol=1e-6)
     # Untouched env keeps its previous state.
-    np.testing.assert_allclose(backend.get_base_pos()[1], [0, 0, 1], atol=1e-6)
+    np.testing.assert_allclose(backend.get_base_pos()[1], [0, 0, 0.8], atol=1e-6)
 
     with pytest.raises(ValueError, match="qpos must have shape"):
         backend.set_state(rows, np.zeros((1, nq + 1), dtype=np.float32), qvel)
@@ -359,7 +451,7 @@ def test_sensor_mapping_from_scene_scan(backend: IsaacGymBackend) -> None:
     np.testing.assert_allclose(np.linalg.norm(quat, axis=-1), 1.0, atol=1e-6)
 
     pos = backend.get_sensor_data("link1_pos")
-    np.testing.assert_allclose(pos, [[0.2, 0.0, 1.0]] * NUM_ENVS, atol=1e-6)
+    np.testing.assert_allclose(pos, [[0.2, 0.0, 0.8]] * NUM_ENVS, atol=1e-6)
 
     # contact "found": zero while ctrl is zero, one after a nonzero torque step.
     np.testing.assert_allclose(backend.get_sensor_data("foot_contact"), 0.0)
@@ -394,7 +486,7 @@ def test_framezaxis_sensor_mapping(backend: IsaacGymBackend) -> None:
     )
     # framepos on a site includes the site's local pos offset (rigid attach).
     np.testing.assert_allclose(
-        backend.get_sensor_data("tilted_site_pos"), [[0.1, 0.0, 1.0]] * NUM_ENVS, atol=1e-6
+        backend.get_sensor_data("tilted_site_pos"), [[0.1, 0.0, 0.8]] * NUM_ENVS, atol=1e-6
     )
 
     # Rotate the root 90 deg about x (wxyz): body z axis maps to -y.
@@ -433,7 +525,7 @@ def test_body_state_views(backend: IsaacGymBackend) -> None:
     ids = backend.get_body_ids(["base", "link1"])
     pos_w = backend.get_body_pos_w(ids)
     assert pos_w.shape == (NUM_ENVS, 2, 3)
-    np.testing.assert_allclose(pos_w[:, 1], [[0.2, 0.0, 1.0]] * NUM_ENVS, atol=1e-6)
+    np.testing.assert_allclose(pos_w[:, 1], [[0.2, 0.0, 0.8]] * NUM_ENVS, atol=1e-6)
     # Base-frame link1 offset: [0.2, 0, 0] under the identity base orientation.
     pos_b = backend.get_body_pos_b(ids)
     np.testing.assert_allclose(pos_b[:, 1], [[0.2, 0.0, 0.0]] * NUM_ENVS, atol=1e-6)
@@ -562,8 +654,13 @@ def test_g1_scene_framezaxis_sensors_resolve_from_real_xml(
     exact site-frame z axes.
     """
     from unilab.assets import ASSETS_ROOT_PATH
+    from unilab.base.backend.isaacgym.sensors import scan_scene_metadata
 
     scene = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    # Give the mock the real MJCF joint set so the scene's "stand" keyframe
+    # (29 dofs) maps onto the fake asset by name, as on the real worker.
+    joint_names = scan_scene_metadata(scene).joint_names
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_DOF_NAMES", ",".join(joint_names))
     monkeypatch.setenv(
         "UNILAB_ISAACGYM_MOCK_BODY_NAMES",
         "pelvis,torso_link,left_ankle_roll_link,right_ankle_roll_link",
