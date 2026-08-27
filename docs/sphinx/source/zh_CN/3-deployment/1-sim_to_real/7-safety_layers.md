@@ -40,34 +40,31 @@ flowchart LR
     OP -.->|E-stop| D
 ```
 
-把硬实时的安全检查放在部署控制器中，而不是训练脚本里。仓库的 G1 辅助路径导出部署
-配置并运行一个 MuJoCo 原型；它并不实现生产级的电机驱动器安全回路。
+把硬实时的安全检查放在部署控制器中，而不是训练脚本里。仓库不实现生产级的电机驱动器
+安全回路——该边界由你构建并测试。
 
 ## 策略假定你已配置的内容
 
-G1 部署辅助工具会把这些字段导出到 `deploy_config.yaml`：
+策略期望的是其训练 owner 所声明的动作映射与限位。对 G1 WBT owner
+（`conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml`）：
 
-```yaml
-action_scale: 2.0
-ema_alpha: 1.0
-default_angles: [...]
-joint_lower: [...]
-joint_upper: [...]
-kp: [...]
-kd: [...]
-```
+| 量 | 权威来源 |
+| --- | --- |
+| `action_scale` | `env.control_config.action_scale`（该 owner 为标量 `2.0`；其他 owner 声明逐关节列表） |
+| `default_angles` | owner 场景 XML 中 `stand` keyframe 的关节段 |
+| 关节限位 | 场景 XML 中的 `jnt_range` |
+| `kp` / `kd` | 场景 XML 中 position actuator 的 `gainprm` / `biasprm` |
 
-`scripts/deploy/sim_prototype.py` 消费同样的字段，并应用
-`action * action_scale + default_angles`、关节钳制与 EMA 平滑。硬件控制器应当消费
-生成的配置，而不是手动复制关节范围或增益。
+请从 owner YAML 及其场景派生这些量，并原样复现 owner 的 `action_scale` **形态**——
+标量 owner 与逐关节列表 owner 不可互换。不要把关节范围或增益手工复制到第二处，那会
+与资产静默漂移。
 
 ## 交接测试
 
 在把 策略 → 安全层 → 电机 集成起来之前，先隔离测试安全层：
 
 1. 注入一个 NaN 动作，验证该指令被拒绝。
-2. 注入一个超范围的关节目标，验证钳制使用了 `deploy_config.yaml` 中的
-   `joint_lower` / `joint_upper`。
+2. 注入一个超范围的关节目标，验证钳制使用了 owner 场景 XML 中的关节范围。
 3. 在运行途中切断策略输入，验证控制器进入其配置的安全状态。
 
 ## 另请参阅
