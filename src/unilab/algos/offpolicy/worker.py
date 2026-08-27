@@ -243,12 +243,15 @@ def _run_collector(
     replay_buffer.trace_recorder = trace_recorder
     replay_buffer.trace_thread_time = trace_thread_time
     replay_buffer.attach_stop_event(stop_event)
+    from collections import defaultdict, deque
+
     total_steps = 0
-    ep_rewards = []
-    ep_lengths = []
+    # Bounded rolling window of the most recent completed episodes; an
+    # unbounded list here grows for the entire run.
+    ep_rewards: deque[float] = deque(maxlen=100)
+    ep_lengths: deque[int] = deque(maxlen=100)
     current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
-    from collections import defaultdict
 
     ep_reward_components = defaultdict(list)
     timing_accum_ms: defaultdict[str, float] = defaultdict(float)
@@ -454,8 +457,9 @@ def _run_collector(
                     if k.startswith("reward/"):
                         ep_reward_components[k].append(v)
 
-            # Send metrics periodically
-            if metrics_queue is not None and total_steps % (num_envs * 10) == 0:
+            # Send metrics every collector cycle so learner-side reward and
+            # throughput displays track the current policy without extra lag.
+            if metrics_queue is not None:
                 import statistics
 
                 try:
@@ -464,10 +468,8 @@ def _run_collector(
                         "buffer_size": int(replay_buffer.size[0]),
                     }
                     if ep_rewards:
-                        msg["mean_ep_reward"] = statistics.mean(ep_rewards[-100:])
-                        msg["mean_ep_length"] = (
-                            statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0
-                        )
+                        msg["mean_ep_reward"] = statistics.mean(ep_rewards)
+                        msg["mean_ep_length"] = statistics.mean(ep_lengths) if ep_lengths else 0.0
                     # Add mean reward components
                     if ep_reward_components:
                         components_mean = {}

@@ -8,7 +8,7 @@ from __future__ import annotations
 import statistics
 import sys
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from queue import Empty, Full
 from typing import Any, Dict
 
@@ -235,8 +235,10 @@ def appo_collector_fn(
     obs_td = TensorDict({"policy": obs_torch}, batch_size=num_envs, device=collector_device)
 
     total_steps = 0
-    ep_rewards = []
-    ep_lengths = []
+    # Bounded rolling window of the most recent completed episodes; an
+    # unbounded list here grows for the entire run.
+    ep_rewards: deque[float] = deque(maxlen=100)
+    ep_lengths: deque[int] = deque(maxlen=100)
     current_ep_rewards = np.zeros(num_envs, dtype=np.float32)
     current_ep_lengths = np.zeros(num_envs, dtype=np.int32)
     ep_reward_components = defaultdict(list)
@@ -353,15 +355,17 @@ def appo_collector_fn(
                     if k.startswith("reward/"):
                         ep_reward_components[k].append(v)
 
-                if metrics_queue is not None and total_steps % (num_envs * 10) == 0:
+                # Report every env step so learner-side reward and throughput
+                # displays track the current policy without extra lag.
+                if metrics_queue is not None:
                     try:
                         msg: dict[str, Any] = {
                             "total_steps": total_steps,
                         }
                         if ep_rewards:
-                            msg["mean_ep_reward"] = statistics.mean(ep_rewards[-100:])
+                            msg["mean_ep_reward"] = statistics.mean(ep_rewards)
                             msg["mean_ep_length"] = (
-                                statistics.mean(ep_lengths[-100:]) if ep_lengths else 0.0
+                                statistics.mean(ep_lengths) if ep_lengths else 0.0
                             )
                         if ep_completions > 0:
                             msg["timeout_rate"] = ep_timeouts / ep_completions
