@@ -2,19 +2,19 @@
 
 ::::{admonition} 硬件目标
 :class: note
-Unitree G1 人形机器人（29 自由度变体）。关节顺序来自任务 owner 的场景
-（`src/unilab/assets/robots/g1/scene_flat.xml`，按 actuator 顺序）；在硬件上机前请
-先核对该顺序与你的 SDK 电机索引是否一致。
+Unitree G1 人形机器人（29 自由度变体）。假定关节顺序与
+`scripts/deploy/export_deploy_config.py` 从
+`src/unilab/assets/robots/g1/scene_flat.xml` 导出的顺序一致；在硬件上机前请核对该
+顺序。
 ::::
 
-本指南说明 G1 运动跟踪策略在硬件上所期望的**观测与动作契约**。仓库不提供 G1 部署侧
-运行时——硬件侧回路由你实现，本页告诉你它必须复现哪些内容。
+本指南讲解从一个收敛的 G1 运动跟踪策略到机器人上闭环运行之间的**最后一公里**。
 
 ## 0. 验证你的仿真侧检查点
 
 ```bash
 # Replay the policy headlessly and produce a video.
-uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1 \
+uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1 \
   --render-mode record
 ```
 
@@ -24,48 +24,37 @@ uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1 \
 - 关节速度与动作保持有限且在预期范围内。
 - 接触时序看起来与参考运动一致。
 
-如果其中任何一项不对，请在硬件上机前修复仿真侧检查点。
+如果其中任何一项不对，请在硬件上机前修复仿真侧检查点或部署契约。
 
-## 1. 先选定 owner，再从 YAML 读取契约
+## 1. 导出
 
-硬件回路需要的每个字段都在任务 owner YAML 中声明。面向部署的 G1 owner 有：
-
-```{list-table}
-:header-rows: 1
-:widths: 34 22 44
-
-* - Owner
-  - Actor 观测宽度
-  - 说明
-* - `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml`
-  - 514（H=5）
-  - 带 proprio 历史、无状态估计：丢弃 `base_lin_vel` 与
-    `motion_anchor_pos_b`，使用 pelvis IMU。
-* - `conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
-  - 154（H=1）
-  - 单步 mimic actor 布局，逐关节 `action_scale` 列表。
-```
-
-::::{admonition} 观测宽度应从 env 读取，而不是照抄本表
-:class: warning
-Actor 观测宽度是 owner `noise_config` 各开关的函数——`g1_wbt_obs` 见
-`src/unilab/envs/motion_tracking/g1/tracking_obs.py` 的 `_actor_obs_dim`，
-deploy owner 见 `src/unilab/envs/motion_tracking/common/observations.py` 的
-`mimic_actor_obs_dim`。如果 ONNX 输入宽度与硬件回路装配出的宽度不一致，那是契约
-bug，而不是硬件调参问题。
-::::
-
-通过训练回放路径导出 `policy.onnx`：
+使用训练回放路径导出 `policy.onnx`，然后用已提交的部署辅助工具导出 G1 WBT 部署配置
+与运动二进制文件：
 
 ```bash
-uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1
+uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1
+
+uv run scripts/deploy/export_deploy_config.py \
+  --output logs/deploy/deploy_config.yaml
+
+uv run scripts/deploy/export_motion_bin.py \
+  --output logs/deploy/dance1.bin
+```
+
+部署侧原型消费如下文件：
+
+```
+runs/<run>/
+└── policy.onnx
+logs/deploy/
+├── deploy_config.yaml
+└── dance1.bin
 ```
 
 ## 2. 观测契约
 
-对 `g1_wbt_obs`，actor 观测按如下顺序装配（见
-`src/unilab/envs/motion_tracking/g1/tracking_obs.py` 的 `_build_actor_obs`）。
-单步参考项在前，随后是各 proprio 项的完整历史，按**最旧优先**展平：
+对于已提交的 G1 WBT 部署辅助工具，观测布局会作为 `obs_layout` 导出到
+`deploy_config.yaml`。`scripts/deploy/export_deploy_config.py` 是分段顺序的权威来源：
 
 ```{list-table}
 :header-rows: 1
@@ -85,37 +74,30 @@ uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1
   - 来自参考帧与机器人躯干帧的锚点朝向项
 * - `gyro`
   - 每个历史步 3
-  - IMU 陀螺仪项（`env.sensor.gyro`，该 owner 为 `pelvis_gyro`）
+  - IMU 陀螺仪项
 * - `joint_pos_rel`
   - 每个历史步 29
-  - 测量到的关节位置减去 `stand` keyframe 的关节角
+  - 测量到的关节位置减去 `default_angles`
 * - `dof_vel`
   - 每个历史步 29
   - 关节速度项
 * - `last_actions`
-  - 每个历史步 29
+  - 29
   - 上一步的原始 actor 输出
 ```
 
-历史深度 `H` 即 `env.noise_config.obs_history_length`（该 owner 为 5）。逐项的
-最旧优先顺序由 `tests/scripts/test_obs_alignment_g1_wbt.py` 守护；硬件侧必须镜像
-该顺序，否则策略读到的是被置换过的向量。
+导出脚本还会记录每个分段的 `history_length` 并校验总的 `obs_dim`。当 ONNX 输入宽度
+与 `deploy_config.yaml` 的 `obs_dim` 不一致时，`scripts/deploy/sim_prototype.py` 会
+拒绝运行。
 
 ## 3. 执行器接口
 
-将 actor 输出映射为 `action * action_scale + default_angles`，然后在目标到达电机
-驱动器之前钳制到场景的关节范围内。
+G1 部署原型将 actor 输出严格映射为：
+`action * action_scale + default_angles`，然后钳制到 `joint_lower` /
+`joint_upper`，并应用来自 `ema_alpha` 的 EMA 平滑。
 
-- `action_scale` 即 owner YAML 中的 `env.control_config.action_scale`。它可能是
-  **标量**（`g1_wbt_obs` 为 2.0），也可能是**逐关节列表**
-  （`g1_motion_tracking_deploy` 为 29 项）。必须原样复现 owner 的形态——不要对列表
-  取平均、取首项，也不要把标量广播到列表 owner 上。
-- `default_angles` 是 owner 场景中 `stand` keyframe 的关节段。
-- 关节限位与增益同样来自该场景 XML（`jnt_range`、position actuator 的
-  `gainprm` / `biasprm`）。
-
-训练侧直接施加目标，不做平滑。如果硬件抖动迫使你加入平滑，请先验证其 sim2sim
-影响——每一步滞后都会把观测推离训练分布。
+- 动作 = 目标关节位置，按 `deploy_config.yaml` 中的 `action_scale` 项**缩放**。
+- 在目标到达电机驱动器之前，将其钳制到生成的关节范围内。
 
 ## 4. 参考运动同步
 
@@ -136,7 +118,7 @@ uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1
 硬件侧：标准结构见 {doc}`7-safety_layers`。G1 的具体事项：
 
 - 在应用 `action_scale` 之前拒绝非有限动作与形状不匹配。
-- 用 owner 场景 XML 中的关节范围钳制生成的目标。
+- 用 `deploy_config.yaml` 中的 `joint_lower` / `joint_upper` 钳制生成的目标。
 - 把看门狗、姿态监控以及操作员停止阈值保留在部署控制器中，并独立于策略对它们进行
   测试。
 
@@ -152,9 +134,18 @@ uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1
 
 ## 7. 应记录什么
 
-为每一步记录**完整的观测向量**、**完整的动作向量**与**墙钟**。把第一段硬件观测窗口
-与用同一份 owner YAML 构建的仿真回合作对比——这个 diff 比任何奖励检查都更快定位
-单位、坐标系与顺序错误。
+为每一步记录**完整的观测向量**、**完整的动作向量**与**墙钟**。在硬件上机前，通过
+MuJoCo 部署原型用同一份 ONNX、部署配置与运动二进制进行验证：
+
+```bash
+uv run scripts/deploy/sim_prototype.py \
+  --onnx runs/<run>/policy.onnx \
+  --config logs/deploy/deploy_config.yaml \
+  --motion logs/deploy/dance1.bin
+```
+
+ONNX 输入宽度与 `deploy_config.yaml` 的 `obs_dim` 之间的不匹配是部署契约 bug，而不是
+硬件调参问题。
 
 ## 另请参阅
 

@@ -2,21 +2,20 @@
 
 ::::{admonition} Hardware target
 :class: note
-Unitree G1 humanoid (29-DoF variant). Joint order comes from the task owner's
-scene (`src/unilab/assets/robots/g1/scene_flat.xml`, actuator order); verify
-that order against your SDK motor indices before hardware bring-up.
+Unitree G1 humanoid (29-DoF variant). Joints are assumed in the order exported
+by `scripts/deploy/export_deploy_config.py` from
+`src/unilab/assets/robots/g1/scene_flat.xml`; verify that order before
+hardware bring-up.
 ::::
 
-This guide covers the **observation and action contract** a G1 motion-tracking
-policy expects on hardware. The repository does not ship a G1 deploy runtime —
-you supply the hardware-side loop, and this page tells you what it must
-reproduce.
+This guide walks the **last mile** between a converged G1 motion-tracking
+policy and a closed-loop run on the robot.
 
 ## 0. Verify your sim-side checkpoint
 
 ```bash
 # Replay the policy headlessly and produce a video.
-uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1 \
+uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1 \
   --render-mode record
 ```
 
@@ -26,51 +25,39 @@ What to look for in the video:
 - Joint velocities and actions remain finite and within the expected range.
 - Contact timing looks consistent with the reference motion.
 
-If any of those is off, fix the sim-side checkpoint before hardware bring-up.
+If any of those is off, fix the sim-side checkpoint or deploy contract before
+hardware bring-up.
 
-## 1. Pick the owner, then read its contract off the YAML
+## 1. Export
 
-Every field your hardware loop needs is declared in the task owner YAML. The
-deploy-oriented G1 owners are:
-
-```{list-table}
-:header-rows: 1
-:widths: 34 22 44
-
-* - Owner
-  - Actor obs width
-  - Notes
-* - `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml`
-  - 514 (H=5)
-  - Proprio history, no state estimation: drops `base_lin_vel` and
-    `motion_anchor_pos_b`, pelvis IMU.
-* - `conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
-  - 154 (H=1)
-  - Single-step mimic actor layout, per-joint `action_scale` list.
-```
-
-::::{admonition} Read the width off the env, not off this table
-:class: warning
-Actor obs width is a function of the owner's `noise_config` flags — see
-`_actor_obs_dim` in `src/unilab/envs/motion_tracking/g1/tracking_obs.py` for
-`g1_wbt_obs`, and `mimic_actor_obs_dim` in
-`src/unilab/envs/motion_tracking/common/observations.py` for the deploy owner.
-If the ONNX input width disagrees with what your hardware loop assembles, that
-is a contract bug, not a hardware tuning problem.
-::::
-
-Export `policy.onnx` through the training playback path:
+Use the training playback path to export `policy.onnx`, then export the G1 WBT
+deploy config and motion binary with the committed deployment helpers:
 
 ```bash
-uv run eval --algo sac --task g1_wbt_obs --sim mujoco --load-run -1
+uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1
+
+uv run scripts/deploy/export_deploy_config.py \
+  --output logs/deploy/deploy_config.yaml
+
+uv run scripts/deploy/export_motion_bin.py \
+  --output logs/deploy/dance1.bin
+```
+
+The deployment-side prototype consumes:
+
+```
+runs/<run>/
+└── policy.onnx
+logs/deploy/
+├── deploy_config.yaml
+└── dance1.bin
 ```
 
 ## 2. Observation contract
 
-For `g1_wbt_obs`, the actor obs is assembled in this order (see
-`_build_actor_obs` in `src/unilab/envs/motion_tracking/g1/tracking_obs.py`).
-Single-step reference terms come first, then each proprio term's full history
-flattened **oldest-first**:
+For the committed G1 WBT deploy helper, the observation layout is exported into
+`deploy_config.yaml` as `obs_layout`. `scripts/deploy/export_deploy_config.py`
+is the source of truth for the segment order:
 
 ```{list-table}
 :header-rows: 1
@@ -90,39 +77,32 @@ flattened **oldest-first**:
   - anchor orientation term from the reference and robot torso frames
 * - `gyro`
   - 3 per history step
-  - IMU gyro term (`env.sensor.gyro`, `pelvis_gyro` for this owner)
+  - IMU gyro term
 * - `joint_pos_rel`
   - 29 per history step
-  - measured joint position minus the `stand` keyframe joint angles
+  - measured joint position minus `default_angles`
 * - `dof_vel`
   - 29 per history step
   - joint velocity term
 * - `last_actions`
-  - 29 per history step
+  - 29
   - previous raw actor output
 ```
 
-History depth `H` is `env.noise_config.obs_history_length` (5 for this owner).
-Per-term oldest-first ordering is guarded by
-`tests/scripts/test_obs_alignment_g1_wbt.py`; mirror that ordering on hardware
-or the policy reads a permuted vector.
+The export script also records each segment's `history_length` and verifies the
+total `obs_dim`. `scripts/deploy/sim_prototype.py` refuses to run when the ONNX
+input width and `deploy_config.yaml` `obs_dim` disagree.
 
 ## 3. Actuator interface
 
-Map actor output as `action * action_scale + default_angles`, then clamp to the
-scene's joint range before the target reaches the motor driver.
+The G1 deploy prototype maps actor output exactly as:
+`action * action_scale + default_angles`, then clips to `joint_lower` /
+`joint_upper` and applies EMA smoothing from `ema_alpha`.
 
-- `action_scale` is `env.control_config.action_scale` in the owner YAML. It may
-  be a **scalar** (2.0 for `g1_wbt_obs`) or a **per-joint list** (29 entries for
-  `g1_motion_tracking_deploy`). Reproduce the owner's form exactly — do not
-  average a list, take its first entry, or broadcast a scalar over a list owner.
-- `default_angles` is the `stand` keyframe joint block of the owner's scene.
-- Joint limits and gains come from the same scene XML (`jnt_range`, position
-  actuator `gainprm` / `biasprm`).
-
-Training applies the target directly with no smoothing. If hardware jitter
-forces you to add smoothing, verify the sim2sim impact first — every step of lag
-pushes observations out of the training distribution.
+- Action = target joint position, **scaled** by the `action_scale` entry in
+  `deploy_config.yaml`.
+- Clamp the target to the generated joint range before it reaches the motor
+  driver.
 
 ## 4. Reference motion sync
 
@@ -145,7 +125,8 @@ specifics:
 
 - Reject non-finite actions and shape mismatches before applying
   `action_scale`.
-- Clamp generated targets with the joint range from the owner's scene XML.
+- Clamp generated targets with `joint_lower` / `joint_upper` from
+  `deploy_config.yaml`.
 - Keep watchdog, pose monitor, and operator-stop thresholds in the deploy
   controller and test them independently of the policy.
 
@@ -164,9 +145,18 @@ and `last_actions` wiring mistakes are easiest to catch.
 ## 7. What to log
 
 Log the **full observation vector**, **full action vector**, and **wall
-clock** for every step. Compare the first hardware observation window against a
-sim episode built from the same owner YAML — that diff localizes unit, frame,
-and ordering mistakes faster than any reward inspection.
+clock** for every step. Before hardware bring-up, validate the same ONNX,
+deploy config, and motion binary through the MuJoCo deployment prototype:
+
+```bash
+uv run scripts/deploy/sim_prototype.py \
+  --onnx runs/<run>/policy.onnx \
+  --config logs/deploy/deploy_config.yaml \
+  --motion logs/deploy/dance1.bin
+```
+
+A mismatch between the ONNX input width and `deploy_config.yaml` `obs_dim` is a
+deployment contract bug, not a hardware tuning problem.
 
 ## See also
 
