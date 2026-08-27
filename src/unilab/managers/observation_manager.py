@@ -351,8 +351,11 @@ class ObservationManager(ManagerBase):
         are untouched, so a partial reset does not advance their observation
         timelines. The returned arrays then hold only the reset rows, in env_ids
         order, and the observation cache is left invalidated (the next per-step
-        compute refreshes it); noise is still drawn with full-batch shapes so
-        the shared RNG stream matches the full-batch implementation exactly.
+        compute refreshes it). On row-scoped (non-temporal) groups, noise is
+        drawn only for the reset rows: issue #1349 removed the requirement that
+        the reset path consume the shared RNG stream identically to a
+        full-batch compute, so reset-path noise values and RNG consumption no
+        longer match the full-batch path.
         """
         if env_ids is not None and not update_history:
             raise ValueError("env_ids is only meaningful with update_history=True.")
@@ -394,10 +397,10 @@ class ObservationManager(ManagerBase):
         )
         # Reset path (issue #1259 R2): when no term in this group uses delay or
         # history buffers, everything downstream of the term call is row
-        # independent, so only the reset rows are processed. Term calls and
-        # noise stay full-batch: term funcs are contracted to return
-        # (num_envs, ...) and full-shape noise draws keep the shared RNG stream
-        # and per-row noise values identical to the full-batch path.
+        # independent, so only the reset rows are processed. Term calls stay
+        # full-batch (term funcs are contracted to return (num_envs, ...)), but
+        # noise is drawn for the reset rows only — issue #1349 removed the
+        # full-batch RNG-stream parity requirement.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
         for term_name, term_cfg in obs_terms:
             obs = term_cfg.func(self._env, **term_cfg.params)
@@ -412,6 +415,13 @@ class ObservationManager(ManagerBase):
                     f"{obs.shape}, expected (num_envs, ...) with num_envs={self.num_envs}."
                 )
             fresh = False
+            if row_scoped:
+                # Slice before noise: reset-path noise is drawn for the reset
+                # rows only (issue #1349 removed the full-batch RNG-stream
+                # parity requirement). Fancy indexing already returns a fresh
+                # row copy, safe for the in-place clip/scale below.
+                obs = obs[env_ids]
+                fresh = True
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
                 # NoiseCfg.apply always returns a newly allocated array.
                 obs = term_cfg.noise.apply(obs, rng=self._env.rng)
@@ -443,9 +453,6 @@ class ObservationManager(ManagerBase):
                 # Only take a defensive copy when this pipeline may mutate the
                 # term or expose it directly to callers.
                 obs = obs.copy()
-            if row_scoped:
-                # Fresh row copy; safe for the in-place clip/scale below.
-                obs = obs[env_ids]
             if term_cfg.clip:
                 np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
             if term_cfg.scale is not None:
