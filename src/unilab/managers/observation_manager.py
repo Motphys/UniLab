@@ -366,8 +366,15 @@ class ObservationManager(ManagerBase):
             return self._obs_buffer
 
         obs_buffer: dict[str, np.ndarray | dict[str, np.ndarray]] = dict()
+        # Cross-group sharing of identical term computations (issue #1351):
+        # within one compute() call, terms with the same func and params yield
+        # the same raw output (the per-term pipeline never mutates func outputs
+        # in place), so later groups reuse the first group's raw result.
+        share_cache: dict[tuple, np.ndarray] = {}
         for group_name in self._group_obs_term_names:
-            obs_buffer[group_name] = self.compute_group(group_name, update_history, env_ids)
+            obs_buffer[group_name] = self.compute_group(
+                group_name, update_history, env_ids, share_cache=share_cache
+            )
         if env_ids is None:
             self._obs_buffer = obs_buffer
         return obs_buffer
@@ -377,6 +384,8 @@ class ObservationManager(ManagerBase):
         group_name: str,
         update_history: bool = False,
         env_ids: np.ndarray | None = None,
+        *,
+        share_cache: dict[tuple, np.ndarray] | None = None,
     ) -> np.ndarray | dict[str, np.ndarray]:
         group_cfg = self.cfg[group_name]
         if group_cfg is None:
@@ -384,6 +393,9 @@ class ObservationManager(ManagerBase):
         group_term_names = self._group_obs_term_names[group_name]
         group_obs: dict[str, np.ndarray] = {}
         obs_terms = zip(group_term_names, self._group_obs_term_cfgs[group_name], strict=False)
+        if share_cache is None:
+            share_cache = {}
+        share_map = self._group_obs_term_share.get(group_name, {})
         # In the strict default policy a finite result is by far the common
         # case.  For concatenated groups, scan the assembled output once and
         # only inspect individual slices when an error is actually found; this
@@ -403,7 +415,13 @@ class ObservationManager(ManagerBase):
         # full-batch RNG-stream parity requirement.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
         for term_name, term_cfg in obs_terms:
-            obs = term_cfg.func(self._env, **term_cfg.params)
+            share_key = share_map.get(term_name)
+            if share_key is not None and share_key in share_cache:
+                obs = share_cache[share_key]
+            else:
+                obs = term_cfg.func(self._env, **term_cfg.params)
+                if share_key is not None:
+                    share_cache[share_key] = obs
             if not isinstance(obs, np.ndarray):
                 raise TypeError(
                     f"ObservationManager term '{group_name}/{term_name}' returned "
@@ -709,3 +727,25 @@ class ObservationManager(ManagerBase):
                 term_cfg.delay_max_lag > 0 or term_cfg.history_length > 0
                 for term_cfg in self._group_obs_term_cfgs[group_name]
             )
+
+        # Cross-group sharing of identical term computations (issue #1351):
+        # within one compute() call, terms with the same func and params yield
+        # the same raw output, so later groups reuse the first group's result.
+        # Class-based terms (possibly stateful per call) and terms with
+        # unhashable params are never shared.
+        self._group_obs_term_share: dict[str, dict[str, tuple]] = {}
+        for share_group, share_terms in self._group_obs_term_cfgs.items():
+            share_entry: dict[str, tuple] = {}
+            for share_name, share_cfg in zip(
+                self._group_obs_term_names[share_group], share_terms, strict=False
+            ):
+                func = share_cfg.func
+                if hasattr(func, "reset") and callable(func.reset):
+                    continue
+                try:
+                    share_key = (func, tuple(sorted(share_cfg.params.items())))
+                    hash(share_key)
+                except TypeError:
+                    continue
+                share_entry[share_name] = share_key
+            self._group_obs_term_share[share_group] = share_entry

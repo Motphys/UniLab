@@ -366,3 +366,69 @@ def test_observation_explicit_sanitize_and_shape_error(fake_env: FakeEnv) -> Non
             },
             fake_env,
         )
+
+
+def test_identical_terms_share_raw_compute_across_groups() -> None:
+    """Issue #1351: terms with identical func+params compute once per compute().
+
+    The critic group reuses the raw (pre-noise) output of the policy group's
+    identical term; the policy group still applies its own noise on top.
+    """
+    calls = {"n": 0}
+
+    def counting(env: FakeEnv, scale: float = 1.0) -> np.ndarray:
+        calls["n"] += 1
+        return env.obs * scale
+
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "state": ObservationTermCfg(
+                        func=counting,
+                        params={"scale": 2.0},
+                        noise=UniformNoiseCfg(n_min=-0.1, n_max=0.1),
+                    )
+                },
+                enable_corruption=True,
+            ),
+            "critic": ObservationGroupCfg(
+                terms={"state": ObservationTermCfg(func=counting, params={"scale": 2.0})}
+            ),
+        },
+        FakeEnv(seed=3),
+    )
+    env = manager._env
+    calls["n"] = 0
+    out = manager.compute(update_history=True)
+    assert calls["n"] == 1
+    np.testing.assert_array_equal(out["critic"], env.obs * 2.0)
+    noise = out["policy"] - out["critic"]
+    assert np.abs(noise).max() <= 0.1 + 1e-6
+    assert np.abs(noise).max() > 0.0
+
+    # The cache is per compute() call, not across calls.
+    manager.compute(update_history=True)
+    assert calls["n"] == 2
+
+
+def test_class_terms_are_never_shared_across_groups() -> None:
+    """Class-based (possibly stateful) terms must keep per-group calls."""
+
+    class StatefulTerm:
+        def __call__(self, env: FakeEnv) -> np.ndarray:
+            return env.obs.copy()
+
+        def reset(self, env_ids: np.ndarray | None = None) -> None:
+            del env_ids
+
+    shared = StatefulTerm()
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(terms={"state": ObservationTermCfg(func=shared)}),
+            "critic": ObservationGroupCfg(terms={"state": ObservationTermCfg(func=shared)}),
+        },
+        FakeEnv(seed=5),
+    )
+    assert manager._group_obs_term_share["policy"] == {}
+    assert manager._group_obs_term_share["critic"] == {}
