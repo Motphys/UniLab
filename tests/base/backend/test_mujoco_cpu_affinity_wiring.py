@@ -145,3 +145,26 @@ def test_default_path_keeps_os_scheduling():
     assert backend._cpu_ids is None
     assert backend._pool.cpu_ids is None
     assert backend._pool.worker_cpu_ids() == ()
+
+
+def test_default_nthread_sized_to_effective_cpus():
+    """Default pool sizing uses the CPUs usable by this process (#1328),
+    not 2x the machine-wide count; explicit ``cpu_ids`` still fixes nthread."""
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=_MODEL_FILE),
+        num_envs=10_000,
+        sim_dt=0.01,
+        base_name="base",
+    )
+    assert backend._cpu_ids is None
+    assert backend._n_threads == len(os.sched_getaffinity(0))
+
+
+def test_default_nthread_capped_by_num_envs():
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=_MODEL_FILE),
+        num_envs=2,
+        sim_dt=0.01,
+        base_name="base",
+    )
+    assert backend._n_threads == 2

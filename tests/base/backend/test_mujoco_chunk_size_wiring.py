@@ -130,8 +130,9 @@ def test_benchmark_runs_and_logs_table_on_adaptive(caplog, monkeypatch, tmp_path
 
     # Force nthread < num_envs so there is genuinely something to tune; otherwise the
     # resolve short-circuits (num_envs <= nthread => one chunk => no benchmark). With
-    # cpu_count()==1, nthread = min(_NUM_ENVS, 2) = 2 < _NUM_ENVS, deterministically.
-    monkeypatch.setattr(backend_mod, "cpu_count", lambda: 1)
+    # _effective_cpu_count()==1, nthread = min(_NUM_ENVS, 1) = 1 < _NUM_ENVS,
+    # deterministically.
+    monkeypatch.setattr(backend_mod, "_effective_cpu_count", lambda: 1)
     monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "chunk_size.json"))
     with caplog.at_level(logging.INFO, logger="unilab.base.backend.mujoco.chunk_tuner"):
         backend = _build_small_backend(adaptive_chunk_size=True, chunk_size=None)

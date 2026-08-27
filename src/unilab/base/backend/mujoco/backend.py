@@ -46,6 +46,19 @@ from ..base import (
 from .playback import run_mujoco_playback
 
 
+def _effective_cpu_count() -> int:
+    """CPUs usable by this process for pool worker sizing.
+
+    ``os.sched_getaffinity`` respects taskset/cgroup affinity masks, unlike
+    ``os.cpu_count`` which reports machine-wide CPUs. Falls back to
+    ``os.cpu_count`` where the syscall is unavailable (e.g. macOS).
+    """
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, cpu_count() or 1)
+
+
 def _root_state_dims(model) -> tuple[int, int]:
     if model.njnt > 0 and int(model.jnt_type[0]) == int(mujoco.mjtJoint.mjJNT_FREE):
         return 7, 6
@@ -350,9 +363,12 @@ class MuJoCoBackend(SimBackend):
         self._pending_xfrc_applied = np.zeros((num_envs, 6 * self._model.nbody), dtype=np.float64)
 
         # Thread configuration. An explicit ``cpu_ids`` affinity pins one worker
-        # per CPU, so it also fixes the pool worker count.
+        # per CPU, so it also fixes the pool worker count. Otherwise size the
+        # pool to the CPUs actually usable by this process: oversubscribing
+        # (e.g. 2x) only adds contention once the physics phase saturates
+        # memory bandwidth (#1328).
         self._n_threads = (
-            min(num_envs, cpu_count() * 2) if self._cpu_ids is None else len(self._cpu_ids)
+            min(num_envs, _effective_cpu_count()) if self._cpu_ids is None else len(self._cpu_ids)
         )
 
         self._model_variants: tuple[mujoco.MjModel, ...] = (self._model,)
