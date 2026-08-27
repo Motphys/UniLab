@@ -42,11 +42,15 @@ def _confine_existing_threads(ids: set[int]) -> None:
     with sibling ranks' pinned CPUs. Threads may exit between listing and
     pinning; those races are ignored.
     """
-    if not os.path.isdir(_PROC_TASK_DIR):
+    # Resolved at call time (not import) so tests can monkeypatch the seam;
+    # ``getattr`` keeps this checkable on platforms where typeshed hides the
+    # Linux-only symbol (mypy ``attr-defined`` on darwin).
+    sched_setaffinity = getattr(os, "sched_setaffinity", None)
+    if sched_setaffinity is None or not os.path.isdir(_PROC_TASK_DIR):
         return
     for entry in os.listdir(_PROC_TASK_DIR):
         try:
-            os.sched_setaffinity(int(entry), ids)
+            sched_setaffinity(int(entry), ids)
         except OSError:
             continue
 
@@ -66,15 +70,17 @@ def apply_env_cpu_runtime(cpu_ids: Sequence[int] | None) -> None:
         return
     ids = {int(cpu_id) for cpu_id in cpu_ids}
 
-    if hasattr(os, "sched_setaffinity") and hasattr(os, "sched_getaffinity"):
-        available = set(os.sched_getaffinity(0))
+    sched_setaffinity = getattr(os, "sched_setaffinity", None)
+    sched_getaffinity = getattr(os, "sched_getaffinity", None)
+    if sched_setaffinity is not None and sched_getaffinity is not None:
+        available = set(sched_getaffinity(0))
         missing = sorted(ids - available)
         if missing:
             raise ValueError(
                 f"EnvCfg.cpu_ids entries {missing} are not available to this process "
                 f"(sched_getaffinity={sorted(available)})"
             )
-        os.sched_setaffinity(0, ids)
+        sched_setaffinity(0, ids)
         _confine_existing_threads(ids)
     else:
         warnings.warn(
