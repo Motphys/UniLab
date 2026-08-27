@@ -1,0 +1,222 @@
+"""Deterministic mock IsaacGym worker for protocol-level backend tests.
+
+Runs on the host Python (no IsaacGym install required) and speaks the exact
+``unilab.base.backend.isaacgym.protocol`` wire protocol against shared-memory
+slots.  The physics model is a deterministic kinematic fake, documented here
+so tests can assert exact values:
+
+- STEP integrates ``dof_vel += ctrl * dt`` then ``dof_pos += dof_vel * dt``,
+  and applies free fall to the root: ``lin_vel.z += -9.81 * dt`` then
+  ``pos += lin_vel * dt`` (per substep).
+- ``body_state`` row 0 mirrors the root; body ``i > 0`` sits at a static
+  ``[0.1 * i, 0, 0]` offset from the root with the root's orientation.
+- ``contact_force[:, 1, 0]`` is ``sum(|ctrl|)`` so contact "found" flips with
+  nonzero control.
+- SET_STATE applies the reset slots verbatim (root columns pass through
+  without frame conversion — the mock does not model quat frame math).
+
+Failure modes are selected with ``UNILAB_ISAACGYM_MOCK_BEHAVIOR``:
+``ok`` (default), ``fail_init`` (raise during INIT), ``die_on_step``
+(``os._exit(3)`` on the first STEP), ``hang_on_step`` (sleep on the first
+STEP).  Model dims come from ``UNILAB_ISAACGYM_MOCK_DOF_NAMES`` /
+``UNILAB_ISAACGYM_MOCK_BODY_NAMES`` (comma-separated).
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import os
+import sys
+import time
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+
+_GRAVITY_Z = -9.81
+
+
+def _load_protocol(path: str) -> Any:
+    spec = importlib.util.spec_from_file_location("unilab_isaacgym_mock_protocol", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load protocol module from {path!r}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _MockSim:
+    def __init__(self, num_envs: int, sim_dt: float, dof_names: List[str], body_names: List[str]):
+        self.num_envs = num_envs
+        self.sim_dt = sim_dt
+        self.dof_names = dof_names
+        self.body_names = body_names
+        self.num_dof = len(dof_names)
+        self.num_bodies = len(body_names)
+        self.root = np.zeros((num_envs, 13), dtype=np.float32)
+        self.root[:, 2] = 1.0
+        self.root[:, 3] = 1.0  # identity quat, wxyz
+        self.dof = np.zeros((num_envs, self.num_dof, 2), dtype=np.float32)
+        self.slots: Dict[str, np.ndarray] = {}
+        self._shm_handles: List[Any] = []
+
+    def attach(self, slots: Dict[str, Dict[str, Any]]) -> None:
+        from multiprocessing import resource_tracker, shared_memory
+
+        for name, spec in slots.items():
+            handle = shared_memory.SharedMemory(name=spec["shm"], create=False)
+            resource_tracker.unregister(handle._name, "shared_memory")
+            self.slots[name] = np.ndarray(
+                tuple(spec["shape"]), dtype=np.dtype(spec["dtype"]), buffer=handle.buf
+            )
+            self._shm_handles.append(handle)
+        self.write_state_slots()
+
+    def write_state_slots(self) -> None:
+        np.copyto(self.slots["root_state"], self.root)
+        np.copyto(self.slots["dof_state"], self.dof)
+        body = self.slots["body_state"]
+        for body_index in range(self.num_bodies):
+            body[:, body_index, :] = self.root
+            if body_index > 0:
+                body[:, body_index, 0:3] = self.root[:, 0:3] + np.float32(0.1 * body_index) * (
+                    np.array([1.0, 0.0, 0.0], dtype=np.float32)
+                )
+        contact = self.slots["contact_force"]
+        contact.fill(0.0)
+        if self.num_bodies > 1:
+            # Tests bind contact sensors to the deepest link; report the mock
+            # force there.
+            contact[:, -1, 0] = np.abs(self.slots["ctrl"]).sum(axis=1)
+
+    def step(self, nsteps: int) -> None:
+        ctrl = self.slots["ctrl"]
+        dt = np.float32(self.sim_dt)
+        for _ in range(nsteps):
+            self.dof[:, :, 1] += ctrl * dt
+            self.dof[:, :, 0] += self.dof[:, :, 1] * dt
+            self.root[:, 9] += np.float32(_GRAVITY_Z) * dt  # lin_vel z
+            self.root[:, 0:3] += self.root[:, 7:10] * dt
+        self.write_state_slots()
+
+    def set_state(self, count: int) -> None:
+        env_ids = self.slots["reset_env_ids"][:count].astype(np.int64)
+        qpos = self.slots["reset_qpos"][:count]
+        qvel = self.slots["reset_qvel"][:count]
+        self.root[env_ids, 0:3] = qpos[:, 0:3]
+        self.root[env_ids, 3:7] = qpos[:, 3:7]
+        self.root[env_ids, 7:10] = qvel[:, 0:3]
+        self.root[env_ids, 10:13] = qvel[:, 3:6]
+        self.dof[env_ids, :, 0] = qpos[:, 7 : 7 + self.num_dof]
+        self.dof[env_ids, :, 1] = qvel[:, 6 : 6 + self.num_dof]
+        self.write_state_slots()
+
+    def meta(self) -> Dict[str, Any]:
+        return {
+            "num_dof": self.num_dof,
+            "num_bodies": self.num_bodies,
+            "dof_names": list(self.dof_names),
+            "body_names": list(self.body_names),
+            "dof_lower": [-1.5] * self.num_dof,
+            "dof_upper": [1.5] * self.num_dof,
+            "effort": [100.0] * self.num_dof,
+            "gravity": [0.0, 0.0, _GRAVITY_Z],
+            "use_gpu_pipeline": False,
+        }
+
+    def close(self) -> None:
+        for handle in self._shm_handles:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self._shm_handles = []
+
+
+def _csv_env(name: str, default: List[str]) -> List[str]:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return list(default)
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def main(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--protocol", required=True)
+    args = parser.parse_args(argv)
+    protocol = _load_protocol(args.protocol)
+    behavior = os.environ.get("UNILAB_ISAACGYM_MOCK_BEHAVIOR", "ok")
+
+    sim: _MockSim | None = None
+    stdin = sys.stdin.buffer
+    stdout = sys.stdout.buffer
+
+    def dispatch(cmd: str, payload: Any) -> Tuple[str, Any]:
+        nonlocal sim
+        if cmd == protocol.CMD_INIT:
+            if behavior == "fail_init":
+                raise RuntimeError("mock init failure")
+            sim = _MockSim(
+                num_envs=int(payload["num_envs"]),
+                sim_dt=float(payload["sim_dt"]),
+                dof_names=_csv_env("UNILAB_ISAACGYM_MOCK_DOF_NAMES", ["j0", "j1", "j2"]),
+                body_names=_csv_env("UNILAB_ISAACGYM_MOCK_BODY_NAMES", ["base", "link0", "link1"]),
+            )
+            return protocol.CMD_META, sim.meta()
+        assert sim is not None
+        if cmd == protocol.CMD_ATTACH:
+            sim.attach(payload["slots"])
+            return protocol.CMD_READY, None
+        if cmd == protocol.CMD_STEP:
+            if behavior == "die_on_step":
+                sys.stderr.write("mock dying on step\n")
+                sys.stderr.flush()
+                os._exit(3)
+            if behavior == "hang_on_step":
+                time.sleep(3600.0)
+            t0 = time.perf_counter()
+            sim.step(int(payload["nsteps"]))
+            physics_ms = (time.perf_counter() - t0) * 1000.0
+            return protocol.CMD_READY, {
+                "timing": {
+                    "control_upload_ms": 0.0,
+                    "physics_ms": physics_ms,
+                    "state_refresh_ms": 0.0,
+                }
+            }
+        if cmd == protocol.CMD_SET_STATE:
+            sim.set_state(int(payload["count"]))
+            return protocol.CMD_READY, {
+                "timing": {
+                    "set_state_reset_upload_ms": 0.0,
+                    "set_state_host_cache_refresh_ms": 0.0,
+                }
+            }
+        if cmd == protocol.CMD_REFRESH:
+            sim.write_state_slots()
+            return protocol.CMD_READY, None
+        if cmd == protocol.CMD_GET_META:
+            return protocol.CMD_META, sim.meta()
+        raise ValueError(f"unknown command {cmd!r}")
+
+    while True:
+        try:
+            message = protocol.recv_message(stdin)
+        except (EOFError, protocol.WorkerDisconnectedError):
+            return 0
+        cmd = message["cmd"]
+        if cmd == protocol.CMD_SHUTDOWN:
+            if sim is not None:
+                sim.close()
+            protocol.send_message(stdout, protocol.CMD_READY)
+            return 0
+        try:
+            reply_cmd, reply_payload = dispatch(cmd, message.get("payload"))
+        except Exception as exc:  # noqa: BLE001 - every worker error crosses the wire
+            protocol.send_message(stdout, protocol.CMD_ERROR, protocol.serialize_exception(exc))
+            continue
+        protocol.send_message(stdout, reply_cmd, reply_payload)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

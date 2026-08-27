@@ -52,6 +52,11 @@ class EnvCfg:
     # device profile never relies on an implicit backend-wide allocation size.
     mjwarp_nconmax: Optional[int] = None
     mjwarp_njmax: Optional[int] = None
+    # ``isaacgym`` runs physics in a Python 3.8 worker subprocess (Preview 4 is
+    # EOL and incompatible with the main environment). ``None`` keeps the
+    # backend defaults (device 0, generous handshake/step timeout).
+    isaacgym_device_id: Optional[int] = None
+    isaacgym_worker_timeout_s: Optional[float] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -83,6 +88,24 @@ class EnvCfg:
                 isinstance(value, bool) or not isinstance(value, int) or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
+        if self.isaacgym_device_id is not None and (
+            isinstance(self.isaacgym_device_id, bool)
+            or not isinstance(self.isaacgym_device_id, int)
+            or self.isaacgym_device_id < 0
+        ):
+            raise ValueError(
+                "isaacgym_device_id must be a non-negative integer or None, "
+                f"got {self.isaacgym_device_id!r}"
+            )
+        if self.isaacgym_worker_timeout_s is not None and (
+            not isinstance(self.isaacgym_worker_timeout_s, (int, float))
+            or isinstance(self.isaacgym_worker_timeout_s, bool)
+            or self.isaacgym_worker_timeout_s <= 0
+        ):
+            raise ValueError(
+                "isaacgym_worker_timeout_s must be a positive number or None, "
+                f"got {self.isaacgym_worker_timeout_s!r}"
+            )
         if self.cpu_ids is not None:
             ids = list(self.cpu_ids)
             if not ids:
