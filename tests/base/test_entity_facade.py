@@ -157,6 +157,21 @@ class _StrictBackendProfile:
         self._check("body angular velocity state")
         return self.body_ang_vel[:, ids]
 
+    def copy_body_state_w(
+        self,
+        ids: np.ndarray,
+        out_pos: np.ndarray,
+        out_quat: np.ndarray,
+        out_lin_vel: np.ndarray,
+        out_ang_vel: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        self._check("body state copy")
+        np.take(self.body_pos, ids, axis=1, out=out_pos)
+        np.take(self.body_quat, ids, axis=1, out=out_quat)
+        np.take(self.body_lin_vel, ids, axis=1, out=out_lin_vel)
+        np.take(self.body_ang_vel, ids, axis=1, out=out_ang_vel)
+        return out_pos, out_quat, out_lin_vel, out_ang_vel
+
     def get_body_lin_vel_b(self, ids: np.ndarray) -> np.ndarray:
         self._check("body-frame linear velocity state")
         return self.body_lin_vel_b[:, ids]
@@ -214,6 +229,50 @@ def test_backend_profiles_materialize_identical_local_entity_contract(backend_ty
         robot.data.actuator_ctrl_range,
         np.arange(10, dtype=np.float32).reshape(5, 2)[[4, 2]],
     )
+
+
+def test_body_state_copy_binding_freezes_local_to_backend_mapping() -> None:
+    backend, scene = _scene()
+    robot = scene["robot"]
+    copy_body_state = robot.bind_body_state_copy(np.asarray([1, 0], dtype=np.int32))
+    before = backend.calls.copy()
+    out_pos = np.empty((backend.num_envs, 2, 3), dtype=np.float32)
+    out_quat = np.empty((backend.num_envs, 2, 4), dtype=np.float32)
+    out_lin_vel = np.empty_like(out_pos)
+    out_ang_vel = np.empty_like(out_pos)
+
+    result = copy_body_state(out_pos, out_quat, out_lin_vel, out_ang_vel)
+
+    assert result == (out_pos, out_quat, out_lin_vel, out_ang_vel)
+    np.testing.assert_array_equal(out_pos, backend.body_pos[:, [4, 7]])
+    np.testing.assert_array_equal(out_quat, backend.body_quat[:, [4, 7]])
+    np.testing.assert_array_equal(out_lin_vel, backend.body_lin_vel[:, [4, 7]])
+    np.testing.assert_array_equal(out_ang_vel, backend.body_ang_vel[:, [4, 7]])
+    assert backend.calls["body state copy"] == before["body state copy"] + 1
+    for capability in (
+        "body position state",
+        "body quaternion state",
+        "body linear velocity state",
+        "body angular velocity state",
+    ):
+        assert backend.calls[capability] == before[capability]
+
+
+@pytest.mark.parametrize(
+    ("body_ids", "error_type", "message"),
+    [
+        (np.asarray([], dtype=np.int32), ValueError, "selected no bodies"),
+        ([2], IndexError, "out of range"),
+        ([0, 0], ValueError, "contain duplicates"),
+        ([True], TypeError, "1-D integer array"),
+    ],
+)
+def test_body_state_copy_binding_rejects_invalid_local_ids(
+    body_ids: Any, error_type: type[Exception], message: str
+) -> None:
+    _, scene = _scene()
+    with pytest.raises(error_type, match=message):
+        scene["robot"].bind_body_state_copy(body_ids)
 
 
 def test_state_read_cache_is_scoped_shared_and_explicitly_invalidated() -> None:

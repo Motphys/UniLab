@@ -8,9 +8,10 @@ public :class:`~unilab.base.backend.base.SimBackend` contract.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -26,6 +27,10 @@ if TYPE_CHECKING:
 
 
 NamesCfg = tuple[str, ...] | list[str] | None
+BodyStateCopyFn = Callable[
+    [np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+]
 
 
 @dataclass(frozen=True)
@@ -1210,6 +1215,23 @@ class Entity:
                 f"for passive joints on backend '{self._backend_type}': {passive_names}"
             )
         self.data.write_ctrl(target, env_ids, actuator_ids=actuator_ids)
+
+    def bind_body_state_copy(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+    ) -> BodyStateCopyFn:
+        """Bind entity-local body columns to the backend copy contract on the cold path."""
+        if self._body_ids is None:
+            raise self._capability_error(
+                "body-state copy",
+                "body_names were not declared in EntityCfg",
+            )
+        local_ids = self._normalize_local_body_ids(body_ids, capability="body-state copy")
+        if local_ids.size == 0:
+            raise ValueError(f"Entity '{self.name}' body-state copy selected no bodies")
+        backend_ids = np.array(self._body_ids[local_ids], copy=True, dtype=np.int32)
+        backend_ids.setflags(write=False)
+        return partial(self._backend.copy_body_state_w, backend_ids)
 
     def write_root_state_to_sim(
         self,

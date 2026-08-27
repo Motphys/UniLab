@@ -303,7 +303,10 @@ class HoraAPPORunner(APPORunner):
             f"epochs={learner.num_learning_epochs})"
         )
 
-        reward_history: deque = deque(maxlen=200)
+        # Recent collector reports; each entry is already the collector's
+        # rolling 100-episode mean, so a short window keeps the logged
+        # reward timely without losing smoothing.
+        reward_history: deque = deque(maxlen=10)
         latest_reward_components: dict = {}
         staging_pool = RolloutStagingPool(
             capacity=self.staging_pool_size,
@@ -379,9 +382,7 @@ class HoraAPPORunner(APPORunner):
             logger.update_staging_pool(staging_pool.active_count, staging_pool.capacity)
 
             mean_reward = (
-                sum(list(reward_history)[-50:]) / max(len(list(reward_history)[-50:]), 1)
-                if reward_history
-                else 0.0
+                sum(reward_history) / max(len(reward_history), 1) if reward_history else 0.0
             )
             last_mean_reward = float(mean_reward)
             best_mean_reward = max(best_mean_reward, last_mean_reward)

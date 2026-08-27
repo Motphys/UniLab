@@ -68,14 +68,21 @@ class UniformNoiseCfg(NoiseCfg):
         n_min = self._as_array(self.n_min, data.dtype)
         n_max = self._as_array(self.n_max, data.dtype)
 
-        # Generate uniform noise in [0, 1) and scale to [n_min, n_max).
+        # Generate uniform noise in [0, 1) and transform the generated array
+        # in place.  The pre-existing expression allocated one array for each
+        # multiply, add, and final data operation; keeping the same float32
+        # cast and ufunc order preserves bit-level results while returning the
+        # transformed noise buffer itself.
         noise = rng.random(data.shape).astype(data.dtype, copy=False)
-        noise = noise * (n_max - n_min) + n_min
+        np.multiply(noise, n_max - n_min, out=noise)
+        np.add(noise, n_min, out=noise)
 
         if self.operation == "add":
-            return data + noise
+            np.add(data, noise, out=noise)
+            return noise
         elif self.operation == "scale":
-            return data * noise
+            np.multiply(data, noise, out=noise)
+            return noise
         elif self.operation == "abs":
             return noise
         else:

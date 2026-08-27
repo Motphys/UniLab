@@ -34,13 +34,39 @@ from unilab.dr.types import (
 )
 from unilab.utils.rotation import np_quat_apply_inverse_batched
 
+from ..body_state import copy_selected_body_state
 from .dependencies import load_mjwarp_dependencies
 from .materialization import materialize_mjwarp_scene
 from .playback import run_mjwarp_playback, validate_mjwarp_visual_model
 
 _GRAPH_CAPTURE_MIN_DRIVER = (12, 4)
-_RESET_SCRATCH_CAPACITY = 128
-_RESET_SCRATCH_MIN_BATCH_SIZE = 8 * _RESET_SCRATCH_CAPACITY
+# Reset scratch storage is deliberately bounded.  The original 128-world
+# allocation covers the smaller G1 owners, while the 8192-world motion
+# tracking owner routinely resets about 250 rows per vector step.  Scale the
+# cold-path allocation with the world count and cap it at 512 so that this
+# workload stays on the sparse route without making an unbounded per-task
+# allocation.  Keeping the minimum at 128 preserves the #1288 route for the
+# 1024/2048-world owners.
+_RESET_SCRATCH_CAPACITY = 512
+_RESET_SCRATCH_MIN_CAPACITY = 128
+_RESET_SCRATCH_MIN_BATCH_SIZE = 8 * _RESET_SCRATCH_MIN_CAPACITY
+_RESET_SCRATCH_WORLD_FRACTION = 16
+
+
+def _reset_scratch_capacity_for_batch(num_envs: int) -> int:
+    """Choose a bounded, power-of-two scratch capacity on the cold path.
+
+    A fixed shape is required by the captured reset graphs.  The capacity is
+    rounded down to a power of two so graph/data shapes stay predictable, and
+    is never allowed below the proven 128-world route or above the 512-world
+    memory bound.  Small batches retain the eager/full-forward fallback rather
+    than paying for a second ``mujoco_warp.Data`` instance.
+    """
+    if num_envs < _RESET_SCRATCH_MIN_BATCH_SIZE:
+        return 0
+    target = max(_RESET_SCRATCH_MIN_CAPACITY, num_envs // _RESET_SCRATCH_WORLD_FRACTION)
+    power_of_two = 1 << (target.bit_length() - 1)
+    return min(_RESET_SCRATCH_CAPACITY, power_of_two)
 
 
 @contextmanager
@@ -231,9 +257,7 @@ class MjwarpBackend(SimBackend):
         # A bounded secondary Data avoids running reset-time forward over every
         # production world when only a small row set terminated.  It is built
         # only for batches large enough to amortize the extra graph and copies.
-        self._reset_scratch_capacity = (
-            _RESET_SCRATCH_CAPACITY if self._num_envs >= _RESET_SCRATCH_MIN_BATCH_SIZE else 0
-        )
+        self._reset_scratch_capacity = _reset_scratch_capacity_for_batch(self._num_envs)
         self._reset_scratch_data: Any | None = None
         self._reset_scratch_mask_device: Any | None = None
         self._reset_scratch_qpos_staging: np.ndarray | None = None
@@ -1189,6 +1213,16 @@ class MjwarpBackend(SimBackend):
         mapped = self._mapped_tracked_ids("world-frame body orientations", body_ids)
         return self._tracked_quat_w_all[:, mapped, :]
 
+    def get_body_pose_w_rows(
+        self, env_ids: np.ndarray, body_ids: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Gather world-frame body pose for selected environments only."""
+        rows = np.asarray(env_ids, dtype=np.intp)
+        mapped = self._mapped_tracked_ids("world-frame body poses", body_ids)
+        return self._tracked_pos_w_all[rows[:, None], mapped], self._tracked_quat_w_all[
+            rows[:, None], mapped
+        ]
+
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         mapped = self._mapped_tracked_ids("world-frame body linear velocities", body_ids)
         return self._tracked_linvel_w_all[:, mapped, :]
@@ -1196,6 +1230,40 @@ class MjwarpBackend(SimBackend):
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
         mapped = self._mapped_tracked_ids("world-frame body angular velocities", body_ids)
         return self._tracked_angvel_w_all[:, mapped, :]
+
+    def get_body_lin_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        """Gather world-frame body linear velocity for selected rows."""
+        rows = np.asarray(env_ids, dtype=np.intp)
+        mapped = self._mapped_tracked_ids("world-frame body linear velocities", body_ids)
+        return self._tracked_linvel_w_all[rows[:, None], mapped]
+
+    def get_body_ang_vel_w_rows(self, env_ids: np.ndarray, body_ids: np.ndarray) -> np.ndarray:
+        """Gather world-frame body angular velocity for selected rows."""
+        rows = np.asarray(env_ids, dtype=np.intp)
+        mapped = self._mapped_tracked_ids("world-frame body angular velocities", body_ids)
+        return self._tracked_angvel_w_all[rows[:, None], mapped]
+
+    def copy_body_state_w(
+        self,
+        body_ids: np.ndarray,
+        out_pos: np.ndarray,
+        out_quat: np.ndarray,
+        out_lin_vel: np.ndarray,
+        out_ang_vel: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        mapped = self._mapped_tracked_ids("world-frame body state", body_ids)
+        copy_selected_body_state(
+            self._tracked_pos_w_all,
+            self._tracked_quat_w_all,
+            self._tracked_linvel_w_all,
+            self._tracked_angvel_w_all,
+            mapped,
+            out_pos,
+            out_quat,
+            out_lin_vel,
+            out_ang_vel,
+        )
+        return out_pos, out_quat, out_lin_vel, out_ang_vel
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
         del body_ids

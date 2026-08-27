@@ -43,6 +43,7 @@ from ..base import (
     SimBackend,
     normalize_play_render_mode,
 )
+from ..body_state import copy_selected_body_state
 from .playback import run_mujoco_playback
 
 
@@ -1464,10 +1465,17 @@ class MuJoCoBackend(SimBackend):
         out_ang_vel: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         mapped = self._get_mapped_indices(body_ids)
-        np.take(self._tracked_pos_w_all, mapped, axis=1, out=out_pos)
-        np.take(self._tracked_quat_w_all, mapped, axis=1, out=out_quat)
-        np.take(self._tracked_linvel_w_all, mapped, axis=1, out=out_lin_vel)
-        np.take(self._tracked_angvel_w_all, mapped, axis=1, out=out_ang_vel)
+        copy_selected_body_state(
+            self._tracked_pos_w_all,
+            self._tracked_quat_w_all,
+            self._tracked_linvel_w_all,
+            self._tracked_angvel_w_all,
+            mapped,
+            out_pos,
+            out_quat,
+            out_lin_vel,
+            out_ang_vel,
+        )
         return out_pos, out_quat, out_lin_vel, out_ang_vel
 
     # ------------------------------------------------------------------ #
