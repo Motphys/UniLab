@@ -193,6 +193,15 @@ class MotionCommand(CommandTerm):
         # per-step compute. Written by `_update_command`, consumed by
         # `post_compute` to restrict refresh work to the reset rows.
         self._post_compute_env_ids: np.ndarray | None = None
+        # Reset rows whose motion-reference buffers were already ingested by
+        # `_resample_command` during the in-flight reset; consumed by the
+        # reset-path `_update_command` to skip the redundant `_refresh_motion`
+        # gather (issue #1355).
+        self._resample_ingested_ids: np.ndarray | None = None
+        # Motion rows gathered by the in-flight `_resample_command`, exposed so
+        # subclasses (e.g. BoxMotionCommand) reuse the same gather instead of
+        # re-reading the same frames.
+        self._resample_motion: MotionData | None = None
         self._robot_body_pos_w = np.empty_like(self._body_pos_w)
         self._robot_body_quat_w = np.empty((self.num_envs, num_bodies, 4), dtype=dtype)
         self._robot_body_lin_vel_w = np.empty_like(self._body_pos_w)
@@ -220,7 +229,7 @@ class MotionCommand(CommandTerm):
         # measured manager step contains no Numba worker/JIT initialization.
         configure_motion_kernel_runtime()
         self._refresh_relative_state()
-        self._update_metrics()
+        self._update_metrics(self._all_env_ids)
 
     def _make_motion_loader(
         self,
@@ -347,6 +356,13 @@ class MotionCommand(CommandTerm):
             if isinstance(env_ids, slice)
             else env_ids
         )
+        # Row-wise error metrics are consumed only here (CommandTerm.reset logs
+        # per-episode means from these rows, then zeroes them). The per-step
+        # compute path skips the full-batch metrics kernel (issue #1355), so
+        # refresh exactly the rows being reset from the current post-step
+        # buffers — the same inputs the former per-step refresh used, keeping
+        # the consumed values bit-identical.
+        self._update_error_metrics(ids)
         lower, upper = self._joint_default_position_range
         self.joint_default_bias[ids] = self._env.rng.uniform(
             lower, upper, size=(len(ids), self.motion.num_joints)
@@ -372,7 +388,15 @@ class MotionCommand(CommandTerm):
             self._command[:, :width] = self._motion_data.joint_pos
             self._command[:, width:] = self._motion_data.joint_vel
             return
-        data = self.motion.get_motion_at_frame(self.time_steps[env_ids])
+        self._ingest_motion_rows(env_ids, self.motion.get_motion_at_frame(self.time_steps[env_ids]))
+
+    def _ingest_motion_rows(self, env_ids: np.ndarray, data: MotionData) -> None:
+        """Scatter one gathered motion frame set into the reference buffers.
+
+        Shared by the row-scoped `_refresh_motion` and by `_resample_command`,
+        so the reset path gathers each reset row's motion frame exactly once
+        (issue #1355).
+        """
         for motion_field in dataclasses.fields(data):
             value = getattr(data, motion_field.name)
             target = getattr(self._motion_data, motion_field.name)
@@ -436,10 +460,25 @@ class MotionCommand(CommandTerm):
         )
 
     def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
-        # All row-wise metrics are written by one Numba kernel.  Passing an
-        # explicit all-row index buffer for normal steps lets the same kernel
-        # serve partial-reset rows without retaining a NumPy runtime formula.
-        rows = self._all_env_ids if env_ids is None else env_ids
+        # The row-wise error metrics are consumed only by `reset()` (episode
+        # log extras), which refreshes exactly the rows it reads. The per-step
+        # call (env_ids=None) therefore skips the Numba kernel over all rows
+        # (issue #1355); the reset path (env_ids set) refreshes the reset rows
+        # so post-reset metrics track the post-reset state.
+        if env_ids is not None:
+            self._update_error_metrics(env_ids)
+        # Sampler statistics are global scalars, so every row tracks them.
+        self.metrics["sampling_entropy"].fill(self.sampler.sampling_entropy)
+        self.metrics["sampling_top1_prob"].fill(self.sampler.sampling_top1_prob)
+        self.metrics["sampling_top1_bin"].fill(self.sampler.sampling_top1_bin)
+
+    def _update_error_metrics(self, rows: np.ndarray) -> None:
+        """Recompute the row-wise error metrics for the given rows.
+
+        All row-wise metrics are written by one Numba kernel.  Passing an
+        explicit all-row index buffer for normal steps lets the same kernel
+        serve partial-reset rows without retaining a NumPy runtime formula.
+        """
         update_motion_metrics_kernel(
             rows,
             self.anchor_body_idx,
@@ -468,10 +507,6 @@ class MotionCommand(CommandTerm):
             self.metrics["error_joint_pos"],
             self.metrics["error_joint_vel"],
         )
-        # Sampler statistics are global scalars, so every row tracks them.
-        self.metrics["sampling_entropy"].fill(self.sampler.sampling_entropy)
-        self.metrics["sampling_top1_prob"].fill(self.sampler.sampling_top1_prob)
-        self.metrics["sampling_top1_bin"].fill(self.sampler.sampling_top1_bin)
 
     def _resample_command(self, env_ids: np.ndarray) -> None:
         frames = self.sampler.sample_frames(env_ids)
@@ -502,12 +537,23 @@ class MotionCommand(CommandTerm):
         self.robot.write_joint_state_to_sim(joint_pos, motion.joint_vel, env_ids=env_ids)
         root_state = np.concatenate((root_pos, root_quat, root_lin_vel, root_ang_vel), axis=-1)
         self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+        # Keep the motion-reference buffers in sync with the resampled frames so
+        # the reset-path `_update_command` does not gather the same rows again
+        # (issue #1355). Subclasses reuse `self._resample_motion` for their own
+        # reset writes instead of re-gathering the same frames.
+        self._ingest_motion_rows(env_ids, motion)
+        self._resample_ingested_ids = env_ids
+        self._resample_motion = motion
 
     def _update_command(self, env_ids: np.ndarray | None) -> None:
         self._post_compute_env_ids = env_ids
         if env_ids is not None:
-            self._refresh_motion(env_ids)
+            ingested = self._resample_ingested_ids
+            self._resample_ingested_ids = None
+            if ingested is None or not np.array_equal(ingested, env_ids):
+                self._refresh_motion(env_ids)
             return
+        self._resample_ingested_ids = None
         self.sampler.update_failure_stats(self._env.termination_manager.terminated)
         active_ids = np.flatnonzero(~self._env.reset_buf).astype(np.int32, copy=False)
         wrap_ids = self.sampler.step(active_ids)
