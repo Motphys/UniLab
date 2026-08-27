@@ -6,16 +6,15 @@ IsaacGym（NVIDIA Preview 4）是 NVIDIA 已停止维护（EOL）的 GPU 物理�
 定位该环境，不写入任何机器本地路径。
 
 当前状态：`IsaacGymBackend`（subprocess 后端，物理跑在外部 Python 3.8
-worker 中）已实现并注册到 registry；`g1_walk_flat` 已提供 isaacgym owner
-配置（`conf/{ppo,appo,sac,td3,flashsac}/task/g1_walk_flat/isaacgym.yaml`），
-跨后端契约审计（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔isaacgym。
-回放渲染尚未支持（owner 配置已将 `play_render_mode` 置为 `none`）；顶层 CLI
-的 `--sim` 暂不含 isaacgym（与 drake 相同，经 owner YAML 选择后端）。真机
-端到端验证（MJCF 导入保真度等）依赖下文所述的外部环境，尚未在仓库 CI 中
-覆盖。仓库内另有物理性能 benchmark 脚本
+worker 中）已实现并注册到 registry；`g1_walk_flat` 提供 isaacgym owner
+配置（`conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`），跨后端契约审计
+（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔isaacgym。回放渲染
+尚未支持（owner 配置已将 `play_render_mode` 置为 `none`）。真机端到端
+验证依赖下文所述的外部环境，不在仓库 CI 中覆盖。仓库内另有物理性能
+benchmark 脚本
 `scripts/benchmark/physics/benchmark_physics_step_isaacgym.py`，它通过
 `UNILAB_BENCHMARK_HOLOSOMA_DEPS` 等环境变量定位外部环境。
-本页覆盖外部环境准备、benchmark 验证与当前接入状态。
+本页覆盖外部环境准备、训练与评估、benchmark 验证与故障排除。
 
 ## 前置条件
 
@@ -65,6 +64,37 @@ uv run --no-project "$UNILAB_BENCHMARK_HSGYM_PYTHON" \
     scripts/benchmark/physics/benchmark_physics_step_isaacgym.py \
     --tasks g1_walk_flat --batch-sizes 256 --models-root "$UNILAB_BENCHMARK_MODELS_ROOT"
 ```
+
+## 训练与评估
+
+安装好外部环境后即可训练。worker 运行时默认从 `~/.unilab/isaacgym` 自动
+发现；自定义安装根时在训练前导出 `UNILAB_ISAACGYM_HOME` 即可。当前
+`g1_walk_flat` 提供 PPO 与 SAC 的 isaacgym owner 配置：
+
+```bash
+# SAC
+uv run train --algo sac --task g1_walk_flat --sim isaacgym
+
+# PPO
+uv run train --algo ppo --task g1_walk_flat --sim isaacgym
+```
+
+常用覆盖（Hydra 参数直接跟在命令后面）：
+
+```bash
+# 小规模 smoke：64 个环境、只跑 3 个 iteration
+uv run train --algo sac --task g1_walk_flat --sim isaacgym \
+    algo.num_envs=64 algo.max_iterations=3
+
+# 指定 worker 使用的 GPU
+uv run train --algo sac --task g1_walk_flat --sim isaacgym env.isaacgym_device_id=1
+```
+
+跨后端迁移（sim2sim）：isaacgym owner 配置与 mujoco owner 在契约守卫
+（`src/unilab/utils/sim2sim.py`）审计下全部字段兼容（TRANSFERABLE），
+同一 task 的 checkpoint 可跨后端使用。注意 `uv run eval` 的回放渲染尚未
+在 isaacgym 后端实现（owner 配置 `play_render_mode: none` 会在脚本层跳过
+回放），跨后端策略评估将在回放能力落地后可用。
 
 ## 手动安装
 

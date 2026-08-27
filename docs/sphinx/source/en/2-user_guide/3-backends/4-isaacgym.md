@@ -9,19 +9,17 @@ variables, with no machine-local paths written into the repository.
 Current status: `IsaacGymBackend` (a subprocess backend whose physics runs in
 the external Python 3.8 worker) is implemented and registered; `g1_walk_flat`
 ships isaacgym owner configs
-(`conf/{ppo,appo,sac,td3,flashsac}/task/g1_walk_flat/isaacgym.yaml`), and the
-cross-backend contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
+(`conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`), and the cross-backend
+contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
 mujoco/isaacgym pair. Playback rendering is not supported yet (owner configs
-set `play_render_mode: none`), and the top-level CLI `--sim` flag does not
-list isaacgym yet (same as drake; the backend is selected through the owner
-YAML). Real-machine end-to-end validation (MJCF import fidelity, etc.)
-depends on the external environment described below and is not covered by
-repo CI. The repository also ships a physics benchmark script
+set `play_render_mode: none`). Real-machine end-to-end validation depends on
+the external environment described below and is not covered by repo CI. The
+repository also ships a physics benchmark script
 `scripts/benchmark/physics/benchmark_physics_step_isaacgym.py`, which locates
 the external environment through variables such as
 `UNILAB_BENCHMARK_HOLOSOMA_DEPS`. This page covers preparing the external
-environment, validating it with the benchmark, and the current integration
-status.
+environment, training and evaluation, benchmark validation, and
+troubleshooting.
 
 ## Prerequisites
 
@@ -76,6 +74,42 @@ uv run --no-project "$UNILAB_BENCHMARK_HSGYM_PYTHON" \
     scripts/benchmark/physics/benchmark_physics_step_isaacgym.py \
     --tasks g1_walk_flat --batch-sizes 256 --models-root "$UNILAB_BENCHMARK_MODELS_ROOT"
 ```
+
+## Training and Evaluation
+
+Once the external environment is installed, training works out of the box.
+The worker runtime is discovered automatically from `~/.unilab/isaacgym`;
+when using a custom install root, export `UNILAB_ISAACGYM_HOME` before
+training. `g1_walk_flat` currently ships isaacgym owner configs for PPO and
+SAC:
+
+```bash
+# SAC
+uv run train --algo sac --task g1_walk_flat --sim isaacgym
+
+# PPO
+uv run train --algo ppo --task g1_walk_flat --sim isaacgym
+```
+
+Common overrides (Hydra arguments follow the command directly):
+
+```bash
+# Small smoke run: 64 environments, 3 iterations only
+uv run train --algo sac --task g1_walk_flat --sim isaacgym \
+    algo.num_envs=64 algo.max_iterations=3
+
+# Pick the GPU used by the worker
+uv run train --algo sac --task g1_walk_flat --sim isaacgym env.isaacgym_device_id=1
+```
+
+Cross-backend migration (sim2sim): the isaacgym owner configs are fully
+contract-compatible with the mujoco owner under the audit guard
+(`src/unilab/utils/sim2sim.py`, verdict TRANSFERABLE), so checkpoints of the
+same task transfer across backends. Note that playback rendering is not
+implemented on the isaacgym backend yet — the owner configs set
+`play_render_mode: none`, which makes `uv run eval` skip playback at the
+script level. Cross-backend policy evaluation becomes available once playback
+lands.
 
 ## Manual Setup
 

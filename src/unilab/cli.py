@@ -16,7 +16,7 @@ from typing import Sequence
 from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
-SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix")
+SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "isaacgym")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
@@ -112,6 +112,15 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         raise SystemExit(
             "sim=motrix requires the Motrix extra. Install it with `uv sync --extra motrix`."
         )
+    if sim == "isaacgym":
+        from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
+
+        if not isaacgym_runtime_available():
+            raise SystemExit(
+                "sim=isaacgym requires the external Python 3.8 worker runtime. "
+                "Install it with `scripts/tools/setup_isaacgym_env.sh` (see the "
+                "IsaacGym backend docs page)."
+            )
 
 
 def _override_bool(overrides: Sequence[str], key: str) -> bool | None:
