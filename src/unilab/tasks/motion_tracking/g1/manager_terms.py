@@ -87,9 +87,23 @@ class BoxMotionCommand(MotionCommand):
         else:
             self._object_pos_w[env_ids] = value[env_ids] + self._env.scene.env_origins[env_ids]
 
+    def _ingest_motion_rows(self, env_ids: np.ndarray, data) -> None:
+        super()._ingest_motion_rows(env_ids, data)
+        value = cast(BoxMotionData, data).object_pos_w
+        if value is None:
+            raise RuntimeError("Box motion object position was not materialized")
+        # `data` rows are already the gathered reset rows (leading dim
+        # len(env_ids)); scatter positionally into the full-batch buffer.
+        self._object_pos_w[env_ids] = value + self._env.scene.env_origins[env_ids]
+
     def _resample_command(self, env_ids: np.ndarray) -> None:
         super()._resample_command(env_ids)
-        motion = cast(BoxMotionData, self.motion.get_motion_at_frame(self.time_steps[env_ids]))
+        # The base resample already gathered exactly these frames; reuse them
+        # instead of gathering the same rows a second time (issue #1355).
+        motion = self._resample_motion
+        if motion is None:
+            raise RuntimeError("BoxMotionCommand requires the base resample gather")
+        motion = cast(BoxMotionData, motion)
         values = (
             motion.object_pos_w,
             motion.object_quat_w,

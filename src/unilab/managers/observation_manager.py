@@ -351,8 +351,11 @@ class ObservationManager(ManagerBase):
         are untouched, so a partial reset does not advance their observation
         timelines. The returned arrays then hold only the reset rows, in env_ids
         order, and the observation cache is left invalidated (the next per-step
-        compute refreshes it); noise is still drawn with full-batch shapes so
-        the shared RNG stream matches the full-batch implementation exactly.
+        compute refreshes it). On row-scoped (non-temporal) groups, noise is
+        drawn only for the reset rows: issue #1349 removed the requirement that
+        the reset path consume the shared RNG stream identically to a
+        full-batch compute, so reset-path noise values and RNG consumption no
+        longer match the full-batch path.
         """
         if env_ids is not None and not update_history:
             raise ValueError("env_ids is only meaningful with update_history=True.")
@@ -363,8 +366,15 @@ class ObservationManager(ManagerBase):
             return self._obs_buffer
 
         obs_buffer: dict[str, np.ndarray | dict[str, np.ndarray]] = dict()
+        # Cross-group sharing of identical term computations (issue #1351):
+        # within one compute() call, terms with the same func and params yield
+        # the same raw output (the per-term pipeline never mutates func outputs
+        # in place), so later groups reuse the first group's raw result.
+        share_cache: dict[tuple, np.ndarray] = {}
         for group_name in self._group_obs_term_names:
-            obs_buffer[group_name] = self.compute_group(group_name, update_history, env_ids)
+            obs_buffer[group_name] = self.compute_group(
+                group_name, update_history, env_ids, share_cache=share_cache
+            )
         if env_ids is None:
             self._obs_buffer = obs_buffer
         return obs_buffer
@@ -374,6 +384,8 @@ class ObservationManager(ManagerBase):
         group_name: str,
         update_history: bool = False,
         env_ids: np.ndarray | None = None,
+        *,
+        share_cache: dict[tuple, np.ndarray] | None = None,
     ) -> np.ndarray | dict[str, np.ndarray]:
         group_cfg = self.cfg[group_name]
         if group_cfg is None:
@@ -381,6 +393,9 @@ class ObservationManager(ManagerBase):
         group_term_names = self._group_obs_term_names[group_name]
         group_obs: dict[str, np.ndarray] = {}
         obs_terms = zip(group_term_names, self._group_obs_term_cfgs[group_name], strict=False)
+        if share_cache is None:
+            share_cache = {}
+        share_map = self._group_obs_term_share.get(group_name, {})
         # In the strict default policy a finite result is by far the common
         # case.  For concatenated groups, scan the assembled output once and
         # only inspect individual slices when an error is actually found; this
@@ -394,13 +409,19 @@ class ObservationManager(ManagerBase):
         )
         # Reset path (issue #1259 R2): when no term in this group uses delay or
         # history buffers, everything downstream of the term call is row
-        # independent, so only the reset rows are processed. Term calls and
-        # noise stay full-batch: term funcs are contracted to return
-        # (num_envs, ...) and full-shape noise draws keep the shared RNG stream
-        # and per-row noise values identical to the full-batch path.
+        # independent, so only the reset rows are processed. Term calls stay
+        # full-batch (term funcs are contracted to return (num_envs, ...)), but
+        # noise is drawn for the reset rows only — issue #1349 removed the
+        # full-batch RNG-stream parity requirement.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
         for term_name, term_cfg in obs_terms:
-            obs = term_cfg.func(self._env, **term_cfg.params)
+            share_key = share_map.get(term_name)
+            if share_key is not None and share_key in share_cache:
+                obs = share_cache[share_key]
+            else:
+                obs = term_cfg.func(self._env, **term_cfg.params)
+                if share_key is not None:
+                    share_cache[share_key] = obs
             if not isinstance(obs, np.ndarray):
                 raise TypeError(
                     f"ObservationManager term '{group_name}/{term_name}' returned "
@@ -412,6 +433,13 @@ class ObservationManager(ManagerBase):
                     f"{obs.shape}, expected (num_envs, ...) with num_envs={self.num_envs}."
                 )
             fresh = False
+            if row_scoped:
+                # Slice before noise: reset-path noise is drawn for the reset
+                # rows only (issue #1349 removed the full-batch RNG-stream
+                # parity requirement). Fancy indexing already returns a fresh
+                # row copy, safe for the in-place clip/scale below.
+                obs = obs[env_ids]
+                fresh = True
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
                 # NoiseCfg.apply always returns a newly allocated array.
                 obs = term_cfg.noise.apply(obs, rng=self._env.rng)
@@ -443,9 +471,6 @@ class ObservationManager(ManagerBase):
                 # Only take a defensive copy when this pipeline may mutate the
                 # term or expose it directly to callers.
                 obs = obs.copy()
-            if row_scoped:
-                # Fresh row copy; safe for the in-place clip/scale below.
-                obs = obs[env_ids]
             if term_cfg.clip:
                 np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
             if term_cfg.scale is not None:
@@ -702,3 +727,25 @@ class ObservationManager(ManagerBase):
                 term_cfg.delay_max_lag > 0 or term_cfg.history_length > 0
                 for term_cfg in self._group_obs_term_cfgs[group_name]
             )
+
+        # Cross-group sharing of identical term computations (issue #1351):
+        # within one compute() call, terms with the same func and params yield
+        # the same raw output, so later groups reuse the first group's result.
+        # Class-based terms (possibly stateful per call) and terms with
+        # unhashable params are never shared.
+        self._group_obs_term_share: dict[str, dict[str, tuple]] = {}
+        for share_group, share_terms in self._group_obs_term_cfgs.items():
+            share_entry: dict[str, tuple] = {}
+            for share_name, share_cfg in zip(
+                self._group_obs_term_names[share_group], share_terms, strict=False
+            ):
+                func = share_cfg.func
+                if hasattr(func, "reset") and callable(func.reset):
+                    continue
+                try:
+                    share_key = (func, tuple(sorted(share_cfg.params.items())))
+                    hash(share_key)
+                except TypeError:
+                    continue
+                share_entry[share_name] = share_key
+            self._group_obs_term_share[share_group] = share_entry

@@ -4,8 +4,10 @@ On the partial-reset path (compute(update_history=True, env_ids=...)) the
 manager returns only the reset rows and processes them row-scoped whenever the
 group has no delay/history terms. These tests pin that contract:
 
-- reset rows are bit-identical to a full-batch compute sliced to those rows,
-  and the shared RNG stream is consumed identically (noise stays full-batch);
+- un-noised reset rows are bit-identical to a full-batch compute sliced to
+  those rows; noise is drawn for the reset rows only — issue #1349 removed the
+  full-batch RNG-stream parity requirement, so noised reset rows match neither
+  the full-batch noise values nor its RNG consumption;
 - groups with delay/history terms fall back to the full-batch pipeline and
   only slice the final output; untouched rows' buffers are not advanced;
 - NaN diagnostics on the row-scoped path report real env indices.
@@ -41,7 +43,7 @@ def _noisy_cfg() -> dict[str, ObservationGroupCfg]:
     }
 
 
-def test_partial_reset_rows_match_full_compute_bitwise() -> None:
+def test_partial_reset_row_scoped_noise() -> None:
     env = FakeEnv(seed=11)
     manager = ObservationManager(_noisy_cfg(), env)
     manager.compute(update_history=True)  # populate caches like a step would
@@ -56,8 +58,18 @@ def test_partial_reset_rows_match_full_compute_bitwise() -> None:
     rng_after_full = env.rng.bit_generator.state
 
     assert rows["policy"].shape == (len(ids), full["policy"].shape[1])
-    np.testing.assert_array_equal(rows["policy"], full["policy"][ids])
-    assert rng_after_rows == rng_after_full
+    # Issue #1349: reset-path noise is drawn for the reset rows only, so the
+    # shared RNG stream is consumed strictly less than the full-batch draw.
+    assert rng_after_rows != rng_after_full
+    # The un-noised trailing term stays bit-identical to the full-batch compute.
+    state_dim = env.obs.shape[1]
+    np.testing.assert_array_equal(rows["policy"][:, state_dim:], full["policy"][ids][:, state_dim:])
+    # Noised columns differ from the full-batch slice (row-scoped draws).
+    assert not np.array_equal(rows["policy"][:, :state_dim], full["policy"][ids][:, :state_dim])
+    # The same RNG state reproduces the same reset rows deterministically.
+    env.rng.bit_generator.state = rng_state
+    rows_again = manager.compute(update_history=True, env_ids=ids)
+    np.testing.assert_array_equal(rows["policy"], rows_again["policy"])
 
 
 def test_partial_reset_does_not_populate_obs_cache() -> None:

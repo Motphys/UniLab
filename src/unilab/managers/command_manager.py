@@ -88,7 +88,9 @@ class CommandTerm(ManagerTermBase):
         With env_ids=None (the per-step path) all envs are updated; with env_ids
         (the reset path) timers and the command update are scoped to those envs.
         Metrics are refreshed each call; terms may scope per-row metric work to
-        env_ids since other rows are unchanged since the per-step update.
+        env_ids since other rows are unchanged since the per-step update, or
+        defer row-wise metric work to ``reset()`` when reset is the only
+        consumer (e.g. MotionCommand, issue #1355).
 
         dt may be a scalar (all envs) or a per-env tensor (auto-reset path,
         where freshly reset envs get zero to keep their timers full). A tensor
