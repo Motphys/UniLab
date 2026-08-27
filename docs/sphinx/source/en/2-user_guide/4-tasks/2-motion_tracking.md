@@ -59,13 +59,11 @@ uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
 
 The `g1_wbt_obs` owner is the deploy-aligned off-policy observation profile: a
 pelvis IMU state (`pelvis_local_linvel` / `pelvis_gyro` / `pelvis_upvector`) plus
-per-term observation history (`noise_config.obs_history_length: 5`), flattened
-oldest-first per term so a hardware runtime assembling per-term history reads the
-same vector. That ordering is guarded by
-`tests/scripts/test_obs_alignment_g1_wbt.py`; the hardware-side contract is
-documented in the sim-to-real deployment guide. When a Motrix sim2sim replay
-needs a checkpoint from another log root, pass the absolute path through
-`uv run eval`:
+per-term observation history (`noise_config.obs_history_length: 5`), byte-aligned
+with the deploy-time `ObservationManager`. Deploy tooling lives under
+`scripts/deploy/`, and the observation alignment is cross-checked by
+`tests/scripts/test_obs_alignment_g1_wbt.py`. When a Motrix sim2sim replay needs a
+checkpoint from another log root, pass the absolute path through `uv run eval`:
 
 ```bash
 uv run eval --algo sac --task g1_motion_tracking --sim motrix \
