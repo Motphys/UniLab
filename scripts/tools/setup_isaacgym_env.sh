@@ -12,7 +12,7 @@
 #   $UNILAB_ISAACGYM_HOME/miniconda3                        dedicated miniconda
 #   $UNILAB_ISAACGYM_HOME/miniconda3/envs/hsgym             Python 3.8 conda env
 #   $UNILAB_ISAACGYM_HOME/isaacgym/python                   unpacked Preview 4
-#   $UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz user-provided tarball
+#   $UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz downloaded tarball
 #
 # The script is idempotent: completed steps are skipped on re-run.
 
@@ -27,10 +27,11 @@ benchmarks. IsaacGym cannot be installed into the main uv environment.
 
 Options:
   --tarball <path>   Path to IsaacGym_Preview_4_Package.tar.gz.
-                     Default: $UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz
-                     The tarball must be downloaded manually from the NVIDIA
-                     developer site (login required):
-                     https://developer.nvidia.com/isaac-gym-preview-4
+                     Default: auto-downloaded (no login required) to
+                     $UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz
+                     from https://developer.nvidia.com/isaac-gym-preview-4 ;
+                     use this option to supply a pre-downloaded tarball
+                     instead (e.g. on a machine without internet access).
   -h, --help         Show this help.
 
 Environment:
@@ -108,18 +109,21 @@ else
   touch "$LIBSTDCXX_SENTINEL"
 fi
 
-# Step 3: the IsaacGym tarball cannot be fetched automatically; the NVIDIA
-# developer download requires a login, so the user must provide it.
+# Step 3: fetch the IsaacGym tarball. The NVIDIA download URL redirects to a
+# signed URL without requiring a login, so the script can fetch it directly;
+# --tarball or a pre-placed file skips the download.
+if [ -n "$TARBALL_ARG" ] && [ ! -f "$TARBALL_PATH" ]; then
+  echo "[setup_isaacgym_env] error: --tarball file not found: $TARBALL_PATH" >&2
+  exit 1
+fi
 if [ ! -f "$TARBALL_PATH" ]; then
-  cat >&2 <<EOF
-[setup_isaacgym_env] 错误：未找到 IsaacGym Preview 4 安装包：$TARBALL_PATH
-
-IsaacGym Preview 4 需要 NVIDIA developer 账号登录后手动下载，无法通过脚本自动获取：
-  1. 打开 https://developer.nvidia.com/isaac-gym-preview-4 并登录
-  2. 下载 IsaacGym_Preview_4_Package.tar.gz
-  3. 将文件放到 $ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz
-     或用 --tarball <path> 指定路径后重跑本脚本
-EOF
+  log "downloading IsaacGym Preview 4 tarball (~200 MB) to $TARBALL_PATH"
+  curl -fL --retry 3 "https://developer.nvidia.com/isaac-gym-preview-4" \
+    -o "$TARBALL_PATH.part"
+  mv "$TARBALL_PATH.part" "$TARBALL_PATH"
+fi
+if ! tar -tzf "$TARBALL_PATH" >/dev/null 2>&1; then
+  echo "[setup_isaacgym_env] error: $TARBALL_PATH is not a valid gzip tarball (download may have failed)" >&2
   exit 1
 fi
 
@@ -153,6 +157,10 @@ export UNILAB_BENCHMARK_HSGYM_PYTHON="$HSGYM_PYTHON"
 export UNILAB_BENCHMARK_HSGYM_LIB="$ENV_ROOT/lib"
 # URDF 模型树（go1_description/ 等）需自备，指向其根目录：
 export UNILAB_BENCHMARK_MODELS_ROOT="<path-to-your-urdf-models-root>"
+
+# 训练后端（task=<task>/isaacgym）默认从 ~/.unilab/isaacgym 自动发现运行时；
+# 若用了自定义 UNILAB_ISAACGYM_HOME，训练时同名导出即可：
+export UNILAB_ISAACGYM_HOME="$ISAACGYM_HOME"
 
 然后在仓库根目录用 benchmark 脚本验证：
 

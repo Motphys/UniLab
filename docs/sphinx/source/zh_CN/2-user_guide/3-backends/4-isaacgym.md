@@ -20,9 +20,10 @@ worker 中）已实现并注册到 registry；`g1_walk_flat` 已提供 isaacgym 
 ## 前置条件
 
 - Linux x86_64，装有 NVIDIA GPU 驱动。
-- NVIDIA developer 账号：`IsaacGym_Preview_4_Package.tar.gz` 必须在
-  <https://developer.nvidia.com/isaac-gym-preview-4> 登录后手动下载，
-  脚本不会也无法自动拉取该 URL。
+- 网络可访问 NVIDIA 下载站点：脚本会自动从
+  <https://developer.nvidia.com/isaac-gym-preview-4> 下载
+  `IsaacGym_Preview_4_Package.tar.gz`（无需登录）；离线机器可先自行下载，
+  再用 `--tarball <path>` 指定。
 - 磁盘空间：miniconda、conda 环境与 IsaacGym 安装包合计约 5 GB。
 
 ## 自动化安装
@@ -34,13 +35,14 @@ scripts/tools/setup_isaacgym_env.sh
 ```
 
 脚本默认把所有内容安装到 `$HOME/.unilab/isaacgym`，可用环境变量
-`UNILAB_ISAACGYM_HOME` 覆盖安装根目录；用 `--tarball <path>` 指定安装包位置
-（默认读取 `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`）。
+`UNILAB_ISAACGYM_HOME` 覆盖安装根目录；安装包默认自动下载到
+`$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`，离线机器可用
+`--tarball <path>` 指定已下载的安装包。
 脚本幂等，重跑时跳过已完成的步骤。
 
 安装流程：专用 miniconda → python 3.8 `hsgym` conda 环境（含
-`libstdcxx-ng`，用于修复 Ubuntu 24.04 的 GLIBCXX 问题）→ 解包 tarball →
-`pip install -e isaacgym/python` → import 自检。
+`libstdcxx-ng`，用于修复 Ubuntu 24.04 的 GLIBCXX 问题）→ 下载并解包
+tarball → `pip install -e isaacgym/python` → import 自检。
 
 安装完成后，把脚本输出的 export 行写入 shell rc（如 `~/.bashrc`）：
 
@@ -86,15 +88,18 @@ rm /tmp/miniconda.sh
 # 3. Ubuntu 24.04 GLIBCXX 修复
 "$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n hsgym -c conda-forge libstdcxx-ng
 
-# 4. 解包并安装 IsaacGym（tarball 需手动下载，见前置条件）
+# 4. 下载（或复用已下载的 tarball）并安装 IsaacGym
+curl -fL --retry 3 "https://developer.nvidia.com/isaac-gym-preview-4" \
+  -o "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz"
 tar -xzf "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNILAB_ISAACGYM_HOME"
 "$UNILAB_ISAACGYM_HOME/miniconda3/envs/hsgym/bin/pip" install -e "$UNILAB_ISAACGYM_HOME/isaacgym/python"
 ```
 
 ## 故障排除
 
-- **wget 直接拉 NVIDIA 下载 URL 失败**：该下载需要登录，必须手动下载，
-  见前置条件。
+- **tarball 下载或校验失败**：脚本会对下载结果做 gzip 校验；失败时删除
+  `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` 后重跑，或用
+  `--tarball <path>` 指定手动下载的安装包。
 - **Ubuntu 24.04 报 `GLIBCXX_3.4.32 not found`**：IsaacGym 预编译库链接的
   libstdc++ 比系统自带的旧；安装脚本已在 `hsgym` 环境中安装 conda-forge 的
   `libstdcxx-ng` 解决，运行时把 `LD_LIBRARY_PATH` 指向该 env 的 `lib/` 即可。

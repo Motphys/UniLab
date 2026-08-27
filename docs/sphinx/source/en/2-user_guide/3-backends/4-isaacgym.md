@@ -26,9 +26,10 @@ status.
 ## Prerequisites
 
 - Linux x86_64 with an NVIDIA GPU driver installed.
-- An NVIDIA developer account: `IsaacGym_Preview_4_Package.tar.gz` must be
-  downloaded manually from <https://developer.nvidia.com/isaac-gym-preview-4>
-  after logging in; the script cannot and will not fetch that URL for you.
+- Network access to the NVIDIA download site: the script downloads
+  `IsaacGym_Preview_4_Package.tar.gz` automatically from
+  <https://developer.nvidia.com/isaac-gym-preview-4> (no login required). On
+  offline machines, download it yourself first and pass `--tarball <path>`.
 - Disk space: roughly 5 GB for miniconda, the conda environment, and the
   IsaacGym package combined.
 
@@ -41,9 +42,10 @@ scripts/tools/setup_isaacgym_env.sh
 ```
 
 The script installs everything under `$HOME/.unilab/isaacgym` by default;
-override the install root with the `UNILAB_ISAACGYM_HOME` environment variable,
-and point at the package with `--tarball <path>` (default:
-`$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`). The script is
+override the install root with the `UNILAB_ISAACGYM_HOME` environment variable.
+The tarball is downloaded automatically to
+`$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`; on offline machines,
+pass a pre-downloaded package with `--tarball <path>`. The script is
 idempotent and skips completed steps when re-run.
 
 The setup flow: a dedicated miniconda, then a Python 3.8 `hsgym` conda
@@ -97,15 +99,19 @@ rm /tmp/miniconda.sh
 # 3. Ubuntu 24.04 GLIBCXX fix
 "$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n hsgym -c conda-forge libstdcxx-ng
 
-# 4. Unpack and install IsaacGym (tarball downloaded manually, see prerequisites)
+# 4. Download (or reuse) the tarball and install IsaacGym
+curl -fL --retry 3 "https://developer.nvidia.com/isaac-gym-preview-4" \
+  -o "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz"
 tar -xzf "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNILAB_ISAACGYM_HOME"
 "$UNILAB_ISAACGYM_HOME/miniconda3/envs/hsgym/bin/pip" install -e "$UNILAB_ISAACGYM_HOME/isaacgym/python"
 ```
 
 ## Troubleshooting
 
-- **Fetching the NVIDIA download URL with wget fails**: the download requires a
-  login and must be done manually; see Prerequisites.
+- **Tarball download or validation fails**: the script verifies the download
+  is a valid gzip tarball. If it fails, delete
+  `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` and re-run, or pass
+  a manually downloaded package with `--tarball <path>`.
 - **`GLIBCXX_3.4.32 not found` on Ubuntu 24.04**: the prebuilt IsaacGym
   libraries link against a newer libstdc++ than the system provides. The setup
   script installs conda-forge `libstdcxx-ng` into the `hsgym` environment to
