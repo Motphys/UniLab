@@ -5,12 +5,17 @@ IsaacGym（NVIDIA Preview 4）是 NVIDIA 已停止维护（EOL）的 GPU 物理�
 装进主环境，必须通过外部独立的 Python 3.8 环境使用；仓库内一律通过环境变量
 定位该环境，不写入任何机器本地路径。
 
-当前状态：IsaacGym 尚未接入 registry / task owner / 训练与回放链路。仓库内
-已可用的是物理性能 benchmark 脚本
+当前状态：`IsaacGymBackend`（subprocess 后端，物理跑在外部 Python 3.8
+worker 中）已实现并注册到 registry；`g1_walk_flat` 已提供 isaacgym owner
+配置（`conf/{ppo,appo,sac,td3,flashsac}/task/g1_walk_flat/isaacgym.yaml`），
+跨后端契约审计（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔isaacgym。
+回放渲染尚未支持（owner 配置已将 `play_render_mode` 置为 `none`）；顶层 CLI
+的 `--sim` 暂不含 isaacgym（与 drake 相同，经 owner YAML 选择后端）。真机
+端到端验证（MJCF 导入保真度等）依赖下文所述的外部环境，尚未在仓库 CI 中
+覆盖。仓库内另有物理性能 benchmark 脚本
 `scripts/benchmark/physics/benchmark_physics_step_isaacgym.py`，它通过
-`UNILAB_BENCHMARK_HOLOSOMA_DEPS` 等环境变量定位外部环境。后端接入在
-[issue #1332](https://github.com/unilabsim/UniLab/issues/1332) 中规划；
-本页只覆盖外部环境准备与 benchmark 验证。
+`UNILAB_BENCHMARK_HOLOSOMA_DEPS` 等环境变量定位外部环境。
+本页覆盖外部环境准备、benchmark 验证与当前接入状态。
 
 ## 前置条件
 
