@@ -41,6 +41,8 @@ _ROBOT_XML = """
     <body name="base">
       <freejoint/>
       <site name="imu_site"/>
+      <site name="tilted_site" pos="0.1 0 0" quat="0.7071068 0 0.7071068 0"/>
+      <site name="euler_site" euler="0.1 0 0"/>
       <geom name="base_geom" size="0.1"/>
       <body name="link0">
         <joint name="j0" type="hinge"/>
@@ -67,6 +69,12 @@ _SCENE_XML = """
     <velocimeter name="base_local_linvel" site="imu_site"/>
     <framequat name="link0_quat" objtype="body" objname="link0"/>
     <framepos name="link1_pos" objtype="body" objname="link1"/>
+    <framepos name="tilted_site_pos" objtype="site" objname="tilted_site"/>
+    <framezaxis name="base_upvector" objtype="body" objname="base"/>
+    <framezaxis name="imu_upvector" objtype="site" objname="imu_site"/>
+    <framezaxis name="tilted_upvector" objtype="site" objname="tilted_site"/>
+    <framezaxis name="euler_upvector" objtype="site" objname="euler_site"/>
+    <framezaxis name="geom_upvector" objtype="geom" objname="base_geom"/>
     <contact name="foot_contact" geom1="floor_geom" geom2="foot_geom" data="found" num="1"/>
     <accelerometer name="base_acc" site="imu_site"/>
   </sensor>
@@ -88,12 +96,13 @@ def scene_file(tmp_path: Path) -> str:
 def _make_backend(scene_file: str, **kwargs: Any) -> IsaacGymBackend:
     kwargs.setdefault("worker_command", [sys.executable, _MOCK_WORKER])
     kwargs.setdefault("worker_timeout_s", 30.0)
+    base_name = kwargs.pop("base_name", "base")
     backend = create_backend(
         "isaacgym",
         SceneCfg(model_file=scene_file),
         NUM_ENVS,
         SIM_DT,
-        base_name="base",
+        base_name=base_name,
         **kwargs,
     )
     assert isinstance(backend, IsaacGymBackend)
@@ -370,6 +379,56 @@ def test_sensor_mapping_from_scene_scan(backend: IsaacGymBackend) -> None:
     assert np.isfinite(values).all()
 
 
+def test_framezaxis_sensor_mapping(backend: IsaacGymBackend) -> None:
+    """framezaxis reports the target frame's z axis in world coordinates."""
+    # Identity orientations at materialize: body/site z axes point up; the
+    # tilted site's local quat (90 deg about y) maps its z axis to +x.
+    np.testing.assert_allclose(
+        backend.get_sensor_data("base_upvector"), [[0, 0, 1]] * NUM_ENVS, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        backend.get_sensor_data("imu_upvector"), [[0, 0, 1]] * NUM_ENVS, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        backend.get_sensor_data("tilted_upvector"), [[1, 0, 0]] * NUM_ENVS, atol=1e-5
+    )
+    # framepos on a site includes the site's local pos offset (rigid attach).
+    np.testing.assert_allclose(
+        backend.get_sensor_data("tilted_site_pos"), [[0.1, 0.0, 1.0]] * NUM_ENVS, atol=1e-6
+    )
+
+    # Rotate the root 90 deg about x (wxyz): body z axis maps to -y.
+    half = np.float32(np.sqrt(0.5))
+    qpos = np.zeros((NUM_ENVS, 10), dtype=np.float32)
+    qpos[:, 2] = 1.0
+    qpos[:, 3] = half
+    qpos[:, 4] = half
+    qvel = np.zeros((NUM_ENVS, 9), dtype=np.float32)
+    backend.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+
+    np.testing.assert_allclose(
+        backend.get_sensor_data("base_upvector"), [[0, -1, 0]] * NUM_ENVS, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        backend.get_sensor_data("imu_upvector"), [[0, -1, 0]] * NUM_ENVS, atol=1e-5
+    )
+    # tilted site: local z->x, then the body rotation keeps +x at +x.
+    np.testing.assert_allclose(
+        backend.get_sensor_data("tilted_upvector"), [[1, 0, 0]] * NUM_ENVS, atol=1e-5
+    )
+
+    # Sites declared with euler/axisangle/xyaxes/zaxis fail closed.
+    with pytest.raises(NotImplementedError, match="euler"):
+        backend.get_sensor_data("euler_upvector")
+    # Unknown frame target objtype fails closed as well.
+    with pytest.raises(NotImplementedError, match="objtype"):
+        backend.get_sensor_data("geom_upvector")
+    metadata = backend._scene_metadata
+    assert metadata is not None
+    assert "euler_upvector" in metadata.unsupported_sensors
+    assert "geom_upvector" in metadata.unsupported_sensors
+
+
 def test_body_state_views(backend: IsaacGymBackend) -> None:
     ids = backend.get_body_ids(["base", "link1"])
     pos_w = backend.get_body_pos_w(ids)
@@ -491,6 +550,40 @@ def test_constructor_rejects_bad_arguments(scene_file: str) -> None:
         )
     with pytest.raises(TypeError, match="does not accept backend options"):
         create_backend("isaacgym", SceneCfg(model_file=scene_file), 1, SIM_DT, bogus_option=1)
+
+
+def test_g1_scene_framezaxis_sensors_resolve_from_real_xml(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The g1_walk_flat scene declares the upvector sensors the policy needs.
+
+    All four are ``objtype="site"`` frames in ``g1.xml``; the mock worker
+    reports the owning bodies so the cold-path scan must resolve them to
+    exact site-frame z axes.
+    """
+    from unilab.assets import ASSETS_ROOT_PATH
+
+    scene = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
+    monkeypatch.setenv(
+        "UNILAB_ISAACGYM_MOCK_BODY_NAMES",
+        "pelvis,torso_link,left_ankle_roll_link,right_ankle_roll_link",
+    )
+    backend = _make_backend(scene, base_name="pelvis")
+    backend.materialize()
+    try:
+        for name in (
+            "pelvis_upvector",
+            "torso_upvector",
+            "left_foot_upvector",
+            "right_foot_upvector",
+        ):
+            value = backend.get_sensor_data(name)
+            assert value.shape == (NUM_ENVS, 3)
+            # Mock state starts at the identity orientation, so every z axis
+            # (these sites are identity-rotated within their bodies) points up.
+            np.testing.assert_allclose(value, [[0.0, 0.0, 1.0]] * NUM_ENVS, atol=1e-6)
+    finally:
+        backend.close()
 
 
 def test_metadata_access_before_materialize_fails(scene_file: str) -> None:

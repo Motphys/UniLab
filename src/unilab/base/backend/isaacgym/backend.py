@@ -68,7 +68,11 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
-from unilab.utils.rotation import np_quat_apply_inverse_batched, np_quat_mul_batched
+from unilab.utils.rotation import (
+    np_quat_apply_batched,
+    np_quat_apply_inverse_batched,
+    np_quat_mul_batched,
+)
 
 from . import protocol
 from .dependencies import (
@@ -80,6 +84,7 @@ from .sensors import (
     KIND_CONTACT_FOUND,
     KIND_FRAMEPOS,
     KIND_FRAMEQUAT,
+    KIND_FRAMEZAXIS,
     KIND_GYRO,
     KIND_LOCAL_LINVEL,
     SceneMetadata,
@@ -280,7 +285,7 @@ class IsaacGymBackend(SimBackend):
         self._worker_dead_error: IsaacGymWorkerError | None = None
         self._model_info: IsaacGymModelInfo | None = None
         self._scene_metadata: SceneMetadata | None = None
-        self._sensor_map: dict[str, tuple[str, int]] = {}
+        self._sensor_map: dict[str, tuple[SceneSensorSpec, int]] = {}
         self._body_id_by_name: dict[str, int] = {}
         self._dof_id_by_name: dict[str, int] = {}
         self._joint_range: np.ndarray | None = None
@@ -409,10 +414,10 @@ class IsaacGymBackend(SimBackend):
             for name, handle in self._shm_handles.items()
         }
 
-    def _resolve_sensor_map(self) -> dict[str, tuple[str, int]]:
-        """Resolve supported scene sensors to (kind, body_id) on the cold path."""
+    def _resolve_sensor_map(self) -> dict[str, tuple[SceneSensorSpec, int]]:
+        """Resolve supported scene sensors to (spec, body_id) on the cold path."""
         assert self._scene_metadata is not None
-        resolved: dict[str, tuple[str, int]] = {}
+        resolved: dict[str, tuple[SceneSensorSpec, int]] = {}
         for name, spec in self._scene_metadata.sensors.items():
             body_id = self._body_id_by_name.get(spec.body_name)
             if body_id is None:
@@ -424,7 +429,7 @@ class IsaacGymBackend(SimBackend):
                     "asset rigid-body list",
                 )
                 continue
-            resolved[name] = (spec.kind, body_id)
+            resolved[name] = (spec, body_id)
         return resolved
 
     # ------------------------------------------------------------------ #
@@ -891,16 +896,26 @@ class IsaacGymBackend(SimBackend):
                 )
             available = ", ".join(sorted(self._sensor_map))
             raise ValueError(f"Sensor {name!r} not found; available: {available}")
-        kind, body_id = mapped
+        spec, body_id = mapped
         state = self._body_slot()[:, body_id, :]
+        kind = spec.kind
+        local_quat = np.asarray(spec.local_quat, dtype=np.float32)[None, :]
+        local_pos = np.asarray(spec.local_pos, dtype=np.float32)[None, :]
         if kind == KIND_GYRO:
-            return np_quat_apply_inverse_batched(state[:, 3:7], state[:, 10:13]).astype(np.float32)
+            body_frame = np_quat_apply_inverse_batched(state[:, 3:7], state[:, 10:13])
+            return np_quat_apply_inverse_batched(local_quat, body_frame).astype(np.float32)
         if kind == KIND_LOCAL_LINVEL:
-            return np_quat_apply_inverse_batched(state[:, 3:7], state[:, 7:10]).astype(np.float32)
+            body_frame = np_quat_apply_inverse_batched(state[:, 3:7], state[:, 7:10])
+            return np_quat_apply_inverse_batched(local_quat, body_frame).astype(np.float32)
         if kind == KIND_FRAMEQUAT:
-            return state[:, 3:7].copy()
+            return np_quat_mul_batched(state[:, 3:7], local_quat).astype(np.float32)
         if kind == KIND_FRAMEPOS:
-            return state[:, 0:3].copy()
+            offset = np_quat_apply_batched(state[:, 3:7], local_pos)
+            return (state[:, 0:3] + offset).astype(np.float32)
+        if kind == KIND_FRAMEZAXIS:
+            frame_quat = np_quat_mul_batched(state[:, 3:7], local_quat)
+            z_axis = np.array([[0.0, 0.0, 1.0]], dtype=np.float32)
+            return np_quat_apply_batched(frame_quat, z_axis).astype(np.float32)
         if kind == KIND_CONTACT_FOUND:
             force = self._slots["contact_force"][:, body_id, :]
             return (np.linalg.norm(force, axis=-1, keepdims=True) > 0.0).astype(np.float32)

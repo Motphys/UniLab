@@ -14,13 +14,20 @@ Supported sensor kinds and their tensor-API source:
 ==================  ====================  ===================================
 MJCF element        kind                  source
 ==================  ====================  ===================================
-``gyro``            ``gyro``              body ang-vel rotated into body frame
-``velocimeter``     ``local_linvel``      body lin-vel rotated into body frame
-``framequat``       ``framequat``         body quat (wxyz)
-``framepos``        ``framepos``          body world position
+``gyro``            ``gyro``              body ang-vel in the site frame
+``velocimeter``     ``local_linvel``      body lin-vel in the site frame
+``framequat``       ``framequat``         body/site frame quat (wxyz)
+``framepos``        ``framepos``          body/site frame world position
+``framezaxis``      ``framezaxis``        body/site frame z axis in world
 ``contact``         ``contact_found``     1.0 when the body's net contact force
 (data=found)                              norm is positive, else 0.0
 ==================  ====================  ===================================
+
+Sites are rigidly attached to their owning body, so a site frame is exact:
+the cold-path scan records each site's local ``pos``/``quat`` (identity by
+default) and the hot path composes them with the body's shm state.  Sites
+declared with ``euler``/``axisangle``/``xyaxes``/``zaxis`` orientation
+attributes fail closed — only ``quat`` (wxyz) is parsed.
 
 Anything else (force/torque sensors, accelerometers, rangefinders, contact
 sensors requesting ``force``/``dist`` data, ...) is recorded as unsupported
@@ -41,6 +48,7 @@ KIND_GYRO = "gyro"
 KIND_LOCAL_LINVEL = "local_linvel"
 KIND_FRAMEQUAT = "framequat"
 KIND_FRAMEPOS = "framepos"
+KIND_FRAMEZAXIS = "framezaxis"
 KIND_CONTACT_FOUND = "contact_found"
 
 SUPPORTED_KINDS = (
@@ -48,6 +56,7 @@ SUPPORTED_KINDS = (
     KIND_LOCAL_LINVEL,
     KIND_FRAMEQUAT,
     KIND_FRAMEPOS,
+    KIND_FRAMEZAXIS,
     KIND_CONTACT_FOUND,
 )
 
@@ -56,17 +65,41 @@ _KIND_DIMS = {
     KIND_LOCAL_LINVEL: 3,
     KIND_FRAMEQUAT: 4,
     KIND_FRAMEPOS: 3,
+    KIND_FRAMEZAXIS: 3,
     KIND_CONTACT_FOUND: 1,
 }
+
+# Orientation attributes on a <site> that this backend does not parse; their
+# presence fails the referencing sensor closed instead of silently assuming
+# the identity rotation.
+_UNSUPPORTED_SITE_ORIENTATION_ATTRS = ("euler", "axisangle", "xyaxes", "zaxis")
+
+_IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
+_ZERO_POS = (0.0, 0.0, 0.0)
+
+
+@dataclass(frozen=True)
+class SiteFrame:
+    """Rigid local transform of a site inside its owning body (cold-path data)."""
+
+    body_name: str
+    local_pos: tuple[float, float, float]
+    local_quat: tuple[float, float, float, float]  # wxyz
 
 
 @dataclass(frozen=True)
 class SceneSensorSpec:
-    """One MJCF sensor declaration resolved to its host-side quantity."""
+    """One MJCF sensor declaration resolved to its host-side quantity.
+
+    ``local_pos``/``local_quat`` express the sensor frame (a site, or the
+    identity for a body) inside ``body_name``'s frame.
+    """
 
     name: str
     kind: str
     body_name: str
+    local_pos: tuple[float, float, float] = _ZERO_POS
+    local_quat: tuple[float, float, float, float] = _IDENTITY_QUAT
 
     @property
     def dim(self) -> int:
@@ -115,6 +148,15 @@ def _iter_scene_files(model_file: Path) -> list[Path]:
     return ordered
 
 
+def _parse_floats(raw: str | None, count: int, *, what: str) -> tuple[float, ...] | None:
+    if raw is None:
+        return None
+    values = tuple(float(value) for value in raw.split())
+    if len(values) != count:
+        raise ValueError(f"{what} must have {count} floats, got {raw!r}")
+    return values
+
+
 def _scan_one_file(path: Path, metadata: dict) -> None:
     root = ET.parse(path).getroot()
 
@@ -122,7 +164,26 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
         body_name = body.get("name", "")
         for child in body:
             if child.tag == "site" and child.get("name"):
-                metadata["site_body"][child.get("name")] = body_name
+                site_name = child.get("name")
+                assert site_name is not None
+                metadata["site_attrs"][site_name] = dict(child.attrib)
+                local_pos = (
+                    _parse_floats(child.get("pos"), 3, what=f"site {site_name!r} pos") or _ZERO_POS
+                )
+                local_quat = (
+                    _parse_floats(child.get("quat"), 4, what=f"site {site_name!r} quat")
+                    or _IDENTITY_QUAT
+                )
+                metadata["site_frames"][site_name] = SiteFrame(
+                    body_name=body_name,
+                    local_pos=(local_pos[0], local_pos[1], local_pos[2]),
+                    local_quat=(
+                        local_quat[0],
+                        local_quat[1],
+                        local_quat[2],
+                        local_quat[3],
+                    ),
+                )
             elif child.tag == "geom" and child.get("name"):
                 metadata["geom_body"][child.get("name")] = body_name
             elif child.tag == "body":
@@ -150,11 +211,83 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
         )
 
 
+def _resolve_frame_target(
+    sensor_name: str,
+    tag: str,
+    attrib: dict[str, str],
+    site_frames: dict[str, SiteFrame],
+    site_attrs: dict[str, dict[str, str]],
+) -> SiteFrame | UnsupportedSensorSpec:
+    """Resolve a body/site frame target for frame* sensors."""
+
+    def unsupported(reason: str) -> UnsupportedSensorSpec:
+        return UnsupportedSensorSpec(name=sensor_name, reason=reason)
+
+    objtype = attrib.get("objtype", "body")
+    objname = attrib.get("objname")
+    if objtype == "body":
+        if not objname:
+            return unsupported(f"{tag} sensor {sensor_name!r} has no objname")
+        return SiteFrame(body_name=objname, local_pos=_ZERO_POS, local_quat=_IDENTITY_QUAT)
+    if objtype == "site":
+        orientation_error = _site_orientation_error(sensor_name, tag, objname, site_attrs)
+        if orientation_error is not None:
+            return unsupported(orientation_error)
+        frame = site_frames.get(objname or "")
+        if frame is None:
+            return unsupported(f"{tag} sensor {sensor_name!r} references unknown site {objname!r}")
+        return frame
+    return unsupported(
+        f"{tag} sensor {sensor_name!r} uses unsupported objtype {objtype!r} "
+        f"(objname {objname!r}); only body and site frames map to the IsaacGym "
+        "rigid-body state tensor"
+    )
+
+
+def _site_orientation_error(
+    sensor_name: str,
+    tag: str,
+    site_name: str | None,
+    site_attrs: dict[str, dict[str, str]],
+) -> str | None:
+    """Fail closed when the referenced site uses an unparsed orientation attr."""
+    site_attr = site_attrs.get(site_name or "", {})
+    bad = [key for key in _UNSUPPORTED_SITE_ORIENTATION_ATTRS if key in site_attr]
+    if not bad:
+        return None
+    return (
+        f"{tag} sensor {sensor_name!r} references site {site_name!r} whose orientation "
+        f"is declared via {bad}; only the quat attribute is parsed"
+    )
+
+
+def _resolve_site_sensor(
+    sensor_name: str,
+    tag: str,
+    attrib: dict[str, str],
+    site_frames: dict[str, SiteFrame],
+    site_attrs: dict[str, dict[str, str]],
+) -> SiteFrame | UnsupportedSensorSpec:
+    """Resolve a site-attached sensor (gyro/velocimeter) to its site frame."""
+    site = attrib.get("site")
+    orientation_error = _site_orientation_error(sensor_name, tag, site, site_attrs)
+    if orientation_error is not None:
+        return UnsupportedSensorSpec(name=sensor_name, reason=orientation_error)
+    frame = site_frames.get(site or "")
+    if frame is None:
+        return UnsupportedSensorSpec(
+            name=sensor_name,
+            reason=f"{tag} sensor {sensor_name!r} references unknown site {site!r}",
+        )
+    return frame
+
+
 def _resolve_sensor(
     tag: str,
     name: str,
     attrib: dict[str, str],
-    site_body: dict[str, str],
+    site_frames: dict[str, SiteFrame],
+    site_attrs: dict[str, dict[str, str]],
     geom_body: dict[str, str],
 ) -> SceneSensorSpec | UnsupportedSensorSpec:
     """Map one MJCF sensor element onto a tensor-API-computable quantity."""
@@ -162,33 +295,35 @@ def _resolve_sensor(
     def unsupported(reason: str) -> UnsupportedSensorSpec:
         return UnsupportedSensorSpec(name=name, reason=reason)
 
+    def from_frame(kind: str, frame: SiteFrame) -> SceneSensorSpec:
+        return SceneSensorSpec(
+            name=name,
+            kind=kind,
+            body_name=frame.body_name,
+            local_pos=frame.local_pos,
+            local_quat=frame.local_quat,
+        )
+
     if tag == "gyro":
-        site = attrib.get("site")
-        if site is None or site not in site_body:
-            return unsupported(f"gyro sensor {name!r} references unknown site {site!r}")
-        return SceneSensorSpec(name=name, kind=KIND_GYRO, body_name=site_body[site])
+        frame = _resolve_site_sensor(name, tag, attrib, site_frames, site_attrs)
+        if isinstance(frame, UnsupportedSensorSpec):
+            return frame
+        return from_frame(KIND_GYRO, frame)
     if tag == "velocimeter":
-        site = attrib.get("site")
-        if site is None or site not in site_body:
-            return unsupported(f"velocimeter sensor {name!r} references unknown site {site!r}")
-        return SceneSensorSpec(name=name, kind=KIND_LOCAL_LINVEL, body_name=site_body[site])
-    if tag in ("framequat", "framepos"):
-        objtype = attrib.get("objtype", "body")
-        objname = attrib.get("objname")
-        if objtype == "body":
-            body_name = objname
-        elif objtype == "site" and objname in site_body:
-            # Site frames are approximated by their owning body frame; the
-            # IsaacGym tensor API exposes rigid-body poses only.
-            body_name = site_body[objname]
-        else:
-            return unsupported(
-                f"{tag} sensor {name!r} uses unsupported objtype {objtype!r} (objname {objname!r})"
-            )
-        if not body_name:
-            return unsupported(f"{tag} sensor {name!r} has no resolvable target body")
-        kind = KIND_FRAMEQUAT if tag == "framequat" else KIND_FRAMEPOS
-        return SceneSensorSpec(name=name, kind=kind, body_name=body_name)
+        frame = _resolve_site_sensor(name, tag, attrib, site_frames, site_attrs)
+        if isinstance(frame, UnsupportedSensorSpec):
+            return frame
+        return from_frame(KIND_LOCAL_LINVEL, frame)
+    if tag in ("framequat", "framepos", "framezaxis"):
+        frame = _resolve_frame_target(name, tag, attrib, site_frames, site_attrs)
+        if isinstance(frame, UnsupportedSensorSpec):
+            return frame
+        kind = {
+            "framequat": KIND_FRAMEQUAT,
+            "framepos": KIND_FRAMEPOS,
+            "framezaxis": KIND_FRAMEZAXIS,
+        }[tag]
+        return from_frame(kind, frame)
     if tag == "contact":
         data = (attrib.get("data") or "found").split()
         if data != ["found"]:
@@ -212,14 +347,22 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
     path = Path(model_file).expanduser()
     if not path.is_file():
         raise ValueError(f"isaacgym scene model file does not exist: {path}")
-    raw: dict = {"site_body": {}, "geom_body": {}, "sensors": [], "keyframes": {}}
+    raw: dict = {
+        "site_frames": {},
+        "site_attrs": {},
+        "geom_body": {},
+        "sensors": [],
+        "keyframes": {},
+    }
     for scene_file in _iter_scene_files(path):
         _scan_one_file(scene_file, raw)
 
     sensors: dict[str, SceneSensorSpec] = {}
     unsupported: dict[str, UnsupportedSensorSpec] = {}
     for source_file, tag, name, attrib in raw["sensors"]:
-        resolved = _resolve_sensor(tag, name, attrib, raw["site_body"], raw["geom_body"])
+        resolved = _resolve_sensor(
+            tag, name, attrib, raw["site_frames"], raw["site_attrs"], raw["geom_body"]
+        )
         if isinstance(resolved, SceneSensorSpec):
             sensors[name] = resolved
         else:
@@ -241,11 +384,13 @@ __all__ = [
     "KIND_CONTACT_FOUND",
     "KIND_FRAMEPOS",
     "KIND_FRAMEQUAT",
+    "KIND_FRAMEZAXIS",
     "KIND_GYRO",
     "KIND_LOCAL_LINVEL",
     "SUPPORTED_KINDS",
     "SceneMetadata",
     "SceneSensorSpec",
+    "SiteFrame",
     "UnsupportedSensorSpec",
     "scan_scene_metadata",
 ]
