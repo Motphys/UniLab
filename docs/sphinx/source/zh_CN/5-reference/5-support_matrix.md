@@ -47,7 +47,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `mjwarp` 完成训练验证的只有 `g1_walk_flat` host adapter：PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。SAC `t800_walk_flat` 的 mjwarp owner 只有 owner YAML 与 compose 覆盖，标记为 `Configured`，不代表训练验证。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
 
-`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`，且开发环境没有 IsaacGym runtime：所有 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练或 play 验证。owner YAML 通过 `training.play_render_mode=none` 在配置层停用 playback（backend 尚无 native 或离线 record playback）。
+`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`。SAC (torch) owner 已在真机（external Python 3.8 worker runtime，不在仓库 CI 覆盖）完成训练与 record playback 验证，标记为 `Tested`；其余 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练或 play 验证。playback 走 IsaacGym 原生渲染（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，无显示器时自动降级为离屏录制。
 
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。

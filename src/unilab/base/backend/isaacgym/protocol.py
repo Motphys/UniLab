@@ -40,6 +40,9 @@ CMD_STEP = "STEP"
 CMD_SET_STATE = "SET_STATE"
 CMD_REFRESH = "REFRESH"
 CMD_GET_META = "GET_META"
+CMD_INIT_RENDERER = "INIT_RENDERER"
+CMD_RENDER_FRAME = "RENDER_FRAME"
+CMD_CAPTURE_FRAME = "CAPTURE_FRAME"
 CMD_SHUTDOWN = "SHUTDOWN"
 
 CMD_READY = "READY"
@@ -223,12 +226,15 @@ def quat_rotate_inverse(quat_wxyz: np.ndarray, vec: np.ndarray) -> np.ndarray:
 
 __all__ = [
     "CMD_ATTACH",
+    "CMD_CAPTURE_FRAME",
     "CMD_ERROR",
     "CMD_GET_META",
     "CMD_INIT",
+    "CMD_INIT_RENDERER",
     "CMD_META",
     "CMD_READY",
     "CMD_REFRESH",
+    "CMD_RENDER_FRAME",
     "CMD_SET_STATE",
     "CMD_SHUTDOWN",
     "CMD_STEP",

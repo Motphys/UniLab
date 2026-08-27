@@ -11,10 +11,11 @@ the external Python 3.8 worker) is implemented and registered; `g1_walk_flat`
 ships isaacgym owner configs
 (`conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`), and the cross-backend
 contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
-mujoco/isaacgym pair. Playback rendering is not supported yet (owner configs
-set `play_render_mode: none`). Real-machine end-to-end validation depends on
-the external environment described below and is not covered by repo CI. The
-repository also ships a physics benchmark script
+mujoco/isaacgym pair. Playback rendering uses IsaacGym's native rendering
+(viewer + camera sensor); both interactive and video-recording modes work
+(see "Training and Evaluation" below). Real-machine end-to-end validation
+depends on the external environment described below and is not covered by
+repo CI. The repository also ships a physics benchmark script
 `scripts/benchmark/physics/benchmark_physics_step_isaacgym.py`, which locates
 the external environment through variables such as
 `UNILAB_BENCHMARK_HOLOSOMA_DEPS`. This page covers preparing the external
@@ -114,6 +115,33 @@ uv run train --algo sac --task g1_walk_flat --sim isaacgym
 uv run train --algo ppo --task g1_walk_flat --sim isaacgym
 ```
 
+Playback rendering is provided natively by IsaacGym: the interactive mode
+opens the gym viewer inside the worker process, and the record mode renders
+offscreen with a camera sensor and writes `play_video.mp4` (the camera tracks
+env 0's root; the view is adjustable via `training.cam_distance` /
+`cam_elevation` / `cam_azimuth`). `play_render_mode=auto` (the default)
+selects the interactive viewer when a display is reachable
+(`DISPLAY`/`WAYLAND_DISPLAY`) and falls back to recording on headless hosts;
+recording requires a finite `training.play_steps` (the default configs
+provide one).
+
+```bash
+# Training enters playback automatically (auto); headless servers record video
+uv run train --algo sac --task g1_walk_flat --sim isaacgym
+
+# Evaluate a trained checkpoint in the interactive viewer
+uv run eval --algo sac --task g1_walk_flat --sim isaacgym \
+    --render-mode interactive --load-run <run_dir_name>
+
+# Record a video on headless hosts (force record)
+uv run eval --algo sac --task g1_walk_flat --sim isaacgym \
+    --render-mode record --load-run <run_dir_name> training.play_steps=800
+```
+
+Note: both the interactive viewer and camera capture require the worker sim
+to run on a GPU (`env.isaacgym_device_id >= 0`); a CPU-pipeline sim has no
+graphics context and render requests fail closed with an explanatory error.
+
 Common overrides (Hydra arguments follow the command directly):
 
 ```bash
@@ -128,11 +156,10 @@ uv run train --algo sac --task g1_walk_flat --sim isaacgym env.isaacgym_device_i
 Cross-backend migration (sim2sim): the isaacgym owner configs are fully
 contract-compatible with the mujoco owner under the audit guard
 (`src/unilab/utils/sim2sim.py`, verdict TRANSFERABLE), so checkpoints of the
-same task transfer across backends. Note that playback rendering is not
-implemented on the isaacgym backend yet — the owner configs set
-`play_render_mode: none`, which makes `uv run eval` skip playback at the
-script level. Cross-backend policy evaluation becomes available once playback
-lands.
+same task transfer across backends. Playback rendering works on isaacgym, so
+cross-backend policy evaluation (playing a mujoco-trained checkpoint on
+isaacgym, or vice versa) runs directly through the `uv run eval` commands
+above.
 
 ## Manual Setup
 

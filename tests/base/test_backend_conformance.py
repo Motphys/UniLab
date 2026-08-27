@@ -473,3 +473,36 @@ def test_isaacgym_position_hold_is_stable() -> None:
         )
     finally:
         backend.close()
+
+
+@pytest.mark.slow
+def test_isaacgym_native_camera_capture_renders_scene() -> None:
+    """Real-runtime guard for the native capture path used by record playback.
+
+    The camera sensor tracks env 0's root; after a physics step the frame must
+    be a real render (correct shape, non-uniform pixels — the ground plane and
+    the robot differ in color).
+    """
+    if not _isaacgym_runtime_available():
+        pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+
+    backend = create_backend(
+        "isaacgym",
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="pelvis",
+    )
+    backend.materialize()
+    try:
+        backend.init_renderer(headless=True, capture=True, width=320, height=240)
+        backend.step(np.zeros((NUM_ENVS, backend.num_actuators), dtype=np.float32))
+        frame = backend.capture_video_frame()
+        assert frame.shape == (240, 320, 3)
+        assert frame.dtype == np.uint8
+        assert np.unique(frame).size > 8, "camera frame looks blank"
+        # A second init with the same config is a no-op and keeps capturing.
+        backend.init_renderer(headless=True, capture=True, width=320, height=240)
+        assert backend.capture_video_frame().shape == (240, 320, 3)
+    finally:
+        backend.close()

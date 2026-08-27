@@ -60,6 +60,19 @@ class _WorkerContext:
         self._dof_state: Any = None
         self._body_state: Any = None
         self._contact_force: Any = None
+        # Native rendering state (viewer and/or camera sensor).  Both live in
+        # this process because the sim handle does.
+        self.graphics_device_id = -1
+        self.viewer: Any = None
+        self.camera_handle: Any = None
+        self.camera_env: Any = None
+        self.camera_width = 0
+        self.camera_height = 0
+        # Defaults match the repository's MuJoCo playback camera convention
+        # (elevation is the height angle above the horizon, in degrees).
+        self.camera_distance = 2.0
+        self.camera_elevation_deg = 20.0
+        self.camera_azimuth_deg = 90.0
 
     # ------------------------------------------------------------------ #
     # INIT
@@ -96,8 +109,15 @@ class _WorkerContext:
         sim_params.physx.num_threads = 0
         sim_params.physx.use_gpu = self.use_gpu_pipeline
         sim_params.use_gpu_pipeline = self.use_gpu_pipeline
-        graphics_device_id = -1 if payload.get("headless", True) else device_id
-        self.sim = self.gym.create_sim(device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
+        # The graphics context is enabled whenever the sim runs on a GPU
+        # device.  It opens no window by itself (only create_viewer does) and
+        # is required for both the interactive viewer and headless camera
+        # capture; the cost for training-only runs is negligible.  CPU-pipeline
+        # sims get no graphics context and fail closed on render requests.
+        self.graphics_device_id = device_id if device_id >= 0 else -1
+        self.sim = self.gym.create_sim(
+            device_id, self.graphics_device_id, gymapi.SIM_PHYSX, sim_params
+        )
         if self.sim is None:
             raise RuntimeError(
                 "isaacgym create_sim failed (device_id=%d, gpu_pipeline=%s)"
@@ -182,6 +202,7 @@ class _WorkerContext:
             "effort": effort.tolist(),
             "gravity": [0.0, 0.0, -9.81],
             "use_gpu_pipeline": self.use_gpu_pipeline,
+            "graphics_enabled": self.graphics_device_id >= 0,
         }
 
     def _apply_actuator_props(self, dof_props: Any, payload: Dict[str, Any]) -> None:
@@ -426,9 +447,134 @@ class _WorkerContext:
             "num_dof": self.num_dof,
             "num_bodies": self.num_bodies,
             "use_gpu_pipeline": self.use_gpu_pipeline,
+            "graphics_enabled": self.graphics_device_id >= 0,
         }
 
+    # ------------------------------------------------------------------ #
+    # Native rendering (viewer + camera sensor)
+    # ------------------------------------------------------------------ #
+
+    def _require_graphics(self) -> None:
+        if self.graphics_device_id < 0:
+            raise RuntimeError(
+                "isaacgym rendering requires a GPU sim (device_id >= 0); this sim was "
+                "created without a graphics context"
+            )
+
+    def init_renderer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create the interactive viewer and/or the headless capture camera."""
+        gym = self.gym
+        gymapi = self.gymapi
+        self._require_graphics()
+        headless = bool(payload.get("headless", False))
+        capture = bool(payload.get("capture", False))
+
+        if not headless and self.viewer is None:
+            viewer = gym.create_viewer(self.sim, gymapi.CameraProperties())
+            if viewer is None:
+                raise RuntimeError(
+                    "isaacgym create_viewer failed (no display reachable); use "
+                    "play_render_mode=record for headless video capture"
+                )
+            # Default view: env 0 area, slightly above the grid.
+            gym.viewer_camera_look_at(
+                viewer,
+                None,
+                gymapi.Vec3(2.5, 2.5, 1.8),
+                gymapi.Vec3(0.0, 0.0, 0.5),
+            )
+            self.viewer = viewer
+
+        if capture and self.camera_handle is None:
+            camera = payload.get("camera") or {}
+            self.camera_distance = float(camera.get("distance", 2.0))
+            self.camera_elevation_deg = float(camera.get("elevation_deg", 20.0))
+            self.camera_azimuth_deg = float(camera.get("azimuth_deg", 90.0))
+            self.camera_width = int(payload.get("width", 1280))
+            self.camera_height = int(payload.get("height", 720))
+            cam_props = gymapi.CameraProperties()
+            cam_props.width = self.camera_width
+            cam_props.height = self.camera_height
+            self.camera_env = self.env_handles[0]
+            self.camera_handle = gym.create_camera_sensor(self.camera_env, cam_props)
+            self._position_tracking_camera()
+
+        return {
+            "viewer": self.viewer is not None,
+            "capture": self.camera_handle is not None,
+        }
+
+    def _position_tracking_camera(self) -> None:
+        """Aim the capture camera at env 0's root on a spherical offset."""
+        import math  # noqa: PLC0415
+
+        gymapi = self.gymapi
+        root = self._root_state.view(self.num_envs, -1, 13)[0, 0, :].cpu().numpy()
+        target = np.asarray(root[0:3], dtype=np.float64)
+        elevation = math.radians(self.camera_elevation_deg)
+        azimuth = math.radians(self.camera_azimuth_deg)
+        offset = self.camera_distance * np.array(
+            [
+                math.cos(elevation) * math.cos(azimuth),
+                math.cos(elevation) * math.sin(azimuth),
+                math.sin(elevation),
+            ]
+        )
+        eye = target + offset
+        self.gym.set_camera_location(
+            self.camera_handle,
+            self.camera_env,
+            gymapi.Vec3(float(eye[0]), float(eye[1]), float(eye[2])),
+            gymapi.Vec3(float(target[0]), float(target[1]), float(target[2])),
+        )
+
+    def render_frame(self) -> Dict[str, Any]:
+        """Draw one viewer frame; report whether the user closed the window."""
+        if self.viewer is None:
+            raise RuntimeError("isaacgym viewer is not initialized; call INIT_RENDERER first")
+        gym = self.gym
+        if gym.query_viewer_has_closed(self.viewer):
+            self._destroy_viewer()
+            return {"closed": True}
+        gym.step_graphics(self.sim)
+        gym.draw_viewer(self.viewer, self.sim, True)
+        if gym.query_viewer_has_closed(self.viewer):
+            self._destroy_viewer()
+            return {"closed": True}
+        return {"closed": False}
+
+    def capture_frame(self) -> Dict[str, Any]:
+        """Render the capture camera and return one RGB uint8 frame."""
+        if self.camera_handle is None:
+            raise RuntimeError(
+                "isaacgym capture camera is not initialized; call INIT_RENDERER first"
+            )
+        gym = self.gym
+        self._position_tracking_camera()
+        gym.step_graphics(self.sim)
+        gym.render_all_camera_sensors(self.sim)
+        image = np.asarray(
+            gym.get_camera_image(
+                self.sim, self.camera_env, self.camera_handle, self.gymapi.IMAGE_COLOR
+            )
+        )
+        frame = np.ascontiguousarray(
+            image.reshape(self.camera_height, self.camera_width, 4)[:, :, :3]
+        )
+        return {
+            "frame": frame,
+            "width": self.camera_width,
+            "height": self.camera_height,
+        }
+
+    def _destroy_viewer(self) -> None:
+        if self.viewer is not None:
+            self.gym.destroy_viewer(self.viewer)
+            self.viewer = None
+
     def shutdown(self) -> None:
+        if self.gym is not None:
+            self._destroy_viewer()
         if self.gym is not None and self.sim is not None:
             self.gym.destroy_sim(self.sim)
             self.sim = None
@@ -455,6 +601,12 @@ def _dispatch(ctx: _WorkerContext, protocol: Any, cmd: str, payload: Any) -> Tup
         return protocol.CMD_READY, None
     if cmd == protocol.CMD_GET_META:
         return protocol.CMD_META, ctx.get_meta()
+    if cmd == protocol.CMD_INIT_RENDERER:
+        return protocol.CMD_META, ctx.init_renderer(payload)
+    if cmd == protocol.CMD_RENDER_FRAME:
+        return protocol.CMD_META, ctx.render_frame()
+    if cmd == protocol.CMD_CAPTURE_FRAME:
+        return protocol.CMD_META, ctx.capture_frame()
     raise ValueError(f"unknown command {cmd!r}")
 
 

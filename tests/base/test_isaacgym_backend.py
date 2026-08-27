@@ -692,10 +692,10 @@ def test_dr_and_pre_step_control_fail_closed(backend: IsaacGymBackend) -> None:
         backend.set_pre_step_control(lambda backend_, ctrl: ctrl)
     backend.set_pre_step_control(None)
 
-    with pytest.raises(NotImplementedError, match="render"):
-        backend.init_renderer()
-    with pytest.raises(NotImplementedError, match="playback"):
-        backend.run_playback(env=None, initialize=None, step=None, num_steps=None)
+    # Physics-state playback export stays unsupported; native rendering has
+    # its own dedicated tests below.
+    with pytest.raises(NotImplementedError, match="physics-state playback"):
+        backend.get_physics_state()
 
 
 def test_close_reaps_worker_and_unlinks_shm(backend: IsaacGymBackend) -> None:
@@ -822,5 +822,203 @@ def test_state_access_before_materialize_lazy_spawns_worker(scene_file: str) -> 
         backend.materialize()
         backend.step(np.zeros((NUM_ENVS, 3), dtype=np.float32))
         assert backend.get_dof_pos().shape == (NUM_ENVS, 3)
+    finally:
+        backend.close()
+
+
+# ---------------------------------------------------------------------------
+# Native rendering / playback
+# ---------------------------------------------------------------------------
+
+
+def test_play_capabilities_advertise_native_rendering(backend: IsaacGymBackend) -> None:
+    caps = backend.get_play_capabilities()
+    assert caps.supports_native_interactive_renderer
+    assert caps.supports_native_video_capture
+    assert not caps.supports_physics_state_playback
+
+
+def test_normalize_camera_kwargs_maps_mujoco_convention() -> None:
+    from unilab.base.backend.isaacgym.backend import _normalize_camera_kwargs
+
+    out = _normalize_camera_kwargs(
+        {"cam_distance": 3.0, "cam_elevation": -20.0, "cam_azimuth": 90.0}
+    )
+    assert out == {"distance": 3.0, "elevation_deg": 20.0, "azimuth_deg": 90.0}
+    assert _normalize_camera_kwargs(None) == {
+        "distance": 2.0,
+        "elevation_deg": 20.0,
+        "azimuth_deg": 90.0,
+    }
+
+
+def test_resolve_play_render_plan_modes(
+    scene_file: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backend = _make_backend(scene_file)
+    try:
+        plan = backend.resolve_play_render_plan(
+            play_render_mode="none", play_steps=10, output_video=tmp_path / "x.mp4"
+        )
+        assert plan.mode == "none" and plan.num_steps is None
+
+        plan = backend.resolve_play_render_plan(
+            play_render_mode="interactive", play_steps=None, output_video=None
+        )
+        assert plan.mode == "interactive" and not plan.headless and not plan.record_video
+
+        plan = backend.resolve_play_render_plan(
+            play_render_mode="record", play_steps=5, output_video=tmp_path / "x.mp4"
+        )
+        assert plan.mode == "record" and plan.headless and plan.record_video
+        assert plan.num_steps == 5
+
+        with pytest.raises(ValueError, match="play_steps"):
+            backend.resolve_play_render_plan(
+                play_render_mode="record", play_steps=None, output_video=tmp_path / "x.mp4"
+            )
+        with pytest.raises(ValueError, match="output video path"):
+            backend.resolve_play_render_plan(
+                play_render_mode="record", play_steps=5, output_video=None
+            )
+
+        monkeypatch.setenv("DISPLAY", ":0")
+        plan = backend.resolve_play_render_plan(
+            play_render_mode="auto", play_steps=5, output_video=None
+        )
+        assert plan.mode == "interactive"
+
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+        plan = backend.resolve_play_render_plan(
+            play_render_mode="auto", play_steps=5, output_video=tmp_path / "x.mp4"
+        )
+        assert plan.mode == "record" and plan.headless
+    finally:
+        backend.close()
+
+
+def test_interactive_renderer_roundtrip(backend: IsaacGymBackend) -> None:
+    backend.init_renderer(headless=False)
+    backend.render()
+    # Re-initializing with the same config is a no-op; a different one fails.
+    backend.init_renderer(headless=False)
+    with pytest.raises(RuntimeError, match="already initialized"):
+        backend.init_renderer(headless=True, capture=True)
+    # Capturing on an interactive-only renderer must not silently succeed.
+    with pytest.raises(RuntimeError, match="already initialized"):
+        backend.capture_video_frame()
+
+
+def test_viewer_close_raises_render_closed(
+    scene_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unilab.base.backend.base import RenderClosedError
+
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_BEHAVIOR", "close_on_render")
+    backend = _make_backend(scene_file)
+    backend.materialize()
+    try:
+        backend.init_renderer(headless=False)
+        with pytest.raises(RenderClosedError, match="closed"):
+            backend.render()
+    finally:
+        backend.close()
+
+
+def test_viewer_creation_failure_is_actionable(
+    scene_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_BEHAVIOR", "viewer_fails")
+    backend = _make_backend(scene_file)
+    backend.materialize()
+    try:
+        with pytest.raises(IsaacGymWorkerError, match="create_viewer failed"):
+            backend.init_renderer(headless=False)
+    finally:
+        backend.close()
+
+
+def test_renderer_requires_graphics_context(
+    scene_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_BEHAVIOR", "no_graphics")
+    backend = _make_backend(scene_file)
+    backend.materialize()
+    try:
+        with pytest.raises(NotImplementedError, match="requires a GPU sim"):
+            backend.init_renderer(headless=True, capture=True)
+    finally:
+        backend.close()
+
+
+def test_capture_video_frame_roundtrip(backend: IsaacGymBackend) -> None:
+    backend.init_renderer(headless=True, capture=True, width=64, height=48)
+    frame = backend.capture_video_frame()
+    assert frame.shape == (48, 64, 3)
+    assert frame.dtype == np.uint8
+    # Mock frame is a deterministic gradient: red follows rows, green columns.
+    assert frame[10, 0, 0] == 10
+    assert frame[0, 20, 1] == 20
+    assert (frame[:, :, 2] == 128).all()
+
+
+def test_capture_without_init_uses_record_config(backend: IsaacGymBackend) -> None:
+    # capture_video_frame lazily initializes the headless capture camera.
+    frame = backend.capture_video_frame()
+    assert frame.shape == (720, 1280, 3)
+
+
+def test_run_playback_record_writes_video(backend: IsaacGymBackend, tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    output = tmp_path / "play.mp4"
+    result = backend.run_playback(
+        env=SimpleNamespace(cfg=None),
+        initialize=lambda: 0,
+        step=lambda obs: obs + 1,
+        num_steps=3,
+        output_video=output,
+        headless=True,
+        record_video=True,
+    )
+    assert result == str(output)
+    assert output.exists() and output.stat().st_size > 0
+
+
+def test_run_playback_interactive_finite_steps(backend: IsaacGymBackend) -> None:
+    from types import SimpleNamespace
+
+    steps: list[int] = []
+    result = backend.run_playback(
+        env=SimpleNamespace(cfg=None),
+        initialize=lambda: 0,
+        step=lambda obs: steps.append(obs) or (obs + 1),
+        num_steps=2,
+        headless=False,
+        record_video=False,
+    )
+    assert result is None
+    assert steps == [0, 1]
+
+
+def test_run_playback_interactive_window_close_is_graceful(
+    scene_file: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_BEHAVIOR", "close_on_render")
+    backend = _make_backend(scene_file)
+    backend.materialize()
+    try:
+        result = backend.run_playback(
+            env=SimpleNamespace(cfg=None),
+            initialize=lambda: 0,
+            step=lambda obs: obs + 1,
+            num_steps=None,
+            headless=False,
+            record_video=False,
+        )
+        assert result is None
     finally:
         backend.close()

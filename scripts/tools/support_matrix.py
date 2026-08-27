@@ -316,10 +316,12 @@ def render_support_matrix(root: Path | None = None) -> str:
         "interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry "
         "identity，不代表对应算法、terrain、完整 DR 或 production training 支持。",
         "",
-        "`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`，且开发环境没有 IsaacGym "
-        "runtime：所有 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract "
-        "覆盖），不代表任何训练或 play 验证。owner YAML 通过 `training.play_render_mode=none` 在配置层"
-        "停用 playback（backend 尚无 native 或离线 record playback）。",
+        "`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`。SAC (torch) owner 已在真机"
+        "（external Python 3.8 worker runtime，不在仓库 CI 覆盖）完成训练与 record playback 验证，"
+        "标记为 `Tested`；其余 isaacgym cell 最高只到 `Configured`（registry + owner YAML + "
+        "compose/contract 覆盖），不代表任何训练或 play 验证。playback 走 IsaacGym 原生渲染"
+        "（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，"
+        "无显示器时自动降级为离屏录制。",
         "",
         benchmark_note,
         recommendation_note,

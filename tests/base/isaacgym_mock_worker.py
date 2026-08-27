@@ -18,7 +18,10 @@ so tests can assert exact values:
 Failure modes are selected with ``UNILAB_ISAACGYM_MOCK_BEHAVIOR``:
 ``ok`` (default), ``fail_init`` (raise during INIT), ``die_on_step``
 (``os._exit(3)`` on the first STEP), ``hang_on_step`` (sleep on the first
-STEP).  Model dims come from ``UNILAB_ISAACGYM_MOCK_DOF_NAMES`` /
+STEP), ``no_graphics`` (INIT reports no graphics context and INIT_RENDERER
+fails), ``viewer_fails`` (INIT_RENDERER cannot create the viewer),
+``close_on_render`` (the first RENDER_FRAME reports the window closed).
+Model dims come from ``UNILAB_ISAACGYM_MOCK_DOF_NAMES`` /
 ``UNILAB_ISAACGYM_MOCK_BODY_NAMES`` (comma-separated).
 """
 
@@ -46,7 +49,15 @@ def _load_protocol(path: str) -> Any:
 
 
 class _MockSim:
-    def __init__(self, num_envs: int, sim_dt: float, dof_names: List[str], body_names: List[str]):
+    def __init__(
+        self,
+        num_envs: int,
+        sim_dt: float,
+        dof_names: List[str],
+        body_names: List[str],
+        graphics_enabled: bool = True,
+    ):
+        self.graphics_enabled = graphics_enabled
         self.num_envs = num_envs
         self.sim_dt = sim_dt
         self.dof_names = dof_names
@@ -59,6 +70,10 @@ class _MockSim:
         self.dof = np.zeros((num_envs, self.num_dof, 2), dtype=np.float32)
         self.slots: Dict[str, np.ndarray] = {}
         self._shm_handles: List[Any] = []
+        self.viewer_open = False
+        self.capture_ready = False
+        self.capture_width = 0
+        self.capture_height = 0
 
     def attach(self, slots: Dict[str, Dict[str, Any]]) -> None:
         from multiprocessing import resource_tracker, shared_memory
@@ -144,6 +159,7 @@ class _MockSim:
             "effort": [100.0] * self.num_dof,
             "gravity": [0.0, 0.0, _GRAVITY_Z],
             "use_gpu_pipeline": False,
+            "graphics_enabled": self.graphics_enabled,
         }
 
     def close(self) -> None:
@@ -153,6 +169,49 @@ class _MockSim:
             except Exception:
                 pass
         self._shm_handles = []
+
+    def init_renderer(self, payload: Dict[str, Any], behavior: str) -> Dict[str, Any]:
+        if not self.graphics_enabled:
+            raise RuntimeError(
+                "isaacgym rendering requires a GPU sim (device_id >= 0); this sim was "
+                "created without a graphics context"
+            )
+        headless = bool(payload.get("headless", False))
+        capture = bool(payload.get("capture", False))
+        if not headless:
+            if behavior == "viewer_fails":
+                raise RuntimeError(
+                    "isaacgym create_viewer failed (no display reachable); use "
+                    "play_render_mode=record for headless video capture"
+                )
+            self.viewer_open = True
+        if capture:
+            self.capture_ready = True
+            self.capture_width = int(payload.get("width", 1280))
+            self.capture_height = int(payload.get("height", 720))
+        return {"viewer": self.viewer_open, "capture": self.capture_ready}
+
+    def render_frame(self, behavior: str) -> Dict[str, Any]:
+        if not self.viewer_open:
+            raise RuntimeError("isaacgym viewer is not initialized; call INIT_RENDERER first")
+        if behavior == "close_on_render":
+            self.viewer_open = False
+            return {"closed": True}
+        return {"closed": False}
+
+    def capture_frame(self) -> Dict[str, Any]:
+        if not self.capture_ready:
+            raise RuntimeError(
+                "isaacgym capture camera is not initialized; call INIT_RENDERER first"
+            )
+        # Deterministic gradient so tests can verify the frame is not blank.
+        rows = np.arange(self.capture_height, dtype=np.uint8)[:, None]
+        cols = np.arange(self.capture_width, dtype=np.uint8)[None, :]
+        frame = np.zeros((self.capture_height, self.capture_width, 3), dtype=np.uint8)
+        frame[:, :, 0] = rows
+        frame[:, :, 1] = cols
+        frame[:, :, 2] = 128
+        return {"frame": frame, "width": self.capture_width, "height": self.capture_height}
 
 
 def _csv_env(name: str, default: List[str]) -> List[str]:
@@ -185,6 +244,7 @@ def main(argv: List[str]) -> int:
                 body_names=_csv_env(
                     "UNILAB_ISAACGYM_MOCK_BODY_NAMES", ["base", "link0", "link1", "link2"]
                 ),
+                graphics_enabled=behavior != "no_graphics",
             )
             keyframe_qpos = payload.get("keyframe_qpos")
             if keyframe_qpos is not None:
@@ -224,6 +284,12 @@ def main(argv: List[str]) -> int:
             return protocol.CMD_READY, None
         if cmd == protocol.CMD_GET_META:
             return protocol.CMD_META, sim.meta()
+        if cmd == protocol.CMD_INIT_RENDERER:
+            return protocol.CMD_META, sim.init_renderer(payload, behavior)
+        if cmd == protocol.CMD_RENDER_FRAME:
+            return protocol.CMD_META, sim.render_frame(behavior)
+        if cmd == protocol.CMD_CAPTURE_FRAME:
+            return protocol.CMD_META, sim.capture_frame()
         raise ValueError(f"unknown command {cmd!r}")
 
     while True:

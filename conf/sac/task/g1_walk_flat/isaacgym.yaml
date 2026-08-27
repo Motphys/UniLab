@@ -4,9 +4,10 @@
 # the self-contained MJCF scene from base.yaml directly (no scene fragments or
 # generated terrain) and reproduces the <position kp kv forcerange> actuators
 # with PhysX DOF_MODE_POS (gains parsed from the MJCF, not the importer);
-# runtime kp/kd randomization is unsupported, so pd_gains stays disabled; with
-# no native or offline-record playback yet, playback is disabled at the config
-# level instead of failing closed mid-run.
+# runtime kp/kd randomization is unsupported, so pd_gains stays disabled.
+# Playback uses IsaacGym native rendering: with a display,
+# `play_render_mode=auto` opens the interactive viewer; headless hosts fall
+# back to offscreen camera-sensor recording.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -14,7 +15,6 @@ defaults:
 training:
   task_name: G1WalkFlat
   sim_backend: isaacgym
-  play_render_mode: none
 algo:
   num_envs: 2048
   learning_starts: 10
