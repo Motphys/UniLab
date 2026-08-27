@@ -69,11 +69,14 @@ class UniformNoiseCfg(NoiseCfg):
         n_max = self._as_array(self.n_max, data.dtype)
 
         # Generate uniform noise in [0, 1) and transform the generated array
-        # in place.  The pre-existing expression allocated one array for each
-        # multiply, add, and final data operation; keeping the same float32
-        # cast and ufunc order preserves bit-level results while returning the
-        # transformed noise buffer itself.
-        noise = rng.random(data.shape).astype(data.dtype, copy=False)
+        # in place.  Float32 data draws directly in float32 (Generator.random
+        # dtype fast path), which is ~2x faster than drawing float64 and
+        # casting; bit-level noise values differ from the float64 path, which
+        # the issue #1348 RNG-stream parity removal allows.
+        if data.dtype == np.float32:
+            noise = rng.random(data.shape, dtype=np.float32)
+        else:
+            noise = rng.random(data.shape).astype(data.dtype, copy=False)
         np.multiply(noise, n_max - n_min, out=noise)
         np.add(noise, n_min, out=noise)
 
@@ -105,8 +108,12 @@ class GaussianNoiseCfg(NoiseCfg):
         mean = self._as_array(self.mean, data.dtype)
         std = self._as_array(self.std, data.dtype)
 
-        # Generate standard normal noise and scale.
-        noise = rng.standard_normal(data.shape).astype(data.dtype, copy=False)
+        # Generate standard normal noise and scale.  Float32 data draws
+        # directly in float32 (same fast path as UniformNoiseCfg).
+        if data.dtype == np.float32:
+            noise = rng.standard_normal(data.shape, dtype=np.float32)
+        else:
+            noise = rng.standard_normal(data.shape).astype(data.dtype, copy=False)
         noise = mean + std * noise
 
         if self.operation == "add":
