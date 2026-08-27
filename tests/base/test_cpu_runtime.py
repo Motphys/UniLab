@@ -29,8 +29,12 @@ from unilab.base.np_env import NpEnv, NpEnvState
 
 def _record_affinity(monkeypatch: pytest.MonkeyPatch, available: set[int]) -> list[tuple]:
     calls: list[tuple] = []
-    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: set(available))
-    monkeypatch.setattr(os, "sched_setaffinity", lambda pid, ids: calls.append((pid, set(ids))))
+    # raising=False: sched_*affinity is Linux-only, so the attribute may not
+    # exist on the host running the tests (e.g. macOS dev machines).
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: set(available), raising=False)
+    monkeypatch.setattr(
+        os, "sched_setaffinity", lambda pid, ids: calls.append((pid, set(ids))), raising=False
+    )
     return calls
 
 
@@ -103,8 +107,8 @@ def test_unavailable_cpu_ids_fail_closed(monkeypatch: pytest.MonkeyPatch):
 
 def test_platform_without_affinity_warns_and_caps_numba(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
-    monkeypatch.delattr(os, "sched_setaffinity")
-    monkeypatch.delattr(os, "sched_getaffinity")
+    monkeypatch.delattr(os, "sched_setaffinity", raising=False)
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
     confine_calls = _record_confine(monkeypatch)
     numba_calls = _record_numba(monkeypatch)
 
@@ -125,7 +129,7 @@ def test_confine_existing_threads_pins_tasks_and_skips_failures(
             raise ProcessLookupError
         calls.append((pid, set(ids)))
 
-    monkeypatch.setattr(os, "sched_setaffinity", fake_setaffinity)
+    monkeypatch.setattr(os, "sched_setaffinity", fake_setaffinity, raising=False)
     monkeypatch.setattr(os.path, "isdir", lambda path: path == cpu_runtime._PROC_TASK_DIR)
     monkeypatch.setattr(os, "listdir", lambda path: ["123", "456", "789"])
 
@@ -136,7 +140,9 @@ def test_confine_existing_threads_pins_tasks_and_skips_failures(
 
 def test_confine_existing_threads_without_proc_is_noop(monkeypatch: pytest.MonkeyPatch):
     calls: list[tuple] = []
-    monkeypatch.setattr(os, "sched_setaffinity", lambda pid, ids: calls.append((pid, set(ids))))
+    monkeypatch.setattr(
+        os, "sched_setaffinity", lambda pid, ids: calls.append((pid, set(ids))), raising=False
+    )
     monkeypatch.setattr(os.path, "isdir", lambda path: False)
 
     cpu_runtime._confine_existing_threads({0})
