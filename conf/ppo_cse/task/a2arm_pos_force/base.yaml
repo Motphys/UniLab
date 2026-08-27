@@ -21,13 +21,19 @@ env:
         history:
           _target_: unilab.tasks.locomotion.a2arm.observations.A2ArmActorHistoryCfg
           func: unilab.tasks.locomotion.a2arm.observations.A2ArmActorHistory
-          params: {clip: 100.0, actor_noise: true}
+          params:
+            clip: 100.0
+            actor_noise: true
+            history_length: "${oc.select:algo.num_actor_history,32}"
     critic:
       terms:
         history:
           _target_: unilab.tasks.locomotion.a2arm.observations.A2ArmCriticHistoryCfg
           func: unilab.tasks.locomotion.a2arm.observations.A2ArmCriticHistory
-          params: {clip: 100.0, actor_noise: false}
+          params:
+            clip: 100.0
+            actor_noise: false
+            history_length: "${oc.select:algo.num_critic_history,3}"
   actions:
     joint_pd:
       _target_: unilab.tasks.locomotion.a2arm.actions.A2ArmPdActionCfg
@@ -85,11 +91,11 @@ env:
   critic_observation_group: critic
 
 reward:
-  tracking_lin_vel_force_world: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 2.0, params: {name: tracking_lin_vel_force_world}}
-  tracking_ee_force_world: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 2.0, params: {name: tracking_ee_force_world}}
-  tracking_ang_vel: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.0, params: {name: tracking_ang_vel}}
+  tracking_lin_vel_force_world: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 2.0, params: {name: tracking_lin_vel_force_world, sigma: 0.25}}
+  tracking_ee_force_world: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 2.0, params: {name: tracking_ee_force_world, sigma: 1.0}}
+  tracking_ang_vel: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.0, params: {name: tracking_ang_vel, sigma: 0.25}}
   orientation: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -1.5, params: {name: orientation}}
-  ref_dof_leg: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 3.0, params: {name: ref_dof_leg}}
+  ref_dof_leg: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 3.0, params: {name: ref_dof_leg, scale: 0.1}}
   alive: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.5, params: {name: alive}}
   lin_vel_z: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -1.5, params: {name: lin_vel_z}}
   ang_vel_xy: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -0.1, params: {name: ang_vel_xy}}
@@ -100,16 +106,16 @@ reward:
   dof_vel_arm: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -2.0e-4, params: {name: dof_vel_arm}}
   dof_acc: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -2.5e-7, params: {name: dof_acc}}
   dof_acc_arm: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -4.5e-7, params: {name: dof_acc_arm}}
-  base_height: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -2.0, params: {name: base_height}}
+  base_height: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -2.0, params: {name: base_height, target: 0.435}}
   hip_pos: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -0.5, params: {name: hip_pos}}
-  torque_limits: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -0.005, params: {name: torque_limits}}
+  torque_limits: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -0.005, params: {name: torque_limits, soft_limit: 0.9}}
   dof_pos_limits: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -10.0, params: {name: dof_pos_limits}}
-  stand_still: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 0.5, params: {name: stand_still}}
+  stand_still: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 0.5, params: {name: stand_still, scale: 0.05}}
   collision: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -5.0, params: {name: collision}}
   feet_contact_number: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 2.0, params: {name: feet_contact_number}}
-  feet_air_time: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.0, params: {name: feet_air_time}}
-  feet_height: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.0, params: {name: feet_height}}
-  feet_height_high: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -15.0, params: {name: feet_height_high}}
+  feet_air_time: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.0, params: {name: feet_air_time, threshold: 0.5}}
+  feet_height: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: 1.0, params: {name: feet_height, target: 0.12}}
+  feet_height_high: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -15.0, params: {name: feet_height_high, target: 0.24}}
   feet_pos_xy: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -3.0, params: {name: feet_pos_xy}}
   feet_drag: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -8.0e-4, params: {name: feet_drag}}
-  feet_contact_forces: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -1.0e-3, params: {name: feet_contact_forces}}
+  feet_contact_forces: {func: unilab.tasks.locomotion.a2arm.rewards.a2arm_reward, weight: -1.0e-3, params: {name: feet_contact_forces, threshold: 200.0}}

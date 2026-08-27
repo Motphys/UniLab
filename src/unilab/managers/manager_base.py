@@ -7,7 +7,7 @@ import abc
 import inspect
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -72,6 +72,14 @@ class ManagerTermBaseCfg:
 
 
 class ManagerTermBase:
+    supports_row_scoped_reset: ClassVar[bool] = False
+    """Whether reset-time calls may update only the requested environment rows.
+
+    A row-scoped callable still returns a full ``(num_envs, ...)`` batch; the
+    observation manager owns the final row selection after the term updates its
+    task-owned state.
+    """
+
     def __init__(self, env: ManagerBasedRlEnv):
         self._env = env
 

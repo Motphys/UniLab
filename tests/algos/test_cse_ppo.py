@@ -78,7 +78,6 @@ def test_runner_uses_manager_based_actor_and_critic_group_dimensions() -> None:
         env,
         {
             "num_one_step_obs": 73,
-            "num_actor_history": 32,
             "num_steps_per_env": 3,
             "policy": {"actor_hidden_dims": [8], "critic_hidden_dims": [8]},
             "estimator": {
@@ -97,3 +96,39 @@ def test_runner_uses_manager_based_actor_and_critic_group_dimensions() -> None:
     assert runner.alg.storage.observations.shape == (3, 2, 2336)
     assert runner.alg.storage.privileged_observations is not None
     assert runner.alg.storage.privileged_observations.shape == (3, 2, 402)
+
+
+def test_runner_random_episode_lengths_use_environment_lifecycle_setter() -> None:
+    from unilab.algos.cse_ppo import CSEOnPolicyRunner
+
+    captured: dict[str, torch.Tensor] = {}
+
+    def set_episode_length_buf(values: torch.Tensor) -> None:
+        captured["values"] = values.detach().clone()
+
+    env = SimpleNamespace(
+        num_envs=2,
+        num_obs=8,
+        num_privileged_obs=4,
+        num_actions=1,
+        max_episode_length=10,
+        set_episode_length_buf=set_episode_length_buf,
+    )
+    runner = CSEOnPolicyRunner(
+        env,
+        {
+            "num_one_step_obs": 2,
+            "num_steps_per_env": 1,
+            "policy": {"actor_hidden_dims": [4], "critic_hidden_dims": [4]},
+            "estimator": {
+                "num_pred": 2,
+                "enc_hidden_dims": [4],
+                "latent_dim": 2,
+                "dec_hidden_dims": [4],
+            },
+        },
+    )
+    runner._initialize_random_episode_lengths()
+
+    assert captured["values"].shape == (2,)
+    assert torch.all((captured["values"] >= 0) & (captured["values"] < 10))

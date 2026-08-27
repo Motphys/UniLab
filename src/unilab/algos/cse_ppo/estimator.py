@@ -121,7 +121,7 @@ class CSEEstimator(nn.Module):
             return (weights * F.mse_loss(pred, target, reduction="none")).mean()
         loss = pred.new_zeros(())
         offset = 0
-        for size, weight in zip(self.target_group_sizes, weights):
+        for size, weight in zip(self.target_group_sizes, weights, strict=True):
             part = slice(offset, offset + size)
             loss = loss + F.mse_loss(pred[:, part] * weight, target[:, part] * weight)
             offset += size

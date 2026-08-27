@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import torch
 from torch import nn
 from torch.distributions import Normal
 
-from .estimator import CSEEstimator, get_activation
+from .estimator import CSEEstimator, _mlp
 
 
 class CSEActorCritic(nn.Module):
@@ -48,13 +48,13 @@ class CSEActorCritic(nn.Module):
             activation=activation,
             **dict(estimator or {}),
         )
-        self.actor = _build_mlp(
+        self.actor = _mlp(
             self.num_one_step_obs + self.estimator.num_latent,
             self.num_actions,
             actor_hidden_dims,
             activation,
         )
-        self.critic = _build_mlp(self.num_critic_obs, 1, critic_hidden_dims, activation)
+        self.critic = _mlp(self.num_critic_obs, 1, critic_hidden_dims, activation)
         self.std = nn.Parameter(float(init_noise_std) * torch.ones(self.num_actions))
         self.distribution: Normal | None = None
         Normal.set_default_validate_args(False)
@@ -105,19 +105,3 @@ class CSEActorCritic(nn.Module):
     def evaluate(self, critic_observations: torch.Tensor, **kwargs) -> torch.Tensor:
         del kwargs
         return self.critic(critic_observations)
-
-
-def _build_mlp(
-    input_dim: int,
-    output_dim: int,
-    hidden_dims: Sequence[int],
-    activation: str,
-) -> nn.Sequential:
-    """Build a plain feed-forward MLP (kept as a module-level compatibility helper)."""
-    layers: list[nn.Module] = []
-    last = int(input_dim)
-    for dim in hidden_dims:
-        layers.extend((nn.Linear(last, int(dim)), get_activation(activation)))
-        last = int(dim)
-    layers.append(nn.Linear(last, int(output_dim)))
-    return nn.Sequential(*layers)

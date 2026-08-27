@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import abc
 import inspect
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from prettytable import PrettyTable
@@ -46,6 +47,8 @@ class CommandTermCfg(abc.ABC):
 
 class CommandTerm(ManagerTermBase):
     """Base class for command terms."""
+
+    updates_before_reward: ClassVar[bool] = False
 
     def __init__(self, cfg: CommandTermCfg, env: ManagerBasedRlEnv):
         self.cfg = cfg
@@ -219,6 +222,11 @@ class CommandManager(ManagerBase):
     def active_terms(self) -> list[str]:
         return list(self._terms.keys())
 
+    @property
+    def requires_pre_reward_update(self) -> bool:
+        """Whether a term must commit its transition state before rewards read it."""
+        return any(term.updates_before_reward for term in self._terms.values())
+
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         terms = []
         for name, term in self._terms.items():
@@ -239,13 +247,36 @@ class CommandManager(ManagerBase):
                 extras[f"Metrics/{name}/{metric_name}"] = metric_value
         return extras
 
-    def compute(self, dt: float | np.ndarray, env_ids: np.ndarray | None = None) -> None:
+    def compute(
+        self,
+        dt: float | np.ndarray,
+        env_ids: np.ndarray | None = None,
+        *,
+        update_before_reward: bool | None = None,
+    ) -> None:
+        """Advance selected command terms for one lifecycle phase.
+
+        ``None`` preserves the original all-term behavior. Passing a boolean
+        runs only terms whose ``updates_before_reward`` declaration matches it;
+        this lets environments place a stateful term before reward evaluation
+        without moving unrelated command terms across that boundary.
+        """
         for name, term in self._terms.items():
+            if (
+                update_before_reward is not None
+                and term.updates_before_reward != update_before_reward
+            ):
+                continue
             term.compute(dt, env_ids)
             self._validate_command(name, term.command)
 
-    def post_compute(self) -> None:
+    def post_compute(self, *, update_before_reward: bool | None = None) -> None:
         for term in self._terms.values():
+            if (
+                update_before_reward is not None
+                and term.updates_before_reward != update_before_reward
+            ):
+                continue
             term.post_compute()
 
     def get_command(self, name: str) -> np.ndarray:
@@ -301,6 +332,10 @@ class NullCommandManager:
         self._terms: dict[str, Any] = {}
         self.cfg = None
 
+    @property
+    def requires_pre_reward_update(self) -> bool:
+        return False
+
     def __str__(self) -> str:
         return "<NullCommandManager> (inactive)"
 
@@ -313,10 +348,18 @@ class NullCommandManager:
     def reset(self, env_ids: np.ndarray | None = None) -> dict[str, np.ndarray]:
         return {}
 
-    def compute(self, dt: float | np.ndarray, env_ids: np.ndarray | None = None) -> None:
+    def compute(
+        self,
+        dt: float | np.ndarray,
+        env_ids: np.ndarray | None = None,
+        *,
+        update_before_reward: bool | None = None,
+    ) -> None:
+        del update_before_reward
         pass
 
-    def post_compute(self) -> None:
+    def post_compute(self, *, update_before_reward: bool | None = None) -> None:
+        del update_before_reward
         pass
 
     def get_command(self, name: str) -> None:

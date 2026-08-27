@@ -15,7 +15,7 @@ from prettytable import PrettyTable
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
 
 if TYPE_CHECKING:
-    from unilab.managers._types import DebugVisualizer, ManagerBasedRlEnv
+    from unilab.managers._types import ManagerBasedRlEnv
 
 
 @dataclass(kw_only=True)
@@ -89,7 +89,7 @@ class RewardManager(ManagerBase):
         table.align["Name"] = "l"
         table.align["Weight"] = "r"
         for index, (name, term_cfg) in enumerate(
-            zip(self._term_names, self._term_cfgs, strict=False)
+            zip(self._term_names, self._term_cfgs, strict=True)
         ):
             table.add_row([index, name, term_cfg.weight])
         msg += str(table.get_string())
@@ -108,7 +108,7 @@ class RewardManager(ManagerBase):
         if env_ids is None:
             env_ids = slice(None)
         extras = {}
-        for key in self._episode_sums.keys():
+        for key in self._episode_sums:
             episodic_sum_avg = float(np.mean(self._episode_sums[key][env_ids]))
             extras["Episode_Reward/" + key] = episodic_sum_avg / self._env.max_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
@@ -122,7 +122,7 @@ class RewardManager(ManagerBase):
         self._reward_buf[:] = 0.0
         scale = dt if self._scale_by_dt else 1.0
         for term_idx, (name, term_cfg) in enumerate(
-            zip(self._term_names, self._term_cfgs, strict=False)
+            zip(self._term_names, self._term_cfgs, strict=True)
         ):
             if term_cfg.weight == 0.0:
                 self._step_reward[:, term_idx] = 0.0
@@ -136,7 +136,7 @@ class RewardManager(ManagerBase):
             # expression result dtype (e.g. int term values promote to float64,
             # as the pre-refactor temporary did).
             scratch = self._term_weight_scratch
-            out_dtype = np.result_type(value, term_cfg.weight)
+            out_dtype = np.result_type(value, term_cfg.weight, scale)
             if scratch.dtype != out_dtype:
                 scratch = self._term_weight_scratch = np.empty(self.num_envs, dtype=out_dtype)
             np.multiply(value, term_cfg.weight, out=scratch)

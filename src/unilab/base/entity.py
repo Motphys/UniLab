@@ -126,7 +126,7 @@ def _resolve_matching_names(
 
     if any(not values for values in per_pattern):
         rendered = ", ".join(
-            f"{pattern!r}: {values}" for pattern, values in zip(patterns, per_pattern)
+            f"{pattern!r}: {values}" for pattern, values in zip(patterns, per_pattern, strict=True)
         )
         raise ValueError(
             "Not all entity selector regular expressions matched; "

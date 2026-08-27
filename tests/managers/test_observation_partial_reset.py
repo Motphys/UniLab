@@ -16,10 +16,47 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from unilab.managers import ObservationGroupCfg, ObservationManager, ObservationTermCfg
+from unilab.managers import (
+    ManagerTermBase,
+    ObservationGroupCfg,
+    ObservationManager,
+    ObservationTermCfg,
+)
 from unilab.managers._noise import UniformNoiseCfg
 
 from .conftest import FakeEnv
+
+
+class _RowScopedTerm(ManagerTermBase):
+    supports_row_scoped_reset = True
+
+    def __init__(self, cfg, env):
+        del cfg
+        super().__init__(env)
+        self.values = np.zeros((env.num_envs, 1), dtype=np.float32)
+
+    def __call__(self, env, *, env_ids=None):
+        del env
+        if env_ids is None:
+            self.values += 1.0
+        else:
+            self.values[env_ids] += 10.0
+        return self.values
+
+
+def test_row_scoped_class_term_receives_reset_ids_and_preserves_other_rows() -> None:
+    env = FakeEnv(seed=13)
+    manager = ObservationManager(
+        {"policy": ObservationGroupCfg(terms={"state": ObservationTermCfg(func=_RowScopedTerm)})},
+        env,
+    )
+    manager.compute(update_history=True)
+    term = manager._group_obs_term_cfgs["policy"][0].func
+    before = term.values.copy()
+    rows = manager.compute(update_history=True, env_ids=np.array([0], dtype=np.int32))
+
+    np.testing.assert_array_equal(term.values[1:], before[1:])
+    assert rows["policy"].shape == (1, 1)
 
 
 def _noisy_cfg() -> dict[str, ObservationGroupCfg]:

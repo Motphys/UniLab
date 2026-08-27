@@ -2,24 +2,22 @@
 
 The state owner keeps the legacy command/force/gait cadence while exposing the
 typed hooks consumed by Manager-Based action, observation, reward, and
-termination terms.  Hooks are keyed by the control-step token so the standard
+termination terms. Hooks are keyed by the control-step token so the standard
 manager pipeline cannot advance a stateful signal twice in one step.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from unilab.managers import CommandTerm, CommandTermCfg
-from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_quat
+from unilab.utils.rotation import np_quat_apply, np_yaw_quat
 
 from .constants import (
-    ACTOR_STEP_DIM,
-    ARM_JOINT_NAMES,
     CMD_BASE_FORCE,
     CMD_EE_FORCE,
     CMD_EE_POS,
@@ -83,6 +81,7 @@ class ForceSchedule:
         self._settling = max(0, int(settling))
         self._rng = rng
         self.current = np.zeros((num_envs, 3), dtype=dtype)
+        self._all_ids = np.arange(num_envs, dtype=np.intp)
         self._target = np.zeros_like(self.current)
         self._active = np.zeros(num_envs, dtype=bool)
         self._elapsed = np.zeros(num_envs, dtype=np.int32)
@@ -126,16 +125,19 @@ class ForceSchedule:
         if len(idle):
             self._timer[idle] = self._randint(self._interval[0], self._interval[1] + 1, len(idle))
 
-    def step(self, enabled: bool) -> np.ndarray:
-        if not enabled:
-            self.current.fill(0.0)
+    def step(self, enabled: bool, env_ids: np.ndarray | None = None) -> np.ndarray:
+        ids = self._all_ids if env_ids is None else np.asarray(env_ids, dtype=np.intp)
+        if ids.size == 0:
             return self.current
-        idle = ~self._active
+        if not enabled:
+            self.current[ids] = 0.0
+            return self.current
+        idle = ids[~self._active[ids]]
         self._timer[idle] -= 1
-        due = np.flatnonzero(idle & (self._timer <= 0)).astype(np.int32)
+        due = idle[self._timer[idle] <= 0]
         if len(due):
             self._start(due)
-        active = np.flatnonzero(self._active).astype(np.int32)
+        active = ids[self._active[ids]]
         if len(active):
             elapsed = self._elapsed[active].astype(self._dtype)
             ramp = self._ramp[active].astype(self._dtype)
@@ -258,16 +260,19 @@ class A2ArmPosForceCommandCfg(CommandTermCfg):
 
 
 class A2ArmPosForceState(CommandTerm):
-    """Shared task state with explicit pre-physics and post-physics hooks."""
+    """Shared task state with explicit control and transition hooks."""
+
+    updates_before_reward = True
 
     cfg: A2ArmPosForceCommandCfg
 
     def __init__(self, cfg: A2ArmPosForceCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
         self._dtype = np.dtype(np.float32)
+        self._all_env_ids = np.arange(self.num_envs, dtype=np.intp)
         self._command = np.zeros((self.num_envs, NUM_COMMANDS), dtype=self._dtype)
-        self._last_control_token: int | None = None
-        self._last_transition_token: int | None = None
+        self._last_control_token = np.full(self.num_envs, -1, dtype=np.int64)
+        self._last_transition_token = np.full(self.num_envs, -1, dtype=np.int64)
         self._command_timer = np.zeros(self.num_envs, dtype=np.int32)
         self._gait_phase = np.zeros(self.num_envs, dtype=self._dtype)
         self._stance_mask = np.zeros((self.num_envs, 4), dtype=self._dtype)
@@ -287,7 +292,7 @@ class A2ArmPosForceState(CommandTerm):
         self._goal_total_steps = np.ones(self.num_envs, dtype=np.int32)
         self._last_dof_vel = np.zeros((self.num_envs, NUM_ACTIONS), dtype=self._dtype)
         self._pending_dof_vel = np.zeros_like(self._last_dof_vel)
-        self._pending_dof_vel_token: int | None = None
+        self._pending_dof_vel_token = np.full(self.num_envs, -1, dtype=np.int64)
         self._teleop_enabled = False
         self._teleop_velocity = np.zeros((self.num_envs, 3), dtype=self._dtype)
         self._teleop_ee_sphere = np.zeros((self.num_envs, 3), dtype=self._dtype)
@@ -341,6 +346,11 @@ class A2ArmPosForceState(CommandTerm):
             settling=cfg.base_settling,
             rng=self._env.rng,
         )
+        # Preserve the legacy construction-time RNG draw; ``reset`` samples a
+        # fresh cadence for each reset row before the next episode starts.
+        self._command_timer = self._env.rng.integers(
+            0, max(1, int(cfg.command_resample_steps)), size=self.num_envs, dtype=np.int32
+        )
         self._force_ee_cmd = np.zeros((self.num_envs, 3), dtype=self._dtype)
         self._force_ee_world = np.zeros_like(self._force_ee_cmd)
         self._force_base_cmd = np.zeros_like(self._force_ee_cmd)
@@ -351,10 +361,6 @@ class A2ArmPosForceState(CommandTerm):
                 "endpoint_quat",
                 "armbasepoint_world_pos",
                 "armbasepoint_world_quat",
-                "FL_foot_contact",
-                "FR_foot_contact",
-                "RL_foot_contact",
-                "RR_foot_contact",
             )
         )
         self._foot_contact_view = env.scene.bind_sensor_data(
@@ -411,16 +417,7 @@ class A2ArmPosForceState(CommandTerm):
         # ResetStateTransaction.  Initialize only task-owned memory here; all
         # Entity state writes happen from ``reset()`` when CommandManager.reset
         # is called inside ManagerBasedRlEnv.reset's scoped transaction.
-        all_ids = np.arange(self.num_envs, dtype=np.int32)
         self._reference_dof_pos[:] = self._entity.data.default_joint_pos[:, :NUM_LEG]
-        for schedule in (
-            self._sched_gripper_cmd,
-            self._sched_gripper_ext,
-            self._sched_base_cmd,
-            self._sched_base_ext,
-        ):
-            schedule.reset(all_ids)
-        self._initialize_goals(all_ids)
 
     @property
     def command(self) -> np.ndarray:
@@ -557,6 +554,14 @@ class A2ArmPosForceState(CommandTerm):
         small = np.all(np.abs(self._command[ids, :3]) < clips, axis=1)
         self._command[ids[small], :3] = 0.0
 
+    def refresh_derived_state(self, env_ids: np.ndarray | None = None) -> None:
+        """Refresh reset-time goal geometry without advancing episode state."""
+        ids = np.arange(self.num_envs, dtype=np.intp) if env_ids is None else np.asarray(env_ids)
+        self._goal_cart[ids] = sphere2cart(self._goal_sphere[ids])
+        center = self.goal_center_world()[ids]
+        yaw = np_yaw_quat(self._entity.data.root_link_quat_w[ids])
+        self._goal_world[ids] = center + np_quat_apply(yaw, self._goal_cart[ids])
+
     def _resample_goals(self, ids: np.ndarray) -> None:
         cfg = self.cfg
         n = len(ids)
@@ -607,158 +612,173 @@ class A2ArmPosForceState(CommandTerm):
         return np.any(inside, axis=1) | underground
 
     def prepare_control_step(self, step_token: int) -> None:
-        if self._last_control_token == int(step_token):
+        token = int(step_token)
+        ids = np.flatnonzero(self._last_control_token != token).astype(np.intp)
+        if ids.size == 0:
             return
-        self._last_control_token = int(step_token)
+        self._last_control_token[ids] = token
         if self._teleop_enabled:
-            self._force_ee_cmd.fill(0.0)
-            self._force_base_cmd.fill(0.0)
-            self._force_ee_world[:] = self._teleop_ee_force
-            self._force_base_world[:] = self._teleop_base_force
-            self._command[:, CMD_EE_FORCE] = 0.0
-            self._command[:, CMD_BASE_FORCE] = 0.0
-            self._ee_entity.apply_body_force(
-                self._force_ee_world, term_name="a2arm_teleop_ee_force"
-            )
-            self._entity.apply_body_force(
-                self._force_base_world, term_name="a2arm_teleop_base_force"
+            self._force_ee_cmd[ids] = 0.0
+            self._force_base_cmd[ids] = 0.0
+            self._force_ee_world[ids] = self._teleop_ee_force[ids]
+            self._force_base_world[ids] = self._teleop_base_force[ids]
+            self._command[ids, CMD_EE_FORCE] = 0.0
+            self._command[ids, CMD_BASE_FORCE] = 0.0
+            self._apply_external_forces(
+                ee_term_name="a2arm_teleop_ee_force",
+                base_term_name="a2arm_teleop_base_force",
             )
             return
-        enabled = int(step_token) >= self.cfg.force_start_step
+        enabled = token >= self.cfg.force_start_step
         scale = 1.0
         if enabled and self.cfg.force_curriculum_scales:
             index = min(
-                (int(step_token) - self.cfg.force_start_step)
+                (token - self.cfg.force_start_step)
                 // max(1, self.cfg.force_curriculum_stage_steps),
                 len(self.cfg.force_curriculum_scales) - 1,
             )
             scale = float(self.cfg.force_curriculum_scales[index])
-        self._force_ee_cmd[:] = self._sched_gripper_cmd.step(enabled) * scale
-        self._force_ee_world[:] = self._sched_gripper_ext.step(enabled) * scale
-        self._force_base_cmd[:] = self._sched_base_cmd.step(enabled) * scale
-        self._force_base_world[:] = self._sched_base_ext.step(enabled) * scale
-        self._command[:, CMD_EE_FORCE] = self._force_ee_cmd
-        self._command[:, CMD_BASE_FORCE] = self._force_base_cmd
-        if enabled and np.any(self._force_ee_world):
-            self._ee_entity.apply_body_force(self._force_ee_world, term_name="a2arm_gripper_force")
-        if enabled and np.any(self._force_base_world):
-            self._entity.apply_body_force(self._force_base_world, term_name="a2arm_base_force")
-        self._maybe_apply_velocity_push(int(step_token))
+        self._force_ee_cmd[ids] = self._sched_gripper_cmd.step(enabled, ids)[ids] * scale
+        self._force_ee_world[ids] = self._sched_gripper_ext.step(enabled, ids)[ids] * scale
+        self._force_base_cmd[ids] = self._sched_base_cmd.step(enabled, ids)[ids] * scale
+        self._force_base_world[ids] = self._sched_base_ext.step(enabled, ids)[ids] * scale
+        self._command[ids, CMD_EE_FORCE] = self._force_ee_cmd[ids]
+        self._command[ids, CMD_BASE_FORCE] = self._force_base_cmd[ids]
+        # Motrix keeps absolute external-force values until the next explicit
+        # write; submit zero vectors too so a finished schedule cannot leave a
+        # stale force applied. MuJoCo treats zero as a no-op for its per-step
+        # pending-force buffer.
+        self._apply_external_forces(
+            ee_term_name="a2arm_gripper_force",
+            base_term_name="a2arm_base_force",
+        )
+        self._maybe_apply_velocity_push(token, ids)
 
-    def _maybe_apply_velocity_push(self, step_token: int) -> None:
+    def _apply_external_forces(self, *, ee_term_name: str, base_term_name: str) -> None:
+        """Commit the current external-force buffers through the entity contract."""
+        self._ee_entity.apply_body_force(self._force_ee_world, term_name=ee_term_name)
+        self._entity.apply_body_force(self._force_base_world, term_name=base_term_name)
+
+    def _maybe_apply_velocity_push(
+        self, step_token: int, env_ids: np.ndarray | None = None
+    ) -> None:
         cfg = self.cfg
         if not cfg.velocity_push or cfg.push_interval <= 0 or step_token <= 0:
             return
         if step_token % int(cfg.push_interval) != 0:
             return
-        current = self._entity.data.root_link_lin_vel_w
+        ids = self._all_env_ids if env_ids is None else np.asarray(env_ids, dtype=np.intp)
+        if ids.size == 0:
+            return
+        current = self._entity.data.root_link_lin_vel_w[ids]
         target = current.copy()
         target[:, :2] = self._env.rng.uniform(
-            -float(cfg.max_push_vel_xy), float(cfg.max_push_vel_xy), size=(self.num_envs, 2)
+            -float(cfg.max_push_vel_xy), float(cfg.max_push_vel_xy), size=(ids.size, 2)
         )
         moving = (
-            (np.abs(self._command[:, 0]) > cfg.velocity_clip[0])
-            | (np.abs(self._command[:, 1]) > cfg.velocity_clip[1])
-            | (np.abs(self._command[:, 2]) > cfg.velocity_clip[2])
+            (np.abs(self._command[ids, 0]) > cfg.velocity_clip[0])
+            | (np.abs(self._command[ids, 1]) > cfg.velocity_clip[1])
+            | (np.abs(self._command[ids, 2]) > cfg.velocity_clip[2])
         )
         if float(cfg.velocity_push_standing_scale) != 1.0:
-            target[~moving, :2] = current[~moving, :2] + (
-                target[~moving, :2] - current[~moving, :2]
-            ) * float(cfg.velocity_push_standing_scale)
+            # Legacy push semantics scale the sampled absolute target for
+            # standing rows, then overwrite the current velocity.  This
+            # method submits a delta through the Entity contract, so retaining
+            # that target and subtracting ``current`` below is required for
+            # behavioral equivalence.
+            target[~moving, :2] *= float(cfg.velocity_push_standing_scale)
         self._entity.apply_root_linear_velocity_delta_to_sim(
-            target - current, term_name="a2arm_velocity_push"
+            target - current, env_ids=ids, term_name="a2arm_velocity_push"
         )
 
     def prepare_transition(self, step_token: int) -> None:
-        if self._last_transition_token == int(step_token):
+        token = int(step_token)
+        ids = np.flatnonzero(self._last_transition_token != token).astype(np.intp)
+        if ids.size == 0:
             return
-        if self._pending_dof_vel_token is not None:
-            self._last_dof_vel[:] = self._pending_dof_vel
-        self._last_transition_token = int(step_token)
+        pending_ids = ids[self._pending_dof_vel_token[ids] >= 0]
+        if pending_ids.size:
+            self._last_dof_vel[pending_ids] = self._pending_dof_vel[pending_ids]
+        self._last_transition_token[ids] = token
         if self._teleop_enabled:
-            self._command[:, CMD_VEL] = self._teleop_velocity
-            self._command[:, CMD_EE_POS] = self._teleop_ee_sphere
-            self._goal_sphere[:] = self._teleop_ee_sphere
+            self._command[ids, CMD_VEL] = self._teleop_velocity[ids]
+            self._command[ids, CMD_EE_POS] = self._teleop_ee_sphere[ids]
+            self._goal_sphere[ids] = self._teleop_ee_sphere[ids]
         else:
-            self._command_timer += 1
-            due = self._command_timer >= self.cfg.command_resample_steps
+            self._command_timer[ids] += 1
+            due = ids[self._command_timer[ids] >= self.cfg.command_resample_steps]
             if np.any(due):
-                due_ids = np.flatnonzero(due).astype(np.int32)
-                self._resample_velocity(due_ids)
-                self._command_timer[due_ids] = 0
+                self._resample_velocity(due)
+                self._command_timer[due] = 0
         moving = (
-            (np.abs(self._command[:, 0]) > self.cfg.velocity_clip[0])
-            | (np.abs(self._command[:, 1]) > self.cfg.velocity_clip[1])
-            | (np.abs(self._command[:, 2]) > self.cfg.velocity_clip[2])
+            (np.abs(self._command[ids, 0]) > self.cfg.velocity_clip[0])
+            | (np.abs(self._command[ids, 1]) > self.cfg.velocity_clip[1])
+            | (np.abs(self._command[ids, 2]) > self.cfg.velocity_clip[2])
         )
-        self._gait_phase[:] = np.remainder(
-            self._gait_phase + float(self.cfg.ctrl_dt) / self.cfg.gait_cycle_time, 1.0
+        self._gait_phase[ids] = np.remainder(
+            self._gait_phase[ids] + float(self.cfg.ctrl_dt) / self.cfg.gait_cycle_time, 1.0
         )
-        self._gait_phase[~moving] = 0.0
-        sin_pos = np.sin(2.0 * np.pi * self._gait_phase)
+        self._gait_phase[ids[~moving]] = 0.0
+        sin_pos = np.sin(2.0 * np.pi * self._gait_phase[ids])
         left = sin_pos + self.cfg.gait_target_threshold
         right = sin_pos - self.cfg.gait_target_threshold
-        self._stance_mask.fill(0.0)
-        self._stance_mask[:, 0] = left >= 0.0
-        self._stance_mask[:, 3] = left >= 0.0
-        self._stance_mask[:, 1] = right < 0.0
-        self._stance_mask[:, 2] = right < 0.0
-        default = self._entity.data.default_joint_pos[:, :NUM_LEG]
-        self._reference_dof_pos[:] = default
+        self._stance_mask[ids] = 0.0
+        self._stance_mask[ids, 0] = left >= 0.0
+        self._stance_mask[ids, 3] = left >= 0.0
+        self._stance_mask[ids, 1] = right < 0.0
+        self._stance_mask[ids, 2] = right < 0.0
+        default = self._entity.data.default_joint_pos[ids, :NUM_LEG]
+        self._reference_dof_pos[ids] = default
         scale_1 = self.cfg.gait_target_scale / (1.0 - self.cfg.gait_target_threshold)
         scale_2 = 2.0 * scale_1
         left_neg = np.where(left > 0.0, 0.0, left)
         right_neg = np.where(right < 0.0, 0.0, right)
         for thigh, calf in ((1, 2), (10, 11)):
-            self._reference_dof_pos[:, thigh] -= left_neg * scale_1
-            self._reference_dof_pos[:, calf] += left_neg * scale_2
+            self._reference_dof_pos[ids, thigh] -= left_neg * scale_1
+            self._reference_dof_pos[ids, calf] += left_neg * scale_2
         for thigh, calf in ((4, 5), (7, 8)):
-            self._reference_dof_pos[:, thigh] += right_neg * scale_1
-            self._reference_dof_pos[:, calf] -= right_neg * scale_2
+            self._reference_dof_pos[ids, thigh] += right_neg * scale_1
+            self._reference_dof_pos[ids, calf] -= right_neg * scale_2
         if not self._teleop_enabled:
             interpolation = np.clip(
-                self._goal_timer.astype(self._dtype) / np.maximum(self._goal_traj_steps, 1),
+                self._goal_timer[ids].astype(self._dtype)
+                / np.maximum(self._goal_traj_steps[ids], 1),
                 0.0,
                 1.0,
             )
-            self._goal_sphere[:] = (
-                self._goal_start + (self._goal_target - self._goal_start) * interpolation[:, None]
+            self._goal_sphere[ids] = (
+                self._goal_start[ids]
+                + (self._goal_target[ids] - self._goal_start[ids]) * interpolation[:, None]
             )
-            done = self._goal_timer >= self._goal_total_steps
+            done = ids[self._goal_timer[ids] >= self._goal_total_steps[ids]]
             if np.any(done):
-                done_ids = np.flatnonzero(done).astype(np.int32)
-                self._goal_start[done_ids] = self._goal_target[done_ids]
-                self._resample_goals(done_ids)
-                traj = self._env.rng.uniform(*self.cfg.goal_traj_time_range, size=len(done_ids))
-                hold = self._env.rng.uniform(*self.cfg.goal_hold_time_range, size=len(done_ids))
-                self._goal_traj_steps[done_ids] = np.maximum(
+                self._goal_start[done] = self._goal_target[done]
+                self._resample_goals(done)
+                traj = self._env.rng.uniform(*self.cfg.goal_traj_time_range, size=len(done))
+                hold = self._env.rng.uniform(*self.cfg.goal_hold_time_range, size=len(done))
+                self._goal_traj_steps[done] = np.maximum(
                     1, np.rint(traj / self.cfg.ctrl_dt).astype(np.int32)
                 )
-                self._goal_total_steps[done_ids] = self._goal_traj_steps[done_ids] + np.maximum(
+                self._goal_total_steps[done] = self._goal_traj_steps[done] + np.maximum(
                     0, np.rint(hold / self.cfg.ctrl_dt).astype(np.int32)
                 )
-                self._goal_timer[done_ids] = 0
-            self._goal_timer += 1
-        self._command[:, CMD_EE_POS] = self._goal_sphere
-        self._goal_cart[:] = sphere2cart(self._goal_sphere)
-        self._goal_world[:] = self.goal_center_world() + np_quat_apply(
-            np_yaw_quat(self._entity.data.root_link_quat_w), self._goal_cart
+                self._goal_timer[done] = 0
+            self._goal_timer[ids] += 1
+        self._command[ids, CMD_EE_POS] = self._goal_sphere[ids]
+        self._goal_cart[ids] = sphere2cart(self._goal_sphere[ids])
+        self._goal_world[ids] = self.goal_center_world()[ids] + np_quat_apply(
+            np_yaw_quat(self._entity.data.root_link_quat_w[ids]), self._goal_cart[ids]
         )
-        contact = self._read_foot_contact()
-        contact_filt = contact | self._last_contact
-        self._first_contact[:] = (self._feet_air_time > 0.0) & contact_filt
-        self._feet_air_time += float(self.cfg.ctrl_dt)
-        self._air_time_snapshot[:] = self._feet_air_time
-        self._feet_air_time *= ~contact_filt
-        self._last_contact[:] = contact
-        self._foot_contact[:] = contact
-        self._pending_dof_vel[:] = self._entity.data.joint_vel
-        self._pending_dof_vel_token = int(step_token)
-
-    def finalize_transition(self, step_token: int) -> None:
-        """Retain current velocity for the next step's acceleration penalty."""
-        if self._pending_dof_vel_token == int(step_token):
-            return
+        contact = self._read_foot_contact()[ids]
+        contact_filt = contact | self._last_contact[ids]
+        self._first_contact[ids] = (self._feet_air_time[ids] > 0.0) & contact_filt
+        self._feet_air_time[ids] += float(self.cfg.ctrl_dt)
+        self._air_time_snapshot[ids] = self._feet_air_time[ids]
+        self._feet_air_time[ids] *= ~contact_filt
+        self._last_contact[ids] = contact
+        self._foot_contact[ids] = contact
+        self._pending_dof_vel[ids] = self._entity.data.joint_vel[ids]
+        self._pending_dof_vel_token[ids] = token
 
     def _read_foot_contact(self) -> np.ndarray:
         return self._foot_contact_view.read() > 0.5
@@ -806,6 +826,7 @@ class A2ArmPosForceState(CommandTerm):
     def clear_teleop_override(self) -> None:
         self._teleop_enabled = False
         self._teleop_velocity.fill(0.0)
+        self._teleop_ee_sphere.fill(0.0)
         self._teleop_ee_force.fill(0.0)
         self._teleop_base_force.fill(0.0)
         self._force_ee_cmd.fill(0.0)
@@ -814,14 +835,19 @@ class A2ArmPosForceState(CommandTerm):
         self._force_base_world.fill(0.0)
         self._command[:, CMD_EE_FORCE] = 0.0
         self._command[:, CMD_BASE_FORCE] = 0.0
+        self._apply_external_forces(
+            ee_term_name="a2arm_clear_teleop_ee_force",
+            base_term_name="a2arm_clear_teleop_base_force",
+        )
         self._resample_velocity(np.arange(self.num_envs, dtype=np.int32))
 
     def reset(self, env_ids: np.ndarray | slice | None = None) -> dict[str, float]:
-        ids = (
-            np.arange(self.num_envs, dtype=np.int32)
-            if env_ids is None or isinstance(env_ids, slice)
-            else np.asarray(env_ids, dtype=np.int32)
-        )
+        if env_ids is None:
+            ids = self._all_env_ids.astype(np.int32, copy=False)
+        elif isinstance(env_ids, slice):
+            ids = self._all_env_ids[env_ids].astype(np.int32, copy=False)
+        else:
+            ids = np.asarray(env_ids, dtype=np.int32)
         # Reset root and DoF state inside the manager-owned transaction.  This
         # is the legacy spawn distribution expressed through Entity's public
         # reset contract; no backend model/data object is touched here.
@@ -841,13 +867,17 @@ class A2ArmPosForceState(CommandTerm):
         q[:, NUM_LEG:] += self._env.rng.uniform(-0.3, 0.3, size=(len(ids), NUM_ACTIONS - NUM_LEG))
         self._entity.write_joint_state_to_sim(q, np.zeros_like(q), env_ids=ids)
         self._command[ids] = 0.0
-        # Legacy reset samples a fresh velocity command and a random phase in
-        # the fixed resampling interval; preserving both avoids a standing-only
-        # startup and keeps command cadence distribution unchanged.
+        # Legacy reset samples a fresh velocity command and restarts each
+        # environment at a random point in the command cadence.
         self._resample_velocity(ids)
         self._command_timer[ids] = self._env.rng.integers(
             0, max(1, int(self.cfg.command_resample_steps)), size=len(ids)
         )
+        # The task owns a control-step command timer rather than the generic
+        # wall-clock resampling cadence. Keep the base timer dormant so the
+        # generic CommandTerm does not resample this command a second time.
+        self.time_left[ids] = 1.0e9
+        self.command_counter[ids] = 0
         self._gait_phase[ids] = 0.0
         self._stance_mask[ids] = 0.0
         self._reference_dof_pos[ids] = self._entity.data.default_joint_pos[ids, :NUM_LEG]
@@ -859,7 +889,9 @@ class A2ArmPosForceState(CommandTerm):
         self._initialize_goals(ids)
         self._last_dof_vel[ids] = 0.0
         self._pending_dof_vel[ids] = 0.0
-        self._pending_dof_vel_token = None
+        self._pending_dof_vel_token[ids] = -1
+        self._last_control_token[ids] = -1
+        self._last_transition_token[ids] = -1
         self._apply_reset_randomization(ids)
         for schedule in (
             self._sched_gripper_cmd,
@@ -878,10 +910,14 @@ class A2ArmPosForceState(CommandTerm):
         del env_ids
 
     def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        """A2Arm has no command metrics; cadence state is task-owned."""
         del env_ids
 
     def _update_command(self, env_ids: np.ndarray | None) -> None:
-        del env_ids
+        if env_ids is None:
+            self.prepare_transition(int(self._env.common_step_counter))
+        else:
+            self.refresh_derived_state(env_ids)
 
     def _apply_reset_randomization(self, ids: np.ndarray) -> None:
         cfg = self.cfg

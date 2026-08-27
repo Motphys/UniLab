@@ -33,12 +33,13 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from importlib.util import find_spec
 from pathlib import Path
 from statistics import mean, median, pstdev
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -1329,6 +1330,33 @@ _SET_STATE_MJWARP_KEYS = (
 )
 
 
+def _format_set_state_backend_table(
+    results: list[CollectorResult],
+    keys: Sequence[tuple[str, str]],
+) -> str:
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in keys),
+    )
+    rows = []
+    for result in results:
+        if result.phase_ms_per_vector_step.get("env_step_ms") is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in keys),
+            )
+        )
+    return _format_table(headers, rows)
+
+
 def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
     """Backend set_state sub-timing table (motrix keyset).
 
@@ -1338,80 +1366,17 @@ def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
     motrix-only sub-keys; use :func:`_format_set_state_mujoco_table` for the
     MuJoCo-oriented view instead.
     """
-    headers = (
-        "Algo",
-        "Task",
-        "Backend",
-        "Set state ms (%env, %active)",
-        *(label for _, label in _SET_STATE_MOTRIX_KEYS),
-    )
-    rows = []
-    for result in results:
-        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
-        if env_step is None:
-            continue
-        rows.append(
-            (
-                result.case.algo,
-                result.case.task,
-                result.case.runtime_sim_backend,
-                _format_np_env_timing(result, "dr_reset_set_state_ms"),
-                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MOTRIX_KEYS),
-            )
-        )
-    return _format_table(headers, rows)
+    return _format_set_state_backend_table(results, _SET_STATE_MOTRIX_KEYS)
 
 
 def _format_set_state_mujoco_table(results: list[CollectorResult]) -> str:
     """Backend set_state sub-timing table (mujoco keyset)."""
-    headers = (
-        "Algo",
-        "Task",
-        "Backend",
-        "Set state ms (%env, %active)",
-        *(label for _, label in _SET_STATE_MUJOCO_KEYS),
-    )
-    rows = []
-    for result in results:
-        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
-        if env_step is None:
-            continue
-        rows.append(
-            (
-                result.case.algo,
-                result.case.task,
-                result.case.runtime_sim_backend,
-                _format_np_env_timing(result, "dr_reset_set_state_ms"),
-                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MUJOCO_KEYS),
-            )
-        )
-    return _format_table(headers, rows)
+    return _format_set_state_backend_table(results, _SET_STATE_MUJOCO_KEYS)
 
 
 def _format_set_state_mjwarp_table(results: list[CollectorResult]) -> str:
     """Backend set_state sub-timing table (mjwarp keyset)."""
-    headers = (
-        "Algo",
-        "Task",
-        "Backend",
-        "Set state ms (%env, %active)",
-        *(label for _, label in _SET_STATE_MJWARP_KEYS),
-    )
-    rows = []
-    for result in results:
-        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
-        if env_step is None:
-            continue
-        rows.append(
-            (
-                result.case.algo,
-                result.case.task,
-                result.case.runtime_sim_backend,
-                _format_np_env_timing(result, "dr_reset_set_state_ms"),
-                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MJWARP_KEYS),
-            )
-        )
-    return _format_table(headers, rows)
+    return _format_set_state_backend_table(results, _SET_STATE_MJWARP_KEYS)
 
 
 def _format_np_env_step_timing_table(results: list[CollectorResult]) -> str:

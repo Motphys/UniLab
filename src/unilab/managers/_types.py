@@ -13,6 +13,71 @@ from typing import Any, Protocol
 import numpy as np
 
 
+class ManagerEntityData(Protocol):
+    """Hot-path numeric state exposed by a materialized entity partition."""
+
+    @property
+    def joint_pos(self) -> np.ndarray: ...
+
+    @property
+    def joint_vel(self) -> np.ndarray: ...
+
+    @property
+    def default_joint_pos(self) -> np.ndarray: ...
+
+    @property
+    def default_root_state(self) -> np.ndarray: ...
+
+    @property
+    def root_link_pos_w(self) -> np.ndarray: ...
+
+    @property
+    def root_link_quat_w(self) -> np.ndarray: ...
+
+    @property
+    def root_link_lin_vel_w(self) -> np.ndarray: ...
+
+    @property
+    def root_link_lin_vel_b(self) -> np.ndarray: ...
+
+    @property
+    def root_link_ang_vel_b(self) -> np.ndarray: ...
+
+    @property
+    def projected_gravity_b(self) -> np.ndarray: ...
+
+    @property
+    def soft_joint_pos_limits(self) -> np.ndarray: ...
+
+    def write_ctrl(
+        self,
+        values: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        actuator_ids: np.ndarray | Sequence[int] | slice | None = None,
+    ) -> None: ...
+
+    @property
+    def body_link_pos_w(self) -> np.ndarray: ...
+
+    @property
+    def body_link_quat_w(self) -> np.ndarray: ...
+
+    @property
+    def body_link_lin_vel_w(self) -> np.ndarray: ...
+
+    @property
+    def body_link_ang_vel_w(self) -> np.ndarray: ...
+
+    def body_link_pos_w_rows(self, env_ids: np.ndarray) -> np.ndarray: ...
+
+    def body_link_quat_w_rows(self, env_ids: np.ndarray) -> np.ndarray: ...
+
+    def body_link_lin_vel_w_rows(self, env_ids: np.ndarray) -> np.ndarray: ...
+
+    def body_link_ang_vel_w_rows(self, env_ids: np.ndarray) -> np.ndarray: ...
+
+
 class ManagerEntity(Protocol):
     """Cold-path entity metadata required by :class:`SceneEntityCfg`."""
 
@@ -135,20 +200,30 @@ class ManagerEntity(Protocol):
     ) -> None: ...
 
     @property
-    def data(self) -> Any: ...
+    def data(self) -> ManagerEntityData: ...
 
-    def bind_body_mass_write(self, body_ids: Sequence[int], *, term_name: str) -> Any: ...
+    def bind_body_mass_write(
+        self, body_ids: Sequence[int], *, term_name: str
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
-    def bind_body_ipos_write(self, body_ids: Sequence[int], *, term_name: str) -> Any: ...
+    def bind_body_ipos_write(
+        self, body_ids: Sequence[int], *, term_name: str
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
-    def bind_geom_friction_write(self, geom_ids: Sequence[int], *, term_name: str) -> Any: ...
+    def bind_geom_friction_write(
+        self, geom_ids: Sequence[int], *, term_name: str
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
     def bind_body_force(self, *, term_name: str) -> None: ...
 
     def apply_body_force(self, values: np.ndarray, *, term_name: str) -> None: ...
 
     def apply_root_linear_velocity_delta_to_sim(
-        self, values: np.ndarray, *, term_name: str
+        self,
+        values: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str,
     ) -> None: ...
 
     def write_root_link_pose_to_sim(
@@ -304,6 +379,8 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def max_episode_length_s(self) -> float: ...
+
+    def set_episode_length_buf(self, values: np.ndarray) -> None: ...
 
     # Concrete task terms may still type their own richer env subclass.  The
     # standalone manager core deliberately depends only on the properties above.

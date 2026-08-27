@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Sequence
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from prettytable import PrettyTable
@@ -19,7 +20,7 @@ from unilab.base.config_overrides import (
 from unilab.managers._buffers import CircularBuffer, DelayBuffer
 from unilab.managers._noise import noise_cfg, noise_model
 from unilab.managers._noise.noise_cfg import NoiseCfg, NoiseModelCfg
-from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
+from unilab.managers.manager_base import ManagerBase, ManagerTermBase, ManagerTermBaseCfg
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -351,8 +352,8 @@ class ObservationManager(ManagerBase):
         are untouched, so a partial reset does not advance their observation
         timelines. The returned arrays then hold only the reset rows, in env_ids
         order, and the observation cache is left invalidated (the next per-step
-        compute refreshes it); noise is still drawn with full-batch shapes so
-        the shared RNG stream matches the full-batch implementation exactly.
+        compute refreshes it). Stateless terms preserve the full-batch noise
+        stream; row-scoped class terms own their selected-row state and RNG.
         """
         if env_ids is not None and not update_history:
             raise ValueError("env_ids is only meaningful with update_history=True.")
@@ -394,13 +395,20 @@ class ObservationManager(ManagerBase):
         )
         # Reset path (issue #1259 R2): when no term in this group uses delay or
         # history buffers, everything downstream of the term call is row
-        # independent, so only the reset rows are processed. Term calls and
-        # noise stay full-batch: term funcs are contracted to return
-        # (num_envs, ...) and full-shape noise draws keep the shared RNG stream
-        # and per-row noise values identical to the full-batch path.
+        # independent, so only the reset rows are processed. Stateless terms
+        # still receive the full batch and are sliced below; class terms may
+        # explicitly opt into row-scoped computation when their state and RNG
+        # are safe to update only for env_ids.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
         for term_name, term_cfg in obs_terms:
-            obs = term_cfg.func(self._env, **term_cfg.params)
+            if (
+                row_scoped
+                and isinstance(term_cfg.func, ManagerTermBase)
+                and term_cfg.func.supports_row_scoped_reset
+            ):
+                obs = term_cfg.func(self._env, env_ids=env_ids, **term_cfg.params)
+            else:
+                obs = term_cfg.func(self._env, **term_cfg.params)
             if not isinstance(obs, np.ndarray):
                 raise TypeError(
                     f"ObservationManager term '{group_name}/{term_name}' returned "

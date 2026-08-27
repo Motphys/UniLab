@@ -409,6 +409,23 @@ class ManagerBasedRlEnv(NpEnv):
     def _initial_episode_steps(self) -> np.ndarray:
         return np.zeros((self.num_envs,), dtype=np.uint32)
 
+    def set_episode_length_buf(self, values: np.ndarray) -> None:
+        """Set per-environment episode counters through the lifecycle owner."""
+        values = np.asarray(values)
+        if values.shape != (self.num_envs,) or not np.issubdtype(values.dtype, np.integer):
+            raise ValueError(
+                "ManagerBasedRlEnv episode lengths must be an integer array with shape "
+                f"({self.num_envs},), got shape={values.shape}, dtype={values.dtype}"
+            )
+        if np.any(values < 0) or np.any(values >= self.max_episode_length):
+            raise ValueError(
+                "ManagerBasedRlEnv episode lengths must be in "
+                f"[0, {self.max_episode_length}), got {values.tolist()}"
+            )
+        self.episode_length_buf[:] = values
+        if self._state is not None:
+            self._state.info["steps"][:] = values
+
     def init_state(self) -> NpEnvState:
         state = super().init_state()
         self.obs_buf = state.obs
@@ -465,6 +482,10 @@ class ManagerBasedRlEnv(NpEnv):
             np.copyto(self.reset_time_outs, self.termination_manager.time_outs)
         np.logical_or(self.reset_terminated, self.reset_time_outs, out=self.reset_buf)
 
+        command_updated_before_reward = self.command_manager.requires_pre_reward_update
+        if command_updated_before_reward:
+            self._compute_commands_for_step(update_before_reward=True)
+
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
         log.update(self.reward_manager.step_reward_extras())
 
@@ -485,13 +506,9 @@ class ManagerBasedRlEnv(NpEnv):
             # particular interval fired, so this boundary stays fail-closed.
             self.scene._invalidate_state_reads()
 
-        self._command_dt.fill(self.step_dt)
-        self._command_dt[self.reset_buf] = 0.0
-        with self._reset_state.scoped(self._all_env_ids):
-            self.command_manager.compute(dt=self._command_dt)
-        if self._reset_state.last_commit_had_writes:
-            self.scene._invalidate_state_reads()
-        self.command_manager.post_compute()
+        self._compute_commands_for_step(
+            update_before_reward=False if command_updated_before_reward else None
+        )
 
         manager_obs = self.observation_manager.compute(update_history=True)
 
@@ -505,6 +522,18 @@ class ManagerBasedRlEnv(NpEnv):
             truncated=self.reset_time_outs,
             info=state.info,
         )
+
+    def _compute_commands_for_step(self, *, update_before_reward: bool | None = None) -> None:
+        self._command_dt.fill(self.step_dt)
+        self._command_dt[self.reset_buf] = 0.0
+        with self._reset_state.scoped(self._all_env_ids):
+            self.command_manager.compute(
+                dt=self._command_dt,
+                update_before_reward=update_before_reward,
+            )
+        if self._reset_state.last_commit_had_writes:
+            self.scene._invalidate_state_reads()
+        self.command_manager.post_compute(update_before_reward=update_before_reward)
 
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         del state

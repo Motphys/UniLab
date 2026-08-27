@@ -306,6 +306,16 @@ class RslRlVecEnvWrapper:
         self.episode_lengths[:] = 0
         return self._obs_to_tensordict(obs_out, info), info
 
+    def set_episode_length_buf(self, values: torch.Tensor | np.ndarray) -> None:
+        """Set episode counters in both the wrapper and manager environment."""
+        values_np = to_numpy(values)
+        if values_np.shape != (self.num_envs,):
+            raise ValueError(
+                f"episode length values must have shape ({self.num_envs},), got {values_np.shape}"
+            )
+        self.env.set_episode_length_buf(np.asarray(values_np, dtype=np.int64))
+        self.episode_length_buf[:] = torch.as_tensor(values_np, device=self.device)
+
     def get_observations(self) -> TensorDict:
         assert self.env.state is not None
         return self._obs_to_tensordict(self.env.state.obs, self.env.state.info)

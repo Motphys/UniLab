@@ -12,6 +12,9 @@ from unilab.managers import (
     ActionManager,
     ActionTerm,
     ActionTermCfg,
+    CommandManager,
+    CommandTerm,
+    CommandTermCfg,
     CurriculumManager,
     CurriculumTermCfg,
     NullCurriculumManager,
@@ -67,6 +70,62 @@ class FeedbackDummyAction(DummyAction):
 class FeedbackDummyActionCfg(DummyActionCfg):
     def build(self, env: FakeEnv) -> FeedbackDummyAction:
         return FeedbackDummyAction(self, env)
+
+
+class DummyCommand(CommandTerm):
+    def __init__(self, cfg: DummyCommandCfg, env: FakeEnv):
+        self.updates_before_reward = cfg.updates_before_reward
+        super().__init__(cfg, env)
+        self._command = np.zeros((env.num_envs, 1), dtype=np.float32)
+        self.update_calls = 0
+        self.post_calls = 0
+
+    @property
+    def command(self) -> np.ndarray:
+        return self._command
+
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        del env_ids
+
+    def _resample_command(self, env_ids: np.ndarray) -> None:
+        del env_ids
+
+    def _update_command(self, env_ids: np.ndarray | None) -> None:
+        del env_ids
+        self.update_calls += 1
+
+    def post_compute(self) -> None:
+        self.post_calls += 1
+
+
+@dataclass(kw_only=True)
+class DummyCommandCfg(CommandTermCfg):
+    updates_before_reward: bool = False
+
+    def build(self, env: FakeEnv) -> DummyCommand:
+        return DummyCommand(self, env)
+
+
+def test_command_manager_phase_updates_only_declared_terms(fake_env: FakeEnv) -> None:
+    manager = CommandManager(
+        {
+            "pre": DummyCommandCfg(resampling_time_range=(1.0, 1.0), updates_before_reward=True),
+            "post": DummyCommandCfg(resampling_time_range=(1.0, 1.0)),
+        },
+        fake_env,
+    )
+    manager.compute(0.1, update_before_reward=True)
+    manager.post_compute(update_before_reward=True)
+    assert manager.get_term("pre").update_calls == 1
+    assert manager.get_term("pre").post_calls == 1
+    assert manager.get_term("post").update_calls == 0
+    assert manager.get_term("post").post_calls == 0
+
+    manager.compute(0.1, update_before_reward=False)
+    manager.post_compute(update_before_reward=False)
+    assert manager.get_term("pre").update_calls == 1
+    assert manager.get_term("post").update_calls == 1
+    assert manager.get_term("post").post_calls == 1
 
 
 def test_action_split_history_apply_and_partial_reset(fake_env: FakeEnv) -> None:
@@ -195,6 +254,18 @@ def test_reward_step_extras_report_per_term_weighted_rates(fake_env: FakeEnv) ->
     assert extras["reward/pos"] == pytest.approx(2.0)
     assert extras["reward/neg"] == pytest.approx(float(np.mean(fake_env.value)) * -0.5)
     assert extras["reward/zero"] == 0.0
+
+
+def test_reward_integer_term_promotes_before_dt_scaling(fake_env: FakeEnv) -> None:
+    def integer_reward(env: FakeEnv) -> np.ndarray:
+        return np.ones(env.num_envs, dtype=np.int64)
+
+    manager = RewardManager(
+        {"integer": RewardTermCfg(func=integer_reward, weight=1)},
+        fake_env,
+    )
+
+    np.testing.assert_allclose(manager.compute(dt=0.25), 0.25)
 
 
 @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])

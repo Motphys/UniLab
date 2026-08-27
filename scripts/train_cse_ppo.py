@@ -46,11 +46,6 @@ from unilab.visualization.interactive_playback import (
 EXPORT_POLICY = False
 
 
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
-    """Compatibility helper matching the historical CSE entrypoint surface."""
-    return algo_config_dict(cfg)
-
-
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     return BackendAdapter(
         cfg,
@@ -64,30 +59,14 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
-def _format_play_checkpoint_error(
-    cfg: DictConfig,
-    *,
-    task_log_root: Path,
-    load_path: Path | None,
-    load_path_dir: Path | None,
-) -> str:
-    """Historical CSE helper retained while delegating to shared diagnostics."""
-    return format_play_checkpoint_error(
-        cfg,
-        task_log_root=task_log_root,
-        load_path=load_path,
-        load_path_dir=load_path_dir,
-    )
-
-
 def play_cse_ppo(cfg: DictConfig, device: str) -> str | None:
     """Resolve a checkpoint and render a CSE policy using the shared playback session."""
-    rl_cfg = _algo_config_dict(cfg)
+    rl_cfg = algo_config_dict(cfg)
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
         print(
-            _format_play_checkpoint_error(
+            format_play_checkpoint_error(
                 cfg, task_log_root=task_log_root, load_path=load_path, load_path_dir=load_path_dir
             )
         )
@@ -161,9 +140,6 @@ def play_cse_ppo(cfg: DictConfig, device: str) -> str | None:
                 "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
                 "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
             },
-            extra_data_getter=(lambda: getattr(env, "curr_ee_goal_world", None))
-            if hasattr(env, "curr_ee_goal_world")
-            else None,
         )
     return str(output_video)
 
@@ -209,7 +185,7 @@ def main(cfg: DictConfig) -> None:
             apply_env_nan_guard(env, cfg.training)
             runner = CSEOnPolicyRunner(
                 RslRlVecEnvWrapper(env, device=device),
-                _algo_config_dict(cfg),
+                algo_config_dict(cfg),
                 log_dir=log_dir,
                 device=device,
             )

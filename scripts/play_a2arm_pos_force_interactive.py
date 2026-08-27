@@ -25,10 +25,8 @@ from unilab.base.backend import materialize_scene_visual_override
 from unilab.base.backend.mujoco.playback import resolve_render_play_model_files
 from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.tasks.locomotion.a2arm.state import A2ArmPosForceState
-from unilab.training import ensure_registries, parse_checkpoint_path
+from unilab.training import algo_config_dict, ensure_registries, parse_checkpoint_path
 from unilab.visualization.a2arm_pos_force import (
-    KEY_BACKSPACE,
-    KEY_SPACE,
     clear_teleop_override,
     draw_markers,
     install_teleop_override,
@@ -47,13 +45,6 @@ def _select_device(cfg: DictConfig) -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
-
-
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
-    resolved = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(resolved, dict):
-        raise TypeError("cfg.algo must resolve to a mapping")
-    return cast(dict[str, Any], resolved)
 
 
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
@@ -131,10 +122,9 @@ def play_interactive(cfg: DictConfig, device: str) -> None:
         sim_backend="mujoco",
     )
     wrapped = RslRlVecEnvWrapper(env, device=device)
-    runner = CSEOnPolicyRunner(wrapped, _algo_config_dict(cfg), log_dir=None, device=device)
+    runner = CSEOnPolicyRunner(wrapped, algo_config_dict(cfg), log_dir=None, device=device)
     runner.load(str(checkpoint))
     policy = runner.get_inference_policy(device=device)
-    env.set_autoreset(False)
 
     state: A2ArmPosForceState = env.command_manager.get_term("task_state")
     teleop = make_teleop_from_state(state)

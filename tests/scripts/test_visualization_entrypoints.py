@@ -22,6 +22,13 @@ def test_legacy_visualization_env_entrypoint_is_removed():
     assert not (_SCRIPTS_DIR / "visualization_env.py").exists()
 
 
+def test_visualization_keeps_a2arm_teleop_state_export() -> None:
+    from unilab.visualization import TeleopState
+    from unilab.visualization.a2arm_pos_force import TeleopState as A2ArmTeleopState
+
+    assert TeleopState is A2ArmTeleopState
+
+
 def test_visualize_task_env_keeps_canonical_defaults():
     mod = _load_script("visualize_task_env")
 

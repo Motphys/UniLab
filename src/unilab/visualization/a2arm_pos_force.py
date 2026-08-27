@@ -368,11 +368,11 @@ def _draw_sample_range(viewer: Any, state: A2ArmPosForceState) -> None:
     for radius in radii:
         for pitch in pitches:
             points = [_sphere_point(center, yaw_quat, (radius, pitch, yaw)) for yaw in yaws]
-            for p0, p1 in zip(points, points[1:]):
+            for p0, p1 in zip(points, points[1:], strict=False):
                 _add_line(scene, p0, p1, 0.006, shell)
         for yaw in yaws:
             points = [_sphere_point(center, yaw_quat, (radius, pitch, yaw)) for pitch in pitches]
-            for p0, p1 in zip(points, points[1:]):
+            for p0, p1 in zip(points, points[1:], strict=False):
                 _add_line(scene, p0, p1, 0.006, shell)
     for pitch in (pitches[0], pitches[-1]):
         for yaw in (yaws[0], yaws[-1]):
@@ -418,10 +418,10 @@ def print_legend() -> None:
 
 __all__ = [
     "TeleopState",
-    "make_teleop_from_state",
-    "install_teleop_override",
     "clear_teleop_override",
-    "make_key_callback",
     "draw_markers",
+    "install_teleop_override",
+    "make_key_callback",
+    "make_teleop_from_state",
     "print_legend",
 ]

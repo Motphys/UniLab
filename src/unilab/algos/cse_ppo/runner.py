@@ -6,7 +6,8 @@ from __future__ import annotations
 import os
 import time
 from collections import deque
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 import torch
 
@@ -32,8 +33,12 @@ class CSEOnPolicyRunner:
         self.logger = _CSELogger()
         cfg = dict(train_cfg)
         one_step = int(cfg["num_one_step_obs"])
-        actor_history = int(cfg.get("num_actor_history", 1))
-        num_actor_obs = one_step * actor_history
+        num_actor_obs = int(env.num_obs)
+        if num_actor_obs % one_step:
+            raise ValueError(
+                "Manager observation dimension must be divisible by num_one_step_obs; "
+                f"got num_obs={num_actor_obs}, num_one_step_obs={one_step}"
+            )
         num_critic_obs = int(getattr(env, "num_privileged_obs", None) or env.num_obs)
         policy_cfg, estimator_cfg, algorithm_cfg = (
             dict(cfg.get(name) or {}) for name in ("policy", "estimator", "algorithm")
@@ -76,17 +81,14 @@ class CSEOnPolicyRunner:
             obs_td["actor"].to(self.device),
             obs_td.get("critic", obs_td["actor"]).to(self.device),
         )
-        if init_at_random_ep_len and hasattr(self.env, "episode_length_buf"):
-            self.env.episode_length_buf = torch.randint_like(
-                self.env.episode_length_buf, high=int(self.env.max_episode_length)
-            )
+        if init_at_random_ep_len:
+            self._initialize_random_episode_lengths()
         self.alg.train_mode()
         start = self.current_learning_iteration
         total = start + int(num_learning_iterations)
         run_start = time.perf_counter()
         for iteration in range(start, total):
             infos: dict[str, Any] = {}
-            iteration_start = time.perf_counter()
             with torch.inference_mode():
                 for _ in range(self.num_steps_per_env):
                     actions = self.alg.act(obs, critic_obs)
@@ -106,28 +108,20 @@ class CSEOnPolicyRunner:
                     self.alg.process_env_step(obs_td, rewards, dones, infos)
                     obs, critic_obs = next_obs, next_critic_obs
                 self.alg.compute_returns(critic_obs)
-            learn_start = time.perf_counter()
             value_loss, surrogate_loss, estimation_loss = self.alg.update()
             iteration_end = time.perf_counter()
             self.current_learning_iteration = iteration + 1
             self.logger.tot_timesteps += self.num_steps_per_env * self.env.num_envs
-            collection_time = learn_start - iteration_start
-            learn_time = iteration_end - learn_start
-            iteration_time = iteration_end - iteration_start
             elapsed = iteration_end - run_start
             completed = self.current_learning_iteration - start
             remaining = total - self.current_learning_iteration
-            eta = elapsed / completed * remaining
-            num_steps = self.num_steps_per_env * self.env.num_envs
+            eta = elapsed / completed * remaining if completed else 0.0
             stats = {
                 "value_loss": value_loss,
                 "surrogate_loss": surrogate_loss,
                 "estimation_loss": estimation_loss,
                 "learning_rate": self.alg.learning_rate,
                 "mean_noise_std": float(self.actor_critic.std.mean().detach()),
-                "collection_time": collection_time,
-                "learn_time": learn_time,
-                "fps": int(num_steps / max(iteration_time, 1e-9)),
             }
             self._print_iter(
                 self.current_learning_iteration,
@@ -145,7 +139,6 @@ class CSEOnPolicyRunner:
                     ("Loss/estimation", estimation_loss),
                     ("Loss/learning_rate", self.alg.learning_rate),
                     ("Policy/mean_noise_std", float(self.actor_critic.std.mean())),
-                    ("Perf/learning_time", learn_time),
                 ):
                     self._writer.add_scalar(key, value, step)
                 for key, value in (infos.get("log") or {}).items():
@@ -157,6 +150,15 @@ class CSEOnPolicyRunner:
                 self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
         if self.log_dir is not None:
             self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
+
+    def _initialize_random_episode_lengths(self) -> None:
+        values = torch.randint(
+            low=0,
+            high=int(self.env.max_episode_length),
+            size=(self.env.num_envs,),
+            device=self.device,
+        )
+        self.env.set_episode_length_buf(values)
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -228,7 +230,6 @@ class CSEOnPolicyRunner:
         eta_str = time.strftime("%H:%M:%S", time.gmtime(eta))
         print(sep)
         print(f"{'Iteration':>40}: {it}/{tot}")
-        print(f"{'Computation (fps)':>40}: {int(stats['fps'])} steps/s")
         print(f"{'Mean value loss':>40}: {stats['value_loss']:.4f}")
         print(f"{'Mean surrogate loss':>40}: {stats['surrogate_loss']:.4f}")
         print(f"{'Mean estimation loss':>40}: {stats['estimation_loss']:.4f}")
@@ -241,7 +242,6 @@ class CSEOnPolicyRunner:
         for key, value in sorted((infos.get("log") or {}).items()):
             print(f"{key:>40}: {value:.4f}")
         print(f"{'Total timesteps':>40}: {self.logger.tot_timesteps}")
-        print(f"{'Iteration time':>40}: {stats['collection_time'] + stats['learn_time']:.2f}s")
         print(f"{'Time elapsed':>40}: {elapsed_str}")
         print(f"{'ETA':>40}: {eta_str}")
         print(sep)

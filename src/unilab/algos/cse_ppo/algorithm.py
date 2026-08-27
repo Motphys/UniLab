@@ -226,7 +226,7 @@ class CSEPPO:
 def _critic_obs(obs: TensorDict | torch.Tensor) -> torch.Tensor:
     if isinstance(obs, TensorDict):
         for key in ("critic", "policy", "actor"):
-            if key in obs.keys():
+            if key in obs:
                 return obs[key]
         raise KeyError("CSE-PPO TensorDict obs must contain critic, policy, or actor")
     return obs

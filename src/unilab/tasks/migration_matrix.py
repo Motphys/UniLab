@@ -196,9 +196,9 @@ def migration_records(
 
 
 __all__ = [
+    "PRODUCTION_TASK_NAMES",
     "MigrationStatus",
     "MigrationTarget",
-    "PRODUCTION_TASK_NAMES",
     "TaskMigrationRecord",
     "migration_record",
     "migration_records",

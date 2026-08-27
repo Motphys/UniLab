@@ -27,3 +27,26 @@ def test_a2arm_cse_owner_preserves_training_dimensions_and_tuning() -> None:
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-2)
     assert cfg.algo.num_envs == 1024
     assert cfg.algo.max_iterations == 20000
+    assert cfg.reward.base_height.params.target == pytest.approx(0.435)
+    assert cfg.reward.torque_limits.params.soft_limit == pytest.approx(0.9)
+    assert cfg.reward.feet_contact_forces.params.threshold == pytest.approx(200.0)
+
+
+def test_a2arm_history_terms_follow_algo_history_overrides() -> None:
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+
+    root = Path(__file__).resolve().parents[2]
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(root / "conf" / "ppo_cse"), version_base="1.3"):
+        cfg = compose(
+            "config",
+            overrides=[
+                "task=a2arm_pos_force/mujoco",
+                "algo.num_actor_history=4",
+                "algo.num_critic_history=2",
+            ],
+        )
+
+    assert cfg.env.observations.policy.terms.history.params.history_length == 4
+    assert cfg.env.observations.critic.terms.history.params.history_length == 2

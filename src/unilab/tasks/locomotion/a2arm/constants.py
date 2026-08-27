@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 LEG_JOINT_NAMES = (
     "FL_hip_joint",
     "FL_thigh_joint",
@@ -33,7 +31,8 @@ ACTUATOR_NAMES = (
     "RR_hip",
     "RR_thigh",
     "RR_calf",
-) + ARM_JOINT_NAMES
+    *ARM_JOINT_NAMES,
+)
 
 NUM_LEG = 12
 NUM_ARM = 5
@@ -113,4 +112,24 @@ def validate_layout() -> None:
 
 validate_layout()
 
-__all__ = [name for name in globals() if name.isupper()]
+__all__ = [
+    "ACTOR_HISTORY",
+    "ACTOR_STEP_DIM",
+    "ACTUATOR_NAMES",
+    "ARM_JOINT_NAMES",
+    "CMD_BASE_FORCE",
+    "CMD_EE_FORCE",
+    "CMD_EE_ORN",
+    "CMD_EE_POS",
+    "CMD_VEL",
+    "CRITIC_CSE_DIM",
+    "CRITIC_HISTORY",
+    "CRITIC_STEP_DIM",
+    "JOINT_NAMES",
+    "LEG_JOINT_NAMES",
+    "NUM_ACTIONS",
+    "NUM_ARM",
+    "NUM_COMMANDS",
+    "NUM_LEG",
+    "SENSOR_NAMES",
+]

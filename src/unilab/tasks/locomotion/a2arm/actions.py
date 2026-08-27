@@ -26,7 +26,7 @@ class A2ArmPdActionCfg(ActionTermCfg):
     randomize_motor_strength: bool = True
     leg_motor_strength_range: tuple[float, float] = (0.85, 1.15)
     arm_motor_strength_range: tuple[float, float] = (0.85, 1.15)
-    clip_actions: float = 100.0
+    clip_actions: float | None = 100.0
     action_delay_steps: int = 0
     simulate_action_latency: bool = False
 
@@ -36,8 +36,29 @@ class A2ArmPdActionCfg(ActionTermCfg):
 
 class A2ArmPdAction(ActionTerm):
     cfg: A2ArmPdActionCfg
+    requires_substep_state_feedback = True
+
+    @staticmethod
+    def _validate_cfg(cfg: A2ArmPdActionCfg) -> None:
+        for name in ("action_scale", "kp", "kd", "torque_limits", "motor_strength"):
+            values = np.asarray(getattr(cfg, name), dtype=np.float64)
+            if values.shape != (NUM_ACTIONS,):
+                raise ValueError(
+                    f"A2ArmPdActionCfg {name} must have shape ({NUM_ACTIONS},), got {values.shape}"
+                )
+            if not np.isfinite(values).all():
+                raise ValueError(f"A2ArmPdActionCfg {name} must contain finite values")
+        if np.any(np.asarray(cfg.torque_limits) <= 0.0):
+            raise ValueError("A2ArmPdActionCfg torque_limits must be positive")
+        if cfg.clip_actions is not None and (
+            not np.isfinite(cfg.clip_actions) or cfg.clip_actions <= 0.0
+        ):
+            raise ValueError("A2ArmPdActionCfg clip_actions must be positive or None")
+        if cfg.action_delay_steps < 0:
+            raise ValueError("A2ArmPdActionCfg action_delay_steps must be non-negative")
 
     def __init__(self, cfg: A2ArmPdActionCfg, env: ManagerBasedRlEnv):
+        self._validate_cfg(cfg)
         if len(cfg.actuator_names) != NUM_ACTIONS:
             raise ValueError(f"A2ArmPdAction requires {NUM_ACTIONS} actuator names")
         super().__init__(cfg, env)
@@ -48,9 +69,8 @@ class A2ArmPdAction(ActionTerm):
             name + "_joint" if name.startswith(("FL_", "FR_", "RL_", "RR_")) else name
             for name in cfg.actuator_names
         )
-        joint_ids, _ = self._entity.find_joints(joint_names, preserve_order=True)
+        self._entity.find_joints(joint_names, preserve_order=True)
         self._actuator_ids = np.asarray(actuator_ids, dtype=np.int32)
-        self._joint_ids = np.asarray(joint_ids, dtype=np.int32)
         self._scale = np.asarray(cfg.action_scale, dtype=np.float32)
         self._kp = np.asarray(cfg.kp, dtype=np.float32)
         self._kd = np.asarray(cfg.kd, dtype=np.float32)
@@ -110,12 +130,15 @@ class A2ArmPdAction(ActionTerm):
                 f"A2ArmPdAction expected {self._raw_action.shape}, got {actions.shape}"
             )
         self._previous_raw_action[:] = self._raw_action
-        np.clip(
-            actions,
-            -float(self.cfg.clip_actions),
-            float(self.cfg.clip_actions),
-            out=self._raw_action,
-        )
+        if self.cfg.clip_actions is None:
+            np.copyto(self._raw_action, actions)
+        else:
+            np.clip(
+                actions,
+                -float(self.cfg.clip_actions),
+                float(self.cfg.clip_actions),
+                out=self._raw_action,
+            )
         if self._delay:
             self._history[:, :-1] = self._history[:, 1:]
             self._history[:, -1] = self._raw_action
@@ -125,7 +148,6 @@ class A2ArmPdAction(ActionTerm):
         else:
             executed = self._raw_action
         self._state.prepare_control_step(int(self._env.step_counter))
-        self._processed_action[:] = self._entity.data.default_joint_pos * 0.0
         self._processed_action[:] = (
             self._entity.data.default_joint_pos + executed * self._scale * self._motor_strength
         )
