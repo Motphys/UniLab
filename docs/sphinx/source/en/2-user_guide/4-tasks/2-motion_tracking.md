@@ -65,10 +65,10 @@ actor keeps the command and anchor-orientation terms at one step while the
 `base_ang_vel`, `joint_pos`, `joint_vel`, and `actions` terms declare
 `history_length: 5`. `ObservationManager` owns and flattens those per-term
 histories; the actor uses the configured encoder-biased joint-position term while
-the critic keeps the clean term. Deploy tooling lives under `scripts/deploy/`, and
-the observation alignment is cross-checked by
-`tests/scripts/test_obs_alignment_g1_wbt.py`. When a Motrix sim2sim replay needs a
-checkpoint from another log root, pass the absolute path through `uv run eval`:
+the critic keeps the clean term. Per-term oldest-first ordering is guarded by
+`tests/scripts/test_obs_alignment_g1_wbt.py`; the hardware-side contract is
+documented in the sim-to-real deployment guide. When a Motrix sim2sim replay needs
+a checkpoint from another log root, pass the absolute path through `uv run eval`:
 
 ```bash
 uv run eval --algo sac --task g1_motion_tracking --sim motrix \

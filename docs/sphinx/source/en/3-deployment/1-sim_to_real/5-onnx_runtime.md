@@ -26,38 +26,22 @@ uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1
 
 `uv run eval` sets playback mode and maps `--load-run` to the checkpoint
 selector used by the routed training script. The exported file is written into
-the selected run directory. For deployment
-prototypes, keep the exported `policy.onnx` together with the deploy-side
-configuration and motion assets used by the runtime.
+the selected run directory. For deployment, keep the exported `policy.onnx`
+together with the task owner YAML it was trained from — that YAML is the
+authority on the observation and action contract the runtime must reproduce.
 
-## G1 Deployment Prototype
+## Verifying the Exported Graph
 
-The committed G1 WBT deployment helpers use these artifacts:
+The playback path validates the exported graph against PyTorch before writing
+it, so a successful export already establishes numerical parity. What it does
+**not** establish is that your hardware-side loop assembles the same input
+vector. Before hardware bring-up:
 
-| Artifact | Producer |
-| --- | --- |
-| `policy.onnx` | Training playback export above. |
-| `deploy_config.yaml` | `scripts/deploy/export_deploy_config.py`. |
-| `dance1.bin` or another motion binary | `scripts/deploy/export_motion_bin.py`. |
-
-Example validation run:
-
-```bash
-uv run scripts/deploy/export_deploy_config.py \
-  --output logs/deploy/deploy_config.yaml
-
-uv run scripts/deploy/export_motion_bin.py \
-  --output logs/deploy/dance1.bin
-
-uv run scripts/deploy/sim_prototype.py \
-  --onnx runs/<run>/policy.onnx \
-  --config logs/deploy/deploy_config.yaml \
-  --motion logs/deploy/dance1.bin
-```
-
-`scripts/deploy/sim_prototype.py` checks that the ONNX input width matches the
-`obs_dim` in `deploy_config.yaml` and then drives the policy in MuJoCo with the
-same observation layout the deployment side expects.
+- Read the actor obs width off the composed config (not off a doc table) and
+  confirm it matches the ONNX input width.
+- Confirm your term order and per-term history ordering against the owner's
+  `env.observations.actor.terms`. For G1 whole-body tracking, see
+  {doc}`2-g1_whole_body`.
 
 ## See Also
 

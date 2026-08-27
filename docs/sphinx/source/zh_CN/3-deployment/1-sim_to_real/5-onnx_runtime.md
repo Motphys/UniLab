@@ -24,36 +24,19 @@ uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1
 ```
 
 `uv run eval` 设置回放模式，并把 `--load-run` 映射到所路由训练脚本使用的检查点
-选择器。导出的文件会写入所选的运行目录。对于部署原型，请把导出的 `policy.onnx` 与
-运行时所用的部署侧配置和运动资产放在一起。
+选择器。导出的文件会写入所选的运行目录。用于部署时，请把导出的 `policy.onnx` 与训练
+它所用的任务 owner YAML 放在一起——该 YAML 是运行时必须复现的观测与动作契约的权威
+来源。
 
-## G1 部署原型
+## 校验导出的计算图
 
-已提交的 G1 WBT 部署辅助工具使用如下产物：
+回放路径在写出之前会把导出的计算图与 PyTorch 比对，因此导出成功本身已经建立了数值
+一致性。它**没有**建立的是：你的硬件侧回路装配出的输入向量是否相同。在硬件上机前：
 
-| 产物 | 生产者 |
-| --- | --- |
-| `policy.onnx` | 上述训练回放导出。 |
-| `deploy_config.yaml` | `scripts/deploy/export_deploy_config.py`。 |
-| `dance1.bin` 或其他运动二进制 | `scripts/deploy/export_motion_bin.py`。 |
-
-验证运行示例：
-
-```bash
-uv run scripts/deploy/export_deploy_config.py \
-  --output logs/deploy/deploy_config.yaml
-
-uv run scripts/deploy/export_motion_bin.py \
-  --output logs/deploy/dance1.bin
-
-uv run scripts/deploy/sim_prototype.py \
-  --onnx runs/<run>/policy.onnx \
-  --config logs/deploy/deploy_config.yaml \
-  --motion logs/deploy/dance1.bin
-```
-
-`scripts/deploy/sim_prototype.py` 会检查 ONNX 输入宽度是否与 `deploy_config.yaml` 中的
-`obs_dim` 匹配，然后用部署侧期望的同一观测布局在 MuJoCo 中驱动策略。
+- 从 composed config 读取 actor 观测宽度（而不是照抄文档表格），确认它与 ONNX
+  输入宽度一致。
+- 对照 owner 的 `env.observations.actor.terms` 确认分项顺序与逐项历史顺序。G1
+  全身跟踪见 {doc}`2-g1_whole_body`。
 
 ## 另请参阅
 

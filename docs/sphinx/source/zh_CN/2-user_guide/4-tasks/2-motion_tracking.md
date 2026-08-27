@@ -60,10 +60,10 @@ uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
 `g1_wbt_obs` owner 是与部署对齐的 off-policy 观测配置。actor 的 command 与 anchor
 orientation term 保持单步，`base_ang_vel`、`joint_pos`、`joint_vel` 和 `actions` term
 分别声明 `history_length: 5`。这些逐项历史由 `ObservationManager` 维护并展开；actor
-使用配置中的 encoder-biased joint-position term，critic 则保留 clean term。部署工具在
-`scripts/deploy/`，观测对齐由 `tests/scripts/test_obs_alignment_g1_wbt.py` 交叉校验。
-当 Motrix sim2sim 回放需要引用其他日志根目录下的 checkpoint 时，用 `uv run eval`
-透传绝对路径：
+使用配置中的 encoder-biased joint-position term，critic 则保留 clean term。逐项最旧
+优先顺序由 `tests/scripts/test_obs_alignment_g1_wbt.py` 守护；硬件侧契约见仿真到真机
+部署指南。当 Motrix sim2sim 回放需要引用其他日志根目录下的 checkpoint 时，用
+`uv run eval` 透传绝对路径：
 
 ```bash
 uv run eval --algo sac --task g1_motion_tracking --sim motrix \
