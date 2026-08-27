@@ -26,6 +26,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "mjwarp_njmax": cfg.mjwarp_njmax,
         "drake_backend_mode": cfg.drake_backend_mode,
         "drake_nthread": cfg.drake_nthread,
+        "isaacgym_device_id": cfg.isaacgym_device_id,
+        "isaacgym_worker_timeout_s": cfg.isaacgym_worker_timeout_s,
     }
 
 
@@ -95,6 +97,12 @@ def _drake_available() -> bool:
     return ensure_drake_batch_available()[0]
 
 
+def _load_isaacgym_backend() -> Any:
+    from .isaacgym.backend import IsaacGymBackend
+
+    return IsaacGymBackend
+
+
 def create_backend(
     backend_type: str,
     scene: SceneCfg,
@@ -107,8 +115,8 @@ def create_backend(
     """Create a simulation backend.
 
     Args:
-        backend_type: ``"mujoco"``, ``"mjwarp"``, ``"motrix"``, or
-            ``"drake"``.
+        backend_type: ``"mujoco"``, ``"mjwarp"``, ``"motrix"``, ``"drake"``,
+            or ``"isaacgym"``.
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
@@ -141,6 +149,8 @@ def create_backend(
     mjwarp_njmax = kwargs.pop("mjwarp_njmax", None)
     drake_backend_mode = kwargs.pop("drake_backend_mode", "batch")
     drake_nthread = kwargs.pop("drake_nthread", None)
+    isaacgym_device_id = kwargs.pop("isaacgym_device_id", None)
+    isaacgym_worker_timeout_s = kwargs.pop("isaacgym_worker_timeout_s", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if body_state_required:
@@ -210,6 +220,40 @@ def create_backend(
         if drake_nthread is not None:
             kwargs["nthread"] = drake_nthread
         return cast(SimBackend, DrakeBackend(scene, num_envs, sim_dt, **kwargs))
+    if backend_type == "isaacgym":
+        IsaacGymBackend = _load_isaacgym_backend()
+        # Body states are always available from the rigid-body state tensor;
+        # the flag exists for backends that need extra scene materialization.
+        kwargs.pop("add_body_sensors", None)
+        if position_actuator_gains is not None:
+            raise ValueError(
+                "isaacgym runs torque-mode dofs only; position_actuator_gains has no "
+                "IsaacGym equivalent in the subprocess profile."
+            )
+        ignored_non_defaults = {
+            key: value
+            for key, value, default in (
+                ("post_step_forward_sensor", post_step_forward_sensor, None),
+                ("iterations", iterations, None),
+                ("chunk_size", chunk_size, None),
+                ("adaptive_chunk_size", adaptive_chunk_size, False),
+                ("cpu_ids", cpu_ids, None),
+                ("bench_nsteps", bench_nsteps, 1),
+            )
+            if value != default
+        }
+        if ignored_non_defaults:
+            rendered = ", ".join(f"{key}={value!r}" for key, value in ignored_non_defaults.items())
+            warnings.warn(
+                "isaacgym ignores non-default MuJoCo-only backend options: " + rendered,
+                UserWarning,
+                stacklevel=2,
+            )
+        if isaacgym_device_id is not None:
+            kwargs["device_id"] = isaacgym_device_id
+        if isaacgym_worker_timeout_s is not None:
+            kwargs["worker_timeout_s"] = isaacgym_worker_timeout_s
+        return cast(SimBackend, IsaacGymBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
 
 
@@ -228,6 +272,8 @@ def __getattr__(name: str):
         return _load_drake_backend()
     if name == "DRAKE_AVAILABLE":
         return _drake_available()
+    if name == "IsaacGymBackend":
+        return _load_isaacgym_backend()
     if name in _MUJOCO_XML_EXPORTS:
         from .mujoco import xml
 
@@ -249,6 +295,7 @@ __all__ = [
     "MjwarpBackend",
     "MotrixBackend",
     "DrakeBackend",
+    "IsaacGymBackend",
     "DRAKE_AVAILABLE",
     "MJWARP_AVAILABLE",
     "add_sensor",

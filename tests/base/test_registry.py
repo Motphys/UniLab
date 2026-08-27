@@ -219,7 +219,7 @@ def test_register_env_invalid_backend_raises():
     if not registry_mod.contains(_name):
         registry_mod.register_env_config(_name, _TestCfgA)
     with pytest.raises(ValueError, match="Unsupported simulation backend"):
-        registry_mod.register_env(_name, _TestEnvA, "isaacgym")
+        registry_mod.register_env(_name, _TestEnvA, "not_a_backend")
 
 
 def test_register_env_without_config_raises():

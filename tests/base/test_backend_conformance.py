@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 _FACTORY_FILE = SRC_ROOT / "unilab" / "base" / "backend" / "__init__.py"
 _BACKEND_CLASS_NAMES = frozenset(
-    {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend"}
+    {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend", "IsaacGymBackend"}
 )
 _TASK_SOURCE_ROOTS = (
     SRC_ROOT / "unilab" / "envs",
@@ -69,6 +69,12 @@ def _drake_batch_available() -> bool:
     return bool(available)
 
 
+def _isaacgym_runtime_available() -> bool:
+    from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
+
+    return isaacgym_runtime_available()
+
+
 def _require_backend(backend_type: str) -> None:
     if backend_type == "mujoco":
         pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -80,6 +86,9 @@ def _require_backend(backend_type: str) -> None:
     elif backend_type == "drake":
         if not _drake_batch_available():
             pytest.skip("drake batch extension not available")
+    elif backend_type == "isaacgym":
+        if not _isaacgym_runtime_available():
+            pytest.skip("isaacgym requires the Python 3.8 worker runtime")
 
 
 _BACKEND_PARAMS = [
@@ -87,6 +96,7 @@ _BACKEND_PARAMS = [
     pytest.param("motrix", id="motrix"),
     pytest.param("drake", id="drake"),
     pytest.param("mjwarp", id="mjwarp", marks=pytest.mark.slow),
+    pytest.param("isaacgym", id="isaacgym", marks=pytest.mark.slow),
 ]
 
 
