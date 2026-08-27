@@ -47,13 +47,19 @@ def test_support_matrix_marks_g1_isaacgym_owners_configured_only():
     """isaacgym owners carry registry + owner YAML + compose evidence only."""
     for entrypoint_label in (
         "PPO (torch)",
-        "APPO (torch)",
         "SAC (torch)",
+    ):
+        row = _row(entrypoint_label, "g1_walk_flat")
+        assert row.cells["isaacgym"].level == EvidenceLevel.CONFIGURED
+    for entrypoint_label in (
+        "APPO (torch)",
         "TD3 (torch)",
         "FlashSAC (torch)",
     ):
         row = _row(entrypoint_label, "g1_walk_flat")
-        assert row.cells["isaacgym"].level == EvidenceLevel.CONFIGURED
+        # Registration is per task+backend, not per algo tree: without an
+        # owner YAML these stay at REGISTERED instead of CONFIGURED.
+        assert row.cells["isaacgym"].level == EvidenceLevel.REGISTERED
 
 
 def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():

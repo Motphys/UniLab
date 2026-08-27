@@ -89,7 +89,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested | - |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested | - |
-| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Configured |
+| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered |
 | APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested | - |
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - |
 | APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested | - |
@@ -116,10 +116,10 @@ uv run scripts/generate_support_matrix.py --write
 | SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Configured | - | - |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested | - |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested | - |
-| TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Configured |
+| TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered |
 | TD3 (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered | - |
 | FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Registered | - |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested | Configured |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested | Registered |
 | FlashSAC (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested | - |
 
 ### Source Index
