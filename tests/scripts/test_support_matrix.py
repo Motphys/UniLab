@@ -43,14 +43,12 @@ def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED
 
 
-def test_support_matrix_marks_g1_isaacgym_owners_configured_only():
-    """isaacgym owners carry registry + owner YAML + compose evidence only."""
-    for entrypoint_label in (
-        "PPO (torch)",
-        "SAC (torch)",
-    ):
-        row = _row(entrypoint_label, "g1_walk_flat")
-        assert row.cells["isaacgym"].level == EvidenceLevel.CONFIGURED
+def test_support_matrix_marks_g1_isaacgym_owners_by_validation():
+    """SAC isaacgym is maintainer-validated on hardware; PPO stays CONFIGURED."""
+    sac_row = _row("SAC (torch)", "g1_walk_flat")
+    assert sac_row.cells["isaacgym"].level == EvidenceLevel.TESTED
+    ppo_row = _row("PPO (torch)", "g1_walk_flat")
+    assert ppo_row.cells["isaacgym"].level == EvidenceLevel.CONFIGURED
     for entrypoint_label in (
         "APPO (torch)",
         "TD3 (torch)",
@@ -70,7 +68,7 @@ def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():
         for row in rows
         if row.cells["isaacgym"].level >= EvidenceLevel.TESTED
     }
-    assert tested == set()
+    assert tested == {("SAC (torch)", "g1_walk_flat")}
     go2_row = _row("PPO (torch)", "go2_joystick_flat")
     assert go2_row.cells["isaacgym"].level == EvidenceLevel.MISSING
 

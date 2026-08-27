@@ -21,6 +21,29 @@ the external environment through variables such as
 environment, training and evaluation, benchmark validation, and
 troubleshooting.
 
+## Model Contract
+
+The backend consumes the task's MJCF scene directly, but IsaacGym's MJCF
+importer is only partially trusted: kinematics (body/dof names and order) are
+verified against a host-side XML scan at INIT, and every actuation-relevant
+parameter is parsed from the XML rather than read from the importer.
+
+- **Control**: only `<position kp kv forcerange>` actuators are supported —
+  `SimBackend.step(ctrl)` carries per-DoF position targets, reproduced with
+  PhysX `DOF_MODE_POS` drives (force = kp·(target − q) − kv·q̇, clamped to the
+  symmetric forcerange). Scenes with `<motor>`/`<velocity>`/other actuator
+  types, non-unit gear, or asymmetric forceranges fail closed at scene scan.
+- **Self-collision is disabled** (actor collision filter). MJCF
+  `<contact><exclude>` pairs (e.g. G1's elbow↔wrist and pelvis↔hip overlaps)
+  cannot be reproduced per link pair through the gymapi; disabling
+  self-collision entirely is the ecosystem-standard approximation and a
+  superset of the exclusions. Models that rely on self-contact are not
+  faithfully reproduced.
+- **Joint limits**: the importer drops them, so PhysX applies no joint stops;
+  `get_joint_range()` still reports the XML values. Joint `armature` and
+  `frictionloss` (resolved through MJCF default classes) are applied to the
+  PhysX dofs.
+
 ## Prerequisites
 
 - Linux x86_64 with an NVIDIA GPU driver installed.

@@ -22,9 +22,19 @@ Design invariants:
   only.  The stdin/stdout pipe carries length-prefixed pickle commands
   (``protocol.py``).  Hot-path getters read the shm caches written at the last
   STEP/SET_STATE barrier; they never round-trip the worker.
-- ``step(ctrl)`` semantics match the MuJoCo motor profile: ``ctrl`` is the
-  per-DoF actuation force (torque), applied through IsaacGym's
-  ``set_dof_actuation_force_tensor`` with ``DOF_MODE_EFFORT``.
+- ``step(ctrl)`` semantics match the MuJoCo position-actuator profile: ``ctrl``
+  is the per-DoF position target, applied through IsaacGym's
+  ``set_dof_position_target_tensor`` with ``DOF_MODE_POS``.  The PD
+  parameters (kp/kv), symmetric force limits (forcerange), joint armature and
+  frictionloss are parsed from the scene MJCF on the cold path
+  (``sensors.py``) and pushed to the worker at INIT — IsaacGym's MJCF importer
+  is not trusted for them (it drops ``kv`` and ``frictionloss``).  Scenes with
+  non-``<position>`` actuators fail closed during the scan.
+- Actor self-collision is disabled (collision filter bit at ``create_actor``).
+  MJCF ``<contact><exclude>`` pairs cannot be reproduced per link pair through
+  the gymapi; leaving self-collision on makes G1's overlapping wrist/hip
+  capsules generate permanent contact forces that destabilize the drives.
+  Disabling it entirely is a superset of the exclusions.
 - Quaternions on the public surface are ``wxyz`` (IsaacGym tensors are
   ``xyzw``; the worker converts at the shm boundary).  ``set_state`` qvel root
   columns carry body-frame angular velocity per the ``SimBackend`` contract;
@@ -39,12 +49,11 @@ scanned once on the cold path (``sensors.py``) and supported sensors
 ``data="found"``) are computed from the shm tensor caches; everything else
 fails closed with an explanatory ``NotImplementedError``.
 
-Known real-runtime gaps to validate on hardware (the development machine has
-no IsaacGym install, so all runtime behavior is covered by a mock worker):
+Known real-runtime notes (validated on hardware during the G1 bring-up):
 
-- MJCF importer fidelity (fixed-joint handling, armature, actuator mapping);
-- whether ``set_dof_state_tensor_indexed`` / ``set_actor_root_state_tensor_indexed``
-  semantics match the wrapped-full-buffer pattern used here;
+- MJCF importer fidelity: the importer reads ``kp``/``forcerange``/``armature``
+  but drops ``kv``, ``frictionloss`` and joint ``range``; all of these are
+  therefore parsed from the XML on the cold path and pushed explicitly.
 - body-state staleness right after SET_STATE (IsaacGym has no kinematics-only
   forward call; rigid-body/contact slots refresh at the next physics step).
 """
@@ -110,6 +119,10 @@ _STDERR_TAIL_BYTES = 4096
 
 _ROOT_QPOS_DIM = 7
 _ROOT_QVEL_DIM = 6
+
+# PhysX clamps |force| <= dof effort; MJCF forcerange "0 0" (or absent) means
+# unlimited, mapped to a finite stand-in (float32-safe) for the dof property.
+_UNLIMITED_DOF_EFFORT = 1e20
 
 
 class IsaacGymWorkerError(RuntimeError):
@@ -297,8 +310,6 @@ class IsaacGymBackend(SimBackend):
         self._sensor_map: dict[str, tuple[SceneSensorSpec, int]] = {}
         self._body_id_by_name: dict[str, int] = {}
         self._dof_id_by_name: dict[str, int] = {}
-        self._joint_range: np.ndarray | None = None
-        self._ctrl_range: np.ndarray | None = None
         self._base_body_id = 0
         self._closed = False
 
@@ -361,6 +372,7 @@ class IsaacGymBackend(SimBackend):
                         else [float(value) for value in self._initial_qpos]
                     ),
                     "mjcf_joint_names": list(self._get_scene_metadata().joint_names),
+                    **self._position_actuation_payload(),
                 },
                 expect=protocol.CMD_META,
             )
@@ -471,15 +483,38 @@ class IsaacGymBackend(SimBackend):
         self._body_id_by_name = {name: index for index, name in enumerate(body_names)}
         self._dof_id_by_name = {name: index for index, name in enumerate(dof_names)}
         self._validate_xml_metadata_against_worker()
-        lower = np.asarray(meta["dof_lower"], dtype=np.float32)
-        upper = np.asarray(meta["dof_upper"], dtype=np.float32)
-        self._joint_range = (
-            np.stack([lower, upper], axis=1) if num_dof > 0 else np.zeros((0, 2), np.float32)
-        )
-        effort = np.asarray(meta["effort"], dtype=np.float32)
-        self._ctrl_range = (
-            np.stack([-effort, effort], axis=1) if num_dof > 0 else np.zeros((0, 2), np.float32)
-        )
+
+    def _position_actuation_payload(self) -> dict[str, list[float]]:
+        """Per-dof PD/limit/dynamics arrays in MJCF joint document order.
+
+        The worker maps them onto the asset's dof order by name.  Joints with
+        no ``<position>`` actuator are passive: zero gains and zero effort.
+        """
+        metadata = self._get_scene_metadata()
+        by_joint = {spec.joint_name: spec for spec in metadata.actuators}
+        stiffness: list[float] = []
+        damping: list[float] = []
+        effort: list[float] = []
+        for joint in metadata.joint_names:
+            spec = by_joint.get(joint)
+            if spec is None:
+                stiffness.append(0.0)
+                damping.append(0.0)
+                effort.append(0.0)
+            else:
+                stiffness.append(spec.kp)
+                damping.append(spec.kv)
+                # PhysX clamps |force| <= effort; the scan guarantees symmetry.
+                effort.append(
+                    _UNLIMITED_DOF_EFFORT if spec.forcerange is None else spec.forcerange[1]
+                )
+        return {
+            "dof_stiffness": stiffness,
+            "dof_damping": damping,
+            "dof_effort": effort,
+            "dof_armature": [float(value) for value in metadata.joint_armature],
+            "dof_friction": [float(value) for value in metadata.joint_frictionloss],
+        }
 
     def _validate_xml_metadata_against_worker(self) -> None:
         """Fail closed when the MJCF importer changed names or ordering.
@@ -721,9 +756,21 @@ class IsaacGymBackend(SimBackend):
         return self._num_dof()
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
-        self._require_materialized()
-        assert self._ctrl_range is not None
-        return self._ctrl_range.copy()
+        """Position-target clamp per dof, from the MJCF ``ctrlrange`` attributes.
+
+        Pure XML metadata (available pre-materialize).  Undeclared ctrlranges
+        report ``(0, 0)``, matching the MuJoCo backend which returns the raw
+        ``actuator_ctrlrange`` (``ctrllimited=false`` → ``0 0``).
+        """
+        metadata = self._get_scene_metadata()
+        by_joint = {spec.joint_name: spec for spec in metadata.actuators}
+        rows = [
+            (0.0, 0.0)
+            if (spec := by_joint.get(joint)) is None or spec.ctrlrange is None
+            else spec.ctrlrange
+            for joint in metadata.joint_names
+        ]
+        return np.asarray(rows, dtype=np.float32).reshape(-1, 2)
 
     def get_actuator_names(self) -> tuple[str, ...]:
         if self._model_info is not None:
@@ -735,9 +782,29 @@ class IsaacGymBackend(SimBackend):
         return self.get_actuator_names()
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
-        """Effort-mode dofs carry no PD gains; report zeros explicitly."""
-        zeros = np.zeros((self._num_dof(),), dtype=np.float32)
-        return zeros, zeros.copy()
+        """Per-dof (kp, kd) from the MJCF ``<position>`` actuators (pure XML).
+
+        Passive joints (no actuator) report zero gains.  Returned in MJCF
+        joint document order, which the INIT handshake pins to the worker's
+        dof order.
+        """
+        metadata = self._get_scene_metadata()
+        by_joint = {spec.joint_name: spec for spec in metadata.actuators}
+        kp = np.asarray(
+            [
+                spec.kp if (spec := by_joint.get(joint)) is not None else 0.0
+                for joint in metadata.joint_names
+            ],
+            dtype=np.float64,
+        )
+        kd = np.asarray(
+            [
+                spec.kv if (spec := by_joint.get(joint)) is not None else 0.0
+                for joint in metadata.joint_names
+            ],
+            dtype=np.float64,
+        )
+        return kp, kd
 
     def get_scene_model_file(self) -> str | None:
         return str(self._scene.model_file)
@@ -818,10 +885,16 @@ class IsaacGymBackend(SimBackend):
         return self.get_body_ids(names)
 
     def get_joint_range(self) -> np.ndarray | None:
-        self._require_materialized()
-        if self._joint_range is None or self._joint_range.size == 0:
+        """Per-joint ``range`` from the MJCF (pure XML, available pre-materialize).
+
+        IsaacGym's MJCF importer drops joint limits (dof props report ±inf),
+        so the worker handshake values are unusable; the XML is the source of
+        truth.  Joints without a ``range`` attribute report ``(-inf, inf)``.
+        """
+        metadata = self._get_scene_metadata()
+        if not metadata.joint_ranges:
             return None
-        return self._joint_range.copy()
+        return np.asarray(metadata.joint_ranges, dtype=np.float32)
 
     def get_gravity(self) -> np.ndarray:
         info = self._require_materialized()

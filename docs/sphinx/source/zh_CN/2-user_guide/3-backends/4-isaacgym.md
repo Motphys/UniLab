@@ -16,6 +16,25 @@ benchmark 脚本
 `UNILAB_BENCHMARK_HOLOSOMA_DEPS` 等环境变量定位外部环境。
 本页覆盖外部环境准备、训练与评估、benchmark 验证与故障排除。
 
+## 模型契约
+
+后端直接消费 task 的 MJCF scene，但对 IsaacGym 的 MJCF importer 只做有限
+信任：运动学（body/dof 名称与顺序）在 INIT 时与 host 侧 XML 扫描结果
+对齐校验，所有影响驱动的参数都从 XML 解析而不是读取 importer 的结果。
+
+- **控制**：只支持 `<position kp kv forcerange>` 执行器——
+  `SimBackend.step(ctrl)` 携带逐 DoF 位置目标，用 PhysX `DOF_MODE_POS`
+  驱动复现（force = kp·(target − q) − kv·q̇，并按对称 forcerange 截断）。
+  含 `<motor>`/`<velocity>` 等其他执行器类型、非 1 的 gear、或不对称
+  forcerange 的 scene 会在扫描时 fail-closed。
+- **自碰撞整体关闭**（actor collision filter）。MJCF
+  `<contact><exclude>` 配对（如 G1 的 elbow↔wrist、pelvis↔hip 重叠）
+  无法通过 gymapi 按 link 对复现；整体关闭自碰撞是生态通行近似，且是
+  这些排除项的超集。依赖自身接触的模型不会被忠实复现。
+- **关节限位**：importer 会丢弃 joint range，因此 PhysX 侧没有关节
+  限位；`get_joint_range()` 仍返回 XML 值。关节 `armature` 与
+  `frictionloss`（经 MJCF default class 解析）会应用到 PhysX dof。
+
 ## 前置条件
 
 - Linux x86_64，装有 NVIDIA GPU 驱动。

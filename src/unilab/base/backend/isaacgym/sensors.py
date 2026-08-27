@@ -6,8 +6,20 @@ contract from the tensor API.  This module parses the scene MJCF once during
 extracts:
 
 - sensor declarations mapped to quantities computable from the shm tensor
-  caches (see the kind table below), and
-- ``<keyframe>`` qpos snapshots (MuJoCo ``wxyz`` convention, returned as-is).
+  caches (see the kind table below),
+- ``<keyframe>`` qpos snapshots (MuJoCo ``wxyz`` convention, returned as-is),
+- ``<position>`` actuator parameters (kp/kv/forcerange/ctrlrange) that the
+  worker needs to reproduce MuJoCo's position-actuator PD semantics, and
+- per-joint dynamics (``range``/``armature``/``frictionloss``), resolved
+  through MJCF default classes.
+
+The MJCF importer inside IsaacGym is *not* trusted for actuation parameters:
+empirically it reads ``kp``/``forcerange``/``armature`` but drops ``kv`` and
+``frictionloss`` (and joint ranges), so every value the physics depends on is
+parsed here and pushed to the worker verbatim.  Only ``<position>`` actuators
+with ``gear`` unset (or 1) and symmetric ``forcerange`` are supported; any
+other actuator element fails the scan closed, because ``SimBackend.step(ctrl)``
+must keep a single backend-native ctrl semantics (position targets).
 
 Supported sensor kinds and their tensor-API source:
 
@@ -115,6 +127,23 @@ class UnsupportedSensorSpec:
 
 
 @dataclass(frozen=True)
+class ActuatorSpec:
+    """One MJCF ``<position>`` actuator resolved to PD gains and limits.
+
+    ``forcerange``/``ctrlrange`` are ``None`` when unlimited (attribute absent
+    or ``0 0``, matching MuJoCo's ``*limited=false`` convention).
+    ``forcerange`` is guaranteed symmetric (``[-F, F]``) by the scan.
+    """
+
+    name: str
+    joint_name: str
+    kp: float
+    kv: float
+    forcerange: tuple[float, float] | None = None
+    ctrlrange: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
 class SceneMetadata:
     """Cold-path scan result for one MJCF scene."""
 
@@ -133,6 +162,14 @@ class SceneMetadata:
     """Body names in MJCF document order (depth-first pre-order, worldbody excluded)."""
     freejoint_body_name: str | None = None
     """Name of the body owning the free joint (the floating root), if any."""
+    actuators: tuple[ActuatorSpec, ...] = ()
+    """``<position>`` actuators in document order (transmission: one joint each)."""
+    joint_ranges: tuple[tuple[float, float], ...] = ()
+    """Per-joint ``range`` aligned with ``joint_names``; ``(-inf, inf)`` when undeclared."""
+    joint_armature: tuple[float, ...] = ()
+    """Per-joint ``armature`` aligned with ``joint_names`` (defaults-class resolved)."""
+    joint_frictionloss: tuple[float, ...] = ()
+    """Per-joint ``frictionloss`` aligned with ``joint_names`` (defaults-class resolved)."""
 
 
 def _iter_scene_files(model_file: Path) -> list[Path]:
@@ -168,13 +205,60 @@ def _parse_floats(raw: str | None, count: int, *, what: str) -> tuple[float, ...
     return values
 
 
+def _collect_default_classes(root: ET.Element) -> dict[str, dict[str, dict[str, str]]]:
+    """Map MJCF default class names to merged per-element attribute dicts.
+
+    MJCF default classes inherit through nesting: ``classes[cls][tag]`` holds
+    the attributes an element of type ``tag`` with ``class=cls`` starts with
+    (the root class ``""`` always exists, possibly empty).  Only the attributes
+    needed here matter, but the merge is tag-agnostic.
+    """
+    classes: dict[str, dict[str, dict[str, str]]] = {}
+
+    def walk(default_el: ET.Element, inherited: dict[str, dict[str, str]]) -> None:
+        merged = {tag: dict(attrs) for tag, attrs in inherited.items()}
+        for child in default_el:
+            if child.tag == "default":
+                continue
+            merged.setdefault(child.tag, {}).update(child.attrib)
+        class_name = default_el.get("class") or ""
+        classes[class_name] = merged
+        for child in default_el:
+            if child.tag == "default":
+                walk(child, merged)
+
+    for top_level in root.findall("default"):
+        walk(top_level, {})
+    classes.setdefault("", {})
+    return classes
+
+
+def _resolved_attrs(
+    classes: dict[str, dict[str, dict[str, str]]],
+    class_name: str,
+    tag: str,
+    own_attrib: dict[str, str],
+    *,
+    what: str,
+) -> dict[str, str]:
+    """Resolve one element's attributes through its MJCF default class."""
+    if class_name not in classes:
+        raise ValueError(f"{what} references unknown MJCF default class {class_name!r}")
+    resolved = dict(classes[class_name].get(tag, {}))
+    resolved.update(own_attrib)
+    return resolved
+
+
 def _scan_one_file(path: Path, metadata: dict) -> None:
     root = ET.parse(path).getroot()
+    classes = _collect_default_classes(root)
 
-    def walk_body(body: ET.Element) -> None:
+    def walk_body(body: ET.Element, active_class: str) -> None:
         body_name = body.get("name", "")
         # Depth-first pre-order matches MJCF body document order (body ids).
         metadata["body_names"].append(body_name)
+        # ``childclass`` sets the default class for this body's subtree.
+        body_class = body.get("childclass", active_class)
         for child in body:
             if child.tag == "freejoint":
                 # The first body owning a free joint is the floating root.
@@ -207,14 +291,31 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
                 # joint section of keyframe/qpos (qpos[7:]). Free joints are
                 # excluded (they are the root 7/6 columns); ball joints are
                 # outside the backend's 1-dof-per-joint contract.
-                metadata["joint_names"].append(child.get("name"))
+                joint_name = child.get("name")
+                assert joint_name is not None
+                attrs = _resolved_attrs(
+                    classes,
+                    child.get("class", body_class),
+                    "joint",
+                    dict(child.attrib),
+                    what=f"joint {joint_name!r}",
+                )
+                metadata["joint_names"].append(joint_name)
+                joint_range = _parse_floats(
+                    attrs.get("range"), 2, what=f"joint {joint_name!r} range"
+                )
+                metadata["joint_ranges"].append(
+                    (-np.inf, np.inf) if joint_range is None else joint_range
+                )
+                metadata["joint_armature"].append(float(attrs.get("armature", 0.0)))
+                metadata["joint_frictionloss"].append(float(attrs.get("frictionloss", 0.0)))
             elif child.tag == "body":
-                walk_body(child)
+                walk_body(child, body_class)
 
     for worldbody in root.iter("worldbody"):
         for body in worldbody:
             if body.tag == "body":
-                walk_body(body)
+                walk_body(body, "")
 
     for sensor_block in root.iter("sensor"):
         for element in sensor_block:
@@ -222,6 +323,10 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
             if not name:
                 continue
             metadata["sensors"].append((path, element.tag, name, dict(element.attrib)))
+
+    for actuator_block in root.iter("actuator"):
+        for element in actuator_block:
+            metadata["actuators"].append((path, classes, element.tag, dict(element.attrib)))
 
     for keyframe in root.iter("key"):
         name = keyframe.get("name")
@@ -231,6 +336,78 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
         metadata["keyframes"][name] = np.asarray(
             [float(value) for value in qpos.split()], dtype=np.float32
         )
+
+
+def _resolve_actuator(
+    tag: str,
+    attrib: dict[str, str],
+    classes: dict[str, dict[str, dict[str, str]]],
+    source_file: Path,
+    known_joints: set[str],
+) -> ActuatorSpec:
+    """Resolve one MJCF actuator element to an ``ActuatorSpec``.
+
+    Fails closed on anything that would make ``SimBackend.step(ctrl)`` lose
+    its single position-target semantics (non-position actuator types,
+    non-joint transmissions, non-unit gear, asymmetric force limits).
+    """
+    if tag != "position":
+        raise NotImplementedError(
+            f"isaacgym supports MJCF <position> actuators only; found <{tag}> "
+            f"(file: {source_file}). SimBackend.step(ctrl) requires a single "
+            "backend-native ctrl semantics (position targets)."
+        )
+    name = attrib.get("name") or attrib.get("joint") or "<unnamed>"
+    attrs = _resolved_attrs(
+        classes, attrib.get("class", ""), "position", attrib, what=f"actuator {name!r}"
+    )
+    joint_name = attrs.get("joint")
+    if not joint_name:
+        raise NotImplementedError(
+            f"isaacgym position actuator {name!r} has no joint transmission "
+            f"(file: {source_file}); only joint transmissions are supported"
+        )
+    if joint_name not in known_joints:
+        raise ValueError(
+            f"isaacgym position actuator {name!r} references unknown joint "
+            f"{joint_name!r} (file: {source_file})"
+        )
+    gear = attrs.get("gear")
+    if gear is not None and float(gear) != 1.0:
+        raise NotImplementedError(
+            f"isaacgym position actuator {name!r} uses gear={gear}; only gear=1 is supported"
+        )
+    if "kp" not in attrs:
+        raise ValueError(
+            f"isaacgym position actuator {name!r} has no kp (file: {source_file}); "
+            "declare kp explicitly or via a default class"
+        )
+    forcerange_raw = _parse_floats(attrs.get("forcerange"), 2, what=f"actuator {name!r} forcerange")
+    forcerange: tuple[float, float] | None = (
+        None if forcerange_raw is None else (forcerange_raw[0], forcerange_raw[1])
+    )
+    if forcerange is not None and forcerange[0] == 0.0 and forcerange[1] == 0.0:
+        # MuJoCo convention: a 0 0 forcerange is unlimited (forcelimited=false).
+        forcerange = None
+    if forcerange is not None and not np.isclose(forcerange[0], -forcerange[1]):
+        raise NotImplementedError(
+            f"isaacgym position actuator {name!r} uses asymmetric forcerange "
+            f"{forcerange}; PhysX dof effort limits are symmetric"
+        )
+    ctrlrange_raw = _parse_floats(attrs.get("ctrlrange"), 2, what=f"actuator {name!r} ctrlrange")
+    ctrlrange: tuple[float, float] | None = (
+        None if ctrlrange_raw is None else (ctrlrange_raw[0], ctrlrange_raw[1])
+    )
+    if ctrlrange is not None and ctrlrange[0] == 0.0 and ctrlrange[1] == 0.0:
+        ctrlrange = None
+    return ActuatorSpec(
+        name=name,
+        joint_name=joint_name,
+        kp=float(attrs["kp"]),
+        kv=float(attrs.get("kv", 0.0)),
+        forcerange=forcerange,
+        ctrlrange=ctrlrange,
+    )
 
 
 def _resolve_frame_target(
@@ -376,7 +553,11 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
         "sensors": [],
         "keyframes": {},
         "joint_names": [],
+        "joint_ranges": [],
+        "joint_armature": [],
+        "joint_frictionloss": [],
         "body_names": [],
+        "actuators": [],
     }
     for scene_file in _iter_scene_files(path):
         _scan_one_file(scene_file, raw)
@@ -396,6 +577,19 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
                 )
             unsupported[name] = resolved
 
+    known_joints = {str(name) for name in raw["joint_names"]}
+    actuators: list[ActuatorSpec] = []
+    actuated_joints: set[str] = set()
+    for source_file, classes, tag, attrib in raw["actuators"]:
+        spec = _resolve_actuator(tag, attrib, classes, source_file, known_joints)
+        if spec.joint_name in actuated_joints:
+            raise ValueError(
+                f"joint {spec.joint_name!r} has more than one <position> actuator "
+                f"(file: {source_file}); the backend maps one actuator per dof"
+            )
+        actuated_joints.add(spec.joint_name)
+        actuators.append(spec)
+
     return SceneMetadata(
         model_file=str(path),
         sensors=sensors,
@@ -404,6 +598,10 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
         joint_names=tuple(str(name) for name in raw["joint_names"]),
         body_names=tuple(str(name) for name in raw["body_names"]),
         freejoint_body_name=raw.get("freejoint_body"),
+        actuators=tuple(actuators),
+        joint_ranges=tuple(raw["joint_ranges"]),
+        joint_armature=tuple(raw["joint_armature"]),
+        joint_frictionloss=tuple(raw["joint_frictionloss"]),
     )
 
 
@@ -415,6 +613,7 @@ __all__ = [
     "KIND_GYRO",
     "KIND_LOCAL_LINVEL",
     "SUPPORTED_KINDS",
+    "ActuatorSpec",
     "SceneMetadata",
     "SceneSensorSpec",
     "SiteFrame",

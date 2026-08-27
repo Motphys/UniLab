@@ -101,7 +101,7 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered | - |
 | APPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested | - |
 | APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested | - |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Configured |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | - | Tested | - |
 | SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - |
 | SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered | - |
@@ -128,5 +128,5 @@ uv run scripts/generate_support_matrix.py --write
 - Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/sac/task/**`, `conf/td3/task/**`, `conf/flashsac/task/**`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
 - Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.
-- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (currently empty: no IsaacGym runtime on the development fleet).
+- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).
 <!-- END GENERATED SUPPORT MATRIX -->

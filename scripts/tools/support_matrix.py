@@ -26,9 +26,13 @@ _MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS = frozenset(
 )
 
 # Maintainer-confirmed completed training validations for the isaacgym
-# subprocess backend. The development fleet has no IsaacGym runtime yet, so no
-# entrypoint qualifies; keep this empty until real-hardware validation lands.
-_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
+# subprocess backend (real hardware, external Python 3.8 worker runtime;
+# not covered by repo CI).
+_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("sac_torch", "g1_walk_flat"),
+    }
+)
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -342,7 +346,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/sac/task/**`, `conf/td3/task/**`, `conf/flashsac/task/**`.",
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
-            "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (currently empty: no IsaacGym runtime on the development fleet).",
+            "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
         ]
     )
     return "\n".join(lines)

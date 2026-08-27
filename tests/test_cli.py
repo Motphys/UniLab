@@ -686,9 +686,7 @@ def test_isaacgym_without_worker_runtime_exits_with_setup_hint(
         )
 
 
-def test_isaacgym_train_builds_owner_route(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_isaacgym_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_sac.py").write_text("", encoding="utf-8")
     owner_dir = tmp_path / "conf" / "sac" / "task" / "g1_walk_flat"

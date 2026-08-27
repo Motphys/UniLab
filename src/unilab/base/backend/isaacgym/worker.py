@@ -117,7 +117,7 @@ class _WorkerContext:
             )
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = True
-        asset_options.default_dof_drive_mode = int(gymapi.DOF_MODE_EFFORT)
+        asset_options.default_dof_drive_mode = int(gymapi.DOF_MODE_POS)
         asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
         if asset is None:
             raise RuntimeError(
@@ -126,12 +126,17 @@ class _WorkerContext:
                 "unsupported); run the worker command manually for the importer log." % model_file
             )
 
+        self.num_dof = int(self.gym.get_asset_dof_count(asset))
+        self.num_bodies = int(self.gym.get_asset_rigid_body_count(asset))
+        self.dof_names: List[str] = list(self.gym.get_asset_dof_names(asset))
+
         dof_props = self.gym.get_asset_dof_properties(asset)
-        # Torque-controlled dofs: ctrl maps 1:1 to actuation force, matching the
-        # MuJoCo motor semantics of SimBackend.step(ctrl).
-        dof_props["driveMode"][:].fill(gymapi.DOF_MODE_EFFORT)
-        dof_props["stiffness"][:].fill(0.0)
-        dof_props["damping"][:].fill(0.0)
+        # Position-controlled dofs: ctrl is the per-dof position target,
+        # matching MuJoCo <position kp kv forcerange> actuator semantics
+        # (PhysX applies force = kp * (target - pos) - kv * vel, clamped to
+        # the symmetric effort limit).  All parameters come from the host's
+        # MJCF scan because the importer drops kv/frictionloss/joint ranges.
+        self._apply_actuator_props(dof_props, payload)
 
         spacing = 2.0
         num_per_row = max(1, int(np.ceil(np.sqrt(self.num_envs))))
@@ -142,7 +147,15 @@ class _WorkerContext:
         pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
         for env_index in range(self.num_envs):
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
-            actor_handle = self.gym.create_actor(env_handle, asset, pose, "robot", env_index, 0)
+            # collision_group=env_index isolates envs; filter=1 disables
+            # self-collision.  The MJCF <contact><exclude> pairs (e.g. G1's
+            # elbow/wrist and pelvis/hip overlaps) cannot be reproduced
+            # per-link-pair through gymapi, and with self-collision on those
+            # overlapping capsules generate permanent contact forces that
+            # destabilize the drives.  Disabling self-collision is the
+            # ecosystem-standard approximation (legged_gym, MetaSim) and a
+            # superset of the MJCF exclusions.
+            actor_handle = self.gym.create_actor(env_handle, asset, pose, "robot", env_index, 1)
             self.gym.set_actor_dof_properties(env_handle, actor_handle, dof_props)
             self.env_handles.append(env_handle)
             self.actor_handles.append(actor_handle)
@@ -150,9 +163,6 @@ class _WorkerContext:
         self.gym.prepare_sim(self.sim)
         self._acquire_tensors()
 
-        self.num_dof = int(self.gym.get_asset_dof_count(asset))
-        self.num_bodies = int(self.gym.get_asset_rigid_body_count(asset))
-        self.dof_names: List[str] = list(self.gym.get_asset_dof_names(asset))
         keyframe_qpos = payload.get("keyframe_qpos")
         if keyframe_qpos is not None:
             # Apply the scene's task-initial pose (AGENTS.md: the keyframe is
@@ -173,6 +183,42 @@ class _WorkerContext:
             "gravity": [0.0, 0.0, -9.81],
             "use_gpu_pipeline": self.use_gpu_pipeline,
         }
+
+    def _apply_actuator_props(self, dof_props: Any, payload: Dict[str, Any]) -> None:
+        """Set per-dof PD/limit/dynamics properties from the host MJCF scan.
+
+        The host sends arrays in MJCF joint document order
+        (``mjcf_joint_names``); they are mapped onto the asset's dofs by NAME,
+        because IsaacGym's MJCF importer is free to reorder joints.
+        """
+        gymapi = self.gymapi
+        joint_names = [str(name) for name in (payload.get("mjcf_joint_names") or [])]
+        if len(joint_names) != self.num_dof:
+            raise RuntimeError(
+                "mjcf_joint_names has %d entries but the asset exposes %d dofs; "
+                "IsaacGym's MJCF importer must preserve one dof per single-DoF joint"
+                % (len(joint_names), self.num_dof)
+            )
+        index_by_name = {}
+        for index, name in enumerate(joint_names):
+            index_by_name[name] = index
+        fields = (
+            ("stiffness", payload["dof_stiffness"]),
+            ("damping", payload["dof_damping"]),
+            ("effort", payload["dof_effort"]),
+            ("armature", payload["dof_armature"]),
+            ("friction", payload["dof_friction"]),
+        )
+        for dof_index, dof_name in enumerate(self.dof_names):
+            if dof_name not in index_by_name:
+                raise RuntimeError(
+                    "isaacgym asset dof %r is missing from mjcf_joint_names; the MJCF "
+                    "importer may have dropped or renamed the joint" % dof_name
+                )
+            source = index_by_name[dof_name]
+            dof_props["driveMode"][dof_index] = int(gymapi.DOF_MODE_POS)
+            for field, values in fields:
+                dof_props[field][dof_index] = float(values[source])
 
     def _apply_initial_keyframe(self, qpos_values: Any, joint_names: Any) -> None:
         """Write the scene keyframe pose into every env via the tensor API.
@@ -306,7 +352,9 @@ class _WorkerContext:
         timings: Dict[str, float] = {}
         t0 = time.perf_counter()
         torch_ctrl = self.torch.from_numpy(np.ascontiguousarray(self.slots["ctrl"])).to(self.device)
-        self.gym.set_dof_actuation_force_tensor(
+        # ctrl carries per-dof position targets (MuJoCo <position> actuator
+        # semantics); PhysX runs the PD loop with the INIT-time kp/kv/effort.
+        self.gym.set_dof_position_target_tensor(
             self.sim, self.gymtorch.unwrap_tensor(torch_ctrl.reshape(-1).contiguous())
         )
         timings["control_upload_ms"] = (time.perf_counter() - t0) * 1000.0

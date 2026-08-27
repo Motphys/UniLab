@@ -1,9 +1,9 @@
 """Protocol-level tests for the IsaacGym subprocess backend.
 
-The development machine has no IsaacGym install (the Preview 4 tarball
-requires an NVIDIA account), so these tests drive ``IsaacGymBackend`` through
-``isaacgym_mock_worker.py`` — a deterministic kinematic fake that speaks the
-real wire protocol over real shared memory on the host interpreter.
+These tests drive ``IsaacGymBackend`` through ``isaacgym_mock_worker.py`` — a
+deterministic kinematic fake that speaks the real wire protocol over real
+shared memory on the host interpreter — so they run without the IsaacGym
+runtime (real-runtime coverage lives in the slow conformance tests).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from unilab.base.backend.isaacgym.dependencies import (
     build_worker_env,
     resolve_isaacgym_runtime,
 )
+from unilab.base.backend.isaacgym.sensors import scan_scene_metadata
 from unilab.base.scene import SceneCfg
 
 _MOCK_WORKER = str(Path(__file__).resolve().parent / "isaacgym_mock_worker.py")
@@ -45,13 +46,13 @@ _ROBOT_XML = """
       <site name="euler_site" euler="0.1 0 0"/>
       <geom name="base_geom" size="0.1"/>
       <body name="link0">
-        <joint name="j0" type="hinge"/>
+        <joint name="j0" type="hinge" range="-1.5 1.5"/>
         <geom name="g0" size="0.1"/>
         <body name="link1">
-          <joint name="j1" type="hinge"/>
+          <joint name="j1" type="hinge" range="-1.5 1.5"/>
           <geom name="g1" size="0.1"/>
           <body name="link2">
-            <joint name="j2" type="hinge"/>
+            <joint name="j2" type="hinge" range="-1.5 1.5"/>
             <geom name="g2" size="0.1"/>
             <geom name="foot_geom" size="0.1"/>
           </body>
@@ -59,6 +60,11 @@ _ROBOT_XML = """
       </body>
     </body>
   </worldbody>
+  <actuator>
+    <position name="j0" joint="j0" kp="10" kv="0.5" forcerange="-100 100" ctrlrange="-1.2 1.2"/>
+    <position name="j1" joint="j1" kp="20" kv="1.0" forcerange="-80 80"/>
+    <position name="j2" joint="j2" kp="30"/>
+  </actuator>
 </mujoco>
 """
 
@@ -253,8 +259,12 @@ def test_materialize_binds_metadata_and_slots(backend: IsaacGymBackend) -> None:
     assert backend.get_actuator_names() == ("j0", "j1", "j2")
     assert backend.get_actuator_joint_names() == ("j0", "j1", "j2")
     np.testing.assert_allclose(
-        backend.get_actuator_ctrl_range(), np.array([[-100.0, 100.0]] * 3, dtype=np.float32)
+        backend.get_actuator_ctrl_range(),
+        np.array([[-1.2, 1.2], [0.0, 0.0], [0.0, 0.0]], dtype=np.float32),
     )
+    kp, kd = backend.get_actuator_gains()
+    np.testing.assert_allclose(kp, [10.0, 20.0, 30.0])
+    np.testing.assert_allclose(kd, [0.5, 1.0, 0.0])
     np.testing.assert_allclose(
         backend.get_joint_range(), np.array([[-1.5, 1.5]] * 3, dtype=np.float32)
     )
@@ -352,6 +362,82 @@ def test_xml_metadata_available_before_materialize(scene_file: str) -> None:
         np.testing.assert_allclose(backend.get_dof_pos(), [[0.1, 0.2, 0.3]] * NUM_ENVS, atol=1e-6)
     finally:
         backend.close()
+
+
+def test_actuator_metadata_available_before_materialize(scene_file: str) -> None:
+    """PD gains / ctrl ranges / joint ranges are pure XML metadata.
+
+    IsaacGym's MJCF importer drops kv/frictionloss/joint ranges, so these
+    surfaces are answered from the parent-side scene scan and must not spawn
+    the worker.
+    """
+    backend = _make_backend(scene_file)
+    kp, kd = backend.get_actuator_gains()
+    np.testing.assert_allclose(kp, [10.0, 20.0, 30.0])
+    np.testing.assert_allclose(kd, [0.5, 1.0, 0.0])
+    np.testing.assert_allclose(
+        backend.get_actuator_ctrl_range(),
+        np.array([[-1.2, 1.2], [0.0, 0.0], [0.0, 0.0]], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        backend.get_joint_range(), np.array([[-1.5, 1.5]] * 3, dtype=np.float32)
+    )
+    assert backend._proc is None
+
+
+def test_scan_resolves_joint_default_classes(tmp_path: Path) -> None:
+    """Joint armature/frictionloss resolve through MJCF default classes."""
+    robot = """
+    <mujoco>
+      <default>
+        <default class="robot">
+          <joint armature="0.01" frictionloss="0.3"/>
+        </default>
+      </default>
+      <worldbody>
+        <body name="base" childclass="robot">
+          <freejoint/>
+          <body name="link0">
+            <joint name="j0" type="hinge"/>
+            <body name="link1">
+              <joint name="j1" type="hinge" armature="0.5"/>
+            </body>
+          </body>
+        </body>
+      </worldbody>
+    </mujoco>
+    """
+    scene = tmp_path / "scene.xml"
+    scene.write_text(textwrap.dedent(robot), encoding="utf-8")
+    metadata = scan_scene_metadata(str(scene))
+    assert metadata.joint_names == ("j0", "j1")
+    np.testing.assert_allclose(metadata.joint_armature, [0.01, 0.5])
+    np.testing.assert_allclose(metadata.joint_frictionloss, [0.3, 0.3])
+    assert np.isinf(metadata.joint_ranges[0]).all()
+
+
+def test_scan_fails_closed_on_non_position_actuator(tmp_path: Path) -> None:
+    """<motor>/other actuator types would break the position-target ctrl contract."""
+    robot = textwrap.dedent(_ROBOT_XML).replace(
+        "</mujoco>",
+        '<actuator><motor name="m0" joint="j0"/></actuator>\n</mujoco>',
+    )
+    scene = tmp_path / "scene.xml"
+    scene.write_text(robot, encoding="utf-8")
+    with pytest.raises(NotImplementedError, match="position"):
+        scan_scene_metadata(str(scene))
+
+
+def test_scan_fails_closed_on_asymmetric_forcerange(tmp_path: Path) -> None:
+    """PhysX dof effort limits are symmetric; asymmetric MJCF forceranges fail."""
+    robot = textwrap.dedent(_ROBOT_XML).replace(
+        'forcerange="-100 100"',
+        'forcerange="-50 100"',
+    )
+    scene = tmp_path / "scene.xml"
+    scene.write_text(robot, encoding="utf-8")
+    with pytest.raises(NotImplementedError, match="asymmetric forcerange"):
+        scan_scene_metadata(str(scene))
 
 
 def test_init_keyframe_selection_prefers_default_keyframe_name(tmp_path: Path) -> None:

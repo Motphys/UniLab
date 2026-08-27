@@ -425,3 +425,51 @@ def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> No
         backend.get_base_pos(), np.tile(target_xyz, (NUM_ENVS, 1)), atol=1e-4
     )
     np.testing.assert_allclose(np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0, atol=1e-5)
+
+
+@pytest.mark.slow
+def test_isaacgym_position_hold_is_stable() -> None:
+    """Holding the keyframe pose via position targets must not destabilize.
+
+    Regression guard for two real-runtime failures: ctrl must carry
+    *position targets* (PhysX DOF_MODE_POS with the MJCF kp/kv/forcerange),
+    and actor self-collision must stay disabled — the G1 collision capsules
+    overlap at the default pose (MuJoCo excludes those pairs), so with
+    self-collision on, the wrist/hip joints get pushed away within a few
+    substeps even when the drive target equals the current position.
+    """
+    if not _isaacgym_runtime_available():
+        pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+
+    backend = create_backend(
+        "isaacgym",
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        1.0 / 150.0,
+        base_name="pelvis",
+    )
+    backend.materialize()
+    try:
+        default_qpos = backend.get_default_qpos()
+        default_dof_pos = backend.get_default_dof_pos()
+        qpos = np.broadcast_to(default_qpos, (NUM_ENVS, default_qpos.shape[0])).copy()
+        qvel = np.zeros((NUM_ENVS, len(backend.get_init_qvel())), dtype=np.float32)
+        backend.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+        ctrl = np.broadcast_to(default_dof_pos, (NUM_ENVS, backend.num_actuators)).copy()
+        # 0.2s of sim time (ctrl_dt=0.02, 3 substeps per control step). The
+        # failure signature is immediate and large (wrist dof at -0.85 rad
+        # within 3 substeps when self-collision is on); normal PD gravity sag
+        # stays below ~0.15 rad in this window.
+        for _ in range(10):
+            backend.step(ctrl.astype(np.float32), nsteps=3)
+        drift = np.abs(backend.get_dof_pos() - default_dof_pos).max()
+        assert drift < 0.3, f"dof drift under position hold: {drift}"
+        base_z = backend.get_base_pos()[:, 2]
+        np.testing.assert_allclose(
+            base_z,
+            default_qpos[2],
+            atol=0.08,
+            err_msg="base height collapsed under position hold",
+        )
+    finally:
+        backend.close()

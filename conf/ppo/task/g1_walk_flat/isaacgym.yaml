@@ -3,10 +3,11 @@
 # worker). Keeps DENYLIST parity with the MuJoCo owner so cross-backend play
 # transfers 1:1. The backend consumes the self-contained MJCF scene from
 # base.yaml directly (scene fragments and generated terrain are unsupported)
-# and scans keyframes/sensors from it on the materialize cold path. Effort-mode
-# dofs carry no PD gains, so kp/kd randomization is disabled; with no native or
-# offline-record playback yet, playback is disabled at the config level instead
-# of failing closed mid-run.
+# and scans keyframes/sensors/actuators from it on the materialize cold path,
+# reproducing the <position kp kv forcerange> actuators with PhysX
+# DOF_MODE_POS. Runtime kp/kd randomization is unsupported, so pd_gains
+# stays disabled; with no native or offline-record playback yet, playback is
+# disabled at the config level instead of failing closed mid-run.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -29,7 +30,7 @@ env:
   # GPU device index handed to the worker sim; unset defaults to device 0.
   isaacgym_device_id: 0
   events:
-    # Effort-mode dofs carry no PD gains to randomize.
+    # Runtime kp/kd randomization is unsupported on the isaacgym worker.
     pd_gains: null
 play_profile:
   enabled: true
