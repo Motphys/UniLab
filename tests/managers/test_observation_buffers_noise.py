@@ -103,7 +103,8 @@ def test_uniform_noise_inplace_matches_reference_expression(operation: str) -> N
     cfg = UniformNoiseCfg(n_min=tuple(n_min), n_max=tuple(n_max), operation=operation)
 
     reference_rng = np.random.default_rng(1702)
-    unit = reference_rng.random(data.shape).astype(data.dtype, copy=False)
+    # Float32 data draws directly in float32 (issue #1350 fast path).
+    unit = reference_rng.random(data.shape, dtype=data.dtype)
     noise = unit * (n_max - n_min) + n_min
     if operation == "add":
         expected = data + noise
