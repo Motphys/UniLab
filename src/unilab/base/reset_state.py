@@ -940,7 +940,12 @@ class ResetStateTransaction:
                 f"ManagerBased reset-state {capability} env_ids out of range for "
                 f"{self._num_envs} environments: {ids.tolist()}"
             )
-        if np.unique(ids).size != ids.size:
+        # Duplicate check via bincount instead of np.unique: identical semantics
+        # (ids are already range-checked above) but avoids the sort — ~30x faster
+        # at num_envs=4096 and ~4x at typical partial-reset widths. This runs on
+        # every reset-state write (~6x per env step), so the sort cost was
+        # measurable in the collector host phase (issue #1352).
+        if ids.size > 1 and np.bincount(ids, minlength=self._num_envs).max() > 1:
             raise ValueError(
                 f"ManagerBased reset-state {capability} env_ids contain duplicates: {ids.tolist()}"
             )
