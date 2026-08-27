@@ -1,0 +1,23 @@
+# @package _global_
+# IsaacGym TD3 owner: inherits the 29-DoF off-policy Manager-Based contract and
+# keeps DENYLIST parity with the MuJoCo owner. The backend consumes the
+# self-contained MJCF scene directly (no scene fragments or generated terrain);
+# effort-mode dofs carry no PD gains, so kp/kd randomization is disabled;
+# playback stays disabled until the backend grows native or offline-record
+# playback.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: isaacgym
+  play_render_mode: none
+algo:
+  max_iterations: 100000
+env:
+  # GPU device index handed to the worker sim; unset defaults to device 0.
+  isaacgym_device_id: 0
+  events:
+    # Effort-mode dofs carry no PD gains to randomize.
+    pd_gains: null

@@ -6,14 +6,22 @@ Python >= 3.10, so IsaacGym cannot be installed into it; it is used through an
 external, standalone Python 3.8 environment located purely via environment
 variables, with no machine-local paths written into the repository.
 
-Current status: IsaacGym is not yet wired into the registry, task owners, or the
-train/eval pipelines. What already works in this repository is the physics
-benchmark script
+Current status: `IsaacGymBackend` (a subprocess backend whose physics runs in
+the external Python 3.8 worker) is implemented and registered; `g1_walk_flat`
+ships isaacgym owner configs
+(`conf/{ppo,appo,sac,td3,flashsac}/task/g1_walk_flat/isaacgym.yaml`), and the
+cross-backend contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
+mujoco/isaacgym pair. Playback rendering is not supported yet (owner configs
+set `play_render_mode: none`), and the top-level CLI `--sim` flag does not
+list isaacgym yet (same as drake; the backend is selected through the owner
+YAML). Real-machine end-to-end validation (MJCF import fidelity, etc.)
+depends on the external environment described below and is not covered by
+repo CI. The repository also ships a physics benchmark script
 `scripts/benchmark/physics/benchmark_physics_step_isaacgym.py`, which locates
 the external environment through variables such as
-`UNILAB_BENCHMARK_HOLOSOMA_DEPS`. Backend integration is planned under
-[issue #1332](https://github.com/unilabsim/UniLab/issues/1332); this page only
-covers preparing the external environment and validating it with the benchmark.
+`UNILAB_BENCHMARK_HOLOSOMA_DEPS`. This page covers preparing the external
+environment, validating it with the benchmark, and the current integration
+status.
 
 ## Prerequisites
 

@@ -111,6 +111,19 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "ppo",
+        ("task=g1_walk_flat/isaacgym",),
+        "G1WalkFlat",
+        "isaacgym",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_REWARDS,
+        _RESET_EVENTS,
+        False,
+        id="ppo-isaacgym",
+    ),
+    pytest.param(
+        "ppo",
         ("task=g1_23dof_walk_flat/mujoco",),
         "G1Walk23DofFlat",
         "mujoco",
@@ -463,6 +476,10 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     if backend == "mjwarp":
         assert env_cfg.mjwarp_nconmax == 128
         assert env_cfg.mjwarp_njmax == 256
+    if backend == "isaacgym":
+        assert env_cfg.isaacgym_device_id == 0
+        # No native or offline-record playback yet: disabled at config level.
+        assert hydra_cfg.training.play_render_mode == "none"
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23
@@ -480,7 +497,9 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
                     continue
                 module = nested.func.__module__
                 assert ".backend." not in module
-                assert not any(name in module for name in (".mujoco", ".motrix", ".mjwarp"))
+                assert not any(
+                    name in module for name in (".mujoco", ".motrix", ".mjwarp", ".isaacgym")
+                )
 
     _assert_no_omegaconf(env_cfg)
 
@@ -491,7 +510,7 @@ def test_g1_walk_registries_are_manager_only() -> None:
 
     assert metadata["G1WalkFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "mjwarp", "motrix"],
+        "available_backends": ["mujoco", "mjwarp", "motrix", "isaacgym"],
     }
     assert metadata["G1WalkRough"] == {
         "config_factory": "ManagerBasedRlEnvCfg",

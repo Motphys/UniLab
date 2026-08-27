@@ -14,7 +14,7 @@ from unilab.base.registry import ensure_registries
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
-BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix")
+BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix", "isaacgym")
 
 # Maintainer-confirmed completed training validations. Keep this mapping narrow:
 # generic config/contract coverage must not promote an unvalidated entrypoint.
@@ -24,6 +24,11 @@ _MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS = frozenset(
         ("sac_torch", "g1_walk_flat"),
     }
 )
+
+# Maintainer-confirmed completed training validations for the isaacgym
+# subprocess backend. The development fleet has no IsaacGym runtime yet, so no
+# entrypoint qualifies; keep this empty until real-hardware validation lands.
+_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -202,6 +207,11 @@ def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -
             spec.entrypoint_id,
             task_slug,
         ) in _MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS
+    if backend == "isaacgym":
+        return (
+            spec.entrypoint_id,
+            task_slug,
+        ) in _MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS
     return spec.generic_tested
 
 
@@ -302,20 +312,25 @@ def render_support_matrix(root: Path | None = None) -> str:
         "interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry "
         "identity，不代表对应算法、terrain、完整 DR 或 production training 支持。",
         "",
+        "`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`，且开发环境没有 IsaacGym "
+        "runtime：所有 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract "
+        "覆盖），不代表任何训练或 play 验证。owner YAML 通过 `training.play_render_mode=none` 在配置层"
+        "停用 playback（backend 尚无 native 或离线 record playback）。",
+        "",
         benchmark_note,
         recommendation_note,
         "",
         "### Entrypoint x Task Owner",
         "",
-        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix |",
-        "|------------|------------|--------|--------|--------|",
+        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym |",
+        "|------------|------------|--------|--------|--------|----------|",
     ]
 
     for row in build_support_rows(resolved_root):
         lines.append(
             f"| {row.entrypoint_label} | `{row.task_slug}` ({row.task_label}) | "
             f"{row.cells['mujoco'].level.label} | {row.cells['mjwarp'].level.label} | "
-            f"{row.cells['motrix'].level.label} |"
+            f"{row.cells['motrix'].level.label} | {row.cells['isaacgym'].level.label} |"
         )
 
     lines.extend(
@@ -327,6 +342,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`, `conf/sac/task/**`, `conf/td3/task/**`, `conf/flashsac/task/**`.",
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
+            "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (currently empty: no IsaacGym runtime on the development fleet).",
         ]
     )
     return "\n".join(lines)
