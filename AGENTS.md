@@ -14,13 +14,14 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 6. **Validate near risk**: 在最接近风险的边界补验证，不只跑顶层命令。
 7. **Cold-path asset access only**: asset/XML/model metadata 只允许在 init / materialization / cache 等低频路径处理；热路径不能解析 asset，也不能靠 `getattr` / `hasattr` 探测 backend 私有能力。
 
-## Roadmap 与 Issue Scope
+## Roadmap、Issue 与分支工作流
 
-- Roadmap 先用普通中文说明：只做什么、不做什么、预计规模和永久维护成本；maintainer 看不懂时必须停止并重写。
-- 一个 implementation issue 只允许一个主要结果，默认不超过 15 个文件、800 行净手写改动和一个 PR；超过即作为 umbrella 拆分，不能整单执行。
-- 批准 roadmap、umbrella 或“新建 issue”只授权规划；“开始开发”默认只授权当前明确确认的第一个 child issue。
-- 新公共 contract、execution path、runner/lifecycle、常规 CI、support 升级或 adapter production 化都必须单独确认，不得顺手扩张。
-- AI review、测试和 gate 不能代替产品判断，也不能证明 maintainer 已理解。
+- Roadmap 先用普通中文说明目标、交付边界、预计规模和永久维护成本，让 maintainer 能够据此作出产品与架构判断。
+- Implementation issue 围绕一个可审查的主要结果组织，并把实现该结果所需的代码、配置、测试和文档作为完整纵向切片。文件数和 LOC 用于估算 review 工作量；是否拆分取决于子项能否独立交付、验证、审查或回退。
+- Roadmap 获得开发授权后，先记录 declared base branch，再从该 base 的最新 head 创建 `dev/issue-<roadmap-number>-<slug>` 集成分支；declared base 可以是 `main`，也可以是上层 roadmap 的集成分支。每个 child issue 从本 roadmap 集成分支创建符合仓库类型惯例的分支并通过 PR 合回，最终由集成分支通过 PR 合回 declared base。
+- 已获批的 roadmap 范围支持连续推进 child issues。实施中新增公共 contract、execution path、runner/lifecycle、常规 CI、support 等级或 adapter production 化等长期责任时，先更新边界并请 maintainer 确认。
+- AI review、测试和 gate 为 maintainer 提供决策证据；产品方向与长期维护责任由 maintainer 确认。
+- 每个 PR 在创建或更新前于最终 head 运行 `make test-all`。base 为 `main` 的 PR 使用本地 gate、review 和远程 CI；其他 base 的 PR 使用本地 gate 与 review，远程资源集中用于实际进入 `main` 的合入边界。
 
 详细规则见[协作工作流](docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md#ai-roadmap-与-issue-scope-治理)。
 
@@ -70,7 +71,7 @@ gh api repos/<owner>/<repo>/issues/<number> --jq '.body'
 
 ### PR 创建与管理
 ```bash
-gh pr create --title "标题" --body "内容" --base main
+gh pr create --title "标题" --body "内容" --base <target-branch>
 gh pr list
 gh pr view
 ```
@@ -80,10 +81,10 @@ gh pr view
 创建或更新 PR 前必须满足：
 
 1. 最终提交已经完成，且 `git status --short --branch` 确认工作树干净。
-2. 最终提交已经通过 `make test-all`。
-3. 如果用户明确说明已经跑过 `make test-all`，不要重复跑；但必须在 PR body 的 Validation 里记录 `make test-all` 已完成。
-4. 如果 `make test-all` 未通过且用户没有明确 override，不要创建或更新 PR。
-5. 创建或更新 PR 后，必须按当前 head SHA 等待远程 CI 全部结束并通过后才能报告完成；`pending` / `in_progress`、旧 head 的成功结果或挂起 job 都不算通过。失败或挂起时必须查看对应 job 日志并修复，除非用户明确 override。
+2. 最终提交已经通过本地 `make test-all`，并在 PR body 的 Validation 中记录结果。用户明确说明已在同一最终 head 运行该命令时，直接采用其结果。
+3. 本地 gate 通过后创建或更新 PR；maintainer 明确批准的 override 需记录在 PR body 中。
+4. PR base 为 `main` 时，按当前 head SHA 等待所有适用的远程 CI 结束并通过后再报告完成。`pending` / `in_progress`、旧 head 的结果和挂起 job 继续跟进；失败时查看对应 job 日志并处理，maintainer 明确批准的 override 除外。
+5. PR base 为集成分支或其他非 `main` 分支时，本地 `make test-all` 结果与 review 共同构成完整合入 gate；远程 CI 在后续实际 base 为 `main` 的 PR 上执行。
 
 ### CI 工作流查看
 ```bash
@@ -97,7 +98,7 @@ gh run list --status=failure
 ```bash
 gh api repos/unilabsim/UniLab/issues/174 --jq '.title, .body'
 git push -u origin fix/issue-174-ppo-config-alignment
-gh pr create --title "fix: xxx" --body "Fixes #174" --base main
+gh pr create --title "fix: xxx" --body "Fixes #174" --base <target-branch>
 ```
 
 ## Context

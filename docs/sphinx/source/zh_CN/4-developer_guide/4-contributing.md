@@ -62,7 +62,7 @@ make test-slow
 make test-all
 ```
 
-对于仅涉及文档的改动，运行：
+文档改动在 `make test-all` 之外运行以下针对性验证：
 
 ```bash
 uv run pytest tests/scripts/test_check_docs.py -q
@@ -70,8 +70,9 @@ cd docs/sphinx
 UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.txt sphinx-build -b html -n source build/html
 ```
 
-`Docs` GitHub Actions workflow 会在匹配的 PR 和 push 上运行同样的 prose-only
-构建，也可以在 GitHub Actions 网页界面通过 `workflow_dispatch` 手动触发。它不会用
+`Docs` GitHub Actions workflow 会在 base 为 `main` 的匹配 PR 和 `main` push 上运行
+同样的 prose-only 构建，也可以在 GitHub Actions 网页界面通过 `workflow_dispatch`
+手动触发。它不会用
 `pip install -e .` 安装 UniLab，不生成 API reference 页面，也不发布外部文档仓库。
 
 如果要在本地对完整站点（含面向 `UniLab-doc` 发布流程的 API reference 页面）做最终
@@ -88,8 +89,12 @@ uv run --no-sync sphinx-build -j auto -b html -n source build/html
 
 - 使用 Conventional Commits，例如 `feat:`、`fix:`、`docs:`、`refactor:`、
   `test:` 与 `chore:`。
+- 普通 PR 以 `main` 为 base；roadmap child PR 以对应
+  `dev/issue-<roadmap-number>-<slug>` 集成分支为 base。完整约定见
+  {doc}`5-contributing_workflow`。
 - 在 PR 中关联驱动该工作的 issue。
 - 列出实际运行过的验证命令。
+- 每个 PR 在创建或更新前于最终本地 head 通过 `make test-all`。
 - 说明行为在 MuJoCo、Motrix、macOS 或 Linux 之间是否存在差异。
 - 对于代码/配置改动，在依赖顶层 smoke 命令之前，先运行最接近所改动契约的
   测试。
@@ -137,9 +142,20 @@ tests/
 
 ## CI 工作流
 
-指向 `main` 的 PR 会运行 `.github/workflows/ci.yml` 中的五个 job：`ruff-lint`、
-`ruff-format`、`mypy`、`pyright` 与 `test`。每个都是必需检查，也可通过
-`workflow_dispatch` 手动触发。同一分支上进行中的运行会被自动取消。
+远程 CI 以 PR base 为边界：
+
+| PR base | 本地 gate | 远程 gate |
+| --- | --- | --- |
+| `main` | 最终本地 head 通过 `make test-all` | 当前 PR head 的所有适用检查完成并通过 |
+| 其他分支（包括 roadmap 集成分支） | 最终本地 head 通过 `make test-all` | 本地结果作为完整测试 gate；远程执行由后续实际 base 为 `main` 的 PR 承担 |
+
+因此 child PR 在本地验证和 review 后即可合入集成分支。Roadmap 的最终 PR 合回它声明的
+base；该 base 为 `main` 时运行远程集成验证，为其他分支时继续采用本地 gate。PR body
+记录实际本地命令与结果，base 为 `main` 时再记录当前 head 的远程检查状态。
+
+指向 `main` 的 PR 会运行 `.github/workflows/ci.yml` 中的六个 job：`ruff-lint`、
+`ruff-format`、`mypy`、`pyright`、`benchmark-smoke` 与 `test`。这些 job 也可通过
+`workflow_dispatch` 用于主线边界诊断。同一分支上进行中的运行会被自动取消。
 
 | Job | 内容 |
 | --- | --- |
@@ -147,7 +163,8 @@ tests/
 | `ruff-format` | `uv run --no-sync ruff format --check .` |
 | `mypy` | `uv run mypy src/unilab` |
 | `pyright` | `uv run pyright` |
-| `test` | `uv sync --extra motrix`（CPU torch），再 `uv run --no-sync pytest -m "not slow" --cov=unilab --cov-fail-under=25` |
+| `benchmark-smoke` | CPU torch 环境中的 `uv run --no-sync python scripts/benchmark/smoke_test.py` |
+| `test` | `uv sync --extra mujoco --extra motrix`（CPU torch），再 `uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-fail-under=25` |
 
 `test` job 施加覆盖率门槛（`--cov-fail-under=25`）；这个下限只随测试护栏增强而
 逐步上调。文档改动由同一套件中的 `tests/scripts/test_check_docs.py` 校验。独立的

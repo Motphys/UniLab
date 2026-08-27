@@ -58,8 +58,8 @@ off-policy 算法则使用异步 runner、共享缓冲区，以及位于 `src/un
 | Backend 路径 | 对应 backend 的 smoke run，必要时补 slow test |
 | 训练入口 | 相关测试加 1 iteration smoke run |
 
-快速路径用 `make test`；提 PR 前用 `make test-all`（`make check` 加
-`make test-cov`）。
+快速路径用 `make test`；提 PR 前用 `make test-all`（`make check`、
+`make test-cov` 与 `make test-benchmark-smoke`）。
 
 ## 评审清单
 
