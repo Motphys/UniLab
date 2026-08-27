@@ -969,7 +969,10 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
 
             time.sleep(0.5)
 
-            reward_history: deque = deque(maxlen=100)
+            # Recent collector reports; each entry is already the collector's
+            # rolling 100-episode mean, so a short window keeps the logged
+            # reward timely without losing smoothing.
+            reward_history: deque = deque(maxlen=10)
             latest_reward_components: dict[str, float] = {}
             has_logged_reward = False
             last_buf_log = 0

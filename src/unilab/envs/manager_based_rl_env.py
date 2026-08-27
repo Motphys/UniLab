@@ -579,6 +579,14 @@ class ManagerBasedRlEnv(NpEnv):
         if self._state is not None:
             for name, values in reset_obs.items():
                 self._state.obs[name][ids] = values
+            if self._autoreset_reset_active:
+                # Autoreset runs at the tail of step(): keep this step's
+                # per-step log entries (reward/* etc., computed pre-reset) and
+                # layer the reset extras (Episode_Reward/* etc.) on top, so
+                # consumers still see the transition's reward breakdown.
+                step_log = self._state.info.get("log")
+                if step_log:
+                    log = {**step_log, **log}
             self._state.info["log"] = log
             if not self._autoreset_reset_active:
                 self._state.terminated[ids] = False
