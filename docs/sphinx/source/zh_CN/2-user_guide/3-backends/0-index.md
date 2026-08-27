@@ -57,4 +57,5 @@ Task/backend/entrypoint 的支持情况是按证据分级的。请参阅
 1-mujoco
 2-motrix
 3-choosing_a_backend
+4-isaacgym
 ```
