@@ -57,10 +57,10 @@ uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
 
 `g1_wbt_obs` owner 是与部署对齐的 off-policy 观测配置：pelvis IMU 状态
 （`pelvis_local_linvel` / `pelvis_gyro` / `pelvis_upvector`）加上 per-term 历史观测
-（`noise_config.obs_history_length: 5`），与部署侧的 `ObservationManager` 按字节对齐。
-部署工具在 `scripts/deploy/`，观测对齐由 `tests/scripts/test_obs_alignment_g1_wbt.py`
-交叉校验。当 Motrix sim2sim 回放需要引用其他日志根目录下的 checkpoint 时，用
-`uv run eval` 透传绝对路径：
+（`noise_config.obs_history_length: 5`），逐项按最旧优先展平，使得按逐项历史装配的
+硬件运行时读到同一个向量。该顺序由 `tests/scripts/test_obs_alignment_g1_wbt.py`
+守护；硬件侧契约见仿真到真机部署指南。当 Motrix sim2sim 回放需要引用其他日志根目录下的
+checkpoint 时，用 `uv run eval` 透传绝对路径：
 
 ```bash
 uv run eval --algo sac --task g1_motion_tracking --sim motrix \

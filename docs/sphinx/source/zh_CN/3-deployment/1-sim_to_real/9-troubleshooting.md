@@ -25,10 +25,11 @@
 1. **关节顺序被调换。** 检查 `policy.onnx` 的输入宽度与你电机驱动器中的关节顺序。
    用 `unilab-export-scene` 导出训练时的关节顺序。
 2. **动作缩放单位不匹配。** 策略输出未缩放的值；驱动器期望的是弧度，而你喂给它的
-   是归一化的 [-1, 1]。在把目标发送给驱动器之前，应用 `deploy_config.yaml` 中的
-   `action_scale` / 默认角度约定。
-3. **观测布局不匹配。** 将 `deploy_config.yaml` 的 `obs_layout` 与训练 owner 比较，
-   并在硬件上运行前用 `scripts/deploy/sim_prototype.py` 进行验证。
+   是归一化的 [-1, 1]。在把目标发送给驱动器之前，应用训练 owner YAML 中的
+   `env.control_config.action_scale` / 默认角度约定，并原样复现该 owner 的标量或
+   列表形态。
+3. **观测布局不匹配。** 将硬件回路装配出的内容与训练 owner 的 `_build_actor_obs`
+   比较——先比分项顺序，再比逐项历史顺序。
 
 ## Allegro / Sharpa 手内操作中方块掉落
 
@@ -51,7 +52,7 @@
 
 - 完整的硬件轨迹（整段运行的 `obs / action / wall_clock`）。
 - 用于训练的仿真侧 YAML：`runs/<run>/config.yaml`。
-- `policy.onnx`，以及对于 G1 WBT 路径的 `deploy_config.yaml`。
+- `policy.onnx`，以及训练它所用的确切任务 owner YAML 路径。
 - 一段使用**同一**种子的仿真回合视频：`eval --seed <same>
   --render-mode record`。
 - 如果有的话，该运行所在 commit 与 `main` 之间的 `git diff`。
