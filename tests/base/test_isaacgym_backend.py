@@ -49,10 +49,11 @@ _ROBOT_XML = """
         <geom name="g0" size="0.1"/>
         <body name="link1">
           <joint name="j1" type="hinge"/>
-          <geom name="foot_geom" size="0.1"/>
+          <geom name="g1" size="0.1"/>
           <body name="link2">
             <joint name="j2" type="hinge"/>
             <geom name="g2" size="0.1"/>
+            <geom name="foot_geom" size="0.1"/>
           </body>
         </body>
       </body>
@@ -294,7 +295,7 @@ def test_materialize_binds_metadata_and_slots(backend: IsaacGymBackend) -> None:
     np.testing.assert_allclose(backend.get_base_pos(), [[0, 0, 0.8], [0, 0, 0.8]], atol=1e-6)
     np.testing.assert_allclose(backend.get_dof_pos(), [[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]], atol=1e-6)
     np.testing.assert_allclose(np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0)
-    assert backend.model.num_bodies == 3
+    assert backend.model.num_bodies == 4
 
 
 def test_init_applies_scene_keyframe(scene_file: str) -> None:
@@ -311,6 +312,44 @@ def test_init_applies_scene_keyframe(scene_file: str) -> None:
         np.testing.assert_allclose(
             backend.get_default_dof_pos(), backend.get_dof_pos()[0], atol=1e-7
         )
+    finally:
+        backend.close()
+
+
+def test_xml_metadata_available_before_materialize(scene_file: str) -> None:
+    """Keyframe/default qpos are pure parent-side XML metadata.
+
+    Env construction (``resolve_scene_default_qpos``) queries them before
+    ``materialize()`` spawns the worker; values must be identical afterwards.
+    """
+    backend = _make_backend(scene_file)
+    expected_qpos = np.array([0, 0, 0.8, 1, 0, 0, 0, 0.1, 0.2, 0.3], dtype=np.float32)
+    np.testing.assert_allclose(backend.get_keyframe_qpos("home"), expected_qpos)
+    np.testing.assert_allclose(backend.get_default_qpos(), expected_qpos)
+    np.testing.assert_allclose(backend.get_default_dof_pos(), [0.1, 0.2, 0.3])
+    # Pure-XML metadata is available pre-materialize (env constructors read
+    # these before the worker handshake).
+    assert backend.num_actuators == 3
+    assert backend.num_dof_vel == 3
+    np.testing.assert_allclose(backend.get_init_qvel(), np.zeros(9))
+    np.testing.assert_array_equal(
+        backend.get_body_ids(["base", "link1"]), np.array([0, 2], dtype=np.int32)
+    )
+    assert backend.get_actuator_names() == ("j0", "j1", "j2")
+    layout = backend.get_root_state_layout("base")
+    assert layout.qpos_indices == tuple(range(7))
+    # Worker-handshake-dependent surfaces materialize lazily on first use:
+    # none of the pure-XML queries above spawned the worker.
+    assert backend._proc is None
+    _ = backend.model
+    assert backend._proc is not None
+
+    backend.materialize()
+    try:
+        np.testing.assert_allclose(backend.get_keyframe_qpos("home"), expected_qpos)
+        np.testing.assert_allclose(backend.get_default_qpos(), expected_qpos)
+        np.testing.assert_allclose(backend.get_default_dof_pos(), [0.1, 0.2, 0.3])
+        np.testing.assert_allclose(backend.get_dof_pos(), [[0.1, 0.2, 0.3]] * NUM_ENVS, atol=1e-6)
     finally:
         backend.close()
 
@@ -657,13 +696,14 @@ def test_g1_scene_framezaxis_sensors_resolve_from_real_xml(
     from unilab.base.backend.isaacgym.sensors import scan_scene_metadata
 
     scene = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
-    # Give the mock the real MJCF joint set so the scene's "stand" keyframe
-    # (29 dofs) maps onto the fake asset by name, as on the real worker.
-    joint_names = scan_scene_metadata(scene).joint_names
-    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_DOF_NAMES", ",".join(joint_names))
+    # Give the mock the real MJCF joint/body sets so the scene's "stand"
+    # keyframe (29 dofs) maps onto the fake asset by name, as on the real
+    # worker, and the XML↔worker name-order validation passes.
+    scene_metadata = scan_scene_metadata(scene)
+    monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_DOF_NAMES", ",".join(scene_metadata.joint_names))
     monkeypatch.setenv(
         "UNILAB_ISAACGYM_MOCK_BODY_NAMES",
-        "pelvis,torso_link,left_ankle_roll_link,right_ankle_roll_link",
+        ",".join(name or f"unnamed_{i}" for i, name in enumerate(scene_metadata.body_names)),
     )
     backend = _make_backend(scene, base_name="pelvis")
     backend.materialize()
@@ -683,12 +723,18 @@ def test_g1_scene_framezaxis_sensors_resolve_from_real_xml(
         backend.close()
 
 
-def test_metadata_access_before_materialize_fails(scene_file: str) -> None:
+def test_state_access_before_materialize_lazy_spawns_worker(scene_file: str) -> None:
+    """State reads/step auto-materialize: the constructor stays light, but the
+    first state-dependent call performs the worker handshake (matching the
+    MuJoCo backend's fully-constructed availability)."""
     backend = _make_backend(scene_file)
     try:
-        with pytest.raises(RuntimeError, match="materialize"):
-            _ = backend.num_actuators
-        with pytest.raises(RuntimeError, match="materialize"):
-            backend.step(np.zeros((NUM_ENVS, 3), dtype=np.float32))
+        assert backend._proc is None
+        np.testing.assert_allclose(backend.get_dof_pos(), [[0.1, 0.2, 0.3]] * NUM_ENVS, atol=1e-6)
+        assert backend._proc is not None
+        # Explicit materialize() afterwards is a no-op.
+        backend.materialize()
+        backend.step(np.zeros((NUM_ENVS, 3), dtype=np.float32))
+        assert backend.get_dof_pos().shape == (NUM_ENVS, 3)
     finally:
         backend.close()

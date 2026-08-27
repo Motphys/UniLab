@@ -129,6 +129,10 @@ class SceneMetadata:
     scenes whose joints live in more than one file are not supported by the
     keyframe application path.
     """
+    body_names: tuple[str, ...] = ()
+    """Body names in MJCF document order (depth-first pre-order, worldbody excluded)."""
+    freejoint_body_name: str | None = None
+    """Name of the body owning the free joint (the floating root), if any."""
 
 
 def _iter_scene_files(model_file: Path) -> list[Path]:
@@ -169,8 +173,13 @@ def _scan_one_file(path: Path, metadata: dict) -> None:
 
     def walk_body(body: ET.Element) -> None:
         body_name = body.get("name", "")
+        # Depth-first pre-order matches MJCF body document order (body ids).
+        metadata["body_names"].append(body_name)
         for child in body:
-            if child.tag == "site" and child.get("name"):
+            if child.tag == "freejoint":
+                # The first body owning a free joint is the floating root.
+                metadata.setdefault("freejoint_body", body_name)
+            elif child.tag == "site" and child.get("name"):
                 site_name = child.get("name")
                 assert site_name is not None
                 metadata["site_attrs"][site_name] = dict(child.attrib)
@@ -367,6 +376,7 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
         "sensors": [],
         "keyframes": {},
         "joint_names": [],
+        "body_names": [],
     }
     for scene_file in _iter_scene_files(path):
         _scan_one_file(scene_file, raw)
@@ -392,6 +402,8 @@ def scan_scene_metadata(model_file: str) -> SceneMetadata:
         unsupported_sensors=unsupported,
         keyframes=raw["keyframes"],
         joint_names=tuple(str(name) for name in raw["joint_names"]),
+        body_names=tuple(str(name) for name in raw["body_names"]),
+        freejoint_body_name=raw.get("freejoint_body"),
     )
 
 

@@ -182,7 +182,9 @@ def main(argv: List[str]) -> int:
                 num_envs=int(payload["num_envs"]),
                 sim_dt=float(payload["sim_dt"]),
                 dof_names=_csv_env("UNILAB_ISAACGYM_MOCK_DOF_NAMES", ["j0", "j1", "j2"]),
-                body_names=_csv_env("UNILAB_ISAACGYM_MOCK_BODY_NAMES", ["base", "link0", "link1"]),
+                body_names=_csv_env(
+                    "UNILAB_ISAACGYM_MOCK_BODY_NAMES", ["base", "link0", "link1", "link2"]
+                ),
             )
             keyframe_qpos = payload.get("keyframe_qpos")
             if keyframe_qpos is not None:

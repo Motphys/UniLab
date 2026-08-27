@@ -10,7 +10,14 @@ Design invariants:
 
 - The constructor is light: it only validates arguments.  ``materialize()``
   spawns the worker, runs the INIT/META handshake, creates the shared-memory
-  slots, and attaches them (ATTACH_SLOTS) on the cold path.
+  slots, and attaches them (ATTACH_SLOTS) on the cold path.  It also runs
+  lazily on the first state/metadata access, so env constructors that query
+  the backend before the explicit lifecycle point behave like they do on the
+  MuJoCo backend (whose constructor leaves the model fully queryable).
+- Pure parent-side XML metadata (keyframes, default qpos, body/joint names,
+  dof counts) is available without the worker via a lazily cached MJCF scan;
+  the INIT handshake validates the worker's names match the XML document
+  order and fails closed on any reorder.
 - Bulk state crosses the process boundary through ``multiprocessing.shared_memory``
   only.  The stdin/stdout pipe carries length-prefixed pickle commands
   (``protocol.py``).  Hot-path getters read the shm caches written at the last
@@ -286,25 +293,35 @@ class IsaacGymBackend(SimBackend):
         self._model_info: IsaacGymModelInfo | None = None
         self._scene_metadata: SceneMetadata | None = None
         self._initial_qpos: np.ndarray | None = None
+        self._initial_qpos_resolved = False
         self._sensor_map: dict[str, tuple[SceneSensorSpec, int]] = {}
         self._body_id_by_name: dict[str, int] = {}
         self._dof_id_by_name: dict[str, int] = {}
         self._joint_range: np.ndarray | None = None
         self._ctrl_range: np.ndarray | None = None
         self._base_body_id = 0
+        self._closed = False
 
     # ------------------------------------------------------------------ #
     # Worker lifecycle (cold path)
     # ------------------------------------------------------------------ #
 
     def materialize(self) -> None:
-        """Spawn the worker, run the handshake, and bind shared-memory slots."""
+        """Spawn the worker, run the handshake, and bind shared-memory slots.
+
+        Idempotent. Called lazily by the first state/metadata access, so env
+        constructors that read shapes before the explicit lifecycle point work
+        like they do on the MuJoCo backend. A closed backend cannot be
+        materialized again.
+        """
         if self._proc is not None:
             return
-        # Parent-side MJCF scan (sensors, keyframes, joint document order)
-        # runs before spawn so the INIT payload can carry the keyframe pose.
-        self._scene_metadata = scan_scene_metadata(str(Path(self._scene.model_file).expanduser()))
-        self._initial_qpos = self._select_initial_keyframe(self._scene_metadata)
+        if self._closed:
+            raise IsaacGymWorkerError("isaacgym backend is closed and cannot be materialized again")
+        # Parent-side MJCF metadata (sensors, keyframes, joint document order)
+        # is resolved lazily on first access and reused here so the INIT
+        # payload can carry the keyframe pose.
+        self._resolve_initial_qpos()
         runtime: IsaacGymRuntime | None = None
         if self._worker_command is None:
             runtime = resolve_isaacgym_runtime()
@@ -343,7 +360,7 @@ class IsaacGymBackend(SimBackend):
                         if self._initial_qpos is None
                         else [float(value) for value in self._initial_qpos]
                     ),
-                    "mjcf_joint_names": list(self._scene_metadata.joint_names),
+                    "mjcf_joint_names": list(self._get_scene_metadata().joint_names),
                 },
                 expect=protocol.CMD_META,
             )
@@ -367,6 +384,26 @@ class IsaacGymBackend(SimBackend):
         # Subprocess liveness cannot rely on __del__ alone during interpreter
         # teardown; the atexit hook is unregistered by close().
         atexit.register(self.close)
+
+    def _get_scene_metadata(self) -> SceneMetadata:
+        """Return the parent-side MJCF scan, scanning lazily on first access.
+
+        This is pure XML metadata — no worker handshake is required, matching
+        the MuJoCo backend where the model (and thus keyframes) is available
+        right after construction.  ``materialize()`` reuses this cache.
+        """
+        if self._scene_metadata is None:
+            self._scene_metadata = scan_scene_metadata(
+                str(Path(self._scene.model_file).expanduser())
+            )
+        return self._scene_metadata
+
+    def _resolve_initial_qpos(self) -> np.ndarray | None:
+        """Lazily select the scene keyframe used as the backend default state."""
+        if not self._initial_qpos_resolved:
+            self._initial_qpos = self._select_initial_keyframe(self._get_scene_metadata())
+            self._initial_qpos_resolved = True
+        return self._initial_qpos
 
     def _select_initial_keyframe(self, metadata: SceneMetadata) -> np.ndarray | None:
         """Pick the scene's task-initial keyframe (cold path).
@@ -433,6 +470,7 @@ class IsaacGymBackend(SimBackend):
         )
         self._body_id_by_name = {name: index for index, name in enumerate(body_names)}
         self._dof_id_by_name = {name: index for index, name in enumerate(dof_names)}
+        self._validate_xml_metadata_against_worker()
         lower = np.asarray(meta["dof_lower"], dtype=np.float32)
         upper = np.asarray(meta["dof_upper"], dtype=np.float32)
         self._joint_range = (
@@ -442,6 +480,32 @@ class IsaacGymBackend(SimBackend):
         self._ctrl_range = (
             np.stack([-effort, effort], axis=1) if num_dof > 0 else np.zeros((0, 2), np.float32)
         )
+
+    def _validate_xml_metadata_against_worker(self) -> None:
+        """Fail closed when the MJCF importer changed names or ordering.
+
+        Pre-materialize metadata answers (body/joint ids, keyframe pose) come
+        from the parent-side XML scan; this handshake check makes those
+        answers contractual by verifying the IsaacGym asset preserved them.
+        """
+        assert self._model_info is not None
+        metadata = self._get_scene_metadata()
+        if metadata.body_names and tuple(self._model_info.body_names) != metadata.body_names:
+            raise IsaacGymWorkerError(
+                "IsaacGym's MJCF importer changed the rigid-body name order:\n"
+                f"  xml:    {metadata.body_names}\n"
+                f"  worker: {self._model_info.body_names}\n"
+                "Body ids resolved before materialize() would be wrong; fix the scene "
+                "or extend the backend to remap by name."
+            )
+        if metadata.joint_names and tuple(self._model_info.dof_names) != metadata.joint_names:
+            raise IsaacGymWorkerError(
+                "IsaacGym's MJCF importer changed the dof name order:\n"
+                f"  xml:    {metadata.joint_names}\n"
+                f"  worker: {self._model_info.dof_names}\n"
+                "Joint indices resolved before materialize() would be wrong; fix the "
+                "scene or extend the backend to remap by name."
+            )
 
     def _allocate_slots(self) -> None:
         assert self._model_info is not None
@@ -468,14 +532,14 @@ class IsaacGymBackend(SimBackend):
 
     def _resolve_sensor_map(self) -> dict[str, tuple[SceneSensorSpec, int]]:
         """Resolve supported scene sensors to (spec, body_id) on the cold path."""
-        assert self._scene_metadata is not None
+        metadata = self._get_scene_metadata()
         resolved: dict[str, tuple[SceneSensorSpec, int]] = {}
-        for name, spec in self._scene_metadata.sensors.items():
+        for name, spec in metadata.sensors.items():
             body_id = self._body_id_by_name.get(spec.body_name)
             if body_id is None:
                 # The MJCF importer may drop or rename bodies; record as
                 # unsupported so access fails closed with context.
-                self._scene_metadata.unsupported_sensors[name] = _unsupported_spec(
+                metadata.unsupported_sensors[name] = _unsupported_spec(
                     spec,
                     f"sensor body {spec.body_name!r} is not present in the IsaacGym "
                     "asset rigid-body list",
@@ -568,6 +632,7 @@ class IsaacGymBackend(SimBackend):
 
     def close(self) -> None:
         """Shut down the worker and release shared memory. Idempotent."""
+        self._closed = True
         proc, self._proc = self._proc, None
         shm_handles, self._shm_handles = list(self._shm_handles.values()), {}
         self._slots = {}
@@ -594,10 +659,13 @@ class IsaacGymBackend(SimBackend):
 
     def _require_materialized(self) -> IsaacGymModelInfo:
         if self._model_info is None:
-            raise RuntimeError(
-                "IsaacGymBackend metadata is unavailable before materialize(); "
-                "the worker handshake runs on the materialize cold path"
-            )
+            # Lazy cold path: the first state/metadata access materializes the
+            # worker, matching the MuJoCo backend whose constructor leaves the
+            # model fully queryable. Env construction reads state shapes
+            # (e.g. Entity._validate_joint_state) before the explicit
+            # materialize() lifecycle point.
+            self.materialize()
+        assert self._model_info is not None
         return self._model_info
 
     def _require_state(self, operation: str) -> None:
@@ -624,13 +692,33 @@ class IsaacGymBackend(SimBackend):
         """Return backend-owned model metadata; never a live physics object."""
         return self._require_materialized()
 
+    def _num_dof(self) -> int:
+        """DoF count from the worker handshake, falling back to the XML scan."""
+        if self._model_info is not None:
+            return self._model_info.num_dof
+        return len(self._get_scene_metadata().joint_names)
+
+    def _body_name_map(self) -> dict[str, int]:
+        """Body name→id map; worker-authoritative post-INIT, XML pre-INIT."""
+        if self._model_info is not None:
+            return self._body_id_by_name
+        metadata = self._get_scene_metadata()
+        return {name: index for index, name in enumerate(metadata.body_names) if name}
+
+    def _dof_name_map(self) -> dict[str, int]:
+        """Joint name→dof map; worker-authoritative post-INIT, XML pre-INIT."""
+        if self._model_info is not None:
+            return self._dof_id_by_name
+        metadata = self._get_scene_metadata()
+        return {name: index for index, name in enumerate(metadata.joint_names)}
+
     @property
     def num_actuators(self) -> int:
-        return self._require_materialized().num_dof
+        return self._num_dof()
 
     @property
     def num_dof_vel(self) -> int:
-        return self._require_materialized().num_dof
+        return self._num_dof()
 
     def get_actuator_ctrl_range(self) -> np.ndarray:
         self._require_materialized()
@@ -638,66 +726,78 @@ class IsaacGymBackend(SimBackend):
         return self._ctrl_range.copy()
 
     def get_actuator_names(self) -> tuple[str, ...]:
-        return self._require_materialized().dof_names
+        if self._model_info is not None:
+            return self._model_info.dof_names
+        return self._get_scene_metadata().joint_names
 
     def get_actuator_joint_names(self) -> tuple[str, ...]:
         """IsaacGym drives one DoF per joint, so actuator order equals DoF order."""
-        return self._require_materialized().dof_names
+        return self.get_actuator_names()
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         """Effort-mode dofs carry no PD gains; report zeros explicitly."""
-        info = self._require_materialized()
-        zeros = np.zeros((info.num_dof,), dtype=np.float32)
+        zeros = np.zeros((self._num_dof(),), dtype=np.float32)
         return zeros, zeros.copy()
 
     def get_scene_model_file(self) -> str | None:
         return str(self._scene.model_file)
 
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
-        metadata = self._scene_metadata
-        if metadata is None:
-            self._require_materialized()
-            metadata = self._scene_metadata
-        assert metadata is not None
+        # Pure parent-side XML metadata: available before materialize(),
+        # matching the MuJoCo backend (whose model loads in the constructor).
+        metadata = self._get_scene_metadata()
         try:
             qpos = metadata.keyframes[name]
         except KeyError as exc:
             available = ", ".join(sorted(metadata.keyframes))
             raise ValueError(f"Keyframe {name!r} not found; available: {available}") from exc
-        nq = _ROOT_QPOS_DIM + self._require_materialized().num_dof
+        nq = _ROOT_QPOS_DIM + len(metadata.joint_names)
         if qpos.size != nq:
             raise ValueError(
                 f"Keyframe {name!r} qpos has {qpos.size} entries; expected {nq} "
                 f"(7 root + {nq - 7} dofs) for the isaacgym layout"
             )
+        if self._model_info is not None and qpos.size != _ROOT_QPOS_DIM + self._model_info.num_dof:
+            raise ValueError(
+                f"Keyframe {name!r} qpos does not match the IsaacGym asset: "
+                f"{qpos.size} entries vs 7 root + {self._model_info.num_dof} dofs"
+            )
         return qpos.copy()
 
     def get_default_qpos(self) -> np.ndarray:
-        info = self._require_materialized()
-        if self._initial_qpos is not None:
+        initial_qpos = self._resolve_initial_qpos()
+        if initial_qpos is not None:
             # The selected scene keyframe is the backend default state (and the
             # post-INIT worker state).
-            return self._initial_qpos.copy()
-        qpos = np.zeros((_ROOT_QPOS_DIM + info.num_dof,), dtype=np.float32)
+            return initial_qpos.copy()
+        qpos = np.zeros((_ROOT_QPOS_DIM + self._num_dof(),), dtype=np.float32)
         qpos[3] = 1.0
         return qpos
 
     def get_default_dof_pos(self) -> np.ndarray:
-        info = self._require_materialized()
-        if self._initial_qpos is not None:
-            return self._initial_qpos[_ROOT_QPOS_DIM:].copy()
-        return np.zeros((info.num_dof,), dtype=np.float32)
+        initial_qpos = self._resolve_initial_qpos()
+        if initial_qpos is not None:
+            return initial_qpos[_ROOT_QPOS_DIM:].copy()
+        return np.zeros((self._num_dof(),), dtype=np.float32)
 
     def get_init_qvel(self) -> np.ndarray:
-        info = self._require_materialized()
-        return np.zeros((_ROOT_QVEL_DIM + info.num_dof,), dtype=np.float32)
+        return np.zeros((_ROOT_QVEL_DIM + self._num_dof(),), dtype=np.float32)
 
     def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
-        info = self._require_materialized()
-        if root_body_name != info.body_names[0]:
+        if self._model_info is not None:
+            root_name = self._model_info.body_names[0]
+        else:
+            metadata = self._get_scene_metadata()
+            if metadata.freejoint_body_name is None:
+                raise NotImplementedError(
+                    "backend 'isaacgym' capability 'root-state layout' requires the scene "
+                    "to declare a free joint (floating base)"
+                )
+            root_name = metadata.freejoint_body_name
+        if root_body_name != root_name:
             raise NotImplementedError(
                 "backend 'isaacgym' capability 'root-state layout' requires "
-                f"{root_body_name!r} to be the actor root body {info.body_names[0]!r}"
+                f"{root_body_name!r} to be the actor root body {root_name!r}"
             )
         return BackendRootStateLayout(
             qpos_indices=tuple(range(_ROOT_QPOS_DIM)),
@@ -705,11 +805,11 @@ class IsaacGymBackend(SimBackend):
         )
 
     def get_body_ids(self, names: Sequence[str]) -> np.ndarray:
-        self._require_materialized()
+        body_map = self._body_name_map()
         resolved: list[int] = []
         for name in names:
             try:
-                resolved.append(self._body_id_by_name[str(name)])
+                resolved.append(body_map[str(name)])
             except KeyError as exc:
                 raise ValueError(f"Body {name!r} not found in isaacgym model") from exc
         return np.asarray(resolved, dtype=np.int32)
@@ -727,6 +827,10 @@ class IsaacGymBackend(SimBackend):
         info = self._require_materialized()
         return np.asarray(info.gravity, dtype=np.float32).copy()
 
+    def get_joint_dof_indices(self, names: Sequence[str]) -> np.ndarray:
+        """Resolve named joints to absolute qvel indices (root 6 columns first)."""
+        return self._resolve_dof_ids(names) + _ROOT_QVEL_DIM
+
     def get_joint_dof_pos_indices(self, names: Sequence[str]) -> np.ndarray:
         return self._resolve_dof_ids(names)
 
@@ -740,11 +844,11 @@ class IsaacGymBackend(SimBackend):
         return self._resolve_dof_ids(names) + _ROOT_QVEL_DIM
 
     def _resolve_dof_ids(self, names: Sequence[str]) -> np.ndarray:
-        self._require_materialized()
+        dof_map = self._dof_name_map()
         resolved: list[int] = []
         for name in names:
             try:
-                resolved.append(self._dof_id_by_name[str(name)])
+                resolved.append(dof_map[str(name)])
             except KeyError as exc:
                 raise ValueError(f"Joint {name!r} not found in isaacgym model") from exc
         return np.asarray(resolved, dtype=np.int32)
@@ -943,8 +1047,7 @@ class IsaacGymBackend(SimBackend):
         but unmappable sensors fail closed with ``NotImplementedError``.
         """
         self._require_state("get_sensor_data")
-        metadata = self._scene_metadata
-        assert metadata is not None
+        metadata = self._get_scene_metadata()
         mapped = self._sensor_map.get(name)
         if mapped is None:
             unsupported = metadata.unsupported_sensors.get(name)
