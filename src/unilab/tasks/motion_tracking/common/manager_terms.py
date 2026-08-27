@@ -376,6 +376,12 @@ class MotionCommand(CommandTerm):
         those rows are gathered and scattered (partial-reset path). Rows outside
         env_ids keep the values produced by the last per-step refresh, which are
         still valid because untouched envs did not advance or resample frames.
+
+        Subclass contract (issue #1355): on the reset path the row-scoped
+        refresh may be skipped when `_resample_command` already ingested the
+        same rows through `_ingest_motion_rows`. A subclass that overrides this
+        method to refresh additional buffers must override
+        `_ingest_motion_rows` with the same additions (see BoxMotionCommand).
         """
         if env_ids is None:
             self.motion.get_motion_at_frame(self.time_steps, out=self._motion_data)
@@ -509,6 +515,17 @@ class MotionCommand(CommandTerm):
         )
 
     def _resample_command(self, env_ids: np.ndarray) -> None:
+        """Resample motion frames and stage the corresponding state writes.
+
+        The base implementation gathers the resampled frames once, ingests them
+        into the motion-reference buffers via `_ingest_motion_rows`, and exposes
+        the gather as `self._resample_motion` (issue #1355). Subclass contract:
+        call ``super()._resample_command(env_ids)`` first and reuse
+        `self._resample_motion` for additional writes instead of re-gathering;
+        a subclass that does not call super() leaves `_resample_ingested_ids`
+        unset, and the reset-path `_update_command` falls back to a fresh
+        `_refresh_motion(env_ids)` gather.
+        """
         frames = self.sampler.sample_frames(env_ids)
         motion = self.motion.get_motion_at_frame(frames)
         count = len(env_ids)
