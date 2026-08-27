@@ -63,13 +63,9 @@ def test_partial_reset_row_scoped_noise() -> None:
     assert rng_after_rows != rng_after_full
     # The un-noised trailing term stays bit-identical to the full-batch compute.
     state_dim = env.obs.shape[1]
-    np.testing.assert_array_equal(
-        rows["policy"][:, state_dim:], full["policy"][ids][:, state_dim:]
-    )
+    np.testing.assert_array_equal(rows["policy"][:, state_dim:], full["policy"][ids][:, state_dim:])
     # Noised columns differ from the full-batch slice (row-scoped draws).
-    assert not np.array_equal(
-        rows["policy"][:, :state_dim], full["policy"][ids][:, :state_dim]
-    )
+    assert not np.array_equal(rows["policy"][:, :state_dim], full["policy"][ids][:, :state_dim])
     # The same RNG state reproduces the same reset rows deterministically.
     env.rng.bit_generator.state = rng_state
     rows_again = manager.compute(update_history=True, env_ids=ids)
