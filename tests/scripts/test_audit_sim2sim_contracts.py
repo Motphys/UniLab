@@ -32,9 +32,9 @@ def test_discover_offpolicy_trees_group_by_task() -> None:
     flashsac = audit._discover("flashsac")
     td3 = audit._discover("td3")
 
-    assert {"mujoco", "motrix", "mjwarp"}.issubset(sac["g1_walk_flat"])
-    assert {"mujoco", "motrix", "mjwarp"}.issubset(flashsac["g1_walk_flat"])
-    assert td3["g1_walk_flat"] == ["mujoco"]
+    assert {"mujoco", "motrix", "mjwarp", "isaacgym"}.issubset(sac["g1_walk_flat"])
+    assert {"mujoco", "motrix", "mjwarp", "isaacgym"}.issubset(flashsac["g1_walk_flat"])
+    assert td3["g1_walk_flat"] == ["isaacgym", "mujoco"]
 
 
 @pytest.mark.parametrize(

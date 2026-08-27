@@ -29,7 +29,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONF_ROOT = REPO_ROOT / "conf"
 ABSENT = "<absent>"
 
-PRIMARY_PAIR = ("mujoco", "motrix")
+# Audited backend pairs. mujoco<->motrix is the historical primary contract;
+# mujoco<->isaacgym covers the subprocess backend owners.
+CONTRACT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("mujoco", "motrix"),
+    ("mujoco", "isaacgym"),
+)
 
 
 def _values_equal(a: Any, b: Any) -> bool:
@@ -73,13 +78,13 @@ def _discover(tree: str) -> dict[str, list[str]]:
     return {task: sorted(backends) for task, backends in sorted(out.items())}
 
 
-def _diff_field(path: str, mj: Any, mx: Any) -> dict[str, Any] | None:
-    mj_absent, mx_absent = mj is ABSENT, mx is ABSENT
-    if mj_absent and mx_absent:
+def _diff_field(path: str, left: Any, right: Any) -> dict[str, Any] | None:
+    left_absent, right_absent = left is ABSENT, right is ABSENT
+    if left_absent and right_absent:
         return None
-    if mj_absent != mx_absent:
+    if left_absent != right_absent:
         kind = "asymmetric-presence"
-    elif _values_equal(mj, mx):
+    elif _values_equal(left, right):
         return None
     else:
         kind = "value-diff"
@@ -89,9 +94,29 @@ def _diff_field(path: str, mj: Any, mx: Any) -> dict[str, Any] | None:
     return {
         "field": path,
         "kind": kind,
-        "mujoco": _fmt(mj),
-        "motrix": _fmt(mx),
+        "left": _fmt(left),
+        "right": _fmt(right),
         "guard_enforced": guard_enforced,
+    }
+
+
+def _audit_pair(
+    left_name: str,
+    right_name: str,
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> dict[str, Any]:
+    deny = [d for p in DENYLIST if (d := _diff_field(p, left.get(p, ABSENT), right.get(p, ABSENT)))]
+    warn = [
+        d for p in WARNING_LIST if (d := _diff_field(p, left.get(p, ABSENT), right.get(p, ABSENT)))
+    ]
+    return {
+        "pair": f"{left_name}<->{right_name}",
+        "left_name": left_name,
+        "right_name": right_name,
+        "verdict": "TRANSFERABLE" if not deny else "BLOCKED",
+        "deny_diffs": deny,
+        "warn_diffs": warn,
     }
 
 
@@ -110,20 +135,17 @@ def audit_tree(tree: str) -> list[dict[str, Any]]:
             except Exception as exc:  # noqa: BLE001 - report, do not abort the sweep
                 errors[backend] = f"{type(exc).__name__}: {exc}"
 
-        mj_name, mx_name = PRIMARY_PAIR
-        if mj_name in values and mx_name in values:
-            mj, mx = values[mj_name], values[mx_name]
-            deny = [
-                d for p in DENYLIST if (d := _diff_field(p, mj.get(p, ABSENT), mx.get(p, ABSENT)))
-            ]
-            warn = [
-                d
-                for p in WARNING_LIST
-                if (d := _diff_field(p, mj.get(p, ABSENT), mx.get(p, ABSENT)))
-            ]
-            verdict = "TRANSFERABLE" if not deny else "BLOCKED"
+        pairs = [
+            _audit_pair(left_name, right_name, values[left_name], values[right_name])
+            for left_name, right_name in CONTRACT_PAIRS
+            if left_name in values and right_name in values
+        ]
+        if not pairs:
+            verdict = "N/A (no audited backend pair)"
+        elif any(pair["verdict"] == "BLOCKED" for pair in pairs):
+            verdict = "BLOCKED"
         else:
-            deny, warn, verdict = [], [], "N/A (no mujoco+motrix pair)"
+            verdict = "TRANSFERABLE"
 
         rows.append(
             {
@@ -131,8 +153,7 @@ def audit_tree(tree: str) -> list[dict[str, Any]]:
                 "task": task,
                 "backends": backends,
                 "verdict": verdict,
-                "deny_diffs": deny,
-                "warn_diffs": warn,
+                "pairs": pairs,
                 "errors": errors,
             }
         )
@@ -144,24 +165,34 @@ def _print_human(rows: list[dict[str, Any]]) -> None:
         print(f"\n### [{row['tree']}] {row['task']}  backends={row['backends']}")
         if row["errors"]:
             print(f"  COMPOSE ERRORS: {row['errors']}")
-        print(f"  VERDICT (mujoco<->motrix): {row['verdict']}")
-        for diff in row["deny_diffs"]:
-            flag = (
-                "" if diff["guard_enforced"] else "  [guard-blind-spot: re-check dataclass default]"
-            )
-            print(
-                f"    DENY  {diff['field']} [{diff['kind']}]: "
-                f"mujoco={diff['mujoco']}  motrix={diff['motrix']}{flag}"
-            )
-        for diff in row["warn_diffs"]:
-            print(
-                f"    warn  {diff['field']} [{diff['kind']}]: "
-                f"mujoco={diff['mujoco']}  motrix={diff['motrix']}"
-            )
+        if not row["pairs"]:
+            print(f"  VERDICT: {row['verdict']}")
+            continue
+        for pair in row["pairs"]:
+            print(f"  VERDICT ({pair['pair']}): {pair['verdict']}")
+            for diff in pair["deny_diffs"]:
+                flag = (
+                    ""
+                    if diff["guard_enforced"]
+                    else "  [guard-blind-spot: re-check dataclass default]"
+                )
+                print(
+                    f"    DENY  {diff['field']} [{diff['kind']}]: "
+                    f"{pair['left_name']}={diff['left']}  {pair['right_name']}={diff['right']}{flag}"
+                )
+            for diff in pair["warn_diffs"]:
+                print(
+                    f"    warn  {diff['field']} [{diff['kind']}]: "
+                    f"{pair['left_name']}={diff['left']}  {pair['right_name']}={diff['right']}"
+                )
 
     transferable = [r for r in rows if r["verdict"] == "TRANSFERABLE"]
     blocked = [r for r in rows if r["verdict"] == "BLOCKED"]
-    blind = [r for r in blocked if any(not d["guard_enforced"] for d in r["deny_diffs"])]
+    blind = [
+        r
+        for r in blocked
+        if any(not d["guard_enforced"] for pair in r["pairs"] for d in pair["deny_diffs"])
+    ]
     print("\n" + "=" * 80)
     print(
         f"TRANSFERABLE: {len(transferable)}   BLOCKED: {len(blocked)}   "
@@ -170,7 +201,12 @@ def _print_human(rows: list[dict[str, Any]]) -> None:
     if blind:
         print("Tasks with an asymmetric-presence DENYLIST field the guard may NOT enforce:")
         for r in blind:
-            fields = [d["field"] for d in r["deny_diffs"] if not d["guard_enforced"]]
+            fields = [
+                d["field"]
+                for pair in r["pairs"]
+                for d in pair["deny_diffs"]
+                if not d["guard_enforced"]
+            ]
             print(f"  - [{r['tree']}] {r['task']}: {fields}")
 
 

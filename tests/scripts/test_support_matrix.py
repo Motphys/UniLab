@@ -38,9 +38,35 @@ def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     torch_row = _row("PPO (torch)", "g1_walk_flat")
     sac_row = _row("SAC (torch)", "g1_walk_flat")
 
-    assert BACKENDS == ("mujoco", "mjwarp", "motrix")
+    assert BACKENDS == ("mujoco", "mjwarp", "motrix", "isaacgym")
     assert torch_row.cells["mjwarp"].level == EvidenceLevel.TESTED
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED
+
+
+def test_support_matrix_marks_g1_isaacgym_owners_configured_only():
+    """isaacgym owners carry registry + owner YAML + compose evidence only."""
+    for entrypoint_label in (
+        "PPO (torch)",
+        "APPO (torch)",
+        "SAC (torch)",
+        "TD3 (torch)",
+        "FlashSAC (torch)",
+    ):
+        row = _row(entrypoint_label, "g1_walk_flat")
+        assert row.cells["isaacgym"].level == EvidenceLevel.CONFIGURED
+
+
+def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():
+    rows = build_support_rows(Path(__file__).resolve().parents[2])
+
+    tested = {
+        (row.entrypoint_label, row.task_slug)
+        for row in rows
+        if row.cells["isaacgym"].level >= EvidenceLevel.TESTED
+    }
+    assert tested == set()
+    go2_row = _row("PPO (torch)", "go2_joystick_flat")
+    assert go2_row.cells["isaacgym"].level == EvidenceLevel.MISSING
 
 
 def test_support_matrix_does_not_promote_unvalidated_mjwarp_entries():
