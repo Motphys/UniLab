@@ -39,9 +39,14 @@ Design invariants:
   ``xyzw``; the worker converts at the shm boundary).  ``set_state`` qvel root
   columns carry body-frame angular velocity per the ``SimBackend`` contract;
   the worker converts to IsaacGym's world-frame angular velocity.
-- Domain randomization, native rendering/playback, and pre-step control
-  callbacks are fail-closed (see ``get_dr_capabilities`` /
-  ``apply_interval_randomization`` / ``set_pre_step_control``).
+- Domain randomization and pre-step control callbacks are fail-closed (see
+  ``get_dr_capabilities`` / ``apply_interval_randomization`` /
+  ``set_pre_step_control``).
+- Native rendering (interactive viewer and headless camera capture) is owned
+  by the worker process, which holds the sim handle: ``init_renderer`` /
+  ``render`` / ``capture_video_frame`` forward to it over the pipe (one frame
+  per reply for capture).  Rendering requires a GPU sim (``device_id >= 0``);
+  CPU-pipeline sims fail closed.
 
 Sensor contract: IsaacGym has no MuJoCo sensor concept.  The scene MJCF is
 scanned once on the cold path (``sensors.py``) and supported sensors
@@ -61,6 +66,7 @@ Known real-runtime notes (validated on hardware during the G1 bring-up):
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import select
 import subprocess
@@ -75,8 +81,12 @@ from typing import Any, BinaryIO, cast
 import numpy as np
 
 from unilab.base.backend.base import (
+    BackendPlayCapabilities,
+    BackendPlayRenderPlan,
     BackendRootStateLayout,
+    RenderClosedError,
     SimBackend,
+    normalize_play_render_mode,
 )
 from unilab.base.scene import SceneCfg
 from unilab.dr.types import (
@@ -96,6 +106,7 @@ from .dependencies import (
     build_worker_env,
     resolve_isaacgym_runtime,
 )
+from .playback import run_isaacgym_playback
 from .sensors import (
     KIND_CONTACT_FOUND,
     KIND_FRAMEPOS,
@@ -108,6 +119,8 @@ from .sensors import (
     UnsupportedSensorSpec,
     scan_scene_metadata,
 )
+
+logger = logging.getLogger(__name__)
 
 _MODULE_DIR = Path(__file__).resolve().parent
 _WORKER_PATH = _MODULE_DIR / "worker.py"
@@ -123,6 +136,35 @@ _ROOT_QVEL_DIM = 6
 # PhysX clamps |force| <= dof effort; MJCF forcerange "0 0" (or absent) means
 # unlimited, mapped to a finite stand-in (float32-safe) for the dof property.
 _UNLIMITED_DOF_EFFORT = 1e20
+
+
+def _display_available() -> bool:
+    """Return whether a display is reachable for the interactive viewer."""
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _normalize_camera_kwargs(camera_kwargs: dict[str, Any] | None) -> dict[str, float]:
+    """Map repository camera kwargs onto the worker's spherical camera offset.
+
+    Callers pass the repo-wide MuJoCo-style keys (``cam_distance`` /
+    ``cam_elevation`` / ``cam_azimuth``); MuJoCo's negative-elevation
+    convention is converted to the worker's height-above-horizon angle.
+    """
+    kwargs = dict(camera_kwargs or {})
+    distance = float(kwargs.get("cam_distance", kwargs.get("distance", 2.0)))
+    elevation = kwargs.get("cam_elevation")
+    elevation_deg = (
+        float(-float(elevation))
+        if elevation is not None
+        else float(kwargs.get("elevation_deg", 20.0))
+    )
+    azimuth = kwargs.get("cam_azimuth")
+    azimuth_deg = float(azimuth) if azimuth is not None else float(kwargs.get("azimuth_deg", 90.0))
+    return {
+        "distance": distance,
+        "elevation_deg": elevation_deg,
+        "azimuth_deg": azimuth_deg,
+    }
 
 
 class IsaacGymWorkerError(RuntimeError):
@@ -252,7 +294,6 @@ class IsaacGymBackend(SimBackend):
         device_id: int | None = None,
         worker_timeout_s: float | None = None,
         worker_command: list[str] | None = None,
-        headless: bool = True,
         **unexpected_kwargs: Any,
     ) -> None:
         if unexpected_kwargs:
@@ -292,7 +333,6 @@ class IsaacGymBackend(SimBackend):
         if self._worker_timeout_s <= 0.0:
             raise ValueError(f"worker_timeout_s must be positive, got {self._worker_timeout_s!r}")
         self._worker_command = list(worker_command) if worker_command is not None else None
-        self._headless = bool(headless)
         self.backend_type = "isaacgym"
         self._pre_step_control_fn = None
         self._scene_cleanup_handle = None
@@ -312,6 +352,13 @@ class IsaacGymBackend(SimBackend):
         self._dof_id_by_name: dict[str, int] = {}
         self._base_body_id = 0
         self._closed = False
+        # Native rendering state (worker-owned viewer/camera; see the play
+        # contract section below).  ``_render_config`` pins the first
+        # init_renderer(headless, capture) pair like the Motrix backend.
+        self._graphics_enabled = False
+        self._render_config: tuple[bool, bool] | None = None
+        self._viewer_open = False
+        self._capture_ready = False
 
     # ------------------------------------------------------------------ #
     # Worker lifecycle (cold path)
@@ -364,7 +411,6 @@ class IsaacGymBackend(SimBackend):
                     "num_envs": self._num_envs,
                     "sim_dt": self._sim_dt,
                     "device_id": self._device_id,
-                    "headless": self._headless,
                     "isaacgym_python": isaacgym_python,
                     "keyframe_qpos": (
                         None
@@ -377,6 +423,7 @@ class IsaacGymBackend(SimBackend):
                 expect=protocol.CMD_META,
             )
             self._bind_model_metadata(meta)
+            self._graphics_enabled = bool(meta.get("graphics_enabled", False))
             self._validate_initial_keyframe()
             self._allocate_slots()
             self._request(
@@ -1031,6 +1078,163 @@ class IsaacGymBackend(SimBackend):
             "isaacgym does not support interval randomization; disable "
             "push/body-force/body-velocity terms in the owner YAML."
         )
+
+    # ------------------------------------------------------------------ #
+    # Native rendering / playback (worker-owned viewer and camera sensor)
+    # ------------------------------------------------------------------ #
+
+    def get_play_capabilities(self) -> BackendPlayCapabilities:
+        return BackendPlayCapabilities(
+            supports_native_interactive_renderer=True,
+            supports_native_video_capture=True,
+        )
+
+    def resolve_play_render_plan(
+        self,
+        *,
+        play_render_mode: str | None,
+        play_steps: int | None,
+        output_video: str | os.PathLike[str] | None,
+    ) -> BackendPlayRenderPlan:
+        mode = normalize_play_render_mode(play_render_mode)
+        if mode == "auto":
+            # The interactive viewer needs a reachable display; headless hosts
+            # fall back to offscreen camera-sensor recording.
+            mode = "interactive" if _display_available() else "record"
+        if mode == "none":
+            return BackendPlayRenderPlan(
+                mode=mode,
+                headless=True,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        if mode == "interactive":
+            return BackendPlayRenderPlan(
+                mode=mode,
+                headless=False,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        assert mode == "record"
+        if play_steps is None:
+            raise ValueError(
+                "isaacgym record playback requires a finite training.play_steps value."
+            )
+        if output_video is None:
+            raise ValueError("isaacgym record playback requires an output video path.")
+        return BackendPlayRenderPlan(
+            mode=mode,
+            headless=True,
+            record_video=True,
+            num_steps=int(play_steps),
+            output_video=output_video,
+        )
+
+    def init_renderer(
+        self,
+        spacing: float = 1.0,
+        *,
+        offset_mode: str = "grid",
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize the worker-side viewer and/or capture camera.
+
+        ``spacing``/``offset_mode`` are accepted for contract parity and
+        ignored: envs are already laid out on the worker sim's grid.
+        """
+        del spacing, offset_mode
+        config = (bool(headless), bool(capture))
+        if self._render_config is not None:
+            if self._render_config != config:
+                raise RuntimeError(
+                    "isaacgym renderer is already initialized with "
+                    f"headless={self._render_config[0]}, capture={self._render_config[1]}; "
+                    f"cannot reinitialize it with headless={config[0]}, capture={config[1]}"
+                )
+            return
+        self._require_materialized()
+        if not self._graphics_enabled:
+            raise NotImplementedError(
+                "isaacgym rendering requires a GPU sim (env.isaacgym_device_id >= 0); "
+                "this backend runs on the CPU pipeline without a graphics context"
+            )
+        reply = self._request(
+            protocol.CMD_INIT_RENDERER,
+            {
+                "headless": config[0],
+                "capture": config[1],
+                "width": int(width),
+                "height": int(height),
+                "camera": _normalize_camera_kwargs(camera_kwargs),
+            },
+            expect=protocol.CMD_META,
+        )
+        self._render_config = config
+        self._viewer_open = bool(reply.get("viewer"))
+        self._capture_ready = bool(reply.get("capture"))
+
+    def render(self) -> None:
+        """Draw one interactive viewer frame through the worker."""
+        if not self._viewer_open:
+            self.init_renderer(headless=False)
+        reply = self._request(protocol.CMD_RENDER_FRAME, None, expect=protocol.CMD_META)
+        if bool(reply.get("closed")):
+            self._viewer_open = False
+            raise RenderClosedError("isaacgym viewer window was closed")
+
+    def capture_video_frame(self) -> np.ndarray:
+        """Capture one RGB frame from the worker's camera sensor."""
+        if not self._capture_ready:
+            self.init_renderer(headless=True, capture=True)
+        reply = self._request(protocol.CMD_CAPTURE_FRAME, None, expect=protocol.CMD_META)
+        return np.asarray(reply["frame"], dtype=np.uint8)
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize: Any,
+        step: Any,
+        num_steps: int | None,
+        output_video: str | os.PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Any = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Any = None,
+    ) -> str | None:
+        del frame_state_getter, extra_data_getter
+        should_record_video = (
+            bool(record_video) if record_video is not None else output_video is not None
+        )
+        should_run_headless = bool(headless) if headless is not None else should_record_video
+        try:
+            return run_isaacgym_playback(
+                backend=self,
+                env=env,
+                initialize=initialize,
+                step=step,
+                num_steps=num_steps,
+                output_video=output_video,
+                render_spacing=render_spacing,
+                render_offset_mode=render_offset_mode,
+                headless=should_run_headless,
+                record_video=should_record_video,
+                camera_kwargs=camera_kwargs,
+            )
+        except RenderClosedError:
+            if not should_run_headless and not should_record_video:
+                logger.info("Render window closed.")
+                return None
+            raise
 
     # ------------------------------------------------------------------ #
     # Cached state getters (shm views; no worker round trip)

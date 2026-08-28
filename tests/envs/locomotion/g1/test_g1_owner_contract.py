@@ -478,8 +478,9 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.mjwarp_njmax == 256
     if backend == "isaacgym":
         assert env_cfg.isaacgym_device_id == 0
-        # No native or offline-record playback yet: disabled at config level.
-        assert hydra_cfg.training.play_render_mode == "none"
+        # Native rendering (viewer + camera-sensor record) is supported;
+        # playback stays on the base config's auto mode.
+        assert hydra_cfg.training.play_render_mode == "auto"
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23

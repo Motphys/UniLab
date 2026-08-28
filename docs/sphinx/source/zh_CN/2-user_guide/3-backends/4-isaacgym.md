@@ -8,8 +8,9 @@ IsaacGym（NVIDIA Preview 4）是 NVIDIA 已停止维护（EOL）的 GPU 物理�
 当前状态：`IsaacGymBackend`（subprocess 后端，物理跑在外部 Python 3.8
 worker 中）已实现并注册到 registry；`g1_walk_flat` 提供 isaacgym owner
 配置（`conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`），跨后端契约审计
-（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔isaacgym。回放渲染
-尚未支持（owner 配置已将 `play_render_mode` 置为 `none`）。真机端到端
+（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔isaacgym。回放渲染走
+IsaacGym 原生渲染（viewer + camera sensor），交互与录视频两种模式均可用
+（见下文「训练与评估」）。真机端到端
 验证依赖下文所述的外部环境，不在仓库 CI 中覆盖。仓库内另有物理性能
 benchmark 脚本
 `scripts/benchmark/physics/benchmark_physics_step_isaacgym.py`，它通过
@@ -98,6 +99,30 @@ uv run train --algo sac --task g1_walk_flat --sim isaacgym
 uv run train --algo ppo --task g1_walk_flat --sim isaacgym
 ```
 
+回放渲染由 IsaacGym 原生提供：交互模式在 worker 进程里打开 gym viewer，
+录制模式用 camera sensor 离屏渲染并写出 `play_video.mp4`（相机跟踪
+env 0 的 root，视角可用 `training.cam_distance` / `cam_elevation` /
+`cam_azimuth` 调整）。`play_render_mode=auto`（默认）在有显示器
+（`DISPLAY`/`WAYLAND_DISPLAY`）时进入交互模式，无显示器的机器自动降级为
+录制模式；录制需要有限的 `training.play_steps`（默认配置已给出）。
+
+```bash
+# 训练后自动进入回放（auto）；无显示器的服务器自动录视频
+uv run train --algo sac --task g1_walk_flat --sim isaacgym
+
+# 对已训练的 checkpoint 做评估：交互 viewer
+uv run eval --algo sac --task g1_walk_flat --sim isaacgym \
+    --render-mode interactive --load-run <run_dir_name>
+
+# 无显示器环境录视频（强制 record）
+uv run eval --algo sac --task g1_walk_flat --sim isaacgym \
+    --render-mode record --load-run <run_dir_name> training.play_steps=800
+```
+
+注意：交互 viewer 与 camera 采集都要求 worker 的 sim 跑在 GPU 上
+（`env.isaacgym_device_id >= 0`）；CPU pipeline 的 sim 没有图形上下文，
+渲染请求会 fail-closed 并给出提示。
+
 常用覆盖（Hydra 参数直接跟在命令后面）：
 
 ```bash
@@ -111,9 +136,9 @@ uv run train --algo sac --task g1_walk_flat --sim isaacgym env.isaacgym_device_i
 
 跨后端迁移（sim2sim）：isaacgym owner 配置与 mujoco owner 在契约守卫
 （`src/unilab/utils/sim2sim.py`）审计下全部字段兼容（TRANSFERABLE），
-同一 task 的 checkpoint 可跨后端使用。注意 `uv run eval` 的回放渲染尚未
-在 isaacgym 后端实现（owner 配置 `play_render_mode: none` 会在脚本层跳过
-回放），跨后端策略评估将在回放能力落地后可用。
+同一 task 的 checkpoint 可跨后端使用；回放渲染在 isaacgym 上已可用，
+跨后端策略评估（在 isaacgym 上播放 mujoco 训练的 checkpoint，或反向）
+可直接用上面的 `uv run eval` 命令完成。
 
 ## 手动安装
 
