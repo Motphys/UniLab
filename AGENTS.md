@@ -54,6 +54,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - SAC / TD3 / FlashSAC: `scripts/train_sac.py` / `scripts/train_td3.py` / `scripts/train_flashsac.py`
 - env contract: `src/unilab/base/np_env.py`
 - backend contract: `src/unilab/base/backend/base.py`
+- isaacgym subprocess 后端（Python 3.8 worker + shm 协议）: `src/unilab/base/backend/isaacgym/`
 - training run helpers: `src/unilab/training/run.py`
 - visualization helpers: `src/unilab/visualization/`
 - shared numeric helpers: `src/unilab/utils/rotation.py`, `src/unilab/utils/geometry.py`

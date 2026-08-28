@@ -457,3 +457,15 @@ def test_g1_walk_flat_cross_backend_play_is_guarded(tmp_path):
     motrix = _compose_task("g1_walk_flat/motrix")
     with pytest.raises(CrossBackendIncompatibleError):
         resolve_sim2sim_config(tmp_path, motrix)
+
+
+def test_g1_walk_flat_mujoco_to_isaacgym_play_passes_guard(tmp_path):
+    # The isaacgym owner keeps DENYLIST parity with the MuJoCo owner, so a
+    # MuJoCo-trained checkpoint passes the contract guard for isaacgym play.
+    snapshot = extract_contract_snapshot(_compose_task("g1_walk_flat/mujoco"))
+    (tmp_path / "run_config.json").write_text(
+        json.dumps({"contract_snapshot": snapshot}), encoding="utf-8"
+    )
+    isaacgym = _compose_task("g1_walk_flat/isaacgym")
+    assert OmegaConf.select(isaacgym, "training.sim_backend") == "isaacgym"
+    assert resolve_sim2sim_config(tmp_path, isaacgym) is isaacgym

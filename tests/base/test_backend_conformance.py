@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 _FACTORY_FILE = SRC_ROOT / "unilab" / "base" / "backend" / "__init__.py"
 _BACKEND_CLASS_NAMES = frozenset(
-    {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend"}
+    {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend", "IsaacGymBackend"}
 )
 _TASK_SOURCE_ROOTS = (
     SRC_ROOT / "unilab" / "envs",
@@ -69,6 +69,12 @@ def _drake_batch_available() -> bool:
     return bool(available)
 
 
+def _isaacgym_runtime_available() -> bool:
+    from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
+
+    return isaacgym_runtime_available()
+
+
 def _require_backend(backend_type: str) -> None:
     if backend_type == "mujoco":
         pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -80,6 +86,9 @@ def _require_backend(backend_type: str) -> None:
     elif backend_type == "drake":
         if not _drake_batch_available():
             pytest.skip("drake batch extension not available")
+    elif backend_type == "isaacgym":
+        if not _isaacgym_runtime_available():
+            pytest.skip("isaacgym requires the Python 3.8 worker runtime")
 
 
 _BACKEND_PARAMS = [
@@ -87,6 +96,7 @@ _BACKEND_PARAMS = [
     pytest.param("motrix", id="motrix"),
     pytest.param("drake", id="drake"),
     pytest.param("mjwarp", id="mjwarp", marks=pytest.mark.slow),
+    pytest.param("isaacgym", id="isaacgym", marks=pytest.mark.slow),
 ]
 
 
@@ -415,3 +425,84 @@ def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> No
         backend.get_base_pos(), np.tile(target_xyz, (NUM_ENVS, 1)), atol=1e-4
     )
     np.testing.assert_allclose(np.linalg.norm(backend.get_base_quat(), axis=-1), 1.0, atol=1e-5)
+
+
+@pytest.mark.slow
+def test_isaacgym_position_hold_is_stable() -> None:
+    """Holding the keyframe pose via position targets must not destabilize.
+
+    Regression guard for two real-runtime failures: ctrl must carry
+    *position targets* (PhysX DOF_MODE_POS with the MJCF kp/kv/forcerange),
+    and actor self-collision must stay disabled — the G1 collision capsules
+    overlap at the default pose (MuJoCo excludes those pairs), so with
+    self-collision on, the wrist/hip joints get pushed away within a few
+    substeps even when the drive target equals the current position.
+    """
+    if not _isaacgym_runtime_available():
+        pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+
+    backend = create_backend(
+        "isaacgym",
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        1.0 / 150.0,
+        base_name="pelvis",
+    )
+    backend.materialize()
+    try:
+        default_qpos = backend.get_default_qpos()
+        default_dof_pos = backend.get_default_dof_pos()
+        qpos = np.broadcast_to(default_qpos, (NUM_ENVS, default_qpos.shape[0])).copy()
+        qvel = np.zeros((NUM_ENVS, len(backend.get_init_qvel())), dtype=np.float32)
+        backend.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+        ctrl = np.broadcast_to(default_dof_pos, (NUM_ENVS, backend.num_actuators)).copy()
+        # 0.2s of sim time (ctrl_dt=0.02, 3 substeps per control step). The
+        # failure signature is immediate and large (wrist dof at -0.85 rad
+        # within 3 substeps when self-collision is on); normal PD gravity sag
+        # stays below ~0.15 rad in this window.
+        for _ in range(10):
+            backend.step(ctrl.astype(np.float32), nsteps=3)
+        drift = np.abs(backend.get_dof_pos() - default_dof_pos).max()
+        assert drift < 0.3, f"dof drift under position hold: {drift}"
+        base_z = backend.get_base_pos()[:, 2]
+        np.testing.assert_allclose(
+            base_z,
+            default_qpos[2],
+            atol=0.08,
+            err_msg="base height collapsed under position hold",
+        )
+    finally:
+        backend.close()
+
+
+@pytest.mark.slow
+def test_isaacgym_native_camera_capture_renders_scene() -> None:
+    """Real-runtime guard for the native capture path used by record playback.
+
+    The camera sensor tracks env 0's root; after a physics step the frame must
+    be a real render (correct shape, non-uniform pixels — the ground plane and
+    the robot differ in color).
+    """
+    if not _isaacgym_runtime_available():
+        pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+
+    backend = create_backend(
+        "isaacgym",
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="pelvis",
+    )
+    backend.materialize()
+    try:
+        backend.init_renderer(headless=True, capture=True, width=320, height=240)
+        backend.step(np.zeros((NUM_ENVS, backend.num_actuators), dtype=np.float32))
+        frame = backend.capture_video_frame()
+        assert frame.shape == (240, 320, 3)
+        assert frame.dtype == np.uint8
+        assert np.unique(frame).size > 8, "camera frame looks blank"
+        # A second init with the same config is a no-op and keeps capturing.
+        backend.init_renderer(headless=True, capture=True, width=320, height=240)
+        assert backend.capture_video_frame().shape == (240, 320, 3)
+    finally:
+        backend.close()

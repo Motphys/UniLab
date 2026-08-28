@@ -660,3 +660,54 @@ def test_demo_main_teaser_dispatches_to_render_teaser(
     rc = cli.demo_main(["teaser"])
     assert rc == 0
     assert called == ["rendered"]
+
+
+def _pretend_isaacgym_runtime(monkeypatch: pytest.MonkeyPatch, available: bool) -> None:
+    from unilab.base.backend.isaacgym import dependencies as isaacgym_deps
+
+    monkeypatch.setattr(isaacgym_deps, "isaacgym_runtime_available", lambda: available)
+
+
+def test_isaacgym_without_worker_runtime_exits_with_setup_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "conf").mkdir()
+    _pretend_isaacgym_runtime(monkeypatch, available=False)
+
+    with pytest.raises(SystemExit, match="setup_isaacgym_env.sh"):
+        cli.build_command(
+            mode="train",
+            algo="sac",
+            task="g1_walk_flat",
+            sim="isaacgym",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_isaacgym_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_sac.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "sac" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "isaacgym.yaml").write_text(
+        "training:\n  sim_backend: isaacgym\n", encoding="utf-8"
+    )
+    _pretend_isaacgym_runtime(monkeypatch, available=True)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="train",
+        algo="sac",
+        task="g1_walk_flat",
+        sim="isaacgym",
+        overrides=["algo.num_envs=64"],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_sac.py"),
+        "task=g1_walk_flat/isaacgym",
+        "algo.num_envs=64",
+    ]
