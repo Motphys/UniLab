@@ -6,9 +6,8 @@ page in this section drills into one stage.
 ## What "sim-to-real" means in UniLab
 
 A deployable UniLab policy is the exported policy plus the exact observation
-and action contracts used by the selected task owner. The G1 WBT helper path
-materializes this as `policy.onnx`, `deploy_config.yaml`, and a motion binary;
-other robots need an equivalent hardware-side runtime that:
+and action contracts used by the selected task owner. UniLab ships the training
+side and the ONNX export; every robot needs a hardware-side runtime that:
 
 1. Reads sensors → assembles the **same observation vector** the policy saw
    in simulation.

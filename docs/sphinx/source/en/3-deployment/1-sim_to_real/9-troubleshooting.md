@@ -27,12 +27,13 @@ Almost always one of:
    order in your motor driver. Use `unilab-export-scene` to dump the
    training joint order.
 2. **Action scale unit mismatch.** Policy outputs unscaled values; the
-   driver expects rad, but you fed it normalized [-1, 1]. Apply
-   the `action_scale` / default-angle convention from `deploy_config.yaml`
-   before sending targets to the driver.
-3. **Observation layout mismatch.** Compare `deploy_config.yaml` `obs_layout`
-   against the training owner and validate it with `scripts/deploy/sim_prototype.py`
-   before running on hardware.
+   driver expects rad, but you fed it normalized [-1, 1]. Apply the
+   `env.actions.joint_pos.scale` / default-angle convention from the training
+   owner YAML before sending targets to the driver, reproducing the owner's
+   resolved per-actuator scale exactly.
+3. **Observation layout mismatch.** Compare what your hardware loop assembles
+   against the owner's `env.observations.actor.terms` — term order first, then
+   per-term history ordering.
 
 ## Cube drops in Allegro / Sharpa inhand
 
@@ -55,7 +56,7 @@ investigation tomorrow takes 30 minutes instead of 4 hours:
 
 - Full hardware trace (`obs / action / wall_clock` for the entire run).
 - Sim-side YAML used to train: `runs/<run>/config.yaml`.
-- `policy.onnx` and, for the G1 WBT path, `deploy_config.yaml`.
+- `policy.onnx` and the exact task owner YAML path it was trained from.
 - One sim rollout video using **the same** seed: `eval --seed <same>
   --render-mode record`.
 - A `git diff` between the run's commit and `main` if any.
