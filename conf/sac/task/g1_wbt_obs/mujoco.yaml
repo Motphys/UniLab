@@ -145,7 +145,7 @@ env:
         operation: abs
         shared_random: true
     encoder_bias:
-      func: unilab.tasks.motion_tracking.g1.manager_terms.randomize_encoder_bias
+      func: unilab.envs.mdp.randomize_encoder_bias
       mode: reset
       params:
         bias_range: [-0.01, 0.01]

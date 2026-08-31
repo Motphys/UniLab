@@ -1,7 +1,10 @@
-"""Task-owned Manager-Based terms for quadruped locomotion.
+"""Shared Manager-Based terms and term bases for the locomotion families.
 
-The equations come from UniLab's existing Go1/Go2 joystick tasks.  The adaptation
-uses community ``func + params`` terms, NumPy, and the base-owned sensor facade.
+The equations come from UniLab's existing Go1/Go2 joystick tasks and are reused
+by quadruped and biped owners alike.  The adaptation uses community
+``func + params`` terms, NumPy, and the base-owned sensor facade.  Reward terms
+that read named XML sensors live in ``sensor_reward_terms.py`` and build on the
+``SensorTermBase`` cold-path binding contract defined here.
 """
 
 from __future__ import annotations
@@ -105,6 +108,37 @@ def _asset(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> Entity:
     return cast("Entity", env.scene[asset_cfg.name])
 
 
+class SensorTermBase(ManagerTermBase):
+    """Cold-path named-sensor binding shared by locomotion manager terms."""
+
+    _allowed_params: ClassVar[frozenset[str]] = frozenset()
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        unexpected = set(cfg.params) - self._allowed_params
+        if unexpected:
+            raise TypeError(f"{self.name} received unsupported parameters: {sorted(unexpected)}")
+
+    def _bind(self, sensor_names: tuple[str, ...]) -> ManagerSensorView:
+        try:
+            return self._env.scene.bind_sensor_data(sensor_names)
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                f"Manager term '{self.name}' named-sensor capability could not be "
+                f"materialized for {sensor_names}: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _read(view: ManagerSensorView, term: str) -> np.ndarray:
+        try:
+            return view.read()
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                f"Manager term '{term}' named-sensor capability failed on "
+                f"backend '{view.backend_type}': {exc}"
+            ) from exc
+
+
 def track_lin_vel_xy_exp(
     env: ManagerBasedRlEnv,
     std: float,
@@ -186,6 +220,11 @@ def base_height_l2(
         (env.num_envs, 3),
     )
     return np.asarray(np.square(position[:, 2] - target), dtype=get_global_dtype())
+
+
+def alive(env: ManagerBasedRlEnv) -> np.ndarray:
+    """Constant reward for every step, unconditional as in the legacy tasks."""
+    return np.ones((env.num_envs,), dtype=get_global_dtype())
 
 
 def joint_deviation_l1(
@@ -473,6 +512,8 @@ class feet_air_while_standing(ManagerTermBase):
 
 
 __all__ = [
+    "SensorTermBase",
+    "alive",
     "ang_vel_xy_l2",
     "base_height_l2",
     "feet_air_while_standing",
