@@ -24,6 +24,10 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "bench_nsteps": cfg.sim_substeps,
         "mjwarp_nconmax": cfg.mjwarp_nconmax,
         "mjwarp_njmax": cfg.mjwarp_njmax,
+        "genesis_integrator": cfg.genesis_integrator,
+        "genesis_constraint_solver": cfg.genesis_constraint_solver,
+        "genesis_friction_cone": cfg.genesis_friction_cone,
+        "genesis_solver_iterations": cfg.genesis_solver_iterations,
         "drake_backend_mode": cfg.drake_backend_mode,
         "drake_nthread": cfg.drake_nthread,
         "isaacgym_device_id": cfg.isaacgym_device_id,
@@ -79,6 +83,19 @@ def _mjwarp_available() -> bool:
     return mjwarp_dependencies_available()
 
 
+def _load_genesis_backend() -> Any:
+    """Load the independent optional Genesis backend on demand."""
+    from .genesis.backend import GenesisBackend
+
+    return GenesisBackend
+
+
+def _genesis_available() -> bool:
+    from .genesis.dependencies import genesis_dependencies_available
+
+    return genesis_dependencies_available()
+
+
 def _load_motrix_scene_export(name: str) -> Any:
     from .motrix import scene
 
@@ -116,7 +133,7 @@ def create_backend(
 
     Args:
         backend_type: ``"mujoco"``, ``"mjwarp"``, ``"motrix"``, ``"drake"``,
-            or ``"isaacgym"``.
+            ``"isaacgym"``, or ``"genesis"``.
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
@@ -151,6 +168,10 @@ def create_backend(
     drake_nthread = kwargs.pop("drake_nthread", None)
     isaacgym_device_id = kwargs.pop("isaacgym_device_id", None)
     isaacgym_worker_timeout_s = kwargs.pop("isaacgym_worker_timeout_s", None)
+    genesis_integrator = kwargs.pop("genesis_integrator", None)
+    genesis_constraint_solver = kwargs.pop("genesis_constraint_solver", None)
+    genesis_friction_cone = kwargs.pop("genesis_friction_cone", None)
+    genesis_solver_iterations = kwargs.pop("genesis_solver_iterations", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if body_state_required:
@@ -199,6 +220,40 @@ def create_backend(
         kwargs["nconmax"] = mjwarp_nconmax
         kwargs["njmax"] = mjwarp_njmax
         return cast(SimBackend, MjwarpBackend(scene, num_envs, sim_dt, **kwargs))
+    if backend_type == "genesis":
+        GenesisBackend = _load_genesis_backend()
+        # Body states are served natively from link-addressed getters; the
+        # flag exists for backends that need extra scene materialization.
+        kwargs.pop("add_body_sensors", None)
+        if position_actuator_gains is not None:
+            raise ValueError(
+                "genesis imports the MJCF position-actuator gains directly; "
+                "position_actuator_gains has no Genesis equivalent."
+            )
+        ignored_non_defaults = {
+            key: value
+            for key, value, default in (
+                ("post_step_forward_sensor", post_step_forward_sensor, None),
+                ("iterations", iterations, None),
+                ("chunk_size", chunk_size, None),
+                ("adaptive_chunk_size", adaptive_chunk_size, False),
+                ("cpu_ids", cpu_ids, None),
+                ("bench_nsteps", bench_nsteps, 1),
+            )
+            if value != default
+        }
+        if ignored_non_defaults:
+            rendered = ", ".join(f"{key}={value!r}" for key, value in ignored_non_defaults.items())
+            warnings.warn(
+                "genesis ignores non-default MuJoCo-only backend options: " + rendered,
+                UserWarning,
+                stacklevel=2,
+            )
+        kwargs["integrator"] = genesis_integrator
+        kwargs["constraint_solver"] = genesis_constraint_solver
+        kwargs["friction_cone"] = genesis_friction_cone
+        kwargs["solver_iterations"] = genesis_solver_iterations
+        return cast(SimBackend, GenesisBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "motrix":
         MotrixBackend, motrix_available = _load_motrix_backend()
         if not motrix_available:
@@ -268,6 +323,10 @@ def __getattr__(name: str):
         return _load_mjwarp_backend()
     if name == "MJWARP_AVAILABLE":
         return _mjwarp_available()
+    if name == "GenesisBackend":
+        return _load_genesis_backend()
+    if name == "GENESIS_AVAILABLE":
+        return _genesis_available()
     if name == "DrakeBackend":
         return _load_drake_backend()
     if name == "DRAKE_AVAILABLE":
@@ -293,11 +352,13 @@ __all__ = [
     "RenderClosedError",
     "MuJoCoBackend",
     "MjwarpBackend",
+    "GenesisBackend",
     "MotrixBackend",
     "DrakeBackend",
     "IsaacGymBackend",
     "DRAKE_AVAILABLE",
     "MJWARP_AVAILABLE",
+    "GENESIS_AVAILABLE",
     "add_sensor",
     "compute_tracking_fk",
     "create_discardvisual_xml",

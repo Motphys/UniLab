@@ -26,7 +26,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 _FACTORY_FILE = SRC_ROOT / "unilab" / "base" / "backend" / "__init__.py"
 _BACKEND_CLASS_NAMES = frozenset(
-    {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend", "IsaacGymBackend"}
+    {
+        "MuJoCoBackend",
+        "MotrixBackend",
+        "DrakeBackend",
+        "MjwarpBackend",
+        "IsaacGymBackend",
+        "GenesisBackend",
+    }
 )
 _TASK_SOURCE_ROOTS = (
     SRC_ROOT / "unilab" / "envs",
@@ -75,6 +82,19 @@ def _isaacgym_runtime_available() -> bool:
     return isaacgym_runtime_available()
 
 
+def _genesis_runtime_available() -> bool:
+    from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+
+    if not genesis_dependencies_available():
+        return False
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
 def _require_backend(backend_type: str) -> None:
     if backend_type == "mujoco":
         pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -89,6 +109,9 @@ def _require_backend(backend_type: str) -> None:
     elif backend_type == "isaacgym":
         if not _isaacgym_runtime_available():
             pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+    elif backend_type == "genesis":
+        if not _genesis_runtime_available():
+            pytest.skip("genesis requires the genesis-world extra and a CUDA device")
 
 
 _BACKEND_PARAMS = [
@@ -97,6 +120,7 @@ _BACKEND_PARAMS = [
     pytest.param("drake", id="drake"),
     pytest.param("mjwarp", id="mjwarp", marks=pytest.mark.slow),
     pytest.param("isaacgym", id="isaacgym", marks=pytest.mark.slow),
+    pytest.param("genesis", id="genesis", marks=pytest.mark.slow),
 ]
 
 
