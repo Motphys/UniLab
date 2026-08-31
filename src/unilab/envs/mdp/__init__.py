@@ -4,6 +4,8 @@ from unilab.envs.mdp.actions import JointPositionAction as JointPositionAction
 from unilab.envs.mdp.actions import JointPositionActionCfg as JointPositionActionCfg
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
+from unilab.envs.mdp.curriculums import command_curriculum as command_curriculum
+from unilab.envs.mdp.curriculums import event_curriculum as event_curriculum
 from unilab.envs.mdp.curriculums import reward_curriculum as reward_curriculum
 from unilab.envs.mdp.curriculums import termination_curriculum as termination_curriculum
 from unilab.envs.mdp.events import apply_body_impulse as apply_body_impulse
@@ -73,7 +75,9 @@ __all__ = [
     "builtin_sensor",
     "bad_orientation",
     "body_angular_velocity_penalty",
+    "command_curriculum",
     "dof_armature",
+    "event_curriculum",
     "flat_orientation_l2",
     "geom_friction",
     "generated_commands",

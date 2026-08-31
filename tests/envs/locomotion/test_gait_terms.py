@@ -352,3 +352,77 @@ def test_gait_term_module_has_no_forbidden_runtime_dependencies() -> None:
         for alias in node.names
     ]
     assert not [name for name in imports if name.startswith(forbidden)]
+
+
+# ---------------------------------------------------------------------------
+# Privileged foot observations (mjlab velocity critic terms, issue #1402)
+# ---------------------------------------------------------------------------
+
+
+def test_foot_height_returns_per_foot_body_z() -> None:
+    scene = _Scene()
+    scene.robot.data.body_link_pos_w[:] = [[[0.0, 0.0, 0.031], [0.0, 0.0, 0.052]]]
+    env = _env(scene)
+    np.testing.assert_allclose(
+        gait_terms.foot_height(env),
+        [[0.031, 0.052], [0.031, 0.052]],
+        rtol=1e-6,
+    )
+
+
+def test_foot_air_time_tracks_current_air_time() -> None:
+    scene = _Scene()
+    env = _env(scene)
+    term = _term(gait_terms.foot_air_time, env, sensor_groups=GROUPS)
+    scene.set_foot_contact(0, True)
+    scene.set_foot_contact(1, False)
+    np.testing.assert_allclose(term(env), [[0.0, 0.02], [0.0, 0.02]])
+    np.testing.assert_allclose(term(env), [[0.0, 0.04], [0.0, 0.04]])
+    scene.set_foot_contact(1, True)
+    np.testing.assert_allclose(term(env), [[0.0, 0.0], [0.0, 0.0]])
+
+
+def test_foot_air_time_reset_clears_only_targeted_rows() -> None:
+    scene = _Scene()
+    env = _env(scene)
+    term = _term(gait_terms.foot_air_time, env, sensor_groups=GROUPS)
+    scene.set_foot_contact(0, False)
+    scene.set_foot_contact(1, False)
+    term(env)  # Both feet at 0.02 s air time in both envs.
+    term.reset(np.array([1]))
+    np.testing.assert_allclose(term(env), [[0.04, 0.04], [0.02, 0.02]])
+
+
+def test_foot_contact_reports_float_flags() -> None:
+    scene = _Scene()
+    env = _env(scene)
+    term = _term(gait_terms.foot_contact, env, sensor_groups=GROUPS)
+    scene.set_foot_contact(0, True, env_ids=(0,))
+    scene.set_foot_contact(1, False)
+    np.testing.assert_allclose(term(env), [[1.0, 0.0], [0.0, 0.0]])
+
+
+def test_foot_contact_forces_log_compressed_in_group_order() -> None:
+    scene = _Scene()
+    scene.contacts = {
+        "left_contact_0": np.array([[1.0, 0.0, -1.0], [0.0, 0.0, 0.0]], dtype=np.float32),
+        "left_contact_1": np.zeros((2, 3), dtype=np.float32),
+        "right_contact_0": np.array([[0.0, 2.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32),
+        "right_contact_1": np.zeros((2, 3), dtype=np.float32),
+    }
+    env = _env(scene)
+    term = _term(gait_terms.foot_contact_forces, env, sensor_groups=GROUPS)
+    values = term(env)
+    assert values.shape == (2, 12)
+    expected_left = np.sign([1.0, 0.0, -1.0]) * np.log1p(np.abs([1.0, 0.0, -1.0]))
+    np.testing.assert_allclose(values[0, :3], expected_left, rtol=1e-6)
+    np.testing.assert_allclose(values[0, 3:6], 0.0, atol=1e-8)
+    np.testing.assert_allclose(values[0, 6:9], [0.0, np.log1p(2.0), 0.0], rtol=1e-6)
+    np.testing.assert_allclose(values[1], 0.0, atol=1e-8)
+
+
+def test_foot_contact_forces_rejects_scalar_found_sensors() -> None:
+    scene = _Scene()  # width-1 "found" sensors
+    env = _env(scene)
+    with pytest.raises(ValueError, match="3-D force"):
+        _term(gait_terms.foot_contact_forces, env, sensor_groups=GROUPS)

@@ -7,6 +7,8 @@ fail-closed validation error paths, and the CurriculumManager integration
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -286,3 +288,176 @@ def test_weight_not_logged_when_only_params_staged(fake_env: _FakeEnv) -> None:
     extras = manager.reset()
     assert extras["Curriculum/energy_ramp/threshold"] == pytest.approx(500.0)
     assert "Curriculum/energy_ramp/weight" not in extras
+
+
+# Command and event curricula (issue #1402).
+
+
+class _FakeCommandManager:
+    """Minimal stand-in exposing the cold-path get_term_cfg surface."""
+
+    def __init__(self) -> None:
+        self.cfg = SimpleNamespace(
+            rel_standing_envs=0.02,
+            ranges=[[-0.05, 0.05], [-0.07, 0.07]],
+            params={},
+        )
+
+    def get_term_cfg(self, name: str):
+        if name != "twist":
+            raise KeyError(name)
+        return self.cfg
+
+
+class _FakeEventManager:
+    def __init__(self) -> None:
+        self.cfg = SimpleNamespace(
+            params={"com_range": {"x": (-0.003, 0.003), "y": (-0.003, 0.003)}},
+        )
+
+    def get_term_cfg(self, name: str):
+        if name != "base_com":
+            raise KeyError(name)
+        return self.cfg
+
+
+@pytest.fixture
+def fake_env_full(fake_env: _FakeEnv) -> _FakeEnv:
+    fake_env.command_manager = _FakeCommandManager()
+    fake_env.event_manager = _FakeEventManager()
+    return fake_env
+
+
+def _command_curriculum_manager(env: _FakeEnv, stages: list[dict]) -> CurriculumManager:
+    return CurriculumManager(
+        {
+            "standing_ramp": CurriculumTermCfg(
+                func=mdp.command_curriculum,
+                params={"command_name": "twist", "stages": stages},
+            )
+        },
+        env,
+    )
+
+
+def _event_curriculum_manager(env: _FakeEnv, stages: list[dict]) -> CurriculumManager:
+    return CurriculumManager(
+        {
+            "com_ramp": CurriculumTermCfg(
+                func=mdp.event_curriculum,
+                params={"event_name": "base_com", "stages": stages},
+            )
+        },
+        env,
+    )
+
+
+def test_command_curriculum_field_unchanged_before_threshold(fake_env_full: _FakeEnv) -> None:
+    manager = _command_curriculum_manager(fake_env_full, [{"step": 100, "rel_standing_envs": 0.25}])
+    manager.compute()
+    assert fake_env_full.command_manager.get_term_cfg("twist").rel_standing_envs == pytest.approx(
+        0.02
+    )
+
+
+def test_command_curriculum_field_applied_at_threshold(fake_env_full: _FakeEnv) -> None:
+    manager = _command_curriculum_manager(
+        fake_env_full,
+        [
+            {"step": 0, "rel_standing_envs": 0.05},
+            {"step": 100, "rel_standing_envs": 0.25},
+        ],
+    )
+    fake_env_full.common_step_counter = 100
+    manager.compute()
+    assert fake_env_full.command_manager.get_term_cfg("twist").rel_standing_envs == pytest.approx(
+        0.25
+    )
+
+
+def test_command_curriculum_ranges_field_staged(fake_env_full: _FakeEnv) -> None:
+    manager = _command_curriculum_manager(
+        fake_env_full,
+        [{"step": 50, "ranges": [[-1.1, 1.1], [-1.4, 1.4]]}],
+    )
+    fake_env_full.common_step_counter = 60
+    manager.compute()
+    assert fake_env_full.command_manager.get_term_cfg("twist").ranges == [
+        [-1.1, 1.1],
+        [-1.4, 1.4],
+    ]
+
+
+def test_command_curriculum_logs_scalar_fields(fake_env_full: _FakeEnv) -> None:
+    manager = _command_curriculum_manager(
+        fake_env_full,
+        [
+            {"step": 0, "rel_standing_envs": 0.05},
+            {"step": 50, "ranges": [[-1.1, 1.1], [-1.4, 1.4]]},
+        ],
+    )
+    fake_env_full.common_step_counter = 60
+    manager.compute()
+    extras = manager.reset()
+    assert extras["Curriculum/standing_ramp/rel_standing_envs"] == pytest.approx(0.05)
+    # Non-scalar staged fields are applied but not logged.
+    assert "Curriculum/standing_ramp/ranges" not in extras
+
+
+def test_command_curriculum_unknown_field_raises(fake_env_full: _FakeEnv) -> None:
+    with pytest.raises(AttributeError, match="Field 'rel_standing_env' does not exist"):
+        _command_curriculum_manager(fake_env_full, [{"step": 0, "rel_standing_env": 0.1}])
+
+
+def test_command_curriculum_unknown_term_raises(fake_env_full: _FakeEnv) -> None:
+    with pytest.raises(KeyError, match="missing"):
+        CurriculumManager(
+            {
+                "bad": CurriculumTermCfg(
+                    func=mdp.command_curriculum,
+                    params={"command_name": "missing", "stages": [{"step": 0}]},
+                )
+            },
+            fake_env_full,
+        )
+
+
+def test_event_curriculum_params_follow_stages(fake_env_full: _FakeEnv) -> None:
+    manager = _event_curriculum_manager(
+        fake_env_full,
+        [
+            {"step": 0, "params": {"com_range": {"x": (-0.005, 0.005)}}},
+            {"step": 100, "params": {"com_range": {"x": (-0.015, 0.015)}}},
+        ],
+    )
+    manager.compute()
+    assert fake_env_full.event_manager.get_term_cfg("base_com").params["com_range"]["x"] == (
+        -0.005,
+        0.005,
+    )
+    fake_env_full.common_step_counter = 200
+    manager.compute()
+    assert fake_env_full.event_manager.get_term_cfg("base_com").params["com_range"]["x"] == (
+        -0.015,
+        0.015,
+    )
+
+
+def test_event_curriculum_unknown_param_raises(fake_env_full: _FakeEnv) -> None:
+    with pytest.raises(KeyError, match="unknown param"):
+        _event_curriculum_manager(
+            fake_env_full, [{"step": 0, "params": {"com_ranges": {"x": (-1.0, 1.0)}}}]
+        )
+
+
+def test_event_curriculum_unknown_term_raises(fake_env_full: _FakeEnv) -> None:
+    with pytest.raises(KeyError, match="missing"):
+        CurriculumManager(
+            {
+                "bad": CurriculumTermCfg(
+                    func=mdp.event_curriculum,
+                    params={"event_name": "missing", "stages": [{"step": 0}]},
+                )
+            },
+            fake_env_full,
+        )
