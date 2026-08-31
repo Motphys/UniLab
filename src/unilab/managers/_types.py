@@ -198,6 +198,14 @@ class ManagerCommandManager(Protocol):
 
     def get_term(self, name: str) -> Any: ...
 
+    def get_term_cfg(self, name: str) -> Any: ...
+
+
+class ManagerEventManager(Protocol):
+    """Cold-path event term config surface consumed by curriculum terms."""
+
+    def get_term_cfg(self, term_name: str) -> Any: ...
+
 
 class ManagerTerminationManager(Protocol):
     @property
@@ -239,6 +247,9 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def command_manager(self) -> ManagerCommandManager: ...
+
+    @property
+    def event_manager(self) -> ManagerEventManager: ...
 
     @property
     def termination_manager(self) -> ManagerTerminationManager: ...

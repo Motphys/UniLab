@@ -782,7 +782,12 @@ randomize_rigid_body_mass = RandomizeRigidBodyMass
 
 
 class RandomizeRigidBodyCom(ManagerTermBase):
-    """Community-compatible additive rigid-body CoM randomization."""
+    """Community-compatible additive rigid-body CoM randomization.
+
+    The ``com_range`` param is re-resolved from the live term params on every
+    apply (not cached at construction), so step-staged curricula can widen the
+    range by updating the event term config between resets.
+    """
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -800,7 +805,9 @@ class RandomizeRigidBodyCom(ManagerTermBase):
                 f"EventManager term '{term_name}' asset_cfg must be SceneEntityCfg, "
                 f"got {type(asset_cfg).__name__}"
             )
-        self._ranges = _axis_ranges(
+        # Fail-closed validation of the declared range at construction; the
+        # live value is re-resolved per apply so curricula can stage it.
+        _axis_ranges(
             cfg.params["com_range"],
             term_name=term_name,
             name="com_range",
@@ -819,11 +826,17 @@ class RandomizeRigidBodyCom(ManagerTermBase):
         com_range: dict[str, tuple[float, float]],
         asset_cfg: SceneEntityCfg,
     ) -> None:
-        del com_range, asset_cfg
+        del asset_cfg
+        ranges = _axis_ranges(
+            com_range,
+            term_name="randomize_rigid_body_com",
+            name="com_range",
+            keys=_XYZ_KEYS,
+        )
         ids = resolve_env_ids(env, env_ids)
         offsets = env.rng.uniform(
-            self._ranges[:, 0],
-            self._ranges[:, 1],
+            ranges[:, 0],
+            ranges[:, 1],
             size=(ids.size, 3),
         )
         values = self._default_ipos[None, :, :] + offsets[:, None, :]

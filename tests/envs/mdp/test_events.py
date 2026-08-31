@@ -1247,3 +1247,35 @@ def test_randomize_encoder_bias_rejects_invalid_cfg_at_construction() -> None:
             },
             env,
         )
+
+
+def test_rigid_body_com_event_consumes_live_params_between_applies() -> None:
+    """Staged CoM-range curricula update the live term params; the next reset
+    application must sample from the widened range without rebuilding the term."""
+    env, backend, transaction = _transaction_env(rng_seed=17)
+    asset_cfg = SceneEntityCfg("robot", body_names=("base",))
+    manager = EventManager(
+        {
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="reset",
+                params={"asset_cfg": asset_cfg, "com_range": {"x": (0.1, 0.1)}},
+            )
+        },
+        env,
+    )
+    ids = np.array([0, 1], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+    first = backend.randomization_calls[-1].body_ipos
+    assert first is not None
+    np.testing.assert_allclose(first, [[[0.1, 0.0, 0.0]]] * 2)
+
+    # A curriculum stage widens the live term params.
+    manager.get_term_cfg("com").params["com_range"] = {"x": (0.5, 0.5), "z": (-0.2, -0.2)}
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=1)
+    second = backend.randomization_calls[-1].body_ipos
+    assert second is not None
+    np.testing.assert_allclose(second, [[[0.5, 0.0, -0.2]]] * 2)

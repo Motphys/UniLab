@@ -3,16 +3,19 @@
 # Copyright 2025, The mjlab Developers.
 # Modified by UniLab for NumPy, named-sensor contact groups, and the
 # base-owned entity facade; Apache-2.0.
-"""mjlab-aligned gait-quality reward terms shared by locomotion families.
+"""mjlab-aligned gait-quality terms shared by locomotion families.
 
 These are the window-form ``feet_air_time`` and the clearance / swing-height /
-slip / angular-momentum terms that mjlab ships in its velocity task.  mjlab
-reads feet through a ``ContactSensor`` (primaries with per-slot any-reduce) and
-a ``TerrainHeightSensor``; the UniLab port binds one named contact sensor group
-per foot through the ``SensorTermBase`` cold-path contract (any sensor in the
-group above the threshold means foot contact, mirroring the slot reduce) and
-reads foot heights/velocities from ``body_link_pos_w`` / ``body_link_lin_vel_w``
-through ``asset_cfg.body_ids``, which is exact on flat terrain without raycast.
+slip / angular-momentum reward terms that mjlab ships in its velocity task,
+plus the privileged per-foot observation terms (``foot_height`` /
+``foot_air_time`` / ``foot_contact`` / ``foot_contact_forces``) its velocity
+critic consumes.  mjlab reads feet through a ``ContactSensor`` (primaries with
+per-slot any-reduce) and a ``TerrainHeightSensor``; the UniLab port binds one
+named contact sensor group per foot through the ``SensorTermBase`` cold-path
+contract (any sensor in the group above the threshold means foot contact,
+mirroring the slot reduce) and reads foot heights/velocities from
+``body_link_pos_w`` / ``body_link_lin_vel_w`` through ``asset_cfg.body_ids``,
+which is exact on flat terrain without raycast.
 """
 
 from __future__ import annotations
@@ -372,10 +375,105 @@ class angular_momentum_penalty(SensorTermBase):
         return np.asarray(np.sum(np.square(angmom), axis=1), dtype=get_global_dtype())
 
 
+# Privileged per-foot observations (mjlab velocity critic terms).  These mirror
+# mjlab's ``foot_height`` / ``foot_air_time`` / ``foot_contact`` /
+# ``foot_contact_forces`` observation terms: heights come from world-frame foot
+# body z (exact on flat terrain without a raycast sensor), contact state from
+# the same named contact-sensor groups as the gait rewards.
+
+
+def foot_height(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Per-foot vertical clearance above the terrain, shape ``(num_envs, num_feet)``.
+
+    mjlab reads this from a ``TerrainHeightSensor`` ring around each foot; the
+    UniLab port returns the world-frame foot body z, which is identical on flat
+    terrain.
+    """
+    asset = cast("Entity", env.scene[asset_cfg.name])
+    positions = asset.data.body_link_pos_w[:, asset_cfg.body_ids, :]
+    if not isinstance(positions, np.ndarray) or positions.ndim != 3 or positions.shape[2] != 3:
+        raise ValueError(
+            f"foot_height foot body position must have shape ({env.num_envs}, num_feet, 3), "
+            f"got {getattr(positions, 'shape', None)}"
+        )
+    positions = _state("foot_height", "foot body position", positions, positions.shape)
+    return np.asarray(positions[:, :, 2], dtype=get_global_dtype())
+
+
+class foot_air_time(_FootContactTerm):
+    """Current per-foot air time in seconds, shape ``(num_envs, num_feet)``.
+
+    Mirrors mjlab ``foot_air_time`` (``ContactSensor.data.current_air_time``):
+    the timer accumulates ``env.step_dt`` while the foot has no contact and
+    resets to zero on contact.
+    """
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        self._air_time = np.zeros((env.num_envs, self.num_feet), dtype=get_global_dtype())
+
+    def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
+        self._air_time[env_ids if env_ids is not None else slice(None)] = 0.0
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+        del params
+        contact = self._contact(env)
+        step_dt = _real(self.name, "step_dt", env.step_dt, minimum=0.0, strict_minimum=True)
+        self._air_time = np.where(contact, 0.0, self._air_time + step_dt).astype(
+            get_global_dtype(), copy=False
+        )
+        return self._air_time.copy()
+
+
+class foot_contact(_FootContactTerm):
+    """Per-foot contact flag as float, shape ``(num_envs, num_feet)``.
+
+    Mirrors mjlab ``foot_contact`` (``ContactSensor.data.found > 0``).
+    """
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+        del params
+        return np.asarray(self._contact(env), dtype=get_global_dtype())
+
+
+class foot_contact_forces(_FootContactTerm):
+    """Log-compressed per-foot contact forces, shape ``(num_envs, 3 * num_feet)``.
+
+    Mirrors mjlab ``foot_contact_forces``: the per-foot 3-D contact forces are
+    flattened in sensor-group order and compressed as
+    ``sign(f) * log1p(|f|)``.
+    """
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        if any(width != 3 for width in self._view.dimensions):
+            raise ValueError(
+                f"{self.name} contact sensors must each expose 3-D force; "
+                f"received {self._view.dimensions} on backend '{self._view.backend_type}'"
+            )
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+        del params
+        values = _state(
+            self.name,
+            "foot contact forces",
+            self._read(self._view, self.name),
+            (env.num_envs, self._flat_width),
+        )
+        return np.asarray(np.sign(values) * np.log1p(np.abs(values)), dtype=get_global_dtype())
+
+
 __all__ = [
     "angular_momentum_penalty",
     "feet_air_time",
     "feet_clearance",
     "feet_slip",
     "feet_swing_height",
+    "foot_air_time",
+    "foot_contact",
+    "foot_contact_forces",
+    "foot_height",
 ]

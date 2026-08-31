@@ -116,19 +116,28 @@ class UniformVectorCommandCfg(CommandTermCfg):
 
 
 class UniformVectorCommand(CommandTerm):
-    """Task-local vector command with no runtime scene dependency."""
+    """Task-local vector command with no runtime scene dependency.
+
+    ``cfg.ranges`` is re-read on every resample (not cached), so a step-staged
+    command curriculum can widen the sampling ranges by mutating the live term
+    config between resamples.
+    """
 
     cfg: UniformVectorCommandCfg
 
     def __init__(self, cfg: UniformVectorCommandCfg, env: ManagerBasedRlEnv):
-        ranges = np.asarray(cfg.ranges, dtype=np.float64)
-        if ranges.ndim != 2 or ranges.shape[0] == 0 or ranges.shape[1] != 2:
-            raise ValueError("UniformVectorCommandCfg ranges must have shape (N, 2)")
-        if not np.isfinite(ranges).all() or np.any(ranges[:, 0] > ranges[:, 1]):
-            raise ValueError("UniformVectorCommandCfg ranges must be finite ordered pairs")
-        self._ranges = ranges
+        ranges = self._validated_ranges(cfg.ranges)
         super().__init__(cfg, env)
         self._command = np.zeros((self.num_envs, ranges.shape[0]), dtype=get_global_dtype())
+
+    @staticmethod
+    def _validated_ranges(ranges: Any) -> np.ndarray:
+        array = np.asarray(ranges, dtype=np.float64)
+        if array.ndim != 2 or array.shape[0] == 0 or array.shape[1] != 2:
+            raise ValueError("UniformVectorCommandCfg ranges must have shape (N, 2)")
+        if not np.isfinite(array).all() or np.any(array[:, 0] > array[:, 1]):
+            raise ValueError("UniformVectorCommandCfg ranges must be finite ordered pairs")
+        return array
 
     @property
     def command(self) -> np.ndarray:
@@ -138,10 +147,17 @@ class UniformVectorCommand(CommandTerm):
         del env_ids
 
     def _resample_command(self, env_ids: np.ndarray) -> None:
+        ranges = self._validated_ranges(self.cfg.ranges)
+        if ranges.shape[0] != self._command.shape[1]:
+            raise ValueError(
+                "UniformVectorCommandCfg ranges width changed from "
+                f"{self._command.shape[1]} to {ranges.shape[0]}; curricula may only "
+                "widen per-axis bounds, not the command width"
+            )
         self._command[env_ids] = self._env.rng.uniform(
-            self._ranges[:, 0],
-            self._ranges[:, 1],
-            size=(len(env_ids), self._ranges.shape[0]),
+            ranges[:, 0],
+            ranges[:, 1],
+            size=(len(env_ids), ranges.shape[0]),
         )
 
     def _update_command(self, env_ids: np.ndarray | None) -> None:
