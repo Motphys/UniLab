@@ -21,6 +21,11 @@ registry.register_env(
     make_microduck_velocity_env,
     sim_backend="mujoco",
 )
+registry.register_env(
+    "MicroduckVelocityFlat",
+    make_microduck_velocity_env,
+    sim_backend="mjwarp",
+)
 
 
 __all__ = ["make_microduck_velocity_env"]

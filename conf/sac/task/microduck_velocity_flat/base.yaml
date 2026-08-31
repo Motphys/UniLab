@@ -283,4 +283,4 @@ reward:
     weight: -0.5
   alive:
     func: unilab.tasks.locomotion.common.manager_terms.alive
-    weight: 0.1
+    weight: 10.0

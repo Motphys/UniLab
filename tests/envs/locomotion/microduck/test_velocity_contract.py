@@ -166,7 +166,7 @@ def test_microduck_registry_and_factory_are_manager_based(monkeypatch) -> None:
     assert "unilab.tasks.locomotion.microduck" in __unilab_registry_modules__
     assert registry.list_registered_envs()["MicroduckVelocityFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco"],
+        "available_backends": ["mujoco", "mjwarp"],
     }
     module = importlib.import_module("unilab.tasks.locomotion.microduck")
     assert registry._envs["MicroduckVelocityFlat"].env_factory_dict["mujoco"] is (
