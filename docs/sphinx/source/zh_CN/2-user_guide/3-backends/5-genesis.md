@@ -9,14 +9,16 @@ IPC。
 当前状态：`GenesisBackend` 已实现并注册到 registry；`g1_walk_flat` 提供
 PPO 与 SAC owner 配置（`conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`），
 跨后端契约审计（`scripts/audit_sim2sim_contracts.py`）在两棵 algo 树上
-覆盖 mujoco↔genesis（结论 TRANSFERABLE）。支持等级为 **experimental**：
-现有证据是 registry + owner YAML + compose/contract 覆盖，以及真机
+覆盖 mujoco↔genesis（结论 TRANSFERABLE）。支持等级为 **experimental**。
+现有证据：registry + owner YAML + compose/contract 覆盖，以及真机
 slow-lane env smoke
 （`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose →
 env 构造 → keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac
-两棵树），另有 SAC 短训练回路 smoke（64 envs / 3 iterations，经
-learning_starts/updates_per_step 路径并保存 checkpoint）。尚未完成任何
-训练验证，因此支持矩阵中这些 cell 标记为 `Configured`。
+两棵树）。SAC cell 标记为 `Tested`——真机完整训练验证（2026-08-31，
+RTX 4090 / torch 2.8.0+cu128 / genesis-world 1.3.3：5000/5000
+iterations，reward/mean 6.5 → 244.8，episode length → 987/1000，
+10.26M env steps / 224s wall time）加最终 checkpoint 的 record
+playback 验证；PPO cell 保持 `Configured`（尚无训练验证）。
 
 env 构造生命周期（#1383 已修复）：`ManagerBasedRlEnv` 构造期的 entity
 校验在 env 的 `materialize()` 钩子之前读取状态 getter，因此 adapter 的

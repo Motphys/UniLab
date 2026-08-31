@@ -36,10 +36,15 @@ _MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = fr
 
 # Maintainer-confirmed completed training validations for the genesis
 # in-process backend (real hardware, genesis-world extra + CUDA; not covered
-# by repo CI). Child 3 of #1339 ships owner YAML, compose/contract coverage,
-# and a real-runtime env smoke only, so no entrypoint qualifies yet; keep this
-# empty until maintainer training validation lands.
-_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
+# by repo CI). sac_torch g1_walk_flat: full 5000-iteration training completed
+# on 2026-08-31 (RTX 4090, torch 2.8.0+cu128, genesis-world 1.3.3; reward/mean
+# 6.5 -> 244.8, episode length -> 987, run 2026-08-31_23-04-01_genesis) plus
+# record playback validation on model_5000.pt.
+_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("sac_torch", "g1_walk_flat"),
+    }
+)
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -336,12 +341,14 @@ def render_support_matrix(root: Path | None = None) -> str:
         "无显示器时自动降级为离屏录制。",
         "",
         "`genesis` 是进程内后端（genesis-world==1.3.3，要求 torch>=2.8 与 CUDA；一进程只允许一次 "
-        "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) 与 SAC (torch) owner。这些 cell 最高只到 "
-        "`Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练验证。真机证据："
+        "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) 与 SAC (torch) owner。SAC cell 标记 "
+        "`Tested`：真机完整训练验证（5000/5000 iterations，reward/mean 6.5 → 244.8，episode length "
+        "→ 987/1000，10.26M env steps / 224s wall time；run 2026-08-31_23-04-01_genesis）加 "
+        "model_5000.pt 的 record playback 验证；PPO cell 最高只到 `Configured`（registry + owner "
+        "YAML + compose/contract 覆盖），不代表训练验证。真机证据另有："
         "env smoke 慢车道测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 "
         "→ keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac 两棵树）在装有 CUDA 与 genesis "
-        "extra 的机器上通过；SAC owner 另有短训练回路 smoke（64 envs / 3 iterations，含 "
-        "learning_starts/updates_per_step 路径与 checkpoint 保存）验证，均非完整训练验证。adapter 的 "
+        "extra 的机器上通过。adapter 的 "
         "`materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；"
         "isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 "
         "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。原生 playback/渲染已接入："
@@ -378,7 +385,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
             "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
-            "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (currently empty: no maintainer training validation yet); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",
+            "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",
         ]
     )
     return "\n".join(lines)
