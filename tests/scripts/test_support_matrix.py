@@ -74,12 +74,12 @@ def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():
 
 
 def test_support_matrix_marks_g1_genesis_owner_configured_only():
-    """Genesis ships owner YAML + contract coverage but no training validation."""
-    ppo_row = _row("PPO (torch)", "g1_walk_flat")
-    assert ppo_row.cells["genesis"].level == EvidenceLevel.CONFIGURED
+    """Genesis ships owner YAMLs + contract coverage but no training validation."""
+    for entrypoint_label in ("PPO (torch)", "SAC (torch)"):
+        row = _row(entrypoint_label, "g1_walk_flat")
+        assert row.cells["genesis"].level == EvidenceLevel.CONFIGURED
     for entrypoint_label in (
         "APPO (torch)",
-        "SAC (torch)",
         "TD3 (torch)",
         "FlashSAC (torch)",
     ):

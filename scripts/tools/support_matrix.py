@@ -336,10 +336,12 @@ def render_support_matrix(root: Path | None = None) -> str:
         "无显示器时自动降级为离屏录制。",
         "",
         "`genesis` 是进程内后端（genesis-world==1.3.3，要求 torch>=2.8 与 CUDA；一进程只允许一次 "
-        "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) owner。该 cell 最高只到 `Configured`"
-        "（registry + owner YAML + compose/contract 覆盖），不代表任何训练验证。真机 env smoke 慢车道"
-        "测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 → keyframe "
-        "reset → 12 步有限稳定 → cleanup）在装有 CUDA 与 genesis extra 的机器上通过。adapter 的 "
+        "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) 与 SAC (torch) owner。这些 cell 最高只到 "
+        "`Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练验证。真机证据："
+        "env smoke 慢车道测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 "
+        "→ keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac 两棵树）在装有 CUDA 与 genesis "
+        "extra 的机器上通过；SAC owner 另有短训练回路 smoke（64 envs / 3 iterations，含 "
+        "learning_starts/updates_per_step 路径与 checkpoint 保存）验证，均非完整训练验证。adapter 的 "
         "`materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；"
         "isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 "
         "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。未支持边界：geom 名称"

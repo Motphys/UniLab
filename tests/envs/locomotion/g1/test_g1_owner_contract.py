@@ -245,6 +245,22 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "sac",
+        ("task=g1_walk_flat/genesis",),
+        "G1WalkFlat",
+        "genesis",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        # kp/kd reset randomization stays enabled: the backend declares the
+        # measured RESET_TERM_KP/KD DR terms (REPORT #1372 §5.7), unlike the
+        # isaacgym owner which disables pd_gains.
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="sac-genesis",
+    ),
+    pytest.param(
+        "sac",
         ("task=g1_walk_rough/mujoco",),
         "G1WalkRough",
         "mujoco",
@@ -327,6 +343,7 @@ _WALK_PROFILE_IDS = {
     "sac-mujoco",
     "sac-motrix",
     "sac-mjwarp",
+    "sac-genesis",
     "sac-rough-mujoco",
     "sac-rough-motrix",
     "sac-23dof-mujoco",
@@ -869,7 +886,10 @@ def _genesis_runtime_available() -> bool:
 # (REPORT #1372 §3.5 [9a]) and tests/base/test_genesis_runtime.py deliberately
 # destroys the session to verify re-init fails closed, so an in-process smoke
 # could observe a poisoned session depending on pytest collection order.
+# The config group (ppo/sac) arrives as argv[1]; each parametrized case gets
+# its own subprocess, hence its own gs session.
 _GENESIS_ENV_SMOKE_SCRIPT = """
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -882,16 +902,19 @@ from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
 
 ROOT = Path.cwd()
+CONFIG_GROUP = sys.argv[1]
 
 registry.ensure_registries()
 GlobalHydra.instance().clear()
-with initialize_config_dir(config_dir=str(ROOT / "conf" / "ppo"), version_base="1.3"):
+with initialize_config_dir(config_dir=str(ROOT / "conf" / CONFIG_GROUP), version_base="1.3"):
     hydra_cfg = compose("config", overrides=["task=g1_walk_flat/genesis"])
 assert hydra_cfg.training.task_name == "G1WalkFlat"
 assert hydra_cfg.training.sim_backend == "genesis"
 assert hydra_cfg.training.play_render_mode == "none"
 
-env_override = BackendAdapter(hydra_cfg, root_dir=ROOT).build_task_env_cfg_override()
+env_override = BackendAdapter(
+    hydra_cfg, root_dir=ROOT, algo_name=CONFIG_GROUP
+).build_task_env_cfg_override()
 env_cfg = registry.materialize_env_config("G1WalkFlat")
 assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
 apply_cfg_overrides(env_cfg, env_override)
@@ -942,7 +965,7 @@ try:
         raise AssertionError("genesis playback mode 'record' must fail closed")
 
     print(
-        "[genesis env smoke] reset+12 steps OK; "
+        f"[genesis env smoke:{CONFIG_GROUP}] reset+12 steps OK; "
         f"obs={obs['obs'].shape} critic={obs['critic'].shape} "
         f"reward0={state.reward.mean():.4f}"
     )
@@ -953,20 +976,21 @@ finally:
 
 
 @pytest.mark.slow
-def test_g1_walk_flat_genesis_owner_real_runtime_smoke() -> None:
+@pytest.mark.parametrize("config_group", ("ppo", "sac"))
+def test_g1_walk_flat_genesis_owner_real_runtime_smoke(config_group: str) -> None:
     """Real-runtime smoke for the genesis owner (genesis-world 1.3.3 + CUDA).
 
-    Full chain: Hydra compose of task=g1_walk_flat/genesis -> registry lookup
-    -> ManagerBasedRlEnv construction -> keyframe reset -> 12 steps with
-    finite/shape-stable action/state/sensor reads -> explicit cleanup; the
-    play path enters safely with play_render_mode=none and fails closed on
-    rendering modes.
+    Full chain per algo tree: Hydra compose of task=g1_walk_flat/genesis ->
+    registry lookup -> ManagerBasedRlEnv construction -> keyframe reset -> 12
+    steps with finite/shape-stable action/state/sensor reads -> explicit
+    cleanup; the play path enters safely with play_render_mode=none and fails
+    closed on rendering modes.
     """
     if not _genesis_runtime_available():
         pytest.skip("genesis requires the genesis-world extra and a CUDA device")
 
     result = subprocess.run(
-        [sys.executable, "-c", _GENESIS_ENV_SMOKE_SCRIPT],
+        [sys.executable, "-c", _GENESIS_ENV_SMOKE_SCRIPT, config_group],
         cwd=ROOT_DIR,
         capture_output=True,
         text=True,
@@ -974,4 +998,4 @@ def test_g1_walk_flat_genesis_owner_real_runtime_smoke() -> None:
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-    assert "[genesis env smoke]" in result.stdout
+    assert f"[genesis env smoke:{config_group}]" in result.stdout
