@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
-from unilab.envs.mdp.events import randomize_encoder_bias as randomize_encoder_bias
 from unilab.managers import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
 from unilab.tasks.motion_tracking.common.kernels import update_object_relative_state_kernel
@@ -302,5 +301,4 @@ __all__ = [
     "object_global_orientation_error_exp",
     "object_global_position_error_exp",
     "object_state_b",
-    "randomize_encoder_bias",
 ]
