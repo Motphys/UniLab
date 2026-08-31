@@ -337,6 +337,10 @@ class _FakeVisualizer:
         return camera
 
     def update(self, force=True, auto=None):
+        # Real genesis 1.3.3 raises its private exception here when the
+        # attached viewer has been closed by the user.
+        if self._viewer is not None and not self._viewer.is_alive():
+            raise RuntimeError("Viewer closed.")
         self.update_count += 1
 
 
@@ -372,6 +376,9 @@ class _FakeScene:
     def step(self):
         for entity in self.entities:
             entity.step()
+        # Real genesis updates the attached viewer from scene.step() too.
+        if self.visualizer._viewer is not None:
+            self.visualizer.update()
 
 
 def make_fake_genesis() -> types.SimpleNamespace:

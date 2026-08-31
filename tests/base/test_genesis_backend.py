@@ -592,6 +592,24 @@ def test_interactive_render_self_init_and_close(
     assert backend._viewer is None
 
 
+def test_step_translates_viewer_closed(
+    fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1393: scene.step() updates the attached viewer; a closed viewer must
+    surface as RenderClosedError from backend.step, not a raw private error."""
+    monkeypatch.setenv("DISPLAY", ":0")
+    backend = _backend(tiny_model_file)
+    backend.render()  # attaches the interactive viewer
+    ctrl = np.zeros((backend.num_envs, backend.num_actuators), dtype=np.float32)
+    backend.step(ctrl)  # live viewer: scene.step updates it fine
+    backend._viewer.alive = False
+    with pytest.raises(RenderClosedError, match="viewer window was closed"):
+        backend.step(ctrl)
+    assert backend._viewer is None
+    # Dead viewer is detached: physics keeps working without a renderer.
+    backend.step(ctrl)
+
+
 def test_interactive_viewer_requires_display(
     fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -662,7 +680,9 @@ def test_run_playback_interactive_drives_viewer_until_closed(
     )
     assert result is None  # interactive close is a clean exit, not an error
     assert steps == [0, 1, 2]
-    assert backend._scene.visualizer.update_count == 3
+    # Steps 1-2 update the live viewer; at step 3 the viewer is already dead,
+    # so update raises (real genesis semantics) before it could count.
+    assert backend._scene.visualizer.update_count == 2
 
 
 def test_constructor_validation_and_factory_wiring(fake_genesis, tiny_model_file: str) -> None:

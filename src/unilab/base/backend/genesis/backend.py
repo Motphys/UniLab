@@ -540,6 +540,32 @@ class GenesisBackend(SimBackend):
             self._to_device(ctrl), dofs_idx_local=self._actuated_dofs
         )
 
+    def _raise_if_viewer_closed(self, exc: BaseException | None = None) -> None:
+        """Translate a closed genesis viewer into the contract's RenderClosedError.
+
+        Genesis 1.3.3 raises its private exception from ``visualizer.update``,
+        which fires both from our ``render()`` and from ``scene.step()`` itself
+        while a viewer is attached; the contract surface is the same either
+        way. Any other exception while the viewer is still alive is re-raised.
+        The dead viewer is also detached from the visualizer so later physics
+        steps are not poisoned by it (the renderer is gone for good).
+        """
+        if self._viewer is not None and not self._viewer.is_alive():
+            visualizer = self._scene.visualizer
+            if getattr(visualizer, "_viewer", None) is self._viewer:
+                # Only drop the viewer reference; ``viewer_lock`` stays: the
+                # rasterizer uses it as a context manager during destroy.
+                visualizer._viewer = None
+            self._viewer = None
+            raise RenderClosedError("genesis viewer window was closed") from exc
+
+    def _physics_substep(self) -> None:
+        try:
+            self._scene.step()
+        except Exception as exc:
+            self._raise_if_viewer_closed(exc)
+            raise
+
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict[str, dict[str, float]]:
         self._require_state("step")
         if isinstance(nsteps, bool) or int(nsteps) <= 0:
@@ -555,7 +581,7 @@ class GenesisBackend(SimBackend):
             # matching MuJoCo ctrl-broadcast semantics (REPORT §3.3 [3b]).
             self._push_control(ctrl_array)
             for _ in range(int(nsteps)):
-                self._scene.step()
+                self._physics_substep()
         else:
             # Adapter-side per-substep hook: the conversion reads the freshly
             # refreshed sensor contract before every physics substep (REPORT
@@ -563,7 +589,7 @@ class GenesisBackend(SimBackend):
             for _ in range(int(nsteps)):
                 converted = self._apply_pre_step_control(ctrl_array)
                 self._push_control(converted)
-                self._scene.step()
+                self._physics_substep()
                 self._refresh_host_cache()
         physics_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -931,13 +957,9 @@ class GenesisBackend(SimBackend):
         except Exception as exc:
             # Genesis 1.3.3 raises its private error when the window is gone;
             # translate it at the interface boundary per the contract.
-            if not self._viewer.is_alive():
-                self._viewer = None
-                raise RenderClosedError("genesis viewer window was closed") from exc
+            self._raise_if_viewer_closed(exc)
             raise
-        if not self._viewer.is_alive():
-            self._viewer = None
-            raise RenderClosedError("genesis viewer window was closed")
+        self._raise_if_viewer_closed()
 
     def capture_video_frame(self) -> np.ndarray:
         """Capture one offscreen RGB frame (self-initializes headless+capture)."""
