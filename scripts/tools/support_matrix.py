@@ -344,9 +344,10 @@ def render_support_matrix(root: Path | None = None) -> str:
         "learning_starts/updates_per_step 路径与 checkpoint 保存）验证，均非完整训练验证。adapter 的 "
         "`materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；"
         "isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 "
-        "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。未支持边界：geom 名称"
-        "契约、terrain spawn 与 height scanner、"
-        "playback/render（`play_render_mode` 仅 `none` 安全进入，其余模式 fail-closed）、contact "
+        "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。原生 playback/渲染已接入："
+        "`play_render_mode=auto` 在有显示时打开 post-build 挂载的交互 viewer、无显示时降级离屏录制"
+        "（`record` 写 `play_video.mp4`；`get_physics_state` 快照不声明）。未支持边界：geom 名称"
+        "契约、terrain spawn 与 height scanner、contact "
         'sensor 为 per-link net-force 阈值近似（非 geom 对 `data="found"`）、`get_geom_friction` 类'
         "绝对摩擦 DR fail-closed（geom 摩擦只有 per-env ratio API）。",
         "",

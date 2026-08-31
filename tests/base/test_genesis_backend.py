@@ -10,8 +10,10 @@ genesis parameterization of ``test_backend_conformance.py``).
 
 from __future__ import annotations
 
+import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
+from types import SimpleNamespace
 
 import mujoco
 import numpy as np
@@ -21,6 +23,7 @@ import torch
 import unilab.base.backend.genesis.dependencies as genesis_dependencies
 import unilab.base.backend.genesis.materialization as genesis_materialization
 from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.backend.base import RenderClosedError
 from unilab.base.backend.genesis.dependencies import (
     GenesisDependencies,
     GenesisDependencyError,
@@ -94,6 +97,10 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
     fake = make_fake_genesis()
     deps = GenesisDependencies(genesis=fake, torch=torch, mujoco=mujoco)
     monkeypatch.setattr(genesis_dependencies, "load_genesis_dependencies", lambda: deps)
+    # The backend resolves the viewer class via importlib.import_module; the
+    # fake module must already sit in sys.modules (genesis is not installed
+    # in this lane).
+    monkeypatch.setitem(sys.modules, "genesis.vis.viewer", fake.viewer_module)
     genesis_materialization._reset_session_state_for_tests()
     yield fake
     genesis_materialization._reset_session_state_for_tests()
@@ -499,30 +506,163 @@ def test_unsupported_contract_surface_fails_closed(fake_genesis, tiny_model_file
             ),
             "height-field",
         ),
-        (lambda: backend.init_renderer(), "native rendering"),
-        (lambda: backend.render(), "native interactive rendering"),
-        (lambda: backend.capture_video_frame(), "native video capture"),
         (lambda: backend.get_physics_state(), "physics-state playback"),
-        (
-            lambda: backend.run_playback(env=None, initialize=None, step=None, num_steps=None),
-            "playback execution",
-        ),
     ):
         with pytest.raises(NotImplementedError, match=match):
             call()
 
+
+def test_play_capabilities_and_plan_modes(
+    fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backend = _backend(tiny_model_file)
     caps = backend.get_play_capabilities()
-    assert caps.supports_native_interactive_renderer is False
+    assert caps.supports_native_interactive_renderer is True
+    assert caps.supports_native_video_capture is True
     assert caps.supports_physics_state_playback is False
-    assert caps.supports_native_video_capture is False
+
     plan = backend.resolve_play_render_plan(
-        play_render_mode="none", play_steps=None, output_video=None
+        play_render_mode="none", play_steps=10, output_video=tmp_path / "x.mp4"
     )
-    assert plan.mode == "none"
-    with pytest.raises(NotImplementedError, match="playback mode 'record'"):
+    assert plan.mode == "none" and plan.num_steps is None
+
+    plan = backend.resolve_play_render_plan(
+        play_render_mode="interactive", play_steps=None, output_video=None
+    )
+    assert plan.mode == "interactive" and not plan.headless and not plan.record_video
+
+    plan = backend.resolve_play_render_plan(
+        play_render_mode="record", play_steps=5, output_video=tmp_path / "x.mp4"
+    )
+    assert plan.mode == "record" and plan.headless and plan.record_video
+    assert plan.num_steps == 5
+    with pytest.raises(ValueError, match="play_steps"):
         backend.resolve_play_render_plan(
-            play_render_mode="record", play_steps=10, output_video="out.mp4"
+            play_render_mode="record", play_steps=None, output_video=tmp_path / "x.mp4"
         )
+    with pytest.raises(ValueError, match="output video path"):
+        backend.resolve_play_render_plan(play_render_mode="record", play_steps=5, output_video=None)
+    with pytest.raises(ValueError, match="play render mode must be one of"):
+        backend.resolve_play_render_plan(play_render_mode="bogus", play_steps=5, output_video=None)
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    plan = backend.resolve_play_render_plan(
+        play_render_mode="auto", play_steps=5, output_video=None
+    )
+    assert plan.mode == "interactive"
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    plan = backend.resolve_play_render_plan(
+        play_render_mode="auto", play_steps=5, output_video=tmp_path / "x.mp4"
+    )
+    assert plan.mode == "record" and plan.headless
+
+
+def test_renderer_init_pinning_and_frame_capture(
+    fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    backend = _backend(tiny_model_file)
+    frame = backend.capture_video_frame()  # self-initializes headless + capture
+    assert frame.shape == (720, 1280, 3) and frame.dtype == np.uint8
+    camera = backend._render_camera
+    assert camera is not None and camera.is_built and camera.render_count == 1
+    backend.init_renderer(headless=True, capture=True)  # same config is a no-op
+    with pytest.raises(RuntimeError, match="already initialized"):
+        backend.init_renderer(headless=False)
+    with pytest.raises(RuntimeError, match="already initialized"):
+        backend.render()
+
+
+def test_interactive_render_self_init_and_close(
+    fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    backend = _backend(tiny_model_file)
+    backend.render()  # self-initializes the interactive viewer
+    viewer = backend._viewer
+    assert viewer is not None and viewer.built_scene is backend._scene
+    assert backend._scene.visualizer._viewer is viewer
+    backend.render()
+    assert backend._scene.visualizer.update_count == 2
+    viewer.alive = False
+    with pytest.raises(RenderClosedError, match="viewer window was closed"):
+        backend.render()
+    assert backend._viewer is None
+
+
+def test_interactive_viewer_requires_display(
+    fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    backend = _backend(tiny_model_file)
+    with pytest.raises(RuntimeError, match="requires a reachable display"):
+        backend.init_renderer(headless=False)
+
+
+def test_camera_tracking_follows_root(fake_genesis, tiny_model_file: str) -> None:
+    backend = _backend(tiny_model_file, num_envs=2)
+    backend.init_renderer(
+        headless=True,
+        capture=True,
+        camera_kwargs={"cam_tracking": True, "cam_tracking_env_idx": 1},
+    )
+    backend.capture_video_frame()
+    camera = backend._render_camera
+    assert camera.poses, "tracking must re-pose the camera on every capture"
+    _, lookat = camera.poses[-1]
+    np.testing.assert_allclose(lookat, backend.get_base_pos()[1], atol=1e-5)
+
+
+def test_run_playback_record_writes_video(
+    fake_genesis, tiny_model_file: str, tmp_path: Path
+) -> None:
+    backend = _backend(tiny_model_file, num_envs=1)
+    env = SimpleNamespace(cfg=SimpleNamespace(ctrl_dt=0.02))
+    steps: list[int] = []
+    output = tmp_path / "play.mp4"
+    result = backend.run_playback(
+        env=env,
+        initialize=lambda: 0,
+        step=lambda obs: (steps.append(obs), obs + 1)[1],
+        num_steps=4,
+        output_video=output,
+        record_video=True,
+        headless=True,
+    )
+    assert result == str(output)
+    assert output.is_file() and output.stat().st_size > 0
+    assert steps == [0, 1, 2, 3]
+    assert backend._render_camera.render_count == 4
+
+
+def test_run_playback_interactive_drives_viewer_until_closed(
+    fake_genesis, tiny_model_file: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    backend = _backend(tiny_model_file, num_envs=1)
+    env = SimpleNamespace(cfg=SimpleNamespace(ctrl_dt=0.02))
+    steps: list[int] = []
+
+    def step(obs: int) -> int:
+        steps.append(obs)
+        if len(steps) == 3 and backend._viewer is not None:
+            backend._viewer.alive = False  # user closes the window mid-playback
+        return obs + 1
+
+    result = backend.run_playback(
+        env=env,
+        initialize=lambda: 0,
+        step=step,
+        num_steps=None,
+        headless=False,
+        record_video=False,
+    )
+    assert result is None  # interactive close is a clean exit, not an error
+    assert steps == [0, 1, 2]
+    assert backend._scene.visualizer.update_count == 3
 
 
 def test_constructor_validation_and_factory_wiring(fake_genesis, tiny_model_file: str) -> None:

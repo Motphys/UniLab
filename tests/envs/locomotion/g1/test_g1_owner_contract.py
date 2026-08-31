@@ -522,8 +522,9 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.genesis_constraint_solver is None
         assert env_cfg.genesis_friction_cone is None
         assert env_cfg.genesis_solver_iterations is None
-        # Playback/rendering is not a declared capability; none enters safely.
-        assert hydra_cfg.training.play_render_mode == "none"
+        # Native rendering (interactive viewer + offscreen record) is
+        # supported; playback stays on the base config's auto mode.
+        assert hydra_cfg.training.play_render_mode == "auto"
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23
@@ -910,7 +911,7 @@ with initialize_config_dir(config_dir=str(ROOT / "conf" / CONFIG_GROUP), version
     hydra_cfg = compose("config", overrides=["task=g1_walk_flat/genesis"])
 assert hydra_cfg.training.task_name == "G1WalkFlat"
 assert hydra_cfg.training.sim_backend == "genesis"
-assert hydra_cfg.training.play_render_mode == "none"
+assert hydra_cfg.training.play_render_mode == "auto"
 
 env_override = BackendAdapter(
     hydra_cfg, root_dir=ROOT, algo_name=CONFIG_GROUP
@@ -949,8 +950,8 @@ try:
             assert isinstance(value, np.ndarray)
             assert np.isfinite(value).all()
 
-    # Play path: mode none enters safely as a no-op; any rendering mode fails
-    # closed with the backend-declared error.
+    # Play path: mode none enters safely as a no-op; record resolves to the
+    # native offscreen plan and validates its required fields.
     plan = env.resolve_play_render_plan(
         play_render_mode="none", play_steps=100, output_video=None
     )
@@ -959,10 +960,14 @@ try:
         env.resolve_play_render_plan(
             play_render_mode="record", play_steps=100, output_video=None
         )
-    except NotImplementedError as exc:
-        assert "does not support playback mode" in str(exc)
+    except ValueError as exc:
+        assert "output video path" in str(exc)
     else:
-        raise AssertionError("genesis playback mode 'record' must fail closed")
+        raise AssertionError("genesis record playback must require an output path")
+    plan = env.resolve_play_render_plan(
+        play_render_mode="record", play_steps=100, output_video="out.mp4"
+    )
+    assert plan.mode == "record" and plan.record_video and plan.headless
 
     print(
         f"[genesis env smoke:{CONFIG_GROUP}] reset+12 steps OK; "
@@ -983,8 +988,8 @@ def test_g1_walk_flat_genesis_owner_real_runtime_smoke(config_group: str) -> Non
     Full chain per algo tree: Hydra compose of task=g1_walk_flat/genesis ->
     registry lookup -> ManagerBasedRlEnv construction -> keyframe reset -> 12
     steps with finite/shape-stable action/state/sensor reads -> explicit
-    cleanup; the play path enters safely with play_render_mode=none and fails
-    closed on rendering modes.
+    cleanup; the play path enters safely with play_render_mode=none and the
+    native record plan resolves with field validation.
     """
     if not _genesis_runtime_available():
         pytest.skip("genesis requires the genesis-world extra and a CUDA device")

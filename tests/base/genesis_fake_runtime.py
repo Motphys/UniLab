@@ -266,6 +266,80 @@ class _FakeRigidSolver:
         self.external_forces.append((value, list(links_idx)))
 
 
+class _FakeCamera:
+    """Post-build offscreen camera: configurable frame + pose recording."""
+
+    def __init__(self, res, pos, lookat, **kwargs):
+        self.res = res
+        self.pos = pos
+        self.lookat = lookat
+        self.kwargs = kwargs
+        self.is_built = False
+        self.poses: list[tuple] = []
+        self.render_count = 0
+
+    def build(self):
+        self.is_built = True
+
+    def set_pose(self, transform=None, pos=None, lookat=None, up=None, envs_idx=None):
+        self.poses.append((pos, lookat))
+
+    def render(self, rgb=True, **kwargs):
+        width, height = self.res  # genesis camera res is (width, height)
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frame[:, :, 0] = np.arange(width, dtype=np.uint8)[None, :]
+        frame[:, :, 1] = np.arange(height, dtype=np.uint8)[:, None]
+        self.render_count += 1
+        return (frame,)
+
+
+class _FakeViewer:
+    """Interactive viewer stand-in with a controllable liveness flag."""
+
+    def __init__(self, options, context):
+        self.options = options
+        self.context = context
+        self.lock = object()
+        self.built_scene = None
+        self.alive = True
+        self.stop_count = 0
+        self.camera_pose = None
+        self.followed_entity = None
+
+    def build(self, scene):
+        self.built_scene = scene
+
+    def set_camera_pose(self, pose=None, pos=None, lookat=None):
+        self.camera_pose = (pos, lookat)
+
+    def follow_entity(self, entity, **kwargs):
+        self.followed_entity = entity
+
+    def is_alive(self):
+        return self.alive
+
+    def stop(self):
+        self.alive = False
+        self.stop_count += 1
+
+
+class _FakeVisualizer:
+    def __init__(self):
+        self.context = object()
+        self.cameras: list[_FakeCamera] = []
+        self.update_count = 0
+        self._viewer = None
+        self.viewer_lock = None
+
+    def add_camera(self, res, pos, lookat, **kwargs):
+        camera = _FakeCamera(res, pos, lookat, **kwargs)
+        self.cameras.append(camera)
+        return camera
+
+    def update(self, force=True, auto=None):
+        self.update_count += 1
+
+
 class _FakeScene:
     def __init__(self, sim_options=None, rigid_options=None, show_viewer=None, **kwargs):
         self.sim_options = sim_options
@@ -274,6 +348,7 @@ class _FakeScene:
         self.entities: list[_FakeEntity] = []
         self.sensors: list[_FakeIMU] = []
         self.sim = types.SimpleNamespace(rigid_solver=_FakeRigidSolver())
+        self.visualizer = _FakeVisualizer()
         self.build_count = 0
 
     def add_entity(self, morph):
@@ -316,6 +391,7 @@ def make_fake_genesis() -> types.SimpleNamespace:
     options = types.SimpleNamespace(
         SimOptions=lambda **kw: types.SimpleNamespace(**kw),
         RigidOptions=lambda **kw: types.SimpleNamespace(kwargs=kw),
+        ViewerOptions=lambda **kw: types.SimpleNamespace(**kw),
     )
     fake.init = init
     fake.destroy = destroy
@@ -330,4 +406,8 @@ def make_fake_genesis() -> types.SimpleNamespace:
     )
     fake.constraint_solver = types.SimpleNamespace(Newton="Newton", CG="CG")
     fake.friction_cone = types.SimpleNamespace(pyramidal="pyramidal", elliptic="elliptic")
+    # The backend resolves the viewer class via
+    # ``importlib.import_module("genesis.vis.viewer")``; tests register this
+    # namespace under that name in sys.modules.
+    fake.viewer_module = types.SimpleNamespace(Viewer=_FakeViewer)
     return fake

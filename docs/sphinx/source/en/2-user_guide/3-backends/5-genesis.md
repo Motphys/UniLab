@@ -18,8 +18,7 @@ construction -> keyframe reset -> 12 finite steps -> cleanup, run for both
 the ppo and sac trees), plus a short SAC training-loop smoke (64 envs / 3
 iterations through the learning_starts/updates_per_step path with checkpoint
 saving). No training validation has been completed, so the support matrix
-marks the cells `Configured`, and playback/rendering is not a declared
-capability.
+marks the cells `Configured`.
 
 Env-construction lifecycle (fixed in #1383): entity validation during
 `ManagerBasedRlEnv` construction reads state getters before the env's
@@ -86,18 +85,37 @@ uv run train --algo ppo --task g1_walk_flat --sim genesis \
     algo.num_envs=64 algo.max_iterations=3
 ```
 
-Playback/rendering is **not supported**: the owner sets
-`training.play_render_mode: none`, so training completes and skips playback
-safely. Forcing any other mode (`--render-mode auto|interactive|record`)
-fails closed with a `NotImplementedError` naming the unsupported mode —
-offscreen camera rendering is a measured-but-unintegrated follow-up (REPORT
-§3.5 [12]). `uv run eval` with the default `none` mode still loads the
-checkpoint (including the sim2sim preflight and dimension guard) but performs
-no rendered rollout:
+## Playback and Rendering
+
+Genesis native rendering is a declared capability and attaches lazily after
+`scene.build` (no viewer dependency on the training hot path): the
+interactive viewer is a post-build `genesis.vis.viewer.Viewer`, and recording
+uses a post-build offscreen camera. The owner sets
+`training.play_render_mode: auto`, which resolves per host:
+
+- `auto`: opens the **interactive viewer** when a display is reachable
+  (`DISPLAY`/`WAYLAND_DISPLAY`), otherwise falls back to offscreen
+  **recording**.
+- `interactive`: always opens the viewer; on a headless host
+  `init_renderer` fails with an actionable error. Closing the viewer window
+  ends playback cleanly (the backend raises `RenderClosedError`, which the
+  play loop treats as a normal exit).
+- `record`: headless offscreen capture, requires finite
+  `training.play_steps` and an output path; frames are written to
+  `play_video.mp4` in the checkpoint's run directory at `1/ctrl_dt` fps.
+- `none`: playback is skipped safely as a no-op.
+
+The camera follows the repo-wide spherical kwargs (`cam_distance` /
+`cam_elevation` / `cam_azimuth`, plus `cam_tracking` to follow the root of
+`cam_tracking_env_idx`). Evaluate a trained run with:
 
 ```bash
-uv run eval --algo ppo --task g1_walk_flat --sim genesis --load-run <run_dir_name>
+uv run eval --algo sac --task g1_walk_flat --sim genesis \
+    --load-run <run_dir_name> --render-mode record
 ```
+
+`get_physics_state` snapshots remain undeclared: playback drives the live
+scene, so state-snapshot playback is not needed.
 
 ## Lifecycle: One `gs.init` Per Process
 
@@ -116,7 +134,6 @@ degrading:
 - **Geom-name contract** (`get_geom_names` and friends): not exposed.
 - **Generated terrain and height scanners**: `scene.terrain` is rejected;
   select a flat owner YAML.
-- **Playback/render modes** other than `none` (see above).
 - **Absolute geom-friction DR**: upstream Genesis only offers a per-env
   friction *ratio* API, so `geom_friction` reset randomization and
   `get_geom_friction` fail closed.
@@ -128,6 +145,7 @@ degrading:
 
 The genesis owner keeps DENYLIST parity with the MuJoCo owner under the audit
 guard (`src/unilab/utils/sim2sim.py`, verdict TRANSFERABLE), so checkpoints of
-the same task transfer across backends. Note the playback asymmetry: playing
-a genesis-trained checkpoint on MuJoCo renders normally, while playing any
-checkpoint on genesis is limited to `play_render_mode=none`.
+the same task transfer across backends. Native rendering exists on both
+sides, but the implementations differ: MuJoCo renders offline from physics
+state snapshots, while Genesis drives its live scene with a post-build
+viewer/camera.
