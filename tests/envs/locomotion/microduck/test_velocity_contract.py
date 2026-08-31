@@ -113,20 +113,43 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
         "body_pose_command",
     )
     assert tuple(policy) == expected
-    assert tuple(critic) == (*expected, "base_lin_vel")
+    assert tuple(critic) == (
+        *expected,
+        "base_lin_vel",
+        "foot_height",
+        "foot_air_time",
+        "foot_contact",
+        "foot_contact_forces",
+    )
     assert sum(dim for _, dim in MICRODUCK_OBS_SEGMENTS) == MICRODUCK_ACTOR_OBS_DIM
-    assert MICRODUCK_CRITIC_OBS_DIM == MICRODUCK_ACTOR_OBS_DIM + 3
+    # Critic 76D = actor 61 + base_lin_vel 3 + foot_height 2 + foot_air_time 2
+    # + foot_contact 2 + foot_contact_forces 6 (legacy privileged foot terms).
+    assert MICRODUCK_CRITIC_OBS_DIM == MICRODUCK_ACTOR_OBS_DIM + 15
     assert policy["joint_pos"].params["biased"] is True
     assert policy["base_ang_vel"].noise.n_max == pytest.approx(0.03)
     assert policy["joint_vel"].noise.n_max == pytest.approx(0.25)
     assert all(term.noise is None for term in critic.values())
+    # Legacy observation latency: IMU terms lag 0-1 ctrl steps resampled every
+    # 64 steps; joint_vel carries a fixed 1-step (20 ms) lag.
+    for name in ("base_ang_vel", "projected_gravity"):
+        assert policy[name].delay_min_lag == 0
+        assert policy[name].delay_max_lag == 1
+        assert policy[name].delay_update_period == 64
+    assert policy["joint_vel"].delay_min_lag == 1
+    assert policy["joint_vel"].delay_max_lag == 1
+    assert all(getattr(term, "delay_max_lag", 0) == 0 for term in critic.values()), (
+        "critic observations must stay undelayed"
+    )
 
     twist = env_cfg.commands["twist"]
     assert isinstance(twist, MicroduckVelocityCommandCfg)
-    assert twist.ranges.lin_vel_x == [-0.2, 0.2]
-    assert twist.ranges.lin_vel_y == [-0.1, 0.1]
-    assert twist.ranges.ang_vel_z == [-0.5, 0.5]
+    assert twist.ranges.lin_vel_x == [-0.4, 0.4]
+    assert twist.ranges.lin_vel_y == [-0.3, 0.3]
+    assert twist.ranges.ang_vel_z == [-1.0, 1.0]
+    assert twist.resampling_time_range == [3.0, 8.0]
     assert twist.rel_standing_envs == pytest.approx(0.02)
+    assert twist.rel_forward_envs == pytest.approx(0.2)
+    assert twist.turn_in_place_fraction == pytest.approx(0.15)
     assert isinstance(env_cfg.commands["head_pose"], UniformVectorCommandCfg)
     assert len(env_cfg.commands["head_pose"].ranges) == 4
     assert len(env_cfg.commands["body_pose"].ranges) == 6
@@ -137,28 +160,91 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
         "head_pose_tracking",
         "head_pose_bias",
         "leg_pose",
-        "foot_air_time_biped",
+        "air_time",
+        "foot_clearance",
+        "foot_swing_height",
+        "foot_slip",
         "flight_phase",
         "lin_vel_z",
         "ang_vel_xy",
         "orientation",
         "base_height",
+        "dof_pos_limits",
+        "angular_momentum",
         "action_rate",
         "alive",
     )
     assert tuple(env_cfg.rewards) == expected_rewards
     assert env_cfg.rewards["tracking_lin_vel"].weight == pytest.approx(3.0)
-    assert env_cfg.rewards["foot_air_time_biped"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["tracking_ang_vel"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["air_time"].weight == pytest.approx(3.0)
+    assert env_cfg.rewards["air_time"].params["threshold_min"] == pytest.approx(0.125)
+    assert env_cfg.rewards["air_time"].params["threshold_max"] == pytest.approx(0.3)
+    assert env_cfg.rewards["foot_clearance"].weight == pytest.approx(-2.0)
+    assert env_cfg.rewards["foot_swing_height"].weight == pytest.approx(-0.25)
+    assert env_cfg.rewards["foot_slip"].weight == pytest.approx(-0.1)
+    assert env_cfg.rewards["dof_pos_limits"].weight == pytest.approx(-1.0)
+    assert env_cfg.rewards["angular_momentum"].weight == pytest.approx(-0.02)
     assert env_cfg.rewards["flight_phase"].weight == pytest.approx(-2.0)
     assert env_cfg.rewards["head_pose_bias"].weight == pytest.approx(0.0)
+    assert env_cfg.rewards["action_rate"].weight == pytest.approx(-0.1)
     assert tuple(env_cfg.events) == (
         "reset_scene_to_default",
         "base_com",
+        "head_com",
         "encoder_bias",
+        "foot_friction",
+        "randomize_armature",
         "push_robot",
     )
     assert env_cfg.events["push_robot"].mode == "interval"
-    assert env_cfg.events["push_robot"].interval_range_s == [3.0, 3.0]
+    assert env_cfg.events["push_robot"].interval_range_s == [3.0, 6.0]
+    assert env_cfg.events["foot_friction"].params["ranges"] == [0.7, 1.3]
+    assert env_cfg.events["randomize_armature"].params["ranges"] == [0.9, 1.1]
+    assert env_cfg.events["randomize_armature"].params["operation"] == "scale"
+
+    assert tuple(env_cfg.terminations) == ("time_out", "tilt", "base_height", "nan_state")
+    assert env_cfg.terminations["tilt"].params["limit_angle"] == pytest.approx(1.2217304763960306)
+
+    # Legacy step-staged curricula (stage step = legacy iteration x 24).
+    assert tuple(env_cfg.curriculum) == (
+        "action_rate_weight",
+        "head_pose_bias_weight",
+        "standing_envs",
+        "head_pose_range",
+        "base_com_range",
+        "head_com_range",
+    )
+    action_rate_stages = env_cfg.curriculum["action_rate_weight"].params["stages"]
+    assert [stage["step"] for stage in action_rate_stages] == [
+        0,
+        12000,
+        18000,
+        24000,
+        30000,
+        36000,
+    ]
+    assert [stage["weight"] for stage in action_rate_stages] == [
+        -0.1,
+        -0.2,
+        -0.4,
+        -0.6,
+        -0.8,
+        -1.0,
+    ]
+    standing_stages = env_cfg.curriculum["standing_envs"].params["stages"]
+    assert standing_stages[-1] == {"step": 48000, "rel_standing_envs": 0.25}
+    head_range_stages = env_cfg.curriculum["head_pose_range"].params["stages"]
+    assert head_range_stages[-1]["ranges"] == [
+        [-1.1, 1.1],
+        [-1.1, 1.1],
+        [-1.4, 1.4],
+        [-0.31, 0.31],
+    ]
+    base_com_stages = env_cfg.curriculum["base_com_range"].params["stages"]
+    assert base_com_stages[-1]["params"]["com_range"]["x"] == [-0.015, 0.015]
+    head_com_stages = env_cfg.curriculum["head_com_range"].params["stages"]
+    assert head_com_stages[-1]["params"]["com_range"]["x"] == [-0.01, 0.01]
 
 
 def test_microduck_registry_and_factory_are_manager_based(monkeypatch) -> None:

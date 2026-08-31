@@ -42,6 +42,13 @@ def test_microduck_mjwarp_owner_enables_base_com_and_push_events() -> None:
     assert events.push_robot is not None
     assert events.push_robot.func == "unilab.envs.mdp.push_by_setting_velocity"
     assert events.push_robot.mode == "interval"
+    # Legacy-recipe DR events added by #1402 must also reach the mjwarp owner.
+    assert events.head_com is not None
+    assert events.head_com.func == "unilab.envs.mdp.randomize_rigid_body_com"
+    assert events.foot_friction is not None
+    assert events.foot_friction.func == "unilab.envs.mdp.geom_friction"
+    assert events.randomize_armature is not None
+    assert events.randomize_armature.func == "unilab.envs.mdp.joint_armature"
 
 
 def test_microduck_mjwarp_full_dr_reset_and_interval_smoke() -> None:
@@ -77,6 +84,19 @@ def test_microduck_mjwarp_full_dr_reset_and_interval_smoke() -> None:
         assert base_id is not None
         world_ipos = body_ipos[:, base_id, :]
         assert np.ptp(world_ipos, axis=0).max() > 1e-5
+
+        # The #1402 foot-friction (abs, [0.7, 1.3]) and armature (scale,
+        # [0.9, 1.1]) reset payloads also reached the per-world device model.
+        geom_friction = np.asarray(env._backend._device_model.geom_friction.numpy())
+        foot_geom_ids = [
+            env._backend.get_geom_id(name)
+            for name in ("left_foot_collision", "right_foot_collision")
+        ]
+        foot_friction = geom_friction[:, foot_geom_ids, 0]
+        assert np.all(foot_friction >= 0.7 - 1e-6)
+        assert np.all(foot_friction <= 1.3 + 1e-6)
+        dof_armature = np.asarray(env._backend._device_model.dof_armature.numpy())
+        assert np.ptp(dof_armature, axis=0).max() > 0.0
 
         # Step past the 3s push interval (150 control steps at ctrl_dt=0.02)
         # so both the reset and interval DR paths execute on device.

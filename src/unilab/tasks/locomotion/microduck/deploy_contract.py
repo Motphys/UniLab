@@ -7,7 +7,9 @@ MicroDuck runtime, allowing exported policies to keep a stable I/O contract.
 from __future__ import annotations
 
 MICRODUCK_ACTOR_OBS_DIM = 61
-MICRODUCK_CRITIC_OBS_DIM = 64
+# Legacy microduck_rl critic: actor 61 + base_lin_vel 3 + privileged foot
+# terms (foot_height 2, foot_air_time 2, foot_contact 2, foot_contact_forces 6).
+MICRODUCK_CRITIC_OBS_DIM = 76
 MICRODUCK_NUM_ACTION = 14
 
 MICRODUCK_OBS_SEGMENTS: tuple[tuple[str, int], ...] = (
