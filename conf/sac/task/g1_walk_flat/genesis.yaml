@@ -22,6 +22,10 @@ training:
   task_name: G1WalkFlat
   sim_backend: genesis
   play_render_mode: auto
+  # Genesis compiles its kernels on the materialize cold path (~35 s at
+  # num_envs=2048 on an RTX 4090, no cross-process cache), which exceeds the
+  # runner's default 30 s collector tick-0 budget; raise it for this backend.
+  inference_request_timeout_sec: 180.0
 algo:
   num_envs: 2048
   learning_starts: 10

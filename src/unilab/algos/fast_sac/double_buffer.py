@@ -123,4 +123,5 @@ def build_sac_double_buffer_runner(
         torch_thread_runtime=torch_thread_runtime,
         collector_cpu_ids=collector_cpu_ids,
         dp_sync=dp_sync,
+        inference_request_timeout_sec=getattr(cfg.training, "inference_request_timeout_sec", None),
     )
