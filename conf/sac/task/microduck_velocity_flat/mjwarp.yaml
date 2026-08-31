@@ -25,8 +25,3 @@ env:
   mjwarp_nconmax: 128
   mjwarp_njmax: 256
   render_spacing: 2.0
-  events:
-    # mjwarp advertises no reset-payload or interval DR capabilities yet;
-    # CoM randomization (body_ipos) and velocity pushes stay mujoco-only.
-    base_com: null
-    push_robot: null

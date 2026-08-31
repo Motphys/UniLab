@@ -168,11 +168,17 @@ class _Backend:
         gain_supported: bool = True,
         randomization_supported: bool = True,
         interval_velocity_supported: bool = True,
+        interval_angular_velocity_supported: bool = False,
+        interval_force_supported: bool = False,
+        interval_torque_supported: bool = False,
     ) -> None:
         self.root_layout_supported = root_layout_supported
         self.gain_supported = gain_supported
         self.randomization_supported = randomization_supported
         self.interval_velocity_supported = interval_velocity_supported
+        self.interval_angular_velocity_supported = interval_angular_velocity_supported
+        self.interval_force_supported = interval_force_supported
+        self.interval_torque_supported = interval_torque_supported
         self.default_qpos = np.asarray([0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
         self.init_qvel = np.zeros(6)
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
@@ -256,6 +262,9 @@ class _Backend:
         return DomainRandomizationCapabilities(
             supported_reset_terms=frozenset(terms),
             supports_interval_body_velocity_delta=self.interval_velocity_supported,
+            supports_interval_body_angular_velocity_delta=self.interval_angular_velocity_supported,
+            supports_interval_body_force=self.interval_force_supported,
+            supports_interval_body_torque=self.interval_torque_supported,
         )
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
@@ -314,14 +323,21 @@ def _transaction_env(
     gain_supported: bool = True,
     randomization_supported: bool = True,
     interval_velocity_supported: bool = True,
+    interval_angular_velocity_supported: bool = False,
+    interval_force_supported: bool = False,
+    interval_torque_supported: bool = False,
     body_names: tuple[str, ...] | None = ("base",),
     rng_seed: int = 5,
+    step_dt: float = 0.02,
 ) -> tuple[ManagerBasedRlEnv, _Backend, ResetStateTransaction]:
     backend = _Backend(
         root_layout_supported=root_layout_supported,
         gain_supported=gain_supported,
         randomization_supported=randomization_supported,
         interval_velocity_supported=interval_velocity_supported,
+        interval_angular_velocity_supported=interval_angular_velocity_supported,
+        interval_force_supported=interval_force_supported,
+        interval_torque_supported=interval_torque_supported,
     )
     transaction = ResetStateTransaction(cast(SimBackend, backend))
     scene = EntityScene(
@@ -343,6 +359,7 @@ def _transaction_env(
             num_envs=backend.num_envs,
             rng=np.random.default_rng(rng_seed),
             scene=scene,
+            step_dt=step_dt,
         ),
     )
     return env, backend, transaction
@@ -437,7 +454,6 @@ def test_pd_gains_event_supports_log_uniform_absolute_sampling() -> None:
     ("cfg_kwargs", "match"),
     [
         ({"mode": "startup"}, "only supports mode='reset'"),
-        ({"min_step_count_between_reset": 2}, "min_step_count_between_reset=0"),
         ({"params": {"kp_range": (2.0, 1.0), "kd_range": (1.0, 1.0)}}, "minimum"),
     ],
 )
@@ -696,6 +712,286 @@ def test_reset_randomization_sparse_rows_abort_without_backend_mutation() -> Non
     assert backend.set_state_calls == []
 
 
+def test_min_step_count_gating_reuses_committed_field_values() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=29)
+    manager = EventManager(
+        {
+            "mass": EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode="reset",
+                min_step_count_between_reset=100,
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                    "mass_distribution_params": (0.9, 1.1),
+                    "operation": "scale",
+                    "recompute_inertia": False,
+                },
+            )
+        },
+        env,
+    )
+    first_ids = np.array([0, 1], dtype=np.int32)
+    with transaction.scoped(first_ids):
+        mdp.reset_scene_to_default(env, first_ids)
+        manager.apply(mode="reset", env_ids=first_ids, global_env_step_count=0)
+    first = backend.randomization_calls[-1]
+    assert first is not None and first.body_mass is not None
+
+    # Env 2 has never triggered, so the first-trigger override fires it while
+    # envs 0 and 1 stay gated; their payload rows reuse committed values.
+    ids = np.array([0, 1, 2], dtype=np.int32)
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=50)
+    second = backend.randomization_calls[-1]
+    assert second is not None and second.body_mass is not None
+    np.testing.assert_allclose(second.body_mass[:2], first.body_mass)
+    np.testing.assert_array_equal(manager._reset_term_last_triggered_step_id[0], [0, 0, 50])
+
+    # Fully gated resets skip the field entirely; the backend keeps the
+    # previously applied per-env values, so no dense payload is needed.
+    with transaction.scoped(first_ids):
+        mdp.reset_scene_to_default(env, first_ids)
+        manager.apply(mode="reset", env_ids=first_ids, global_env_step_count=60)
+    third = backend.randomization_calls[-1]
+    assert third is None or third.body_mass is None
+
+    # Once enough steps elapsed the gate reopens and the term resamples.
+    with transaction.scoped(first_ids):
+        mdp.reset_scene_to_default(env, first_ids)
+        manager.apply(mode="reset", env_ids=first_ids, global_env_step_count=200)
+    fourth = backend.randomization_calls[-1]
+    assert fourth is not None and fourth.body_mass is not None
+    np.testing.assert_array_equal(manager._reset_term_last_triggered_step_id[0], [200, 200, 50])
+    assert not np.allclose(fourth.body_mass, second.body_mass[:2])
+
+
+def test_min_step_count_gating_applies_to_pd_gains_payload_rows() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=41)
+    manager = EventManager(
+        {
+            "gains": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                min_step_count_between_reset=50,
+                params={"kp_range": (1.5, 1.5), "kd_range": (2.5, 2.5)},
+            )
+        },
+        env,
+    )
+    first_ids = np.array([0, 1], dtype=np.int32)
+    with transaction.scoped(first_ids):
+        manager.apply(mode="reset", env_ids=first_ids, global_env_step_count=0)
+    first = backend.randomization_calls[-1]
+    assert first is not None and first.kp is not None and first.kd is not None
+
+    ids = np.array([0, 1, 2], dtype=np.int32)
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=10)
+    second = backend.randomization_calls[-1]
+    assert second is not None and second.kp is not None and second.kd is not None
+    np.testing.assert_allclose(second.kp[:2], first.kp)
+    np.testing.assert_allclose(second.kd[:2], first.kd)
+    np.testing.assert_array_equal(manager._reset_term_last_triggered_step_id[0], [0, 0, 10])
+
+
+def test_apply_body_impulse_lifecycle_stages_sustains_and_expires() -> None:
+    env, backend, _ = _transaction_env(rng_seed=31, interval_force_supported=True)
+    manager = EventManager(
+        {
+            "impulse": EventTermCfg(
+                func=mdp.apply_body_impulse,
+                mode="step",
+                params={
+                    "force_range": (5.0, 5.0),
+                    "torque_range": (0.0, 0.0),
+                    "duration_s": (0.05, 0.05),
+                    "cooldown_s": (0.06, 0.06),
+                },
+            )
+        },
+        env,
+    )
+
+    # step_dt=0.02: the pre-sampled 0.06 cooldown triggers on the third tick;
+    # the 0.05 duration sustains through the fifth tick and expires on the sixth.
+    manager.apply(mode="step", dt=0.02)
+    manager.apply(mode="step", dt=0.02)
+    assert backend.interval_plans == []
+
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 1
+    plan = backend.interval_plans[0]
+    np.testing.assert_array_equal(plan.body_ids, [0])
+    assert plan.body_force is not None
+    np.testing.assert_allclose(plan.body_force[:, 0], 5.0)
+    assert plan.body_torque is None
+
+    manager.apply(mode="step", dt=0.02)
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 3
+    np.testing.assert_allclose(backend.interval_plans[1].body_force[:, 0], 5.0)
+    np.testing.assert_allclose(backend.interval_plans[2].body_force[:, 0], 5.0)
+
+    # Expiry stages zeros once (persistent wrench channels clear), then the
+    # term stays idle through the next cooldown instead of re-staging.
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 4
+    np.testing.assert_allclose(backend.interval_plans[3].body_force[:, 0], 0.0)
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 4
+
+
+def test_apply_body_impulse_offset_generates_cross_torque() -> None:
+    env, backend, _ = _transaction_env(
+        rng_seed=37,
+        interval_force_supported=True,
+        interval_torque_supported=True,
+    )
+    manager = EventManager(
+        {
+            "impulse": EventTermCfg(
+                func=mdp.apply_body_impulse,
+                mode="step",
+                params={
+                    "force_range": (1.0, 1.0),
+                    "torque_range": (0.0, 0.0),
+                    "duration_s": (1.0, 1.0),
+                    "cooldown_s": (0.0, 0.0),
+                    "body_point_offset": (0.0, 0.0, 0.1),
+                },
+            )
+        },
+        env,
+    )
+
+    manager.apply(mode="step", dt=0.02)
+
+    assert len(backend.interval_plans) == 1
+    plan = backend.interval_plans[0]
+    assert plan.body_force is not None and plan.body_torque is not None
+    np.testing.assert_allclose(plan.body_force[:, 0], 1.0)
+    # Identity link orientation: offset_w = (0, 0, 0.1), force = (1, 1, 1),
+    # cross(offset_w, force) = (-0.1, 0.1, 0).
+    np.testing.assert_allclose(
+        plan.body_torque[:, 0],
+        [[-0.1, 0.1, 0.0]] * 3,
+        atol=1e-12,
+    )
+
+
+def test_apply_body_impulse_reset_clears_active_wrench() -> None:
+    env, backend, _ = _transaction_env(rng_seed=43, interval_force_supported=True)
+    manager = EventManager(
+        {
+            "impulse": EventTermCfg(
+                func=mdp.apply_body_impulse,
+                mode="step",
+                params={
+                    "force_range": (5.0, 5.0),
+                    "torque_range": (0.0, 0.0),
+                    "duration_s": (1.0, 1.0),
+                    "cooldown_s": (10.0, 10.0),
+                },
+            )
+        },
+        env,
+    )
+    term = manager.get_term_cfg("impulse").func
+    term._interval_time_left[:] = 0.0
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 1
+
+    manager.reset(np.array([1], dtype=np.int32))
+    assert len(backend.interval_plans) == 2
+    np.testing.assert_allclose(backend.interval_plans[1].body_force[:, 0], 0.0)
+
+    manager.apply(mode="step", dt=0.02)
+    sustained = backend.interval_plans[-1].body_force
+    assert sustained is not None
+    np.testing.assert_allclose(sustained[1, 0], 0.0)
+    np.testing.assert_allclose(sustained[[0, 2], 0], 5.0)
+
+
+@pytest.mark.parametrize(
+    ("env_overrides", "params", "cfg_kwargs", "match"),
+    [
+        ({}, {"force_range": (1.0, 1.0)}, {"mode": "interval"}, "only supports mode='step'"),
+        (
+            {},
+            {
+                "force_range": (1.0, 1.0),
+                "torque_range": (0.0, 0.0),
+                "duration_s": (0.1, 0.1),
+            },
+            {},
+            "missing parameters",
+        ),
+        (
+            {},
+            {
+                "force_range": (1.0, 1.0),
+                "torque_range": (0.0, 0.0),
+                "duration_s": (-0.1, 0.1),
+                "cooldown_s": (0.0, 0.0),
+            },
+            {},
+            "0 <= min <= max",
+        ),
+        (
+            {"interval_force_supported": False},
+            {
+                "force_range": (1.0, 1.0),
+                "torque_range": (0.0, 0.0),
+                "duration_s": (0.1, 0.1),
+                "cooldown_s": (0.0, 0.0),
+            },
+            {},
+            "unsupported backend capability",
+        ),
+        (
+            {"interval_force_supported": True, "interval_torque_supported": False},
+            {
+                "force_range": (1.0, 1.0),
+                "torque_range": (0.1, 0.1),
+                "duration_s": (0.1, 0.1),
+                "cooldown_s": (0.0, 0.0),
+            },
+            {},
+            "interval body torque",
+        ),
+        (
+            {"interval_force_supported": True, "interval_torque_supported": False},
+            {
+                "force_range": (1.0, 1.0),
+                "torque_range": (0.0, 0.0),
+                "duration_s": (0.1, 0.1),
+                "cooldown_s": (0.0, 0.0),
+                "body_point_offset": (0.0, 0.0, 0.1),
+            },
+            {},
+            "interval body torque",
+        ),
+    ],
+)
+def test_apply_body_impulse_invalid_configs_fail_closed(
+    env_overrides: dict[str, Any],
+    params: dict[str, Any],
+    cfg_kwargs: dict[str, Any],
+    match: str,
+) -> None:
+    env, backend, _ = _transaction_env(**env_overrides)
+    values: dict[str, Any] = {"mode": "step", "params": params}
+    values.update(cfg_kwargs)
+    if values["mode"] == "interval":
+        values["interval_range_s"] = (1.0, 1.0)
+
+    with pytest.raises((ValueError, NotImplementedError), match=match):
+        EventManager({"impulse": EventTermCfg(func=mdp.apply_body_impulse, **values)}, env)
+    assert backend.interval_plans == []
+
+
 def test_velocity_push_uses_env_rng_and_interval_subset_plan() -> None:
     env, backend, _ = _transaction_env(rng_seed=19)
     manager = EventManager(
@@ -729,19 +1025,65 @@ def test_velocity_push_uses_env_rng_and_interval_subset_plan() -> None:
     )
 
 
+def test_velocity_push_dispatches_angular_delta_when_supported() -> None:
+    env, backend, _ = _transaction_env(rng_seed=19, interval_angular_velocity_supported=True)
+    manager = EventManager(
+        {
+            "push": EventTermCfg(
+                func=mdp.push_by_setting_velocity,
+                mode="interval",
+                interval_range_s=(1.0, 1.0),
+                params={
+                    "velocity_range": {
+                        "x": (0.2, 0.2),
+                        "yaw": (-0.5, -0.5),
+                    }
+                },
+            )
+        },
+        env,
+    )
+    manager._interval_term_time_left[0][:] = [0.0, 1.0, 0.0]
+
+    manager.apply(mode="interval", dt=0.1)
+
+    assert len(backend.interval_plans) == 1
+    plan = backend.interval_plans[0]
+    np.testing.assert_array_equal(plan.body_ids, [0])
+    assert plan.body_linear_velocity_delta is not None
+    np.testing.assert_allclose(
+        plan.body_linear_velocity_delta[:, 0],
+        [[0.2, 0.0, 0.0], [0.0, 0.0, 0.0], [0.2, 0.0, 0.0]],
+    )
+    assert plan.body_angular_velocity_delta is not None
+    np.testing.assert_allclose(
+        plan.body_angular_velocity_delta[:, 0],
+        [[0.0, 0.0, -0.5], [0.0, 0.0, 0.0], [0.0, 0.0, -0.5]],
+    )
+
+
 @pytest.mark.parametrize(
-    ("supported", "velocity_range", "match"),
+    (
+        "velocity_supported",
+        "angular_supported",
+        "velocity_range",
+        "match",
+    ),
     [
-        (False, {"x": (-0.1, 0.1)}, "unsupported backend capability"),
-        (True, {"yaw": (-0.1, 0.1)}, "angular velocity ranges are unsupported"),
+        (False, False, {"x": (-0.1, 0.1)}, "unsupported backend capability"),
+        (True, False, {"yaw": (-0.1, 0.1)}, "unsupported backend capability"),
     ],
 )
 def test_velocity_push_capability_gaps_fail_during_construction(
-    supported: bool,
+    velocity_supported: bool,
+    angular_supported: bool,
     velocity_range: dict[str, tuple[float, float]],
     match: str,
 ) -> None:
-    env, backend, _ = _transaction_env(interval_velocity_supported=supported)
+    env, backend, _ = _transaction_env(
+        interval_velocity_supported=velocity_supported,
+        interval_angular_velocity_supported=angular_supported,
+    )
     with pytest.raises(NotImplementedError, match=match):
         EventManager(
             {
@@ -905,3 +1247,35 @@ def test_randomize_encoder_bias_rejects_invalid_cfg_at_construction() -> None:
             },
             env,
         )
+
+
+def test_rigid_body_com_event_consumes_live_params_between_applies() -> None:
+    """Staged CoM-range curricula update the live term params; the next reset
+    application must sample from the widened range without rebuilding the term."""
+    env, backend, transaction = _transaction_env(rng_seed=17)
+    asset_cfg = SceneEntityCfg("robot", body_names=("base",))
+    manager = EventManager(
+        {
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="reset",
+                params={"asset_cfg": asset_cfg, "com_range": {"x": (0.1, 0.1)}},
+            )
+        },
+        env,
+    )
+    ids = np.array([0, 1], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+    first = backend.randomization_calls[-1].body_ipos
+    assert first is not None
+    np.testing.assert_allclose(first, [[[0.1, 0.0, 0.0]]] * 2)
+
+    # A curriculum stage widens the live term params.
+    manager.get_term_cfg("com").params["com_range"] = {"x": (0.5, 0.5), "z": (-0.2, -0.2)}
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=1)
+    second = backend.randomization_calls[-1].body_ipos
+    assert second is not None
+    np.testing.assert_allclose(second, [[[0.5, 0.0, -0.2]]] * 2)

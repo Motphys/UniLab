@@ -1,8 +1,8 @@
 # @package _global_
 # Canonical Pollen Robotics MicroDuck Manager-Based velocity task (off-policy owners).
-# Environment, command, event, termination, and reward semantics are identical to
-# the on-policy owner (conf/ppo/task/microduck_velocity_flat/base.yaml); backend
-# owner leaves inherit this file and only carry backend/algo identity.
+# Environment, command, event, termination, curriculum, and reward semantics are
+# identical to the on-policy owner (conf/ppo/task/microduck_velocity_flat/base.yaml);
+# backend owner leaves inherit this file and only carry backend/algo identity.
 env:
   scene:
     model_file: src/unilab/assets/robots/microduck/scene_flat.xml
@@ -41,7 +41,19 @@ env:
           - right_hip_pitch
           - right_knee
           - right_ankle
-        body_names: [trunk_base]
+        # trunk_base: root + trunk CoM DR; ankle_*: foot clearance/swing/slip and
+        # critic foot_height; neck chain + bearing_roll: legacy head CoM DR set.
+        body_names:
+          - trunk_base
+          - ankle_left
+          - ankle_right
+          - neck
+          - neck_pitch
+          - yaw_roll_motion
+          - jaw_soft
+          - bearing_roll
+        # Foot collision geoms for the foot_friction DR event.
+        geom_names: [left_foot_collision, right_foot_collision]
   sim_dt: 0.01
   ctrl_dt: 0.02
   max_episode_seconds: 20.0
@@ -50,21 +62,28 @@ env:
       enable_corruption: true
       terms:
         base_ang_vel:
-          func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: gyro}
+          func: unilab.envs.mdp.base_ang_vel_imu_misaligned
+          params: {max_angle_deg: 6.0}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.03
             n_max: 0.03
             operation: add
+          # Legacy IMU latency envelope: 0-1 ctrl step lag, resampled every 64 steps.
+          delay_min_lag: 0
+          delay_max_lag: 1
+          delay_update_period: 64
         projected_gravity:
-          func: unilab.envs.mdp.projected_gravity_from_sensor
-          params: {sensor_name: upvector}
+          func: unilab.envs.mdp.projected_gravity_imu_misaligned
+          params: {max_angle_deg: 6.0}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.01
             n_max: 0.01
             operation: add
+          delay_min_lag: 0
+          delay_max_lag: 1
+          delay_update_period: 64
         joint_pos:
           func: unilab.envs.mdp.joint_pos_rel
           params: {biased: true}
@@ -80,6 +99,10 @@ env:
             n_min: -0.25
             n_max: 0.25
             operation: add
+          # Legacy fixed 1-ctrl-step (20 ms) joint-velocity lag (Dynamixel
+          # firmware moving-average velocity estimate).
+          delay_min_lag: 1
+          delay_max_lag: 1
         actions:
           func: unilab.envs.mdp.last_action
           params: {action_name: joint_pos}
@@ -119,6 +142,27 @@ env:
         base_lin_vel:
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: local_linvel}
+        # Privileged per-foot terms (legacy critic 76D layout).
+        foot_height:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_height
+          params:
+            asset_cfg:
+              _target_: unilab.managers.SceneEntityCfg
+              name: robot
+              body_names: [ankle_left, ankle_right]
+              preserve_order: true
+        foot_air_time:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_air_time
+          params:
+            sensor_groups: [[left_foot_contact], [right_foot_contact]]
+        foot_contact:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_contact
+          params:
+            sensor_groups: [[left_foot_contact], [right_foot_contact]]
+        foot_contact_forces:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_contact_forces
+          params:
+            sensor_groups: [[left_foot_contact], [right_foot_contact]]
   actions:
     joint_pos:
       _target_: unilab.envs.mdp.JointPositionActionCfg
@@ -130,20 +174,20 @@ env:
     twist:
       _target_: unilab.tasks.locomotion.microduck.manager_terms.MicroduckVelocityCommandCfg
       entity_name: robot
-      resampling_time_range: [20.0, 20.0]
+      resampling_time_range: [3.0, 8.0]
       heading_command: false
       heading_control_stiffness: 0.5
       rel_standing_envs: 0.02
       rel_heading_envs: 0.0
       rel_world_envs: 0.0
-      rel_forward_envs: 0.0
+      rel_forward_envs: 0.2
       init_velocity_prob: 0.0
-      turn_in_place_fraction: 0.0
+      turn_in_place_fraction: 0.15
       turn_in_place_ang_min: 0.4
       ranges:
-        lin_vel_x: [-0.2, 0.2]
-        lin_vel_y: [-0.1, 0.1]
-        ang_vel_z: [-0.5, 0.5]
+        lin_vel_x: [-0.4, 0.4]
+        lin_vel_y: [-0.3, 0.3]
+        ang_vel_z: [-1.0, 1.0]
     head_pose:
       _target_: unilab.tasks.locomotion.microduck.manager_terms.UniformVectorCommandCfg
       resampling_time_range: [2.0, 5.0]
@@ -178,6 +222,20 @@ env:
           x: [-0.003, 0.003]
           y: [-0.003, 0.003]
           z: [-0.003, 0.003]
+    head_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          # Legacy HEAD_BODY_NAMES resolved against this model: the head-roll
+          # body is jaw_soft here (bottom_head_shell in the legacy walk model).
+          body_names: [neck, neck_pitch, yaw_roll_motion, jaw_soft, bearing_roll]
+        com_range:
+          x: [-0.003, 0.003]
+          y: [-0.003, 0.003]
+          z: [-0.003, 0.003]
     encoder_bias:
       func: unilab.envs.mdp.randomize_encoder_bias
       mode: reset
@@ -187,10 +245,32 @@ env:
           _target_: unilab.managers.SceneEntityCfg
           name: robot
           joint_names: ".*"
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: [left_foot_collision, right_foot_collision]
+        ranges: [0.7, 1.3]
+        operation: abs
+        axes: [0]
+        shared_random: true
+    randomize_armature:
+      func: unilab.envs.mdp.joint_armature
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+        ranges: [0.9, 1.1]
+        operation: scale
     push_robot:
       func: unilab.envs.mdp.push_by_setting_velocity
       mode: interval
-      interval_range_s: [3.0, 3.0]
+      interval_range_s: [3.0, 6.0]
       is_global_time: true
       params:
         velocity_range:
@@ -206,10 +286,79 @@ env:
       time_out: true
     tilt:
       func: unilab.envs.mdp.bad_orientation
-      params: {limit_angle: 0.7853981633974483}
+      # Legacy fell_over threshold: 70 degrees.
+      params: {limit_angle: 1.2217304763960306}
     base_height:
       func: unilab.envs.mdp.root_height_below_minimum
       params: {minimum_height: 0.08}
+    nan_state:
+      func: unilab.envs.mdp.nan_detection
+  curriculum:
+    # Legacy curriculum A: action_rate_l2 weight -0.1 -> -1.0 by iter 1500.
+    action_rate_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: action_rate
+        stages:
+          - {step: 0, weight: -0.1}
+          - {step: 12000, weight: -0.2}
+          - {step: 18000, weight: -0.4}
+          - {step: 24000, weight: -0.6}
+          - {step: 30000, weight: -0.8}
+          - {step: 36000, weight: -1.0}
+    # Legacy curriculum B: head_pose_bias weight 0 -> +3.0.
+    head_pose_bias_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: head_pose_bias
+        stages:
+          - {step: 0, weight: 0.0}
+          - {step: 14400, weight: 1.0}
+          - {step: 24000, weight: 2.0}
+          - {step: 36000, weight: 3.0}
+    # Legacy curriculum C: standing envs 0.02 -> 0.25.
+    standing_envs:
+      func: unilab.envs.mdp.command_curriculum
+      params:
+        command_name: twist
+        stages:
+          - {step: 0, rel_standing_envs: 0.02}
+          - {step: 12000, rel_standing_envs: 0.05}
+          - {step: 18000, rel_standing_envs: 0.1}
+          - {step: 24000, rel_standing_envs: 0.15}
+          - {step: 36000, rel_standing_envs: 0.2}
+          - {step: 48000, rel_standing_envs: 0.25}
+    # Legacy curriculum D: head_pose command ranges widen to
+    # ±1.10 / ±1.10 / ±1.40 / ±0.31 rad (neck_pitch, head_pitch, head_yaw, head_roll).
+    head_pose_range:
+      func: unilab.envs.mdp.command_curriculum
+      params:
+        command_name: head_pose
+        stages:
+          - {step: 0, ranges: [[-0.05, 0.05], [-0.05, 0.05], [-0.07, 0.07], [-0.015, 0.015]]}
+          - {step: 12000, ranges: [[-0.17, 0.17], [-0.17, 0.17], [-0.21, 0.21], [-0.047, 0.047]]}
+          - {step: 24000, ranges: [[-0.39, 0.39], [-0.39, 0.39], [-0.49, 0.49], [-0.11, 0.11]]}
+          - {step: 36000, ranges: [[-0.72, 0.72], [-0.72, 0.72], [-0.91, 0.91], [-0.2, 0.2]]}
+          - {step: 48000, ranges: [[-1.1, 1.1], [-1.1, 1.1], [-1.4, 1.4], [-0.31, 0.31]]}
+    # Legacy curriculum E (trunk): base CoM range ±3mm -> ±15mm.
+    base_com_range:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: base_com
+        stages:
+          - {step: 0, params: {com_range: {x: [-0.003, 0.003], y: [-0.003, 0.003], z: [-0.003, 0.003]}}}
+          - {step: 12000, params: {com_range: {x: [-0.005, 0.005], y: [-0.005, 0.005], z: [-0.005, 0.005]}}}
+          - {step: 24000, params: {com_range: {x: [-0.01, 0.01], y: [-0.01, 0.01], z: [-0.01, 0.01]}}}
+          - {step: 36000, params: {com_range: {x: [-0.015, 0.015], y: [-0.015, 0.015], z: [-0.015, 0.015]}}}
+    # Legacy curriculum E (head): head CoM range ±3mm -> ±10mm.
+    head_com_range:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: head_com
+        stages:
+          - {step: 0, params: {com_range: {x: [-0.003, 0.003], y: [-0.003, 0.003], z: [-0.003, 0.003]}}}
+          - {step: 12000, params: {com_range: {x: [-0.005, 0.005], y: [-0.005, 0.005], z: [-0.005, 0.005]}}}
+          - {step: 24000, params: {com_range: {x: [-0.01, 0.01], y: [-0.01, 0.01], z: [-0.01, 0.01]}}}
   policy_observation_group: policy
   critic_observation_group: critic
 
@@ -219,9 +368,10 @@ reward:
     weight: 3.0
     params: {sensor_name: local_linvel, tracking_sigma: 0.25, command_name: twist}
   tracking_ang_vel:
-    func: unilab.tasks.locomotion.common.sensor_reward_terms.track_ang_vel
-    weight: 1.5
-    params: {sensor_name: gyro, tracking_sigma: 0.25, command_name: twist}
+    # Legacy merged form: exp(-((cmd-wz)^2 + wx^2 + wy^2) / 0.5), std=sqrt(0.5).
+    func: unilab.envs.mdp.track_angular_velocity
+    weight: 2.0
+    params: {std: 0.7071067811865476, command_name: twist}
   head_pose_tracking:
     func: unilab.tasks.locomotion.microduck.manager_terms.head_pose_tracking
     weight: 0.5
@@ -255,10 +405,53 @@ reward:
         name: robot
         joint_names: [left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle]
         preserve_order: true
-  foot_air_time_biped:
-    func: unilab.tasks.locomotion.microduck.manager_terms.foot_air_time_biped
-    weight: 2.0
-    params: {threshold: 0.3, command_threshold: 0.01, command_name: twist}
+  air_time:
+    # Legacy window form: feet with current air time in (0.125, 0.300) s score.
+    func: unilab.tasks.locomotion.common.gait_terms.feet_air_time
+    weight: 3.0
+    params:
+      threshold_min: 0.125
+      threshold_max: 0.3
+      command_threshold: 0.01
+      command_name: twist
+      sensor_groups: [[left_foot_contact], [right_foot_contact]]
+  foot_clearance:
+    func: unilab.tasks.locomotion.common.gait_terms.feet_clearance
+    weight: -2.0
+    params:
+      target_height: 0.02
+      command_threshold: 0.01
+      command_name: twist
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [ankle_left, ankle_right]
+        preserve_order: true
+  foot_swing_height:
+    func: unilab.tasks.locomotion.common.gait_terms.feet_swing_height
+    weight: -0.25
+    params:
+      target_height: 0.02
+      command_threshold: 0.01
+      command_name: twist
+      sensor_groups: [[left_foot_contact], [right_foot_contact]]
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [ankle_left, ankle_right]
+        preserve_order: true
+  foot_slip:
+    func: unilab.tasks.locomotion.common.gait_terms.feet_slip
+    weight: -0.1
+    params:
+      command_threshold: 0.01
+      command_name: twist
+      sensor_groups: [[left_foot_contact], [right_foot_contact]]
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [ankle_left, ankle_right]
+        preserve_order: true
   flight_phase:
     func: unilab.tasks.locomotion.microduck.manager_terms.flight_phase
     weight: -2.0
@@ -278,9 +471,16 @@ reward:
     func: unilab.tasks.locomotion.common.manager_terms.base_height_l2
     weight: -50.0
     params: {target_height: 0.12}
+  dof_pos_limits:
+    func: unilab.envs.mdp.joint_pos_limits
+    weight: -1.0
+  angular_momentum:
+    func: unilab.tasks.locomotion.common.gait_terms.angular_momentum_penalty
+    weight: -0.02
+    params: {sensor_name: root_angmom}
   action_rate:
     func: unilab.envs.mdp.action_rate_l2
-    weight: -0.5
+    weight: -0.1
   alive:
     func: unilab.tasks.locomotion.common.manager_terms.alive
     weight: 10.0

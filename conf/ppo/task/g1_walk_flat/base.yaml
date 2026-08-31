@@ -240,6 +240,19 @@ reward:
       tracking_sigma: 0.008
       min_forward_speed: 0.0
       command_name: twist
+  # Shared mjlab-style window air-time incentive (#1398); each foot group binds
+  # the four per-corner contact sensors with mjlab's any-slot reduce.
+  feet_air_time:
+    func: unilab.tasks.locomotion.common.gait_terms.feet_air_time
+    weight: 0.25
+    params:
+      sensor_groups:
+        - [left_foot_contact_0, left_foot_contact_1, left_foot_contact_2, left_foot_contact_3]
+        - [right_foot_contact_0, right_foot_contact_1, right_foot_contact_2, right_foot_contact_3]
+      threshold_min: 0.05
+      threshold_max: 0.5
+      command_name: twist
+      command_threshold: 0.5
   lin_vel_z:
     func: unilab.tasks.locomotion.common.sensor_reward_terms.lin_vel_z
     weight: -1.0

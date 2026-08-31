@@ -44,10 +44,9 @@ def test_unsupported_matrix_fails_before_step() -> None:
     assert not backend.get_play_capabilities().supports_native_interactive_renderer
     assert not backend.get_play_capabilities().supports_native_video_capture
     assert Path(backend.get_playback_model()).is_file()
-    with pytest.raises(NotImplementedError, match="interval randomization"):
-        backend.apply_interval_randomization(
-            IntervalRandomizationPlan(push_perturbation_limit=np.ones((3,), dtype=np.float32))
-        )
+    # Per-world gravity DR stays out of scope for the mjwarp host profile.
+    capabilities = backend.get_dr_capabilities()
+    assert not capabilities.supports_reset_term("gravity")
     qpos = np.tile(backend.get_keyframe_qpos("stand"), (1, 1))
     qvel = np.zeros((1, backend.get_init_qvel().size), dtype=np.float32)
     with pytest.raises(NotImplementedError, match="reset domain randomization"):
@@ -55,5 +54,33 @@ def test_unsupported_matrix_fails_before_step() -> None:
             np.asarray([0], dtype=np.int32),
             qpos,
             qvel,
-            randomization=ResetRandomizationPayload(kp=np.ones((1, backend.num_actuators))),
+            randomization=ResetRandomizationPayload(gravity=np.zeros((1, 3), dtype=np.float32)),
         )
+
+
+def test_interval_push_and_velocity_require_named_bodies() -> None:
+    """Without base/push body names the interval capabilities stay fail-closed."""
+    dependencies = load_mjwarp_dependencies()
+    if not bool(dependencies.warp.get_device().is_cuda):
+        pytest.fail("mjwarp capability tests require an active CUDA Warp device")
+
+    from unilab.assets import ASSETS_ROOT_PATH
+
+    scene = SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml"))
+    backend = create_backend("mjwarp", scene, 1, 0.02 / 3.0)
+    capabilities = backend.get_dr_capabilities()
+    assert not capabilities.supports_interval_push
+    assert not capabilities.supports_interval_body_velocity_delta
+    with pytest.raises(NotImplementedError, match="push target body"):
+        backend.apply_interval_randomization(
+            IntervalRandomizationPlan(push_perturbation_limit=np.ones((3,), dtype=np.float32))
+        )
+    with pytest.raises(NotImplementedError, match="exactly one free joint"):
+        backend.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=np.asarray([1], dtype=np.int32),
+                body_linear_velocity_delta=np.zeros((1, 1, 3), dtype=np.float32),
+            )
+        )
+    with pytest.raises(ValueError, match="Push body 'missing' not found"):
+        create_backend("mjwarp", scene, 1, 0.02 / 3.0, push_body_name="missing")

@@ -1486,6 +1486,13 @@ class Entity:
 
     def bind_root_linear_velocity_delta(self, *, term_name: str) -> None:
         """Validate the interval root-velocity capability on the cold path."""
+        self._bind_root_velocity_delta(angular=False, term_name=term_name)
+
+    def bind_root_angular_velocity_delta(self, *, term_name: str) -> None:
+        """Validate the interval root angular-velocity capability on the cold path."""
+        self._bind_root_velocity_delta(angular=True, term_name=term_name)
+
+    def _bind_root_velocity_delta(self, *, angular: bool, term_name: str) -> None:
         if self._root_body_ids is None:
             raise self._capability_error(
                 "interval root velocity delta",
@@ -1495,7 +1502,12 @@ class Entity:
             capabilities = self._backend.get_dr_capabilities()
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error("interval root velocity delta", str(exc)) from exc
-        if not capabilities.supports_interval_body_velocity_delta:
+        supported = (
+            capabilities.supports_interval_body_angular_velocity_delta
+            if angular
+            else capabilities.supports_interval_body_velocity_delta
+        )
+        if not supported:
             raise self._capability_error(
                 "interval root velocity delta",
                 f"EventManager term '{term_name}' requested an unsupported backend capability",
@@ -1509,12 +1521,63 @@ class Entity:
         term_name: str = "push_by_setting_velocity",
     ) -> None:
         """Dispatch a cached root linear-velocity delta through the formal interval plan."""
+        self.apply_root_velocity_delta_to_sim(
+            values,
+            None,
+            env_ids=env_ids,
+            term_name=term_name,
+        )
+
+    def apply_root_velocity_delta_to_sim(
+        self,
+        linear_delta: np.ndarray | None,
+        angular_delta: np.ndarray | None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "push_by_setting_velocity",
+    ) -> None:
+        """Dispatch world-frame root linear/angular velocity deltas in one interval plan."""
+        if linear_delta is None and angular_delta is None:
+            return
         if self._root_body_ids is None:
             raise self._capability_error(
                 "interval root velocity delta",
                 "root_body_name was not declared in EntityCfg",
             )
         ids = self._normalize_reset_env_ids(env_ids)
+        linear_plan = self._validate_root_velocity_delta(
+            linear_delta,
+            ids,
+            term_name=term_name,
+        )
+        angular_plan = self._validate_root_velocity_delta(
+            angular_delta,
+            ids,
+            term_name=term_name,
+        )
+        try:
+            self._backend.apply_interval_randomization(
+                IntervalRandomizationPlan(
+                    body_ids=self._root_body_ids,
+                    body_linear_velocity_delta=linear_plan,
+                    body_angular_velocity_delta=angular_plan,
+                )
+            )
+        except NotImplementedError as exc:
+            raise self._capability_error(
+                "interval root velocity delta",
+                f"EventManager term '{term_name}': {exc}",
+            ) from exc
+
+    def _validate_root_velocity_delta(
+        self,
+        values: np.ndarray | None,
+        ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> np.ndarray | None:
+        if values is None:
+            return None
         if not isinstance(values, np.ndarray):
             raise TypeError(
                 f"EventManager term '{term_name}' root velocity delta must be np.ndarray, "
@@ -1530,23 +1593,126 @@ class Entity:
             raise ValueError(
                 f"EventManager term '{term_name}' root velocity delta must be finite floating data"
             )
+        assert self._root_body_ids is not None
         delta = np.zeros(
             (self._backend.num_envs, len(self._root_body_ids), 3),
             dtype=values.dtype,
         )
         delta[ids, 0, :] = values
+        return delta
+
+    def bind_body_wrench(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        torque: bool,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Resolve entity-local and backend body columns for interval wrench writes.
+
+        Returns readonly ``(local_ids, backend_ids)``; ``local_ids`` index the
+        entity's body-state views (e.g. ``data.body_link_quat_w``) and
+        ``backend_ids`` are the columns accepted by
+        :meth:`apply_body_wrench_to_sim`.
+        """
+        if self._body_ids is None:
+            raise self._capability_error(
+                "interval body wrench",
+                "body_names were not declared in EntityCfg",
+            )
+        local_ids = self._normalize_local_body_ids(body_ids, capability="interval body wrench")
+        if local_ids.size == 0:
+            raise ValueError(f"Entity '{self.name}' interval body wrench selected no bodies")
+        try:
+            capabilities = self._backend.get_dr_capabilities()
+        except (AttributeError, NotImplementedError) as exc:
+            raise self._capability_error("interval body wrench", str(exc)) from exc
+        if not capabilities.supports_interval_body_force:
+            raise self._capability_error(
+                "interval body wrench",
+                f"EventManager term '{term_name}' requested an unsupported backend capability",
+            )
+        if torque and not capabilities.supports_interval_body_torque:
+            raise self._capability_error(
+                "interval body wrench",
+                f"EventManager term '{term_name}' requested an unsupported backend "
+                "capability: interval body torque",
+            )
+        return self._readonly_local_binding(local_ids, self._body_ids[local_ids])
+
+    def apply_body_wrench_to_sim(
+        self,
+        forces: np.ndarray,
+        torques: np.ndarray | None,
+        body_ids: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str,
+    ) -> None:
+        """Dispatch world-frame body forces/torques through the formal interval plan.
+
+        ``body_ids`` are the immutable backend columns returned by
+        :meth:`bind_body_wrench`; ``forces``/``torques`` are world-frame rows
+        for ``env_ids`` staged for the upcoming step.
+        """
+        ids = self._normalize_reset_env_ids(env_ids)
+        force_values = self._validate_body_wrench_values(
+            forces,
+            ids,
+            body_ids,
+            label="force",
+            term_name=term_name,
+        )
+        torque_values = self._validate_body_wrench_values(
+            torques,
+            ids,
+            body_ids,
+            label="torque",
+            term_name=term_name,
+        )
         try:
             self._backend.apply_interval_randomization(
                 IntervalRandomizationPlan(
-                    body_ids=self._root_body_ids,
-                    body_linear_velocity_delta=delta,
+                    body_ids=body_ids,
+                    body_force=force_values,
+                    body_torque=torque_values,
                 )
             )
         except NotImplementedError as exc:
             raise self._capability_error(
-                "interval root velocity delta",
+                "interval body wrench",
                 f"EventManager term '{term_name}': {exc}",
             ) from exc
+
+    def _validate_body_wrench_values(
+        self,
+        values: np.ndarray | None,
+        ids: np.ndarray,
+        body_ids: np.ndarray,
+        *,
+        label: str,
+        term_name: str,
+    ) -> np.ndarray | None:
+        if values is None:
+            return None
+        if not isinstance(values, np.ndarray):
+            raise TypeError(
+                f"EventManager term '{term_name}' body {label} must be np.ndarray, "
+                f"got {type(values).__name__}"
+            )
+        expected = (ids.size, body_ids.size, 3)
+        if values.shape != expected:
+            raise ValueError(
+                f"EventManager term '{term_name}' body {label} has shape {values.shape}; "
+                f"expected {expected}"
+            )
+        if not np.issubdtype(values.dtype, np.floating) or not np.isfinite(values).all():
+            raise ValueError(
+                f"EventManager term '{term_name}' body {label} must be finite floating data"
+            )
+        full = np.zeros((self._backend.num_envs, body_ids.size, 3), dtype=values.dtype)
+        full[ids] = values
+        return full
 
     def write_root_link_pose_to_sim(
         self,

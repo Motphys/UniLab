@@ -109,6 +109,9 @@ def test_mujoco_backend_smoke_contract(robot):
     }.issubset(caps.supported_reset_terms)
     assert caps.supports_interval_push
     assert caps.supports_interval_body_velocity_delta
+    assert caps.supports_interval_body_angular_velocity_delta
+    assert caps.supports_interval_body_force
+    assert caps.supports_interval_body_torque
 
 
 def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
@@ -241,6 +244,121 @@ def test_mujoco_interval_root_velocity_kick_rejects_invalid_contracts():
                 body_linear_velocity_delta=invalid,
             )
         )
+
+
+def test_mujoco_interval_root_angular_velocity_kick_converts_to_body_frame():
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_xml("go2")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+        add_body_sensors=True,
+    )
+    bkd.materialize()
+    qpos = np.broadcast_to(bkd.get_default_qpos(), (NUM_ENVS, bkd.model.nq)).copy()
+    # Hover far above the terrain and yaw the root by +90 degrees: without
+    # contact the orientation is exactly preserved across the probe step.
+    qpos[:, 2] += 2.0
+    half = np.sqrt(0.5)
+    qpos[:, 3:7] = [half, 0.0, 0.0, half]
+    qvel = np.zeros((NUM_ENVS, bkd.model.nv), dtype=np.float64)
+    bkd.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+
+    body_ids = bkd.get_body_ids(("base",))
+    delta = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    delta[1, 0] = (0.5, 0.0, 0.0)  # world-frame +x angular rate
+
+    bkd.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            body_ids=body_ids,
+            body_angular_velocity_delta=delta,
+        )
+    )
+
+    state_after = bkd.get_physics_state()
+    # The free-root qvel angular channels are body-frame: yaw(+90deg) maps the
+    # world-frame +x kick onto body-frame -y.
+    np.testing.assert_allclose(
+        state_after[0, bkd._idx_qvel + 3 : bkd._idx_qvel + 6],
+        0.0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qvel + 3 : bkd._idx_qvel + 6],
+        [0.0, -0.5, 0.0],
+        atol=1e-7,
+    )
+    # The world-frame read-back recovers the sampled delta.
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w(body_ids)[1, 0],
+        [0.5, 0.0, 0.0],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w(body_ids)[0, 0],
+        [0.0, 0.0, 0.0],
+        atol=1e-6,
+    )
+
+
+def test_mujoco_interval_body_force_and_torque_have_observable_effect(tmp_path):
+    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+
+    # A single free body gives exact rigid-body dynamics: dv = F/m * dt and
+    # dw = I^-1 tau * dt at identity orientation with diagonal inertia.
+    model_file = tmp_path / "free_body.xml"
+    model_file.write_text(
+        """
+<mujoco>
+  <worldbody>
+    <body name="ball" pos="0 0 5">
+      <freejoint/>
+      <inertial mass="2.0" diaginertia="0.5 0.5 0.5" pos="0 0 0"/>
+      <geom type="sphere" size="0.1" mass="2.0"/>
+    </body>
+  </worldbody>
+</mujoco>
+""".strip()
+    )
+    bkd = MuJoCoBackend(SceneCfg(model_file=str(model_file)), NUM_ENVS, SIM_DT, base_name="ball")
+    bkd.materialize()
+    caps = bkd.get_dr_capabilities()
+    assert caps.supports_interval_body_force
+    assert caps.supports_interval_body_torque
+
+    body_ids = bkd.get_body_ids(("ball",))
+    qpos = np.broadcast_to(bkd.get_default_qpos(), (NUM_ENVS, bkd.model.nq)).copy()
+    qvel0 = np.zeros((NUM_ENVS, bkd.model.nv), dtype=np.float64)
+    ids = np.arange(NUM_ENVS, dtype=np.int32)
+    ctrl = np.zeros((NUM_ENVS, bkd.model.nu))
+
+    bkd.set_state(ids, qpos, qvel0)
+    bkd.step(ctrl, nsteps=1)
+    baseline = bkd.get_physics_state()[:, bkd._idx_qvel : bkd._idx_qvel + 6].copy()
+
+    force = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    force[:, 0, 2] = 10.0  # N, world +z
+    torque = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    torque[:, 0, 2] = 1.0  # Nm, world z
+
+    bkd.set_state(ids, qpos, qvel0)
+    bkd.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            body_ids=body_ids,
+            body_force=force,
+            body_torque=torque,
+        )
+    )
+    bkd.step(ctrl, nsteps=1)
+    kicked = bkd.get_physics_state()[:, bkd._idx_qvel : bkd._idx_qvel + 6]
+
+    # Free fall is common to both runs, so the staged wrench adds exactly
+    # F/m * dt to linear z and tau/I * dt to angular z.
+    np.testing.assert_allclose(kicked[:, 2] - baseline[:, 2], 10.0 / 2.0 * SIM_DT, rtol=1e-3)
+    np.testing.assert_allclose(kicked[:, 5] - baseline[:, 5], 1.0 / 0.5 * SIM_DT, rtol=1e-3)
+    np.testing.assert_allclose(kicked[:, [0, 1, 3, 4]], baseline[:, [0, 1, 3, 4]], atol=1e-9)
 
 
 @pytest.mark.parametrize("robot", BASIC_ROBOTS)

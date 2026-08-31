@@ -28,3 +28,8 @@ env:
         level_down_threshold: 150.0
         level_up_threshold: 750.0
         degree: 0.001
+
+reward:
+  # The rough scene XML declares no named foot contact sensors, so the shared
+  # air-time term inherited from the flat base is explicitly disabled here.
+  feet_air_time: null

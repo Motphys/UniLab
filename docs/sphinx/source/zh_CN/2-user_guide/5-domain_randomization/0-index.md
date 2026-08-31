@@ -102,12 +102,12 @@ legacy 路径的 `dr_utils.py` 目前只有两类共享辅助函数：
 
 当前的后端能力：
 
-- `MuJoCoBackend`：支持上述 7 个 reset 项，外加 interval push 和 interval body force
+- `MuJoCoBackend`：支持上述 7 个 reset 项，外加 interval push、interval body velocity delta（线速度与世界系角速度）和 interval body force/torque
 - `MotrixBackend`：支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd`，外加 interval push；要求在初始化期间 actuator 全部为 position actuator
 
 说明：
 
-- 当前的 `IntervalRandomizationPlan` 支持 `push_perturbation_limit`、`body_linear_velocity_delta` 和 `body_force`；其中 `body_force` 表达热路径上的直接外力扰动，而不暴露后端私有的 `xfrc_applied` 细节。
+- 当前的 `IntervalRandomizationPlan` 支持 `push_perturbation_limit`、`body_linear_velocity_delta`、`body_angular_velocity_delta`、`body_force` 和 `body_torque`；其中 `body_force`/`body_torque` 表达热路径上的直接外力/力矩扰动，而不暴露后端私有的 `xfrc_applied` 细节。
 - 当前 MuJoCo 后端的 interval push 和 interval body force 都通过 `xfrc_applied` dispatch；Sharpa 手物体扰动已切换为直接力扰动。
 - Motrix 后端目前仍不支持直接 body-force 扰动，因此这类 owner 配置必须继续显式禁用。
 
