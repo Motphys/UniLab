@@ -213,40 +213,6 @@ def bad_object_orientation(
     return error > threshold
 
 
-class randomize_encoder_bias(ManagerTermBase):
-    """Per-reset encoder calibration error through the public Entity data surface."""
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(env)
-        asset_cfg = cfg.params.get("asset_cfg", _DEFAULT_ASSET_CFG)
-        if not isinstance(asset_cfg, SceneEntityCfg):
-            raise TypeError("randomize_encoder_bias asset_cfg must be SceneEntityCfg")
-        bias_range = np.asarray(cfg.params.get("bias_range"), dtype=np.float64)
-        if bias_range.shape != (2,) or not np.isfinite(bias_range).all():
-            raise ValueError("randomize_encoder_bias bias_range must be a finite pair")
-        if bias_range[0] > bias_range[1]:
-            raise ValueError("randomize_encoder_bias minimum exceeds maximum")
-        self._range = (float(bias_range[0]), float(bias_range[1]))
-        self._entity = cast("Entity", env.scene[asset_cfg.name])
-        raw_ids = np.arange(self._entity.num_joints)[asset_cfg.joint_ids]
-        self._joint_ids = np.asarray(raw_ids, dtype=np.intp)
-
-    def __call__(
-        self,
-        env: ManagerBasedRlEnv,
-        env_ids: np.ndarray | None,
-        bias_range: tuple[float, float],
-        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-    ) -> None:
-        del bias_range, asset_cfg
-        ids = np.arange(env.num_envs, dtype=np.int32) if env_ids is None else env_ids
-        samples = env.rng.uniform(
-            *self._range,
-            size=(len(ids), len(self._joint_ids)),
-        )
-        self._entity.data.encoder_bias[np.ix_(ids, self._joint_ids)] = samples
-
-
 class joint_acc_l2(ManagerTermBase):
     """Squared finite-difference joint acceleration with reset-aware state."""
 
@@ -335,5 +301,4 @@ __all__ = [
     "object_global_orientation_error_exp",
     "object_global_position_error_exp",
     "object_state_b",
-    "randomize_encoder_bias",
 ]

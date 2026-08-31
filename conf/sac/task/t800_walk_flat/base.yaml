@@ -94,10 +94,10 @@ env:
       params: {initial_scale: 0.125, min_scale: 0.125, max_scale: 0.25, level_down_threshold: 150.0, level_up_threshold: 750.0, degree: 0.001}
 
 reward:
-  tracking_lin_vel: {func: unilab.tasks.locomotion.g1.manager_terms.track_lin_vel, weight: 2.0, params: {tracking_sigma: 0.25, command_name: twist}}
-  tracking_ang_vel: {func: unilab.tasks.locomotion.g1.manager_terms.track_ang_vel, weight: 1.5, params: {tracking_sigma: 0.25, command_name: twist}}
-  penalty_ang_vel_xy: {func: unilab.tasks.locomotion.g1.manager_terms.ang_vel_xy, weight: -1.0}
-  penalty_orientation: {func: unilab.tasks.locomotion.g1.manager_terms.orientation, weight: -10.0}
+  tracking_lin_vel: {func: unilab.tasks.locomotion.common.sensor_reward_terms.track_lin_vel, weight: 2.0, params: {tracking_sigma: 0.25, command_name: twist, sensor_name: pelvis_local_linvel}}
+  tracking_ang_vel: {func: unilab.tasks.locomotion.common.sensor_reward_terms.track_ang_vel, weight: 1.5, params: {tracking_sigma: 0.25, command_name: twist, sensor_name: torso_gyro}}
+  penalty_ang_vel_xy: {func: unilab.tasks.locomotion.common.sensor_reward_terms.ang_vel_xy, weight: -1.0, params: {sensor_name: torso_gyro}}
+  penalty_orientation: {func: unilab.tasks.locomotion.common.sensor_reward_terms.orientation, weight: -10.0, params: {sensor_name: torso_upvector}}
   penalty_action_rate: {func: unilab.envs.mdp.action_rate_l2, weight: -4.0}
   pose:
     func: unilab.tasks.locomotion.g1.manager_terms.weighted_pose
@@ -108,4 +108,4 @@ reward:
   penalty_feet_ori: {func: unilab.tasks.locomotion.g1.manager_terms.penalty_feet_ori, weight: -20.0}
   penalty_close_feet_lateral: {func: unilab.tasks.locomotion.t800.manager_terms.penalty_close_feet_lateral, weight: -5.0, params: {min_width: 0.18, sigma: 0.04}}
   feet_phase: {func: unilab.tasks.locomotion.g1.manager_terms.feet_phase, weight: 5.0, params: {frequency: 1.5, swing_height: 0.11, tracking_sigma: 0.014, min_forward_speed: 0.0, command_name: twist}}
-  alive: {func: unilab.tasks.locomotion.g1.manager_terms.alive, weight: 10.0}
+  alive: {func: unilab.tasks.locomotion.common.manager_terms.alive, weight: 10.0}

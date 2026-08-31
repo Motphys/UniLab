@@ -43,6 +43,25 @@ def test_pull_assets_t800_resolves_both_asset_directories(
     assert "15 PNG files" in output
 
 
+def test_pull_assets_microduck_keeps_single_stl_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = _populate(tmp_path / "assets", suffix=".stl", count=47)
+    calls: list[tuple[str, str]] = []
+
+    def fake_resolver(directory: str, *, marker: str) -> Path:
+        calls.append((directory, marker))
+        return target
+
+    monkeypatch.setattr(pull_assets, "resolve_robot_asset_dir", fake_resolver)
+
+    assert pull_assets.main(["--robot", "microduck"]) == 0
+    assert calls == [("robots/microduck/assets", "trunk_base.stl")]
+    assert "47 STL files" in capsys.readouterr().out
+
+
 def test_pull_assets_x2_keeps_single_mesh_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

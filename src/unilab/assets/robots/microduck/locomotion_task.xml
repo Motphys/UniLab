@@ -1,0 +1,20 @@
+<mujoco model="microduck locomotion task">
+  <sensor>
+    <contact name="left_foot_contact" geom1="floor" geom2="left_foot_collision" data="force" num="1" reduce="mindist"/>
+    <contact name="right_foot_contact" geom1="floor" geom2="right_foot_collision" data="force" num="1" reduce="mindist"/>
+  </sensor>
+
+  <keyframe>
+    <!-- STAND2 pose from microduck_rl scene_walk.xml (CoM over ankle axis). -->
+    <key name="home" qpos="
+        0 0 0.12 1 0 0 0
+        0 -0.08726646259971647 -0.457924 -0.004940 0.452984
+        0.3490658503988659 0.3490658503988659 0 0
+        0 0.08726646259971647 0.457924 0.004940 -0.452984"
+      ctrl="
+        0 -0.08726646259971647 -0.457924 -0.004940 0.452984
+        0.3490658503988659 0.3490658503988659 0 0
+        0 0.08726646259971647 0.457924 0.004940 -0.452984"/>
+  </keyframe>
+
+</mujoco>

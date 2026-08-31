@@ -800,3 +800,108 @@ def test_events_module_has_no_forbidden_runtime_dependencies() -> None:
         for alias in node.names
     ]
     assert not [name for name in imports if name.startswith(forbidden)]
+
+
+class _BiasEntity:
+    def __init__(self, num_envs: int, num_joints: int) -> None:
+        self.num_joints = num_joints
+        self.joint_names = [f"joint_{index}" for index in range(num_joints)]
+        self.data = SimpleNamespace(encoder_bias=np.zeros((num_envs, num_joints), dtype=np.float32))
+
+    def find_joints(self, names: list[str]) -> list[int]:
+        return [self.joint_names.index(name) for name in names]
+
+
+class _BiasScene:
+    def __init__(self, entity: _BiasEntity) -> None:
+        self._entity = entity
+
+    def __getitem__(self, name: str) -> _BiasEntity:
+        if name != "robot":
+            raise KeyError(name)
+        return self._entity
+
+
+def _bias_env(num_envs: int = 3, num_joints: int = 4, seed: int = 7) -> ManagerBasedRlEnv:
+    return cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=num_envs,
+            rng=np.random.default_rng(seed),
+            scene=_BiasScene(_BiasEntity(num_envs, num_joints)),
+        ),
+    )
+
+
+def test_randomize_encoder_bias_samples_selected_joints_within_range() -> None:
+    env = _bias_env()
+    manager = EventManager(
+        {
+            "bias": EventTermCfg(
+                func=mdp.randomize_encoder_bias,
+                mode="reset",
+                params={
+                    "bias_range": (-0.02, 0.02),
+                    "asset_cfg": SceneEntityCfg("robot", joint_ids=[1, 3]),
+                },
+            )
+        },
+        env,
+    )
+
+    manager.apply(mode="reset", env_ids=np.asarray([0, 2], dtype=np.int32), global_env_step_count=0)
+
+    bias = env.scene["robot"].data.encoder_bias
+    assert bias.shape == (3, 4)
+    np.testing.assert_array_equal(bias[1], np.zeros(4))
+    np.testing.assert_array_equal(bias[:, [0, 2]], np.zeros((3, 2)))
+    assert np.all(np.abs(bias[[0, 2]][:, [1, 3]]) <= 0.02)
+    assert np.any(bias[[0, 2]][:, [1, 3]] != 0.0)
+
+
+def test_randomize_encoder_bias_rejects_invalid_cfg_at_construction() -> None:
+    env = _bias_env()
+    with pytest.raises(NotImplementedError, match="mode='reset'"):
+        EventManager(
+            {
+                "bias": EventTermCfg(
+                    func=mdp.randomize_encoder_bias,
+                    mode="interval",
+                    interval_range_s=(1.0, 1.0),
+                    params={
+                        "bias_range": (-0.02, 0.02),
+                        "asset_cfg": SceneEntityCfg("robot", joint_ids=[1]),
+                    },
+                )
+            },
+            env,
+        )
+    with pytest.raises(ValueError, match="finite pair"):
+        EventManager(
+            {
+                "bias": EventTermCfg(
+                    func=mdp.randomize_encoder_bias,
+                    mode="reset",
+                    params={
+                        "bias_range": (0.0, np.nan),
+                        "asset_cfg": SceneEntityCfg("robot", joint_ids=[1]),
+                    },
+                )
+            },
+            env,
+        )
+    with pytest.raises(ValueError, match="unknown parameters"):
+        EventManager(
+            {
+                "bias": EventTermCfg(
+                    func=mdp.randomize_encoder_bias,
+                    mode="reset",
+                    params={
+                        "bias_range": (-0.02, 0.02),
+                        "asset_cfg": SceneEntityCfg("robot", joint_ids=[1]),
+                        "bogus": 1.0,
+                    },
+                )
+            },
+            env,
+        )
