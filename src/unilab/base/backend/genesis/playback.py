@@ -57,6 +57,29 @@ def camera_pose_from_kwargs(
     return target + offset, target
 
 
+def camera_pose_matrix_z_up(pos: np.ndarray, lookat: np.ndarray) -> np.ndarray:
+    """Build the 4x4 camera-to-world matrix for a Z-up world.
+
+    The interactive viewer's ``set_camera_pose(pos, lookat)`` reuses the
+    viewer's current ``_camera_up``, which genesis initializes from its own
+    default camera pose — a tilted vector, not world Z-up (#1396). Passing the
+    full ``pose=`` matrix bypasses that polluted state entirely.
+    """
+    pos = np.asarray(pos, dtype=np.float64)
+    lookat = np.asarray(lookat, dtype=np.float64)
+    z_axis = pos - lookat
+    z_axis /= np.linalg.norm(z_axis)
+    x_axis = np.cross(np.array([0.0, 0.0, 1.0]), z_axis)
+    x_axis /= np.linalg.norm(x_axis)
+    y_axis = np.cross(z_axis, x_axis)
+    transform = np.eye(4, dtype=np.float64)
+    transform[:3, 0] = x_axis
+    transform[:3, 1] = y_axis
+    transform[:3, 2] = z_axis
+    transform[:3, 3] = pos
+    return transform
+
+
 def run_genesis_playback(
     *,
     backend: Any,

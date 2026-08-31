@@ -220,6 +220,17 @@ def test_interactive_viewer_renders_frames() -> None:
 
     viewer_backend = _make_backend()
     viewer_backend.init_renderer(headless=False, width=640, height=480)
+    # #1396: the trackball pose must equal the Z-up matrix (the viewer's
+    # pos/lookat branch reuses a tilted default up and rolls the camera).
+    expected_pose = genesis_playback.camera_pose_matrix_z_up(
+        *genesis_playback.camera_pose_from_kwargs(
+            viewer_backend._camera_kwargs, viewer_backend._camera_lookat()
+        )
+    )
+    actual_pose = np.asarray(
+        viewer_backend._viewer._pyrender_viewer._trackball.pose, dtype=np.float64
+    )
+    np.testing.assert_allclose(actual_pose, expected_pose, atol=1e-5)
     for _ in range(3):
         viewer_backend.step(np.zeros((8, viewer_backend.num_actuators), dtype=np.float32))
         viewer_backend.render()

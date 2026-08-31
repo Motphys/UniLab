@@ -913,7 +913,9 @@ class GenesisBackend(SimBackend):
             pos, lookat = playback.camera_pose_from_kwargs(
                 self._camera_kwargs, self._camera_lookat()
             )
-            viewer.set_camera_pose(pos=tuple(pos), lookat=tuple(lookat))
+            # #1396: the viewer's pos/lookat branch reuses its polluted
+            # default _camera_up; pass the full Z-up pose matrix instead.
+            viewer.set_camera_pose(pose=playback.camera_pose_matrix_z_up(pos, lookat))
             if self._camera_tracking_env_idx is not None:
                 viewer.follow_entity(self._entity)
             self._viewer = viewer
