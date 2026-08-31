@@ -338,12 +338,12 @@ def render_support_matrix(root: Path | None = None) -> str:
         "`genesis` 是进程内后端（genesis-world==1.3.3，要求 torch>=2.8 与 CUDA；一进程只允许一次 "
         "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) owner。该 cell 最高只到 `Configured`"
         "（registry + owner YAML + compose/contract 覆盖），不代表任何训练验证。真机 env smoke 慢车道"
-        "测试已编码（`tests/envs/locomotion/g1/test_g1_owner_contract.py`），但因 adapter 侧缺口暂时 "
-        "xfail：`ManagerBasedRlEnv` 构造期的 entity 校验在 env 的 `materialize()` 钩子之前读取状态 "
-        "getter，而 genesis backend 在 materialize 前 fail-closed（且其 `materialize()` 非幂等；"
-        "isaacgym 后端的惰性幂等 materialize 是既有先例）。Genesis 在 import 时丢弃 MJCF 全局 "
+        "测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 → keyframe "
+        "reset → 12 步有限稳定 → cleanup）在装有 CUDA 与 genesis extra 的机器上通过。adapter 的 "
+        "`materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；"
+        "isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 "
         "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。未支持边界：geom 名称"
-        "契约、体帧运动学（`get_body_pos_b`/`get_body_quat_b`）、terrain spawn 与 height scanner、"
+        "契约、terrain spawn 与 height scanner、"
         "playback/render（`play_render_mode` 仅 `none` 安全进入，其余模式 fail-closed）、contact "
         'sensor 为 per-link net-force 阈值近似（非 geom 对 `data="found"`）、`get_geom_friction` 类'
         "绝对摩擦 DR fail-closed（geom 摩擦只有 per-env ratio API）。",

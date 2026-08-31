@@ -10,17 +10,16 @@ IPC。
 PPO owner 配置（`conf/ppo/task/g1_walk_flat/genesis.yaml`），跨后端契约
 审计（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔genesis（结论
 TRANSFERABLE）。支持等级为 **experimental**：现有证据是 registry +
-owner YAML + compose/contract 覆盖。尚未完成任何训练验证，因此支持
-矩阵中该 cell 标记为 `Configured`，且 playback/渲染不是已声明能力。
+owner YAML + compose/contract 覆盖，以及真机 slow-lane env smoke
+（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose →
+env 构造 → keyframe reset → 12 步有限稳定 → cleanup）。尚未完成任何
+训练验证，因此支持矩阵中该 cell 标记为 `Configured`，且 playback/渲染
+不是已声明能力。
 
-已知缺口（fail-closed，非静默）：当前在该后端上构造
-`ManagerBasedRlEnv` 会抛出 `RuntimeError: genesis backend is not
-materialized`——env 构造期间的 entity 校验在 env 的 `materialize()`
-钩子之前读取状态 getter，而 genesis adapter 只在 materialize 之后才
-提供这些读取（其 `materialize()` 也是一次性的，不像 IsaacGym 后端那样
-幂等且惰性触发）。owner YAML、registry 条目与下文的 CLI 路由均已就位；
-训练命令只会在 env 构造处失败，等待 adapter 生命周期的后续修复。
-adapter 的其余设计遵循
+env 构造生命周期（#1383 已修复）：`ManagerBasedRlEnv` 构造期的 entity
+校验在 env 的 `materialize()` 钩子之前读取状态 getter，因此 adapter 的
+`materialize()` 是幂等且惰性触发的（首次状态访问时完成 `scene.build`，
+与 IsaacGym 后端同模式）。adapter 的其余设计遵循
 `scripts/tools/genesis_feasibility/REPORT.md` 的实测映射。
 
 ## 模型契约
@@ -63,9 +62,8 @@ uv sync --extra genesis
 
 ## 训练与评估
 
-训练通过标准 CLI 选择 genesis owner（owner YAML 可正常 compose，
-registry 路由到 genesis 后端；随后在 env 构造处按上文所述的
-materialize 生命周期错误 fail-closed，直到 adapter 后续修复落地）：
+训练通过标准 CLI 选择 genesis owner（owner YAML compose、registry
+路由与 env 构造链路已在真机 slow-lane smoke 覆盖；尚无训练收敛证据）：
 
 ```bash
 # PPO
@@ -100,7 +98,6 @@ Genesis 的 init/destroy 循环每轮泄漏 200–450 MB host RSS（REPORT
 以下能力 fail-closed（显式报错），而不是静默降级：
 
 - **geom 名称契约**（`get_geom_names` 等）：不暴露。
-- **体帧运动学**（`get_body_pos_b` / `get_body_quat_b`）。
 - **生成式 terrain 与 height scanner**：`scene.terrain` 被拒绝；请选择
   flat owner YAML。
 - **`none` 以外的 playback/render 模式**（见上文）。

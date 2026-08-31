@@ -953,18 +953,6 @@ finally:
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GenesisBackend adapter gap (#1378 follow-up): Entity validation inside "
-        "ManagerBasedRlEnv construction reads get_dof_pos/get_body_* state getters "
-        "before the env's materialize hook, but the genesis backend fails closed "
-        "pre-materialize and its materialize() is one-shot (not idempotent). The "
-        "isaacgym backend solves the same lifecycle with a lazy, idempotent "
-        "materialize() triggered by the first state access. Remove this marker "
-        "once the adapter follows that pattern."
-    ),
-)
 def test_g1_walk_flat_genesis_owner_real_runtime_smoke() -> None:
     """Real-runtime smoke for the genesis owner (genesis-world 1.3.3 + CUDA).
 

@@ -10,20 +10,19 @@ Current status: `GenesisBackend` is implemented and registered; `g1_walk_flat`
 ships a PPO owner config (`conf/ppo/task/g1_walk_flat/genesis.yaml`), and the
 cross-backend contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
 mujoco/genesis pair (verdict TRANSFERABLE). Support level is **experimental**:
-the evidence is registry + owner YAML + compose/contract coverage. No training
+the evidence is registry + owner YAML + compose/contract coverage, plus a
+real-machine slow-lane env smoke
+(`tests/envs/locomotion/g1/test_g1_owner_contract.py`: compose -> env
+construction -> keyframe reset -> 12 finite steps -> cleanup). No training
 validation has been completed, so the support matrix marks the cell
 `Configured`, and playback/rendering is not a declared capability.
 
-Known gap (fail-closed, not silent): constructing a `ManagerBasedRlEnv` on
-this backend currently raises `RuntimeError: genesis backend is not
-materialized`, because entity validation during env construction reads state
-getters before the env's `materialize()` hook, while the genesis adapter
-serves them only afterwards (its `materialize()` is also one-shot rather than
-idempotent-lazy like the IsaacGym backend's). The owner YAML, registry entry,
-and CLI routing below are in place; the training command starts failing only
-at env construction, pending the adapter lifecycle follow-up. The adapter
-design otherwise follows the measured mappings of
-`scripts/tools/genesis_feasibility/REPORT.md`.
+Env-construction lifecycle (fixed in #1383): entity validation during
+`ManagerBasedRlEnv` construction reads state getters before the env's
+`materialize()` hook, so the adapter's `materialize()` is idempotent and
+lazily triggered (the first state access completes `scene.build`, the same
+pattern as the IsaacGym backend). The adapter design otherwise follows the
+measured mappings of `scripts/tools/genesis_feasibility/REPORT.md`.
 
 ## Model Contract
 
@@ -67,10 +66,9 @@ uv sync --extra genesis
 
 ## Training and Evaluation
 
-Training selects the genesis owner through the canonical CLI (the owner YAML
-composes, the registry routes to the genesis backend; env construction then
-fails closed with the materialize-lifecycle error described above until the
-adapter follow-up lands):
+Training selects the genesis owner through the canonical CLI (owner YAML
+compose, registry routing, and env construction are covered by the
+real-machine slow-lane smoke; there is no training-convergence evidence yet):
 
 ```bash
 # PPO
@@ -109,7 +107,6 @@ The following fail closed with explicit errors rather than silently
 degrading:
 
 - **Geom-name contract** (`get_geom_names` and friends): not exposed.
-- **Body-frame kinematics** (`get_body_pos_b` / `get_body_quat_b`).
 - **Generated terrain and height scanners**: `scene.terrain` is rejected;
   select a flat owner YAML.
 - **Playback/render modes** other than `none` (see above).
