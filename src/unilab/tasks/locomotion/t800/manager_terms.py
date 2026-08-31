@@ -11,7 +11,7 @@ import numpy as np
 
 from unilab.envs.mdp import JointPositionAction, JointPositionActionCfg
 from unilab.managers.manager_base import ManagerTermBaseCfg
-from unilab.tasks.locomotion.common.sensor_terms import SensorTermBase
+from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
 from unilab.utils.rotation import np_quat_apply_inverse, np_yaw_quat
 
 if TYPE_CHECKING:

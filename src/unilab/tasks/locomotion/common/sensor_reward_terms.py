@@ -1,12 +1,12 @@
 """Sensor-driven reward terms shared by Manager-Based locomotion families.
 
-Both the G1 biped and the MicroDuck families port legacy reward equations
-that read IMU-style XML sensors by name.  This module owns those equations
-once, on top of the shared cold-path binding contract in ``sensor_terms.py``:
+Biped and quadruped locomotion families port legacy reward equations that read
+IMU-style XML sensors by name.  This module owns those equations once, on top
+of the ``SensorTermBase`` cold-path binding contract from ``manager_terms.py``:
 the robot's sensor name is a cfg parameter (``params={"sensor_name": ...}``),
 so each family binds its own sensors from its owner YAML instead of
-subclassing.  Plain action/state penalties live in ``manager_terms.py``;
-domain-randomization observation terms live in ``sensor_terms.py``.
+subclassing.  Plain action/state penalties and the shared term bases live in
+``manager_terms.py``.
 """
 
 from __future__ import annotations
@@ -18,8 +18,7 @@ import numpy as np
 from unilab.dtype_config import get_global_dtype
 from unilab.managers.manager_base import ManagerTermBaseCfg
 
-from .manager_terms import _real, _state
-from .sensor_terms import SensorTermBase
+from .manager_terms import SensorTermBase, _real, _state
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv

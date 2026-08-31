@@ -31,7 +31,7 @@ from unilab.envs.mdp.commands.velocity_command import (
 )
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.tasks.locomotion.common.sensor_terms import SensorTermBase
+from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
