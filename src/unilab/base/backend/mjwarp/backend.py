@@ -1368,9 +1368,7 @@ class MjwarpBackend(SimBackend):
     ) -> None:
         """Accumulate world-frame forces on the staged ``xfrc_applied`` rows."""
         if torque is not None:
-            raise NotImplementedError(
-                "mjwarp backend does not support interval body torque yet"
-            )
+            raise NotImplementedError("mjwarp backend does not support interval body torque yet")
         body_ids_np = np.asarray(body_ids, dtype=np.intp).reshape(-1)
         if np.any(body_ids_np < 0) or np.any(body_ids_np >= self._nbody):
             raise ValueError(f"body_ids must be in [0, {self._nbody}), got {body_ids_np}")
