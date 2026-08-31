@@ -203,6 +203,14 @@ class ManagerTerminationManager(Protocol):
     @property
     def terminated(self) -> np.ndarray: ...
 
+    def get_term_cfg(self, term_name: str) -> Any: ...
+
+
+class ManagerRewardManager(Protocol):
+    """Cold-path reward term config surface consumed by curriculum terms."""
+
+    def get_term_cfg(self, term_name: str) -> Any: ...
+
 
 class ManagerBasedRlEnv(Protocol):
     """Structural context visible to manager terms.
@@ -234,6 +242,9 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def termination_manager(self) -> ManagerTerminationManager: ...
+
+    @property
+    def reward_manager(self) -> ManagerRewardManager: ...
 
     @property
     def episode_length_buf(self) -> np.ndarray: ...

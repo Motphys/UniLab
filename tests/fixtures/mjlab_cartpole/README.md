@@ -16,3 +16,8 @@ Apache-2.0; provenance is retained in the derived files.
 
 This fixture is evidence for #1042, not a production registration or a claim
 that arbitrary mjlab tasks run unchanged.
+
+`conf/stage_curriculum.yaml` is not part of the pinned migration surface: it
+is the declarative owner-YAML demo for the generic stage-based curriculum
+terms (`unilab.envs.mdp.reward_curriculum` / `termination_curriculum`,
+issue #1397), reusing this task with one ladder per public term.
