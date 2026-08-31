@@ -150,14 +150,15 @@ def test_session_lifecycle_and_reinit_guard(fake_genesis, tiny_model_file: str) 
     first = _backend(tiny_model_file)
     second = _backend(tiny_model_file)
     assert fake_genesis.init_count == 1  # backends share the process-wide session
-    with pytest.raises(RuntimeError, match="already materialized"):
-        first.materialize()
+    first.materialize()  # idempotent: explicit call after the initial build is a no-op
+    assert first._scene.build_count == 1
     first.close()
     assert fake_genesis.destroy_count == 1
     with pytest.raises(RuntimeError, match="exactly one gs.init per process"):
         _backend(tiny_model_file)
     with pytest.raises(RuntimeError, match="genesis backend is closed"):
         first.step(np.zeros((4, 2), dtype=np.float32))
+    first.materialize()  # no-op when already materialized, even after close
     second.close()
     assert fake_genesis.destroy_count == 1  # idempotent: session already destroyed
 
@@ -328,9 +329,32 @@ def test_base_velocity_frame_conventions(fake_genesis, tiny_model_file: str) -> 
     np.testing.assert_allclose(
         backend.get_body_ang_vel_w(pelvis_id)[0, 0], [0.0, -1.0, 0.0], atol=1e-6
     )
+    # Body-frame velocities are the world-frame values rotated by R^-1:
+    # R_x90^-1 @ [1,2,3] = [1,3,-2]; the angular pair round-trips the qvel
+    # body-frame columns (REPORT §3.2 [2d] semantics).
+    np.testing.assert_allclose(
+        backend.get_body_lin_vel_b(pelvis_id)[0, 0], [1.0, 3.0, -2.0], atol=1e-6
+    )
+    np.testing.assert_allclose(
+        backend.get_body_ang_vel_b(pelvis_id)[0, 0], [0.0, 0.0, 1.0], atol=1e-6
+    )
     # Gyro reports body/sensor-frame components: identity site frame recovers
     # the qvel body-frame columns.
     np.testing.assert_allclose(backend.get_sensor_data("base_gyro")[0], [0.0, 0.0, 1.0], atol=1e-6)
+
+
+def test_body_pose_base_frame(fake_genesis, tiny_model_file: str) -> None:
+    backend = _backend(tiny_model_file, num_envs=1)
+    qpos, qvel = _stand_state(backend, 1)
+    backend.set_state(np.array([0], dtype=np.int32), qpos, qvel)
+    ids = backend.get_body_ids(["pelvis", "shank"])
+    # Root sits at its own frame origin; the fake shank rides at a fixed
+    # [0,0,-0.6] offset in the pelvis frame, and both frames align.
+    np.testing.assert_allclose(backend.get_body_pos_b(ids)[0, 0], [0.0, 0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(backend.get_body_pos_b(ids)[0, 1], [0.0, 0.0, -0.6], atol=1e-6)
+    np.testing.assert_allclose(
+        backend.get_body_quat_b(ids)[0], [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]], atol=1e-6
+    )
 
 
 def test_sensor_equivalents_from_link_state(fake_genesis, tiny_model_file: str) -> None:
@@ -535,8 +559,14 @@ def test_constructor_validation_and_factory_wiring(fake_genesis, tiny_model_file
     assert rigid_kwargs["batch_dofs_info"] is True
     assert backend._scene.sim_options.dt == pytest.approx(0.005)
 
-    with pytest.raises(RuntimeError, match="not materialized"):
-        backend.get_dof_pos()
+    assert backend._scene.build_count == 0
+    # First state access lazily builds the scene (isaacgym-style idempotent
+    # materialize), so Entity validators that read state before the env's
+    # explicit materialize hook work (#1382).
+    np.testing.assert_allclose(backend.get_dof_pos()[0], [0.0, 0.0])
+    assert backend._scene.build_count == 1
+    backend.materialize()
+    assert backend._scene.build_count == 1
     # Cold-path metadata stays available before materialize (manager env
     # constructors read it ahead of the materialize hook).
     assert backend.get_default_dof_pos().shape == (2,)
