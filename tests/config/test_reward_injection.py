@@ -60,13 +60,17 @@ def test_reward_config_conversion():
             "rewards": {
                 "tracking_lin_vel": {
                     "_target_": "unilab.managers.RewardTermCfg",
-                    "func": "unilab.tasks.locomotion.g1.manager_terms.track_lin_vel",
+                    "func": "unilab.tasks.locomotion.common.sensor_reward_terms.track_lin_vel",
                     "weight": 2.0,
-                    "params": {"tracking_sigma": 0.25, "command_name": "twist"},
+                    "params": {
+                        "tracking_sigma": 0.25,
+                        "command_name": "twist",
+                        "sensor_name": "pelvis_local_linvel",
+                    },
                 },
                 "alive": {
                     "_target_": "unilab.managers.RewardTermCfg",
-                    "func": "unilab.tasks.locomotion.g1.manager_terms.alive",
+                    "func": "unilab.tasks.locomotion.common.manager_terms.alive",
                     "weight": 10.0,
                 },
             }

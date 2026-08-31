@@ -24,7 +24,7 @@ def test_reward_override_g1():
     env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] = 888.0
     env_cfg_override["rewards"]["alive"] = {
         "_target_": "unilab.managers.RewardTermCfg",
-        "func": "unilab.tasks.locomotion.g1.manager_terms.alive",
+        "func": "unilab.tasks.locomotion.common.manager_terms.alive",
         "weight": 20.0,
     }
 
