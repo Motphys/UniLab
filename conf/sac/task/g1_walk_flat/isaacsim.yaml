@@ -1,0 +1,29 @@
+# @package _global_
+# IsaacSim SAC owner for the headless Python 3.11 IsaacLab/PhysX subprocess.
+# Policy-defining fields remain inherited from the MuJoCo owner contract;
+# unsupported rendering, interval randomization, and reset-time PD mutation
+# are explicit fail-closed choices for this physics-only integration slice.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: isaacsim
+  play_render_mode: none
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+env:
+  isaacsim_device_id: 0
+  isaacsim_worker_timeout_s: 120.0
+  events:
+    pd_gains: null
+play_profile:
+  enabled: false

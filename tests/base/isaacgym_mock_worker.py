@@ -160,6 +160,11 @@ class _MockSim:
             "gravity": [0.0, 0.0, _GRAVITY_Z],
             "use_gpu_pipeline": False,
             "graphics_enabled": self.graphics_enabled,
+            # The IsaacSim host validates this optional subprocess metadata;
+            # keeping it in the deterministic mock exercises that handshake
+            # without importing Kit. IsaacGym simply ignores the fields.
+            "env_origins": [[float(i) * 2.0, 0.0, 0.0] for i in range(self.num_envs)],
+            "collision_filtering_applied": True,
         }
 
     def close(self) -> None:

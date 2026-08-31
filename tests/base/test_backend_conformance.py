@@ -26,7 +26,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 _FACTORY_FILE = SRC_ROOT / "unilab" / "base" / "backend" / "__init__.py"
 _BACKEND_CLASS_NAMES = frozenset(
-    {"MuJoCoBackend", "MotrixBackend", "DrakeBackend", "MjwarpBackend", "IsaacGymBackend"}
+    {
+        "MuJoCoBackend",
+        "MotrixBackend",
+        "DrakeBackend",
+        "MjwarpBackend",
+        "IsaacGymBackend",
+        "IsaacSimBackend",
+    }
 )
 _TASK_SOURCE_ROOTS = (
     SRC_ROOT / "unilab" / "envs",
@@ -75,6 +82,12 @@ def _isaacgym_runtime_available() -> bool:
     return isaacgym_runtime_available()
 
 
+def _isaacsim_runtime_available() -> bool:
+    from unilab.base.backend.isaacsim.dependencies import isaacsim_runtime_available
+
+    return isaacsim_runtime_available()
+
+
 def _require_backend(backend_type: str) -> None:
     if backend_type == "mujoco":
         pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -89,6 +102,16 @@ def _require_backend(backend_type: str) -> None:
     elif backend_type == "isaacgym":
         if not _isaacgym_runtime_available():
             pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+    elif backend_type == "isaacsim":
+        if not _isaacsim_runtime_available():
+            pytest.skip("isaacsim requires the Python 3.11 IsaacSim/IsaacLab worker runtime")
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                pytest.skip("isaacsim requires a CUDA-enabled NVIDIA device")
+        except ImportError:
+            pytest.skip("isaacsim conformance requires host torch to check CUDA visibility")
 
 
 _BACKEND_PARAMS = [
@@ -97,6 +120,7 @@ _BACKEND_PARAMS = [
     pytest.param("drake", id="drake"),
     pytest.param("mjwarp", id="mjwarp", marks=pytest.mark.slow),
     pytest.param("isaacgym", id="isaacgym", marks=pytest.mark.slow),
+    pytest.param("isaacsim", id="isaacsim", marks=pytest.mark.slow),
 ]
 
 

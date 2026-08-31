@@ -57,6 +57,11 @@ class EnvCfg:
     # backend defaults (device 0, generous handshake/step timeout).
     isaacgym_device_id: Optional[int] = None
     isaacgym_worker_timeout_s: Optional[float] = None
+    # ``isaacsim`` runs IsaacLab/PhysX in a dedicated Python 3.11 worker.
+    # Keep its knobs separate from IsaacGym because the two runtimes have
+    # incompatible interpreters and installation roots.
+    isaacsim_device_id: Optional[int] = None
+    isaacsim_worker_timeout_s: Optional[float] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -105,6 +110,24 @@ class EnvCfg:
             raise ValueError(
                 "isaacgym_worker_timeout_s must be a positive number or None, "
                 f"got {self.isaacgym_worker_timeout_s!r}"
+            )
+        if self.isaacsim_device_id is not None and (
+            isinstance(self.isaacsim_device_id, bool)
+            or not isinstance(self.isaacsim_device_id, int)
+            or self.isaacsim_device_id < 0
+        ):
+            raise ValueError(
+                "isaacsim_device_id must be a non-negative integer or None, "
+                f"got {self.isaacsim_device_id!r}"
+            )
+        if self.isaacsim_worker_timeout_s is not None and (
+            not isinstance(self.isaacsim_worker_timeout_s, (int, float))
+            or isinstance(self.isaacsim_worker_timeout_s, bool)
+            or self.isaacsim_worker_timeout_s <= 0
+        ):
+            raise ValueError(
+                "isaacsim_worker_timeout_s must be a positive number or None, "
+                f"got {self.isaacsim_worker_timeout_s!r}"
             )
         if self.cpu_ids is not None:
             ids = list(self.cpu_ids)

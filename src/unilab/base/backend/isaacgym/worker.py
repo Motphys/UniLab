@@ -26,7 +26,7 @@ import numpy as np
 
 def _load_protocol(path: str) -> Any:
     """Load the shared protocol module by file path (no package import)."""
-    spec = importlib.util.spec_from_file_location("unilab_isaacgym_protocol", path)
+    spec = importlib.util.spec_from_file_location("unilab_subprocess_protocol", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load protocol module from {path!r}")
     module = importlib.util.module_from_spec(spec)

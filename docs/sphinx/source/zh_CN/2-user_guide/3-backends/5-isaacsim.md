@@ -1,8 +1,10 @@
-# IsaacSim 后端可行性
+# IsaacSim 后端
 
-本页记录 IsaacSim 5.1.0 / IsaacLab v2.3.0 运行时的实测证据。它是可行性
-记录，不是支持声明；当前只通过 `scripts/tools/probe_isaacsim_contract.py`
-执行有界探测。
+UniLab 的 `isaacsim` 后端在独立的 Python 3.11 worker 进程中运行 IsaacSim
+5.1.0 和 IsaacLab v2.3.0。主进程保留标准 `SimBackend` NumPy contract；管道
+传输生命周期命令，共享内存传输批量状态。当前支持边界是已注册 G1 flat
+task owner 的 headless physics。支持矩阵将 PPO/SAC owner 标为
+`Configured`，不是 `Tested`。
 
 ## 运行时边界
 
@@ -11,12 +13,37 @@ Python 3.10--3.13。安装入口是 `scripts/tools/setup_isaacsim_env.sh`，默�
 到 `$HOME/.unilab/isaacsim`，也可通过 `UNILAB_ISAACSIM_HOME` 修改。worker
 启动通过 `OMNI_KIT_ACCEPT_EULA=1` 非交互接受 Kit EULA。
 
-首次 headless Kit 启动可能需要数分钟预热扩展和 shader cache。本页使用
-IsaacLab headless `AppLauncher` 路径；在已验证的 595.x NVIDIA 驱动上，独立
-GUI/full-app 路径可能在 `librtx.scenedb.plugin.so` 崩溃，因此暂不声明 GUI
-回放能力（安装脚本中也记录了该限制）。
+后端不会在主进程导入 Kit，并支持以下环境变量：
 
-## 重现探测
+- `UNILAB_ISAACSIM_HOME`：运行时根目录。
+- `UNILAB_ISAACSIM_PYTHON`：覆盖 worker 解释器路径。
+- `OMNI_KIT_ACCEPT_EULA=1`：保持 worker 启动非交互。
+
+预期目录为 `$UNILAB_ISAACSIM_HOME/venv/bin/python`、该 venv 下的
+site-packages 和 library 目录，以及
+`$UNILAB_ISAACSIM_HOME/IsaacLab` 下的 IsaacLab v2.3.0 源码。
+
+首次 headless Kit 启动可能需要数分钟预热扩展和 shader cache。在已验证的
+595.x NVIDIA 驱动上，独立 GUI/full-app 路径可能在
+`librtx.scenedb.plugin.so` 崩溃；因此本后端不声明 GUI、camera capture 或
+native playback，worker 始终使用 IsaacLab headless `AppLauncher` 路径。
+
+当前 worker 支持 MJCF 材质化、批量 articulation 状态、位置 target 步进和
+masked root/joint reset。contact-force sensor、reset/interval domain
+randomization、host pre-step callback、GUI rendering、camera capture 和
+native playback 均不支持，并会 fail closed。
+
+使用顶层 CLI 选择 backend 和 owner：
+
+```bash
+uv run train --algo ppo --task g1_walk_flat --sim isaacsim
+uv run eval --algo sac --task g1_walk_flat --sim isaacsim --render-mode none
+```
+
+这些命令需要外部运行时和 NVIDIA CUDA 设备。仓库没有声称上述命令已完成
+完整训练或 playback 验证；该声明需要 maintainer validation 记录。
+
+## 检查 Contract
 
 ```bash
 VIRTUAL_ENV="$HOME/.unilab/isaacsim/venv" \
@@ -28,8 +55,8 @@ uv run --active --no-project \
   --output /tmp/isaacsim-contract.json
 ```
 
-该命令有界执行，只在 cold-path 材质化阶段访问 XML/importer；输出文件是下表
-的证据来源。
+该命令是有界的开发者探测，只在 cold-path 材质化阶段访问 XML/importer，适合
+检查新安装的运行时；它不是训练或 playback 验证。
 
 ## Contract 矩阵
 
@@ -46,10 +73,6 @@ uv run --active --no-project \
 | Domain randomization | IsaacLab manager/event API | 未探测 | 非空不支持 plan 必须 fail-closed |
 
 Importer 返回的 joint/body 顺序与 MJCF 文档顺序不同（例如左右分支交错）。
-worker 必须建立 name-to-index 映射并重排所有状态和控制数组；按位置假设顺序
-会破坏 `SimBackend` index contract。
-
-## 当前范围
-
-本页和探测脚本不会注册 `isaacsim`、添加 task owner，也不声明训练/play 支持。
-这些改动属于 issue #1369 下的实现切片，必须分别补充 conformance 和运行时证据。
+worker 建立 name-to-index 映射并重排所有状态和控制数组；按位置假设顺序会
+破坏 `SimBackend` index contract。完整 owner 和 capability 状态见
+{doc}`../../5-reference/5-support_matrix`。

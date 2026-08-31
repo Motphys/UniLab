@@ -28,6 +28,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "drake_nthread": cfg.drake_nthread,
         "isaacgym_device_id": cfg.isaacgym_device_id,
         "isaacgym_worker_timeout_s": cfg.isaacgym_worker_timeout_s,
+        "isaacsim_device_id": cfg.isaacsim_device_id,
+        "isaacsim_worker_timeout_s": cfg.isaacsim_worker_timeout_s,
     }
 
 
@@ -103,6 +105,13 @@ def _load_isaacgym_backend() -> Any:
     return IsaacGymBackend
 
 
+def _load_isaacsim_backend() -> Any:
+    """Load IsaacSim lazily so importing UniLab never starts Kit."""
+    from .isaacsim.backend import IsaacSimBackend
+
+    return IsaacSimBackend
+
+
 def create_backend(
     backend_type: str,
     scene: SceneCfg,
@@ -116,7 +125,7 @@ def create_backend(
 
     Args:
         backend_type: ``"mujoco"``, ``"mjwarp"``, ``"motrix"``, ``"drake"``,
-            or ``"isaacgym"``.
+            ``"isaacgym"``, or ``"isaacsim"``.
         scene: SceneCfg for either static or composed scenes.
         num_envs: Number of environments.
         sim_dt: Simulation timestep.
@@ -151,6 +160,8 @@ def create_backend(
     drake_nthread = kwargs.pop("drake_nthread", None)
     isaacgym_device_id = kwargs.pop("isaacgym_device_id", None)
     isaacgym_worker_timeout_s = kwargs.pop("isaacgym_worker_timeout_s", None)
+    isaacsim_device_id = kwargs.pop("isaacsim_device_id", None)
+    isaacsim_worker_timeout_s = kwargs.pop("isaacsim_worker_timeout_s", None)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if body_state_required:
@@ -254,6 +265,41 @@ def create_backend(
         if isaacgym_worker_timeout_s is not None:
             kwargs["worker_timeout_s"] = isaacgym_worker_timeout_s
         return cast(SimBackend, IsaacGymBackend(scene, num_envs, sim_dt, **kwargs))
+    if backend_type == "isaacsim":
+        IsaacSimBackend = _load_isaacsim_backend()
+        # IsaacLab's implicit actuator path owns the gains in the worker.  A
+        # host-side scalar override would silently diverge from the MJCF
+        # contract, so reject it at the factory boundary.
+        kwargs.pop("add_body_sensors", None)
+        if position_actuator_gains is not None:
+            raise ValueError(
+                "isaacsim uses IsaacLab implicit position actuators; configure gains in the "
+                "scene/owner contract rather than position_actuator_gains."
+            )
+        ignored_non_defaults = {
+            key: value
+            for key, value, default in (
+                ("post_step_forward_sensor", post_step_forward_sensor, None),
+                ("iterations", iterations, None),
+                ("chunk_size", chunk_size, None),
+                ("adaptive_chunk_size", adaptive_chunk_size, False),
+                ("cpu_ids", cpu_ids, None),
+                ("bench_nsteps", bench_nsteps, 1),
+            )
+            if value != default
+        }
+        if ignored_non_defaults:
+            rendered = ", ".join(f"{key}={value!r}" for key, value in ignored_non_defaults.items())
+            warnings.warn(
+                "isaacsim ignores non-default MuJoCo-only backend options: " + rendered,
+                UserWarning,
+                stacklevel=2,
+            )
+        if isaacsim_device_id is not None:
+            kwargs["device_id"] = isaacsim_device_id
+        if isaacsim_worker_timeout_s is not None:
+            kwargs["worker_timeout_s"] = isaacsim_worker_timeout_s
+        return cast(SimBackend, IsaacSimBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
 
 
@@ -274,6 +320,8 @@ def __getattr__(name: str):
         return _drake_available()
     if name == "IsaacGymBackend":
         return _load_isaacgym_backend()
+    if name == "IsaacSimBackend":
+        return _load_isaacsim_backend()
     if name in _MUJOCO_XML_EXPORTS:
         from .mujoco import xml
 
@@ -296,6 +344,7 @@ __all__ = [
     "MotrixBackend",
     "DrakeBackend",
     "IsaacGymBackend",
+    "IsaacSimBackend",
     "DRAKE_AVAILABLE",
     "MJWARP_AVAILABLE",
     "add_sensor",

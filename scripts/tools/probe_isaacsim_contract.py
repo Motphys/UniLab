@@ -12,8 +12,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import traceback
+from pathlib import Path
 from typing import Any
 
 
@@ -23,6 +23,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=2)
     parser.add_argument("--steps", type=int, default=8)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--root-body-name", default="pelvis")
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -33,6 +34,36 @@ def _as_list(value: Any) -> Any:
     if hasattr(value, "tolist"):
         return value.tolist()
     return value
+
+
+def _resolve_articulation_root_prim_path(usd_path: str, root_name: str) -> str:
+    """Discover the converted articulation root once on the probe cold path.
+
+    MJCF conversion may add an asset-dependent nesting level.  Resolve the
+    unique prim carrying ``ArticulationRootAPI`` by body name instead of
+    baking in the G1-specific ``/pelvis/pelvis`` path.
+    """
+    from pxr import Usd, UsdPhysics
+
+    stage = Usd.Stage.Open(str(usd_path))
+    if stage is None:
+        raise RuntimeError(f"could not open converted USD asset {usd_path!r}")
+    default_prim = stage.GetDefaultPrim()
+    if not default_prim or not default_prim.IsValid():
+        raise RuntimeError(f"converted USD asset {usd_path!r} has no valid default prim")
+    asset_path = str(default_prim.GetPath()).rstrip("/")
+    candidates = []
+    for prim in stage.Traverse():
+        path = str(prim.GetPath())
+        if path.startswith(asset_path + "/") and path.rsplit("/", 1)[-1] == root_name:
+            if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
+                candidates.append(path)
+    if len(candidates) != 1:
+        raise RuntimeError(
+            f"converted USD articulation root lookup for {root_name!r} expected one "
+            f"ArticulationRootAPI prim below {asset_path!r}, found {candidates or '<none>'}"
+        )
+    return candidates[0][len(asset_path) :]
 
 
 def main() -> int:
@@ -52,14 +83,13 @@ def main() -> int:
 
     simulation_app = AppLauncher({"headless": True, "device": args.device}).app
 
-    import torch
-
-    import isaacsim.core.utils.prims as prim_utils
-    from isaacsim.core.utils.extensions import enable_extension
     import isaaclab.sim as sim_utils
+    import isaacsim.core.utils.prims as prim_utils
+    import torch
     from isaaclab.actuators import ImplicitActuatorCfg
     from isaaclab.assets import Articulation, ArticulationCfg
     from isaaclab.sim.converters import MjcfConverter, MjcfConverterCfg
+    from isaacsim.core.utils.extensions import enable_extension
 
     result: dict[str, Any] = {
         "model_file": str(model_file),
@@ -88,9 +118,12 @@ def main() -> int:
             origins.append(origin)
             prim_utils.create_prim(f"/World/envs/env_{env_id}", "Xform", translation=origin)
 
+        articulation_root = _resolve_articulation_root_prim_path(
+            converter.usd_path, args.root_body_name
+        )
         robot_cfg = ArticulationCfg(
             prim_path="/World/envs/env_.*/Robot",
-            articulation_root_prim_path="/pelvis/pelvis",
+            articulation_root_prim_path=articulation_root,
             spawn=sim_utils.UsdFileCfg(usd_path=converter.usd_path),
             actuators={
                 "all": ImplicitActuatorCfg(

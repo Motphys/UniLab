@@ -1,9 +1,11 @@
-# IsaacSim Backend Feasibility
+# IsaacSim Backend
 
-This page records the evidence collected for the IsaacSim 5.1.0 / IsaacLab
-v2.3.0 runtime used by the planned UniLab backend. It is a feasibility record,
-not a support declaration: the runtime is currently exercised only by the
-bounded probe in `scripts/tools/probe_isaacsim_contract.py`.
+UniLab's `isaacsim` backend runs IsaacSim 5.1.0 and IsaacLab v2.3.0 in a
+dedicated Python 3.11 worker process. The host process keeps the regular
+`SimBackend` NumPy contract; pipe messages carry lifecycle commands and shared
+memory carries batched state. The current support boundary is headless physics
+for the registered G1 flat task owners. The support matrix intentionally marks
+the PPO and SAC owners as `Configured`, not `Tested`.
 
 ## Runtime boundary
 
@@ -13,13 +15,41 @@ main UniLab environment supports Python 3.10--3.13. The setup entry point is
 `$UNILAB_ISAACSIM_HOME` (default `$HOME/.unilab/isaacsim`) and accepts the Kit
 EULA through `OMNI_KIT_ACCEPT_EULA=1` for non-interactive worker startup.
 
-The first headless Kit launch may spend minutes warming extension and shader
-caches. The probe deliberately uses the IsaacLab headless `AppLauncher` path.
-Standalone GUI/full-app playback is not part of this feasibility claim: on the
-validated 595.x NVIDIA driver family, the standalone path can crash in
-`librtx.scenedb.plugin.so` (see the setup script's runtime note).
+The backend resolves these optional variables without importing Kit in the host
+process:
 
-## Reproducing the probe
+- `UNILAB_ISAACSIM_HOME` selects the runtime root.
+- `UNILAB_ISAACSIM_PYTHON` overrides the worker interpreter path.
+- `OMNI_KIT_ACCEPT_EULA=1` keeps worker startup non-interactive.
+
+The expected runtime layout is
+`$UNILAB_ISAACSIM_HOME/venv/bin/python`, the Python 3.11 site-packages and
+library directories under that venv, and an IsaacLab v2.3.0 source checkout at
+`$UNILAB_ISAACSIM_HOME/IsaacLab`.
+
+The first headless Kit launch may spend minutes warming extension and shader
+caches. On the validated 595.x NVIDIA driver family, the standalone/full-app
+path can crash in `librtx.scenedb.plugin.so`; this backend therefore does not
+claim GUI, camera capture, or native playback support. The worker always starts
+IsaacLab's headless `AppLauncher` path.
+
+The current worker supports MJCF materialization, batched articulation state,
+position-target stepping, and masked root/joint resets. Contact-force sensors,
+reset or interval domain randomization, host pre-step callbacks, GUI rendering,
+camera capture, and native playback are unsupported and fail closed.
+
+Use the top-level CLI to select the backend and owner:
+
+```bash
+uv run train --algo ppo --task g1_walk_flat --sim isaacsim
+uv run eval --algo sac --task g1_walk_flat --sim isaacsim --render-mode none
+```
+
+These commands require the external runtime and an NVIDIA CUDA device. The
+repository does not claim that either command has completed full training or
+playback validation; those claims require a maintainer validation entry.
+
+## Inspecting The Contract
 
 ```bash
 VIRTUAL_ENV="$HOME/.unilab/isaacsim/venv" \
@@ -31,8 +61,9 @@ uv run --active --no-project \
   --output /tmp/isaacsim-contract.json
 ```
 
-The command is bounded and only touches the XML/importer during cold-path
-materialization. Its output is the evidence source for the matrix below.
+The command is a bounded developer probe. It only touches the XML/importer
+during cold-path materialization and is useful for checking a newly installed
+runtime; it is not a training or playback validation.
 
 ## Contract matrix
 
@@ -49,12 +80,7 @@ materialization. Its output is the evidence source for the matrix below.
 | Domain randomization | IsaacLab manager/event APIs | Not exercised | Non-empty unsupported plans must fail closed |
 
 The importer returns a different joint/body ordering (for example, left/right
-branches are interleaved). A worker must therefore build name-to-index maps and
-reorder every state/control array; positional assumptions would violate the
-`SimBackend` index contract.
-
-## Current scope
-
-This page and the probe do not register `isaacsim`, add a task owner, or claim
-training/play support. Those changes belong to the implementation slices under
-issue #1369 and must add their own conformance and runtime evidence.
+branches are interleaved). The worker builds name-to-index maps and reorders
+every state/control array; positional assumptions would violate the
+`SimBackend` index contract. The full owner and capability status is maintained
+in {doc}`../../5-reference/5-support_matrix`.
