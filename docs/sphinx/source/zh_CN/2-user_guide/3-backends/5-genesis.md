@@ -7,13 +7,16 @@ NumPy contract，物理与 learner 同进程运行——没有 worker 子进程�
 IPC。
 
 当前状态：`GenesisBackend` 已实现并注册到 registry；`g1_walk_flat` 提供
-PPO owner 配置（`conf/ppo/task/g1_walk_flat/genesis.yaml`），跨后端契约
-审计（`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔genesis（结论
-TRANSFERABLE）。支持等级为 **experimental**：现有证据是 registry +
-owner YAML + compose/contract 覆盖，以及真机 slow-lane env smoke
+PPO 与 SAC owner 配置（`conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`），
+跨后端契约审计（`scripts/audit_sim2sim_contracts.py`）在两棵 algo 树上
+覆盖 mujoco↔genesis（结论 TRANSFERABLE）。支持等级为 **experimental**：
+现有证据是 registry + owner YAML + compose/contract 覆盖，以及真机
+slow-lane env smoke
 （`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose →
-env 构造 → keyframe reset → 12 步有限稳定 → cleanup）。尚未完成任何
-训练验证，因此支持矩阵中该 cell 标记为 `Configured`，且 playback/渲染
+env 构造 → keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac
+两棵树），另有 SAC 短训练回路 smoke（64 envs / 3 iterations，经
+learning_starts/updates_per_step 路径并保存 checkpoint）。尚未完成任何
+训练验证，因此支持矩阵中这些 cell 标记为 `Configured`，且 playback/渲染
 不是已声明能力。
 
 env 构造生命周期（#1383 已修复）：`ManagerBasedRlEnv` 构造期的 entity
@@ -68,6 +71,9 @@ uv sync --extra genesis
 ```bash
 # PPO
 uv run train --algo ppo --task g1_walk_flat --sim genesis
+
+# SAC
+uv run train --algo sac --task g1_walk_flat --sim genesis
 
 # 小规模 smoke：64 个环境、只跑 3 个 iteration
 uv run train --algo ppo --task g1_walk_flat --sim genesis \

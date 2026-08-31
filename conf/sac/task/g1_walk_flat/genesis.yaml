@@ -1,0 +1,37 @@
+# @package _global_
+# Genesis SAC owner for the in-process backend (genesis-world==1.3.3,
+# torch>=2.8). Keeps DENYLIST parity with the MuJoCo SAC owner (identical algo
+# block) so cross-backend play transfers 1:1. Genesis drops the MJCF global
+# <option> block at import (REPORT #1372 §3.3), so the integrator g1.xml
+# declares (<option integrator="implicitfast" timestep="0.006666666666666667"/>)
+# is re-declared here: the timestep flows through the existing base.yaml
+# sim_dt -> ctrl_dt chain, and the integrator through the EnvCfg genesis
+# fields below. Solver/constraint-cone/iterations stay at Genesis defaults:
+# the MJCF option block does not declare them and MuJoCo's implicit defaults
+# (PGS solver, pyramidal cone) have no Genesis equivalent. Unlike the
+# isaacgym owner (events.pd_gains: null), kp/kd reset randomization stays
+# enabled from base.yaml because the genesis backend declares the measured
+# RESET_TERM_KP/KD DR terms (REPORT §5.7). Playback/rendering is not a
+# declared capability, so play_render_mode=none enters playback safely as a
+# no-op; any other mode fails closed in the backend with an explanatory error.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: genesis
+  play_render_mode: none
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+env:
+  # Re-declares the MJCF <option integrator="implicitfast"> that Genesis drops
+  # at import; the remaining global options keep the Genesis defaults.
+  genesis_integrator: implicitfast

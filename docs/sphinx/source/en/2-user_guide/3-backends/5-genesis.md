@@ -7,15 +7,19 @@ contract on top of it, so physics shares the training process with the
 learner — no worker subprocess, no IPC.
 
 Current status: `GenesisBackend` is implemented and registered; `g1_walk_flat`
-ships a PPO owner config (`conf/ppo/task/g1_walk_flat/genesis.yaml`), and the
-cross-backend contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
-mujoco/genesis pair (verdict TRANSFERABLE). Support level is **experimental**:
-the evidence is registry + owner YAML + compose/contract coverage, plus a
-real-machine slow-lane env smoke
+ships PPO and SAC owner configs
+(`conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`), and the cross-backend
+contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
+mujoco/genesis pair in both algo trees (verdict TRANSFERABLE). Support level
+is **experimental**: the evidence is registry + owner YAML + compose/contract
+coverage, plus a real-machine slow-lane env smoke
 (`tests/envs/locomotion/g1/test_g1_owner_contract.py`: compose -> env
-construction -> keyframe reset -> 12 finite steps -> cleanup). No training
-validation has been completed, so the support matrix marks the cell
-`Configured`, and playback/rendering is not a declared capability.
+construction -> keyframe reset -> 12 finite steps -> cleanup, run for both
+the ppo and sac trees), plus a short SAC training-loop smoke (64 envs / 3
+iterations through the learning_starts/updates_per_step path with checkpoint
+saving). No training validation has been completed, so the support matrix
+marks the cells `Configured`, and playback/rendering is not a declared
+capability.
 
 Env-construction lifecycle (fixed in #1383): entity validation during
 `ManagerBasedRlEnv` construction reads state getters before the env's
@@ -73,6 +77,9 @@ real-machine slow-lane smoke; there is no training-convergence evidence yet):
 ```bash
 # PPO
 uv run train --algo ppo --task g1_walk_flat --sim genesis
+
+# SAC
+uv run train --algo sac --task g1_walk_flat --sim genesis
 
 # Small smoke run: 64 environments, 3 iterations only
 uv run train --algo ppo --task g1_walk_flat --sim genesis \

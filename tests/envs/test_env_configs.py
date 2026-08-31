@@ -50,7 +50,9 @@ def _allegro_manager_override(
     ).build_task_env_cfg_override()
 
 
-def _g1_manager_override(task: str = "g1_walk_flat", backend: str = "mujoco") -> dict[str, Any]:
+def _g1_manager_override(
+    task: str = "g1_walk_flat", backend: str = "mujoco", config_group: str = "ppo"
+) -> dict[str, Any]:
     from hydra import compose, initialize_config_dir
 
     from unilab.base.config_adapter import BackendAdapter
@@ -63,9 +65,13 @@ def _g1_manager_override(task: str = "g1_walk_flat", backend: str = "mujoco") ->
         return BackendAdapter(
             cfg, root_dir=repo_root, algo_name="sac"
         ).build_task_env_cfg_override()
-    with initialize_config_dir(config_dir=str(repo_root / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(repo_root / "conf" / config_group), version_base="1.3"
+    ):
         cfg = compose("config", overrides=[f"task={task}/{backend}"])
-    return BackendAdapter(cfg, root_dir=repo_root, algo_name="ppo").build_task_env_cfg_override()
+    return BackendAdapter(
+        cfg, root_dir=repo_root, algo_name=config_group
+    ).build_task_env_cfg_override()
 
 
 def _motion_manager_override(
@@ -182,14 +188,15 @@ def test_g1_walk_flat_isaacgym_owner_composes_and_materializes():
     assert env_cfg.events["pd_gains"] is None
 
 
-def test_g1_walk_flat_genesis_owner_composes_and_materializes():
-    """The genesis owner composes and materializes a plain manager env cfg."""
+@pytest.mark.parametrize("config_group", ("ppo", "sac"))
+def test_g1_walk_flat_genesis_owner_composes_and_materializes(config_group):
+    """The genesis owners compose and materialize a plain manager env cfg."""
     from unilab.base import registry
     from unilab.base.config_materialization import apply_cfg_overrides
     from unilab.envs import ManagerBasedRlEnvCfg
 
     ensure_registries()
-    override = _g1_manager_override("g1_walk_flat", backend="genesis")
+    override = _g1_manager_override("g1_walk_flat", backend="genesis", config_group=config_group)
     env_cfg = registry.materialize_env_config("G1WalkFlat")
     assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
     apply_cfg_overrides(env_cfg, override)
