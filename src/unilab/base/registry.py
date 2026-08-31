@@ -39,7 +39,7 @@ class EnvFactory(Protocol):
 
 TEnvFactory = TypeVar("TEnvFactory", bound=EnvFactory)
 RewardOverrideField = Literal["reward_config", "rewards"]
-_SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym")
+_SUPPORTED_SIM_BACKENDS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym", "genesis")
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
 _REGISTRY_MODULES_ATTR = "__unilab_registry_modules__"
 _DEFAULT_REGISTRY_PACKAGES = ("unilab.tasks",)

@@ -57,6 +57,14 @@ class EnvCfg:
     # backend defaults (device 0, generous handshake/step timeout).
     isaacgym_device_id: Optional[int] = None
     isaacgym_worker_timeout_s: Optional[float] = None
+    # ``genesis`` drops the MJCF global <option> block at import (REPORT #1372
+    # §3.3), so integrator / constraint solver / friction cone / solver
+    # iterations must be explicit owner fields. ``None`` keeps the Genesis
+    # defaults; the backend validates the spellings fail-closed.
+    genesis_integrator: Optional[str] = None
+    genesis_constraint_solver: Optional[str] = None
+    genesis_friction_cone: Optional[str] = None
+    genesis_solver_iterations: Optional[int] = None
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -105,6 +113,22 @@ class EnvCfg:
             raise ValueError(
                 "isaacgym_worker_timeout_s must be a positive number or None, "
                 f"got {self.isaacgym_worker_timeout_s!r}"
+            )
+        for name, value in (
+            ("genesis_integrator", self.genesis_integrator),
+            ("genesis_constraint_solver", self.genesis_constraint_solver),
+            ("genesis_friction_cone", self.genesis_friction_cone),
+        ):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValueError(f"{name} must be a non-empty string or None, got {value!r}")
+        if self.genesis_solver_iterations is not None and (
+            isinstance(self.genesis_solver_iterations, bool)
+            or not isinstance(self.genesis_solver_iterations, int)
+            or self.genesis_solver_iterations <= 0
+        ):
+            raise ValueError(
+                "genesis_solver_iterations must be a positive integer or None, "
+                f"got {self.genesis_solver_iterations!r}"
             )
         if self.cpu_ids is not None:
             ids = list(self.cpu_ids)
