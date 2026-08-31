@@ -1,4 +1,11 @@
-"""MicroDuck-specific Manager-Based command, event, and reward terms."""
+"""MicroDuck-specific Manager-Based command and reward terms.
+
+Generic named-sensor reward terms (velocity tracking, vertical/angular velocity
+and orientation penalties) come from ``tasks.locomotion.common.sensor_reward_terms``;
+``base_height_l2``/``alive`` come from ``tasks.locomotion.common.manager_terms``;
+``randomize_encoder_bias`` comes from ``unilab.envs.mdp``.  Only terms with
+MicroDuck-specific semantics live here.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +25,7 @@ from unilab.managers import (
     ManagerTermBaseCfg,
     SceneEntityCfg,
 )
-from unilab.tasks.locomotion.common.sensor_terms import SensorTermBase
+from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -26,9 +33,6 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
-_LINEAR_VELOCITY_SENSOR = ("local_linvel",)
-_GYRO_SENSOR = ("gyro",)
-_UPVECTOR_SENSOR = ("upvector",)
 _FOOT_CONTACT_SENSORS = ("left_foot_contact", "right_foot_contact")
 
 
@@ -184,143 +188,6 @@ class MicroduckVelocityCommand(UniformVelocityCommand):
             self._turn_ang_max,
             len(turn_ids),
         )
-
-
-class _LinearVelocityTerm(SensorTermBase):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._view = self._bind(_LINEAR_VELOCITY_SENSOR)
-        if self._view.dimensions != (3,):
-            raise ValueError(f"{self.name} local_linvel sensor must expose 3 values")
-
-    def _value(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return _state(
-            self.name,
-            "local linear velocity",
-            self._read(self._view, self.name),
-            (env.num_envs, 3),
-        )
-
-
-class _GyroTerm(SensorTermBase):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._view = self._bind(_GYRO_SENSOR)
-        if self._view.dimensions != (3,):
-            raise ValueError(f"{self.name} gyro sensor must expose 3 values")
-
-    def _value(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return _state(
-            self.name,
-            "angular velocity",
-            self._read(self._view, self.name),
-            (env.num_envs, 3),
-        )
-
-
-class _UpvectorTerm(SensorTermBase):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._view = self._bind(_UPVECTOR_SENSOR)
-        if self._view.dimensions != (3,):
-            raise ValueError(f"{self.name} upvector sensor must expose 3 values")
-
-    def _value(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return _state(
-            self.name,
-            "upvector",
-            self._read(self._view, self.name),
-            (env.num_envs, 3),
-        )
-
-
-class track_lin_vel(_LinearVelocityTerm):
-    _allowed_params = frozenset({"tracking_sigma", "command_name"})
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._sigma = _finite_real(
-            cfg.params.get("tracking_sigma", 0.25),
-            label=f"{self.name} tracking_sigma",
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        self._command_name = cfg.params.get("command_name", "twist")
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        error = np.sum(
-            np.square(
-                _command(env, self.name, self._command_name)[:, :2] - self._value(env)[:, :2]
-            ),
-            axis=1,
-        )
-        return np.asarray(np.exp(-error / self._sigma), dtype=get_global_dtype())
-
-
-class track_ang_vel(_GyroTerm):
-    _allowed_params = frozenset({"tracking_sigma", "command_name"})
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._sigma = _finite_real(
-            cfg.params.get("tracking_sigma", 0.25),
-            label=f"{self.name} tracking_sigma",
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        self._command_name = cfg.params.get("command_name", "twist")
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        error = np.square(
-            _command(env, self.name, self._command_name)[:, 2] - self._value(env)[:, 2]
-        )
-        return np.asarray(np.exp(-error / self._sigma), dtype=get_global_dtype())
-
-
-class lin_vel_z(_LinearVelocityTerm):
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        return np.asarray(np.square(self._value(env)[:, 2]), dtype=get_global_dtype())
-
-
-class ang_vel_xy(_GyroTerm):
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        return np.asarray(
-            np.sum(np.square(self._value(env)[:, :2]), axis=1),
-            dtype=get_global_dtype(),
-        )
-
-
-class orientation(_UpvectorTerm):
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        return np.asarray(
-            np.sum(np.square(self._value(env)[:, :2]), axis=1),
-            dtype=get_global_dtype(),
-        )
-
-
-def base_height(
-    env: ManagerBasedRlEnv,
-    target_height: float,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
-    target = _finite_real(target_height, label="base_height target_height")
-    entity = cast("Entity", env.scene[asset_cfg.name])
-    height = _state(
-        "base_height",
-        "root position",
-        entity.data.root_link_pos_w,
-        (env.num_envs, 3),
-    )[:, 2]
-    return np.asarray(np.square(height - target), dtype=get_global_dtype())
-
-
-def alive(env: ManagerBasedRlEnv) -> np.ndarray:
-    return np.ones((env.num_envs,), dtype=get_global_dtype())
 
 
 class _JointCommandTerm(ManagerTermBase):
@@ -493,50 +360,14 @@ class flight_phase(_FootContactTerm):
         return np.asarray(~np.any(self._contact(env), axis=1), dtype=get_global_dtype())
 
 
-class randomize_encoder_bias(ManagerTermBase):
-    """Sample per-reset joint encoder calibration bias through Entity data."""
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(env)
-        self._entity, self._joint_ids = _asset_selection(cfg, env, term=self.name)
-        bounds = np.asarray(cfg.params.get("bias_range"), dtype=np.float64)
-        if bounds.shape != (2,) or not np.isfinite(bounds).all():
-            raise ValueError("randomize_encoder_bias bias_range must be a finite pair")
-        if bounds[0] > bounds[1]:
-            raise ValueError("randomize_encoder_bias bias_range is reversed")
-        self._range = (float(bounds[0]), float(bounds[1]))
-
-    def __call__(
-        self,
-        env: ManagerBasedRlEnv,
-        env_ids: np.ndarray | None,
-        bias_range: tuple[float, float],
-        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-    ) -> None:
-        del bias_range, asset_cfg
-        ids = np.arange(env.num_envs, dtype=np.intp) if env_ids is None else env_ids
-        self._entity.data.encoder_bias[np.ix_(ids, self._joint_ids)] = env.rng.uniform(
-            *self._range,
-            size=(len(ids), len(self._joint_ids)),
-        )
-
-
 __all__ = [
     "MicroduckVelocityCommand",
     "MicroduckVelocityCommandCfg",
     "UniformVectorCommand",
     "UniformVectorCommandCfg",
-    "alive",
-    "ang_vel_xy",
-    "base_height",
     "flight_phase",
     "foot_air_time_biped",
     "head_pose_bias",
     "head_pose_tracking",
     "leg_pose",
-    "lin_vel_z",
-    "orientation",
-    "randomize_encoder_bias",
-    "track_ang_vel",
-    "track_lin_vel",
 ]
