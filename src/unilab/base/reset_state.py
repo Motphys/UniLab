@@ -54,6 +54,11 @@ class ResetStateTransaction:
         self._randomization_defaults: dict[str, np.ndarray] = {}
         self._randomization_values: dict[str, np.ndarray] = {}
         self._randomization_dirty_masks: dict[str, np.ndarray] = {}
+        self._committed_randomization: dict[str, np.ndarray] = {}
+        self._committed_randomization_masks: dict[str, np.ndarray] = {}
+        self._committed_kp: np.ndarray | None = None
+        self._committed_kd: np.ndarray | None = None
+        self._committed_gain_mask = np.zeros(self._num_envs, dtype=np.bool_)
         self._requesting_terms: set[str] = set()
         self._last_commit_had_writes = False
         self._last_set_state_timing_ms: dict[str, float] = {}
@@ -562,6 +567,7 @@ class ResetStateTransaction:
                     self._qvel[dirty_ids],
                     randomization=randomization,
                 )
+                self._record_committed_payload(dirty_ids, randomization)
                 timing: dict[str, float] = {
                     "dr_reset_set_state_ms": (time.perf_counter() - set_state_t0) * 1000.0
                 }
@@ -777,7 +783,7 @@ class ResetStateTransaction:
             mask = self._randomization_dirty_masks.get(field)
             if mask is None or not np.any(mask):
                 continue
-            self._require_dense_randomization_rows(field, mask, dirty_ids)
+            self._fill_sparse_randomization_rows(field, mask, dirty_ids)
             setattr(
                 payload,
                 field,
@@ -786,29 +792,104 @@ class ResetStateTransaction:
 
         gain_ids = np.flatnonzero(self._gain_dirty_mask).astype(np.int32, copy=False)
         if gain_ids.size:
-            self._require_dense_randomization_rows(
-                "actuator gains", self._gain_dirty_mask, dirty_ids
-            )
+            self._fill_sparse_gain_rows(dirty_ids)
             assert self._kp is not None
             assert self._kd is not None
             payload.kp = np.array(self._kp[dirty_ids], copy=True)
             payload.kd = np.array(self._kd[dirty_ids], copy=True)
         return None if payload.is_empty() else payload
 
-    def _require_dense_randomization_rows(
+    def _fill_sparse_randomization_rows(
         self,
         field: str,
         mask: np.ndarray,
         dirty_ids: np.ndarray,
     ) -> None:
+        """Fill dirty rows the current reset did not rewrite from committed values.
+
+        Terms gated by ``min_step_count_between_reset`` intentionally skip envs
+        whose last randomized value must persist; the last committed payload
+        re-supplies those rows so one dense ``SimBackend.set_state`` call can
+        represent them. Rows with no committed history still fail closed.
+        """
         missing = dirty_ids[~mask[dirty_ids]]
-        if missing.size:
+        if not missing.size:
+            return
+        cached = self._committed_randomization.get(field)
+        cached_mask = self._committed_randomization_masks.get(field)
+        if cached is not None and cached_mask is not None:
+            uncommitted = missing[~cached_mask[missing]]
+        else:
+            uncommitted = missing
+        if uncommitted.size:
             terms = ", ".join(sorted(self._requesting_terms))
             raise RuntimeError(
                 f"EventManager reset {field} payload cannot represent sparse rows in one "
                 f"SimBackend.set_state call for term(s) [{terms}] on backend "
-                f"'{self._backend.backend_type}'; missing env IDs {missing.tolist()}"
+                f"'{self._backend.backend_type}'; missing env IDs {uncommitted.tolist()}"
             )
+        assert cached is not None
+        self._randomization_values[field][missing] = cached[missing]
+
+    def _fill_sparse_gain_rows(self, dirty_ids: np.ndarray) -> None:
+        """Fill gain rows the current reset did not rewrite from committed values."""
+        missing = dirty_ids[~self._gain_dirty_mask[dirty_ids]]
+        if not missing.size:
+            return
+        uncommitted = missing[~self._committed_gain_mask[missing]]
+        if uncommitted.size or self._committed_kp is None or self._committed_kd is None:
+            terms = ", ".join(sorted(self._requesting_terms))
+            raise RuntimeError(
+                "EventManager reset actuator gains payload cannot represent sparse rows in "
+                f"one SimBackend.set_state call for term(s) [{terms}] on backend "
+                f"'{self._backend.backend_type}'; missing env IDs {uncommitted.tolist()}"
+            )
+        assert self._kp is not None
+        assert self._kd is not None
+        self._kp[missing] = self._committed_kp[missing]
+        self._kd[missing] = self._committed_kd[missing]
+
+    def _record_committed_payload(
+        self,
+        dirty_ids: np.ndarray,
+        payload: ResetRandomizationPayload | None,
+    ) -> None:
+        """Cache the last committed per-env field values for sparse-row fill."""
+        if payload is None:
+            return
+        for field in (
+            RESET_TERM_BODY_MASS,
+            RESET_TERM_BODY_IPOS,
+            RESET_TERM_DOF_ARMATURE,
+            RESET_TERM_GEOM_FRICTION,
+            RESET_TERM_GRAVITY,
+        ):
+            values = getattr(payload, field)
+            if values is None:
+                continue
+            cache = self._committed_randomization.get(field)
+            if cache is None:
+                cache = np.empty(
+                    (self._num_envs, *values.shape[1:]),
+                    dtype=values.dtype,
+                )
+                self._committed_randomization[field] = cache
+                self._committed_randomization_masks[field] = np.zeros(
+                    self._num_envs, dtype=np.bool_
+                )
+            cache[dirty_ids] = values
+            self._committed_randomization_masks[field][dirty_ids] = True
+        if payload.kp is not None and payload.kd is not None:
+            if self._committed_kp is None or self._committed_kd is None:
+                self._committed_kp = np.empty(
+                    (self._num_envs, payload.kp.shape[1]), dtype=payload.kp.dtype
+                )
+                self._committed_kd = np.empty(
+                    (self._num_envs, payload.kd.shape[1]), dtype=payload.kd.dtype
+                )
+            self._committed_kp[dirty_ids] = payload.kp
+            self._committed_kd[dirty_ids] = payload.kd
+            self._committed_gain_mask[dirty_ids] = True
 
     def _prepare_state_write(
         self,

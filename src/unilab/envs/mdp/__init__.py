@@ -4,6 +4,7 @@ from unilab.envs.mdp.actions import JointPositionAction as JointPositionAction
 from unilab.envs.mdp.actions import JointPositionActionCfg as JointPositionActionCfg
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
+from unilab.envs.mdp.events import apply_body_impulse as apply_body_impulse
 from unilab.envs.mdp.events import dof_armature as dof_armature
 from unilab.envs.mdp.events import geom_friction as geom_friction
 from unilab.envs.mdp.events import joint_armature as joint_armature
@@ -53,6 +54,7 @@ __all__ = [
     "UniformVelocityCommandCfg",
     "action_acc_l2",
     "action_rate_l2",
+    "apply_body_impulse",
     "base_ang_vel",
     "base_lin_vel",
     "builtin_sensor",

@@ -526,6 +526,10 @@ class DrakeBackend(SimBackend):
             raise NotImplementedError(
                 "DrakeBackend interval pushes require explicit body_ids and body_force"
             )
+        if plan.body_torque is not None:
+            raise NotImplementedError(
+                "DrakeUni batch backend does not support interval body torque perturbation"
+            )
         if plan.body_force is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-force perturbation requires body_ids")
@@ -533,6 +537,11 @@ class DrakeBackend(SimBackend):
         if plan.body_linear_velocity_delta is not None:
             raise NotImplementedError(
                 "DrakeUni batch backend does not support interval body velocity perturbation"
+            )
+        if plan.body_angular_velocity_delta is not None:
+            raise NotImplementedError(
+                "DrakeUni batch backend does not support interval body angular velocity "
+                "perturbation"
             )
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
@@ -650,7 +659,12 @@ class DrakeBackend(SimBackend):
         self,
         body_ids: np.ndarray,
         force: np.ndarray,
+        torque: np.ndarray | None = None,
     ) -> None:
+        if torque is not None:
+            raise NotImplementedError(
+                "DrakeUni batch backend does not support interval body torque perturbation"
+            )
         ids = np.asarray(body_ids, dtype=np.int32).reshape(-1)
         values = np.asarray(force, dtype=np.float64)
         expected_shape = (self._num_envs, ids.size, 3)
