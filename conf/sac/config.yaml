@@ -78,6 +78,10 @@ training:
   log_root: null
   log_dir: null
   env_steps_per_sync: 1
+  # Seconds the learner waits for each collector inference tick before
+  # failing. Tick 0 includes collector env construction, whose cost is
+  # backend-owned; slow-start backends raise this in their task owner YAML.
+  inference_request_timeout_sec: 30.0
   trace_enabled: false
   trace_output_dir: null
   trace_thread_time: false
