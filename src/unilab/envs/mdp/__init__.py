@@ -6,6 +6,7 @@ from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCo
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
 from unilab.envs.mdp.curriculums import reward_curriculum as reward_curriculum
 from unilab.envs.mdp.curriculums import termination_curriculum as termination_curriculum
+from unilab.envs.mdp.events import apply_body_impulse as apply_body_impulse
 from unilab.envs.mdp.events import dof_armature as dof_armature
 from unilab.envs.mdp.events import geom_friction as geom_friction
 from unilab.envs.mdp.events import joint_armature as joint_armature
@@ -65,6 +66,7 @@ __all__ = [
     "UniformVelocityCommandCfg",
     "action_acc_l2",
     "action_rate_l2",
+    "apply_body_impulse",
     "base_ang_vel",
     "base_ang_vel_imu_misaligned",
     "base_lin_vel",

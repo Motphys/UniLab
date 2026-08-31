@@ -548,12 +548,16 @@ class SimBackend(abc.ABC):
         self,
         body_ids: np.ndarray,
         force: np.ndarray,
+        torque: np.ndarray | None = None,
     ) -> None:
-        """Apply a world-frame force to specific bodies for the upcoming step.
+        """Apply a world-frame force (and optional torque) to bodies for the upcoming step.
 
         Args:
             body_ids: Body ids whose external forces should be perturbed.
             force: Force values with shape ``(num_envs, len(body_ids), 3)``.
+            torque: Optional world-frame torque values with the same shape.
+                Backends without a torque channel must fail closed when this
+                is not ``None``.
 
         Returns:
             None. Backends that support this mutate their pending simulation state.
