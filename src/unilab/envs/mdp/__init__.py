@@ -37,10 +37,14 @@ from unilab.envs.mdp.rewards import (
 from unilab.envs.mdp.rewards import flat_orientation_l2 as flat_orientation_l2
 from unilab.envs.mdp.rewards import is_alive as is_alive
 from unilab.envs.mdp.rewards import is_terminated as is_terminated
+from unilab.envs.mdp.rewards import joint_pos_limits as joint_pos_limits
 from unilab.envs.mdp.rewards import joint_vel_l2 as joint_vel_l2
+from unilab.envs.mdp.rewards import posture as posture
 from unilab.envs.mdp.rewards import track_angular_velocity as track_angular_velocity
 from unilab.envs.mdp.rewards import track_linear_velocity as track_linear_velocity
+from unilab.envs.mdp.rewards import variable_posture as variable_posture
 from unilab.envs.mdp.terminations import bad_orientation as bad_orientation
+from unilab.envs.mdp.terminations import nan_detection as nan_detection
 from unilab.envs.mdp.terminations import (
     root_height_below_minimum as root_height_below_minimum,
 )
@@ -64,10 +68,13 @@ __all__ = [
     "generated_commands",
     "joint_pos_rel",
     "joint_armature",
+    "joint_pos_limits",
     "joint_vel_rel",
     "joint_vel_l2",
     "last_action",
+    "nan_detection",
     "pd_gains",
+    "posture",
     "push_by_setting_velocity",
     "randomize_encoder_bias",
     "randomize_physics_scene_gravity",
@@ -84,4 +91,5 @@ __all__ = [
     "time_out",
     "track_angular_velocity",
     "track_linear_velocity",
+    "variable_posture",
 ]
