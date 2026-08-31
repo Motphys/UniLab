@@ -106,7 +106,7 @@ def test_tracking_terms_validate_params_at_construction() -> None:
         )
     with pytest.raises(ValueError, match="command_name"):
         _term(sensor_reward_terms.track_lin_vel, env, sensor_name="local_linvel", command_name="")
-    with pytest.raises(KeyError, match="not configured"):
+    with pytest.raises(KeyError, match="unavailable"):
         _term(
             sensor_reward_terms.track_lin_vel,
             env,

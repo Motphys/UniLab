@@ -18,22 +18,10 @@ import numpy as np
 from unilab.dtype_config import get_global_dtype
 from unilab.managers.manager_base import ManagerTermBaseCfg
 
-from .manager_terms import SensorTermBase, _real, _state
+from .manager_terms import SensorTermBase, _command, _real, _state
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
-
-
-def _command(env: ManagerBasedRlEnv, term: str, command_name: str) -> np.ndarray:
-    if not isinstance(command_name, str) or not command_name:
-        raise ValueError(f"{term} command_name must be a non-empty string")
-    try:
-        command = env.command_manager.get_command(command_name)
-    except KeyError as exc:
-        raise KeyError(f"{term} command '{command_name}' is not configured") from exc
-    if command is None:
-        raise KeyError(f"{term} command '{command_name}' is not configured")
-    return _state(term, f"command '{command_name}'", command, (env.num_envs, 3))
 
 
 class _Vec3SensorTerm(SensorTermBase):
