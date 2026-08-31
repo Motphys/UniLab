@@ -9,6 +9,7 @@ from unilab.envs.mdp.events import geom_friction as geom_friction
 from unilab.envs.mdp.events import joint_armature as joint_armature
 from unilab.envs.mdp.events import pd_gains as pd_gains
 from unilab.envs.mdp.events import push_by_setting_velocity as push_by_setting_velocity
+from unilab.envs.mdp.events import randomize_encoder_bias as randomize_encoder_bias
 from unilab.envs.mdp.events import (
     randomize_physics_scene_gravity as randomize_physics_scene_gravity,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "last_action",
     "pd_gains",
     "push_by_setting_velocity",
+    "randomize_encoder_bias",
     "randomize_physics_scene_gravity",
     "randomize_rigid_body_com",
     "randomize_rigid_body_mass",

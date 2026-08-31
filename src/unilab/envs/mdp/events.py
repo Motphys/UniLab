@@ -972,6 +972,58 @@ class PushBySettingVelocity(ManagerTermBase):
 push_by_setting_velocity = PushBySettingVelocity
 
 
+class RandomizeEncoderBias(ManagerTermBase):
+    """Per-reset joint encoder calibration bias through the Entity data surface."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        term_name = "randomize_encoder_bias"
+        _validate_event_term(
+            cfg,
+            term_name=term_name,
+            mode="reset",
+            allowed_params=frozenset(("bias_range", "asset_cfg")),
+            required_params=("bias_range", "asset_cfg"),
+        )
+        asset_cfg = cfg.params["asset_cfg"]
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(
+                f"EventManager term '{term_name}' asset_cfg must be SceneEntityCfg, "
+                f"got {type(asset_cfg).__name__}"
+            )
+        bias_range = np.asarray(cfg.params["bias_range"], dtype=np.float64)
+        if bias_range.shape != (2,) or not np.isfinite(bias_range).all():
+            raise ValueError(f"EventManager term '{term_name}' bias_range must be a finite pair")
+        if bias_range[0] > bias_range[1]:
+            raise ValueError(f"EventManager term '{term_name}' bias_range minimum exceeds maximum")
+        self._range = (float(bias_range[0]), float(bias_range[1]))
+        self._entity = cast("Entity", env.scene[asset_cfg.name])
+        joint_ids = np.arange(self._entity.num_joints, dtype=np.intp)[asset_cfg.joint_ids]
+        if joint_ids.ndim != 1 or joint_ids.size == 0:
+            raise ValueError(
+                f"EventManager term '{term_name}' asset_cfg must select at least one joint"
+            )
+        self._joint_ids = joint_ids
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: np.ndarray | None,
+        bias_range: tuple[float, float],
+        asset_cfg: SceneEntityCfg,
+    ) -> None:
+        del bias_range, asset_cfg
+        ids = resolve_env_ids(env, env_ids)
+        self._entity.data.encoder_bias[np.ix_(ids, self._joint_ids)] = env.rng.uniform(
+            self._range[0],
+            self._range[1],
+            size=(ids.size, self._joint_ids.size),
+        )
+
+
+randomize_encoder_bias = RandomizeEncoderBias
+
+
 def reset_scene_to_default(env: ManagerBasedRlEnv, env_ids: np.ndarray | None) -> None:
     """Reset all materialized scene entities to backend default qpos/qvel."""
     ids = resolve_env_ids(env, env_ids)
@@ -1022,6 +1074,7 @@ __all__ = [
     "joint_armature",
     "pd_gains",
     "push_by_setting_velocity",
+    "randomize_encoder_bias",
     "randomize_physics_scene_gravity",
     "randomize_rigid_body_com",
     "randomize_rigid_body_mass",

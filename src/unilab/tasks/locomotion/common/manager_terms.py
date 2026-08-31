@@ -188,6 +188,11 @@ def base_height_l2(
     return np.asarray(np.square(position[:, 2] - target), dtype=get_global_dtype())
 
 
+def alive(env: ManagerBasedRlEnv) -> np.ndarray:
+    """Constant reward for every step, unconditional as in the legacy tasks."""
+    return np.ones((env.num_envs,), dtype=get_global_dtype())
+
+
 def joint_deviation_l1(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -473,6 +478,7 @@ class feet_air_while_standing(ManagerTermBase):
 
 
 __all__ = [
+    "alive",
     "ang_vel_xy_l2",
     "base_height_l2",
     "feet_air_while_standing",

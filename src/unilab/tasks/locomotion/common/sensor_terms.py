@@ -3,7 +3,8 @@
 Both the G1 biped and the quadruped families port legacy reward/observation
 equations that read IMU-style XML sensors by name.  This module owns the
 common cold-path binding and fail-closed read contract so family modules only
-declare which sensors they need.
+declare which sensors they need.  Reward terms built on this base live in
+``sensor_reward_terms.py``.
 """
 
 from __future__ import annotations
