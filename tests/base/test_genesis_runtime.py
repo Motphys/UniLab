@@ -143,8 +143,56 @@ def test_g1_smoke_reset_step_and_cleanup(backend) -> None:
     )
 
 
+def test_body_frame_kinematics_matches_mujoco_backend(backend) -> None:
+    """#1382: body-frame velocity/pose math matches MuJoCo on identical state."""
+    num_envs = 2
+    mujoco_backend = create_backend(
+        "mujoco",
+        SceneCfg(model_file=_G1_SCENE),
+        num_envs,
+        _SIM_DT,
+        base_name="pelvis",
+        add_body_sensors=True,
+    )
+    mujoco_backend.materialize()
+
+    rng = np.random.default_rng(0)
+    qpos = np.tile(backend.get_keyframe_qpos("stand"), (num_envs, 1)).astype(np.float32)
+    qvel = rng.uniform(-0.5, 0.5, size=(num_envs, backend.get_init_qvel().size)).astype(np.float32)
+    rows = np.arange(num_envs, dtype=np.int32)
+    backend.set_state(rows, qpos, qvel)
+    mujoco_backend.set_state(rows, qpos, qvel)
+
+    body_names = ["pelvis", "left_hip_pitch_link", "left_knee_link"]
+    gs_ids = backend.get_body_ids(body_names)
+    mj_ids = mujoco_backend.get_body_ids(body_names)
+    # Same document order across backends (materialize-time cross-check).
+    np.testing.assert_array_equal(gs_ids, mj_ids)
+
+    atol = 2e-3
+    for getter in (
+        "get_body_lin_vel_b",
+        "get_body_ang_vel_b",
+        "get_body_pos_b",
+        "get_body_quat_b",
+    ):
+        actual = getattr(backend, getter)(gs_ids)[:num_envs]
+        expected = getattr(mujoco_backend, getter)(mj_ids)
+        np.testing.assert_allclose(actual, expected, atol=atol, err_msg=getter)
+
+
 def test_reinit_after_destroy_fails_closed(backend) -> None:
-    """Real-runtime lifecycle guard: one gs.init per process (keep last)."""
+    """Real-runtime lifecycle guard: one gs.init per process.
+
+    The reset hook restores the Python-side session flag afterwards so
+    later real-runtime tests in the same pytest process can re-init (the
+    guard's RSS caveat is acceptable in tests; production still inits once).
+    """
+    from unilab.base.backend.genesis.materialization import _reset_session_state_for_tests
+
     backend.close()
-    with pytest.raises(RuntimeError, match="exactly one gs.init per process"):
-        _make_backend()
+    try:
+        with pytest.raises(RuntimeError, match="exactly one gs.init per process"):
+            _make_backend()
+    finally:
+        _reset_session_state_for_tests()
