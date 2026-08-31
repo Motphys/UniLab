@@ -10,6 +10,7 @@ registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="mujoco")
 registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="mjwarp")
 registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="motrix")
 registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="isaacgym")
+registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="genesis")
 
 registry.register_env_config("G1WalkRough", ManagerBasedRlEnvCfg)
 registry.register_env("G1WalkRough", make_g1_walk_env, sim_backend="mujoco")

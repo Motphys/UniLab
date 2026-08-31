@@ -30,10 +30,12 @@ CONF_ROOT = REPO_ROOT / "conf"
 ABSENT = "<absent>"
 
 # Audited backend pairs. mujoco<->motrix is the historical primary contract;
-# mujoco<->isaacgym covers the subprocess backend owners.
+# mujoco<->isaacgym covers the subprocess backend owners; mujoco<->genesis
+# covers the in-process Genesis backend owners.
 CONTRACT_PAIRS: tuple[tuple[str, str], ...] = (
     ("mujoco", "motrix"),
     ("mujoco", "isaacgym"),
+    ("mujoco", "genesis"),
 )
 
 
