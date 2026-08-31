@@ -135,6 +135,13 @@ class _CommandManager:
         return self.command
 
 
+class _FakeEnv:
+    """Attribute container with identity hash/eq for per-env term caches."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.__dict__.update(kwargs)
+
+
 def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
     backend = _Backend()
     scene = EntityScene(
@@ -148,7 +155,7 @@ def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
     )
     env = cast(
         ManagerBasedRlEnv,
-        SimpleNamespace(
+        _FakeEnv(
             num_envs=backend.num_envs,
             scene=scene,
             action_manager=_ActionManager(),
@@ -383,6 +390,131 @@ def test_missing_entity_capability_fails_instead_of_returning_zeros() -> None:
     )
     with pytest.raises(NotImplementedError, match="projected gravity.*not materialized"):
         mdp.projected_gravity(env)
+
+
+def _imu_misalignment_manager(
+    env: ManagerBasedRlEnv, max_angle_deg: float = 6.0
+) -> ObservationManager:
+    """Actor sees IMU-misaligned gyro/gravity; critic keeps the true values."""
+    return ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "base_ang_vel": ObservationTermCfg(
+                        func=mdp.base_ang_vel_imu_misaligned,
+                        params={"max_angle_deg": max_angle_deg},
+                    ),
+                    "projected_gravity": ObservationTermCfg(
+                        func=mdp.projected_gravity_imu_misaligned,
+                        params={"max_angle_deg": max_angle_deg},
+                    ),
+                }
+            ),
+            "critic": ObservationGroupCfg(
+                terms={
+                    "base_ang_vel": ObservationTermCfg(func=mdp.base_ang_vel),
+                    "projected_gravity": ObservationTermCfg(func=mdp.projected_gravity),
+                }
+            ),
+        },
+        env,
+    )
+
+
+def _rotation_angle_rad(raw: np.ndarray, rotated: np.ndarray) -> np.ndarray:
+    cos = np.sum(raw * rotated, axis=-1) / (
+        np.linalg.norm(raw, axis=-1) * np.linalg.norm(rotated, axis=-1)
+    )
+    return np.arccos(np.clip(cos, -1.0, 1.0))
+
+
+def test_imu_misaligned_terms_share_one_per_env_constant_quaternion() -> None:
+    env, backend = _env()
+    manager = _imu_misalignment_manager(env, max_angle_deg=6.0)
+
+    assert manager.group_obs_dim == {"policy": (6,), "critic": (6,)}
+    obs = manager.compute()
+    policy = obs["policy"]
+    critic = obs["critic"]
+    assert isinstance(policy, np.ndarray)
+    assert isinstance(critic, np.ndarray)
+    gyro_raw, gravity_raw = critic[:, :3], critic[:, 3:]
+    gyro_rot, gravity_rot = policy[:, :3], policy[:, 3:]
+
+    # The critic group keeps the true (unrotated) values.
+    np.testing.assert_array_equal(gyro_raw, backend.body_ang_vel_b[:, 0])
+    np.testing.assert_allclose(gravity_raw, [[0.0, 0.0, -1.0], [0.0, -1.0, 0.0]], atol=1e-6)
+
+    # A rotation preserves vector norms...
+    np.testing.assert_allclose(
+        np.linalg.norm(gyro_rot, axis=-1), np.linalg.norm(gyro_raw, axis=-1), atol=1e-6
+    )
+    np.testing.assert_allclose(np.linalg.norm(gravity_rot, axis=-1), 1.0, atol=1e-6)
+    # ...and the gyro/gravity inner product, proving both actor terms were
+    # rotated by the SAME per-env quaternion.
+    np.testing.assert_allclose(
+        np.sum(gyro_rot * gravity_rot, axis=-1),
+        np.sum(gyro_raw * gravity_raw, axis=-1),
+        atol=1e-6,
+    )
+
+    # Magnitude is bounded by max_angle_deg for every env, and the rotation is
+    # actually applied (seeded RNG keeps this deterministic).
+    max_angle_rad = np.deg2rad(6.0)
+    assert (_rotation_angle_rad(gyro_raw, gyro_rot) <= max_angle_rad + 1e-5).all()
+    assert (_rotation_angle_rad(gravity_raw, gravity_rot) <= max_angle_rad + 1e-5).all()
+    assert _rotation_angle_rad(gravity_raw, gravity_rot).max() > 1e-4
+
+
+def test_imu_misalignment_is_constant_across_calls_and_episode_resets() -> None:
+    env, _ = _env()
+    manager = _imu_misalignment_manager(env)
+
+    first = manager.compute_group("policy")
+    second = manager.compute_group("policy")
+    manager.reset(np.arange(env.num_envs))
+    after_reset = manager.compute_group("policy")
+
+    assert isinstance(first, np.ndarray)
+    np.testing.assert_array_equal(first, second)
+    np.testing.assert_array_equal(first, after_reset)
+
+
+def test_imu_misalignment_reproducible_for_same_env_seed() -> None:
+    env_a, _ = _env()
+    env_b, _ = _env()
+
+    obs_a = _imu_misalignment_manager(env_a).compute_group("policy")
+    obs_b = _imu_misalignment_manager(env_b).compute_group("policy")
+
+    np.testing.assert_array_equal(obs_a, obs_b)
+
+
+def test_imu_misalignment_zero_angle_is_identity() -> None:
+    env, backend = _env()
+
+    policy = _imu_misalignment_manager(env, max_angle_deg=0.0).compute_group("policy")
+
+    assert isinstance(policy, np.ndarray)
+    np.testing.assert_array_equal(policy[:, :3], backend.body_ang_vel_b[:, 0])
+    np.testing.assert_allclose(policy[:, 3:], [[0.0, 0.0, -1.0], [0.0, -1.0, 0.0]], atol=1e-6)
+
+
+@pytest.mark.parametrize("max_angle_deg", [-1.0, float("nan"), True, "6"])
+def test_imu_misalignment_rejects_invalid_max_angle(max_angle_deg) -> None:
+    env, _ = _env()
+    with pytest.raises(ValueError, match="max_angle_deg"):
+        _imu_misalignment_manager(env, max_angle_deg=max_angle_deg)
+
+
+def test_imu_misaligned_term_rejects_call_with_mismatched_angle() -> None:
+    env, _ = _env()
+    manager = _imu_misalignment_manager(env, max_angle_deg=6.0)
+    term = manager.get_term_cfg("policy", "base_ang_vel").func
+    assert isinstance(term, mdp.base_ang_vel_imu_misaligned)
+
+    with pytest.raises(ValueError, match="bound to max_angle_deg"):
+        term(env, max_angle_deg=3.0)
 
 
 def test_observation_module_has_no_forbidden_runtime_dependencies() -> None:

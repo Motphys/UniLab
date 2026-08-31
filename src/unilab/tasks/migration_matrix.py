@@ -54,7 +54,12 @@ _G1_LOCOMOTION_TASKS = frozenset(
     }
 )
 
-_T800_LOCOMOTION_TASKS = frozenset({"T800WalkFlat"})
+_EXTERNAL_ASSET_LOCOMOTION_TASKS = frozenset(
+    {
+        "MicroduckVelocityFlat",
+        "T800WalkFlat",
+    }
+)
 
 _CUSTOM_COMPAT_TASKS = frozenset(
     {
@@ -99,7 +104,7 @@ PRODUCTION_TASK_NAMES = frozenset(
     _MBA_TASKS
     | _ROUGH_TASKS
     | _G1_LOCOMOTION_TASKS
-    | _T800_LOCOMOTION_TASKS
+    | _EXTERNAL_ASSET_LOCOMOTION_TASKS
     | _CUSTOM_COMPAT_TASKS
     | _MOTION_CORE_TASKS
     | _MOTION_TASKS
@@ -146,13 +151,16 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "Hydra owners materialize biped gait, sensor, command, and penalty-curriculum manager terms on the canonical runtime.",
             "Keep the manager contract and regression evidence current.",
         )
-    if task_name in _T800_LOCOMOTION_TASKS:
+    if task_name in _EXTERNAL_ASSET_LOCOMOTION_TASKS:
+        family = (
+            "microduck_locomotion" if task_name == "MicroduckVelocityFlat" else "t800_locomotion"
+        )
         return TaskMigrationRecord(
             task_name,
-            "t800_locomotion",
+            family,
             "Compatible",
             "complete",
-            "Hydra owner YAML materializes the T800 walk-flat task on the canonical NumPy Manager-Based runtime.",
+            "Hydra owner YAML materializes the locomotion task on the canonical NumPy Manager-Based runtime.",
             "Keep the Manager-Based owner and cold-path asset resolver contract current.",
         )
     if task_name in _CUSTOM_COMPAT_TASKS:
