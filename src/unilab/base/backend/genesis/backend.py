@@ -41,6 +41,7 @@ from unilab.dr.types import (
 from unilab.utils.rotation import (
     np_quat_apply_batched,
     np_quat_apply_inverse_batched,
+    np_quat_conjugate_batched,
     np_quat_mul_batched,
 )
 
@@ -172,11 +173,19 @@ class GenesisBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def materialize(self) -> None:
-        """Build the batched scene, cross-check the import, and bind caches."""
-        if self._closed:
-            raise RuntimeError("genesis backend is closed")
+        """Build the batched scene, cross-check the import, and bind caches.
+
+        Idempotent, and called lazily by the first state access: env
+        constructors that validate state shapes before the explicit
+        lifecycle point (ManagerBasedRlEnv builds its EntityScene before
+        calling ``materialize()``, #1382) work like they do on the MuJoCo
+        backend — the same pattern as the isaacgym backend's lazy
+        materialize.  A closed backend cannot be materialized again.
+        """
         if self._materialized:
-            raise RuntimeError("genesis backend is already materialized")
+            return
+        if self._closed:
+            raise RuntimeError("genesis backend is closed and cannot be materialized again")
         self._scene.build(n_envs=self._num_envs)
         self._materialized = True
         self._bind_materialized_metadata()
@@ -298,13 +307,11 @@ class GenesisBackend(SimBackend):
     # Host-cache barriers                                                 #
     # ------------------------------------------------------------------ #
 
-    def _require_running(self, operation: str) -> None:
+    def _require_state(self, operation: str) -> None:
         if self._closed:
             raise RuntimeError(f"genesis backend is closed; cannot run {operation}")
-        if not self._materialized:
-            raise RuntimeError(
-                f"genesis backend is not materialized; call materialize() before {operation}"
-            )
+        # Lazy, idempotent materialize: the first state read builds the scene.
+        self.materialize()
 
     def _refresh_host_cache(self) -> None:
         """Refresh every legacy-visible cache at one explicit lifecycle barrier."""
@@ -463,7 +470,7 @@ class GenesisBackend(SimBackend):
         matrix semantics are preserved, but the integer values must NOT be
         compared against MuJoCo tables (REPORT #1372 §5.10).
         """
-        self._require_running("get_geom_contact_masks")
+        self._require_state("get_geom_contact_masks")
         return (
             np.asarray([geom.contype for geom in self._entity.geoms], dtype=np.int32),
             np.asarray([geom.conaffinity for geom in self._entity.geoms], dtype=np.int32),
@@ -520,7 +527,7 @@ class GenesisBackend(SimBackend):
         )
 
     def step(self, ctrl: np.ndarray, nsteps: int = 1) -> dict[str, dict[str, float]]:
-        self._require_running("step")
+        self._require_state("step")
         if isinstance(nsteps, bool) or int(nsteps) <= 0:
             raise ValueError(f"nsteps must be a positive integer, got {nsteps!r}")
         ctrl_array = np.asarray(ctrl, dtype=np.float32)
@@ -585,7 +592,7 @@ class GenesisBackend(SimBackend):
         qvel: np.ndarray,
         randomization: ResetRandomizationPayload | None = None,
     ) -> dict[str, dict[str, float]]:
-        self._require_running("set_state")
+        self._require_state("set_state")
         rows = self._validate_rows(env_indices)
         qpos_array = np.asarray(qpos, dtype=np.float32)
         qvel_array = np.asarray(qvel, dtype=np.float32)
@@ -714,7 +721,7 @@ class GenesisBackend(SimBackend):
             )
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
-        self._require_running("apply_interval_randomization")
+        self._require_state("apply_interval_randomization")
         if plan.is_empty():
             return
         if plan.push_perturbation_limit is not None:
@@ -734,7 +741,7 @@ class GenesisBackend(SimBackend):
 
     def apply_body_force(self, body_ids: np.ndarray, force: np.ndarray) -> None:
         """Apply a world-frame force per body through the solver-level API."""
-        self._require_running("apply_body_force")
+        self._require_state("apply_body_force")
         ids = np.asarray(body_ids, dtype=np.int32).reshape(-1)
         force_array = np.asarray(force, dtype=np.float32)
         expected = (self._num_envs, ids.size, 3)
@@ -787,7 +794,7 @@ class GenesisBackend(SimBackend):
     # ------------------------------------------------------------------ #
 
     def _require_free_root(self, operation: str) -> None:
-        self._require_running(operation)
+        self._require_state(operation)
         if self._root_qpos_dim != 7 or self._root_qvel_dim != 6:
             raise NotImplementedError(
                 f"{operation} requires a free root joint; genesis host profile is "
@@ -817,58 +824,65 @@ class GenesisBackend(SimBackend):
         return np_quat_apply_batched(self.get_base_quat(), self._qvel_cache[1][:, 3:6])
 
     def get_dof_pos(self) -> np.ndarray:
-        self._require_running("get_dof_pos")
+        self._require_state("get_dof_pos")
         return self._qpos_cache[1][:, self._root_qpos_dim :]
 
     def get_dof_vel(self) -> np.ndarray:
-        self._require_running("get_dof_vel")
+        self._require_state("get_dof_vel")
         return self._qvel_cache[1][:, self._root_qvel_dim :]
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_running("get_body_pos_w")
+        self._require_state("get_body_pos_w")
         return self._links_pos_cache[1][:, np.asarray(body_ids, dtype=np.intp), :]
 
     def get_body_quat_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_running("get_body_quat_w")
+        self._require_state("get_body_quat_w")
         return self._links_quat_cache[1][:, np.asarray(body_ids, dtype=np.intp), :]
 
     def get_body_lin_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_running("get_body_lin_vel_w")
+        self._require_state("get_body_lin_vel_w")
         return self._links_vel_cache[1][:, np.asarray(body_ids, dtype=np.intp), :]
 
     def get_body_ang_vel_w(self, body_ids: np.ndarray) -> np.ndarray:
-        self._require_running("get_body_ang_vel_w")
+        self._require_state("get_body_ang_vel_w")
         return self._links_ang_cache[1][:, np.asarray(body_ids, dtype=np.intp), :]
 
     def get_body_pos_b(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_base_frame_kinematics("base-frame body positions")
+        # Position relative to the baselink frame: R_base^-1 (pos_w - base_pos_w).
+        self._require_free_root("get_body_pos_b")
+        base_quat = self._links_quat_cache[1][:, self._base_link_idx, :]
+        relative = (
+            self.get_body_pos_w(body_ids)
+            - self._links_pos_cache[1][:, self._base_link_idx, :][:, None, :]
+        )
+        return np_quat_apply_inverse_batched(base_quat[:, None, :], relative)
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
-        del body_ids
-        self._unsupported_base_frame_kinematics("base-frame body orientations")
-
-    def _unsupported_base_frame_kinematics(self, operation: str) -> None:
-        # Same boundary as the mjwarp host profile: no task consumes
-        # base-frame body pose, and the tracked subsets live in sensors.
-        raise NotImplementedError(f"genesis host profile does not expose {operation}")
+        # Orientation relative to the baselink frame: quat_base^-1 * quat_w.
+        self._require_free_root("get_body_quat_b")
+        base_quat = self._links_quat_cache[1][:, self._base_link_idx, :]
+        return np_quat_mul_batched(
+            np_quat_conjugate_batched(base_quat[:, None, :]), self.get_body_quat_w(body_ids)
+        )
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         # Analytical per the SimBackend contract (#1254): world-frame velocity
         # rotated into each body's own frame.
+        self._require_state("get_body_lin_vel_b")
         ids = np.asarray(body_ids, dtype=np.intp)
         return np_quat_apply_inverse_batched(
             self._links_quat_cache[1][:, ids, :], self._links_vel_cache[1][:, ids, :]
         )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
+        self._require_state("get_body_ang_vel_b")
         ids = np.asarray(body_ids, dtype=np.intp)
         return np_quat_apply_inverse_batched(
             self._links_quat_cache[1][:, ids, :], self._links_ang_cache[1][:, ids, :]
         )
 
     def get_sensor_data(self, name: str) -> np.ndarray:
-        self._require_running(f"get_sensor_data({name!r})")
+        self._require_state(f"get_sensor_data({name!r})")
         try:
             address, dimension = self._sensor_slots[name]
         except KeyError as exc:

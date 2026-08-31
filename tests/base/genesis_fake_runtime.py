@@ -274,6 +274,7 @@ class _FakeScene:
         self.entities: list[_FakeEntity] = []
         self.sensors: list[_FakeIMU] = []
         self.sim = types.SimpleNamespace(rigid_solver=_FakeRigidSolver())
+        self.build_count = 0
 
     def add_entity(self, morph):
         entity = _FakeEntity(morph)
@@ -286,6 +287,7 @@ class _FakeScene:
         return sensor
 
     def build(self, n_envs=0, **kwargs):
+        self.build_count += 1
         for entity in self.entities:
             entity._build(n_envs)
         for sensor in self.sensors:
