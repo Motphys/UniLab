@@ -24,6 +24,18 @@ class _Entity:
 
     def __init__(self) -> None:
         self.data = SimpleNamespace(
+            joint_pos=np.asarray(
+                [[0.1, -0.2, 0.3], [0.0, 0.4, -0.1], [0.2, 0.0, 0.5]],
+                dtype=np.float32,
+            ),
+            default_joint_pos=np.asarray(
+                [[0.1, 0.0, 0.2], [0.1, 0.0, 0.2], [0.1, 0.0, 0.2]],
+                dtype=np.float32,
+            ),
+            soft_joint_pos_limits=np.asarray(
+                [[-0.15, 0.15], [-0.3, 0.3], [-0.4, 0.4]],
+                dtype=np.float32,
+            ),
             joint_vel=np.asarray(
                 [[1.0, 2.0, 3.0], [-1.0, 0.5, 2.0], [0.0, -2.0, 1.0]],
                 dtype=np.float32,
@@ -139,6 +151,104 @@ def test_body_angular_velocity_requires_one_selected_body() -> None:
     )
     with pytest.raises(ValueError, match="requires exactly one body"):
         mdp.body_angular_velocity_penalty(env)
+
+
+def test_joint_pos_limits_matches_mjlab_soft_limit_equation() -> None:
+    env = _env()
+    entity = cast(Any, env.scene["robot"])
+    joint_pos = entity.data.joint_pos
+    limits = entity.data.soft_joint_pos_limits
+    expected = -np.clip(joint_pos - limits[:, 0], min=None, max=0.0)
+    expected += np.clip(joint_pos - limits[:, 1], min=0.0, max=None)
+    np.testing.assert_allclose(mdp.joint_pos_limits(env), np.sum(expected, axis=1))
+    selector = SceneEntityCfg("robot", joint_ids=[1])
+    expected_knee = -np.clip(joint_pos[:, [1]] - limits[[1], 0], min=None, max=0.0)
+    expected_knee += np.clip(joint_pos[:, [1]] - limits[[1], 1], min=0.0, max=None)
+    np.testing.assert_allclose(mdp.joint_pos_limits(env, selector), np.sum(expected_knee, axis=1))
+
+
+def _posture_expected(entity: Any, std: np.ndarray, joint_ids: list[int]) -> np.ndarray:
+    error_squared = np.square(
+        entity.data.joint_pos[:, joint_ids] - entity.data.default_joint_pos[:, joint_ids]
+    )
+    return np.exp(-np.mean(error_squared / np.square(std), axis=1))
+
+
+def test_posture_matches_mjlab_per_joint_std_kernel() -> None:
+    env = _env()
+    entity = cast(Any, env.scene["robot"])
+    std = {".*hip.*": 0.5, ".*knee.*": 0.35, ".*ankle.*": 0.25}
+    manager = RewardManager(
+        {"posture": RewardTermCfg(func=mdp.posture, weight=1.0, params={"std": std})},
+        env,
+        scale_by_dt=False,
+    )
+    expected = _posture_expected(entity, np.asarray([0.5, 0.35, 0.25]), [0, 1, 2])
+    np.testing.assert_allclose(manager.compute(dt=0.02), expected)
+
+
+def test_variable_posture_selects_std_by_command_speed_regime() -> None:
+    env = _env()
+    entity = cast(Any, env.scene["robot"])
+    # Commands (1.0,0,0.5) / (0.25,0,-0.5) / (0,0,0) give total speeds 1.5 /
+    # 0.75 / 0.0: running, walking, standing for thresholds 0.5 and 1.5.
+    params = {
+        "std_standing": {".*": 0.1},
+        "std_walking": {".*": 0.3},
+        "std_running": {".*": 0.6},
+        "command_name": "twist",
+        "walking_threshold": 0.5,
+        "running_threshold": 1.5,
+    }
+    manager = RewardManager(
+        {"pose": RewardTermCfg(func=mdp.variable_posture, weight=1.0, params=params)},
+        env,
+        scale_by_dt=False,
+    )
+    expected = np.stack(
+        [
+            _posture_expected(entity, np.full(3, 0.6), [0, 1, 2])[0],
+            _posture_expected(entity, np.full(3, 0.3), [0, 1, 2])[1],
+            _posture_expected(entity, np.full(3, 0.1), [0, 1, 2])[2],
+        ]
+    )
+    np.testing.assert_allclose(manager.compute(dt=0.02), expected)
+
+
+def test_posture_std_mapping_fail_closed() -> None:
+    env = _env()
+    with pytest.raises(ValueError, match="must match joint 'hip' exactly once"):
+        RewardManager(
+            {
+                "posture": RewardTermCfg(
+                    func=mdp.posture, weight=1.0, params={"std": {".*knee.*": 0.3}}
+                )
+            },
+            env,
+        )
+    with pytest.raises(ValueError, match="std must be finite and positive"):
+        RewardManager(
+            {"posture": RewardTermCfg(func=mdp.posture, weight=1.0, params={"std": {".*": 0.0}})},
+            env,
+        )
+    with pytest.raises(ValueError, match="walking_threshold must be below running_threshold"):
+        RewardManager(
+            {
+                "pose": RewardTermCfg(
+                    func=mdp.variable_posture,
+                    weight=1.0,
+                    params={
+                        "std_standing": {".*": 0.1},
+                        "std_walking": {".*": 0.3},
+                        "std_running": {".*": 0.6},
+                        "command_name": "twist",
+                        "walking_threshold": 2.0,
+                        "running_threshold": 1.5,
+                    },
+                )
+            },
+            env,
+        )
 
 
 def test_terms_integrate_with_reward_manager_and_cold_selector_resolution() -> None:

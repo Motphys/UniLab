@@ -79,4 +79,36 @@ def root_height_below_minimum(
     return root_pos_w[:, 2] < minimum_height
 
 
-__all__ = ["bad_orientation", "root_height_below_minimum", "time_out"]
+def nan_detection(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Terminate environments whose entity physics state contains NaN or Inf.
+
+    mjlab checks the raw physics state (qpos/qvel/qacc) through its nan guard;
+    the UniLab term checks the equivalent base-owned entity state (root pose and
+    velocity, joint position and velocity) so a non-finite physics state
+    terminates the episode explicitly instead of relying on the optional global
+    nan guard.
+    """
+    asset = cast("Entity", env.scene[asset_cfg.name])
+    states = (
+        asset.data.root_link_pos_w,
+        asset.data.root_link_lin_vel_w,
+        asset.data.root_link_ang_vel_w,
+        asset.data.joint_pos,
+        asset.data.joint_vel,
+    )
+    invalid = np.zeros(env.num_envs, dtype=np.bool_)
+    for state in states:
+        if not isinstance(state, np.ndarray) or state.shape[0] != env.num_envs:
+            shape = getattr(state, "shape", None)
+            raise ValueError(
+                f"nan_detection received entity state shape {shape}, "
+                f"expected leading dimension {env.num_envs}"
+            )
+        invalid |= ~np.isfinite(state).reshape(env.num_envs, -1).all(axis=1)
+    return invalid
+
+
+__all__ = ["bad_orientation", "nan_detection", "root_height_below_minimum", "time_out"]
