@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -135,3 +136,22 @@ def test_alive_returns_unconditional_ones() -> None:
     result = manager_terms.alive(env)
     np.testing.assert_array_equal(result, np.ones(2))
     assert result.dtype == np.dtype(get_global_dtype())
+
+
+def test_hot_paths_use_only_cached_runtime_objects() -> None:
+    for term_type in (
+        sensor_reward_terms.track_lin_vel,
+        sensor_reward_terms.track_ang_vel,
+        sensor_reward_terms.lin_vel_z,
+        sensor_reward_terms.ang_vel_xy,
+        sensor_reward_terms.orientation,
+    ):
+        source = inspect.getsource(term_type.__call__)
+        for forbidden in (
+            "ASSETS_ROOT_PATH",
+            "model_file",
+            "getattr(",
+            "hasattr(",
+            "._backend",
+        ):
+            assert forbidden not in source, f"{term_type.__name__} hot path references {forbidden}"

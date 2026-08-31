@@ -474,60 +474,6 @@ class _UpvectorTerm(_SensorTerm):
         )
 
 
-class track_lin_vel(_LinVelTerm):
-    """Exponential reward for tracking commanded xy linear velocity."""
-
-    _allowed_params = frozenset({"tracking_sigma", "command_name"})
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._sigma = _real(
-            self.name,
-            "tracking_sigma",
-            cfg.params.get("tracking_sigma", 0.25),
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        command_name = cfg.params.get("command_name", "twist")
-        if not isinstance(command_name, str) or not command_name:
-            raise ValueError(f"{self.name} command_name must be a non-empty string")
-        self._command_name = command_name
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        linvel = self._read_linvel(env)
-        command = _command(env, self.name, self._command_name)
-        error = np.sum(np.square(command[:, :2] - linvel[:, :2]), axis=1)
-        return np.asarray(np.exp(-error / self._sigma), dtype=get_global_dtype())
-
-
-class track_ang_vel(_GyroTerm):
-    """Exponential reward for tracking commanded yaw angular velocity."""
-
-    _allowed_params = frozenset({"tracking_sigma", "command_name"})
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self._sigma = _real(
-            self.name,
-            "tracking_sigma",
-            cfg.params.get("tracking_sigma", 0.25),
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        command_name = cfg.params.get("command_name", "twist")
-        if not isinstance(command_name, str) or not command_name:
-            raise ValueError(f"{self.name} command_name must be a non-empty string")
-        self._command_name = command_name
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        gyro = self._read_gyro(env)
-        command = _command(env, self.name, self._command_name)
-        error = np.square(command[:, 2] - gyro[:, 2])
-        return np.asarray(np.exp(-error / self._sigma), dtype=get_global_dtype())
-
-
 class forward_progress(_LinVelTerm):
     """Reward forward progress relative to commanded speed."""
 
@@ -562,35 +508,6 @@ class under_speed(_LinVelTerm):
         forward_speed = np.maximum(linvel[:, 0], 0.0)
         gap = np.maximum(command[:, 0] - forward_speed, 0.0)
         return np.asarray(gap / commanded_speed, dtype=get_global_dtype())
-
-
-class lin_vel_z(_LinVelTerm):
-    """Penalty for vertical (z) linear velocity."""
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        linvel = self._read_linvel(env)
-        return np.asarray(np.square(linvel[:, 2]), dtype=get_global_dtype())
-
-
-class ang_vel_xy(_GyroTerm):
-    """Penalty for roll/pitch angular velocity."""
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        gyro = self._read_gyro(env)
-        return np.asarray(np.sum(np.square(gyro[:, :2]), axis=1), dtype=get_global_dtype())
-
-
-class orientation(_UpvectorTerm):
-    """Penalty for deviation from upright orientation (roll/pitch)."""
-
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
-        del params
-        upvector = self._read_upvector(env)
-        return np.asarray(
-            np.square(upvector[:, 0]) + np.square(upvector[:, 1]), dtype=get_global_dtype()
-        )
 
 
 class g1_tilt_exceeded(_UpvectorTerm):
@@ -674,22 +591,6 @@ class penalty_close_feet_xy(_SensorTerm):
 # ---------------------------------------------------------------------------
 
 
-def base_height(
-    env: ManagerBasedRlEnv,
-    target_height: float,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
-    """Penalty for base height deviation from target (world frame)."""
-    target = _real("base_height", "target_height", target_height)
-    position = _state(
-        "base_height",
-        "root position",
-        _asset(env, asset_cfg).data.root_link_pos_w,
-        (env.num_envs, 3),
-    )
-    return np.asarray(np.square(position[:, 2] - target), dtype=get_global_dtype())
-
-
 def weighted_pose(
     env: ManagerBasedRlEnv,
     pose_weights: Any,
@@ -723,11 +624,6 @@ def upper_body_pose(
     weights = weights.copy()
     weights[:12] = 0.0
     return weighted_pose(env, weights, asset_cfg=asset_cfg)
-
-
-def alive(env: ManagerBasedRlEnv) -> np.ndarray:
-    """Constant reward for staying alive (unconditional, as in the legacy task)."""
-    return np.ones((env.num_envs,), dtype=get_global_dtype())
 
 
 # ---------------------------------------------------------------------------
@@ -925,9 +821,6 @@ __all__ = [
     "G1VelocityCommand",
     "G1VelocityCommandCfg",
     "G1WalkManagerBasedEnv",
-    "alive",
-    "ang_vel_xy",
-    "base_height",
     "compute_feet_phase_contact_targets",
     "compute_feet_phase_height_targets",
     "feet_air_time",
@@ -937,13 +830,9 @@ __all__ = [
     "feet_phase_contrast",
     "forward_progress",
     "g1_tilt_exceeded",
-    "lin_vel_z",
     "make_g1_walk_env",
-    "orientation",
     "penalty_close_feet_xy",
     "penalty_feet_ori",
-    "track_ang_vel",
-    "track_lin_vel",
     "under_speed",
     "upper_body_pose",
     "weighted_pose",
