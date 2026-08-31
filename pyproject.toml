@@ -15,7 +15,7 @@ dependencies = [
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torch==2.7.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    "torch==2.8.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
     "gymnasium",
     "imageio",
     "etils",
