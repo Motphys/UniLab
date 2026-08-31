@@ -21,6 +21,9 @@ from unilab.envs.mdp.events import reset_root_state_uniform as reset_root_state_
 from unilab.envs.mdp.events import reset_scene_to_default as reset_scene_to_default
 from unilab.envs.mdp.events import resolve_env_ids as resolve_env_ids
 from unilab.envs.mdp.observations import base_ang_vel as base_ang_vel
+from unilab.envs.mdp.observations import (
+    base_ang_vel_imu_misaligned as base_ang_vel_imu_misaligned,
+)
 from unilab.envs.mdp.observations import base_lin_vel as base_lin_vel
 from unilab.envs.mdp.observations import builtin_sensor as builtin_sensor
 from unilab.envs.mdp.observations import generated_commands as generated_commands
@@ -30,6 +33,9 @@ from unilab.envs.mdp.observations import last_action as last_action
 from unilab.envs.mdp.observations import projected_gravity as projected_gravity
 from unilab.envs.mdp.observations import (
     projected_gravity_from_sensor as projected_gravity_from_sensor,
+)
+from unilab.envs.mdp.observations import (
+    projected_gravity_imu_misaligned as projected_gravity_imu_misaligned,
 )
 from unilab.envs.mdp.rewards import action_acc_l2 as action_acc_l2
 from unilab.envs.mdp.rewards import action_rate_l2 as action_rate_l2
@@ -56,6 +62,7 @@ __all__ = [
     "action_acc_l2",
     "action_rate_l2",
     "base_ang_vel",
+    "base_ang_vel_imu_misaligned",
     "base_lin_vel",
     "builtin_sensor",
     "bad_orientation",
@@ -79,6 +86,7 @@ __all__ = [
     "is_terminated",
     "projected_gravity",
     "projected_gravity_from_sensor",
+    "projected_gravity_imu_misaligned",
     "reset_root_state_uniform",
     "reset_scene_to_default",
     "resolve_env_ids",
