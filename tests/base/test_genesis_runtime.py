@@ -226,6 +226,19 @@ def test_interactive_viewer_renders_frames() -> None:
     viewer_backend._viewer.stop()
     with pytest.raises(RenderClosedError, match="viewer window was closed"):
         viewer_backend.render()
+    assert viewer_backend._viewer is None
+
+    # #1393: scene.step() updates the attached viewer too; a closed viewer must
+    # surface as RenderClosedError from backend.step, then detach cleanly.
+    # Both backends share the module session (multi-scene, REPORT [9b]); only
+    # the re-init guard test below may destroy it.
+    step_backend = _make_backend()
+    step_backend.init_renderer(headless=False, width=640, height=480)
+    step_backend._viewer.stop()
+    with pytest.raises(RenderClosedError, match="viewer window was closed"):
+        step_backend.step(np.zeros((8, step_backend.num_actuators), dtype=np.float32))
+    assert step_backend._viewer is None
+    step_backend.step(np.zeros((8, step_backend.num_actuators), dtype=np.float32))
     print("[genesis interactive] viewer attached post-build; 3 frames rendered; close detected")
 
 
