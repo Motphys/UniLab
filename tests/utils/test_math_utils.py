@@ -15,6 +15,7 @@ from unilab.utils.rotation import (
     np_quat_error_magnitude,
     np_quat_error_magnitude_batched,
     np_quat_error_magnitude_squared_batched,
+    np_quat_from_angle_axis,
     np_quat_from_euler_xyz,
     np_quat_mul,
     np_quat_mul_batched,
@@ -65,6 +66,26 @@ def test_quat_error_vectorized_batch() -> None:
     err = np_quat_error_magnitude(q_ref, q_target)
 
     np.testing.assert_allclose(err, np.deg2rad([30.0, 45.0]), atol=1e-7)
+
+
+def test_quat_from_angle_axis_round_trips_through_axis_angle() -> None:
+    rng = np.random.default_rng(0)
+    axes = rng.standard_normal((8, 3))
+    angles = rng.uniform(0.0, np.pi, size=8)
+
+    quats = np_quat_from_angle_axis(angles, axes)
+
+    np.testing.assert_allclose(np.linalg.norm(quats, axis=-1), 1.0, atol=1e-12)
+    recovered = np_quat_to_axis_angle(quats)
+    expected = axes / np.linalg.norm(axes, axis=-1, keepdims=True) * angles[:, None]
+    np.testing.assert_allclose(recovered, expected, atol=1e-7)
+
+
+def test_quat_from_angle_axis_normalizes_axis_and_matches_z_reference() -> None:
+    angle = np.deg2rad(170.0)
+    quats = np_quat_from_angle_axis(np.array([angle]), np.array([[0.0, 0.0, 3.0]]))
+
+    np.testing.assert_allclose(quats[0], _quat_from_axis_angle_z(angle), atol=1e-12)
 
 
 def test_quat_to_axis_angle_invariant_to_sign_flip() -> None:
