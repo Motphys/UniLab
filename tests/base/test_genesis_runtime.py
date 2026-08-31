@@ -181,6 +181,54 @@ def test_body_frame_kinematics_matches_mujoco_backend(backend) -> None:
         np.testing.assert_allclose(actual, expected, atol=atol, err_msg=getter)
 
 
+def test_record_playback_writes_video(tmp_path, backend) -> None:
+    """#1388: native record playback drives the live scene and writes an mp4."""
+    from types import SimpleNamespace
+
+    record_backend = _make_backend()
+    env = SimpleNamespace(cfg=SimpleNamespace(ctrl_dt=0.02))
+    steps: list[int] = []
+    output = tmp_path / "play.mp4"
+    result = record_backend.run_playback(
+        env=env,
+        initialize=lambda: 0,
+        step=lambda obs: (steps.append(obs), obs + 1)[1],
+        num_steps=12,
+        output_video=output,
+        record_video=True,
+        headless=True,
+        camera_kwargs={"cam_distance": 2.5, "cam_tracking": True},
+    )
+    assert result == str(output)
+    assert steps == list(range(12))
+    assert output.is_file() and output.stat().st_size > 0
+    frame = record_backend.capture_video_frame()
+    assert frame.shape == (720, 1280, 3) and frame.dtype == np.uint8
+    assert np.unique(frame).size > 8, "recorded frames look blank"
+    print(f"[genesis record] wrote {output} ({output.stat().st_size} bytes, 12 frames)")
+
+
+def test_interactive_viewer_renders_frames() -> None:
+    """#1388: interactive viewer attaches post-build and renders live frames."""
+    from unilab.base.backend.base import RenderClosedError
+    from unilab.base.backend.genesis import playback as genesis_playback
+
+    if not _genesis_runtime_available():
+        pytest.skip("genesis requires the genesis-world extra and a CUDA device")
+    if not genesis_playback.display_available():
+        pytest.skip("interactive viewer requires a display (DISPLAY/WAYLAND_DISPLAY)")
+
+    viewer_backend = _make_backend()
+    viewer_backend.init_renderer(headless=False, width=640, height=480)
+    for _ in range(3):
+        viewer_backend.step(np.zeros((8, viewer_backend.num_actuators), dtype=np.float32))
+        viewer_backend.render()
+    viewer_backend._viewer.stop()
+    with pytest.raises(RenderClosedError, match="viewer window was closed"):
+        viewer_backend.render()
+    print("[genesis interactive] viewer attached post-build; 3 frames rendered; close detected")
+
+
 def test_reinit_after_destroy_fails_closed(backend) -> None:
     """Real-runtime lifecycle guard: one gs.init per process.
 

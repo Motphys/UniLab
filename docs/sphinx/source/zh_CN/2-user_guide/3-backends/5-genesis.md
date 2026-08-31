@@ -16,8 +16,7 @@ slow-lane env smoke
 env 构造 → keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac
 两棵树），另有 SAC 短训练回路 smoke（64 envs / 3 iterations，经
 learning_starts/updates_per_step 路径并保存 checkpoint）。尚未完成任何
-训练验证，因此支持矩阵中这些 cell 标记为 `Configured`，且 playback/渲染
-不是已声明能力。
+训练验证，因此支持矩阵中这些 cell 标记为 `Configured`。
 
 env 构造生命周期（#1383 已修复）：`ManagerBasedRlEnv` 构造期的 entity
 校验在 env 的 `materialize()` 钩子之前读取状态 getter，因此 adapter 的
@@ -80,17 +79,34 @@ uv run train --algo ppo --task g1_walk_flat --sim genesis \
     algo.num_envs=64 algo.max_iterations=3
 ```
 
-Playback/渲染**不受支持**：owner 设置
-`training.play_render_mode: none`，训练完成后安全跳过 playback。强制
-其他模式（`--render-mode auto|interactive|record`）会 fail-closed，抛出
-指明不支持该模式的 `NotImplementedError`——离屏 camera 渲染是已实测但
-未集成的后续项（REPORT §3.5 [12]）。`uv run eval` 在默认 `none` 模式下
-仍会加载 checkpoint（含 sim2sim preflight 与维度守卫），但不执行任何
-渲染 rollout：
+## Playback 与渲染
+
+Genesis 原生渲染是已声明能力，且在 `scene.build` 之后惰性挂载（训练热
+路径不引入任何 viewer 依赖）：交互 viewer 是 post-build 挂上的
+`genesis.vis.viewer.Viewer`，录制走 post-build 离屏 camera。owner 设置
+`training.play_render_mode: auto`，按宿主解析：
+
+- `auto`：有可及显示（`DISPLAY`/`WAYLAND_DISPLAY`）时打开**交互
+  viewer**，否则降级为离屏**录制**。
+- `interactive`：总是打开 viewer；无显示宿主上 `init_renderer` 报可
+  操作错误。用户关闭 viewer 窗口即干净结束 playback（backend 抛
+  `RenderClosedError`，play 循环视为正常退出）。
+- `record`：无头离屏录制，要求有限的 `training.play_steps` 与输出
+  路径；视频写到 checkpoint 运行目录的 `play_video.mp4`，帧率为
+  `1/ctrl_dt`。
+- `none`：安全跳过 playback（no-op）。
+
+相机沿用仓库统一的球坐标 kwargs（`cam_distance` / `cam_elevation` /
+`cam_azimuth`，`cam_tracking` 时跟随 `cam_tracking_env_idx` 的 root）。
+评估已训练的 run：
 
 ```bash
-uv run eval --algo ppo --task g1_walk_flat --sim genesis --load-run <run_dir_name>
+uv run eval --algo sac --task g1_walk_flat --sim genesis \
+    --load-run <run_dir_name> --render-mode record
 ```
+
+`get_physics_state` 快照仍不声明：playback 直接驱动 live scene，无需
+状态快照回放。
 
 ## 生命周期：一进程一次 `gs.init`
 
@@ -106,7 +122,6 @@ Genesis 的 init/destroy 循环每轮泄漏 200–450 MB host RSS（REPORT
 - **geom 名称契约**（`get_geom_names` 等）：不暴露。
 - **生成式 terrain 与 height scanner**：`scene.terrain` 被拒绝；请选择
   flat owner YAML。
-- **`none` 以外的 playback/render 模式**（见上文）。
 - **绝对值 geom 摩擦 DR**：上游 Genesis 只有 per-env 摩擦*比例* API，
   因此 `geom_friction` reset 随机化与 `get_geom_friction` fail-closed。
 - **interval push / body-velocity-delta DR**：在构造/plan 时拒绝
@@ -117,6 +132,6 @@ Genesis 的 init/destroy 循环每轮泄漏 200–450 MB host RSS（REPORT
 
 genesis owner 与 mujoco owner 在契约守卫
 （`src/unilab/utils/sim2sim.py`）审计下保持 DENYLIST 一致（结论
-TRANSFERABLE），同一 task 的 checkpoint 可跨后端使用。注意 playback
-不对称：在 MuJoCo 上播放 genesis 训练的 checkpoint 可正常渲染，而在
-genesis 上播放任何 checkpoint 都只能用 `play_render_mode=none`。
+TRANSFERABLE），同一 task 的 checkpoint 可跨后端使用。两侧都有原生
+渲染，但实现不同：MuJoCo 从物理状态快照离线渲染，Genesis 用
+post-build 挂载的 viewer/camera 驱动 live scene。

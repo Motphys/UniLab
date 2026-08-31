@@ -14,6 +14,8 @@ round-trip-measured items (§3.5 [8] / §5.7).
 
 from __future__ import annotations
 
+import importlib
+import logging
 import time
 from collections.abc import Callable, Sequence
 from os import PathLike
@@ -25,6 +27,7 @@ from unilab.base.backend.base import (
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
     BackendRootStateLayout,
+    RenderClosedError,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -45,7 +48,9 @@ from unilab.utils.rotation import (
     np_quat_mul_batched,
 )
 
-from . import dependencies, materialization
+from . import dependencies, materialization, playback
+
+logger = logging.getLogger(__name__)
 
 _WORLD_Z_AXIS = np.array([0.0, 0.0, 1.0], dtype=np.float64)
 
@@ -62,9 +67,10 @@ class GenesisBackend(SimBackend):
     Construction performs dependency loading, the MJCF cold-path scan, the
     process-wide ``gs.init`` (once), and scene/entity/sensor creation;
     ``materialize()`` builds the batched solver state and binds all runtime
-    caches.  Terrain, geom-name contracts, site Jacobians, playback, and
-    rendering fail closed.  Call ``close()`` to end the process-wide Genesis
-    session; re-initialization afterwards fails closed by design.
+    caches.  Terrain, geom-name contracts, and site Jacobians fail closed.
+    Native interactive/offscreen rendering attaches lazily post-build (see
+    the play contract section).  Call ``close()`` to end the process-wide
+    Genesis session; re-initialization afterwards fails closed by design.
     """
 
     def __init__(
@@ -167,6 +173,14 @@ class GenesisBackend(SimBackend):
         )
         self._materialized = False
         self._closed = False
+        # Native rendering state (post-build lazy viewer/camera; see the play
+        # contract section below). ``_render_config`` pins the first
+        # init_renderer(headless, capture) pair like the isaacgym backend.
+        self._render_config: tuple[bool, bool] | None = None
+        self._viewer: Any | None = None
+        self._render_camera: Any | None = None
+        self._camera_kwargs: dict[str, Any] = {}
+        self._camera_tracking_env_idx: int | None = None
 
     # ------------------------------------------------------------------ #
     # Materialization-time binding                                        #
@@ -760,11 +774,14 @@ class GenesisBackend(SimBackend):
             )
 
     # ------------------------------------------------------------------ #
-    # Play/render: declared honestly, fail closed                          #
+    # Native rendering / playback (post-build lazy viewer and camera)      #
     # ------------------------------------------------------------------ #
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
-        return BackendPlayCapabilities()
+        return BackendPlayCapabilities(
+            supports_native_interactive_renderer=True,
+            supports_native_video_capture=True,
+        )
 
     def resolve_play_render_plan(
         self,
@@ -774,20 +791,217 @@ class GenesisBackend(SimBackend):
         output_video: str | PathLike[str] | None,
     ) -> BackendPlayRenderPlan:
         mode = normalize_play_render_mode(play_render_mode)
+        if mode == "auto":
+            # The interactive viewer needs a reachable display; headless hosts
+            # fall back to offscreen camera recording (isaacgym semantics).
+            mode = "interactive" if playback.display_available() else "record"
         if mode == "none":
             return BackendPlayRenderPlan(
-                mode="none",
+                mode=mode,
                 headless=True,
                 record_video=False,
                 num_steps=None,
                 output_video=None,
             )
-        raise NotImplementedError(
-            f"genesis backend does not support playback mode {mode!r}; Genesis native "
-            "rendering/playback is not a declared capability of this adapter (offscreen "
-            "camera rendering is a measured-but-unintegrated follow-up, REPORT #1372 "
-            "§3.5 [12]). Select training.play_render_mode=none."
+        if mode == "interactive":
+            return BackendPlayRenderPlan(
+                mode=mode,
+                headless=False,
+                record_video=False,
+                num_steps=None,
+                output_video=None,
+            )
+        assert mode == "record"
+        if play_steps is None:
+            raise ValueError("genesis record playback requires a finite training.play_steps value.")
+        if output_video is None:
+            raise ValueError("genesis record playback requires an output video path.")
+        return BackendPlayRenderPlan(
+            mode=mode,
+            headless=True,
+            record_video=True,
+            num_steps=int(play_steps),
+            output_video=output_video,
         )
+
+    def init_renderer(
+        self,
+        spacing: float = 1.0,
+        *,
+        offset_mode: str = "grid",
+        headless: bool = False,
+        capture: bool = False,
+        width: int = 1280,
+        height: int = 720,
+        camera_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Lazily attach the Genesis viewer and/or an offscreen camera.
+
+        Both are post-build attachments (verified on 1.3.3): the interactive
+        viewer is a ``genesis.vis.viewer.Viewer`` built on the visualizer's
+        shared context; capture uses a visualizer camera built on demand.
+        ``spacing``/``offset_mode`` are accepted for contract parity and
+        ignored: envs are laid out on the Genesis scene's own grid.  The first
+        (headless, capture) pair is pinned, like the isaacgym backend.
+        """
+        del spacing, offset_mode
+        config = (bool(headless), bool(capture))
+        if self._render_config is not None:
+            if self._render_config != config:
+                raise RuntimeError(
+                    "genesis renderer is already initialized with "
+                    f"headless={self._render_config[0]}, capture={self._render_config[1]}; "
+                    f"cannot reinitialize it with headless={config[0]}, capture={config[1]}"
+                )
+            return
+        self._require_state("init_renderer")
+        self._render_config = config
+        self._camera_kwargs = dict(camera_kwargs or {})
+        tracking = self._camera_kwargs.get("cam_tracking", False)
+        self._camera_tracking_env_idx = (
+            int(self._camera_kwargs.get("cam_tracking_env_idx", 0)) if tracking else None
+        )
+        visualizer = self._scene.visualizer
+        if not headless:
+            if not playback.display_available():
+                raise RuntimeError(
+                    "genesis interactive viewer requires a reachable display "
+                    "(DISPLAY or WAYLAND_DISPLAY); select play_render_mode=record on "
+                    "headless hosts."
+                )
+            viewer_module = importlib.import_module("genesis.vis.viewer")
+            options = self._gs.options.ViewerOptions(
+                res=(int(width), int(height)), run_in_thread=False
+            )
+            try:
+                viewer = viewer_module.Viewer(options, visualizer.context)
+                viewer.build(self._scene)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"genesis failed to create the interactive viewer: {type(exc).__name__}: {exc}"
+                ) from exc
+            # The visualizer owns no public post-build viewer setter on 1.3.3;
+            # attach through its documented internals (cold render path only).
+            visualizer._viewer = viewer
+            visualizer.viewer_lock = viewer.lock
+            pos, lookat = playback.camera_pose_from_kwargs(
+                self._camera_kwargs, self._camera_lookat()
+            )
+            viewer.set_camera_pose(pos=tuple(pos), lookat=tuple(lookat))
+            if self._camera_tracking_env_idx is not None:
+                viewer.follow_entity(self._entity)
+            self._viewer = viewer
+        if capture:
+            pos, lookat = playback.camera_pose_from_kwargs(
+                self._camera_kwargs, self._camera_lookat()
+            )
+            camera = visualizer.add_camera(
+                res=(int(width), int(height)),
+                pos=tuple(pos),
+                lookat=tuple(lookat),
+                up=(0.0, 0.0, 1.0),
+                model="pinhole",
+                fov=float(self._camera_kwargs.get("cam_fov", 30.0)),
+                aperture=2.0,
+                focus_dist=None,
+                spp=256,
+                denoise=None,
+                near=0.1,
+                far=20.0,
+                env_idx=None,
+                debug=False,
+                GUI=False,
+            )
+            camera.build()
+            self._render_camera = camera
+
+    def _camera_lookat(self) -> np.ndarray:
+        """Static camera lookat: the env-0 root position from the host cache."""
+        if self._base_link_idx is not None:
+            return np.asarray(self._links_pos_cache[1][0, self._base_link_idx], dtype=np.float64)
+        return np.zeros(3, dtype=np.float64)
+
+    def render(self) -> None:
+        """Draw one interactive viewer frame (self-initializes interactive)."""
+        if self._viewer is None:
+            self.init_renderer(headless=False, camera_kwargs=self._camera_kwargs)
+        assert self._viewer is not None
+        try:
+            self._scene.visualizer.update(force=False)
+        except Exception as exc:
+            # Genesis 1.3.3 raises its private error when the window is gone;
+            # translate it at the interface boundary per the contract.
+            if not self._viewer.is_alive():
+                self._viewer = None
+                raise RenderClosedError("genesis viewer window was closed") from exc
+            raise
+        if not self._viewer.is_alive():
+            self._viewer = None
+            raise RenderClosedError("genesis viewer window was closed")
+
+    def capture_video_frame(self) -> np.ndarray:
+        """Capture one offscreen RGB frame (self-initializes headless+capture)."""
+        if self._render_camera is None:
+            self.init_renderer(headless=True, capture=True, camera_kwargs=self._camera_kwargs)
+        assert self._render_camera is not None
+        if self._camera_tracking_env_idx is not None and self._base_link_idx is not None:
+            lookat = np.asarray(
+                self._links_pos_cache[1][self._camera_tracking_env_idx, self._base_link_idx],
+                dtype=np.float64,
+            )
+            pos, lookat = playback.camera_pose_from_kwargs(self._camera_kwargs, lookat)
+            self._render_camera.set_pose(pos=tuple(pos), lookat=tuple(lookat))
+        frame = self._render_camera.render()[0]
+        if frame.ndim == 4:
+            # Batched renderer: take env 0's frame (unbatched path returns
+            # (H, W, 3) directly, verified on 1.3.3).
+            frame = frame[0]
+        if frame.ndim != 3 or frame.shape[2] != 3:
+            raise RuntimeError(
+                f"genesis camera returned an unexpected frame shape {frame.shape}; "
+                "expected (H, W, 3) RGB"
+            )
+        return np.asarray(frame, dtype=np.uint8)
+
+    def run_playback(
+        self,
+        *,
+        env: Any,
+        initialize: Any,
+        step: Any,
+        num_steps: int | None,
+        output_video: str | PathLike[str] | None = None,
+        render_spacing: float | None = None,
+        render_offset_mode: str | None = None,
+        headless: bool | None = None,
+        record_video: bool | None = None,
+        frame_state_getter: Any = None,
+        camera_kwargs: dict[str, Any] | None = None,
+        extra_data_getter: Any = None,
+    ) -> str | None:
+        # Native live-scene playback: no state snapshots are needed.
+        del render_spacing, render_offset_mode, frame_state_getter, extra_data_getter
+        should_record_video = (
+            bool(record_video) if record_video is not None else output_video is not None
+        )
+        should_run_headless = bool(headless) if headless is not None else should_record_video
+        try:
+            return playback.run_genesis_playback(
+                backend=self,
+                env=env,
+                initialize=initialize,
+                step=step,
+                num_steps=num_steps,
+                output_video=output_video,
+                headless=should_run_headless,
+                record_video=should_record_video,
+                camera_kwargs=camera_kwargs,
+            )
+        except RenderClosedError:
+            if not should_run_headless and not should_record_video:
+                logger.info("Render window closed.")
+                return None
+            raise
 
     # ------------------------------------------------------------------ #
     # Legacy getters: cache views only, never direct device transfers     #
@@ -911,4 +1125,10 @@ class GenesisBackend(SimBackend):
         if self._closed:
             return
         self._closed = True
+        if self._viewer is not None:
+            try:
+                self._viewer.stop()
+            except Exception:  # viewer teardown must not mask session cleanup
+                logger.debug("genesis viewer stop failed during close", exc_info=True)
+            self._viewer = None
         materialization.destroy_genesis_session(self._deps)

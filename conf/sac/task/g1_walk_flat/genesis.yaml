@@ -11,9 +11,9 @@
 # (PGS solver, pyramidal cone) have no Genesis equivalent. Unlike the
 # isaacgym owner (events.pd_gains: null), kp/kd reset randomization stays
 # enabled from base.yaml because the genesis backend declares the measured
-# RESET_TERM_KP/KD DR terms (REPORT §5.7). Playback/rendering is not a
-# declared capability, so play_render_mode=none enters playback safely as a
-# no-op; any other mode fails closed in the backend with an explanatory error.
+# RESET_TERM_KP/KD DR terms (REPORT §5.7). Playback uses Genesis native
+# rendering: with a display, play_render_mode=auto opens the interactive
+# viewer; headless hosts fall back to offscreen camera recording.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -21,7 +21,7 @@ defaults:
 training:
   task_name: G1WalkFlat
   sim_backend: genesis
-  play_render_mode: none
+  play_render_mode: auto
 algo:
   num_envs: 2048
   learning_starts: 10
