@@ -88,11 +88,13 @@ Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
 externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
 X2 meshes download lazily on first use and land under their original path
-`src/unilab/assets/robots/x2/meshes/`. T800 OBJ files and textures land under
-`robots/t800/assets/` and `robots/t800/textures/`, respectively, so the original
-relative XML paths remain valid. Pre-fetch them without running a task:
+`src/unilab/assets/robots/x2/meshes/`. MicroDuck STL files land under
+`robots/microduck/assets/`; T800 OBJ files and textures land under
+`robots/t800/assets/` and `robots/t800/textures/`, respectively. The original
+relative XML paths therefore remain valid. Pre-fetch them without running a task:
 
 ```bash
+uv run unilab-pull-assets --robot microduck
 uv run unilab-pull-assets --robot x2
 uv run unilab-pull-assets --robot t800
 ```
@@ -110,6 +112,9 @@ To add a new robot's binary assets:
    uv run hf upload unilabsim/unilab-robots \
      src/unilab/assets/robots/t800/textures robots/t800/textures \
      --repo-type dataset
+   uv run hf upload unilabsim/unilab-robots \
+     src/unilab/assets/robots/microduck/assets robots/microduck/assets \
+     --repo-type dataset
    ```
 
 2. Ignore the downloaded directory contents in `.gitignore` and keep a
@@ -120,6 +125,7 @@ To add a new robot's binary assets:
    ```python
    resolve_robot_asset_dir("robots/t800/assets", marker="LINK_BASE.obj")
    resolve_robot_asset_dir("robots/t800/textures", marker="LINK_BASE.png")
+   resolve_robot_asset_dir("robots/microduck/assets", marker="trunk_base.stl")
    ```
 
 ## Architecture Notes
@@ -134,7 +140,6 @@ To add a new robot's binary assets:
   original local path exactly.
 - Robot binary assets use the same directory resolver
   (`resolve_robot_asset_dir`). The
-  thin `make_x2_wall_flip_env` factory in
-  `src/unilab/tasks/motion_tracking/x2/__init__.py` resolves them once before
-  delegating to the shared manager environment factory. The resolver is also
-  exposed through the `unilab-pull-assets` CLI.
+  thin X2, MicroDuck, and T800 task factories resolve their directories once
+  before delegating to the shared manager environment factory. The resolver is
+  also exposed through the `unilab-pull-assets` CLI.
