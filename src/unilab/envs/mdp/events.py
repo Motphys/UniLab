@@ -16,7 +16,7 @@ import numpy as np
 from unilab.managers.event_manager import EventTermCfg
 from unilab.managers.manager_base import ManagerTermBase
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.utils.rotation import np_quat_from_euler_xyz, np_quat_mul
+from unilab.utils.rotation import np_quat_apply_batched, np_quat_from_euler_xyz, np_quat_mul
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -229,11 +229,6 @@ def _validate_event_term(
     if cfg.mode != mode:
         raise NotImplementedError(
             f"EventManager term '{term_name}' only supports mode='{mode}' on the UniLab runtime"
-        )
-    if mode == "reset" and cfg.min_step_count_between_reset != 0:
-        raise NotImplementedError(
-            f"EventManager term '{term_name}' requires min_step_count_between_reset=0 "
-            "because sparse reset payload rows cannot be represented"
         )
     unknown = sorted(set(cfg.params) - allowed_params)
     if unknown:
@@ -594,12 +589,6 @@ class PdGains(ManagerTermBase):
                 "EventManager term 'pd_gains' only supports mode='reset' on the UniLab "
                 "set_state transaction; startup/interval/step model-field mutation is unavailable"
             )
-        if cfg.min_step_count_between_reset != 0:
-            raise NotImplementedError(
-                "EventManager term 'pd_gains' requires min_step_count_between_reset=0 "
-                "because sparse per-field reset rows cannot be represented by the current "
-                "SimBackend.set_state payload"
-            )
         unknown = sorted(set(cfg.params) - _PD_GAIN_PARAM_NAMES)
         if unknown:
             raise ValueError(f"EventManager term 'pd_gains' has unknown parameters {unknown}")
@@ -915,7 +904,13 @@ randomize_physics_scene_gravity = RandomizePhysicsSceneGravity
 
 
 class PushBySettingVelocity(ManagerTermBase):
-    """Pinned community velocity kick dispatched through the interval plan."""
+    """Pinned community velocity kick dispatched through the interval plan.
+
+    Linear (``x``/``y``/``z``) and angular (``roll``/``pitch``/``yaw``) ranges
+    are world-frame deltas, matching the pinned mjlab semantics. Angular kicks
+    require the backend's interval angular-velocity capability; backends
+    without it fail closed at construction.
+    """
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -939,14 +934,13 @@ class PushBySettingVelocity(ManagerTermBase):
             name="velocity_range",
             keys=_SE3_KEYS,
         )
-        if np.any(ranges[3:] != 0.0):
-            raise NotImplementedError(
-                f"EventManager term '{term_name}' angular velocity ranges are unsupported: "
-                "IntervalRandomizationPlan only declares body_linear_velocity_delta"
-            )
-        self._ranges = ranges[:3]
+        self._linear_ranges = ranges[:3]
+        self._angular_ranges = ranges[3:]
+        self._angular_active = bool(np.any(self._angular_ranges != 0.0))
         self._entity = cast("Entity", env.scene[asset_cfg.name])
         self._entity.bind_root_linear_velocity_delta(term_name=term_name)
+        if self._angular_active:
+            self._entity.bind_root_angular_velocity_delta(term_name=term_name)
 
     def __call__(
         self,
@@ -957,19 +951,254 @@ class PushBySettingVelocity(ManagerTermBase):
     ) -> None:
         del velocity_range, asset_cfg
         ids = resolve_env_ids(env, env_ids)
-        delta = env.rng.uniform(
-            self._ranges[:, 0],
-            self._ranges[:, 1],
+        linear_delta = env.rng.uniform(
+            self._linear_ranges[:, 0],
+            self._linear_ranges[:, 1],
             size=(ids.size, 3),
         )
-        self._entity.apply_root_linear_velocity_delta_to_sim(
-            delta,
+        angular_delta = None
+        if self._angular_active:
+            angular_delta = env.rng.uniform(
+                self._angular_ranges[:, 0],
+                self._angular_ranges[:, 1],
+                size=(ids.size, 3),
+            )
+        self._entity.apply_root_velocity_delta_to_sim(
+            linear_delta,
+            angular_delta,
             env_ids=ids,
             term_name="push_by_setting_velocity",
         )
 
 
 push_by_setting_velocity = PushBySettingVelocity
+
+
+def _time_range(
+    value: Any,
+    *,
+    term_name: str,
+    name: str,
+) -> tuple[float, float]:
+    try:
+        bounds = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"EventManager term '{term_name}' parameter '{name}' must be a numeric (min, max) pair"
+        ) from exc
+    if bounds.shape != (2,):
+        raise ValueError(
+            f"EventManager term '{term_name}' parameter '{name}' must have shape (2,), "
+            f"got {bounds.shape}"
+        )
+    if not np.isfinite(bounds).all():
+        raise ValueError(
+            f"EventManager term '{term_name}' parameter '{name}' must contain only finite values"
+        )
+    lower, upper = float(bounds[0]), float(bounds[1])
+    if lower < 0.0 or lower > upper:
+        raise ValueError(
+            f"EventManager term '{term_name}' parameter '{name}' must satisfy "
+            f"0 <= min <= max, got ({lower}, {upper})"
+        )
+    return lower, upper
+
+
+class ApplyBodyImpulse(ManagerTermBase):
+    """Transient random body impulses with a cooldown->trigger->sustain->expire lifecycle.
+
+    NumPy adaptation of the pinned mjlab ``apply_body_impulse`` term. Each
+    environment runs an independent timer: after a sampled cooldown, a
+    uniformly sampled world-frame wrench is staged on the selected bodies and
+    re-staged every step for a sampled duration, then expires back into
+    cooldown. Use with ``mode="step"``.
+
+    ``body_point_offset`` shifts the force application point in the body link
+    frame; the resulting ``cross(offset_w, force)`` torque is added at trigger
+    time and held for the impulse duration. Torque channels (explicit
+    ``torque_range`` or an offset) require the backend's interval body-torque
+    capability; force-only impulses only require interval body force. Backends
+    without the required capability fail closed at construction.
+    """
+
+    _PARAMS = frozenset(
+        (
+            "force_range",
+            "torque_range",
+            "duration_s",
+            "cooldown_s",
+            "asset_cfg",
+            "body_point_offset",
+        )
+    )
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        term_name = "apply_body_impulse"
+        _validate_event_term(
+            cfg,
+            term_name=term_name,
+            mode="step",
+            allowed_params=self._PARAMS,
+            required_params=("force_range", "torque_range", "duration_s", "cooldown_s"),
+        )
+        self._force_range = _distribution_parameters(
+            cfg.params["force_range"],
+            term_name=term_name,
+            name="force_range",
+            distribution="uniform",
+        )
+        self._torque_range = _distribution_parameters(
+            cfg.params["torque_range"],
+            term_name=term_name,
+            name="torque_range",
+            distribution="uniform",
+        )
+        self._duration_s = _time_range(
+            cfg.params["duration_s"], term_name=term_name, name="duration_s"
+        )
+        self._cooldown_s = _time_range(
+            cfg.params["cooldown_s"], term_name=term_name, name="cooldown_s"
+        )
+        asset_cfg = cfg.params.get("asset_cfg", _DEFAULT_ASSET_CFG)
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(
+                f"EventManager term '{term_name}' asset_cfg must be SceneEntityCfg, "
+                f"got {type(asset_cfg).__name__}"
+            )
+        offset = cfg.params.get("body_point_offset")
+        if offset is not None:
+            offset_array = np.asarray(offset, dtype=np.float64)
+            if offset_array.shape != (3,) or not np.isfinite(offset_array).all():
+                raise ValueError(
+                    f"EventManager term '{term_name}' body_point_offset must be a finite "
+                    f"(x, y, z) triple, got {offset!r}"
+                )
+            self._body_point_offset: np.ndarray | None = np.array(offset_array)
+        else:
+            self._body_point_offset = None
+
+        self._entity = cast("Entity", env.scene[asset_cfg.name])
+        self._uses_torque = (
+            bool(np.any(self._torque_range != 0.0)) or self._body_point_offset is not None
+        )
+        self._local_body_ids, self._backend_body_ids = self._entity.bind_body_wrench(
+            asset_cfg.body_ids,
+            torque=self._uses_torque,
+            term_name=term_name,
+        )
+        self._step_dt = float(env.step_dt)
+        if not np.isfinite(self._step_dt) or self._step_dt <= 0.0:
+            raise ValueError(
+                f"EventManager term '{term_name}' requires a positive env step_dt, "
+                f"got {self._step_dt}"
+            )
+        num_bodies = self._backend_body_ids.size
+        self._time_remaining = np.zeros(self.num_envs, dtype=np.float64)
+        self._active = np.zeros(self.num_envs, dtype=np.bool_)
+        self._active_forces = np.zeros((self.num_envs, num_bodies, 3), dtype=np.float64)
+        self._active_torques = np.zeros((self.num_envs, num_bodies, 3), dtype=np.float64)
+        # Pre-sample the initial cooldown so the first impulse is preceded by a
+        # cooldown rather than firing immediately at t=0.
+        self._interval_time_left = self._sample_cooldown(self.num_envs)
+
+    def _sample_cooldown(self, count: int) -> np.ndarray:
+        return self._env.rng.uniform(self._cooldown_s[0], self._cooldown_s[1], size=count)
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: np.ndarray | None,
+        force_range: tuple[float, float],
+        torque_range: tuple[float, float],
+        duration_s: tuple[float, float],
+        cooldown_s: tuple[float, float],
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+        body_point_offset: tuple[float, float, float] | None = None,
+    ) -> None:
+        del env_ids, force_range, torque_range, duration_s, cooldown_s, asset_cfg
+        dt = self._step_dt
+
+        # Decrement active impulse timers, then expire finished impulses.
+        self._time_remaining[self._active] -= dt
+        expired = self._active & (self._time_remaining <= 0.0)
+        if np.any(expired):
+            expired_ids = np.flatnonzero(expired)
+            self._active[expired_ids] = False
+            self._active_forces[expired_ids] = 0.0
+            self._active_torques[expired_ids] = 0.0
+            self._time_remaining[expired_ids] = 0.0
+            self._interval_time_left[expired_ids] = self._sample_cooldown(len(expired_ids))
+
+        # Decrement cooldown timers, then trigger eligible envs.
+        self._interval_time_left -= dt
+        eligible = (~self._active) & (self._interval_time_left <= 0.0)
+        if np.any(eligible):
+            trigger_ids = np.flatnonzero(eligible)
+            count = len(trigger_ids)
+            num_bodies = self._backend_body_ids.size
+            forces = env.rng.uniform(
+                self._force_range[0], self._force_range[1], size=(count, num_bodies, 3)
+            )
+            torques = env.rng.uniform(
+                self._torque_range[0], self._torque_range[1], size=(count, num_bodies, 3)
+            )
+            if self._body_point_offset is not None:
+                quats = self._entity.data.body_link_quat_w[trigger_ids][:, self._local_body_ids]
+                offset_w = np_quat_apply_batched(
+                    quats.reshape(-1, 4),
+                    np.broadcast_to(self._body_point_offset, (count * num_bodies, 3)),
+                ).reshape(count, num_bodies, 3)
+                torques = torques + np.cross(offset_w, forces)
+            self._active_forces[trigger_ids] = forces
+            self._active_torques[trigger_ids] = torques
+            self._time_remaining[trigger_ids] = env.rng.uniform(
+                self._duration_s[0], self._duration_s[1], size=count
+            )
+            self._active[trigger_ids] = True
+            self._interval_time_left[trigger_ids] = self._sample_cooldown(count)
+
+        # Re-stage the full-width wrench while any impulse is active: backends
+        # with one-shot external-force channels (MuJoCo) need the sustain
+        # re-stage, and absolute channels (Motrix) treat it as an idempotent
+        # target update. Newly expired rows stage zeros, which actively clears
+        # persistent channels. Idle envs skip the call entirely so the term
+        # never clobbers another producer's staged forces.
+        if np.any(self._active) or np.any(expired):
+            self._entity.apply_body_wrench_to_sim(
+                self._active_forces,
+                self._active_torques if self._uses_torque else None,
+                self._backend_body_ids,
+                env_ids=None,
+                term_name="apply_body_impulse",
+            )
+
+    def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
+        ids = (
+            np.arange(self.num_envs, dtype=np.intp)
+            if env_ids is None
+            else np.arange(self.num_envs, dtype=np.intp)[env_ids]
+            if isinstance(env_ids, slice)
+            else np.asarray(env_ids, dtype=np.intp)
+        )
+        was_active = ids[self._active[ids]]
+        self._active[ids] = False
+        self._active_forces[ids] = 0.0
+        self._active_torques[ids] = 0.0
+        self._time_remaining[ids] = 0.0
+        self._interval_time_left[ids] = self._sample_cooldown(len(ids))
+        if was_active.size:
+            zeros = np.zeros((len(was_active), self._backend_body_ids.size, 3), dtype=np.float64)
+            self._entity.apply_body_wrench_to_sim(
+                zeros,
+                zeros.copy() if self._uses_torque else None,
+                self._backend_body_ids,
+                env_ids=was_active,
+                term_name="apply_body_impulse",
+            )
+
+
+apply_body_impulse = ApplyBodyImpulse
 
 
 class RandomizeEncoderBias(ManagerTermBase):
@@ -1069,6 +1298,7 @@ def reset_root_state_uniform(
 
 
 __all__ = [
+    "apply_body_impulse",
     "dof_armature",
     "geom_friction",
     "joint_armature",

@@ -26,6 +26,10 @@ def _env() -> ManagerBasedRlEnv:
         data=SimpleNamespace(
             projected_gravity_b=gravity,
             root_link_pos_w=root_pos,
+            root_link_lin_vel_w=np.zeros((3, 3), dtype=np.float32),
+            root_link_ang_vel_w=np.zeros((3, 3), dtype=np.float32),
+            joint_pos=np.zeros((3, 2), dtype=np.float32),
+            joint_vel=np.zeros((3, 2), dtype=np.float32),
         )
     )
     return cast(
@@ -110,6 +114,29 @@ def test_missing_entity_is_not_silently_replaced() -> None:
     env = _env()
     with pytest.raises(KeyError, match="missing"):
         mdp.bad_orientation(env, 0.5, SceneEntityCfg("missing"))
+
+
+def test_nan_detection_flags_only_nonfinite_envs() -> None:
+    env = _env()
+    np.testing.assert_array_equal(mdp.nan_detection(env), [False, False, False])
+
+    entity = cast(Any, env.scene["robot"])
+    entity.data.joint_vel[1, 0] = np.nan
+    entity.data.root_link_pos_w[2, 2] = np.inf
+    np.testing.assert_array_equal(mdp.nan_detection(env), [False, True, True])
+
+
+def test_nan_detection_integrates_with_termination_manager() -> None:
+    env = _env()
+    manager = TerminationManager(
+        {"nan": TerminationTermCfg(func=mdp.nan_detection)},
+        env,
+    )
+    np.testing.assert_array_equal(manager.compute(), [False, False, False])
+    entity = cast(Any, env.scene["robot"])
+    entity.data.joint_pos[0, 1] = np.nan
+    np.testing.assert_array_equal(manager.compute(), [True, False, False])
+    np.testing.assert_array_equal(manager.terminated, [True, False, False])
 
 
 def test_termination_module_has_no_forbidden_runtime_dependencies() -> None:

@@ -50,16 +50,16 @@ env:
       enable_corruption: true
       terms:
         base_ang_vel:
-          func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: gyro}
+          func: unilab.envs.mdp.base_ang_vel_imu_misaligned
+          params: {max_angle_deg: 6.0}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.03
             n_max: 0.03
             operation: add
         projected_gravity:
-          func: unilab.envs.mdp.projected_gravity_from_sensor
-          params: {sensor_name: upvector}
+          func: unilab.envs.mdp.projected_gravity_imu_misaligned
+          params: {max_angle_deg: 6.0}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.01
