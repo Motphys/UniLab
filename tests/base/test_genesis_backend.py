@@ -586,6 +586,12 @@ def test_interactive_render_self_init_and_close(
     assert backend._scene.visualizer._viewer is viewer
     backend.render()
     assert backend._scene.visualizer.update_count == 2
+    # #1396: the viewer receives the full Z-up pose matrix (the pos/lookat
+    # branch would reuse the viewer's polluted default up vector).
+    pose, pos, lookat = viewer.camera_pose
+    assert pos is None and lookat is None
+    assert pose.shape == (4, 4)
+    assert pose[2, 0] == pytest.approx(0.0, abs=1e-12)  # camera x-axis level
     viewer.alive = False
     with pytest.raises(RenderClosedError, match="viewer window was closed"):
         backend.render()

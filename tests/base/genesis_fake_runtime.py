@@ -310,7 +310,7 @@ class _FakeViewer:
         self.built_scene = scene
 
     def set_camera_pose(self, pose=None, pos=None, lookat=None):
-        self.camera_pose = (pos, lookat)
+        self.camera_pose = (pose, pos, lookat)
 
     def follow_entity(self, entity, **kwargs):
         self.followed_entity = entity
