@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
@@ -121,6 +123,21 @@ _OWNER_CASES = (
         _RESET_EVENTS,
         False,
         id="ppo-isaacgym",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_walk_flat/genesis",),
+        "G1WalkFlat",
+        "genesis",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_REWARDS,
+        # kp/kd reset randomization stays enabled: the backend declares the
+        # measured RESET_TERM_KP/KD DR terms (REPORT #1372 §5.7).
+        (*_RESET_EVENTS, "pd_gains"),
+        False,
+        id="ppo-genesis",
     ),
     pytest.param(
         "ppo",
@@ -481,6 +498,15 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         # Native rendering (viewer + camera-sensor record) is supported;
         # playback stays on the base config's auto mode.
         assert hydra_cfg.training.play_render_mode == "auto"
+    if backend == "genesis":
+        # Re-declares the MJCF <option integrator="implicitfast"> that Genesis
+        # drops at import; the other global options keep Genesis defaults.
+        assert env_cfg.genesis_integrator == "implicitfast"
+        assert env_cfg.genesis_constraint_solver is None
+        assert env_cfg.genesis_friction_cone is None
+        assert env_cfg.genesis_solver_iterations is None
+        # Playback/rendering is not a declared capability; none enters safely.
+        assert hydra_cfg.training.play_render_mode == "none"
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23
@@ -511,7 +537,7 @@ def test_g1_walk_registries_are_manager_only() -> None:
 
     assert metadata["G1WalkFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "mjwarp", "motrix", "isaacgym"],
+        "available_backends": ["mujoco", "mjwarp", "motrix", "isaacgym", "genesis"],
     }
     assert metadata["G1WalkRough"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
@@ -824,3 +850,128 @@ def test_ppo_penalty_curriculum_matches_legacy_effective_schedule() -> None:
     assert params["initial_scale"] == pytest.approx(0.5)
     assert params["min_scale"] == pytest.approx(0.5)
     assert params["max_scale"] == pytest.approx(1.0)
+
+
+def _genesis_runtime_available() -> bool:
+    from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+
+    if not genesis_dependencies_available():
+        return False
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:  # noqa: BLE001 - any torch probe failure means unavailable
+        return False
+
+
+# Runs in a subprocess: Genesis allows exactly one gs.init per process
+# (REPORT #1372 §3.5 [9a]) and tests/base/test_genesis_runtime.py deliberately
+# destroys the session to verify re-init fails closed, so an in-process smoke
+# could observe a poisoned session depending on pytest collection order.
+_GENESIS_ENV_SMOKE_SCRIPT = """
+from pathlib import Path
+
+import numpy as np
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
+
+from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
+from unilab.base.config_materialization import apply_cfg_overrides
+from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
+
+ROOT = Path.cwd()
+
+registry.ensure_registries()
+GlobalHydra.instance().clear()
+with initialize_config_dir(config_dir=str(ROOT / "conf" / "ppo"), version_base="1.3"):
+    hydra_cfg = compose("config", overrides=["task=g1_walk_flat/genesis"])
+assert hydra_cfg.training.task_name == "G1WalkFlat"
+assert hydra_cfg.training.sim_backend == "genesis"
+assert hydra_cfg.training.play_render_mode == "none"
+
+env_override = BackendAdapter(hydra_cfg, root_dir=ROOT).build_task_env_cfg_override()
+env_cfg = registry.materialize_env_config("G1WalkFlat")
+assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
+apply_cfg_overrides(env_cfg, env_override)
+env_cfg.validate()
+assert env_cfg.genesis_integrator == "implicitfast"
+
+env = registry.make(
+    "G1WalkFlat",
+    sim_backend="genesis",
+    env_cfg_override=env_override,
+    num_envs=2,
+)
+try:
+    assert isinstance(env, ManagerBasedRlEnv)
+    assert env.obs_groups_spec == {"obs": 98, "critic": 101}
+    assert env.action_space.shape == (29,)
+
+    # Keyframe reset: reset_scene_to_default consumes the cold-path-scanned
+    # "stand" keyframe (Genesis itself drops <keyframe> at import).
+    obs, info = env.reset(seed=7)
+    assert isinstance(obs, dict) and isinstance(info, dict)
+    assert {name: value.shape for name, value in obs.items()} == {
+        "obs": (2, 98),
+        "critic": (2, 101),
+    }
+    for _ in range(12):
+        state = env.step(np.zeros((2, 29), dtype=np.float32))
+        assert set(state.obs) == {"obs", "critic"}
+        assert state.obs["obs"].shape == (2, 98)
+        assert state.obs["critic"].shape == (2, 101)
+        for value in (*state.obs.values(), state.reward):
+            assert isinstance(value, np.ndarray)
+            assert np.isfinite(value).all()
+
+    # Play path: mode none enters safely as a no-op; any rendering mode fails
+    # closed with the backend-declared error.
+    plan = env.resolve_play_render_plan(
+        play_render_mode="none", play_steps=100, output_video=None
+    )
+    assert plan.mode == "none"
+    try:
+        env.resolve_play_render_plan(
+            play_render_mode="record", play_steps=100, output_video=None
+        )
+    except NotImplementedError as exc:
+        assert "does not support playback mode" in str(exc)
+    else:
+        raise AssertionError("genesis playback mode 'record' must fail closed")
+
+    print(
+        "[genesis env smoke] reset+12 steps OK; "
+        f"obs={obs['obs'].shape} critic={obs['critic'].shape} "
+        f"reward0={state.reward.mean():.4f}"
+    )
+finally:
+    env.close()
+    env._backend.close()
+"""
+
+
+@pytest.mark.slow
+def test_g1_walk_flat_genesis_owner_real_runtime_smoke() -> None:
+    """Real-runtime smoke for the genesis owner (genesis-world 1.3.3 + CUDA).
+
+    Full chain: Hydra compose of task=g1_walk_flat/genesis -> registry lookup
+    -> ManagerBasedRlEnv construction -> keyframe reset -> 12 steps with
+    finite/shape-stable action/state/sensor reads -> explicit cleanup; the
+    play path enters safely with play_render_mode=none and fails closed on
+    rendering modes.
+    """
+    if not _genesis_runtime_available():
+        pytest.skip("genesis requires the genesis-world extra and a CUDA device")
+
+    result = subprocess.run(
+        [sys.executable, "-c", _GENESIS_ENV_SMOKE_SCRIPT],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "[genesis env smoke]" in result.stdout

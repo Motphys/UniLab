@@ -14,7 +14,7 @@ from unilab.base.registry import ensure_registries
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
-BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix", "isaacgym")
+BACKENDS: tuple[str, ...] = ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis")
 
 # Maintainer-confirmed completed training validations. Keep this mapping narrow:
 # generic config/contract coverage must not promote an unvalidated entrypoint.
@@ -33,6 +33,13 @@ _MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = fr
         ("sac_torch", "g1_walk_flat"),
     }
 )
+
+# Maintainer-confirmed completed training validations for the genesis
+# in-process backend (real hardware, genesis-world extra + CUDA; not covered
+# by repo CI). Child 3 of #1339 ships owner YAML, compose/contract coverage,
+# and a real-runtime env smoke only, so no entrypoint qualifies yet; keep this
+# empty until maintainer training validation lands.
+_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -216,6 +223,11 @@ def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -
             spec.entrypoint_id,
             task_slug,
         ) in _MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS
+    if backend == "genesis":
+        return (
+            spec.entrypoint_id,
+            task_slug,
+        ) in _MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS
     return spec.generic_tested
 
 
@@ -323,20 +335,34 @@ def render_support_matrix(root: Path | None = None) -> str:
         "（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，"
         "无显示器时自动降级为离屏录制。",
         "",
+        "`genesis` 是进程内后端（genesis-world==1.3.3，要求 torch>=2.8 与 CUDA；一进程只允许一次 "
+        "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) owner。该 cell 最高只到 `Configured`"
+        "（registry + owner YAML + compose/contract 覆盖），不代表任何训练验证。真机 env smoke 慢车道"
+        "测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 → keyframe "
+        "reset → 12 步有限稳定 → cleanup）在装有 CUDA 与 genesis extra 的机器上通过。adapter 的 "
+        "`materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；"
+        "isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 "
+        "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。未支持边界：geom 名称"
+        "契约、terrain spawn 与 height scanner、"
+        "playback/render（`play_render_mode` 仅 `none` 安全进入，其余模式 fail-closed）、contact "
+        'sensor 为 per-link net-force 阈值近似（非 geom 对 `data="found"`）、`get_geom_friction` 类'
+        "绝对摩擦 DR fail-closed（geom 摩擦只有 per-env ratio API）。",
+        "",
         benchmark_note,
         recommendation_note,
         "",
         "### Entrypoint x Task Owner",
         "",
-        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym |",
-        "|------------|------------|--------|--------|--------|----------|",
+        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym | Genesis |",
+        "|------------|------------|--------|--------|--------|----------|---------|",
     ]
 
     for row in build_support_rows(resolved_root):
         lines.append(
             f"| {row.entrypoint_label} | `{row.task_slug}` ({row.task_label}) | "
             f"{row.cells['mujoco'].level.label} | {row.cells['mjwarp'].level.label} | "
-            f"{row.cells['motrix'].level.label} | {row.cells['isaacgym'].level.label} |"
+            f"{row.cells['motrix'].level.label} | {row.cells['isaacgym'].level.label} | "
+            f"{row.cells['genesis'].level.label} |"
         )
 
     lines.extend(
@@ -349,6 +375,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
             "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
+            "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (currently empty: no maintainer training validation yet); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",
         ]
     )
     return "\n".join(lines)
