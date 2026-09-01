@@ -984,7 +984,7 @@ def build_offpolicy_env_cfg_override(
     *,
     root_dir: str | Path,
 ) -> dict[str, Any] | None:
-    """Build the task env override for off-policy play through the backend adapter."""
+    """Build the task env override for off-policy training."""
     from unilab.base.config_adapter import BackendAdapter
     from unilab.training.common import assert_offpolicy_task_choice_matches_algo
 
@@ -992,6 +992,28 @@ def build_offpolicy_env_cfg_override(
     return cast(
         dict[str, Any] | None,
         BackendAdapter(cfg, root_dir=root_dir, algo_name=algo_name).build_task_env_cfg_override(),
+    )
+
+
+def build_offpolicy_play_env_cfg_override(
+    algo_name: str,
+    cfg: DictConfig,
+    *,
+    root_dir: str | Path,
+) -> dict[str, Any] | None:
+    """Build the off-policy play override, including backend render intent.
+
+    Training and playback deliberately use separate adapters: an IsaacSim
+    renderer must be selected before the worker's Kit ``INIT`` handshake, but
+    learner/collector environments must stay on the no-rendering experience.
+    """
+    from unilab.base.config_adapter import BackendAdapter
+    from unilab.training.common import assert_offpolicy_task_choice_matches_algo
+
+    assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
+    return cast(
+        dict[str, Any] | None,
+        BackendAdapter(cfg, root_dir=root_dir, algo_name=algo_name).build_play_env_cfg_override(),
     )
 
 

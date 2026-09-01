@@ -38,7 +38,7 @@ def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     torch_row = _row("PPO (torch)", "g1_walk_flat")
     sac_row = _row("SAC (torch)", "g1_walk_flat")
 
-    assert BACKENDS == ("mujoco", "mjwarp", "motrix", "isaacgym")
+    assert BACKENDS == ("mujoco", "mjwarp", "motrix", "isaacgym", "isaacsim")
     assert torch_row.cells["mjwarp"].level == EvidenceLevel.TESTED
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED
 
@@ -58,6 +58,17 @@ def test_support_matrix_marks_g1_isaacgym_owners_by_validation():
         # Registration is per task+backend, not per algo tree: without an
         # owner YAML these stay at REGISTERED instead of CONFIGURED.
         assert row.cells["isaacgym"].level == EvidenceLevel.REGISTERED
+
+
+def test_support_matrix_marks_g1_isaacsim_owners_by_checked_in_scope():
+    """IsaacSim has owner YAMLs for PPO/SAC but no maintainer training claim."""
+    ppo_row = _row("PPO (torch)", "g1_walk_flat")
+    sac_row = _row("SAC (torch)", "g1_walk_flat")
+    assert ppo_row.cells["isaacsim"].level == EvidenceLevel.CONFIGURED
+    assert sac_row.cells["isaacsim"].level == EvidenceLevel.CONFIGURED
+    for entrypoint_label in ("APPO (torch)", "TD3 (torch)", "FlashSAC (torch)"):
+        row = _row(entrypoint_label, "g1_walk_flat")
+        assert row.cells["isaacsim"].level == EvidenceLevel.REGISTERED
 
 
 def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():

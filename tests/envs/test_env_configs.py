@@ -151,6 +151,7 @@ def test_g1_walk_tasks_register_to_manager_based_env():
         "mjwarp",
         "motrix",
         "isaacgym",
+        "isaacsim",
     ]
     assert metadata["G1WalkRough"]["available_backends"] == ["mujoco", "motrix"]
 

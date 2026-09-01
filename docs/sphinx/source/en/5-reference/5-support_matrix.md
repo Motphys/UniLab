@@ -1,15 +1,17 @@
 # Support Matrix
 
 This matrix is generated conceptually from registry entries, owner YAMLs, and
-tests. The generator implementation is `src/unilab/utils/support_matrix.py`; the
-write target for the generated block is currently the Chinese reference page
-`docs/sphinx/source/zh_CN/5-reference/5-support_matrix.md`. This English page
-mirrors that generated content.
+tests. The generator implementation is `scripts/tools/support_matrix.py`; the
+generated block is maintained on the Chinese reference page and mirrored here
+in English. Do not infer support beyond the evidence grade shown below.
 
 ## Backend Selection Rules
 
 - The default backend is `mujoco`.
 - Switch to Motrix with `--sim motrix` on the unified CLI.
+- Switch to IsaacSim with `--sim isaacsim` on the unified CLI. IsaacSim runs
+  headless physics in an external Python 3.11 worker; its owner scope is
+  currently limited to the configured G1 walk-flat PPO/SAC paths.
 - `--sim mjwarp` has completed training validation only on the `g1_walk_flat`
   host adapter, where PPO (torch) and SAC (torch) are Tested; the SAC
   `t800_walk_flat` mjwarp owner is Configured only, other entrypoints follow
@@ -25,6 +27,9 @@ mirrors that generated content.
 - `mjwarp`: only supports explicit, finite-step `record`, rendered offline
   through the task owner's MuJoCo visual model; `auto`, interactive, and
   native renderers are not supported.
+- `isaacsim`: headless physics only. Interactive GUI, camera capture, native
+  playback, and video recording are fail-closed for the current IsaacSim 5.1 /
+  IsaacLab v2.3.0 worker profile.
 - `--render-mode record`: MuJoCo, mjwarp, and Motrix all record a video only.
 - `--render-mode none`: no playback.
 
@@ -60,75 +65,82 @@ so rows do not auto-promote to `Benchmarked`. There is also no separate
 recommendation metadata in the repo, so rows do not auto-promote to
 `Recommended`.
 
+`isaacsim` is a Python 3.11 subprocess backend. Its bounded materialization
+and headless-physics smoke evidence is intentionally not promoted to `Tested`:
+the G1 PPO/SAC cells below are `Configured`, while APPO/TD3/FlashSAC remain
+`Registered`. Do not label these cells `Tested` until a maintainer records full
+training evidence. Contact-force sensors, domain randomization, and all native
+rendering/playback paths remain unsupported.
+
 ## Entrypoint x Task Owner
 
-| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix |
-| --- | --- | --- | --- | --- |
-| PPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
-| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
-| PPO (torch) | `go2_joystick_rough` (Go2 joystick rough) | Tested | - | Tested |
-| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested |
-| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested |
-| PPO (torch) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Tested | - | Tested |
-| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested |
-| PPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | - | Tested |
-| PPO (torch) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Tested | - | Tested |
-| PPO (torch) | `a2_joystick_flat` (a2 joystick flat) | Tested | - | - |
-| PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_box_tracking` (g1 23dof box tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_motion_tracking_deploy` (g1 23dof motion tracking deploy) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested |
-| PPO (torch) | `g1_23dof_walk_rough` (g1 23dof walk rough) | Tested | - | Registered |
-| PPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_box_tracking` (g1 box tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested |
-| PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | - | Tested |
-| PPO (torch) | `go1_joystick_rough` (go1 joystick rough) | Tested | - | Tested |
-| PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | - | Tested |
-| PPO (torch) | `go2_footstand` (go2 footstand) | Tested | - | Tested |
-| PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested |
-| PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested |
-| PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested |
-| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - |
-| APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested |
-| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested |
-| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
-| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested |
-| APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested |
-| APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested |
-| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested |
-| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | - | Tested |
-| APPO (torch) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Tested | - | Tested |
-| APPO (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Tested |
-| APPO (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested |
-| APPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered |
-| APPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested |
-| APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested |
-| SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | - | Tested |
-| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested |
-| SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered |
-| SAC (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Registered |
-| SAC (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Registered |
-| SAC (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested |
-| SAC (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested |
-| SAC (torch) | `g1_23dof_walk_rough` (g1 23dof walk rough) | Tested | - | Tested |
-| SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Registered |
-| SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | - | Registered |
-| SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered |
-| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Configured | - |
-| TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested |
-| TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested |
-| TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered |
-| TD3 (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered |
-| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Registered |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested |
-| FlashSAC (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested |
+| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym | IsaacSim |
+| --- | --- | --- | --- | --- | --- | --- |
+| PPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested | - | - |
+| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested | - | - |
+| PPO (torch) | `go2_joystick_rough` (Go2 joystick rough) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Configured | Configured |
+| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - |
+| PPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | - | Tested | - | - |
+| PPO (torch) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Tested | - | Tested | - | - |
+| PPO (torch) | `a2_joystick_flat` (a2 joystick flat) | Tested | - | - | - | - |
+| PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_box_tracking` (g1 23dof box tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_motion_tracking_deploy` (g1 23dof motion tracking deploy) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_23dof_walk_rough` (g1 23dof walk rough) | Tested | - | Registered | - | - |
+| PPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_box_tracking` (g1 box tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested | - | - |
+| PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | - | Tested | - | - |
+| PPO (torch) | `go1_joystick_rough` (go1 joystick rough) | Tested | - | Tested | - | - |
+| PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | - | Tested | - | - |
+| PPO (torch) | `go2_footstand` (go2 footstand) | Tested | - | Tested | - | - |
+| PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested | - | - |
+| PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested | - | - |
+| PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested | - | - |
+| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - | - | - |
+| APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested | - | - |
+| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered | Registered |
+| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - |
+| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered | - | - |
+| APPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested | - | - |
+| APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested | - | - |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested | Configured |
+| SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | - | Tested | - | - |
+| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - | - |
+| SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered | - | - |
+| SAC (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Registered | - | - |
+| SAC (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Registered | - | - |
+| SAC (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested | - | - |
+| SAC (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested | - | - |
+| SAC (torch) | `g1_23dof_walk_rough` (g1 23dof walk rough) | Tested | - | Tested | - | - |
+| SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Registered | - | - |
+| SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | - | Registered | - | - |
+| SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered | - | - |
+| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Configured | - | - | - |
+| TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested | - | - |
+| TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested | - | - |
+| TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered | Registered |
+| TD3 (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered | - | - |
+| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Registered | - | - |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested | Registered | Registered |
+| FlashSAC (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Tested | - | - |
 
 ## Source Index
 
@@ -144,3 +156,9 @@ recommendation metadata in the repo, so rows do not auto-promote to
   `tests/base/test_backend_conformance.py`,
   `tests/base/test_mjwarp_differential.py`, and
   `tests/base/test_mjwarp_playback.py`.
+- Validated IsaacGym entrypoints are explicitly recorded in
+  `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware through the
+  external Python 3.8 worker runtime; not covered by repository CI).
+- IsaacSim owner scope is intentionally not promoted to `Tested`;
+  `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` remains empty until a
+  maintainer records full training evidence.
