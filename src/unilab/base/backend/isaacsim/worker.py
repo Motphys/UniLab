@@ -124,7 +124,6 @@ class _WorkerContext:
         self.camera_distance = 2.0
         self.camera_elevation_deg = 20.0
         self.camera_azimuth_deg = 90.0
-        self.viewport_camera_initialized = False
         self.native_joint_names: list[str] = []
         self.native_body_names: list[str] = []
         self.contract_joint_names: list[str] = []
@@ -306,6 +305,12 @@ class _WorkerContext:
         )
         sim_cfg = sim_utils.SimulationCfg(dt=self.sim_dt, device=self.device)
         self.sim = sim_utils.SimulationContext(sim_cfg)
+        if render_mode != "none":
+            # Use IsaacSim's standard grid-world floor for rendered playback.
+            # The MJCF floor is retained for the task/physics contract, while
+            # this native floor supplies the normal IsaacSim visual ground.
+            ground_cfg = sim_utils.GroundPlaneCfg()
+            ground_cfg.func("/World/defaultGroundPlane", ground_cfg)
         # IsaacLab's SimulationContext owns the singleton simulation stage and
         # must be materialized before assets/articulations bind to it.  Keep
         # this ordering explicit so a real Kit worker does not accidentally
@@ -316,7 +321,12 @@ class _WorkerContext:
             # a real scene light (not a post-process or synthetic frame), and
             # is created only on the cold rendering path.
             light_cfg = sim_utils.DomeLightCfg(
-                intensity=2500.0,
+                # MJCF scenes already provide a world light.  A 2500-lumen
+                # dome on top of that light clips the converted materials on
+                # RTX cameras (the RGB stream becomes nearly uniform white).
+                # Keep a low fill light so the imported scene remains visible
+                # without washing out its silver/black contrast.
+                intensity=100.0,
                 color=(0.75, 0.75, 0.75),
             )
             light_cfg.func("/World/UniLabDomeLight", light_cfg)
@@ -667,7 +677,10 @@ class _WorkerContext:
         )
         offset_tensor = _to_tensor(self.torch, offset, self.device)
         targets = root_pos.clone()
-        targets[:, 2] += 0.5
+        # Aim a little above the pelvis so playback is closer to eye level
+        # instead of looking up from below.  Keeping the target above the root
+        # also leaves enough vertical margin to keep the feet in frame.
+        targets[:, 2] += 0.30
         eyes = targets + offset_tensor[None, :]
         return eyes, targets
 
@@ -678,19 +691,6 @@ class _WorkerContext:
             )
         eyes, targets = self._camera_view()
         self.camera.set_world_poses_from_view(eyes[0:1], targets[0:1])
-
-    def _set_viewport_camera(self) -> None:
-        if self.sim is None:
-            raise RuntimeError(
-                "isaacsim viewport requested before SimulationContext initialization"
-            )
-        eyes, targets = self._camera_view()
-        # SimulationContext.set_camera_view accepts Python sequences and uses
-        # the first environment for the default viewport.
-        eye = eyes[0].detach().cpu().tolist()
-        target = targets[0].detach().cpu().tolist()
-        self.sim.set_camera_view(eye=eye, target=target)
-        self.viewport_camera_initialized = True
 
     @staticmethod
     def _app_is_running(app: Any) -> bool:
@@ -742,17 +742,15 @@ class _WorkerContext:
             raise RuntimeError(
                 "isaacsim interactive renderer cannot be headless or capture-enabled"
             )
-        self._set_viewport_camera()
+        # Leave the Kit viewport camera under user control.  The interactive
+        # viewer must not be re-aimed at the robot during startup or playback.
         self.sim.render()
         return {"viewer": self._app_is_running(self.simulation_app), "capture": False}
 
     def render_frame(self) -> dict[str, Any]:
         self._require_render_mode("interactive")
-        if not self.viewport_camera_initialized:
-            raise RuntimeError("isaacsim viewport is not initialized; call INIT_RENDERER first")
         if not self._app_is_running(self.simulation_app):
             return {"closed": True}
-        self._set_viewport_camera()
         self.sim.render()
         return {"closed": not self._app_is_running(self.simulation_app)}
 
