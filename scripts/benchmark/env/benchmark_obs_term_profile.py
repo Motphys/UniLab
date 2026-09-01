@@ -165,8 +165,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{cat:>10s} {row.get('step', 0.0) / step_calls * 1e3:9.3f} "
             f"{row.get('reset', 0.0) / reset_calls * 1e3:9.3f}"
         )
-    print(f"{'total':>10s} {totals['step'] / step_calls * 1e3:9.3f} "
-          f"{totals['reset'] / reset_calls * 1e3:9.3f}")
+    print(
+        f"{'total':>10s} {totals['step'] / step_calls * 1e3:9.3f} "
+        f"{totals['reset'] / reset_calls * 1e3:9.3f}"
+    )
 
     for p in phases:
         attributed = sum(cat_s[c].get(p, 0.0) for c in _CATEGORIES)
