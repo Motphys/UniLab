@@ -87,16 +87,20 @@ Alternatively, pre-download into the in-repo directory with `--local-dir`
 Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
 externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
-X2 meshes download lazily on first use and land under their original path
-`src/unilab/assets/robots/x2/meshes/`. MicroDuck STL files land under
-`robots/microduck/assets/`; T800 OBJ files and textures land under
-`robots/t800/assets/` and `robots/t800/textures/`, respectively. The original
-relative XML paths therefore remain valid. Pre-fetch them without running a task:
+The registered robots are a2, allegro_hand, g1, go2, go2_arm, microduck,
+sharpa_wave, t800, and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
+Their mesh/texture directories download lazily on first use and land under
+their original paths (for example `src/unilab/assets/robots/g1/assets/` and
+`robots/g1/textures/` for G1), so the original relative XML paths remain
+valid. These directories are excluded from the wheel/sdist via
+`tool.uv.build-backend.source-exclude` in `pyproject.toml`; after a pip
+install, first use downloads them into the installed package tree, and later
+runs reuse that local copy offline. Pre-fetch them without running a task:
 
 ```bash
-uv run unilab-pull-assets --robot microduck
+uv run unilab-pull-assets --robot g1
 uv run unilab-pull-assets --robot x2
-uv run unilab-pull-assets --robot t800
+uv run unilab-pull-assets --robot all   # every registered robot
 ```
 
 To add a new robot's binary assets:
@@ -112,29 +116,34 @@ To add a new robot's binary assets:
    uv run hf upload unilabsim/unilab-robots \
      src/unilab/assets/robots/t800/textures robots/t800/textures \
      --repo-type dataset
-   uv run hf upload unilabsim/unilab-robots \
-     src/unilab/assets/robots/microduck/assets robots/microduck/assets \
-     --repo-type dataset
    ```
 
-2. Ignore the downloaded directory contents in `.gitignore` and keep a
-   `.gitkeep` so each directory persists.
-3. Resolve every referenced directory on a cold path before the backend parses
-   the XML. The current API resolves one directory per call, so a T800 task uses:
+2. Ignore the downloaded directory contents in `.gitignore` (robots whose
+   entire directory is HF-hosted ignore the whole directory; the older
+   microduck/t800 entries keep a `.gitkeep`), exclude the directory in
+   `tool.uv.build-backend.source-exclude`, and register it in
+   `ROBOT_ASSET_SPECS`.
+3. Scenes built through `create_backend` are then covered automatically:
+   `ensure_robot_assets_for_paths` resolves the registered directories on a
+   cold path before any backend parses the XML. Entry points that bypass
+   `create_backend` resolve explicitly, e.g. a T800 task factory calls:
 
    ```python
    resolve_robot_asset_dir("robots/t800/assets", marker="LINK_BASE.obj")
    resolve_robot_asset_dir("robots/t800/textures", marker="LINK_BASE.png")
-   resolve_robot_asset_dir("robots/microduck/assets", marker="trunk_base.stl")
    ```
 
 ## Architecture Notes
 
 - Asset resolver module: `src/unilab/assets/hub.py`
   (`resolve_motion_files`).
-- Single integration point: `MotionLoader.__init__` in
+- Motion integration point: `MotionLoader.__init__` in
   `src/unilab/tasks/motion_tracking/common/motion_loader.py`, which calls the
   resolver once on a cold path.
+- Robot mesh integration point: `create_backend` in
+  `src/unilab/base/backend/__init__.py` calls
+  `ensure_robot_assets_for_paths` on the scene's `model_file`,
+  `visual_model_file`, and `fragment_files` before dispatching to a backend.
 - Hot paths (`step` / `reset`) never trigger any file download or parsing.
 - `ASSETS_ROOT_PATH` is unchanged, so the download target matches the
   original local path exactly.

@@ -77,3 +77,53 @@ def test_pull_assets_x2_keeps_single_mesh_directory(
 
     assert pull_assets.main(["--robot", "x2"]) == 0
     assert calls == [("robots/x2/meshes", "pelvis.STL")]
+
+
+def test_pull_assets_g1_resolves_assets_and_textures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    targets = {
+        "robots/g1/assets": _populate(tmp_path / "assets", suffix=".STL", count=54),
+        "robots/g1/textures": _populate(tmp_path / "textures", suffix=".png", count=2),
+    }
+    calls: list[tuple[str, str]] = []
+
+    def fake_resolver(directory: str, *, marker: str) -> Path:
+        calls.append((directory, marker))
+        return targets[directory]
+
+    monkeypatch.setattr(pull_assets, "resolve_robot_asset_dir", fake_resolver)
+
+    assert pull_assets.main(["--robot", "g1"]) == 0
+    assert calls == [
+        ("robots/g1/assets", "head_link.STL"),
+        ("robots/g1/textures", "floor.png"),
+    ]
+    output = capsys.readouterr().out
+    assert "54 asset files" in output
+    assert "2 PNG files" in output
+
+
+def test_pull_assets_all_covers_every_registered_robot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    from unilab.assets.hub import ROBOT_ASSET_SPECS
+
+    target = _populate(tmp_path / "dir", suffix=".stl", count=1)
+    calls: list[str] = []
+
+    def fake_resolver(directory: str, *, marker: str) -> Path:
+        calls.append(directory)
+        return target
+
+    monkeypatch.setattr(pull_assets, "resolve_robot_asset_dir", fake_resolver)
+
+    assert pull_assets.main(["--robot", "all"]) == 0
+    assert calls == [
+        directory
+        for robot in sorted(ROBOT_ASSET_SPECS)
+        for directory, _marker, _pattern, _label in ROBOT_ASSET_SPECS[robot]
+    ]

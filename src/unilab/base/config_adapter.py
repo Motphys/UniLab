@@ -82,8 +82,15 @@ class BackendAdapter:
         if not source_model_file:
             raise ValueError("play_profile.scene.source_model_file must be configured")
 
+        # Cold path: the materializer parses the source XML before any
+        # create_backend hook runs, so resolve HF-hosted robot assets first.
+        from unilab.assets.hub import ensure_robot_assets_for_paths
+
+        resolved_source = self._resolve_root_relative_path(str(source_model_file))
+        ensure_robot_assets_for_paths([resolved_source])
+
         materialized_model_file = self.scene_materializer(
-            self._resolve_root_relative_path(str(source_model_file)),
+            resolved_source,
             ground_texture_file=(
                 self._resolve_root_relative_path(str(scene_override.ground_texture_file))
                 if getattr(scene_override, "ground_texture_file", None)
