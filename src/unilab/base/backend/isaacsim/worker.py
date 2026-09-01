@@ -305,6 +305,12 @@ class _WorkerContext:
         )
         sim_cfg = sim_utils.SimulationCfg(dt=self.sim_dt, device=self.device)
         self.sim = sim_utils.SimulationContext(sim_cfg)
+        if render_mode != "none":
+            # Use IsaacSim's standard grid-world floor for rendered playback.
+            # The MJCF floor is retained for the task/physics contract, while
+            # this native floor supplies the normal IsaacSim visual ground.
+            ground_cfg = sim_utils.GroundPlaneCfg()
+            ground_cfg.func("/World/defaultGroundPlane", ground_cfg)
         # IsaacLab's SimulationContext owns the singleton simulation stage and
         # must be materialized before assets/articulations bind to it.  Keep
         # this ordering explicit so a real Kit worker does not accidentally
