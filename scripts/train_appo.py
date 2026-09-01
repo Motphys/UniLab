@@ -204,7 +204,7 @@ def play_appo(
             num_envs=n,
             env_cfg_override=BackendAdapter(
                 cfg, root_dir=ROOT_DIR, algo_name="appo"
-            ).build_task_env_cfg_override(),
+            ).build_play_env_cfg_override(),
         ),
         root_dir=ROOT_DIR,
         device=device,

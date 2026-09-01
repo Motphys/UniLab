@@ -511,7 +511,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     if backend == "isaacsim":
         assert env_cfg.isaacsim_device_id == 0
         assert env_cfg.isaacsim_worker_timeout_s == pytest.approx(120.0)
-        assert hydra_cfg.training.play_render_mode == "none"
+        assert hydra_cfg.training.play_render_mode == "auto"
         assert hydra_cfg.play_profile.enabled is False
 
     pose = env_cfg.rewards["pose"]

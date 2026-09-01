@@ -15,7 +15,7 @@ def __getattr__(name: str) -> Any:
         from .backend import IsaacSimBackend
 
         return IsaacSimBackend
-    if name in ("IsaacSimModelInfo", "IsaacSimWorkerError"):
+    if name in ("IsaacSimModelInfo", "IsaacSimRenderError", "IsaacSimWorkerError"):
         from . import backend
 
         return getattr(backend, name)
@@ -30,6 +30,7 @@ __all__ = [
     "IsaacSimBackend",
     "IsaacSimDependencyError",
     "IsaacSimModelInfo",
+    "IsaacSimRenderError",
     "IsaacSimWorkerError",
     "isaacsim_runtime_available",
 ]

@@ -21,7 +21,8 @@
 - `mujoco`: `--render-mode auto` 会导出 `play_video.mp4`
 - `motrix`: `--render-mode auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制
 - `mjwarp`: 仅支持显式、有限步数的 `record`，通过 task owner 的 MuJoCo visual model 离线录制；不支持 `auto`、interactive 或 native renderer
-- `--render-mode record`: MuJoCo、mjwarp 和 Motrix 都只录制视频
+- `isaacsim`: `auto` 在有 display 时选择 Kit viewer，否则选择 headless RGB camera；当前真实主机仍有 RTX renderer 初始化 blocker，支持等级保持 `Configured`
+- `--render-mode record`: MuJoCo、mjwarp、Motrix 和 IsaacSim 都只录制视频
 - `--render-mode none`: 不回放
 
 ## Support Matrix
@@ -49,7 +50,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`。SAC (torch) owner 已在真机（external Python 3.8 worker runtime，不在仓库 CI 覆盖）完成训练与 record playback 验证，标记为 `Tested`；其余 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练或 play 验证。playback 走 IsaacGym 原生渲染（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，无显示器时自动降级为离屏录制。
 
-`isaacsim` 是 IsaacSim 5.1 / IsaacLab v2.3.0 的独立 Python 3.11 子进程后端，当前只接入 `g1_walk_flat` 的 PPO/SAC owner，矩阵标记为 `Configured`。仓库没有把 bounded headless physics smoke 提升为训练或 playback 的 `Tested` 证据；GUI、camera、native playback、contact-force sensor 和 domain randomization 均保持 fail-closed。
+`isaacsim` 是 IsaacSim 5.1 / IsaacLab v2.3.0 的独立 Python 3.11 子进程后端，当前只接入 `g1_walk_flat` 的 PPO/SAC owner，矩阵标记为 `Configured`。仓库没有把 bounded headless physics smoke 和 mock rendering protocol 覆盖提升为训练或 playback 的 `Tested` 证据。eval 已接入 Kit viewer 与 IsaacLab RGB camera；当前真实主机在 RTX renderer 初始化阶段崩溃，因此没有成功 playback 证据，也不会生成占位视频。contact-force sensor 和 domain randomization 仍保持 fail-closed。
 
 未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
 仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
@@ -133,5 +134,5 @@ uv run scripts/generate_support_matrix.py --write
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
 - Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.
 - Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).
-- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence.
+- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.
 <!-- END GENERATED SUPPORT MATRIX -->

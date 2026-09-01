@@ -31,6 +31,8 @@ def run_subprocess_playback(
     headless: bool,
     record_video: bool,
     camera_kwargs: dict[str, Any] | None,
+    width: int = 1280,
+    height: int = 720,
     extra_data_getter: Callable[[], np.ndarray | None] | None = None,
 ) -> str | None:
     del extra_data_getter
@@ -47,8 +49,8 @@ def run_subprocess_playback(
         backend.init_renderer(
             headless=headless,
             capture=True,
-            width=1280,
-            height=720,
+            width=int(width),
+            height=int(height),
             camera_kwargs=dict(camera_kwargs or {}),
         )
 
@@ -70,7 +72,12 @@ def run_subprocess_playback(
         return str(output_video)
 
     del render_spacing, render_offset_mode
-    backend.init_renderer(headless=False)
+    backend.init_renderer(
+        headless=False,
+        width=int(width),
+        height=int(height),
+        camera_kwargs=dict(camera_kwargs or {}),
+    )
     obs = initialize()
     last_render_time = time.perf_counter()
     render_dt = 1.0 / 60.0
