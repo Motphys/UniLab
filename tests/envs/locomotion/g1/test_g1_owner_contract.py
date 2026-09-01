@@ -37,6 +37,20 @@ _PPO_REWARDS = (
     "action_rate",
     "pose",
 )
+# ppo g1_walk_flat additionally references the shared window-form air-time term
+# (#1398) right after the private feet_phase term.
+_PPO_WALK_FLAT_REWARDS = (
+    "tracking_lin_vel",
+    "tracking_ang_vel",
+    "feet_phase",
+    "feet_air_time",
+    "lin_vel_z",
+    "ang_vel_xy",
+    "base_height",
+    "orientation",
+    "action_rate",
+    "pose",
+)
 _MOTRIX_EXTRA_REWARDS = (
     "forward_progress",
     "under_speed",
@@ -80,7 +94,7 @@ _OWNER_CASES = (
         29,
         0.25,
         "scene_flat.xml",
-        _PPO_REWARDS,
+        _PPO_WALK_FLAT_REWARDS,
         (*_RESET_EVENTS, "pd_gains"),
         False,
         id="ppo-mujoco",
@@ -93,7 +107,7 @@ _OWNER_CASES = (
         29,
         0.5,
         "scene_flat.xml",
-        (*_PPO_REWARDS, *_MOTRIX_EXTRA_REWARDS),
+        (*_PPO_WALK_FLAT_REWARDS, *_MOTRIX_EXTRA_REWARDS),
         _RESET_EVENTS,
         False,
         id="ppo-motrix",
@@ -106,7 +120,7 @@ _OWNER_CASES = (
         29,
         0.25,
         "scene_flat.xml",
-        _PPO_REWARDS,
+        _PPO_WALK_FLAT_REWARDS,
         _RESET_EVENTS,
         False,
         id="ppo-mjwarp",
@@ -119,7 +133,7 @@ _OWNER_CASES = (
         29,
         0.25,
         "scene_flat.xml",
-        _PPO_REWARDS,
+        _PPO_WALK_FLAT_REWARDS,
         _RESET_EVENTS,
         False,
         id="ppo-isaacgym",
@@ -132,12 +146,25 @@ _OWNER_CASES = (
         29,
         0.25,
         "scene_flat.xml",
-        _PPO_REWARDS,
+        _PPO_WALK_FLAT_REWARDS,
         # kp/kd reset randomization stays enabled: the backend declares the
         # measured RESET_TERM_KP/KD DR terms (REPORT #1372 §5.7).
         (*_RESET_EVENTS, "pd_gains"),
         False,
         id="ppo-genesis",
+    ),
+    pytest.param(
+        "ppo",
+        ("task=g1_walk_flat/isaacsim",),
+        "G1WalkFlat",
+        "isaacsim",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_WALK_FLAT_REWARDS,
+        _RESET_EVENTS,
+        False,
+        id="ppo-isaacsim",
     ),
     pytest.param(
         "ppo",
@@ -147,7 +174,7 @@ _OWNER_CASES = (
         23,
         0.25,
         "scene_flat_23dof.xml",
-        _PPO_REWARDS,
+        _PPO_WALK_FLAT_REWARDS,
         (*_RESET_EVENTS, "pd_gains"),
         False,
         id="ppo-23dof-mujoco",
@@ -160,7 +187,7 @@ _OWNER_CASES = (
         23,
         0.5,
         "scene_flat_23dof.xml",
-        (*_PPO_REWARDS, *_MOTRIX_EXTRA_REWARDS),
+        (*_PPO_WALK_FLAT_REWARDS, *_MOTRIX_EXTRA_REWARDS),
         _RESET_EVENTS,
         False,
         id="ppo-23dof-motrix",
@@ -261,6 +288,19 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "sac",
+        ("task=g1_walk_flat/isaacsim",),
+        "G1WalkFlat",
+        "isaacsim",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-isaacsim",
+    ),
+    pytest.param(
+        "sac",
         ("task=g1_walk_rough/mujoco",),
         "G1WalkRough",
         "mujoco",
@@ -344,6 +384,7 @@ _WALK_PROFILE_IDS = {
     "sac-motrix",
     "sac-mjwarp",
     "sac-genesis",
+    "sac-isaacsim",
     "sac-rough-mujoco",
     "sac-rough-motrix",
     "sac-23dof-mujoco",
@@ -525,6 +566,11 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         # Native rendering (interactive viewer + offscreen record) is
         # supported; playback stays on the base config's auto mode.
         assert hydra_cfg.training.play_render_mode == "auto"
+    if backend == "isaacsim":
+        assert env_cfg.isaacsim_device_id == 0
+        assert env_cfg.isaacsim_worker_timeout_s == pytest.approx(120.0)
+        assert hydra_cfg.training.play_render_mode == "auto"
+        assert hydra_cfg.play_profile.enabled is False
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23
@@ -543,7 +589,8 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
                 module = nested.func.__module__
                 assert ".backend." not in module
                 assert not any(
-                    name in module for name in (".mujoco", ".motrix", ".mjwarp", ".isaacgym")
+                    name in module
+                    for name in (".mujoco", ".motrix", ".mjwarp", ".isaacgym", ".isaacsim")
                 )
 
     _assert_no_omegaconf(env_cfg)
@@ -555,7 +602,7 @@ def test_g1_walk_registries_are_manager_only() -> None:
 
     assert metadata["G1WalkFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "mjwarp", "motrix", "isaacgym", "genesis"],
+        "available_backends": ["mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim"],
     }
     assert metadata["G1WalkRough"] == {
         "config_factory": "ManagerBasedRlEnvCfg",

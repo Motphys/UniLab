@@ -929,6 +929,10 @@ class MotrixBackend(SimBackend):
             return
         if plan.push_perturbation_limit is not None:
             self.push_robots(plan.push_perturbation_limit)
+        if plan.body_torque is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support interval body torque perturbation"
+            )
         if plan.body_force is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-force perturbation requires body_ids")
@@ -937,6 +941,11 @@ class MotrixBackend(SimBackend):
             if plan.body_ids is None:
                 raise ValueError("Interval body-velocity perturbation requires body_ids")
             self._apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+        if plan.body_angular_velocity_delta is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support interval body angular velocity "
+                "perturbation"
+            )
 
     def _apply_body_linear_velocity_delta(
         self,
@@ -1444,8 +1453,13 @@ class MotrixBackend(SimBackend):
         self,
         body_ids: np.ndarray,
         force: np.ndarray,
+        torque: np.ndarray | None = None,
     ) -> None:
         """Apply absolute world-frame external forces through Motrix Link API."""
+        if torque is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support interval body torque perturbation"
+            )
         if not getattr(self, "_supports_external_force", False):
             raise NotImplementedError("Motrix link external-force API is not available")
         body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)

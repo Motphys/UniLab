@@ -106,12 +106,12 @@ So today's "uniformity" is more about the contract and the calling convention th
 
 Backend capability today:
 
-- `MuJoCoBackend`: supports the 7 reset terms above, plus interval push and interval body force
+- `MuJoCoBackend`: supports the 7 reset terms above, plus interval push, interval body velocity delta (linear and world-frame angular), and interval body force/torque
 - `MotrixBackend`: supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, plus interval push; requires actuators to all be position actuators during initialization
 
 Notes:
 
-- The current `IntervalRandomizationPlan` supports `push_perturbation_limit`, `body_linear_velocity_delta`, and `body_force`; among these, `body_force` expresses hot-path direct external-force perturbations without exposing the backend-private `xfrc_applied` details.
+- The current `IntervalRandomizationPlan` supports `push_perturbation_limit`, `body_linear_velocity_delta`, `body_angular_velocity_delta`, `body_force`, and `body_torque`; among these, `body_force`/`body_torque` express hot-path direct external-wrench perturbations without exposing the backend-private `xfrc_applied` details.
 - The current MuJoCo backend's interval push and interval body force are both dispatched through `xfrc_applied`; the Sharpa-hand object disturbance has been switched to direct force disturbance.
 - The Motrix backend currently still does not support direct body-force disturbance, so such owner configs must continue to be explicitly disabled.
 

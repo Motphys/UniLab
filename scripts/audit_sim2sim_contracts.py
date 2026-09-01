@@ -31,11 +31,15 @@ ABSENT = "<absent>"
 
 # Audited backend pairs. mujoco<->motrix is the historical primary contract;
 # mujoco<->isaacgym covers the subprocess backend owners; mujoco<->genesis
-# covers the in-process Genesis backend owners.
+# covers the in-process Genesis backend owners; mujoco<->isaacsim covers the
+# Python 3.11 worker backend owners. The additional adapters are audited
+# independently so a new owner cannot accidentally drift from the canonical
+# MuJoCo policy contract.
 CONTRACT_PAIRS: tuple[tuple[str, str], ...] = (
     ("mujoco", "motrix"),
     ("mujoco", "isaacgym"),
     ("mujoco", "genesis"),
+    ("mujoco", "isaacsim"),
 )
 
 

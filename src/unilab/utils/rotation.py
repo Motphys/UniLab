@@ -119,6 +119,23 @@ def np_quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
     return axis_angle
 
 
+def np_quat_from_angle_axis(angle: np.ndarray, axis: np.ndarray) -> np.ndarray:
+    """Convert axis-angle pairs to unit quaternions (N, 4), w-first.
+
+    ``angle`` has shape (N,) and ``axis`` has shape (N, 3); axes are normalized
+    internally. Inverse of :func:`np_quat_to_axis_angle`.
+    """
+    angle = np.atleast_1d(np.asarray(angle))
+    axis = np.atleast_2d(np.asarray(axis))
+    if axis.shape[-1] != 3 or angle.shape[0] != axis.shape[0]:
+        raise ValueError(f"Expected angle (N,) and axis (N, 3), got {angle.shape} and {axis.shape}")
+    axis = axis / np.linalg.norm(axis, axis=-1, keepdims=True)
+    half = 0.5 * angle
+    w = np.cos(half)
+    xyz = axis * np.sin(half)[:, None]
+    return np.concatenate([w[:, None], xyz], axis=1)
+
+
 def np_quat_angular_velocity(q: np.ndarray, dt: float) -> np.ndarray:
     """Estimate angular velocity from a quaternion time sequence using shortest-arc diffs."""
     if q.ndim != 2 or q.shape[1] != 4:

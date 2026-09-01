@@ -774,13 +774,26 @@ class GenesisBackend(SimBackend):
                 "genesis backend does not support interval body-velocity deltas; disable "
                 "the term in the owner YAML."
             )
+        if plan.body_torque is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support interval body torque perturbation"
+            )
         if plan.body_force is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-force perturbation requires body_ids")
             self.apply_body_force(plan.body_ids, plan.body_force)
 
-    def apply_body_force(self, body_ids: np.ndarray, force: np.ndarray) -> None:
+    def apply_body_force(
+        self,
+        body_ids: np.ndarray,
+        force: np.ndarray,
+        torque: np.ndarray | None = None,
+    ) -> None:
         """Apply a world-frame force per body through the solver-level API."""
+        if torque is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support interval body torque perturbation"
+            )
         self._require_state("apply_body_force")
         ids = np.asarray(body_ids, dtype=np.int32).reshape(-1)
         force_array = np.asarray(force, dtype=np.float32)

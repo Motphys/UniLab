@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.utils.rotation import np_quat_apply_batched, np_quat_from_angle_axis
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -115,6 +117,106 @@ def projected_gravity(
     return asset.data.projected_gravity_b
 
 
+# Per-env constant IMU mounting-misalignment quaternions, keyed by env instance
+# and max_angle_rad. Sampled once per (env, angle) at term construction and
+# shared by every misaligned term of that env, so the gyroscope and gravity
+# observations see the SAME mounting error (legacy microduck recipe,
+# microduck_rl/src/mjlab_microduck/tasks/mdp.py:3618-3660). Weak keys keep the
+# cache from outliving the env.
+_IMU_MISALIGNMENT_QUATS: weakref.WeakKeyDictionary[ManagerBasedRlEnv, dict[float, np.ndarray]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _imu_misalignment_quat(env: ManagerBasedRlEnv, max_angle_rad: float) -> np.ndarray:
+    """Per-env constant IMU mounting-misalignment rotation, sampled once.
+
+    Models a fixed small mounting/calibration error of the IMU on each robot:
+    a rotation about an axis uniform on the sphere with magnitude uniform in
+    [0, max_angle_rad]. Sampled from ``env.rng`` on first use and cached for the
+    whole run (a startup-style systematic per-robot bias, not per-step noise and
+    not resampled on episode reset), matching the legacy semantics.
+
+    Returns (num_envs, 4) unit quaternions (w, x, y, z) in float32.
+    """
+    per_env = _IMU_MISALIGNMENT_QUATS.get(env)
+    if per_env is None:
+        per_env = {}
+        _IMU_MISALIGNMENT_QUATS[env] = per_env
+    quat = per_env.get(max_angle_rad)
+    if quat is None:
+        axis = env.rng.standard_normal((env.num_envs, 3))
+        angle = env.rng.uniform(0.0, max_angle_rad, size=env.num_envs)
+        quat = np_quat_from_angle_axis(angle, axis).astype(np.float32)
+        per_env[max_angle_rad] = quat
+    return quat
+
+
+class _ImuMisalignedObservation(ManagerTermBase):
+    """Cold-path binding shared by IMU mounting-misalignment observation terms."""
+
+    _term_name = "imu_misaligned"
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        max_angle_deg = cfg.params.get("max_angle_deg", 1.0)
+        if isinstance(max_angle_deg, bool) or not isinstance(max_angle_deg, (int, float)):
+            raise ValueError(
+                f"Observation term '{self._term_name}' capability 'IMU misalignment' "
+                f"requires a real max_angle_deg, got {max_angle_deg!r}"
+            )
+        max_angle_deg = float(max_angle_deg)
+        if not np.isfinite(max_angle_deg) or max_angle_deg < 0.0:
+            raise ValueError(
+                f"Observation term '{self._term_name}' capability 'IMU misalignment' "
+                f"requires a finite non-negative max_angle_deg, got {max_angle_deg}"
+            )
+        self._max_angle_deg = max_angle_deg
+        self._quat = _imu_misalignment_quat(env, float(np.deg2rad(max_angle_deg)))
+
+    def _validate_max_angle(self, max_angle_deg: float) -> None:
+        if float(max_angle_deg) != self._max_angle_deg:
+            raise ValueError(
+                f"Observation term '{self._term_name}' was bound to max_angle_deg "
+                f"{self._max_angle_deg}, received {max_angle_deg}"
+            )
+
+    def _rotate(self, values: np.ndarray) -> np.ndarray:
+        return np_quat_apply_batched(self._quat, values)
+
+
+class base_ang_vel_imu_misaligned(_ImuMisalignedObservation):
+    """Base angular velocity rotated by the per-env constant IMU misalignment."""
+
+    _term_name = "base_ang_vel_imu_misaligned"
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        max_angle_deg: float = 1.0,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    ) -> np.ndarray:
+        self._validate_max_angle(max_angle_deg)
+        asset = cast("Entity", env.scene[asset_cfg.name])
+        return self._rotate(asset.data.root_link_ang_vel_b)
+
+
+class projected_gravity_imu_misaligned(_ImuMisalignedObservation):
+    """Projected gravity rotated by the SAME per-env IMU misalignment as the gyro."""
+
+    _term_name = "projected_gravity_imu_misaligned"
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        max_angle_deg: float = 1.0,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    ) -> np.ndarray:
+        self._validate_max_angle(max_angle_deg)
+        asset = cast("Entity", env.scene[asset_cfg.name])
+        return self._rotate(asset.data.projected_gravity_b)
+
+
 def joint_pos_rel(
     env: ManagerBasedRlEnv,
     biased: bool = False,
@@ -158,6 +260,7 @@ def generated_commands(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
 
 __all__ = [
     "base_ang_vel",
+    "base_ang_vel_imu_misaligned",
     "base_lin_vel",
     "builtin_sensor",
     "generated_commands",
@@ -166,4 +269,5 @@ __all__ = [
     "last_action",
     "projected_gravity",
     "projected_gravity_from_sensor",
+    "projected_gravity_imu_misaligned",
 ]

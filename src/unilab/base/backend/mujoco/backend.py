@@ -541,6 +541,12 @@ class MuJoCoBackend(SimBackend):
         start = 6 * body_id
         return slice(start, start + 3)
 
+    def _resolve_push_body_torque_slice(self, body_id: int) -> slice:
+        if body_id < 0:
+            return slice(0, 0)
+        start = 6 * body_id
+        return slice(start + 3, start + 6)
+
     def _sample_push_force(self, force_range: Sequence[float] | np.ndarray) -> np.ndarray:
         """Sample one world-frame push force vector per environment.
 
@@ -819,18 +825,23 @@ class MuJoCoBackend(SimBackend):
             qvel_indices=tuple(range(qvel_start, qvel_start + 6)),
         )
 
-    def _resolve_interval_root_velocity_qvel_ids(self) -> tuple[int, int, int] | None:
-        """Bind the configured free root's world-linear qvel columns on the cold path."""
+    def _resolve_interval_root_velocity_qvel_ids(
+        self,
+    ) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+        """Bind the configured free root's qvel columns and quat qpos columns."""
         if self._base_name is None or self._base_body_id < 0:
             return None
         try:
             layout = self.get_root_state_layout(self._base_name)
         except (NotImplementedError, ValueError):
             return None
-        linear_ids = layout.qvel_indices[:3]
-        if linear_ids != tuple(range(linear_ids[0], linear_ids[0] + 3)):
+        qvel_ids = tuple(int(index) for index in layout.qvel_indices)
+        quat_ids = tuple(int(index) for index in layout.qpos_indices[3:7])
+        if len(qvel_ids) != 6 or qvel_ids != tuple(range(qvel_ids[0], qvel_ids[0] + 6)):
             return None
-        return int(linear_ids[0]), int(linear_ids[1]), int(linear_ids[2])
+        if len(quat_ids) != 4 or quat_ids != tuple(range(quat_ids[0], quat_ids[0] + 4)):
+            return None
+        return qvel_ids, quat_ids
 
     def get_body_ids(self, names: "Sequence[str]") -> np.ndarray:
         ids: list[int] = []
@@ -1158,7 +1169,11 @@ class MuJoCoBackend(SimBackend):
             supports_interval_body_velocity_delta=(
                 self._interval_root_velocity_qvel_ids is not None
             ),
+            supports_interval_body_angular_velocity_delta=(
+                self._interval_root_velocity_qvel_ids is not None
+            ),
             supports_interval_body_force=True,
+            supports_interval_body_torque=True,
         )
 
     def apply_init_randomization(self, plan: InitRandomizationPlan) -> None:
@@ -1198,27 +1213,75 @@ class MuJoCoBackend(SimBackend):
         self._pending_xfrc_applied.fill(0.0)
         if plan.push_perturbation_limit is not None:
             self.push_robots(plan.push_perturbation_limit)
-        if plan.body_force is not None:
+        if plan.body_force is not None or plan.body_torque is not None:
             if plan.body_ids is None:
                 raise ValueError("Interval body-force perturbation requires body_ids")
-            self.apply_body_force(plan.body_ids, plan.body_force)
-        if plan.body_linear_velocity_delta is not None:
+            force = plan.body_force
+            if force is None:
+                force = np.zeros((self._num_envs, len(plan.body_ids), 3), dtype=np.float64)
+            self.apply_body_force(plan.body_ids, force, torque=plan.body_torque)
+        if (
+            plan.body_linear_velocity_delta is not None
+            or plan.body_angular_velocity_delta is not None
+        ):
             if plan.body_ids is None:
                 raise ValueError("Interval body-velocity perturbation requires body_ids")
-            self._apply_body_linear_velocity_delta(plan.body_ids, plan.body_linear_velocity_delta)
+            self._apply_body_velocity_delta(
+                plan.body_ids,
+                plan.body_linear_velocity_delta,
+                plan.body_angular_velocity_delta,
+            )
 
-    def _apply_body_linear_velocity_delta(
+    def _validate_body_velocity_delta(
+        self,
+        velocity_delta: np.ndarray | None,
+        *,
+        label: str,
+    ) -> np.ndarray | None:
+        if velocity_delta is None:
+            return None
+        if not isinstance(velocity_delta, np.ndarray):
+            raise TypeError(
+                f"MuJoCo interval body {label} velocity perturbation must be an np.ndarray, "
+                f"got {type(velocity_delta).__name__}"
+            )
+        expected_shape = (self._num_envs, 1, 3)
+        if velocity_delta.shape != expected_shape:
+            raise ValueError(
+                f"MuJoCo interval body {label} velocity perturbation has shape "
+                f"{velocity_delta.shape}; expected {expected_shape}"
+            )
+        if not np.issubdtype(velocity_delta.dtype, np.floating):
+            raise TypeError(
+                f"MuJoCo interval body {label} velocity perturbation must have floating dtype, "
+                f"got {velocity_delta.dtype}"
+            )
+        if not np.isfinite(velocity_delta).all():
+            raise ValueError(
+                f"MuJoCo interval body {label} velocity perturbation contains NaN or Inf"
+            )
+        return velocity_delta
+
+    def _apply_body_velocity_delta(
         self,
         body_ids: np.ndarray,
-        velocity_delta: np.ndarray,
+        linear_delta: np.ndarray | None,
+        angular_delta: np.ndarray | None,
     ) -> None:
-        """Apply a row-selective world-frame velocity kick to the configured free root."""
-        qvel_ids = self._interval_root_velocity_qvel_ids
-        if qvel_ids is None:
+        """Apply a row-selective world-frame velocity kick to the configured free root.
+
+        Linear deltas are world-frame (matching the free-root qvel layout).
+        Angular deltas are sampled in the world frame (community push contract)
+        and converted into the root-body frame expected by the qvel columns
+        using the root orientation already present in the physics state.
+        """
+        resolved = self._interval_root_velocity_qvel_ids
+        if resolved is None:
             raise NotImplementedError(
                 "MuJoCo interval body velocity perturbation requires base_name to identify "
                 "a body with exactly one free joint"
             )
+        qvel_ids, quat_qpos_ids = resolved
 
         raw_body_ids = np.asarray(body_ids)
         if (
@@ -1239,42 +1302,42 @@ class MuJoCoBackend(SimBackend):
                 f"received body_ids={resolved_body_ids.tolist()}"
             )
 
-        if not isinstance(velocity_delta, np.ndarray):
-            raise TypeError(
-                "MuJoCo interval body velocity perturbation must be an np.ndarray, "
-                f"got {type(velocity_delta).__name__}"
-            )
-        expected_shape = (self._num_envs, 1, 3)
-        if velocity_delta.shape != expected_shape:
-            raise ValueError(
-                "MuJoCo interval body velocity perturbation has shape "
-                f"{velocity_delta.shape}; expected {expected_shape}"
-            )
-        if not np.issubdtype(velocity_delta.dtype, np.floating):
-            raise TypeError(
-                "MuJoCo interval body velocity perturbation must have floating dtype, "
-                f"got {velocity_delta.dtype}"
-            )
-        if not np.isfinite(velocity_delta).all():
-            raise ValueError("MuJoCo interval body velocity perturbation contains NaN or Inf")
+        linear_delta = self._validate_body_velocity_delta(linear_delta, label="linear")
+        angular_delta = self._validate_body_velocity_delta(angular_delta, label="angular")
         if self._pool is None:
             raise RuntimeError(
                 "MuJoCo interval body velocity perturbation requires a materialized backend"
             )
 
-        active_rows = np.flatnonzero(np.any(velocity_delta[:, 0, :] != 0.0, axis=1)).astype(
-            np.int32,
-            copy=False,
-        )
+        active_mask = np.zeros(self._num_envs, dtype=np.bool_)
+        if linear_delta is not None:
+            active_mask |= np.any(linear_delta[:, 0, :] != 0.0, axis=1)
+        if angular_delta is not None:
+            active_mask |= np.any(angular_delta[:, 0, :] != 0.0, axis=1)
+        active_rows = np.flatnonzero(active_mask).astype(np.int32, copy=False)
         if active_rows.size == 0:
             return
 
         state_rows = np.asarray(self._physics_state[active_rows], dtype=np.float64).copy()
-        state_qvel_ids = np.asarray(
-            [self._idx_qvel + qvel_id for qvel_id in qvel_ids],
-            dtype=np.intp,
-        )
-        state_rows[:, state_qvel_ids] += velocity_delta[active_rows, 0, :]
+        if linear_delta is not None:
+            linear_columns = np.asarray(
+                [self._idx_qvel + qvel_id for qvel_id in qvel_ids[:3]],
+                dtype=np.intp,
+            )
+            state_rows[:, linear_columns] += linear_delta[active_rows, 0, :]
+        if angular_delta is not None:
+            quat_columns = np.asarray(
+                [self._idx_qpos + qpos_id for qpos_id in quat_qpos_ids],
+                dtype=np.intp,
+            )
+            angular_columns = np.asarray(
+                [self._idx_qvel + qvel_id for qvel_id in qvel_ids[3:6]],
+                dtype=np.intp,
+            )
+            state_rows[:, angular_columns] += np_quat_apply_inverse_batched(
+                state_rows[:, quat_columns],
+                angular_delta[active_rows, 0, :],
+            )
         state_out, sensor_out = self._pool.reset(
             env_ids=active_rows,
             initial_state=state_rows,
@@ -1293,25 +1356,39 @@ class MuJoCoBackend(SimBackend):
         self,
         body_ids: np.ndarray,
         force: np.ndarray,
+        torque: np.ndarray | None = None,
     ) -> None:
-        """Accumulate one external world-frame force vector per target body.
+        """Accumulate one external world-frame wrench per target body.
 
         Args:
             body_ids: Body ids to perturb.
             force: Force tensor with shape ``(num_envs, len(body_ids), 3)``.
+            torque: Optional world-frame torque tensor with the same shape,
+                staged in the ``xfrc_applied`` torque channel.
 
         Returns:
-            None. The force is staged in ``xfrc_applied`` for the next step.
+            None. The wrench is staged in ``xfrc_applied`` for the next step.
         """
         body_ids_np = np.asarray(body_ids, dtype=np.int32).reshape(-1)
         force_np = np.asarray(force, dtype=np.float64)
         expected_shape = (self._num_envs, body_ids_np.size, 3)
         if force_np.shape != expected_shape:
             raise ValueError(f"body force must have shape {expected_shape}, got {force_np.shape}")
+        torque_np = None
+        if torque is not None:
+            torque_np = np.asarray(torque, dtype=np.float64)
+            if torque_np.shape != expected_shape:
+                raise ValueError(
+                    f"body torque must have shape {expected_shape}, got {torque_np.shape}"
+                )
         for body_offset, body_id in enumerate(body_ids_np):
             self._pending_xfrc_applied[:, self._resolve_push_body_force_slice(int(body_id))] += (
                 force_np[:, body_offset, :]
             )
+            if torque_np is not None:
+                self._pending_xfrc_applied[
+                    :, self._resolve_push_body_torque_slice(int(body_id))
+                ] += torque_np[:, body_offset, :]
 
     def get_play_capabilities(self) -> BackendPlayCapabilities:
         return BackendPlayCapabilities(supports_physics_state_playback=True)

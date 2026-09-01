@@ -16,7 +16,7 @@ from typing import Sequence
 from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
-SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis")
+SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
@@ -129,6 +129,15 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
                 "sim=genesis requires the genesis-world extra (pinned 1.3.3, torch>=2.8). "
                 "Install it with `uv sync --extra genesis` (see the Genesis backend docs "
                 "page)."
+            )
+    if sim == "isaacsim":
+        from unilab.base.backend.isaacsim.dependencies import isaacsim_runtime_available
+
+        if not isaacsim_runtime_available():
+            raise SystemExit(
+                "sim=isaacsim requires the external Python 3.11 IsaacSim/IsaacLab worker "
+                "runtime. Install it with `scripts/tools/setup_isaacsim_env.sh` (see the "
+                "IsaacSim backend docs page)."
             )
 
 

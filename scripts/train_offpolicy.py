@@ -57,6 +57,9 @@ from unilab.visualization.interactive_playback import (
 from unilab.visualization.interactive_playback import (
     build_offpolicy_env_cfg_override as _build_offpolicy_env_cfg_override,
 )
+from unilab.visualization.interactive_playback import (
+    build_offpolicy_play_env_cfg_override as _build_offpolicy_play_env_cfg_override,
+)
 
 
 def enable_faulthandler() -> None:
@@ -85,6 +88,10 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
     return _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=ROOT_DIR)
+
+
+def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
+    return _build_offpolicy_play_env_cfg_override(algo_name, cfg, root_dir=ROOT_DIR)
 
 
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
@@ -243,7 +250,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         env_factory=lambda n: create_env(
             cfg,
             num_envs=n,
-            env_cfg_override=build_offpolicy_env_cfg_override(algo_name, cfg),
+            env_cfg_override=build_offpolicy_play_env_cfg_override(algo_name, cfg),
         ),
         root_dir=ROOT_DIR,
         device=device,

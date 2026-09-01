@@ -1,12 +1,15 @@
 # 仿真后端
 
-UniLab 目前在 registry/config 路径中使用两个后端名称：`1-mujoco` 和
-`2-motrix`。用户命令通过 `--sim` 选择它们，该选项会路由到对应的
-task owner YAML；不要仅靠 override `training.sim_backend` 来切换一次运行。
+UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner 注册后可用的
+`mujoco`、`motrix`、`mjwarp`、`isaacgym`、`genesis` 和 `isaacsim`。用户命令通过
+`--sim` 选择后端，该选项会路由到对应的 task owner YAML；不要仅靠 override
+`training.sim_backend` 来切换一次运行。
 
 ## 运行时前置条件
 
 - 使用 `uv sync --extra motrix` 安装 Motrix 支持。
+- IsaacGym 和 IsaacSim 使用独立的 worker 运行时；安装和运行时要求见各自的
+  后端页面。
 - 任何使用 `--sim mujoco`、MuJoCo 回放或仅限 MuJoCo 的调试工具的运行，
   仍然需要一个可用的 MuJoCo 运行时。
 - 在 macOS 上，软件包 CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。
@@ -17,6 +20,7 @@ task owner YAML；不要仅靠 override `training.sim_backend` 来切换一次�
 ```bash
 uv run train --algo ppo --task go1_joystick_flat --sim mujoco
 uv run train --algo ppo --task go1_joystick_flat --sim motrix
+uv run train --algo ppo --task g1_walk_flat --sim isaacsim
 ```
 
 Owner YAML 位置：
@@ -58,5 +62,6 @@ Task/backend/entrypoint 的支持情况是按证据分级的。请参阅
 2-motrix
 3-choosing_a_backend
 4-isaacgym
-5-genesis
+5-isaacsim
+6-genesis
 ```

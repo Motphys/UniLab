@@ -80,11 +80,13 @@ env:
 机器人二进制网格和纹理（例如 `.STL`、`.obj`、`.png`）采用相同方式外置，
 托管在 Hugging Face 数据集仓库
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots)。
-X2 网格在首次使用时按需下载，落盘到原始路径 `src/unilab/assets/robots/x2/meshes/`，
-T800 的 OBJ 和纹理分别落盘到 `robots/t800/assets/` 和 `robots/t800/textures/`，
-因此 XML 中的原始相对路径保持有效。无需运行任务即可提前预拉取：
+X2 网格在首次使用时按需下载，落盘到原始路径 `src/unilab/assets/robots/x2/meshes/`；
+MicroDuck STL 落盘到 `robots/microduck/assets/`；T800 的 OBJ 和纹理分别落盘到
+`robots/t800/assets/` 和 `robots/t800/textures/`。因此 XML 中的原始相对路径保持
+有效。无需运行任务即可提前预拉取：
 
 ```bash
+uv run unilab-pull-assets --robot microduck
 uv run unilab-pull-assets --robot x2
 uv run unilab-pull-assets --robot t800
 ```
@@ -101,6 +103,9 @@ uv run unilab-pull-assets --robot t800
    uv run hf upload unilabsim/unilab-robots \
      src/unilab/assets/robots/t800/textures robots/t800/textures \
      --repo-type dataset
+   uv run hf upload unilabsim/unilab-robots \
+     src/unilab/assets/robots/microduck/assets robots/microduck/assets \
+     --repo-type dataset
    ```
 
 2. 在 `.gitignore` 中忽略下载目录内容，并保留 `.gitkeep` 以维持目录。
@@ -110,6 +115,7 @@ uv run unilab-pull-assets --robot t800
    ```python
    resolve_robot_asset_dir("robots/t800/assets", marker="LINK_BASE.obj")
    resolve_robot_asset_dir("robots/t800/textures", marker="LINK_BASE.png")
+   resolve_robot_asset_dir("robots/microduck/assets", marker="trunk_base.stl")
    ```
 
 ## 架构说明
@@ -119,7 +125,6 @@ uv run unilab-pull-assets --robot t800
   `MotionLoader.__init__`，在冷路径上调用一次 resolver。
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析。
 - `ASSETS_ROOT_PATH` 定义不变，下载落盘位置与原始本地路径完全一致。
-- 机器人二进制资产使用同一目录 resolver（`resolve_robot_asset_dir`）。
-  `src/unilab/tasks/motion_tracking/x2/__init__.py` 中的薄
-  `make_x2_wall_flip_env` factory 会先在冷路径解析一次，再委托给共享 manager env
-  factory；同一 resolver 也通过 `unilab-pull-assets` CLI 暴露。
+- 机器人二进制资产使用同一目录 resolver（`resolve_robot_asset_dir`）。X2、
+  MicroDuck 和 T800 的薄 task factory 都会先在冷路径解析一次，再委托给共享
+  manager env factory；同一 resolver 也通过 `unilab-pull-assets` CLI 暴露。

@@ -169,6 +169,14 @@ def test_protocol_slot_layout() -> None:
         protocol.slot_shapes(0, 3, 2)
 
 
+def test_legacy_protocol_module_reexports_canonical_public_surface() -> None:
+    from unilab.base.backend.subprocess_ipc import protocol as shared_protocol
+
+    assert protocol.__all__ == shared_protocol.__all__
+    for name in shared_protocol.__all__:
+        assert getattr(protocol, name) is getattr(shared_protocol, name)
+
+
 def test_protocol_error_payload() -> None:
     try:
         raise RuntimeError("boom")
