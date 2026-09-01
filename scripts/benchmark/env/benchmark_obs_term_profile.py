@@ -20,6 +20,15 @@ for the attribution to count as explained.
 Profiling is opt-in via ``UNILAB_TERM_PROFILING=1`` (this script sets it
 before importing unilab); when disabled the instrumentation is a no-op.
 
+Caveat (issue #1404 Phase 2): per-segment timings include the instrumentation
+itself (two ``perf_counter`` calls plus a context manager per segment, and the
+cache pollution that comes with them), which inflates and skews the
+attribution — at 4096 envs the instrumented ``compute`` total reads ~1.7 ms
+while the uninstrumented wall time is ~1.0 ms. Use the table for relative
+per-term ranking inside a category, not for absolute category shares; verify
+category-level claims with uninstrumented ablation (strip term noise /
+``nan_policy`` at runtime) before acting on them.
+
 Run:
     uv run scripts/benchmark/env/benchmark_obs_term_profile.py
 
