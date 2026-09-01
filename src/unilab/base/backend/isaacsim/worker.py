@@ -316,7 +316,12 @@ class _WorkerContext:
             # a real scene light (not a post-process or synthetic frame), and
             # is created only on the cold rendering path.
             light_cfg = sim_utils.DomeLightCfg(
-                intensity=2500.0,
+                # MJCF scenes already provide a world light.  A 2500-lumen
+                # dome on top of that light clips the converted materials on
+                # RTX cameras (the RGB stream becomes nearly uniform white).
+                # Keep a low fill light so the imported scene remains visible
+                # without washing out its silver/black contrast.
+                intensity=100.0,
                 color=(0.75, 0.75, 0.75),
             )
             light_cfg.func("/World/UniLabDomeLight", light_cfg)
@@ -667,7 +672,10 @@ class _WorkerContext:
         )
         offset_tensor = _to_tensor(self.torch, offset, self.device)
         targets = root_pos.clone()
-        targets[:, 2] += 0.5
+        # Aim a little above the pelvis so playback is closer to eye level
+        # instead of looking up from below.  Keeping the target above the root
+        # also leaves enough vertical margin to keep the feet in frame.
+        targets[:, 2] += 0.30
         eyes = targets + offset_tensor[None, :]
         return eyes, targets
 
