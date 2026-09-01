@@ -38,7 +38,7 @@ def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     torch_row = _row("PPO (torch)", "g1_walk_flat")
     sac_row = _row("SAC (torch)", "g1_walk_flat")
 
-    assert BACKENDS == ("mujoco", "mjwarp", "motrix", "isaacgym", "isaacsim")
+    assert BACKENDS == ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim")
     assert torch_row.cells["mjwarp"].level == EvidenceLevel.TESTED
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED
 
@@ -82,6 +82,36 @@ def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():
     assert tested == {("SAC (torch)", "g1_walk_flat")}
     go2_row = _row("PPO (torch)", "go2_joystick_flat")
     assert go2_row.cells["isaacgym"].level == EvidenceLevel.MISSING
+
+
+def test_support_matrix_marks_g1_genesis_owner_configured_only():
+    """SAC genesis is training-validated (Tested); PPO stays Configured."""
+    row = _row("SAC (torch)", "g1_walk_flat")
+    assert row.cells["genesis"].level == EvidenceLevel.TESTED
+    row = _row("PPO (torch)", "g1_walk_flat")
+    assert row.cells["genesis"].level == EvidenceLevel.CONFIGURED
+    for entrypoint_label in (
+        "APPO (torch)",
+        "TD3 (torch)",
+        "FlashSAC (torch)",
+    ):
+        row = _row(entrypoint_label, "g1_walk_flat")
+        # Registration is per task+backend, not per algo tree: without an
+        # owner YAML these stay at REGISTERED instead of CONFIGURED.
+        assert row.cells["genesis"].level == EvidenceLevel.REGISTERED
+
+
+def test_support_matrix_does_not_promote_unvalidated_genesis_entries():
+    rows = build_support_rows(Path(__file__).resolve().parents[2])
+
+    tested = {
+        (row.entrypoint_label, row.task_slug)
+        for row in rows
+        if row.cells["genesis"].level >= EvidenceLevel.TESTED
+    }
+    assert tested == {("SAC (torch)", "g1_walk_flat")}
+    go2_row = _row("PPO (torch)", "go2_joystick_flat")
+    assert go2_row.cells["genesis"].level == EvidenceLevel.MISSING
 
 
 def test_support_matrix_does_not_promote_unvalidated_mjwarp_entries():

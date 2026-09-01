@@ -1,7 +1,7 @@
 # Simulation Backends
 
 UniLab exposes backend names through registry/config paths, including `mujoco`,
-`motrix`, `mjwarp`, `isaacgym`, and `isaacsim` where an owner is registered.
+`motrix`, `mjwarp`, `isaacgym`, `genesis`, and `isaacsim` where an owner is registered.
 User commands select them with `--sim`, which routes to the matching task owner
 YAML; do not switch a run by overriding `training.sim_backend` alone.
 
@@ -66,4 +66,5 @@ the generated source data.
 3-choosing_a_backend
 4-isaacgym
 5-isaacsim
+6-genesis
 ```

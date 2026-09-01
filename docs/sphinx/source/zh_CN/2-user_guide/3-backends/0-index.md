@@ -1,7 +1,7 @@
 # 仿真后端
 
 UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner 注册后可用的
-`mujoco`、`motrix`、`mjwarp`、`isaacgym` 和 `isaacsim`。用户命令通过
+`mujoco`、`motrix`、`mjwarp`、`isaacgym`、`genesis` 和 `isaacsim`。用户命令通过
 `--sim` 选择后端，该选项会路由到对应的 task owner YAML；不要仅靠 override
 `training.sim_backend` 来切换一次运行。
 
@@ -63,4 +63,5 @@ Task/backend/entrypoint 的支持情况是按证据分级的。请参阅
 3-choosing_a_backend
 4-isaacgym
 5-isaacsim
+6-genesis
 ```

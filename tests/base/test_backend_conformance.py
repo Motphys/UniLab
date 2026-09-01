@@ -32,6 +32,7 @@ _BACKEND_CLASS_NAMES = frozenset(
         "DrakeBackend",
         "MjwarpBackend",
         "IsaacGymBackend",
+        "GenesisBackend",
         "IsaacSimBackend",
     }
 )
@@ -82,6 +83,19 @@ def _isaacgym_runtime_available() -> bool:
     return isaacgym_runtime_available()
 
 
+def _genesis_runtime_available() -> bool:
+    from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+
+    if not genesis_dependencies_available():
+        return False
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
 def _isaacsim_runtime_available() -> bool:
     from unilab.base.backend.isaacsim.dependencies import isaacsim_runtime_available
 
@@ -102,6 +116,9 @@ def _require_backend(backend_type: str) -> None:
     elif backend_type == "isaacgym":
         if not _isaacgym_runtime_available():
             pytest.skip("isaacgym requires the Python 3.8 worker runtime")
+    elif backend_type == "genesis":
+        if not _genesis_runtime_available():
+            pytest.skip("genesis requires the genesis-world extra and a CUDA device")
     elif backend_type == "isaacsim":
         if not _isaacsim_runtime_available():
             pytest.skip("isaacsim requires the Python 3.11 IsaacSim/IsaacLab worker runtime")
@@ -120,6 +137,7 @@ _BACKEND_PARAMS = [
     pytest.param("drake", id="drake"),
     pytest.param("mjwarp", id="mjwarp", marks=pytest.mark.slow),
     pytest.param("isaacgym", id="isaacgym", marks=pytest.mark.slow),
+    pytest.param("genesis", id="genesis", marks=pytest.mark.slow),
     pytest.param("isaacsim", id="isaacsim", marks=pytest.mark.slow),
 ]
 
@@ -530,3 +548,35 @@ def test_isaacgym_native_camera_capture_renders_scene() -> None:
         assert backend.capture_video_frame().shape == (240, 320, 3)
     finally:
         backend.close()
+
+
+@pytest.mark.slow
+def test_genesis_native_camera_capture_renders_scene() -> None:
+    """Real-runtime guard for the native capture path used by record playback.
+
+    The offscreen camera attaches post-build; after a physics step the frame
+    must be a real render (correct shape, non-uniform pixels — the ground
+    plane and the robot differ in color). The backend session is deliberately
+    left open: one gs.init per process and the other genesis lanes in this
+    pytest session share it.
+    """
+    if not _genesis_runtime_available():
+        pytest.skip("genesis requires the genesis-world extra and a CUDA device")
+
+    backend = create_backend(
+        "genesis",
+        SceneCfg(model_file=_G1_SCENE),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="pelvis",
+    )
+    backend.materialize()
+    backend.init_renderer(headless=True, capture=True, width=320, height=240)
+    backend.step(np.zeros((NUM_ENVS, backend.num_actuators), dtype=np.float32))
+    frame = backend.capture_video_frame()
+    assert frame.shape == (240, 320, 3)
+    assert frame.dtype == np.uint8
+    assert np.unique(frame).size > 8, "camera frame looks blank"
+    # A second init with the same config is a no-op and keeps capturing.
+    backend.init_renderer(headless=True, capture=True, width=320, height=240)
+    assert backend.capture_video_frame().shape == (240, 320, 3)

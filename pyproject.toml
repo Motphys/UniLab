@@ -15,7 +15,7 @@ dependencies = [
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torch==2.7.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    "torch==2.8.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
     "gymnasium",
     "imageio",
     "etils",
@@ -25,7 +25,9 @@ dependencies = [
     "packaging",
     "mediapy",
     "tensorboard",
-    "setuptools<70",
+    # Unpinned: quadrants (genesis-world 1.3.3 pin) requires setuptools>=77,
+    # and nothing in this repo imports setuptools/pkg_resources at runtime.
+    "setuptools",
     "rich",
     "tqdm",
     "typing-extensions",
@@ -72,6 +74,12 @@ mjwarp = [
     "warp-lang>=1.14.0",
 ]
 motrix = ["motrixsim-core==0.8.2"]
+genesis = [
+    # Genesis imports as ``genesis`` and owns the GPU physics implementation;
+    # it is a separate optional extra pinned exactly to the probed release
+    # (scripts/tools/genesis_feasibility/REPORT.md, #1372).
+    "genesis-world==1.3.3",
+]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]
