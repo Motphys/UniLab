@@ -383,6 +383,24 @@ def test_backend_adapter_env_cfg_override_for_motrix_sac_g1_walk_flat():
     assert cfg.algo.max_iterations == 5000
 
 
+def test_backend_adapter_injects_isaacsim_render_intent_only_for_play():
+    cfg = _offpolicy_cfg(
+        [
+            "task=g1_walk_flat/isaacsim",
+            "training.play_render_mode=record",
+        ]
+    )
+    adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
+
+    training_override = adapter.build_task_env_cfg_override()
+    play_override = adapter.build_play_env_cfg_override()
+
+    assert "isaacsim_render_mode" not in training_override
+    assert play_override["isaacsim_render_mode"] == "record"
+    assert play_override["isaacsim_render_width"] == 1280
+    assert play_override["isaacsim_render_height"] == 720
+
+
 def test_backend_adapter_keeps_motion_manager_scene_during_play():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
     assert cfg.training.play_env_num == 16

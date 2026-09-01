@@ -34,9 +34,10 @@ _MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = fr
     }
 )
 
-# IsaacSim is currently a headless-only Python 3.11 worker integration.  No
-# full training validation is promoted here: the checked-in evidence is the
-# owner/registry/compose contract plus bounded backend smoke coverage.
+# IsaacSim is a Python 3.11 worker integration with eval-owned Kit viewer and
+# RGB camera protocol coverage. No full training or successful real playback
+# validation is promoted here: the checked-in evidence remains owner/config,
+# protocol tests, and bounded backend smoke coverage.
 _MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
 
 _TASK_ORDER = {
@@ -335,8 +336,10 @@ def render_support_matrix(root: Path | None = None) -> str:
         "",
         "`isaacsim` 是 IsaacSim 5.1 / IsaacLab v2.3.0 的独立 Python 3.11 子进程后端，当前只接入"
         " `g1_walk_flat` 的 PPO/SAC owner，矩阵标记为 `Configured`。仓库没有把 bounded headless"
-        " physics smoke 提升为训练或 playback 的 `Tested` 证据；GUI、camera、native playback、"
-        "contact-force sensor 和 domain randomization 均保持 fail-closed。",
+        " physics smoke 和 mock rendering protocol 覆盖提升为训练或 playback 的 `Tested` 证据。"
+        "eval 已接入 Kit viewer 与 IsaacLab RGB camera；当前真实主机在 RTX renderer 初始化阶段"
+        "崩溃，因此没有成功 playback 证据，也不会生成占位视频。contact-force sensor 和 domain "
+        "randomization 仍保持 fail-closed。",
         "",
         benchmark_note,
         recommendation_note,
@@ -365,7 +368,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
             "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
-            "- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence.",
+            "- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.",
         ]
     )
     return "\n".join(lines)

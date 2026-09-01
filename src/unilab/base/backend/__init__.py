@@ -30,6 +30,9 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict:
         "isaacgym_worker_timeout_s": cfg.isaacgym_worker_timeout_s,
         "isaacsim_device_id": cfg.isaacsim_device_id,
         "isaacsim_worker_timeout_s": cfg.isaacsim_worker_timeout_s,
+        "isaacsim_render_mode": cfg.isaacsim_render_mode,
+        "isaacsim_render_width": cfg.isaacsim_render_width,
+        "isaacsim_render_height": cfg.isaacsim_render_height,
     }
 
 
@@ -162,6 +165,9 @@ def create_backend(
     isaacgym_worker_timeout_s = kwargs.pop("isaacgym_worker_timeout_s", None)
     isaacsim_device_id = kwargs.pop("isaacsim_device_id", None)
     isaacsim_worker_timeout_s = kwargs.pop("isaacsim_worker_timeout_s", None)
+    isaacsim_render_mode = kwargs.pop("isaacsim_render_mode", None)
+    isaacsim_render_width = kwargs.pop("isaacsim_render_width", 1280)
+    isaacsim_render_height = kwargs.pop("isaacsim_render_height", 720)
     if backend_type == "mujoco":
         MuJoCoBackend = _load_mujoco_backend()
         if body_state_required:
@@ -267,6 +273,10 @@ def create_backend(
         return cast(SimBackend, IsaacGymBackend(scene, num_envs, sim_dt, **kwargs))
     if backend_type == "isaacsim":
         IsaacSimBackend = _load_isaacsim_backend()
+        # Accept the backend-native spellings for direct factory callers while
+        # keeping EnvCfg's explicit ``isaacsim_*`` fields canonical.
+        direct_render_width = kwargs.pop("render_width", None)
+        direct_render_height = kwargs.pop("render_height", None)
         # IsaacLab's implicit actuator path owns the gains in the worker.  A
         # host-side scalar override would silently diverge from the MJCF
         # contract, so reject it at the factory boundary.
@@ -299,6 +309,14 @@ def create_backend(
             kwargs["device_id"] = isaacsim_device_id
         if isaacsim_worker_timeout_s is not None:
             kwargs["worker_timeout_s"] = isaacsim_worker_timeout_s
+        if isaacsim_render_mode is not None:
+            kwargs["render_mode"] = isaacsim_render_mode
+        kwargs["render_width"] = (
+            isaacsim_render_width if direct_render_width is None else direct_render_width
+        )
+        kwargs["render_height"] = (
+            isaacsim_render_height if direct_render_height is None else direct_render_height
+        )
         return cast(SimBackend, IsaacSimBackend(scene, num_envs, sim_dt, **kwargs))
     raise ValueError(f"Unknown backend: {backend_type}")
 

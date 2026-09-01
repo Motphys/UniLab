@@ -228,6 +228,16 @@ class MjcfSubprocessBackend(SimBackend):
         del runtime
         return {}
 
+    def _worker_init_payload(self) -> dict[str, Any]:
+        """Return backend-owned cold-path INIT options.
+
+        Subprocess workers must receive any runtime mode that changes Kit
+        startup before the first ``INIT`` handshake.  The shared adapter keeps
+        this hook empty so IsaacGym and other workers retain their existing
+        startup contract; IsaacSim overrides it for eval rendering.
+        """
+        return {}
+
     # Same column-stability contract as the other backends: non-applicable
     # sub-steps report 0.0.
     _SET_STATE_TIMING_ZERO_KEYS = (
@@ -328,6 +338,11 @@ class MjcfSubprocessBackend(SimBackend):
         self._render_config: tuple[bool, bool] | None = None
         self._viewer_open = False
         self._capture_ready = False
+        # Native playback dimensions are fixed for one worker lifetime.  The
+        # IsaacSim specialization overwrites these from EnvCfg before INIT;
+        # IsaacGym keeps the historical 1280x720 defaults.
+        self._render_width = 1280
+        self._render_height = 720
 
     # ------------------------------------------------------------------ #
     # Worker lifecycle (cold path)
@@ -360,6 +375,12 @@ class MjcfSubprocessBackend(SimBackend):
             command = list(self._worker_command)
             env = None
         runtime_payload = self._runtime_payload(runtime) if runtime is not None else {}
+        worker_init_payload = self._worker_init_payload()
+        if not isinstance(worker_init_payload, dict):
+            raise TypeError(
+                f"{self._BACKEND_LABEL} _worker_init_payload() must return a dict, "
+                f"got {type(worker_init_payload).__name__}"
+            )
 
         self._stderr_file = tempfile.TemporaryFile(
             mode="w+b", prefix=f"{self._BACKEND_LABEL}_worker_stderr_"
@@ -387,6 +408,7 @@ class MjcfSubprocessBackend(SimBackend):
                     "sim_dt": self._sim_dt,
                     "device_id": self._device_id,
                     **runtime_payload,
+                    **worker_init_payload,
                     "root_body_name": self._base_name
                     or self._get_scene_metadata().freejoint_body_name,
                     # Some importers do not preserve MJCF traversal order.
@@ -1194,7 +1216,11 @@ class MjcfSubprocessBackend(SimBackend):
     def render(self) -> None:
         """Draw one interactive viewer frame through the worker."""
         if not self._viewer_open:
-            self.init_renderer(headless=False)
+            self.init_renderer(
+                headless=False,
+                width=self._render_width,
+                height=self._render_height,
+            )
         reply = self._request(protocol.CMD_RENDER_FRAME, None, expect=protocol.CMD_META)
         if bool(reply.get("closed")):
             self._viewer_open = False
@@ -1203,9 +1229,16 @@ class MjcfSubprocessBackend(SimBackend):
     def capture_video_frame(self) -> np.ndarray:
         """Capture one RGB frame from the worker's camera sensor."""
         if not self._capture_ready:
-            self.init_renderer(headless=True, capture=True)
+            self.init_renderer(
+                headless=True,
+                capture=True,
+                width=self._render_width,
+                height=self._render_height,
+            )
         reply = self._request(protocol.CMD_CAPTURE_FRAME, None, expect=protocol.CMD_META)
-        return np.asarray(reply["frame"], dtype=np.uint8)
+        # Preserve the worker's dtype so backend specializations can validate
+        # the frame contract instead of silently coercing malformed output.
+        return np.asarray(reply["frame"])
 
     def run_playback(
         self,
@@ -1241,6 +1274,8 @@ class MjcfSubprocessBackend(SimBackend):
                 headless=should_run_headless,
                 record_video=should_record_video,
                 camera_kwargs=camera_kwargs,
+                width=self._render_width,
+                height=self._render_height,
             )
         except RenderClosedError:
             if not should_run_headless and not should_record_video:

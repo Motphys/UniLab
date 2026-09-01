@@ -4,8 +4,10 @@ UniLab's `isaacsim` backend runs IsaacSim 5.1.0 and IsaacLab v2.3.0 in a
 dedicated Python 3.11 worker process. The host process keeps the regular
 `SimBackend` NumPy contract; pipe messages carry lifecycle commands and shared
 memory carries batched state. The current support boundary is headless physics
-for the registered G1 flat task owners. The support matrix intentionally marks
-the PPO and SAC owners as `Configured`, not `Tested`.
+plus eval-owned native rendering for the registered G1 flat task owners. The
+support matrix intentionally marks the PPO and SAC owners as `Configured`, not
+`Tested`, because the rendering protocol is covered by deterministic worker
+tests but has not completed playback on the currently available IsaacSim host.
 
 ## Runtime boundary
 
@@ -27,27 +29,61 @@ The expected runtime layout is
 library directories under that venv, and an IsaacLab v2.3.0 source checkout at
 `$UNILAB_ISAACSIM_HOME/IsaacLab`.
 
-The first headless Kit launch may spend minutes warming extension and shader
-caches. On the validated 595.x NVIDIA driver family, the standalone/full-app
-path can crash in `librtx.scenedb.plugin.so`; this backend therefore does not
-claim GUI, camera capture, or native playback support. The worker always starts
-IsaacLab's headless `AppLauncher` path.
+The render intent is part of the worker's cold `INIT` handshake. Training does
+not inject a render mode and starts the inexpensive headless, camera-disabled
+Kit experience. Eval selects one of these modes before Kit starts:
+
+- `auto`: use the interactive Kit viewer when `DISPLAY` or `WAYLAND_DISPLAY`
+  is present; otherwise use headless recording.
+- `interactive`: start non-headless Kit and fail before worker launch when no
+  display variable is present.
+- `record`: start the headless rendering experience with IsaacLab RGB cameras;
+  `training.play_steps` must be finite.
+- `none`: run policy evaluation without a viewer or camera.
+
+The record contract is RGB `(height, width, 3)`, `uint8`, contiguous, and
+non-uniform. Invalid or placeholder frames fail closed instead of producing a
+video. Width and height default to 1280 x 720 in the IsaacSim owner YAML and
+can be overridden through `env.isaacsim_render_width` and
+`env.isaacsim_render_height` before env creation.
 
 The current worker supports MJCF materialization, batched articulation state,
-position-target stepping, and masked root/joint resets. Contact-force sensors,
-reset or interval domain randomization, host pre-step callbacks, GUI rendering,
-camera capture, and native playback are unsupported and fail closed.
+position-target stepping, masked root/joint resets, a native Kit viewer, and
+headless IsaacLab RGB camera capture. Contact-force sensors, reset or interval
+domain randomization, and host pre-step callbacks remain unsupported and fail
+closed.
 
 Use the top-level CLI to select the backend and owner:
 
 ```bash
 uv run train --algo ppo --task g1_walk_flat --sim isaacsim
-uv run eval --algo sac --task g1_walk_flat --sim isaacsim --render-mode none
+uv run eval --algo sac --task g1_walk_flat --sim isaacsim \
+  --load-run <run-id> --render-mode record \
+  training.play_steps=120 training.play_env_num=1 training.export_onnx=false
+uv run eval --algo sac --task g1_walk_flat --sim isaacsim \
+  --load-run <run-id> --render-mode interactive training.play_env_num=1
 ```
 
-These commands require the external runtime and an NVIDIA CUDA device. The
-repository does not claim that either command has completed full training or
-playback validation; those claims require a maintainer validation entry.
+Record mode writes `play_video.mp4` in the selected run directory. These
+commands require the external runtime and an NVIDIA CUDA device. The repository
+does not claim completed full training or stable native playback; those claims
+require a maintainer validation entry.
+
+## Current Runtime Validation
+
+A bounded SAC record eval and a bounded interactive eval using an existing
+checkpoint were attempted on IsaacSim 5.1.0, IsaacLab v2.3.0, Kit 107.3.3,
+Ubuntu 24.04.4, an RTX 4090, and NVIDIA driver 595.84. Both paths crashed during
+`AppLauncher` initialization, before camera or viewer creation, with frames in
+`librtx.scenedb.plugin.so`,
+`libcarb.scenerenderer-rtx.plugin.so`, and `libomni.hydra.rtx.plugin.so` after
+EGL initialization warnings. A minimal camera-enabled `AppLauncher` probe also
+failed with `multi_gpu=False`.
+
+This is a runtime blocker, not successful playback evidence. The backend keeps
+the render protocol and its fail-closed tests, while the support matrix remains
+at `Configured`. No placeholder video is generated when the real renderer does
+not initialize.
 
 ## Inspecting The Contract
 
@@ -76,7 +112,9 @@ runtime; it is not a training or playback validation.
 | Partial reset | `write_root_pose_to_sim`, `write_root_velocity_to_sim`, `write_joint_state_to_sim`, `reset(env_ids)` | Selected row changes; other row deltas are zero | Use masked batched writes; reject duplicate/out-of-range ids |
 | Position control | `set_joint_position_target`, `write_data_to_sim`, `SimulationContext.step` | Target moves the first joint over bounded steps | `step(ctrl)` carries position targets; gains/limits are materialized explicitly |
 | State getter boundary | `Articulation.data.*` tensors | All getters are batched with expected leading dimension | Worker copies tensors to host-owned shared-memory slots; hot getters do not parse assets |
-| Rendering | IsaacLab headless `AppLauncher` | Not claimed by this probe | Keep GUI/native rendering fail-closed until a separate driver-tested slice |
+| Rendering startup | `AppLauncher` cold mode selection | Mock worker verifies none/record/interactive mode, dimensions, and graphics handshake | Mode cannot change after env materialization |
+| Offline RGB | IsaacLab `Camera` + `CameraCfg` | Protocol tests verify video writing and reject bad shape, dtype, or uniform frames; current real host crashes before camera creation | Require finite steps and keep support at `Configured` until real playback succeeds |
+| Interactive viewer | non-headless Kit + `SimulationContext.set_camera_view` | Protocol tests drive a frame and map window close to `RenderClosedError`; current host has no successful bounded GUI evidence | Explicit interactive requires a display; `auto` falls back to record without one |
 | Domain randomization | IsaacLab manager/event APIs | Not exercised | Non-empty unsupported plans must fail closed |
 
 The importer returns a different joint/body ordering (for example, left/right

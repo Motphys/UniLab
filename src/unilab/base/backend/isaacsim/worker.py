@@ -5,16 +5,17 @@ after receiving ``INIT`` and communicates with the host through the canonical
 ``subprocess_ipc.protocol`` module loaded by path.  Control messages stay on
 the pipe; all batched numeric state is copied into shared-memory slots.
 
-This worker implements the currently supported IsaacSim slice: headless
-MJCF-backed articulation physics, masked root/joint reset, and implicit
-position-target control.  Rendering and domain-randomization commands fail
-closed at the host contract boundary.
+This worker implements MJCF-backed articulation physics, masked root/joint
+reset, implicit position-target control, and the eval-owned Kit viewer/RGB
+camera commands.  Rendering is selected before Kit starts so a training
+worker can remain on the inexpensive no-rendering experience.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import math
 import os
 import sys
 import time
@@ -116,6 +117,14 @@ class _WorkerContext:
         self.robot: Any = None
         self.simulation_app: Any = None
         self.torch: Any = None
+        self.render_mode = "none"
+        self.render_width = 1280
+        self.render_height = 720
+        self.camera: Any = None
+        self.camera_distance = 2.0
+        self.camera_elevation_deg = 20.0
+        self.camera_azimuth_deg = 90.0
+        self.viewport_camera_initialized = False
         self.native_joint_names: list[str] = []
         self.native_body_names: list[str] = []
         self.contract_joint_names: list[str] = []
@@ -149,10 +158,60 @@ class _WorkerContext:
             )
         self.device = f"cuda:{device_id}"
 
+        raw_render_mode = payload.get("render_mode", "none")
+        if not isinstance(raw_render_mode, str):
+            raise TypeError(
+                "isaacsim worker render_mode must be a string; "
+                f"got {type(raw_render_mode).__name__}"
+            )
+        render_mode = raw_render_mode.strip().lower()
+        if render_mode not in {"none", "record", "interactive"}:
+            raise ValueError(
+                "isaacsim worker render_mode must be one of none, record, interactive; "
+                f"got {render_mode!r}"
+            )
+        self.render_mode = render_mode
+        raw_render_width = payload.get("render_width", 1280)
+        raw_render_height = payload.get("render_height", 720)
+        if (
+            isinstance(raw_render_width, bool)
+            or not isinstance(raw_render_width, int)
+            or isinstance(raw_render_height, bool)
+            or not isinstance(raw_render_height, int)
+            or raw_render_width <= 0
+            or raw_render_height <= 0
+        ):
+            raise ValueError(
+                "isaacsim worker render dimensions must be positive integers; "
+                f"got {raw_render_width!r}x{raw_render_height!r}"
+            )
+        self.render_width = raw_render_width
+        self.render_height = raw_render_height
+        headless = render_mode != "interactive"
+        enable_cameras = render_mode == "record"
+        # AppLauncher treats false/default values as "consult the environment".
+        # Pin both variables explicitly so a user's shell cannot accidentally
+        # turn a training worker into a GUI/camera process.
+        os.environ["HEADLESS"] = "1" if headless else "0"
+        os.environ["ENABLE_CAMERAS"] = "1" if enable_cameras else "0"
+        os.environ["LIVESTREAM"] = "0"
+        os.environ["XR"] = "0"
+
         # Kit must be launched before importing IsaacSim/IsaacLab modules.
         from isaaclab.app import AppLauncher  # type: ignore[import-not-found]
 
-        self.simulation_app = AppLauncher({"headless": True, "device": self.device}).app
+        self.simulation_app = AppLauncher(
+            {
+                "headless": headless,
+                "enable_cameras": enable_cameras,
+                "device": self.device,
+                "multi_gpu": False,
+                "width": self.render_width,
+                "height": self.render_height,
+                "window_width": self.render_width,
+                "window_height": self.render_height,
+            }
+        ).app
 
         import isaaclab.sim as sim_utils  # type: ignore[import-not-found]
         import isaacsim.core.utils.prims as prim_utils  # type: ignore[import-not-found]
@@ -167,6 +226,9 @@ class _WorkerContext:
         from isaacsim.core.utils.extensions import (
             enable_extension,  # type: ignore[import-not-found]
         )
+
+        if render_mode == "record":
+            from isaaclab.sensors.camera import Camera, CameraCfg  # type: ignore[import-not-found]
 
         self.torch = torch
         # The extension is enabled explicitly because IsaacSim 5.1 does not
@@ -242,9 +304,42 @@ class _WorkerContext:
                 )
             },
         )
-        self.robot = Articulation(robot_cfg)
         sim_cfg = sim_utils.SimulationCfg(dt=self.sim_dt, device=self.device)
         self.sim = sim_utils.SimulationContext(sim_cfg)
+        # IsaacLab's SimulationContext owns the singleton simulation stage and
+        # must be materialized before assets/articulations bind to it.  Keep
+        # this ordering explicit so a real Kit worker does not accidentally
+        # construct an Articulation against an uninitialized context.
+        self.robot = Articulation(robot_cfg)
+        if render_mode != "none":
+            # MJCF scenes do not necessarily carry a renderer light.  This is
+            # a real scene light (not a post-process or synthetic frame), and
+            # is created only on the cold rendering path.
+            light_cfg = sim_utils.DomeLightCfg(
+                intensity=2500.0,
+                color=(0.75, 0.75, 0.75),
+            )
+            light_cfg.func("/World/UniLabDomeLight", light_cfg)
+            if render_mode == "record":
+                camera_cfg = CameraCfg(
+                    # Playback emits one video stream, so own one camera in
+                    # env 0 rather than allocating an RTX render product for
+                    # every policy-eval environment. This mirrors the
+                    # IsaacGym capture path and keeps camera cost independent
+                    # of ``training.play_env_num``.
+                    prim_path="/World/envs/env_0/UniLabCamera",
+                    update_period=0.0,
+                    data_types=["rgb"],
+                    width=self.render_width,
+                    height=self.render_height,
+                    spawn=sim_utils.PinholeCameraCfg(
+                        focal_length=24.0,
+                        focus_distance=400.0,
+                        horizontal_aperture=20.955,
+                        clipping_range=(0.1, 1.0e5),
+                    ),
+                )
+                self.camera = Camera(camera_cfg)
         # Apply IsaacLab's PhysX collision-group filtering before the first
         # reset/step.  Without this stage operation, the translated clones
         # can still collide when a reset puts two local roots at the same pose.
@@ -259,6 +354,14 @@ class _WorkerContext:
             self.collision_filtering_applied = True
         self.sim.reset()
         self.robot.update(self.sim_dt)
+        if self.camera is not None:
+            if not self.camera.is_initialized:
+                raise RuntimeError(
+                    "IsaacSim RGB camera did not initialize; ensure the Kit experience "
+                    "was launched with enable_cameras=True"
+                )
+            self.camera.reset()
+            self.camera.update(self.sim_dt, force_recompute=True)
 
         self.native_joint_names = [str(name) for name in self.robot.joint_names]
         self.native_body_names = [str(name) for name in self.robot.body_names]
@@ -289,7 +392,10 @@ class _WorkerContext:
             "effort": self._joint_limits()[2],
             "gravity": [0.0, 0.0, -9.81],
             "use_gpu_pipeline": True,
-            "graphics_enabled": False,
+            "graphics_enabled": render_mode != "none",
+            "render_mode": render_mode,
+            "render_width": self.render_width,
+            "render_height": self.render_height,
             "native_dof_names": list(self.native_joint_names),
             "native_body_names": list(self.native_body_names),
             "usd_path": str(converter.usd_path),
@@ -520,12 +626,176 @@ class _WorkerContext:
             "body_names": list(self.contract_body_names),
             "gravity": [0.0, 0.0, -9.81],
             "use_gpu_pipeline": True,
-            "graphics_enabled": False,
+            "graphics_enabled": self.render_mode != "none",
+            "render_mode": self.render_mode,
+            "render_width": self.render_width,
+            "render_height": self.render_height,
             "env_origins": self.env_origins.tolist(),
             "collision_filtering_applied": self.collision_filtering_applied,
         }
 
+    # ------------------------------------------------------------------
+    # Native rendering (cold setup + eval/play commands)
+    # ------------------------------------------------------------------
+
+    def _require_render_mode(self, expected: str) -> None:
+        if self.render_mode != expected:
+            raise RuntimeError(
+                "isaacsim renderer request is incompatible with the worker startup mode: "
+                f"worker={self.render_mode!r}, requested={expected!r}"
+            )
+
+    def _camera_view(self) -> tuple[Any, Any]:
+        """Return batched eye/target tensors for the spherical tracking view."""
+        if self.robot is None:
+            raise RuntimeError("isaacsim camera requested before articulation initialization")
+        root_pos = self.robot.data.root_pos_w
+        if tuple(root_pos.shape) != (self.num_envs, 3):
+            raise RuntimeError(
+                f"IsaacLab root positions have shape {root_pos.shape}; expected "
+                f"({self.num_envs}, 3) for camera tracking"
+            )
+        elevation = math.radians(self.camera_elevation_deg)
+        azimuth = math.radians(self.camera_azimuth_deg)
+        offset = self.camera_distance * np.asarray(
+            [
+                math.cos(elevation) * math.cos(azimuth),
+                math.cos(elevation) * math.sin(azimuth),
+                math.sin(elevation),
+            ],
+            dtype=np.float32,
+        )
+        offset_tensor = _to_tensor(self.torch, offset, self.device)
+        targets = root_pos.clone()
+        targets[:, 2] += 0.5
+        eyes = targets + offset_tensor[None, :]
+        return eyes, targets
+
+    def _set_capture_camera(self) -> None:
+        if self.camera is None:
+            raise RuntimeError(
+                "isaacsim capture camera is unavailable; worker was not started in record mode"
+            )
+        eyes, targets = self._camera_view()
+        self.camera.set_world_poses_from_view(eyes[0:1], targets[0:1])
+
+    def _set_viewport_camera(self) -> None:
+        if self.sim is None:
+            raise RuntimeError(
+                "isaacsim viewport requested before SimulationContext initialization"
+            )
+        eyes, targets = self._camera_view()
+        # SimulationContext.set_camera_view accepts Python sequences and uses
+        # the first environment for the default viewport.
+        eye = eyes[0].detach().cpu().tolist()
+        target = targets[0].detach().cpu().tolist()
+        self.sim.set_camera_view(eye=eye, target=target)
+        self.viewport_camera_initialized = True
+
+    @staticmethod
+    def _app_is_running(app: Any) -> bool:
+        """Read the documented SimulationApp lifecycle state."""
+        try:
+            return bool(app.is_running()) and not bool(app.is_exiting())
+        except Exception:
+            # A closed Kit app may invalidate the Python proxy before the
+            # status methods can be queried. Treat that as a closed window.
+            return False
+
+    def init_renderer(self, payload: dict[str, Any]) -> dict[str, Any]:
+        headless = bool(payload.get("headless", False))
+        capture = bool(payload.get("capture", False))
+        requested = "record" if (headless or capture) else "interactive"
+        self._require_render_mode(requested)
+        width = int(payload.get("width", self.render_width))
+        height = int(payload.get("height", self.render_height))
+        if width != self.render_width or height != self.render_height:
+            raise ValueError(
+                "isaacsim renderer dimensions differ from INIT: "
+                f"requested={width}x{height}, configured={self.render_width}x{self.render_height}"
+            )
+        camera = payload.get("camera") or {}
+        self.camera_distance = float(camera.get("distance", 2.0))
+        self.camera_elevation_deg = float(camera.get("elevation_deg", 20.0))
+        self.camera_azimuth_deg = float(camera.get("azimuth_deg", 90.0))
+        if (
+            not np.isfinite(
+                [self.camera_distance, self.camera_elevation_deg, self.camera_azimuth_deg]
+            ).all()
+            or self.camera_distance <= 0.0
+        ):
+            raise ValueError(
+                "isaacsim camera distance/elevation/azimuth must be finite and distance > 0"
+            )
+
+        if requested == "record":
+            if not capture:
+                raise RuntimeError("isaacsim record renderer requires capture=true")
+            self._set_capture_camera()
+            # Warm up Hydra/Replicator once on the cold path. Camera buffers
+            # are then ready for the first playback frame.
+            self.sim.render()
+            self.camera.update(self.sim_dt, force_recompute=True)
+            return {"viewer": False, "capture": True}
+
+        if headless or capture:
+            raise RuntimeError(
+                "isaacsim interactive renderer cannot be headless or capture-enabled"
+            )
+        self._set_viewport_camera()
+        self.sim.render()
+        return {"viewer": self._app_is_running(self.simulation_app), "capture": False}
+
+    def render_frame(self) -> dict[str, Any]:
+        self._require_render_mode("interactive")
+        if not self.viewport_camera_initialized:
+            raise RuntimeError("isaacsim viewport is not initialized; call INIT_RENDERER first")
+        if not self._app_is_running(self.simulation_app):
+            return {"closed": True}
+        self._set_viewport_camera()
+        self.sim.render()
+        return {"closed": not self._app_is_running(self.simulation_app)}
+
+    def capture_frame(self) -> dict[str, Any]:
+        self._require_render_mode("record")
+        if self.camera is None:
+            raise RuntimeError(
+                "isaacsim capture camera is not initialized; call INIT_RENDERER first"
+            )
+        self._set_capture_camera()
+        self.sim.render()
+        self.camera.update(self.sim_dt, force_recompute=True)
+        output = self.camera.data.output
+        if not isinstance(output, dict) or "rgb" not in output:
+            raise RuntimeError(
+                f"IsaacSim camera did not return an rgb output; available={list(output) if isinstance(output, dict) else output!r}"
+            )
+        image = output["rgb"]
+        if not isinstance(image, self.torch.Tensor):
+            raise RuntimeError("IsaacSim camera rgb output is not a torch tensor")
+        frame = np.asarray(image[0].detach().cpu().numpy())
+        if frame.ndim != 3 or frame.shape != (self.render_height, self.render_width, 3):
+            raise RuntimeError(
+                "IsaacSim camera rgb output has invalid shape: "
+                f"got {frame.shape}, expected {(self.render_height, self.render_width, 3)}"
+            )
+        if frame.dtype != np.uint8:
+            # IsaacLab's RGB annotator is uint8 by contract. Refuse lossy
+            # coercion when an IsaacSim release changes that surface.
+            raise RuntimeError(
+                f"IsaacSim camera rgb output has dtype {frame.dtype}, expected uint8"
+            )
+        frame = np.ascontiguousarray(frame)
+        if frame.size == 0 or int(np.ptp(frame)) == 0:
+            raise RuntimeError("IsaacSim camera returned an empty or uniform RGB frame")
+        return {
+            "frame": frame,
+            "width": self.render_width,
+            "height": self.render_height,
+        }
+
     def shutdown(self) -> None:
+        self.camera = None
         for handle in self._shm_handles:
             try:
                 handle.close()
@@ -555,9 +825,13 @@ def _dispatch(ctx: _WorkerContext, protocol: Any, cmd: str, payload: Any) -> tup
         return protocol.CMD_READY, None
     if cmd == protocol.CMD_GET_META:
         return protocol.CMD_META, ctx.get_meta()
-    raise NotImplementedError(
-        f"isaacsim worker command {cmd!r} is unsupported; this backend is headless physics only"
-    )
+    if cmd == protocol.CMD_INIT_RENDERER:
+        return protocol.CMD_META, ctx.init_renderer(payload or {})
+    if cmd == protocol.CMD_RENDER_FRAME:
+        return protocol.CMD_META, ctx.render_frame()
+    if cmd == protocol.CMD_CAPTURE_FRAME:
+        return protocol.CMD_META, ctx.capture_frame()
+    raise NotImplementedError(f"isaacsim worker command {cmd!r} is unsupported")
 
 
 def main(argv: list[str]) -> int:
