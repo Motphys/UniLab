@@ -19,6 +19,7 @@ from unilab.base.config_overrides import (
 from unilab.managers._buffers import CircularBuffer, DelayBuffer
 from unilab.managers._noise import noise_cfg, noise_model
 from unilab.managers._noise.noise_cfg import NoiseCfg, NoiseModelCfg
+from unilab.managers._profiling import profile_segment
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
 
 if TYPE_CHECKING:
@@ -371,10 +372,12 @@ class ObservationManager(ManagerBase):
         # the same raw output (the per-term pipeline never mutates func outputs
         # in place), so later groups reuse the first group's raw result.
         share_cache: dict[tuple, np.ndarray] = {}
+        profile_phase = "reset" if env_ids is not None else "step"
         for group_name in self._group_obs_term_names:
-            obs_buffer[group_name] = self.compute_group(
-                group_name, update_history, env_ids, share_cache=share_cache
-            )
+            with profile_segment(f"total/{group_name}|{profile_phase}"):
+                obs_buffer[group_name] = self.compute_group(
+                    group_name, update_history, env_ids, share_cache=share_cache
+                )
         if env_ids is None:
             self._obs_buffer = obs_buffer
         return obs_buffer
@@ -414,12 +417,14 @@ class ObservationManager(ManagerBase):
         # noise is drawn for the reset rows only — issue #1349 removed the
         # full-batch RNG-stream parity requirement.
         row_scoped = env_ids is not None and not self._group_obs_temporal[group_name]
+        profile_phase = "reset" if env_ids is not None else "step"
         for term_name, term_cfg in obs_terms:
             share_key = share_map.get(term_name)
             if share_key is not None and share_key in share_cache:
                 obs = share_cache[share_key]
             else:
-                obs = term_cfg.func(self._env, **term_cfg.params)
+                with profile_segment(f"term/{group_name}/{term_name}|{profile_phase}"):
+                    obs = term_cfg.func(self._env, **term_cfg.params)
                 if share_key is not None:
                     share_cache[share_key] = obs
             if not isinstance(obs, np.ndarray):
@@ -438,15 +443,18 @@ class ObservationManager(ManagerBase):
                 # rows only (issue #1349 removed the full-batch RNG-stream
                 # parity requirement). Fancy indexing already returns a fresh
                 # row copy, safe for the in-place clip/scale below.
-                obs = obs[env_ids]
+                with profile_segment(f"copy/{group_name}/{term_name}|{profile_phase}"):
+                    obs = obs[env_ids]
                 fresh = True
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
                 # NoiseCfg.apply always returns a newly allocated array.
-                obs = term_cfg.noise.apply(obs, rng=self._env.rng)
+                with profile_segment(f"noise/{group_name}/{term_name}|{profile_phase}"):
+                    obs = term_cfg.noise.apply(obs, rng=self._env.rng)
                 fresh = True
             elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
                 # NoiseModel.__call__ likewise returns a new array.
-                obs = self._group_obs_class_instances[group_name][term_name](obs)
+                with profile_segment(f"noise/{group_name}/{term_name}|{profile_phase}"):
+                    obs = self._group_obs_class_instances[group_name][term_name](obs)
                 fresh = True
             sanitizes_per_term = group_cfg.nan_check_per_term and group_cfg.nan_policy in (
                 "warn",
@@ -470,13 +478,16 @@ class ObservationManager(ManagerBase):
                 # Concatenation and temporal buffers already copy their inputs.
                 # Only take a defensive copy when this pipeline may mutate the
                 # term or expose it directly to callers.
-                obs = obs.copy()
+                with profile_segment(f"copy/{group_name}/{term_name}|{profile_phase}"):
+                    obs = obs.copy()
             if term_cfg.clip:
-                np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
+                with profile_segment(f"clip/{group_name}/{term_name}|{profile_phase}"):
+                    np.clip(obs, term_cfg.clip[0], term_cfg.clip[1], out=obs)
             if term_cfg.scale is not None:
                 scale = term_cfg.scale
                 assert isinstance(scale, np.ndarray)
-                np.multiply(obs, scale, out=obs)
+                with profile_segment(f"scale/{group_name}/{term_name}|{profile_phase}"):
+                    np.multiply(obs, scale, out=obs)
 
             # Check for NaN/Inf before delay/history buffers (per-term checking).
             if (
@@ -484,33 +495,37 @@ class ObservationManager(ManagerBase):
                 and group_cfg.nan_policy != "disabled"
                 and not defer_error_nan_check
             ):
-                obs = self._check_and_handle_nans(
-                    obs,
-                    context=f"{group_name}/{term_name}",
-                    policy=group_cfg.nan_policy,
-                    env_ids=env_ids if row_scoped else None,
-                )
+                with profile_segment(f"nan/{group_name}/{term_name}|{profile_phase}"):
+                    obs = self._check_and_handle_nans(
+                        obs,
+                        context=f"{group_name}/{term_name}",
+                        policy=group_cfg.nan_policy,
+                        env_ids=env_ids if row_scoped else None,
+                    )
 
             if term_cfg.delay_max_lag > 0:
-                delay_buffer = self._group_obs_term_delay_buffer[group_name][term_name]
-                if env_ids is None or not delay_buffer.is_initialized:
-                    delay_buffer.append(obs)
-                    obs = delay_buffer.compute()
-                else:
-                    delay_buffer.backfill(obs, env_ids)
-                    obs = delay_buffer.peek()
+                with profile_segment(f"delay/{group_name}/{term_name}|{profile_phase}"):
+                    delay_buffer = self._group_obs_term_delay_buffer[group_name][term_name]
+                    if env_ids is None or not delay_buffer.is_initialized:
+                        delay_buffer.append(obs)
+                        obs = delay_buffer.compute()
+                    else:
+                        delay_buffer.backfill(obs, env_ids)
+                        obs = delay_buffer.peek()
             if term_cfg.history_length > 0:
-                circular_buffer = self._group_obs_term_history_buffer[group_name][term_name]
-                if env_ids is None or not circular_buffer.is_initialized:
-                    if update_history or not circular_buffer.is_initialized:
-                        circular_buffer.append(obs)
-                else:
-                    circular_buffer.backfill(obs, env_ids)
+                with profile_segment(f"history/{group_name}/{term_name}|{profile_phase}"):
+                    circular_buffer = self._group_obs_term_history_buffer[group_name][term_name]
+                    if env_ids is None or not circular_buffer.is_initialized:
+                        if update_history or not circular_buffer.is_initialized:
+                            circular_buffer.append(obs)
+                    else:
+                        circular_buffer.backfill(obs, env_ids)
 
-                if term_cfg.flatten_history_dim:
-                    group_obs[term_name] = circular_buffer.buffer.reshape(self._env.num_envs, -1)
-                else:
-                    group_obs[term_name] = circular_buffer.buffer
+                    if term_cfg.flatten_history_dim:
+                        history_obs = circular_buffer.buffer.reshape(self._env.num_envs, -1)
+                    else:
+                        history_obs = circular_buffer.buffer
+                group_obs[term_name] = history_obs
             else:
                 group_obs[term_name] = obs
 
@@ -520,20 +535,23 @@ class ObservationManager(ManagerBase):
                 # Will check after concatenation below.
                 pass
             else:
-                for term_name in group_obs:
-                    group_obs[term_name] = self._check_and_handle_nans(
-                        group_obs[term_name],
-                        context=f"{group_name}/{term_name}",
-                        policy=group_cfg.nan_policy,
-                        env_ids=env_ids if row_scoped else None,
-                    )
+                with profile_segment(f"group_nan/{group_name}|{profile_phase}"):
+                    for term_name in group_obs:
+                        group_obs[term_name] = self._check_and_handle_nans(
+                            group_obs[term_name],
+                            context=f"{group_name}/{term_name}",
+                            policy=group_cfg.nan_policy,
+                            env_ids=env_ids if row_scoped else None,
+                        )
 
         if self._group_obs_concatenate[group_name]:
-            result = np.concatenate(
-                list(group_obs.values()), axis=self._group_obs_concatenate_dim[group_name]
-            )
+            with profile_segment(f"concat/{group_name}|{profile_phase}"):
+                result = np.concatenate(
+                    list(group_obs.values()), axis=self._group_obs_concatenate_dim[group_name]
+                )
             if defer_error_nan_check:
-                finite = np.isfinite(result)
+                with profile_segment(f"group_nan/{group_name}|{profile_phase}"):
+                    finite = np.isfinite(result)
                 if not finite.all():
                     axis = self._group_obs_concatenate_dim[group_name]
                     axis = axis if axis >= 0 else result.ndim + axis
@@ -561,12 +579,13 @@ class ObservationManager(ManagerBase):
                         offset += width
             # Final check for concatenated result (non-per-term checking).
             if not group_cfg.nan_check_per_term and group_cfg.nan_policy != "disabled":
-                result = self._check_and_handle_nans(
-                    result,
-                    context=group_name,
-                    policy=group_cfg.nan_policy,
-                    env_ids=env_ids if row_scoped else None,
-                )
+                with profile_segment(f"group_nan/{group_name}|{profile_phase}"):
+                    result = self._check_and_handle_nans(
+                        result,
+                        context=group_name,
+                        policy=group_cfg.nan_policy,
+                        env_ids=env_ids if row_scoped else None,
+                    )
         else:
             result = group_obs
 
@@ -574,10 +593,11 @@ class ObservationManager(ManagerBase):
             # Groups with delay/history terms ran the full-batch pipeline above
             # (buffer readout stays full-batch); slice the reset rows to match
             # the reset-path return contract.
-            if isinstance(result, dict):
-                result = {name: values[env_ids] for name, values in result.items()}
-            else:
-                result = result[env_ids]
+            with profile_segment(f"rows/{group_name}|{profile_phase}"):
+                if isinstance(result, dict):
+                    result = {name: values[env_ids] for name, values in result.items()}
+                else:
+                    result = result[env_ids]
 
         return result
 
