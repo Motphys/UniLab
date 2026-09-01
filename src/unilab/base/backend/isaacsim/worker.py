@@ -124,7 +124,6 @@ class _WorkerContext:
         self.camera_distance = 2.0
         self.camera_elevation_deg = 20.0
         self.camera_azimuth_deg = 90.0
-        self.viewport_camera_initialized = False
         self.native_joint_names: list[str] = []
         self.native_body_names: list[str] = []
         self.contract_joint_names: list[str] = []
@@ -687,19 +686,6 @@ class _WorkerContext:
         eyes, targets = self._camera_view()
         self.camera.set_world_poses_from_view(eyes[0:1], targets[0:1])
 
-    def _set_viewport_camera(self) -> None:
-        if self.sim is None:
-            raise RuntimeError(
-                "isaacsim viewport requested before SimulationContext initialization"
-            )
-        eyes, targets = self._camera_view()
-        # SimulationContext.set_camera_view accepts Python sequences and uses
-        # the first environment for the default viewport.
-        eye = eyes[0].detach().cpu().tolist()
-        target = targets[0].detach().cpu().tolist()
-        self.sim.set_camera_view(eye=eye, target=target)
-        self.viewport_camera_initialized = True
-
     @staticmethod
     def _app_is_running(app: Any) -> bool:
         """Read the documented SimulationApp lifecycle state."""
@@ -750,17 +736,15 @@ class _WorkerContext:
             raise RuntimeError(
                 "isaacsim interactive renderer cannot be headless or capture-enabled"
             )
-        self._set_viewport_camera()
+        # Leave the Kit viewport camera under user control.  The interactive
+        # viewer must not be re-aimed at the robot during startup or playback.
         self.sim.render()
         return {"viewer": self._app_is_running(self.simulation_app), "capture": False}
 
     def render_frame(self) -> dict[str, Any]:
         self._require_render_mode("interactive")
-        if not self.viewport_camera_initialized:
-            raise RuntimeError("isaacsim viewport is not initialized; call INIT_RENDERER first")
         if not self._app_is_running(self.simulation_app):
             return {"closed": True}
-        self._set_viewport_camera()
         self.sim.render()
         return {"closed": not self._app_is_running(self.simulation_app)}
 
