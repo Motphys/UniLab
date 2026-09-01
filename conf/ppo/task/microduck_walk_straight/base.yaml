@@ -1,0 +1,60 @@
+# @package _global_
+# Straight-walk teaching profile for MicroDuck's Manager-Based task.
+#
+# The environment and 61D/76D observation contracts remain owned by
+# microduck_velocity_flat. This profile narrows the command distribution and
+# changes only command/curriculum semantics needed for natural forward gait
+# training.
+defaults:
+  - /task/microduck_velocity_flat/base
+  - _self_
+
+env:
+  commands:
+    twist:
+      rel_standing_envs: 0.1
+      heading_command: true
+      heading_control_stiffness: 0.5
+      rel_heading_envs: 1.0
+      rel_world_envs: 0.0
+      # y/wz are already fixed to zero. Keep this disabled: the generic
+      # "forward env" branch clamps vx to at least 0.3 m/s.
+      rel_forward_envs: 0.0
+      turn_in_place_fraction: 0.0
+      ranges:
+        lin_vel_x: [0.2, 0.3]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [-1.0, 1.0]
+        heading: [0.0, 0.0]
+    head_pose:
+      ranges:
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+    body_pose:
+      ranges:
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+        - [0.0, 0.0]
+  curriculum:
+    # These inherited curricula widen the general velocity recipe and would
+    # silently invalidate this profile's fixed straight/head command contract.
+    standing_envs: null
+    head_pose_range: null
+
+reward:
+  # Mildly favor continuous support without repeating the over-constrained
+  # legacy port (which used -15 flight weight and collapsed forward speed).
+  flight_phase:
+    weight: -3.0
+  single_stance_air_time:
+    func: unilab.tasks.locomotion.microduck.manager_terms.foot_air_time_biped
+    weight: 0.5
+    params:
+      threshold: 0.2
+      command_threshold: 0.01
+      command_name: twist

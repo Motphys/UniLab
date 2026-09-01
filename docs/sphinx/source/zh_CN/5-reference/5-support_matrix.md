@@ -86,6 +86,7 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested | - |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested | - |
 | PPO (torch) | `microduck_velocity_flat` (microduck velocity flat) | Tested | Registered | - | - |
+| PPO (torch) | `microduck_walk_straight` (microduck walk straight) | Tested | Registered | - | - |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested | - |
 | PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested | - |

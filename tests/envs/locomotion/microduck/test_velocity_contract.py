@@ -50,14 +50,16 @@ JOINT_NAMES = (
 )
 
 
-def _compose_owner():
+def _compose_owner(task: str = "microduck_velocity_flat/mujoco"):
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR), version_base="1.3"):
-        return compose("config", overrides=["task=microduck_velocity_flat/mujoco"])
+        return compose("config", overrides=[f"task={task}"])
 
 
-def _materialize_owner() -> tuple[Any, ManagerBasedRlEnvCfg]:
-    cfg = _compose_owner()
+def _materialize_owner(
+    task: str = "microduck_velocity_flat/mujoco",
+) -> tuple[Any, ManagerBasedRlEnvCfg]:
+    cfg = _compose_owner(task)
     registry.ensure_registries()
     override = BackendAdapter(
         cfg,
@@ -245,6 +247,42 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
     assert base_com_stages[-1]["params"]["com_range"]["x"] == [-0.015, 0.015]
     head_com_stages = env_cfg.curriculum["head_com_range"].params["stages"]
     assert head_com_stages[-1]["params"]["com_range"]["x"] == [-0.01, 0.01]
+
+
+def test_microduck_walk_straight_profile_preserves_deployment_contract() -> None:
+    cfg, env_cfg = _materialize_owner("microduck_walk_straight/mujoco")
+    env_cfg = cast(Any, env_cfg)
+
+    assert cfg.training.task_name == "MicroduckVelocityFlat"
+    assert cfg.algo.obs_groups.actor == ["policy"]
+    assert cfg.algo.obs_groups.critic == ["critic"]
+    assert sum(dim for _, dim in MICRODUCK_OBS_SEGMENTS) == MICRODUCK_ACTOR_OBS_DIM
+    assert MICRODUCK_ACTOR_OBS_DIM == 61
+    assert MICRODUCK_CRITIC_OBS_DIM == 76
+
+    action = env_cfg.actions["joint_pos"]
+    assert action.scale == pytest.approx(1.0)
+
+    twist = env_cfg.commands["twist"]
+    assert twist.ranges.lin_vel_x == [0.2, 0.3]
+    assert twist.ranges.lin_vel_y == [0.0, 0.0]
+    assert twist.ranges.ang_vel_z == [-1.0, 1.0]
+    assert twist.ranges.heading == [0.0, 0.0]
+    assert twist.rel_forward_envs == pytest.approx(0.0)
+    assert twist.rel_heading_envs == pytest.approx(1.0)
+    assert twist.heading_command is True
+    assert twist.turn_in_place_fraction == pytest.approx(0.0)
+
+    air_time = env_cfg.rewards["air_time"]
+    assert air_time.weight == pytest.approx(3.0)
+    assert air_time.params["threshold_min"] == pytest.approx(0.125)
+    assert air_time.params["threshold_max"] == pytest.approx(0.3)
+    single_stance = env_cfg.rewards["single_stance_air_time"]
+    assert single_stance.weight == pytest.approx(0.5)
+    assert single_stance.params["threshold"] == pytest.approx(0.2)
+    assert env_cfg.rewards["flight_phase"].weight == pytest.approx(-3.0)
+    assert env_cfg.curriculum["standing_envs"] is None
+    assert env_cfg.curriculum["head_pose_range"] is None
 
 
 def test_microduck_registry_and_factory_are_manager_based(monkeypatch) -> None:
