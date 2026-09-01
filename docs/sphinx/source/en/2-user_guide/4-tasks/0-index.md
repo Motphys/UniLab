@@ -1,7 +1,7 @@
 # Tasks
 
 Task pages are grouped by user goal. Exact runnable combinations are backed by
-owner YAMLs under `conf/` and summarized in {doc}`../../5-reference/5-support_matrix`.
+owner YAMLs under `src/unilab/conf/` and summarized in {doc}`../../5-reference/5-support_matrix`.
 
 ::::{grid} 1 1 2 2
 :gutter: 3

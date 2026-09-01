@@ -159,7 +159,9 @@ _LEGACY_SCALAR_ACTION_SCALE = {
 
 def _compose_owner(config_root: str, task: str, backend: str) -> Any:
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_ROOT / "conf" / config_root), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(_ROOT / "src" / "unilab" / "conf" / config_root), version_base="1.3"
+    ):
         overrides = [f"task={task}/{backend}"]
         return compose("config", overrides=overrides)
 

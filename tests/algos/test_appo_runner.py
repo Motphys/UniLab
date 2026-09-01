@@ -52,7 +52,9 @@ def test_appo_runner_learn_two_iterations(env_name):
 
     root_dir = Path(__file__).parents[2]
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(root_dir / "conf" / "appo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(root_dir / "src" / "unilab" / "conf" / "appo"), version_base="1.3"
+    ):
         hydra_cfg = compose("config", overrides=["task=go2_joystick_flat/mujoco"])
     env_cfg_overrides = BackendAdapter(hydra_cfg, root_dir=root_dir).build_task_env_cfg_override()
 

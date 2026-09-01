@@ -65,10 +65,11 @@ make setup-motrix
 
 如果不需要 Motrix，可使用 `make setup`；ROCm / XPU 仍走下方专用的 `make` 路径。
 
-`pip install -e .` 和 `pip install .` 当前只适合源码 checkout 内的开发验证，尚不支
-持通过构建好的 wheel / sdist 在任意目录直接运行训练。训练入口仍依赖仓库中的
-`conf/` 和 `scripts/`。pip-only 安装、仓库外运行以及正式发布 wheel 的验证路径由
-#360 跟踪。
+`pip install -e .` 和 `pip install .` 构建的 wheel 已打包任务配置
+（`unilab/conf/`）与训练入口，因此 `train` / `eval` / `demo` 命令可以在任意目录运
+行；日志与 checkpoint 写入当前工作目录。仍有两项限制：isaacgym / isaacsim 后端和
+HORA 多卡提交路径仍假设源码 checkout；任务配置中的机器人资产路径仍相对 checkout
+解析，需等待 #1326 的资产外置子任务落地。
 
 ## 平台配置档
 

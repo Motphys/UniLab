@@ -35,7 +35,7 @@ fi
 for scale in "$@"; do
   echo "[sharpa_collect_grasps] collecting backend=${backend} scale=${scale}"
 
-  uv run scripts/train_rsl_rl.py \
+  uv run src/unilab/scripts/train_rsl_rl.py \
     "task=sharpa_inhand_grasp/${backend}" \
     "env.domain_rand.scale_list=[${scale}]" \
     "${extra_args[@]}"

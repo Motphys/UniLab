@@ -42,7 +42,9 @@ def test_x2_wall_flip_wires_render_only_visual_twin() -> None:
     from unilab.base.config_materialization import apply_cfg_overrides
 
     repo_root = Path(__file__).parents[3]
-    with initialize_config_dir(config_dir=str(repo_root / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         owner = compose("config", overrides=["task=x2_wall_flip_tracking/mujoco"])
     registry.ensure_registries()
     cfg = registry.materialize_env_config("X2WallFlipTracking")

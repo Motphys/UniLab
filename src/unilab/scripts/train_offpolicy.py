@@ -1,8 +1,8 @@
 """Shared off-policy (SAC/TD3/FlashSAC) train/play implementation.
 
 This module is no longer runnable directly; use the per-algorithm entry
-scripts instead: ``scripts/train_sac.py``, ``scripts/train_td3.py``, and
-``scripts/train_flashsac.py``.
+scripts instead: ``unilab/scripts/train_sac.py``, ``unilab/scripts/train_td3.py``, and
+``unilab/scripts/train_flashsac.py``.
 """
 
 from __future__ import annotations
@@ -15,9 +15,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from omegaconf import DictConfig, OmegaConf
-
-ROOT_DIR = Path(__file__).parent.parent
-sys.path.append(str(ROOT_DIR))
 
 from unilab.base.backend.base import log_playback_plan
 from unilab.base.backend.process_device import configure_backend_process_device
@@ -87,11 +84,11 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
 
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
-    return _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=ROOT_DIR)
+    return _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
 
 
 def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
-    return _build_offpolicy_play_env_cfg_override(algo_name, cfg, root_dir=ROOT_DIR)
+    return _build_offpolicy_play_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
 
 
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
@@ -221,7 +218,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     import torch
 
     load_path, load_path_dir = resolve_checkpoint_path(
-        ROOT_DIR,
+        Path.cwd(),
         cfg.algo.algo_log_name,
         cfg.training.task_name,
         cfg.algo.load_run,
@@ -252,7 +249,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             num_envs=n,
             env_cfg_override=build_offpolicy_play_env_cfg_override(algo_name, cfg),
         ),
-        root_dir=ROOT_DIR,
+        root_dir=Path.cwd(),
         device=device,
         algo_name=algo_name,
     )
@@ -284,6 +281,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         with torch.inference_mode():
             if normalizer:
                 dummy_input = normalizer(dummy_input, update=False)
+            assert actor is not None
             if algo_name in ("sac", "flashsac"):
                 export_module = actor.as_export_module()
             else:
@@ -327,7 +325,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     if play_video_path is not None:
         print(f"Saving video to {play_video_path} ...")
     print("Done.")
-    return play_video_path
+    return cast("str | None", play_video_path)
 
 
 def main(cfg: DictConfig) -> None:
@@ -350,7 +348,7 @@ def main(cfg: DictConfig) -> None:
             str(cfg.training.sim_backend),
             world_size=len(devices) if devices is not None else 1,
         )
-        log_dir = str(get_log_root(ROOT_DIR, cfg) / task_name / run_dir_name)
+        log_dir = str(get_log_root(Path.cwd(), cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
     if rank > 0:
@@ -368,7 +366,7 @@ def main(cfg: DictConfig) -> None:
     tracker = None
     if not cfg.training.play_only and rank == 0:
         tracker = ExperimentTracker(
-            root_dir=ROOT_DIR,
+            root_dir=Path.cwd(),
             log_dir=log_dir,
             algo_name=algo_name,
             task_name=task_name,
@@ -428,7 +426,7 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(
-        "scripts/train_offpolicy.py is a shared implementation module and is no longer "
-        "runnable directly. Use scripts/train_sac.py, scripts/train_td3.py, or "
-        "scripts/train_flashsac.py instead."
+        "unilab/scripts/train_offpolicy.py is a shared implementation module and is no "
+        "longer runnable directly. Use unilab/scripts/train_sac.py, "
+        "unilab/scripts/train_td3.py, or unilab/scripts/train_flashsac.py instead."
     )

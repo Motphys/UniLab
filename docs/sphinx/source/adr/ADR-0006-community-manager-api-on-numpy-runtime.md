@@ -256,7 +256,7 @@ Apache-2.0 和 UniLab 的修改类别。实现 PR 分别报告：
 - Backend contract: `src/unilab/base/backend/base.py`
 - Scene config owner: `src/unilab/base/scene.py`
 - Config schema and registry: `src/unilab/structured_configs.py`,
-  `src/unilab/base/config_materialization.py`, `src/unilab/base/registry.py`, `conf/`
+  `src/unilab/base/config_materialization.py`, `src/unilab/base/registry.py`, `src/unilab/conf/`
 - Observation/IPC contract: `docs/sphinx/source/adr/ADR-0005-unified-obs-critic-env-and-ipc-contract.md`
 - Layer boundary: `docs/sphinx/source/adr/ADR-0001-runtime-model-and-layer-boundaries.md`
 - Upstream checkout used for the decision:

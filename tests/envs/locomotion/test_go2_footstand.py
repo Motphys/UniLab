@@ -31,7 +31,7 @@ from unilab.tasks.locomotion.go2.footstand import (
 )
 
 ROOT_DIR = Path(__file__).parents[3]
-CONF_DIR = ROOT_DIR / "conf"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
 
 _JOINT_NAMES = (
     "FL_hip_joint",

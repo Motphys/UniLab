@@ -315,7 +315,7 @@ def _print_manual_recipe():
                    self._nan_done = True
 
         3. Run a short training, e.g. (APPO):
-               python scripts/train_appo.py task=go1_joystick_flat/mujoco \\
+               python src/unilab/scripts/train_appo.py task=go1_joystick_flat/mujoco \\
                  algo.num_envs=8 algo.num_steps_per_env=4 \\
                  algo.train_for_env_steps=64 \\
                  training.nan_guard.enabled=true \\
@@ -324,8 +324,9 @@ def _print_manual_recipe():
         4. Verify a dump file appears under the output_dir.
         5. Revert the env edit.
 
-        Repeat with scripts/train_sac.py, scripts/train_td3.py, or
-        scripts/train_flashsac.py to exercise SAC/TD3/FlashSAC.
+        Repeat with src/unilab/scripts/train_sac.py,
+        src/unilab/scripts/train_td3.py, or src/unilab/scripts/train_flashsac.py
+        to exercise SAC/TD3/FlashSAC.
     """).strip()
     )
     print()

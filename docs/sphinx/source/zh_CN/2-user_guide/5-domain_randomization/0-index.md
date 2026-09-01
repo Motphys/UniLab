@@ -5,7 +5,7 @@
 
 当前存在两条 DR 声明路径：
 
-- **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `conf/ppo/task/go1_joystick_flat/base.yaml` 的 `events:` 段。
+- **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 的 `events:` 段。
 - **legacy provider 路径**：只有 3 个 Adapted family（`sharpa_inhand` / `sharpa_inhand_grasp` / `go2_arm_manip_loco`，含 appo / hora / ppo_him owner）仍通过 `DomainRandomizationProvider` + `DomainRandomizationManager` 声明 `env.domain_rand.*` 配置。
 
 legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization()` 和 `DomainRandomizationManager`：
@@ -33,8 +33,8 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 
 | Task | 声明路径 | 结构化形式？ | reset 形式 | interval 形式 | Code |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset/interval event | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `conf/ppo/task/go1_joystick_flat/base.yaml` |
-| `Go2JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset event | root-state reset + `pd_gains` kp/kd | 无 | `conf/ppo/task/go2_joystick_flat/base.yaml` |
+| `Go1JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset/interval event | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` |
+| `Go2JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset event | root-state reset + `pd_gains` kp/kd | 无 | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` term | 是：Hydra `EventTermCfg` + Manager-Based reset term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
 | `G1WalkRough` | Hydra `events:` term | 是：与 `G1WalkFlat` 相同的 Manager-Based event term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
 | `G1MotionTracking` | Hydra command term | 是：Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame、root pose/velocity 与 joint-position 采样 | 无 | `motion_tracking/common/manager_terms.py` |
@@ -49,8 +49,8 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 
 | Task | 当前已实现的 reset 域随机化 | 当前已实现的 interval 域随机化 | 默认状态 |
 | --- | --- | --- | --- |
-| `Go1JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样（`UniformVelocityCommandCfg`）；经 `randomize_rigid_body_mass` 的 base mass；经 `randomize_rigid_body_com` 的 base COM；经 `pd_gains` 的 kp/kd | `push_by_setting_velocity` interval event | 上述 event term 全部在 `conf/ppo/task/go1_joystick_flat/base.yaml` 中默认声明并启用 |
-| `Go2JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样；经 `pd_gains` 的 kp/kd | 无 | event term 在 `conf/ppo/task/go2_joystick_flat/base.yaml` 中默认声明并启用 |
+| `Go1JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样（`UniformVelocityCommandCfg`）；经 `randomize_rigid_body_mass` 的 base mass；经 `randomize_rigid_body_com` 的 base COM；经 `pd_gains` 的 kp/kd | `push_by_setting_velocity` interval event | 上述 event term 全部在 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 中默认声明并启用 |
+| `Go2JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样；经 `pd_gains` 的 kp/kd | 无 | event term 在 `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` 中默认声明并启用 |
 | `G1WalkFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；带平面死区的 command 采样；`gait_phase` 采样；经 `pd_gains` 的 kp/kd 随机化 | 无 | mujoco owner 默认启用 kp/kd；motrix/mjwarp owner 默认禁用 |
 | `G1WalkRough` | 与 `G1WalkFlat` 相同（共享 owner base，rough 场景） | 无 | 与 `G1WalkFlat` 相同的默认值 |
 | `G1MotionTracking` | Motion-command frame 采样；root 位姿扰动 `x/y/z/roll/pitch/yaw`；root 速度扰动 `x/y/z/roll/pitch/yaw`；通过 public entity soft limit clip 的关节位置噪声；action-manager 状态 reset | 无 | base owner 中 `pose_range`、`velocity_range` 与 `joint_position_range` 默认有非零扰动 |
@@ -165,7 +165,7 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
 
 ## Interval push 用法
 
-`env.domain_rand.push_robots` 系列字段只存在于 go2_arm Adapted family 的 owner（`conf/ppo/task/go2_arm_manip_loco/mujoco.yaml` 等）；Manager-Based 任务改用 `push_by_setting_velocity` interval event term 声明 push（例如 `conf/ppo/task/go1_joystick_flat/base.yaml` 和 `conf/ppo/task/quadruped_joystick_rough/base.yaml`）。
+`env.domain_rand.push_robots` 系列字段只存在于 go2_arm Adapted family 的 owner（`src/unilab/conf/ppo/task/go2_arm_manip_loco/mujoco.yaml` 等）；Manager-Based 任务改用 `push_by_setting_velocity` interval event term 声明 push（例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 和 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`）。
 
 go2_arm owner 在 `env.domain_rand` 下配置 push：
 
@@ -222,8 +222,8 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco \
 
 Sharpa 手是仓库中当前 `geom_size` init 生命周期 DR 的示例任务。相关任务配置：
 
-- `conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
 
 ### 1. 配置入口
 

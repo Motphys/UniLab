@@ -24,7 +24,7 @@
 ## 迁移步骤
 
 1. 把你的 env 移到 `unilab.envs.<family>.<task>/`。
-2. 把你的训练配置转换为 `conf/ppo/<task>/` 下的一个 Hydra 组。
+2. 把你的训练配置转换为 `src/unilab/conf/ppo/<task>/` 下的一个 Hydra 组。
 3. 运行 `uv run train --algo ppo --task <task> --sim <backend>`。
 4. 把 reward 曲线与你独立运行的 RSL-RL 基线对比。
 

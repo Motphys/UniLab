@@ -69,11 +69,13 @@ make setup-motrix
 Use `make setup` if you do not need Motrix. ROCm and XPU still go through the
 platform-specific `make` targets below.
 
-`pip install -e .` and `pip install .` are only for dev verification inside a
-source checkout; they do not yet support running training from an arbitrary
-directory via a built wheel/sdist. The training entrypoints still depend on the
-repository's `conf/` and `scripts/`. The pip-only / out-of-repo / published-wheel
-validation path is tracked by issue #360.
+`pip install -e .` and `pip install .` build a wheel that bundles the task
+configs (`unilab/conf/`) and the training entrypoints, so the `train`, `eval`,
+and `demo` commands work from any directory; logs and checkpoints are written
+under the current working directory. Two limitations remain: the isaacgym /
+isaacsim backends and the HORA multi-GPU submission path still assume a source
+checkout, and robot asset paths in the task configs still resolve relative to
+the checkout until the asset-externalization subtask of #1326 lands.
 
 ## Platform Profiles
 

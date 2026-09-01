@@ -46,7 +46,7 @@ flowchart LR
 ## 策略假定你已配置的内容
 
 策略期望的是其训练 owner 所声明的动作映射与限位。对 G1 WBT owner
-（`conf/sac/task/g1_wbt_obs/mujoco.yaml`）：
+（`src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml`）：
 
 | 量 | 权威来源 |
 | --- | --- |

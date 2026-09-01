@@ -87,8 +87,8 @@ if not VISER_AVAILABLE:
 
 import mujoco
 import viser  # noqa: E402
-from play_interactive import resolve_checkpoint  # noqa: E402
 
+from unilab.scripts.play_interactive import resolve_checkpoint  # noqa: E402
 from unilab.training import algo_config_dict  # noqa: E402
 
 # --------------------------------------------------------------------------- #
@@ -468,7 +468,7 @@ def _build_play_args(cfg: DictConfig) -> PlayInteractiveArgs:
     )
 
 
-@hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
+@hydra.main(version_base="1.3", config_path="../src/unilab/conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     if str(cfg.training.sim_backend) != "mujoco":
         raise ValueError("play_viser.py only supports MuJoCo backend; use task=<task>/mujoco.")

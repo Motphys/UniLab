@@ -4,9 +4,10 @@
 def test_reward_injection_in_offpolicy_env_override():
     """Test reward config is injected without requiring accelerator hardware."""
     from hydra import compose, initialize
-    from scripts.train_offpolicy import build_offpolicy_env_cfg_override
 
-    with initialize(config_path="../../conf/sac", version_base="1.3"):
+    from unilab.scripts.train_offpolicy import build_offpolicy_env_cfg_override
+
+    with initialize(config_path="../../src/unilab/conf/sac", version_base="1.3"):
         cfg = compose(
             config_name="config",
             overrides=[

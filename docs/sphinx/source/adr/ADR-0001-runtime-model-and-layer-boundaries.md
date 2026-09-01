@@ -63,7 +63,7 @@ UniLab 同时支持多种算法入口和两种仿真后端。没有统一 runtim
 - Registry 入口: `src/unilab/base/registry.py`
 - Async runner: `src/unilab/ipc/async_runner.py`
 - PPO distributed adapter: `src/unilab/ipc/dp_launcher.py`,
-  `src/unilab/training/rsl_rl.py`, `scripts/train_rsl_rl.py`
+  `src/unilab/training/rsl_rl.py`, `src/unilab/scripts/train_rsl_rl.py`
 - PPO distributed tests: `tests/ipc/test_dp_launcher.py`,
   `tests/algos/test_rsl_rl_ppo.py`, `tests/scripts/test_train_script_configs.py`
 

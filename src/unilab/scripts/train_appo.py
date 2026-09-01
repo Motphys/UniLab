@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import datetime
 import os
-import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
-
-ROOT_DIR = Path(__file__).parent.parent
-sys.path.append(str(ROOT_DIR))
 
 from unilab.algos.appo.runtime import resolve_appo_runtime
 from unilab.algos.rsl_rl import RslRlVecEnvWrapper
@@ -136,7 +132,7 @@ def run_motrix_play_loop(
 
 
 def _get_log_root(cfg: DictConfig) -> str:
-    return str(get_log_root(ROOT_DIR, cfg))
+    return str(get_log_root(Path.cwd(), cfg))
 
 
 def play_appo(
@@ -203,10 +199,10 @@ def play_appo(
             cfg,
             num_envs=n,
             env_cfg_override=BackendAdapter(
-                cfg, root_dir=ROOT_DIR, algo_name="appo"
+                cfg, root_dir=Path.cwd(), algo_name="appo"
             ).build_play_env_cfg_override(),
         ),
-        root_dir=ROOT_DIR,
+        root_dir=Path.cwd(),
         device=device,
         wrapper_cls=RslRlVecEnvWrapper,
     )
@@ -261,7 +257,7 @@ def play_appo(
     if play_video_path is not None:
         print(f"Saving video to {play_video_path} ...")
     print("Done.")
-    return play_video_path
+    return cast("str | None", play_video_path)
 
 
 @hydra.main(version_base="1.3", config_path="../conf/appo", config_name="config")
@@ -270,7 +266,7 @@ def main(cfg: DictConfig) -> None:
 
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     env_cfg_override = BackendAdapter(
-        cfg, root_dir=ROOT_DIR, algo_name="appo"
+        cfg, root_dir=Path.cwd(), algo_name="appo"
     ).build_task_env_cfg_override()
 
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
@@ -304,7 +300,7 @@ def main(cfg: DictConfig) -> None:
     tracker = None
     if not cfg.training.play_only:
         tracker = ExperimentTracker(
-            root_dir=ROOT_DIR,
+            root_dir=Path.cwd(),
             log_dir=log_dir,
             algo_name="appo",
             task_name=cfg.training.task_name,
@@ -348,7 +344,7 @@ def main(cfg: DictConfig) -> None:
             play_video_path = appo_runtime.play_fn(
                 cfg,
                 rl_cfg,
-                root_dir=ROOT_DIR,
+                root_dir=Path.cwd(),
                 resolve_checkpoint_path=lambda current_cfg: resolve_appo_checkpoint_path(
                     os.path.join(_get_log_root(current_cfg), current_cfg.training.task_name),
                     current_cfg.algo.load_run,

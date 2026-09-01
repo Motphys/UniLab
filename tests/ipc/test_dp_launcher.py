@@ -37,7 +37,7 @@ from unilab.ipc.dp_launcher import (
 )
 
 _ROOT = Path(__file__).parent.parent.parent
-_CONF_DIR = _ROOT / "conf"
+_CONF_DIR = _ROOT / "src" / "unilab" / "conf"
 
 
 def _offpolicy_cfg(overrides: list[str] | None = None):

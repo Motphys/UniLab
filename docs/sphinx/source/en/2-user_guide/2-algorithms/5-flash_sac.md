@@ -1,8 +1,8 @@
 # FlashSAC
 
-FlashSAC runs through `scripts/train_flashsac.py` in its own config tree.
+FlashSAC runs through `src/unilab/scripts/train_flashsac.py` in its own config tree.
 Select it with `--algo flashsac`; defaults are inlined in
-`conf/flashsac/config.yaml`, and the implementation lives under
+`src/unilab/conf/flashsac/config.yaml`, and the implementation lives under
 `src/unilab/algos/flash_sac/`.
 
 It shares the off-policy runner design with SAC and TD3, but does not use the
@@ -18,7 +18,7 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 
 ## Key Fields
 
-For the off-policy playback path (`scripts/train_flashsac.py` / CLI `--algo flashsac`),
+For the off-policy playback path (`src/unilab/scripts/train_flashsac.py` / CLI `--algo flashsac`),
 set `training.export_onnx=false` to skip `policy.onnx` export while still recording
 playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 

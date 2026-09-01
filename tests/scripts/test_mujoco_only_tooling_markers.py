@@ -6,7 +6,7 @@ from pathlib import Path
 def test_mujoco_only_tooling_is_marked_explicitly():
     root = Path(__file__).resolve().parents[2]
     target_files = [
-        root / "scripts" / "play_interactive.py",
+        root / "src" / "unilab" / "scripts" / "play_interactive.py",
         root / "scripts" / "motion" / "csv_to_npz.py",
         root / "scripts" / "motion" / "replay_npz.py",
         root / "scripts" / "motion" / "bones_seed_csv_to_npz.py",

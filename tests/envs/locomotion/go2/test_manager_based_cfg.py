@@ -19,7 +19,7 @@ from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, mdp
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
 
 _JOINT_NAMES = (
     "FL_hip_joint",

@@ -1,8 +1,9 @@
-"""SAC training/playback entrypoint (shared implementation in train_offpolicy.py)."""
+"""SAC training/playback entrypoint (shared implementation in unilab.scripts.train_offpolicy)."""
 
 import hydra
 from omegaconf import DictConfig
-from train_offpolicy import main as _offpolicy_main
+
+from unilab.scripts.train_offpolicy import main as _offpolicy_main
 
 
 @hydra.main(version_base="1.3", config_path="../conf/sac", config_name="config")

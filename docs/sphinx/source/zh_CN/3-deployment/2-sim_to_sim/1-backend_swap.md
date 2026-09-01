@@ -36,7 +36,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix
 ```
 
 CLI 会把 `--algo`、`--task` 和 `--sim` 解析为一个 owner YAML，例如
-`conf/ppo/task/go2_joystick_flat/mujoco.yaml`。如果该文件不存在，则说明该任务
+`src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml`。如果该文件不存在，则说明该任务
 **不支持**这个后端 —— 参见
 {doc}`../../4-developer_guide/2-contracts/3-task_owner`。
 

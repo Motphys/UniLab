@@ -3,8 +3,8 @@
 Heightfield terrain is configured through `SceneCfg` and the terrain generator,
 then materialized by the backend on the init path. The committed user-facing
 example is `Go2JoystickRough`, with owners in
-`conf/ppo/task/go2_joystick_rough/mujoco.yaml` and
-`conf/ppo/task/go2_joystick_rough/motrix.yaml`.
+`src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml` and
+`src/unilab/conf/ppo/task/go2_joystick_rough/motrix.yaml`.
 
 ## Files To Read
 

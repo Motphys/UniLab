@@ -14,7 +14,7 @@ uv sync --extra motrix
 
 ## 何时使用
 
-- task owner 以 `conf/.../<task>/motrix.yaml` 形式存在。
+- task owner 以 `src/unilab/conf/.../<task>/motrix.yaml` 形式存在。
 - 你想要 Motrix 原生交互式回放；该后端提供原生交互式渲染器和视频录制能力。
 - 所生成的支持矩阵将你的 entrypoint/task/backend 组合标记为 configured 或 tested。
 

@@ -7,7 +7,7 @@ NumPy contract，物理与 learner 同进程运行——没有 worker 子进程�
 IPC。
 
 当前状态：`GenesisBackend` 已实现并注册到 registry；`g1_walk_flat` 提供
-PPO 与 SAC owner 配置（`conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`），
+PPO 与 SAC owner 配置（`src/unilab/conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`），
 跨后端契约审计（`scripts/audit_sim2sim_contracts.py`）在两棵 algo 树上
 覆盖 mujoco↔genesis（结论 TRANSFERABLE）。支持等级为 **experimental**。
 现有证据：registry + owner YAML + compose/contract 覆盖，以及真机

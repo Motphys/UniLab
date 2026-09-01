@@ -211,7 +211,7 @@ def test_g1_walk_flat_owner_one_step(
     _require_cuda_mjwarp()
     GlobalHydra.instance().clear()
     with initialize_config_dir(
-        config_dir=str(REPO_ROOT / "conf" / config_group), version_base="1.3"
+        config_dir=str(REPO_ROOT / "src" / "unilab" / "conf" / config_group), version_base="1.3"
     ):
         cfg = compose("config", overrides=overrides)
 

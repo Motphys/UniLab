@@ -8,10 +8,10 @@
 - 后端选择：{doc}`../2-user_guide/3-backends/3-choosing_a_backend`
 - 任务索引：{doc}`../2-user_guide/4-tasks/0-index`
 - 算法索引：{doc}`../2-user_guide/2-algorithms/0-index`
-- PPO 入口：`scripts/train_rsl_rl.py`
-- APPO 入口：`scripts/train_appo.py`
-- SAC / TD3 / FlashSAC 入口：`scripts/train_sac.py` /
-  `scripts/train_td3.py` / `scripts/train_flashsac.py`
+- PPO 入口：`src/unilab/scripts/train_rsl_rl.py`
+- APPO 入口：`src/unilab/scripts/train_appo.py`
+- SAC / TD3 / FlashSAC 入口：`src/unilab/scripts/train_sac.py` /
+  `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
 - HIM-PPO 入口：`scripts/train_him_ppo.py`
 - HORA 蒸馏入口：`scripts/train_hora_distill.py`
 

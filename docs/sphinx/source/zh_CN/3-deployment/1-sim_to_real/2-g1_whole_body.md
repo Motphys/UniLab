@@ -44,11 +44,11 @@ uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1
 * - Owner
   - Actor 观测宽度
   - 说明
-* - `conf/sac/task/g1_wbt_obs/mujoco.yaml`
+* - `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml`
   - 514
   - 无状态估计：`motion_anchor_pos_b` 与 `base_lin_vel` 置为 `null`，使用
     pelvis IMU，proprio 项带 `history_length: 5`。
-* - `conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
+* - `src/unilab/conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
   - 154
   - 单步 mimic actor 布局，按关节分组的 `scale` 正则映射。
 ```

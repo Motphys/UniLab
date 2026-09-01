@@ -26,8 +26,8 @@ uv run train --algo ppo --task g1_walk_flat --sim isaacsim
 
 Owner YAML locations:
 
-- PPO / APPO: `conf/{ppo,appo}/task/<task>/<backend>.yaml`
-- Off-policy (SAC / TD3 / FlashSAC): `conf/<algo>/task/<task>/<backend>.yaml`
+- PPO / APPO: `src/unilab/conf/{ppo,appo}/task/<task>/<backend>.yaml`
+- Off-policy (SAC / TD3 / FlashSAC): `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`
 
 The selected owner YAML sets `training.sim_backend` as an identity field.
 

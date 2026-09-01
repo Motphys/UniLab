@@ -3,7 +3,7 @@
 已提交的 HORA 路径是 Sharpa 手内（in-hand）teacher/student 流程。teacher owner 位
 于 PPO 与 APPO 的 task 树下，通过 `sharpa_inhand` 的 `7-hora` profile 选择；student
 蒸馏使用 `scripts/train_hora_distill.py` 和
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml`。
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`。
 
 ## Teacher
 
@@ -19,7 +19,7 @@ HORA PPO owner 设置 `algo.algo_log_name=hora_ppo`，并通过
 ## Student 蒸馏
 
 student 蒸馏由 `scripts/train_hora_distill.py` 实现，并由
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置。顶层 CLI 目前没有声明独立的
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置。顶层 CLI 目前没有声明独立的
 HORA 蒸馏 `--algo` 路由，因此本页的公开 CLI 示例仍保持在上面的 teacher 路径上。
 
 teacher 检查点的解析在 `src/unilab/algos/hora/distill_config.py` 中实现。

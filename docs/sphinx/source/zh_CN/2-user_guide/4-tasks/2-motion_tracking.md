@@ -1,7 +1,7 @@
 # 动作追踪
 
 G1 动作追踪任务位于 `src/unilab/tasks/motion_tracking/` 下，并通过
-`conf/ppo/`、`conf/appo/` 以及选定的 off-policy 路径中的 task owner YAML 选择。
+`src/unilab/conf/ppo/`、`src/unilab/conf/appo/` 以及选定的 off-policy 路径中的 task owner YAML 选择。
 
 > **Motion 资产已迁移到 Hugging Face。** `.npz` 片段不再随仓库分发，首次使用时由
 > `MotionLoader`（`src/unilab/tasks/motion_tracking/common/motion_loader.py`）按需从
@@ -17,13 +17,13 @@ runtime 执行。
 
 | CLI Task | Registered Env | 默认 motion | Owner Evidence |
 | --- | --- | --- | --- |
-| `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `conf/ppo/task/g1_motion_tracking/`, `conf/appo/task/g1_motion_tracking/` |
-| `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `conf/ppo/task/g1_flip_tracking/`, `conf/appo/task/g1_flip_tracking/` |
-| `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `conf/ppo/task/g1_wall_flip_tracking/`, `conf/appo/task/g1_wall_flip_tracking/` |
-| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` |
-| `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
-| `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `conf/ppo/task/g1_box_tracking/` |
-| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/sac/task/g1_wbt_obs/mujoco.yaml` |
+| `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `src/unilab/conf/ppo/task/g1_motion_tracking/`, `src/unilab/conf/appo/task/g1_motion_tracking/` |
+| `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `src/unilab/conf/ppo/task/g1_flip_tracking/`, `src/unilab/conf/appo/task/g1_flip_tracking/` |
+| `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `src/unilab/conf/ppo/task/g1_wall_flip_tracking/`, `src/unilab/conf/appo/task/g1_wall_flip_tracking/` |
+| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `src/unilab/conf/ppo/task/x2_wall_flip_tracking/` |
+| `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `src/unilab/conf/ppo/task/g1_climb_tracking/`, `src/unilab/conf/appo/task/g1_climb_tracking/` |
+| `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `src/unilab/conf/ppo/task/g1_box_tracking/` |
+| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` |
 
 23-DoF task owner 目录选择对应的 23-DoF 场景、motion、entity 与 action 声明。
 profile 差异全部留在 Hydra 中。G1 identity 使用共享 manager factory；X2 只在委托给
@@ -135,5 +135,5 @@ CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim m
 ## 交互式调试
 
 常规 checkpoint 回放用 `uv run eval`。需要 target body 或 reward debug overlay 时，
-`scripts/play_interactive.py` 是使用 MuJoCo viewer 的低层调试入口，当前没有暴露为
+`src/unilab/scripts/play_interactive.py` 是使用 MuJoCo viewer 的低层调试入口，当前没有暴露为
 统一 `uv run eval` 参数。

@@ -7,7 +7,7 @@ IsaacGym（NVIDIA Preview 4）是 NVIDIA 已停止维护（EOL）的 GPU 物理�
 
 当前状态：`IsaacGymBackend`（subprocess 后端，物理跑在外部 Python 3.8
 worker 中）已实现并注册到 registry；`g1_walk_flat` 提供 isaacgym owner
-配置（`conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`），跨后端契约审计
+配置（`src/unilab/conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`），跨后端契约审计
 （`scripts/audit_sim2sim_contracts.py`）覆盖 mujoco↔isaacgym。回放渲染走
 IsaacGym 原生渲染（viewer + camera sensor），交互与录视频两种模式均可用
 （见下文「训练与评估」）。真机端到端

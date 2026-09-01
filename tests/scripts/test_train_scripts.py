@@ -24,7 +24,8 @@ from omegaconf import OmegaConf
 from unilab.base.backend.motrix.playback import run_motrix_playback
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
-_CONF_DIR = Path(__file__).parent.parent.parent / "conf"
+_PACKAGE_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "scripts"
+_CONF_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "conf"
 _SRC_DIR = Path(__file__).parent.parent.parent / "src"
 
 
@@ -46,8 +47,17 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
 
 
 def _load_script(name: str) -> Any:
-    """Load a scripts/<name>.py as a fresh module (no __init__ required)."""
-    path = _SCRIPTS_DIR / f"{name}.py"
+    """Load a scripts/<name>.py as a fresh module (no __init__ required).
+
+    Packaged entrypoints live in ``src/unilab/scripts``; the remaining
+    development scripts stay in the top-level ``scripts`` directory.
+    """
+    for base in (_PACKAGE_SCRIPTS_DIR, _SCRIPTS_DIR):
+        path = base / f"{name}.py"
+        if path.is_file():
+            break
+    else:
+        raise FileNotFoundError(f"No script named {name}.py in packaged or top-level scripts")
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
@@ -996,7 +1006,7 @@ def test_rsl_action_std_logging_patch_delegates_with_detached_clone(std_type: st
     torch.testing.assert_close(action_std, expected)
     assert action_std.requires_grad is False
     assert action_std.data_ptr() != expected.data_ptr()
-    source = (_SCRIPTS_DIR / "train_rsl_rl.py").read_text(encoding="utf-8")
+    source = (_PACKAGE_SCRIPTS_DIR / "train_rsl_rl.py").read_text(encoding="utf-8")
     assert "def _patch_runner_action_std_logging" not in source
 
 
@@ -1361,10 +1371,10 @@ def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
     env_cfg_override = mod.build_ppo_play_env_cfg_override(cfg)
 
     assert captured["source_model_file"] == str(
-        mod.ROOT_DIR / "src/unilab/assets/robots/go2_arm/scene_flat.xml"
+        (Path.cwd() / "src" / "unilab" / "assets" / "robots/go2_arm/scene_flat.xml").resolve()
     )
     assert captured["ground_texture_file"] == str(
-        mod.ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
+        (Path.cwd() / "src" / "unilab" / "assets" / "robots/g1/textures/floor.png").resolve()
     )
     assert captured["skybox_rgb1"] == [0.90, 0.90, 0.91]
     assert captured["skybox_rgb2"] == [0.68, 0.68, 0.70]
@@ -2418,7 +2428,7 @@ def test_play_resolve_checkpoint_delegates_to_shared_helper(
     result = mod.resolve_checkpoint("MyTask", "-1", checkpoint="12", algo_log_name="custom_ppo")
 
     assert result == str(model_path)
-    assert captured["root_dir"] == mod.ROOT_DIR
+    assert captured["root_dir"] == Path.cwd()
     assert captured["task_name"] == "MyTask"
     assert captured["load_run"] == "-1"
     assert captured["algo_log_name"] == "custom_ppo"
@@ -2845,20 +2855,16 @@ def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_cont
     cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
 
-    original_root = mod.ROOT_DIR
-    mod.ROOT_DIR = tmp_path
-    try:
-        monkeypatch.setattr(
-            mod,
-            "create_env",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
-            ),
-        )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
+        ),
+    )
 
-        result = mod.play_rsl_rl(cfg, device="cpu")
-    finally:
-        mod.ROOT_DIR = original_root
+    result = mod.play_rsl_rl(cfg, device="cpu")
 
     captured = capsys.readouterr().out
     expected_task_log_root = tmp_path / "logs" / "custom_ppo" / cfg.training.task_name
@@ -2885,20 +2891,16 @@ def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
     run_dir.mkdir(parents=True)
     (run_dir / "model_9.pt").write_bytes(b"")
 
-    original_root = mod.ROOT_DIR
-    mod.ROOT_DIR = tmp_path
-    try:
-        monkeypatch.setattr(
-            mod,
-            "create_env",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
-            ),
-        )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        mod,
+        "create_env",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("play_rsl_rl should not create an env before checkpoint resolution")
+        ),
+    )
 
-        result = mod.play_rsl_rl(cfg, device="cpu")
-    finally:
-        mod.ROOT_DIR = original_root
+    result = mod.play_rsl_rl(cfg, device="cpu")
 
     captured = capsys.readouterr().out
 
@@ -3116,15 +3118,11 @@ def test_play_resolve_checkpoint_uses_algo_log_name(
     run_dir.mkdir(parents=True)
     (run_dir / "model_50.pt").write_bytes(b"")
 
-    # Temporarily override ROOT_DIR to use tmp_path
-    original_root = mod.ROOT_DIR
-    try:
-        mod.ROOT_DIR = tmp_path
-        result = mod.resolve_checkpoint("MyTask", "-1", algo_log_name="custom_ppo")
-        assert result is not None
-        assert "model_50.pt" in result
-    finally:
-        mod.ROOT_DIR = original_root
+    # Run-artifact resolution now anchors at the caller's CWD.
+    monkeypatch.chdir(tmp_path)
+    result = mod.resolve_checkpoint("MyTask", "-1", algo_log_name="custom_ppo")
+    assert result is not None
+    assert "model_50.pt" in result
 
 
 def test_ppo_interactive_config_includes_playback_controls():
@@ -3339,7 +3337,7 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
 ):
     import types
 
-    play_interactive_path = _SCRIPTS_DIR / "play_interactive.py"
+    play_interactive_path = _PACKAGE_SCRIPTS_DIR / "play_interactive.py"
     training_mod = cast(Any, types.ModuleType("unilab.training"))
 
     def _fail_bootstrap() -> None:
@@ -3452,7 +3450,7 @@ def test_train_rsl_rl_play_uses_shared_playback_session_factory(
     assert playback_cfg.algo_log_name == cfg.algo.algo_log_name
     assert playback_cfg.num_envs == cfg.training.play_env_num
     assert factory_kwargs["device"] == "cpu"
-    assert factory_kwargs["root_dir"] == mod.ROOT_DIR
+    assert factory_kwargs["root_dir"] == Path.cwd()
     assert factory_kwargs["wrapper_cls"] is sentinel_wrapper_cls
     assert factory_kwargs["runner_cls"] is mod.OnPolicyRunner
     assert factory_kwargs["guard_algo_name"] == "ppo"
@@ -3643,7 +3641,7 @@ def test_play_appo_uses_shared_playback_session_factory(
     assert playback_cfg.num_envs == cfg.training.play_env_num
     assert factory_kwargs["cfg"] is cfg
     assert factory_kwargs["rl_cfg"] is rl_cfg
-    assert factory_kwargs["root_dir"] == mod.ROOT_DIR
+    assert factory_kwargs["root_dir"] == Path.cwd()
     assert factory_kwargs["wrapper_cls"] is mod.RslRlVecEnvWrapper
     assert "onnx_export" in captured
     assert fake_session.reset_calls == 1
@@ -3737,7 +3735,7 @@ def test_play_offpolicy_uses_shared_playback_session_factory(
     assert factory_kwargs["algo_name"] == "sac"
     assert factory_kwargs["device"] == "cpu"
     assert factory_kwargs["cfg"] is cfg
-    assert factory_kwargs["root_dir"] == mod.ROOT_DIR
+    assert factory_kwargs["root_dir"] == Path.cwd()
     assert callable(factory_kwargs["env_factory"])
     assert fake_session.reset_calls == 1
     assert fake_session.step_calls == 1

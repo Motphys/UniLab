@@ -182,7 +182,7 @@ base；该 base 为 `main` 时运行远程集成验证，为其他分支时继�
 ## 配置改动
 
 任务、后端、reward 与算法的选择应当属于 Hydra owner YAML。当添加或改动
-一条可运行路径时，更新 `conf/` 下相关的 owner config，并用 `tests/config/`
+一条可运行路径时，更新 `src/unilab/conf/` 下相关的 owner config，并用 `tests/config/`
 或 `tests/scripts/` 下的测试验证脚本组合。
 
 参见 {doc}`2-contracts/3-task_owner` 与

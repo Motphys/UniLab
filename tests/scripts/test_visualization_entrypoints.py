@@ -8,10 +8,16 @@ import numpy as np
 import pytest
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
+_PACKAGE_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "scripts"
 
 
 def _load_script(name: str) -> Any:
-    path = _SCRIPTS_DIR / f"{name}.py"
+    for base in (_PACKAGE_SCRIPTS_DIR, _SCRIPTS_DIR):
+        path = base / f"{name}.py"
+        if path.is_file():
+            break
+    else:
+        raise FileNotFoundError(f"No script named {name}.py in packaged or top-level scripts")
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]

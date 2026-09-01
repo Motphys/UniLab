@@ -178,7 +178,9 @@ def _owner_yaml_cfg(
     from unilab.base.registry import apply_cfg_overrides
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / config_root), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / config_root), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[
@@ -371,7 +373,9 @@ def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
 
     yaml_backend = _hydra_yaml_backend(backend)
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[

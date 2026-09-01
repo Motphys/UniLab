@@ -15,8 +15,8 @@ page is the recipe.
 
 1. Copy the existing owner YAML:
    ```bash
-   cp conf/ppo/task/go2_joystick_flat/motrix.yaml \
-      conf/ppo/task/go2_joystick_flat/mujoco.yaml
+   cp src/unilab/conf/ppo/task/go2_joystick_flat/motrix.yaml \
+      src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml
    ```
 2. Inside the new file, set `training.sim_backend: mujoco`.
 3. Adjust the **physical parameters** the new backend needs:

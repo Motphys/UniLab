@@ -27,7 +27,7 @@ from unilab.tasks.manipulation.stewart.balance import (
 )
 
 ROOT_DIR = Path(__file__).parents[2]
-CONF_DIR = ROOT_DIR / "conf"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
 
 _BODY_NAMES = (
     "ball",

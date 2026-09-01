@@ -37,8 +37,8 @@ class Route:
     generated_overrides: tuple[str, ...]
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def package_root() -> Path:
+    return Path(__file__).resolve().parent
 
 
 def _script_path(route: Route, root: Path) -> Path:
@@ -47,14 +47,6 @@ def _script_path(route: Route, root: Path) -> Path:
 
 def _owner_yaml_path(route: Route, root: Path) -> Path:
     return root / "conf" / route.config_group / "task" / route.owner_task
-
-
-def _check_private_checkout(root: Path) -> None:
-    if not (root / "conf").is_dir() or not (root / "scripts").is_dir():
-        raise SystemExit(
-            "The current UniLab CLI expects a UniLab source checkout. "
-            "Run it from the uv-managed editable environment created by this repo."
-        )
 
 
 def _check_reserved_overrides(overrides: Sequence[str]) -> None:
@@ -102,15 +94,18 @@ def _check_load_run(load_run: str) -> None:
 def _check_runtime_requirements(algo: str, sim: str) -> None:
     if sim == "mujoco" and find_spec("mujoco") is None:
         raise SystemExit(
-            "sim=mujoco requires the MuJoCo extra. Install it with `uv sync --extra mujoco`."
+            "sim=mujoco requires the MuJoCo extra. Install it with "
+            "`pip install unilab[mujoco]` (or `uv sync --extra mujoco` in a source checkout)."
         )
     if sim == "mjwarp" and (find_spec("mujoco_warp") is None or find_spec("warp") is None):
         raise SystemExit(
-            "sim=mjwarp requires the mjwarp extra. Install it with `uv sync --extra mjwarp`."
+            "sim=mjwarp requires the mjwarp extra. Install it with "
+            "`pip install unilab[mjwarp]` (or `uv sync --extra mjwarp` in a source checkout)."
         )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(
-            "sim=motrix requires the Motrix extra. Install it with `uv sync --extra motrix`."
+            "sim=motrix requires the Motrix extra. Install it with "
+            "`pip install unilab[motrix]` (or `uv sync --extra motrix` in a source checkout)."
         )
     if sim == "isaacgym":
         from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
@@ -127,8 +122,8 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         if not genesis_dependencies_available():
             raise SystemExit(
                 "sim=genesis requires the genesis-world extra (pinned 1.3.3, torch>=2.8). "
-                "Install it with `uv sync --extra genesis` (see the Genesis backend docs "
-                "page)."
+                "Install it with `pip install unilab[genesis]` (or `uv sync --extra genesis` "
+                "in a source checkout; see the Genesis backend docs page)."
             )
     if sim == "isaacsim":
         from unilab.base.backend.isaacsim.dependencies import isaacsim_runtime_available
@@ -233,8 +228,7 @@ def build_command(
     render_mode: str | None = None,
     root: Path | None = None,
 ) -> list[str]:
-    selected_root = root or repo_root()
-    _check_private_checkout(selected_root)
+    selected_root = root or package_root()
     _check_task_name(task)
     _check_profile(profile)
     _check_reserved_overrides(overrides)

@@ -1,8 +1,8 @@
 # NaN Visualizer
 
-PPO has a NaN guard under `training.nan_guard` in `conf/ppo/config.yaml`,
+PPO has a NaN guard under `training.nan_guard` in `src/unilab/conf/ppo/config.yaml`,
 enabled by default to match APPO and off-policy. When active,
-`scripts/train_rsl_rl.py` installs `NanGuard`, checks observation dicts and
+`src/unilab/scripts/train_rsl_rl.py` installs `NanGuard`, checks observation dicts and
 rewards, and writes a `.npz` dump plus model metadata when it detects NaN/Inf
 values.
 

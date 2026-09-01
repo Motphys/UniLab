@@ -33,7 +33,7 @@ ensure_registries()
 
 
 # ---------------------------------------------------------------------------
-# Minimal wrapper (same as scripts/train_rsl_rl.py)
+# Minimal wrapper (same as src/unilab/scripts/train_rsl_rl.py)
 # ---------------------------------------------------------------------------
 
 
@@ -132,7 +132,9 @@ def test_rsl_rl_ppo_one_iteration(
         num_envs = 128
         task = "allegro_inhand/mujoco"
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(root_dir / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(root_dir / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         hydra_cfg = compose("config", overrides=[f"task={task}"])
     env_cfg_override = BackendAdapter(hydra_cfg, root_dir=root_dir).build_task_env_cfg_override()
 

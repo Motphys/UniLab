@@ -109,7 +109,7 @@ The current procedural terrain user-facing path is Go2 rough terrain:
 - Terrain generator: `src/unilab/terrains/terrain_generator.py`
 - MuJoCo materializer: `src/unilab/base/backend/mujoco/xml.py`
 - Motrix materializer: `src/unilab/base/backend/motrix/scene.py`
-- Owner YAMLs: `conf/ppo/task/go2_joystick_rough/mujoco.yaml`,
-  `conf/ppo/task/go2_joystick_rough/motrix.yaml`
+- Owner YAMLs: `src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml`,
+  `src/unilab/conf/ppo/task/go2_joystick_rough/motrix.yaml`
 
 User instructions are in {doc}`../../2-user_guide/6-terrain/1-procedural`.

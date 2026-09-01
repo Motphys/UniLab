@@ -34,7 +34,7 @@ from unilab.utils.checkpoint import (
 from unilab.visualization.playback import render_play_mode
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
-_CONF_DIR = _ROOT_DIR / "conf"
+_CONF_DIR = _ROOT_DIR / "src" / "unilab" / "conf"
 
 
 def _resolve_low_level_playback_flags(kwargs: dict[str, object]) -> dict[str, object]:

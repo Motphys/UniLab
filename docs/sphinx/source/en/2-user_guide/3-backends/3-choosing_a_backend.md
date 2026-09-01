@@ -13,8 +13,8 @@ the composed backend.
 | Default path or broadest owner coverage | MuJoCo |
 | Native interactive playback through the backend | Motrix |
 | MuJoCo-only tools such as `scripts/play_viser.py` | MuJoCo |
-| Task owner exists only under `conf/.../<task>/mujoco.yaml` | MuJoCo |
-| Task owner exists under `conf/.../<task>/motrix.yaml` and the support matrix marks the combination as tested or configured | Motrix |
+| Task owner exists only under `src/unilab/conf/.../<task>/mujoco.yaml` | MuJoCo |
+| Task owner exists under `src/unilab/conf/.../<task>/motrix.yaml` and the support matrix marks the combination as tested or configured | Motrix |
 
 The support matrix is generated from registry, owner YAML, and tests; use it as
 the current evidence source: {doc}`/zh_CN/5-reference/5-support_matrix`.

@@ -9,7 +9,7 @@
 
 ### 同步 PPO 路径
 
-`scripts/train_rsl_rl.py` 会 compose Hydra config、
+`src/unilab/scripts/train_rsl_rl.py` 会 compose Hydra config、
 调用 registry bootstrap、通过 `registry.make(...)` 构造 env，并在同一进程内运行
 learner。默认配置保持单进程；`training.devices` 指定多张卡时，父进程通过 PyTorch
 elastic launcher 启动本机 worker，worker 再进入同一脚本完成上述构造。RSL-RL 路径
@@ -49,7 +49,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 ## 仓库中的证据
 
-- PPO 入口：`scripts/train_rsl_rl.py`
+- PPO 入口：`src/unilab/scripts/train_rsl_rl.py`
 - APPO runner：`src/unilab/algos/appo/runner.py`
 - Off-policy runner：`src/unilab/algos/offpolicy/double_buffer_runner.py`
 - IPC 原语：`src/unilab/ipc/async_runner.py`、

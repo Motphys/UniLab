@@ -18,7 +18,9 @@ def test_reward_override_g1():
     ensure_registries()
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
     env_cfg_override = BackendAdapter(cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
     env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] = 888.0

@@ -7,7 +7,7 @@ MuJoCo 是已提交 owner 配置中的默认后端路径。其 Python 依赖为�
 ## 何时使用
 
 - 你想要 PPO、APPO、off-policy SAC/TD3 或 FlashSAC 的默认训练路线。
-- task owner 仅以 `conf/.../<task>/mujoco.yaml` 形式存在。
+- task owner 仅以 `src/unilab/conf/.../<task>/mujoco.yaml` 形式存在。
 - 你需要 MuJoCo 专有工具，例如 `scripts/play_viser.py`，或从 MuJoCo XML/MJB
   模型导出场景。
 

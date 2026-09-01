@@ -550,7 +550,8 @@ def test_demo_local_only_checkpoint_uses_existing_file(
     calls: list[list[str]] = []
 
     monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", assets)
-    monkeypatch.setattr(demo, "_repo_root", lambda: checkout)
+    monkeypatch.setattr(demo, "_package_root", lambda: checkout)
+    monkeypatch.setattr(demo, "_dev_venv", lambda: checkout / ".venv")
     monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fail_resolve(_: str) -> str:
@@ -640,9 +641,13 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     command, env = calls[0]
     assert command == [
         "/tmp/unilab/.venv/bin/mxpython",
-        str(demo._repo_root() / "src" / "unilab" / "visualization" / "teaser.py"),
+        str(demo._package_root() / "visualization" / "teaser.py"),
     ]
-    assert env["UV_PROJECT_ENVIRONMENT"] == str(demo._repo_root() / ".venv")
+    dev_venv = demo._dev_venv()
+    if dev_venv is not None:
+        assert env["UV_PROJECT_ENVIRONMENT"] == str(dev_venv)
+    else:
+        assert "UV_PROJECT_ENVIRONMENT" not in env
 
 
 def test_demo_main_teaser_dispatches_to_render_teaser(

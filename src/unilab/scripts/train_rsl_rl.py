@@ -10,13 +10,6 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-ROOT_DIR = Path(__file__).parent.parent
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
 from unilab.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
@@ -78,7 +71,7 @@ except ImportError:
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
     return BackendAdapter(
         cfg,
-        root_dir=ROOT_DIR,
+        root_dir=Path.cwd(),
         algo_name="ppo",
         scene_materializer=materialize_scene_visual_override,
     )
@@ -113,7 +106,7 @@ def run_motrix_rsl_play_loop(
 
 
 def _get_log_root(cfg: DictConfig) -> str:
-    return str(get_log_root(ROOT_DIR, cfg))
+    return str(get_log_root(Path.cwd(), cfg))
 
 
 def resolve_ppo_log_dir(
@@ -200,8 +193,8 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = algo_config_dict(cfg)
 
-    task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
-    load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
+    task_log_root = get_log_root(Path.cwd(), cfg) / str(cfg.training.task_name)
+    load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=Path.cwd())
     if load_path is None or load_path_dir is None or not load_path.exists():
         print(
             format_play_checkpoint_error(
@@ -247,7 +240,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
             env_cfg_override=build_ppo_play_env_cfg_override(cfg),
         ),
         algo_config=rl_cfg,
-        root_dir=ROOT_DIR,
+        root_dir=Path.cwd(),
         device=device,
         checkpoint_resolver=lambda *_args: str(load_path),
         checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
@@ -269,6 +262,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     num_steps = _resolve_play_num_steps(cfg)
     output_video = Path(load_path_dir) / "play_video.mp4"
     playback_mode: str | None = None
+    play_video_path: str | None = None
 
     def _log_plan(plan) -> None:
         nonlocal playback_mode
@@ -334,12 +328,11 @@ def main(cfg: DictConfig) -> None:
     # env, tracker, and runner construction all happen inside workers.
     if devices is not None and len(devices) > 1 and world_size == 1:
         if not cfg.training.play_only:
-            log_dir = resolve_ppo_log_dir(cfg, world_size=len(devices))
             launch_torchrun_workers(
                 devices,
                 script_path=Path(__file__),
                 argv=sys.argv[1:],
-                log_dir=log_dir,
+                log_dir=resolve_ppo_log_dir(cfg, world_size=len(devices)),
             )
             return
         validate_dp_launchable(devices)
@@ -385,14 +378,14 @@ def main(cfg: DictConfig) -> None:
         )
 
     if not cfg.training.play_only:
-        log_dir = resolve_ppo_log_dir(cfg, world_size=world_size)
+        log_dir: str | None = resolve_ppo_log_dir(cfg, world_size=world_size)
     else:
         log_dir = None
 
     tracker = None
     if not cfg.training.play_only and log_dir is not None and rank == 0:
         tracker = ExperimentTracker(
-            root_dir=ROOT_DIR,
+            root_dir=Path.cwd(),
             log_dir=log_dir,
             algo_name="ppo",
             task_name=cfg.training.task_name,
@@ -458,7 +451,7 @@ def main(cfg: DictConfig) -> None:
                     patch_rsl_rl_action_std_logging(runner)
 
                     if cfg.algo.load_run != "-1":
-                        resume_path, _ = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
+                        resume_path, _ = parse_checkpoint_path(cfg, root_dir=Path.cwd())
                         if resume_path:
                             print(f"Resuming from {resume_path}")
                             runner.load(str(resume_path), map_location=device)

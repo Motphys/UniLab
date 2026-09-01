@@ -17,7 +17,7 @@ from unilab.envs import ManagerBasedRlEnvCfg
 from unilab.tasks.locomotion.t800.manager_terms import T800JointPositionActionCfg
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf" / "ppo"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf" / "ppo"
 
 _JOINT_NAMES = (
     "J00_HIP_PITCH_L",

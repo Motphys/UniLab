@@ -47,11 +47,11 @@ differ per owner — two G1 examples:
 * - Owner
   - Actor obs width
   - Notes
-* - `conf/sac/task/g1_wbt_obs/mujoco.yaml`
+* - `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml`
   - 514
   - No state estimation: `motion_anchor_pos_b` and `base_lin_vel` are set to
     `null`, pelvis IMU, `history_length: 5` on the proprio terms.
-* - `conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
+* - `src/unilab/conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
   - 154
   - Single-step mimic actor layout, per-joint-group `scale` regex map.
 ```

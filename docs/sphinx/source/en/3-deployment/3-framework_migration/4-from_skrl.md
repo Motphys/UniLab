@@ -28,5 +28,5 @@ deployment path.
 
 1. Decide which UniLab algorithm best matches your skrl agent.
 2. Port the env into `NpEnv` form.
-3. Convert hyperparameter YAML into Hydra groups under `conf/<algo>/<task>/`.
+3. Convert hyperparameter YAML into Hydra groups under `src/unilab/conf/<algo>/<task>/`.
 4. Validate reward parity.
