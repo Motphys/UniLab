@@ -1,7 +1,7 @@
 # PPO
 
-PPO 是默认的同步 on-policy 训练路径。它使用 `scripts/train_rsl_rl.py`，从
-`conf/ppo/config.yaml` 组合配置，并运行 `src/unilab/algos/rsl_rl_ppo.py`
+PPO 是默认的同步 on-policy 训练路径。它使用 `src/unilab/scripts/train_rsl_rl.py`，从
+`src/unilab/conf/ppo/config.yaml` 组合配置，并运行 `src/unilab/algos/rsl_rl_ppo.py`
 和 `src/unilab/training/rsl_rl.py` 中的 RSL-RL 适配代码。
 
 ## 快速开始
@@ -26,7 +26,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 ```
 
-日志按 `algo.algo_log_name` 分组；`conf/ppo/config.yaml` 中的默认值为
+日志按 `algo.algo_log_name` 分组；`src/unilab/conf/ppo/config.yaml` 中的默认值为
 `rsl_rl_ppo`。
 
 ## 单机多卡训练

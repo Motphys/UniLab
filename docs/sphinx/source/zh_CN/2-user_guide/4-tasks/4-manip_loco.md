@@ -5,8 +5,8 @@ env 是 `Go2ArmManipLoco`。
 
 ## Owner Configs
 
-- PPO owner：`conf/ppo/task/go2_arm_manip_loco/mujoco.yaml`
-- HIM-PPO owner：`conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`
+- PPO owner：`src/unilab/conf/ppo/task/go2_arm_manip_loco/mujoco.yaml`
+- HIM-PPO owner：`src/unilab/conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`
 - 场景入口：`src/unilab/assets/robots/go2_arm/scene_flat.xml`
 
 ## PPO
@@ -17,7 +17,7 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco training.no_play=
 
 ## HIM-PPO
 
-HIM-PPO owner 是 `conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
+HIM-PPO owner 是 `src/unilab/conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
 `src/unilab/cli.py` 当前未将 HIM-PPO 作为顶层
 `uv run train --algo ...` 路线暴露。
 

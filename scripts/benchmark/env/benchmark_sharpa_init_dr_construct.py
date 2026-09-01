@@ -121,7 +121,7 @@ def _parse_variant_counts(value: str | None) -> list[int]:
 
 
 def _compose_cfg(task: str, *, lower: float, upper: float, variant_count: int):
-    config_dir = str(ROOT_DIR / "conf" / "ppo")
+    config_dir = str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo")
     scale_list = np.linspace(lower, upper, variant_count, dtype=np.float64)
     scale_override = ",".join(f"{float(scale):g}" for scale in scale_list)
     overrides = [

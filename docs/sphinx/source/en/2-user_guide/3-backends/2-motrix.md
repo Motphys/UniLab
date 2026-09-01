@@ -14,7 +14,7 @@ uv sync --extra motrix
 
 ## When To Use It
 
-- The task owner exists under `conf/.../<task>/motrix.yaml`.
+- The task owner exists under `src/unilab/conf/.../<task>/motrix.yaml`.
 - You want Motrix native interactive playback; the backend advertises native
   interactive renderer and video-capture capability.
 - The generated support matrix marks your entrypoint/task/backend combination as

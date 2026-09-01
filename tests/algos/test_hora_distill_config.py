@@ -5,7 +5,7 @@ loader (``OmegaConf.load`` + a loop over direct ``defaults`` entries) and the
 Python-held teacher -> student hyperparameter mapping. The parity tests pin
 the refactor to identical numerics while the loader moves to standard Hydra
 ``initialize_config_dir + compose`` and the mapping moves into
-``conf/hora_distill/student_model/*.yaml``.
+``src/unilab/conf/hora_distill/student_model/*.yaml``.
 """
 
 from __future__ import annotations
@@ -20,6 +20,9 @@ from omegaconf.errors import InterpolationResolutionError
 from unilab.algos.hora import distill_config
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+# distill_config's root_dir parameter expects the directory containing "conf";
+# after the packaging move that is the unilab package directory.
+_PACKAGE_ROOT = _REPO_ROOT / "src" / "unilab"
 
 TEACHER_CASES = [
     ("ppo", "sharpa_inhand/mujoco_hora"),
@@ -37,14 +40,14 @@ TEACHER_CASES = [
 
 def _legacy_teacher_cfg(algo_family: str, task: str) -> Any:
     if algo_family == "sac":
-        owner_path = _REPO_ROOT / "conf" / "sac" / "task" / f"{task}.yaml"
-        defaults_base = _REPO_ROOT / "conf" / "sac"
+        owner_path = _REPO_ROOT / "src" / "unilab" / "conf" / "sac" / "task" / f"{task}.yaml"
+        defaults_base = _REPO_ROOT / "src" / "unilab" / "conf" / "sac"
         # The SAC tree inlines its algorithm defaults into config.yaml's
         # top-level `algo:` section (there is no `algo` config group anymore).
-        tree_config_path = _REPO_ROOT / "conf" / "sac" / "config.yaml"
+        tree_config_path = _REPO_ROOT / "src" / "unilab" / "conf" / "sac" / "config.yaml"
     else:
-        owner_path = _REPO_ROOT / "conf" / algo_family / "task" / f"{task}.yaml"
-        defaults_base = _REPO_ROOT / "conf" / algo_family
+        owner_path = _REPO_ROOT / "src" / "unilab" / "conf" / algo_family / "task" / f"{task}.yaml"
+        defaults_base = _REPO_ROOT / "src" / "unilab" / "conf" / algo_family
         tree_config_path = None
     merged_cfg = OmegaConf.create()
     if tree_config_path is not None:
@@ -114,7 +117,7 @@ def test_teacher_default_cfg_matches_legacy_manual_loader(algo_family: str, task
     cfg = OmegaConf.create({"teacher": {"algo_family": algo_family, "task": task}})
 
     new_cfg = OmegaConf.to_container(
-        distill_config.teacher_default_cfg(cfg, root_dir=_REPO_ROOT), resolve=True
+        distill_config.teacher_default_cfg(cfg, root_dir=_PACKAGE_ROOT), resolve=True
     )
     legacy_cfg = OmegaConf.to_container(_legacy_teacher_cfg(algo_family, task), resolve=True)
 
@@ -168,7 +171,7 @@ def test_load_teacher_owner_config_supports_nested_defaults_packages_and_interpo
 def test_hora_sac_mapping_keeps_yaml_fallbacks_for_missing_teacher_fields(tmp_path: Path) -> None:
     teacher_cfg = OmegaConf.create({"algo": {"runtime_impl": "hora_sac", "actor": {}}})
 
-    model_cfg = distill_config._student_model_defaults("hora_sac", teacher_cfg, root=_REPO_ROOT)
+    model_cfg = distill_config._student_model_defaults("hora_sac", teacher_cfg, root=_PACKAGE_ROOT)
 
     assert model_cfg == {
         "teacher_arch": "hora_sac",
@@ -200,7 +203,9 @@ def test_hora_actor_mapping_strips_distribution_class_name() -> None:
         }
     )
 
-    model_cfg = distill_config._student_model_defaults("hora_actor", teacher_cfg, root=_REPO_ROOT)
+    model_cfg = distill_config._student_model_defaults(
+        "hora_actor", teacher_cfg, root=_PACKAGE_ROOT
+    )
 
     assert model_cfg == {
         "hidden_dims": [64, 32],
@@ -229,4 +234,4 @@ def test_hora_actor_mapping_fails_closed_when_teacher_field_is_missing() -> None
     )
 
     with pytest.raises(InterpolationResolutionError):
-        distill_config._student_model_defaults("hora_actor", teacher_cfg, root=_REPO_ROOT)
+        distill_config._student_model_defaults("hora_actor", teacher_cfg, root=_PACKAGE_ROOT)

@@ -6,10 +6,10 @@
 ## Owner 路径
 
 - PPO 与 APPO 的 owner YAML 使用
-  `conf/{ppo,appo}/task/<task>/<backend>.yaml`。
+  `src/unilab/conf/{ppo,appo}/task/<task>/<backend>.yaml`。
 - Off-policy 算法（SAC / TD3 / FlashSAC）各自有独立的配置树：
-  `conf/<algo>/task/<task>/<backend>.yaml`。
-- 其他已有的 config 根目录，例如 `conf/ppo_him/` 与 `conf/hora_distill/`，对其
+  `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`。
+- 其他已有的 config 根目录，例如 `src/unilab/conf/ppo_him/` 与 `src/unilab/conf/hora_distill/`，对其
   所支持的任务遵循相同的 owner YAML 身份规则。
 
 ## 必需语义
@@ -18,7 +18,7 @@
   `uv run train --algo ppo --task go2_joystick_flat --sim mujoco` 或
   `uv run train --algo ppo --task go2_joystick_flat --sim motrix`。
 - 对于 off-policy 入口，`--algo <algo>` 选择按算法划分的配置树；owner YAML
-  路径为 `conf/<algo>/task/<task>/<backend>.yaml`。
+  路径为 `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`。
 - `training.sim_backend` 是所选 owner YAML 内部的身份字段，而不是一个独立的
   backend 切换开关。
 - 与 backend 相关的 reward、env、scene 与算法差异属于 owner YAML，而不是训练
@@ -27,9 +27,9 @@
 
 ## 仓库中的证据
 
-- PPO owner 示例：`conf/ppo/task/go2_joystick_flat/mujoco.yaml`
-- APPO config 根目录：`conf/appo/config.yaml`
-- Off-policy config 根目录：`conf/{sac,td3,flashsac}/config.yaml`
+- PPO owner 示例：`src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml`
+- APPO config 根目录：`src/unilab/conf/appo/config.yaml`
+- Off-policy config 根目录：`src/unilab/conf/{sac,td3,flashsac}/config.yaml`
 - Config 测试：`tests/config/test_config_system.py`、
   `tests/scripts/test_train_script_configs.py`、
   `tests/envs/locomotion/g1/test_g1_owner_contract.py`

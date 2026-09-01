@@ -4,7 +4,7 @@
 # Core algorithm and training flows
 /src/unilab/algos/ @TATP-233 @caozx1110
 /src/unilab/ipc/ @TATP-233
-/scripts/train_*.py @TATP-233 @caozx1110
+/src/unilab/scripts/train_*.py @TATP-233 @caozx1110
 
 # Task and environment ownership
 /src/unilab/tasks/motion_tracking/ @caozx1110

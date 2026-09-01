@@ -23,7 +23,7 @@ from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, mdp
 from unilab.tasks.locomotion.g1 import manager_terms as g1_terms
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
 
 _RESET_EVENTS = ("reset_scene_to_default", "reset_root_state_uniform")
 _PPO_REWARDS = (
@@ -954,7 +954,9 @@ CONFIG_GROUP = sys.argv[1]
 
 registry.ensure_registries()
 GlobalHydra.instance().clear()
-with initialize_config_dir(config_dir=str(ROOT / "conf" / CONFIG_GROUP), version_base="1.3"):
+with initialize_config_dir(
+    config_dir=str(ROOT / "src" / "unilab" / "conf" / CONFIG_GROUP), version_base="1.3"
+):
     hydra_cfg = compose("config", overrides=["task=g1_walk_flat/genesis"])
 assert hydra_cfg.training.task_name == "G1WalkFlat"
 assert hydra_cfg.training.sim_backend == "genesis"

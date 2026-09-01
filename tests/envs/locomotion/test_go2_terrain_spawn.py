@@ -29,7 +29,7 @@ from unilab.tasks.locomotion.go2w.manager_terms import Go2WMixedAction
 from unilab.utils.sim2sim import extract_contract_snapshot
 
 ROOT_DIR = Path(__file__).parents[3]
-CONF_DIR = ROOT_DIR / "conf" / "ppo"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf" / "ppo"
 
 _OWNER_CASES = tuple(
     pytest.param(task_id, task_name, backend, *dims, id=f"{task_id.split('_')[0]}-{backend}")

@@ -26,7 +26,7 @@ from unilab.tasks.locomotion.go2w.manager_terms import (
 )
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
 
 _LEG_JOINT_NAMES = tuple(
     f"{leg}_{joint}_joint" for leg in ("FR", "FL", "RR", "RL") for joint in ("hip", "thigh", "calf")

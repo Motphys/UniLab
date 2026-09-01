@@ -1,7 +1,7 @@
 # Locomotion
 
 Locomotion tasks are registered in `src/unilab/tasks/locomotion/` and
-`src/unilab/tasks/motion_tracking/`. The available owner YAMLs under `conf/`
+`src/unilab/tasks/motion_tracking/`. The available owner YAMLs under `src/unilab/conf/`
 define which algorithm and backend combinations are runnable.
 
 ## Families
@@ -32,8 +32,8 @@ backend: {doc}`../../5-reference/5-support_matrix`.
 `go2_footstand` is the Go2 front-feet-stand task. Its PPO owner YAMLs
 register MuJoCo, Motrix, and Drake; the SAC owner currently targets Drake.
 
-- Canonical PPO task config: `conf/ppo/task/go2_footstand/base.yaml`
-- Backend owners: `conf/ppo/task/go2_footstand/{mujoco,motrix,drake}.yaml`
+- Canonical PPO task config: `src/unilab/conf/ppo/task/go2_footstand/base.yaml`
+- Backend owners: `src/unilab/conf/ppo/task/go2_footstand/{mujoco,motrix,drake}.yaml`
 - Registered env: `Go2FootStand` (MuJoCo, Motrix, and Drake)
 - Implementation: `src/unilab/tasks/locomotion/go2/footstand.py`
   (task-owned NumPy manager terms on the generic Manager-Based runtime)
@@ -86,7 +86,7 @@ The value observation is therefore `675 + 49 = 724`.
 
 ### Rewards And Terminations
 
-Defaults come from `conf/ppo/task/go2_footstand/base.yaml`; backend leaves only
+Defaults come from `src/unilab/conf/ppo/task/go2_footstand/base.yaml`; backend leaves only
 override backend-specific terms and tuning. The reward scales
 include stand `height`, `orientation`, `rear_feet_contact`, target front-leg angle
 (`tar`), `action_rate`, `dof_pos_limits`, `front_leg_motion`, `rear_leg_symmetry`,

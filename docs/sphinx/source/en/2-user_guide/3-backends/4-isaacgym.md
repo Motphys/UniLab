@@ -9,7 +9,7 @@ variables, with no machine-local paths written into the repository.
 Current status: `IsaacGymBackend` (a subprocess backend whose physics runs in
 the external Python 3.8 worker) is implemented and registered; `g1_walk_flat`
 ships isaacgym owner configs
-(`conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`), and the cross-backend
+(`src/unilab/conf/{ppo,sac}/task/g1_walk_flat/isaacgym.yaml`), and the cross-backend
 contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
 mujoco/isaacgym pair. Playback rendering uses IsaacGym's native rendering
 (viewer + camera sensor); both interactive and video-recording modes work

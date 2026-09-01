@@ -16,11 +16,11 @@ from hydra.errors import ConfigCompositionException
 from unilab.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
 
 _ROOT = Path(__file__).parent.parent.parent
-_CONF_DIR = _ROOT / "conf"
+_CONF_DIR = _ROOT / "src" / "unilab" / "conf"
 
 
 def _offpolicy():
-    path = _ROOT / "scripts" / "train_offpolicy.py"
+    path = _ROOT / "src" / "unilab" / "scripts" / "train_offpolicy.py"
     spec = importlib.util.spec_from_file_location("train_offpolicy", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

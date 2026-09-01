@@ -102,7 +102,7 @@ materializer。
 - 地形生成器：`src/unilab/terrains/terrain_generator.py`
 - MuJoCo materializer：`src/unilab/base/backend/mujoco/xml.py`
 - Motrix materializer：`src/unilab/base/backend/motrix/scene.py`
-- Owner YAML：`conf/ppo/task/go2_joystick_rough/mujoco.yaml`、
-  `conf/ppo/task/go2_joystick_rough/motrix.yaml`
+- Owner YAML：`src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml`、
+  `src/unilab/conf/ppo/task/go2_joystick_rough/motrix.yaml`
 
 用户使用说明见 {doc}`../../2-user_guide/6-terrain/1-procedural`。

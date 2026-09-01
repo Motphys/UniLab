@@ -23,36 +23,36 @@ uv run demo dance
 - `none` — 跳过渲染，仅计算指标。
 
 `training.export_onnx=false` 目前仅适用于 off-policy 回放路径
-（`scripts/train_sac.py` / `scripts/train_td3.py` / `scripts/train_flashsac.py`
+（`src/unilab/scripts/train_sac.py` / `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
 以及使用 `--algo sac|td3|flashsac` 的 CLI 运行）。它会跳过
 `policy.onnx` 的导出与校验，但仍会执行回放和视频录制。
 
 ## MuJoCo viewer 可视化脚本
 
 常规评估和视频导出优先使用 `uv run eval`。需要直接打开 `mujoco.viewer`
-调试策略时，可以使用低层脚本 `scripts/play_interactive.py`。
+调试策略时，可以使用低层脚本 `src/unilab/scripts/play_interactive.py`。
 
-`scripts/play_interactive.py` 是通用 MuJoCo viewer 入口，适合 PPO、APPO、
+`src/unilab/scripts/play_interactive.py` 是通用 MuJoCo viewer 入口，适合 PPO、APPO、
 SAC、FlashSAC 和 HORA distill 的策略可视化。它使用 `--algo / --task / --sim`
 选择算法和 owner config；无论 `--sim` 选择 MuJoCo 还是 Motrix，窗口都使用
 `mujoco.viewer` 可视化，`--sim` 只决定读取哪份配置。
 
 ```bash
 # 使用 owner config 中的 interactive.action_mode；全局默认是 zero action
-uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco
+uv run src/unilab/scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco
 
 # 随机动作
-uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco \
+uv run src/unilab/scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco \
     interactive.action_mode=random
 
 # 策略动作
-uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco \
+uv run src/unilab/scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco \
     algo.load_run=-1 interactive.action_mode=policy
 
-uv run scripts/play_interactive.py --algo flashsac --task g1_walk_flat --sim motrix \
+uv run src/unilab/scripts/play_interactive.py --algo flashsac --task g1_walk_flat --sim motrix \
     algo.load_run=-1 interactive.action_mode=policy
 
-uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco \
+uv run src/unilab/scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco \
     interactive.action_mode=policy interactive.keyboard=true
 ```
 

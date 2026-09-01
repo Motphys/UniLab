@@ -42,7 +42,7 @@ def _allegro_manager_override(
 
     repo_root = Path(__file__).parents[2]
     with initialize_config_dir(
-        config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / config_root), version_base="1.3"
     ):
         cfg = compose("config", overrides=[f"task={task}/{backend}"])
     return BackendAdapter(
@@ -60,13 +60,15 @@ def _g1_manager_override(
     repo_root = Path(__file__).parents[2]
     if task == "g1_walk_rough":
         # There is no ppo g1_walk_rough owner; use the SAC owner instead.
-        with initialize_config_dir(config_dir=str(repo_root / "conf" / "sac"), version_base="1.3"):
+        with initialize_config_dir(
+            config_dir=str(repo_root / "src" / "unilab" / "conf" / "sac"), version_base="1.3"
+        ):
             cfg = compose("config", overrides=[f"task={task}/mujoco"])
         return BackendAdapter(
             cfg, root_dir=repo_root, algo_name="sac"
         ).build_task_env_cfg_override()
     with initialize_config_dir(
-        config_dir=str(repo_root / "conf" / config_group), version_base="1.3"
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / config_group), version_base="1.3"
     ):
         cfg = compose("config", overrides=[f"task={task}/{backend}"])
     return BackendAdapter(
@@ -88,7 +90,7 @@ def _motion_manager_override(
     repo_root = Path(__file__).parents[2]
     GlobalHydra.instance().clear()
     with initialize_config_dir(
-        config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / config_root), version_base="1.3"
     ):
         overrides = [f"task={task}/{backend}"]
         cfg = compose("config", overrides=overrides)

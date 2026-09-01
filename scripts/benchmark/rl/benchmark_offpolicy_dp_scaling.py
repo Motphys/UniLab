@@ -1,6 +1,6 @@
 """Off-policy multi-GPU data-parallel scaling benchmark (issue #968).
 
-Runs real ``scripts/train_sac.py`` training via subprocess (same Hydra
+Runs real ``src/unilab/scripts/train_sac.py`` training via subprocess (same Hydra
 overrides as the production CLI entry, never importing training internals) and
 compares single-device N=1 (no ``training.devices``) against N-way data
 parallel (``training.devices=[d0..dN-1]``, default ``[0,1]``). Every config
@@ -59,7 +59,7 @@ DEFAULT_OUTPUT_JSON = (
 )
 DEFAULT_RUNS_ROOT = ROOT_DIR / "scripts" / "benchmark" / "outputs" / "offpolicy_dp_scaling" / "runs"
 
-TRAIN_SCRIPT = ROOT_DIR / "scripts" / "train_sac.py"
+TRAIN_SCRIPT = ROOT_DIR / "src" / "unilab" / "scripts" / "train_sac.py"
 
 # Route overrides equivalent to `uv run train --algo sac --task g1_walk_flat
 # --sim mujoco` (see src/unilab/cli.py build_route for off-policy algos).

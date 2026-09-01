@@ -22,7 +22,7 @@ from unilab.tasks.manipulation.sharpa_inhand.rotation import (
     _materialize_grasp_caches,
 )
 
-_CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
+_CONF_DIR = Path(__file__).resolve().parents[2] / "src" / "unilab" / "conf"
 _SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 
 

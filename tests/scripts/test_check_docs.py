@@ -29,7 +29,9 @@ def test_sharpa_domain_randomization_doc_matches_owner_config():
     )
     content = doc_path.read_text(encoding="utf-8")
 
-    owner_cfg = OmegaConf.load(root / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml")
+    owner_cfg = OmegaConf.load(
+        root / "src" / "unilab" / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml"
+    )
 
     assert "Sharpa" in content
     assert "`geom_size`" in content

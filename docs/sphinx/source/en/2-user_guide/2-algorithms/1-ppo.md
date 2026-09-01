@@ -1,7 +1,7 @@
 # PPO
 
 PPO is the default synchronous on-policy training path. It uses
-`scripts/train_rsl_rl.py`, composes from `conf/ppo/config.yaml`, and runs the
+`src/unilab/scripts/train_rsl_rl.py`, composes from `src/unilab/conf/ppo/config.yaml`, and runs the
 RSL-RL adapter code in `src/unilab/algos/rsl_rl_ppo.py` and
 `src/unilab/training/rsl_rl.py`.
 
@@ -27,7 +27,7 @@ Use `uv run eval` for checkpoint playback:
 uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 ```
 
-Logs are grouped by `algo.algo_log_name`; the default in `conf/ppo/config.yaml`
+Logs are grouped by `algo.algo_log_name`; the default in `src/unilab/conf/ppo/config.yaml`
 is `rsl_rl_ppo`.
 
 ## Single-node multi-GPU training

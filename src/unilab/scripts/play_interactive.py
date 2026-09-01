@@ -6,14 +6,14 @@ MuJoCo.
 
 Usage:
     # Zero-action playback for a task/backend owner config
-    uv run scripts/play_interactive.py --algo ppo --task go2_joystick_flat --sim mujoco
+    uv run python -m unilab.scripts.play_interactive --algo ppo --task go2_joystick_flat --sim mujoco
 
     # Policy playback and keyboard command control
-    uv run scripts/play_interactive.py --algo ppo --task go2_joystick_rough --sim mujoco \
+    uv run python -m unilab.scripts.play_interactive --algo ppo --task go2_joystick_rough --sim mujoco \
       interactive.action_mode=policy interactive.keyboard=true
 
     # Show target bodies / reward debug overlays
-    uv run scripts/play_interactive.py --algo ppo --task g1_motion_tracking --sim mujoco \
+    uv run python -m unilab.scripts.play_interactive --algo ppo --task g1_motion_tracking --sim mujoco \
       interactive.show_target_bodies=true \
       interactive.target_show_axes=true \
       interactive.show_reward_debug=true
@@ -42,12 +42,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
 
-ROOT_DIR = Path(__file__).parent.parent
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+_PACKAGE_CONF_ROOT = Path(__file__).resolve().parents[1] / "conf"
 
 from unilab.algos.rsl_rl import (
     RslRlVecEnvWrapper,
@@ -209,7 +204,7 @@ def _compose_interactive_config(algo: str, overrides: list[str]) -> DictConfig:
     config_group = _CONFIG_ROOT_BY_ALGO[algo]
     GlobalHydra.instance().clear()
     with initialize_config_dir(
-        config_dir=str(ROOT_DIR / "conf" / config_group),
+        config_dir=str(_PACKAGE_CONF_ROOT / config_group),
         version_base="1.3",
     ):
         return compose(
@@ -238,7 +233,7 @@ def resolve_checkpoint(
     log_root: str | None = None,
 ) -> str | None:
     checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
-        ROOT_DIR,
+        Path.cwd(),
         task_name=task,
         load_run=load_run,
         algo_log_name=algo_log_name,
@@ -912,10 +907,10 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         from unilab.base.config_adapter import create_env
 
         if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
-            env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=ROOT_DIR)
+            env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=Path.cwd())
         else:
             env_cfg_override = build_play_backend_adapter(
-                cfg, root_dir=ROOT_DIR, algo_name=algo
+                cfg, root_dir=Path.cwd(), algo_name=algo
             ).build_task_env_cfg_override()
         try:
             return create_env(
@@ -946,11 +941,11 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                     _algo_config_dict(cfg),
                     default_wrapper_cls=RslRlVecEnvWrapper,
                 ).wrapper_cls
-            session = create_rsl_rl_playback_session(
+            session: Any = create_rsl_rl_playback_session(
                 playback_cfg=playback_cfg,
                 env_factory=_create_env,
                 algo_config=_algo_config_dict(cfg),
-                root_dir=ROOT_DIR,
+                root_dir=Path.cwd(),
                 device=device,
                 checkpoint_resolver=resolve_checkpoint,
                 checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
@@ -970,7 +965,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 cfg=cfg,
                 rl_cfg=_algo_config_dict(cfg),
                 env_factory=_create_env,
-                root_dir=ROOT_DIR,
+                root_dir=Path.cwd(),
                 device=device,
                 wrapper_cls=RslRlVecEnvWrapper,
                 log=lambda message: print(f"[play_interactive] {message}"),
@@ -982,7 +977,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 playback_cfg=playback_cfg,
                 cfg=cfg,
                 env_factory=_create_env,
-                root_dir=ROOT_DIR,
+                root_dir=Path.cwd(),
                 device=device,
                 algo_name=algo,
                 log=lambda message: print(f"[play_interactive] {message}"),
@@ -995,7 +990,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             session = create_hora_distill_playback_session(
                 playback_cfg=playback_cfg,
                 cfg=cfg,
-                root_dir=ROOT_DIR,
+                root_dir=Path.cwd(),
                 device=device,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )

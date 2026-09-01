@@ -233,7 +233,7 @@ def _run_one_case(
         env.close()
 
 
-@hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
+@hydra.main(version_base="1.3", config_path="../../src/unilab/conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
     if str(cfg.training.sim_backend) != "mujoco":

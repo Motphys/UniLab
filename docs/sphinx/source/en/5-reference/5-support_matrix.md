@@ -38,7 +38,7 @@ in English. Do not infer support beyond the evidence grade shown below.
 | Grade | Repository Evidence |
 | --- | --- |
 | `Registered` | The env/backend pair exists in `registry.list_registered_envs()` after `ensure_registries()`. |
-| `Configured` | A matching owner YAML exists under `conf/{ppo,appo,sac,td3,flashsac}/task/...`. |
+| `Configured` | A matching owner YAML exists under `src/unilab/conf/{ppo,appo,sac,td3,flashsac}/task/...`. |
 | `Tested` | Automated tests under `tests/` cover the entrypoint/task-owner/backend combination, or an explicit maintainer full-training validation with near-risk automated tests exists. `Tested` here does not mean the default recommended path. |
 | `Benchmarked` | A checked-in benchmark manifest exists for the combination. |
 | `Recommended` | Explicit recommendation metadata exists in the repo. |
@@ -146,8 +146,8 @@ rendering/playback paths remain unsupported.
 
 - Registry bootstrap: `src/unilab/envs/**` decorators via
   `unilab.base.registry.ensure_registries()`.
-- Owner YAML scan: `conf/ppo/task/**`, `conf/appo/task/**`,
-  `conf/sac/task/**`, `conf/td3/task/**`, `conf/flashsac/task/**`.
+- Owner YAML scan: `src/unilab/conf/ppo/task/**`, `src/unilab/conf/appo/task/**`,
+  `src/unilab/conf/sac/task/**`, `src/unilab/conf/td3/task/**`, `src/unilab/conf/flashsac/task/**`.
 - Generic compose coverage:
   `tests/config/test_config_system.py::test_supported_task_composes`.
 - Validated mjwarp entrypoints are explicitly recorded in

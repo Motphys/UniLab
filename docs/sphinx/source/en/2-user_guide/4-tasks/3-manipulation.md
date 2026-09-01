@@ -16,7 +16,7 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora trainin
 ```
 
 HORA student distillation is configured by
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml`; it is not currently exposed
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`; it is not currently exposed
 as a separate top-level CLI route.
 
 ## Platform Balancing

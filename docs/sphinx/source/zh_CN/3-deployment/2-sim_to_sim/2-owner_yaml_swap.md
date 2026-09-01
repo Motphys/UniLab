@@ -15,8 +15,8 @@
 
 1. 复制已有的 owner YAML：
    ```bash
-   cp conf/ppo/task/go2_joystick_flat/motrix.yaml \
-      conf/ppo/task/go2_joystick_flat/mujoco.yaml
+   cp src/unilab/conf/ppo/task/go2_joystick_flat/motrix.yaml \
+      src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml
    ```
 2. 在新文件里，设置 `training.sim_backend: mujoco`。
 3. 调整新后端所需的**物理参数**：

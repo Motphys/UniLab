@@ -8,7 +8,7 @@
 | 面 | 仓库证据 | 它覆盖什么 |
 | --- | --- | --- |
 | 单步动作延迟 | task owner 中 Manager action term 的 `simulate_action_latency` 声明 | 执行上一步动作而非当前动作。 |
-| G1 WBT 观测历史 | `conf/sac/task/g1_wbt_obs/mujoco.yaml` 中逐 term 的 `history_length` | 为 `base_ang_vel`、`joint_pos`、`joint_vel` 与 `actions` 提供逐项历史。 |
+| G1 WBT 观测历史 | `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` 中逐 term 的 `history_length` | 为 `base_ang_vel`、`joint_pos`、`joint_vel` 与 `actions` 提供逐项历史。 |
 | Sharpa 触觉接触延迟 | Sharpa 手内配置中的 `domain_rand.contact_latency` | 为采样到的接触通道保留上一步的触觉接触值。 |
 | 观测历史顺序守护 | `tests/scripts/test_obs_alignment_g1_wbt.py` | 断言 G1 WBT actor 观测按逐项最旧优先展平。 |
 
@@ -24,7 +24,7 @@ env:
       simulate_action_latency: true
 ```
 
-已签入的 G1 WBT owner 在 `conf/sac/task/g1_wbt_obs/mujoco.yaml` 中启用了
+已签入的 G1 WBT owner 在 `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` 中启用了
 该开关。
 
 ## 观测滞后与历史

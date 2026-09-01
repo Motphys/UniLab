@@ -124,7 +124,9 @@ def _compose_env_cfg(task: str, backend: str, spec: TaskSpec) -> Any:
     from unilab.base.registry import apply_cfg_overrides
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[

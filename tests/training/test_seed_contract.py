@@ -17,7 +17,7 @@ from unilab.utils.seed import (
 )
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
-_CONF_DIR = _ROOT_DIR / "conf"
+_CONF_DIR = _ROOT_DIR / "src" / "unilab" / "conf"
 
 
 def _compose(config_dir: str, overrides: list[str] | None = None):

@@ -5,7 +5,7 @@ This page only describes the current domain randomization status of registered t
 
 Two DR declaration paths exist today:
 
-- **Manager-Based (Compatible) tasks**: reset / interval randomization is declared through Hydra `events:` manager terms in the owner YAML; reset-lifecycle events sample at reset, interval-lifecycle events perturb between steps. See the `events:` block of `conf/ppo/task/go1_joystick_flat/base.yaml` for an example.
+- **Manager-Based (Compatible) tasks**: reset / interval randomization is declared through Hydra `events:` manager terms in the owner YAML; reset-lifecycle events sample at reset, interval-lifecycle events perturb between steps. See the `events:` block of `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` for an example.
 - **Legacy provider path**: only the 3 Adapted families (`sharpa_inhand` / `sharpa_inhand_grasp` / `go2_arm_manip_loco`, including their appo / hora / ppo_him owners) still declare `env.domain_rand.*` configuration through a `DomainRandomizationProvider` + `DomainRandomizationManager`.
 
 The unified entry point of the legacy provider path lives in `NpEnv._init_domain_randomization()` and `DomainRandomizationManager`:
@@ -33,8 +33,8 @@ These three paths correspond to three lifecycle classes:
 
 | Task | Declaration path | Structured form? | reset form | interval form | Code |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset/interval events | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `conf/ppo/task/go1_joystick_flat/base.yaml` |
-| `Go2JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset events | root-state reset + `pd_gains` kp/kd | none | `conf/ppo/task/go2_joystick_flat/base.yaml` |
+| `Go1JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset/interval events | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` |
+| `Go2JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset events | root-state reset + `pd_gains` kp/kd | none | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` terms | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
 | `G1WalkRough` | Hydra `events:` terms | Yes: same Manager-Based event terms as `G1WalkFlat` | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
 | `G1MotionTracking` | Hydra command term | Yes: Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame, root pose/velocity, and joint-position sampling | none | `motion_tracking/common/manager_terms.py` |
@@ -49,8 +49,8 @@ These three paths correspond to three lifecycle classes:
 
 | Task | Currently implemented reset domain randomization | Currently implemented interval domain randomization | Default state |
 | --- | --- | --- | --- |
-| `Go1JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling (`UniformVelocityCommandCfg`); base mass via `randomize_rigid_body_mass`; base COM via `randomize_rigid_body_com`; kp/kd via `pd_gains` | `push_by_setting_velocity` interval event | all listed event terms are declared and enabled by default in `conf/ppo/task/go1_joystick_flat/base.yaml` |
-| `Go2JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling; kp/kd via `pd_gains` | none | event terms declared and enabled by default in `conf/ppo/task/go2_joystick_flat/base.yaml` |
+| `Go1JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling (`UniformVelocityCommandCfg`); base mass via `randomize_rigid_body_mass`; base COM via `randomize_rigid_body_com`; kp/kd via `pd_gains` | `push_by_setting_velocity` interval event | all listed event terms are declared and enabled by default in `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` |
+| `Go2JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling; kp/kd via `pd_gains` | none | event terms declared and enabled by default in `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling with a planar dead zone; `gait_phase` sampling; kp/kd randomization via `pd_gains` | none | kp/kd enabled on mujoco owners by default; disabled on motrix/mjwarp owners |
 | `G1WalkRough` | Same as `G1WalkFlat` (shared owner bases, rough scene) | none | Same defaults as `G1WalkFlat` |
 | `G1MotionTracking` | Motion-command frame sampling; root pose perturbation `x/y/z/roll/pitch/yaw`; root velocity perturbation `x/y/z/roll/pitch/yaw`; joint-position noise clipped through the public entity soft limits; action-manager state reset | none | `pose_range`, `velocity_range`, and `joint_position_range` have non-zero perturbations in the base owner |
@@ -173,10 +173,10 @@ Notes:
 ## Interval push Usage
 
 The `env.domain_rand.push_robots` family of fields exists only in the go2_arm
-Adapted-family owners (`conf/ppo/task/go2_arm_manip_loco/mujoco.yaml` etc.);
+Adapted-family owners (`src/unilab/conf/ppo/task/go2_arm_manip_loco/mujoco.yaml` etc.);
 Manager-Based tasks declare push through a `push_by_setting_velocity` interval
-event term instead (for example `conf/ppo/task/go1_joystick_flat/base.yaml` and
-`conf/ppo/task/quadruped_joystick_rough/base.yaml`).
+event term instead (for example `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` and
+`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`).
 
 The go2_arm owners configure push under `env.domain_rand`:
 
@@ -233,8 +233,8 @@ This boundary exists to honor the cold-path asset/model-metadata access principl
 
 Sharpa-hand is the current example task for `geom_size` init-lifecycle DR in the repo. Related task configs:
 
-- `conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
 
 ### 1. Config Entry
 

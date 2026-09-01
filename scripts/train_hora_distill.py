@@ -178,7 +178,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     return play_video_path
 
 
-@hydra.main(version_base="1.3", config_path="../conf/hora_distill", config_name="config")
+@hydra.main(version_base="1.3", config_path="../src/unilab/conf/hora_distill", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 

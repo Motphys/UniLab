@@ -6,13 +6,13 @@ lives, and which command shape selects it. For general flags, see
 
 | Algorithm | Style | Entrypoint | Config Evidence |
 | --- | --- | --- | --- |
-| PPO | synchronous on-policy | `scripts/train_rsl_rl.py` | `conf/ppo/config.yaml` |
-| APPO | async on-policy | `scripts/train_appo.py` | `conf/appo/config.yaml` |
-| SAC | off-policy | `scripts/train_sac.py` | `conf/sac/config.yaml` |
-| TD3 | off-policy | `scripts/train_td3.py` | `conf/td3/config.yaml` |
-| FlashSAC | off-policy | `scripts/train_flashsac.py` | `conf/flashsac/config.yaml` |
-| HIM-PPO | height-estimator PPO path | `scripts/train_him_ppo.py` | `conf/ppo_him/config.yaml` |
-| HORA | teacher/student distillation path | `scripts/train_hora_distill.py` | `conf/hora_distill/config.yaml` |
+| PPO | synchronous on-policy | `src/unilab/scripts/train_rsl_rl.py` | `src/unilab/conf/ppo/config.yaml` |
+| APPO | async on-policy | `src/unilab/scripts/train_appo.py` | `src/unilab/conf/appo/config.yaml` |
+| SAC | off-policy | `src/unilab/scripts/train_sac.py` | `src/unilab/conf/sac/config.yaml` |
+| TD3 | off-policy | `src/unilab/scripts/train_td3.py` | `src/unilab/conf/td3/config.yaml` |
+| FlashSAC | off-policy | `src/unilab/scripts/train_flashsac.py` | `src/unilab/conf/flashsac/config.yaml` |
+| HIM-PPO | height-estimator PPO path | `scripts/train_him_ppo.py` | `src/unilab/conf/ppo_him/config.yaml` |
+| HORA | teacher/student distillation path | `scripts/train_hora_distill.py` | `src/unilab/conf/hora_distill/config.yaml` |
 
 ```{toctree}
 :hidden:

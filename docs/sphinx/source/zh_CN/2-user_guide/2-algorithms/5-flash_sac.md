@@ -1,7 +1,7 @@
 # FlashSAC
 
-FlashSAC 通过 `scripts/train_flashsac.py` 运行，拥有独立的配置树。使用
-`--algo flashsac` 选择它；默认值内联在 `conf/flashsac/config.yaml` 中，实现位于
+FlashSAC 通过 `src/unilab/scripts/train_flashsac.py` 运行，拥有独立的配置树。使用
+`--algo flashsac` 选择它；默认值内联在 `src/unilab/conf/flashsac/config.yaml` 中，实现位于
 `src/unilab/algos/flash_sac/` 下。
 
 它与 SAC、TD3 共用 off-policy runner 设计，但默认网络并不相同：actor 使用
@@ -16,7 +16,7 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 
 ## 关键字段
 
-对于 off-policy 回放路径（`scripts/train_flashsac.py` / CLI `--algo flashsac`），设
+对于 off-policy 回放路径（`src/unilab/scripts/train_flashsac.py` / CLI `--algo flashsac`），设
 置 `training.export_onnx=false` 可在仍然录制回放视频的同时跳过 `policy.onnx` 导出。
 参见 {doc}`/zh_CN/1-getting_started/3-evaluation_and_playback`。
 

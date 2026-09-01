@@ -1,7 +1,7 @@
 # Motion Tracking
 
 G1 motion tracking tasks live under `src/unilab/tasks/motion_tracking/` and are
-selected through task owner YAMLs in `conf/ppo/`, `conf/appo/`, and selected
+selected through task owner YAMLs in `src/unilab/conf/ppo/`, `src/unilab/conf/appo/`, and selected
 off-policy paths.
 
 > **Motion assets moved to Hugging Face.** The `.npz` clips are no longer shipped
@@ -19,13 +19,13 @@ configuration entry point; the selected owner is materialized into the shared
 
 | CLI Task | Registered Env | Default Motion | Owner Evidence |
 | --- | --- | --- | --- |
-| `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `conf/ppo/task/g1_motion_tracking/`, `conf/appo/task/g1_motion_tracking/` |
-| `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `conf/ppo/task/g1_flip_tracking/`, `conf/appo/task/g1_flip_tracking/` |
-| `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `conf/ppo/task/g1_wall_flip_tracking/`, `conf/appo/task/g1_wall_flip_tracking/` |
-| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` |
-| `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
-| `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `conf/ppo/task/g1_box_tracking/` |
-| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `conf/sac/task/g1_wbt_obs/mujoco.yaml` |
+| `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `src/unilab/conf/ppo/task/g1_motion_tracking/`, `src/unilab/conf/appo/task/g1_motion_tracking/` |
+| `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `src/unilab/conf/ppo/task/g1_flip_tracking/`, `src/unilab/conf/appo/task/g1_flip_tracking/` |
+| `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `src/unilab/conf/ppo/task/g1_wall_flip_tracking/`, `src/unilab/conf/appo/task/g1_wall_flip_tracking/` |
+| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `src/unilab/conf/ppo/task/x2_wall_flip_tracking/` |
+| `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `src/unilab/conf/ppo/task/g1_climb_tracking/`, `src/unilab/conf/appo/task/g1_climb_tracking/` |
+| `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `src/unilab/conf/ppo/task/g1_box_tracking/` |
+| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` |
 
 The 23-DoF task-owner directories select their matching 23-DoF scene, motion,
 entity, and action declarations. Profile differences remain in Hydra. The G1
@@ -144,5 +144,5 @@ exact clip initial state.
 ## Interactive Debugging
 
 Routine checkpoint replay uses `uv run eval`. When you need a target-body or reward
-debug overlay, `scripts/play_interactive.py` is the low-level MuJoCo viewer entry
+debug overlay, `src/unilab/scripts/play_interactive.py` is the low-level MuJoCo viewer entry
 point; it is not currently exposed as a `uv run eval` flag.

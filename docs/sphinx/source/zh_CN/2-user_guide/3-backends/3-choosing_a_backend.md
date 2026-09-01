@@ -12,8 +12,8 @@ UniLab 通过 task owner config 选择仿真器。常规用法下，使用 `--ta
 | 默认路径或最广的 owner 覆盖 | MuJoCo |
 | 通过后端进行原生交互式回放 | Motrix |
 | 仅限 MuJoCo 的工具，例如 `scripts/play_viser.py` | MuJoCo |
-| task owner 仅以 `conf/.../<task>/mujoco.yaml` 形式存在 | MuJoCo |
-| task owner 以 `conf/.../<task>/motrix.yaml` 形式存在，且支持矩阵将该组合标记为 tested 或 configured | Motrix |
+| task owner 仅以 `src/unilab/conf/.../<task>/mujoco.yaml` 形式存在 | MuJoCo |
+| task owner 以 `src/unilab/conf/.../<task>/motrix.yaml` 形式存在，且支持矩阵将该组合标记为 tested 或 configured | Motrix |
 
 支持矩阵由 registry、owner YAML 和测试生成；将其作为当前证据来源：
 {doc}`/zh_CN/5-reference/5-support_matrix`。

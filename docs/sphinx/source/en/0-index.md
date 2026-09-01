@@ -50,7 +50,7 @@ training through shared memory, with MuJoCo and Motrix as simulation backends.
 
 :::{grid-item-card} Backend choice stays in config
 Switch backends with CLI flags such as `--task go2_joystick_flat --sim motrix`;
-the CLI composes the matching owner YAML under `conf/`. Do not use
+the CLI composes the matching owner YAML under `src/unilab/conf/`. Do not use
 `training.sim_backend` as a standalone backend switch.
 :::
 
@@ -125,8 +125,8 @@ tasks, backends, algorithms, or terrain.
 
 ```{mermaid}
 flowchart LR
-  cli["uv run train/eval<br/>--algo --task --sim"] --> owner["Task owner YAML<br/>conf/*/task/..."]
-  cli --> script["Thin script routing<br/>scripts/train_*.py"]
+  cli["uv run train/eval<br/>--algo --task --sim"] --> owner["Task owner YAML<br/>src/unilab/conf/*/task/..."]
+  cli --> script["Thin script routing<br/>src/unilab/scripts/train_*.py"]
   owner --> registry["Registry bootstrap<br/>src/unilab/base/registry.py"]
   registry --> env["NpEnv contract<br/>obs dict + info dict"]
   env --> backend["SimBackend<br/>MuJoCo or Motrix"]
@@ -148,11 +148,11 @@ committed benchmark manifest or separate recommendation metadata.
 | --- | --- | --- |
 | Go1 joystick | PPO, APPO, TD3 | PPO has tested MuJoCo and Motrix rows. APPO has tested MuJoCo rows and Motrix registered rows. TD3 has a Motrix owner YAML for `go1_joystick_flat`. |
 | Go2 joystick | PPO, FlashSAC, TD3 | PPO has tested MuJoCo and Motrix rows. FlashSAC has MuJoCo owner YAMLs for `go2_joystick_flat`; TD3 has a Motrix owner YAML for `go2_joystick_flat`. |
-| Go2 arm manip-loco | PPO, HIM-PPO | Committed MuJoCo owner YAMLs are present under `conf/ppo/task/go2_arm_manip_loco/` and `conf/ppo_him/task/go2_arm_manip_loco/`. |
-| Go2W joystick | PPO | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `conf/ppo/task/go2w_joystick_*`. |
+| Go2 arm manip-loco | PPO, HIM-PPO | Committed MuJoCo owner YAMLs are present under `src/unilab/conf/ppo/task/go2_arm_manip_loco/` and `src/unilab/conf/ppo_him/task/go2_arm_manip_loco/`. |
+| Go2W joystick | PPO | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `src/unilab/conf/ppo/task/go2w_joystick_*`. |
 | G1 locomotion / tracking | PPO, APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
 | Allegro in-hand | PPO, APPO | PPO and APPO have committed MuJoCo and Motrix owner YAMLs for Allegro in-hand tasks. |
-| Sharpa in-hand | PPO, APPO HORA teacher, HORA distillation | Sharpa owner YAMLs are committed for PPO/APPO teacher paths; student distillation uses `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`. |
+| Sharpa in-hand | PPO, APPO HORA teacher, HORA distillation | Sharpa owner YAMLs are committed for PPO/APPO teacher paths; student distillation uses `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`. |
 
 ```{toctree}
 :hidden:

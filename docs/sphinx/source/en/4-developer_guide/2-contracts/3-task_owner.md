@@ -7,11 +7,11 @@ contract is recorded in
 ## Owner Paths
 
 - PPO and APPO owner YAMLs use
-  `conf/{ppo,appo}/task/<task>/<backend>.yaml`.
+  `src/unilab/conf/{ppo,appo}/task/<task>/<backend>.yaml`.
 - Off-policy algorithms (SAC / TD3 / FlashSAC) each have their own config
-  tree: `conf/<algo>/task/<task>/<backend>.yaml`.
-- Other existing config roots, such as `conf/ppo_him/` and
-  `conf/hora_distill/`, follow the same owner-YAML identity rule for their
+  tree: `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`.
+- Other existing config roots, such as `src/unilab/conf/ppo_him/` and
+  `src/unilab/conf/hora_distill/`, follow the same owner-YAML identity rule for their
   supported tasks.
 
 ## Required Semantics
@@ -20,7 +20,7 @@ contract is recorded in
   `uv run train --algo ppo --task go2_joystick_flat --sim mujoco` or
   `uv run train --algo ppo --task go2_joystick_flat --sim motrix`.
 - For off-policy entrypoints, `--algo <algo>` selects the per-algorithm config
-  tree; the owner YAML path is `conf/<algo>/task/<task>/<backend>.yaml`.
+  tree; the owner YAML path is `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`.
 - `training.sim_backend` is an identity field inside the selected owner YAML. It
   is not an independent backend switch.
 - Backend-specific reward, env, scene, and algorithm differences belong in the
@@ -30,9 +30,9 @@ contract is recorded in
 
 ## Evidence In Repo
 
-- PPO owner example: `conf/ppo/task/go2_joystick_flat/mujoco.yaml`
-- APPO config root: `conf/appo/config.yaml`
-- Off-policy config roots: `conf/{sac,td3,flashsac}/config.yaml`
+- PPO owner example: `src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml`
+- APPO config root: `src/unilab/conf/appo/config.yaml`
+- Off-policy config roots: `src/unilab/conf/{sac,td3,flashsac}/config.yaml`
 - Config tests: `tests/config/test_config_system.py`,
   `tests/scripts/test_train_script_configs.py`,
   `tests/envs/locomotion/g1/test_g1_owner_contract.py`

@@ -24,7 +24,7 @@ from unilab.tasks.locomotion.microduck.deploy_contract import MICRODUCK_NUM_ACTI
 pytestmark = pytest.mark.slow
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf" / "sac"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf" / "sac"
 
 
 def _compose_mjwarp_owner() -> Any:

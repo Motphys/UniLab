@@ -8,7 +8,7 @@ learner — no worker subprocess, no IPC.
 
 Current status: `GenesisBackend` is implemented and registered; `g1_walk_flat`
 ships PPO and SAC owner configs
-(`conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`), and the cross-backend
+(`src/unilab/conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml`), and the cross-backend
 contract audit (`scripts/audit_sim2sim_contracts.py`) covers the
 mujoco/genesis pair in both algo trees (verdict TRANSFERABLE). Support level
 is **experimental**. Evidence: registry + owner YAML + compose/contract

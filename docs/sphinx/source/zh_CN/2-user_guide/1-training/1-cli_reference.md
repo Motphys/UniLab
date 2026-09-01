@@ -7,11 +7,11 @@ Hydra 组合。
 
 | 目标 | 命令形式 | 路由到的脚本 |
 | --- | --- | --- |
-| PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `scripts/train_rsl_rl.py` |
-| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `scripts/train_appo.py` |
-| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `scripts/train_sac.py` |
-| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `scripts/train_td3.py` |
-| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `scripts/train_flashsac.py` |
+| PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `src/unilab/scripts/train_rsl_rl.py` |
+| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `src/unilab/scripts/train_appo.py` |
+| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `src/unilab/scripts/train_sac.py` |
+| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `src/unilab/scripts/train_td3.py` |
+| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `src/unilab/scripts/train_flashsac.py` |
 
 示例：
 
@@ -116,7 +116,7 @@ demo 入口由 `src/unilab/demo.py` 实现，并从 `src/unilab/cli.py` 路由�
 当你需要检查 Hydra 配置组或复现脚本层面的问题时，底层脚本仍然可用。在正常使用
 中，请将定义路由的取值保留在上面的统一 CLI flag 中。
 
-对于 off-policy 路由，`--algo` 选择按算法划分的 owner 树 `conf/<algo>/`；
+对于 off-policy 路由，`--algo` 选择按算法划分的 owner 树 `src/unilab/conf/<algo>/`；
 不要在 `--task` 中包含算法名称。
 
 ## 常用 Override

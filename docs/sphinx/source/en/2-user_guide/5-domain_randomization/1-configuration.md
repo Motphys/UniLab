@@ -8,7 +8,7 @@ Two declaration paths exist today:
 
 - Manager-Based (Compatible) tasks declare reset / interval randomization
   through Hydra `events:` manager terms in the owner YAML, for example
-  `conf/ppo/task/go1_joystick_flat/base.yaml`.
+  `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`.
 - Only the Adapted families (sharpa / go2_arm and their hora / appo / ppo_him
   owners) still configure legacy provider fields under `env.domain_rand`.
 
@@ -63,9 +63,9 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco \
 Keep ranges in the task owner YAML when they are part of the task contract. For
 example, the rough quadruped family's base mass, center-of-mass, kp/kd, and
 push randomization are declared as event terms in the shared base
-`conf/ppo/task/quadruped_joystick_rough/base.yaml` (the `go2_joystick_rough`
+`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml` (the `go2_joystick_rough`
 backend owners compose it through Hydra defaults), while
-`conf/ppo/task/sharpa_inhand/mujoco.yaml` configures object scale, friction, and
+`src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml` configures object scale, friction, and
 force disturbance for Sharpa.
 
 For the full current inventory, see {doc}`0-index`.

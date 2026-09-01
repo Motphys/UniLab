@@ -434,7 +434,7 @@ def test_resolver_class_extract_and_dim_guard_delegate():
 
 
 def _compose_task(task: str) -> Any:
-    conf_dir = str(Path(__file__).resolve().parents[2] / "conf" / "ppo")
+    conf_dir = str(Path(__file__).resolve().parents[2] / "src" / "unilab" / "conf" / "ppo")
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=conf_dir, version_base="1.3"):
         return compose("config", overrides=[f"task={task}"])
