@@ -30,6 +30,36 @@ _HF_ROBOTS_REPO_ID = "unilabsim/unilab-robots"
 _HF_REPO_TYPE = "dataset"
 _HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
 
+# Robot binary assets (meshes / textures) hosted on ``_HF_ROBOTS_REPO_ID``
+# instead of being committed to git. Each entry maps a robot directory name
+# to the ``ASSETS_ROOT_PATH``-relative directories that live on HF:
+# ``(directory, completeness marker, count glob, count label)``. The glob and
+# label only feed the ``unilab-pull-assets`` summary line; resolution keys
+# off the marker file.
+ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
+    "a2": (("robots/a2/assets", "a2/base_link.STL", "**/*.STL", "STL"),),
+    "allegro_hand": (("robots/allegro_hand/assets", "base_link.stl", "**/*", "asset"),),
+    "g1": (
+        ("robots/g1/assets", "head_link.STL", "**/*", "asset"),
+        ("robots/g1/textures", "floor.png", "*.png", "PNG"),
+    ),
+    "go2": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
+    # go2_arm reuses the Go2 base meshes via ``../go2/assets`` references.
+    "go2_arm": (
+        ("robots/go2_arm/assets", "arm_base_0.obj", "**/*", "asset"),
+        ("robots/go2/assets", "base_0.obj", "**/*", "asset"),
+    ),
+    # go2w points its meshdir at ``../go2/assets``.
+    "go2w": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
+    "microduck": (("robots/microduck/assets", "trunk_base.stl", "*.stl", "STL"),),
+    "sharpa_wave": (("robots/sharpa_wave/meshes", "DP_HB1_4F.STL", "*.STL", "STL"),),
+    "t800": (
+        ("robots/t800/assets", "LINK_BASE.obj", "*.obj", "OBJ"),
+        ("robots/t800/textures", "LINK_BASE.png", "*.png", "PNG"),
+    ),
+    "x2": (("robots/x2/meshes", "pelvis.STL", "*.STL", "STL"),),
+}
+
 
 def resolve_motion_files(
     motion_file: str | Sequence[str],
@@ -287,3 +317,31 @@ def resolve_robot_asset_dir(directory: str, *, marker: str) -> Path:
         Absolute ``Path`` to the resolved directory.
     """
     return _resolve_snapshot_dir(directory, repo_id=_HF_ROBOTS_REPO_ID, marker=marker)
+
+
+def ensure_robot_assets_for_paths(paths: Sequence[str | None]) -> None:
+    """Resolve HF-hosted asset dirs for every robot referenced by *paths*.
+
+    Cold-path helper called once before a backend parses scene/robot XML:
+    any path under ``robots/<name>/`` whose robot is registered in
+    ``ROBOT_ASSET_SPECS`` gets its HF-hosted directories downloaded when the
+    completeness marker is missing. Paths outside the asset tree and unknown
+    robots are ignored, so callers may pass every scene path unconditionally.
+    """
+    for path in paths:
+        if not path:
+            continue
+        robot = _robot_name_from_path(path)
+        if robot is None:
+            continue
+        for directory, marker, _pattern, _label in ROBOT_ASSET_SPECS[robot]:
+            resolve_robot_asset_dir(directory, marker=marker)
+
+
+def _robot_name_from_path(path_str: str) -> str | None:
+    """Return the registered robot a ``robots/<name>/...`` path refers to."""
+    parts = _hf_relative_path(path_str).split("/")
+    for index, part in enumerate(parts[:-1]):
+        if part == "robots" and parts[index + 1] in ROBOT_ASSET_SPECS:
+            return parts[index + 1]
+    return None

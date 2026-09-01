@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any, cast
 
+from unilab.assets.hub import ensure_robot_assets_for_paths
 from unilab.base.scene import SceneCfg
 
 from .base import BackendRootStateLayout, BackendSensorView, RenderClosedError, SimBackend
@@ -165,6 +166,12 @@ def create_backend(
             "create_backend body_state_required must be bool, "
             f"got {type(body_state_required).__name__}"
         )
+
+    # Cold path: fetch HF-hosted robot meshes/textures referenced by this
+    # scene before any backend parses the XML (no-op when cached locally).
+    ensure_robot_assets_for_paths(
+        [scene.model_file, scene.visual_model_file, *scene.fragment_files]
+    )
 
     position_actuator_gains = kwargs.pop("position_actuator_gains", None)
     motrix_max_iterations = kwargs.pop("motrix_max_iterations", None)

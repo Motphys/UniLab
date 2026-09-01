@@ -2,6 +2,26 @@
 requires = ["uv_build>=0.11.3,<0.12"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+# Robot meshes/textures are hosted on Hugging Face (unilabsim/unilab-robots)
+# and downloaded into these paths on first use; keep them out of the
+# wheel/sdist even when they exist in the source tree. XML and small metadata
+# stay packaged. Directories must stay in sync with ROBOT_ASSET_SPECS in
+# src/unilab/assets/hub.py.
+source-exclude = [
+    "/src/unilab/assets/robots/a2/assets",
+    "/src/unilab/assets/robots/allegro_hand/assets",
+    "/src/unilab/assets/robots/g1/assets",
+    "/src/unilab/assets/robots/g1/textures",
+    "/src/unilab/assets/robots/go2/assets",
+    "/src/unilab/assets/robots/go2_arm/assets",
+    "/src/unilab/assets/robots/microduck/assets",
+    "/src/unilab/assets/robots/sharpa_wave/meshes",
+    "/src/unilab/assets/robots/t800/assets",
+    "/src/unilab/assets/robots/t800/textures",
+    "/src/unilab/assets/robots/x2/meshes",
+]
+
 [project]
 name = "unilab"
 version = "0.1.0"
