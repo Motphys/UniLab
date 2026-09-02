@@ -121,9 +121,8 @@ uv run demo dance
 
 Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/1-cli_reference.html) page for the full list and flags.
 
-The roadmap migration currently resolves `unisim-core` from TestPyPI. Its
-public import namespace is `unisim`; production PyPI publication is performed
-manually by the maintainer after roadmap #1428 closes.
+Physics adapters are installed from the production PyPI release
+`unisim-core>=0.1.14`; its public Python import namespace is `unisim`.
 
 > Mainland China users: motions, scenes, robot meshes, and demo checkpoints are pulled from Hugging Face on first run. If `huggingface.co` is unreachable, point the client at the community mirror before running demo commands:
 >

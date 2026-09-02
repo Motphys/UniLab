@@ -142,8 +142,8 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 
 这会路由到 `go2_joystick_flat/motrix` 任务 owner 配置，并保持后端选择显式化。每个后端 owner 带一个可选的 `play_profile` 块，在 eval 时（`training.play_only=true`）叠加仅渲染相关的覆盖，不影响训练。
 
-roadmap #1428 执行期间，`unisim-core` 从 TestPyPI 解析，Python import namespace
-为 `unisim`；roadmap 完成后的生产 PyPI 发布由 maintainer 手动执行。
+物理适配器从正式 PyPI 安装 `unisim-core>=0.1.14`，其 Python import namespace
+为 `unisim`。
 
 在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 

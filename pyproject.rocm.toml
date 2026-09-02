@@ -24,8 +24,8 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. Production PyPI publication remains maintainer-owned.
-    "unisim-core>=0.1.12",
+    # unisim-core package from the production PyPI index.
+    "unisim-core>=0.1.14",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",
@@ -86,11 +86,6 @@ name = "pytorch-rocm72"
 url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-explicit = true
-
 [tool.uv.sources]
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
@@ -98,7 +93,6 @@ torch = [
 triton-rocm = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
-unisim-core = { index = "testpypi" }
 
 [tool.uv]
 exclude-dependencies = [

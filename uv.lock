@@ -5052,7 +5052,7 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = ">=0.1.12", index = "https://test.pypi.org/simple/" },
+    { name = "unisim-core", specifier = ">=0.1.14" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = ">=1.14.0" },
@@ -5071,16 +5071,13 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "0.1.12"
-source = { registry = "https://test.pypi.org/simple/" }
+version = "0.1.14"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/83/98/7e88202e93ce7f4599fa7b67205116e6ec343843410794013dfa55eec358/unisim_core-0.1.12.tar.gz", hash = "sha256:1808b029e5a0ff76e598ffc0c69e72c8ddefda59b0c93da14849b517e88b61b3", size = 187036, upload-time = "2026-09-02T10:57:04.157Z" }
-wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/08/1f/b49b4755e2a758a2eab98f72f30fb799967a5ead10286b75e8ed47947772/unisim_core-0.1.12-py3-none-any.whl", hash = "sha256:76ab24185daa9c038dde1cc8098e069dbabcefc648260e20a6a455b9b538f7f0", size = 216809, upload-time = "2026-09-02T10:57:02.316Z" },
-]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/c9/f3a8b96037e41d7af6cf7d676650eff0f5078133937c02617e26f171cfbf/unisim_core-0.1.14.tar.gz", hash = "sha256:6290c2d1b440921ebd8a51bfd7160677df4897a0d26614d005ad1d7df95df23b", size = 187141, upload-time = "2026-09-02T14:59:15.011Z" }
 
 [[package]]
 name = "urllib3"
