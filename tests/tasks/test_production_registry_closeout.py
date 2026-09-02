@@ -98,7 +98,7 @@ def _production_factories() -> dict[str, dict[str, tuple[str, str]]]:
     return _snapshot_cache
 
 
-def test_production_registry_matches_migration_matrix_exactly() -> None:
+def test_production_registry_matches_declared_task_matrix() -> None:
     factories = _production_factories()
 
     assert set(factories) == set(PRODUCTION_TASK_NAMES), (
