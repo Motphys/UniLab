@@ -121,7 +121,7 @@ def test_benchmark_runs_and_logs_table_on_adaptive(caplog, monkeypatch, tmp_path
 
     Point the chunk_size cache at an empty ``tmp_path`` file so the resolve is a
     guaranteed MISS (no warm-cache short-circuit) and never pollutes the real
-    ``~/.cache/unilab/chunk_size.json``. A clean miss forces the benchmark path,
+    ``~/.cache/unisim/chunk_size.json``. A clean miss forces the benchmark path,
     so we can assert the benchmark-table INFO record specifically.
     """
     import logging
@@ -133,7 +133,7 @@ def test_benchmark_runs_and_logs_table_on_adaptive(caplog, monkeypatch, tmp_path
     # _effective_cpu_count()==1, nthread = min(_NUM_ENVS, 1) = 1 < _NUM_ENVS,
     # deterministically.
     monkeypatch.setattr(backend_mod, "_effective_cpu_count", lambda: 1)
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "chunk_size.json"))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(tmp_path / "chunk_size.json"))
     with caplog.at_level(logging.INFO, logger="unisim.backend.mujoco.chunk_tuner"):
         backend = _build_small_backend(adaptive_chunk_size=True, chunk_size=None)
     assert backend._chunk_size is None or isinstance(backend._chunk_size, int)

@@ -11,18 +11,19 @@ owner 标为 `Configured`，不是 `Tested`：渲染协议有确定性 worker �
 
 IsaacSim 5.1.0 只能在独立 Python 3.11 环境中运行，而 UniLab 主环境支持
 Python 3.10--3.13。安装入口是 `scripts/tools/setup_isaacsim_env.sh`，默认安装
-到 `$HOME/.unilab/isaacsim`，也可通过 `UNILAB_ISAACSIM_HOME` 修改。worker
+到 `$HOME/.cache/unisim/isaacsim`，也可通过 `UNISIM_ISAACSIM_HOME` 修改。worker
 启动通过 `OMNI_KIT_ACCEPT_EULA=1` 非交互接受 Kit EULA。
 
 后端不会在主进程导入 Kit，并支持以下环境变量：
 
-- `UNILAB_ISAACSIM_HOME`：运行时根目录。
-- `UNILAB_ISAACSIM_PYTHON`：覆盖 worker 解释器路径。
+- `UNISIM_ISAACSIM_HOME`：运行时根目录。
+- `UNISIM_ISAACSIM_PYTHON`：覆盖 worker 解释器路径。
+- 旧的 `UNILAB_ISAACSIM_HOME` 和 `UNILAB_ISAACSIM_PYTHON` 仅作为迁移回退接受。
 - `OMNI_KIT_ACCEPT_EULA=1`：保持 worker 启动非交互。
 
-预期目录为 `$UNILAB_ISAACSIM_HOME/venv/bin/python`、该 venv 下的
+预期目录为 `$UNISIM_ISAACSIM_HOME/venv/bin/python`、该 venv 下的
 site-packages 和 library 目录，以及
-`$UNILAB_ISAACSIM_HOME/IsaacLab` 下的 IsaacLab v2.3.0 源码。
+`$UNISIM_ISAACSIM_HOME/IsaacLab` 下的 IsaacLab v2.3.0 源码。
 
 渲染意图属于 worker 的冷路径 `INIT` 握手。训练不注入渲染模式，使用低开销的
 headless、camera-disabled Kit experience。eval 在 Kit 启动前选择以下模式：
@@ -76,7 +77,7 @@ fail-closed 测试，支持矩阵仍为 `Configured`；真实 renderer 未初始
 ## 检查 Contract
 
 ```bash
-VIRTUAL_ENV="$HOME/.unilab/isaacsim/venv" \
+VIRTUAL_ENV="$HOME/.cache/unisim/isaacsim/venv" \
 OMNI_KIT_ACCEPT_EULA=1 \
 uv run --active --no-project \
   scripts/tools/probe_isaacsim_contract.py \

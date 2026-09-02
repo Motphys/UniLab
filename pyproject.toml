@@ -46,7 +46,7 @@ dependencies = [
     # Physics implementations are provided by the independently released
     # unisim-core package.  During roadmap execution this source is pinned to
     # TestPyPI; production PyPI publication is a maintainer-only final step.
-    "unisim-core>=0.1.11",
+    "unisim-core>=0.1.12",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",

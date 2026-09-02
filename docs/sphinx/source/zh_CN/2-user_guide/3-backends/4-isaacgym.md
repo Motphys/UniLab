@@ -53,10 +53,11 @@ benchmark 脚本
 scripts/tools/setup_isaacgym_env.sh
 ```
 
-脚本默认把所有内容安装到 `$HOME/.unilab/isaacgym`，可用环境变量
-`UNILAB_ISAACGYM_HOME` 覆盖安装根目录；安装包默认自动下载到
-`$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`，离线机器可用
+脚本默认把所有内容安装到 `$HOME/.cache/unisim/isaacgym`，可用环境变量
+`UNISIM_ISAACGYM_HOME` 覆盖安装根目录；安装包默认自动下载到
+`$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`，离线机器可用
 `--tarball <path>` 指定已下载的安装包。
+旧的 `UNILAB_ISAACGYM_HOME` 变量仍仅作为迁移回退接受。
 脚本幂等，重跑时跳过已完成的步骤。
 
 安装流程：专用 miniconda → python 3.8 `hsgym` conda 环境（含
@@ -66,7 +67,7 @@ tarball → `pip install -e isaacgym/python` → import 自检。
 安装完成后，把脚本输出的 export 行写入 shell rc（如 `~/.bashrc`）：
 
 ```bash
-export UNILAB_BENCHMARK_HOLOSOMA_DEPS="$HOME/.unilab/isaacgym"
+export UNILAB_BENCHMARK_HOLOSOMA_DEPS="$HOME/.cache/unisim/isaacgym"
 export UNILAB_BENCHMARK_HSGYM_PYTHON="$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/envs/hsgym/bin/python3.8"
 export UNILAB_BENCHMARK_HSGYM_LIB="$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/envs/hsgym/lib"
 ```
@@ -87,8 +88,8 @@ uv run --no-project "$UNILAB_BENCHMARK_HSGYM_PYTHON" \
 
 ## 训练与评估
 
-安装好外部环境后即可训练。worker 运行时默认从 `~/.unilab/isaacgym` 自动
-发现；自定义安装根时在训练前导出 `UNILAB_ISAACGYM_HOME` 即可。当前
+安装好外部环境后即可训练。worker 运行时默认从 `~/.cache/unisim/isaacgym` 自动
+发现；自定义安装根时在训练前导出 `UNISIM_ISAACGYM_HOME` 即可。当前
 `g1_walk_flat` 提供 PPO 与 SAC 的 isaacgym owner 配置：
 
 ```bash
@@ -145,34 +146,34 @@ uv run train --algo sac --task g1_walk_flat --sim isaacgym env.isaacgym_device_i
 自动脚本失效时，可按下面的等价命令序列手动安装：
 
 ```bash
-export UNILAB_ISAACGYM_HOME="${UNILAB_ISAACGYM_HOME:-$HOME/.unilab/isaacgym}"
-mkdir -p "$UNILAB_ISAACGYM_HOME"
+export UNISIM_ISAACGYM_HOME="${UNISIM_ISAACGYM_HOME:-$HOME/.cache/unisim/isaacgym}"
+mkdir -p "$UNISIM_ISAACGYM_HOME"
 
 # 1. 专用 miniconda
 curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
-bash /tmp/miniconda.sh -b -u -p "$UNILAB_ISAACGYM_HOME/miniconda3"
+bash /tmp/miniconda.sh -b -u -p "$UNISIM_ISAACGYM_HOME/miniconda3"
 rm /tmp/miniconda.sh
 
 # 2. python 3.8 conda 环境
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n base -c conda-forge mamba
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/mamba" create -y -n hsgym python=3.8 -c conda-forge --override-channels
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n base -c conda-forge mamba
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/mamba" create -y -n hsgym python=3.8 -c conda-forge --override-channels
 
 # 3. Ubuntu 24.04 GLIBCXX 修复
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n hsgym -c conda-forge libstdcxx-ng
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n hsgym -c conda-forge libstdcxx-ng
 
 # 4. 下载（或复用已下载的 tarball）并安装 IsaacGym
 curl -fL --retry 3 "https://developer.nvidia.com/isaac-gym-preview-4" \
-  -o "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz"
-tar -xzf "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNILAB_ISAACGYM_HOME"
-"$UNILAB_ISAACGYM_HOME/miniconda3/envs/hsgym/bin/pip" install -e "$UNILAB_ISAACGYM_HOME/isaacgym/python"
+  -o "$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz"
+tar -xzf "$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNISIM_ISAACGYM_HOME"
+"$UNISIM_ISAACGYM_HOME/miniconda3/envs/hsgym/bin/pip" install -e "$UNISIM_ISAACGYM_HOME/isaacgym/python"
 ```
 
 ## 故障排除
 
 - **tarball 下载或校验失败**：脚本会对下载结果做 gzip 校验；失败时删除
-  `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` 后重跑，或用
+  `$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` 后重跑，或用
   `--tarball <path>` 指定手动下载的安装包。
 - **首次 INIT 握手超时（worker 无响应）**：`gymtorch` 首次 import 会 JIT 编译
   C++ 扩展（数分钟，缓存于 `~/.cache/torch_extensions/py38_cu121/gymtorch/`）。
