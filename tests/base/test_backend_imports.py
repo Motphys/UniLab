@@ -157,4 +157,10 @@ def test_removed_unilab_backend_implementation_is_not_importable() -> None:
         text=True,
     )
     assert result.returncode != 0
-    assert "No module named 'unilab.base.backend'" in result.stderr
+    # Python 3.13 reports the deepest missing module component, while older
+    # supported versions report the missing package root. Both prove that the
+    # removed in-tree backend implementation is not importable.
+    assert (
+        "No module named 'unilab.base.backend'" in result.stderr
+        or "No module named 'unilab.base.backend.mujoco.backend'" in result.stderr
+    )

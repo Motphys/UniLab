@@ -6,15 +6,17 @@ toolchain, install the Python extra, build the extension, run diagnostics, then
 prepare assets and launch a small training smoke.
 
 Drake owns batched physics. UniLab still owns the task, reward, observation,
-reset policy, and training orchestration. The backend is experimental and
-Linux-first; a registry entry or owner YAML is not, by itself, evidence that a
-task has completed native training.
+reset policy, and training orchestration. Rendering is provided by MuJoCo's
+native renderer: Drake advances the state, and MuJoCo consumes that state only
+to draw frames (it never advances a second physics simulation). The backend is
+experimental and Linux-first; a registry entry or owner YAML is not, by itself,
+evidence that a task has completed native training.
 
 Use Drake when you need CPU-oriented batched physics and can provision the
-external C++ toolchain. Prefer MuJoCo or Motrix when you need broader task
-coverage or interactive visual playback. Before selecting `--sim drake`, check
-that the algorithm/task has a Drake owner YAML and review its evidence in the
-{doc}`../../5-reference/5-support_matrix`.
+external C++ toolchain. MuJoCo or Motrix may still offer broader task coverage,
+but Drake playback uses MuJoCo for both recorded and interactive visualization.
+Before selecting `--sim drake`, check that the algorithm/task has a Drake owner
+YAML and review its evidence in the {doc}`../../5-reference/5-support_matrix`.
 
 ## System requirements
 
@@ -234,14 +236,35 @@ uv run eval --algo ppo --task go2_joystick_flat --sim drake \
   --load-run -1 --render-mode none
 ```
 
+With the default `training.play_render_mode=auto`, Drake playback records a
+MuJoCo-rendered video automatically. No renderer-specific override is needed:
+
+```bash
+uv run eval --algo ppo --task go2_joystick_flat --sim drake --load-run -1
+```
+
+For an interactive MuJoCo window backed by Drake physics, use the shared viewer
+entrypoint (the viewer is MuJoCo; `--sim drake` selects the physics owner):
+
+```bash
+uv run python -m unilab.scripts.play_interactive \
+  --algo ppo --task go2_joystick_flat --sim drake \
+  interactive.action_mode=policy
+```
+
 ## Playback and rendering limits
 
 - `--render-mode none` disables playback and is the safest mode for headless
   training/evaluation.
-- `--render-mode record` keeps Drake as the physics owner but uses UniLab's
-  MuJoCo playback helper for offline video. Recording therefore still needs the
-  MuJoCo extra and visual assets; it is not native Drake rendering.
-- Interactive Drake rendering is not implemented.
+- Drake has no separate renderer. Both automatic recording and the interactive
+  viewer use MuJoCo's native rendering APIs, while Drake remains the only
+  physics engine being stepped.
+- `--render-mode record` is an explicit spelling of the same automatic recording
+  path; it still requires the MuJoCo extra and visual assets.
+- `--render-mode none` is the only opt-out when rendering is not wanted.
+- This is not sim-to-sim: MuJoCo is not stepped and the checkpoint is not
+  re-evaluated under MuJoCo physics. The renderer receives the current Drake
+  state solely for visualization.
 
 ## Troubleshooting
 

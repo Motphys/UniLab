@@ -5,13 +5,14 @@
 冒烟测试。
 
 Drake 负责批量物理推进；task、reward、observation、reset 策略和训练编排仍由
-UniLab 负责。该后端仍是实验性、Linux-first 路径；registry 条目或 owner YAML
-本身不代表某个 task 已完成原生训练验证。
+UniLab 负责。渲染统一使用 MuJoCo 原生 renderer：Drake 推进状态，MuJoCo 只消费
+这些状态绘制画面（不会再推进第二套物理仿真）。该后端仍是实验性、Linux-first
+路径；registry 条目或 owner YAML 本身不代表某个 task 已完成原生训练验证。
 
 如果需要面向 CPU 的批量物理，并且能够准备外部 C++ 工具链，可以选择 Drake。
-需要更广的 task 覆盖或交互式可视化回放时，优先选择 MuJoCo 或 Motrix。使用
-`--sim drake` 前，请确认算法/task 存在 Drake owner YAML，并在
-{doc}`../../5-reference/5-support_matrix` 中查看对应证据。
+MuJoCo 或 Motrix 可能仍有更广的 task 覆盖，但 Drake 回放的录制和交互可视化都
+统一使用 MuJoCo。使用 `--sim drake` 前，请确认算法/task 存在 Drake owner YAML，
+并在 {doc}`../../5-reference/5-support_matrix` 中查看对应证据。
 
 ## 系统和编译依赖
 
@@ -217,13 +218,32 @@ uv run eval --algo ppo --task go2_joystick_flat --sim drake \
   --load-run -1 --render-mode none
 ```
 
+默认 `training.play_render_mode=auto` 时，Drake 回放会自动录制 MuJoCo 渲染视频，
+无需额外指定 renderer 参数：
+
+```bash
+uv run eval --algo ppo --task go2_joystick_flat --sim drake --load-run -1
+```
+
+如果需要 Drake 物理驱动的 MuJoCo 交互窗口，使用通用 viewer 入口（viewer 是
+MuJoCo；`--sim drake` 只选择物理 owner）：
+
+```bash
+uv run python -m unilab.scripts.play_interactive \
+  --algo ppo --task go2_joystick_flat --sim drake \
+  interactive.action_mode=policy
+```
+
 ## 回放与渲染边界
 
 - `--render-mode none`：禁用回放，适合无头训练/评估。
-- `--render-mode record`：Drake 负责物理 rollout，视频由 UniLab 的 MuJoCo
-  playback helper 离线渲染，因此录制仍需要 MuJoCo extra 和视觉资产；这不是
-  Drake 原生渲染。
-- Drake interactive rendering 尚未实现。
+- Drake 没有独立 renderer。自动录制和交互 viewer 都使用 MuJoCo 原生渲染 API，
+  但实际推进的物理引擎始终只有 Drake。
+- `--render-mode record` 是自动录制路径的显式写法，仍需要 MuJoCo extra 和视觉
+  资产。
+- 不需要渲染时使用 `--render-mode none`；这是唯一需要主动指定的渲染开关。
+- 这不是 sim-to-sim：MuJoCo 不会被推进，checkpoint 也不会在 MuJoCo 物理下重新
+  评估；renderer 只接收当前 Drake 状态用于可视化。
 
 ## 常见问题
 

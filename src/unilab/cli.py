@@ -127,8 +127,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         if not diagnostics.batch_available:
             detail = diagnostics.batch_import_error or "unknown import error"
             raise SystemExit(
-                "sim=drake requires a working Drake batch extension; "
-                f"diagnostic reported: {detail}"
+                f"sim=drake requires a working Drake batch extension; diagnostic reported: {detail}"
             )
     if sim == "isaacgym":
         from unisim.backend.isaacgym.dependencies import isaacgym_runtime_available

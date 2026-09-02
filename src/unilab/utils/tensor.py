@@ -18,7 +18,13 @@ def to_torch(x, device: str | torch.device) -> torch.Tensor:
     if isinstance(x, torch.Tensor):
         return x.to(device)
     if isinstance(x, np.ndarray):
-        return torch.from_numpy(x).to(device)
+        tensor = torch.from_numpy(x).to(device)
+        # UniLab policies and IPC buffers use float32. Keep the environment
+        # contract tolerant of physics backends (notably Drake) that publish
+        # float64 observations while preserving integer/bool tensors.
+        if tensor.is_floating_point() and tensor.dtype != torch.float32:
+            tensor = tensor.float()
+        return tensor
     if hasattr(x, "__dlpack__"):
         try:
             return torch.from_dlpack(x).to(device)  # pyright: ignore[reportPrivateImportUsage]

@@ -492,6 +492,15 @@ class NpEnv(ABEnv):
         output_video: str | PathLike[str] | None,
     ) -> BackendPlayRenderPlan:
         """Resolve high-level playback mode through the concrete backend."""
+        # Drake has no renderer of its own. Its playback contract captures
+        # Drake state and feeds it to the shared MuJoCo renderer, so ordinary
+        # ``auto`` playback should produce a video without requiring a
+        # backend-specific override in every task owner YAML. Explicit
+        # ``none`` remains available for headless runs.
+        if self._backend.backend_type == "drake" and (
+            play_render_mode is None or str(play_render_mode).strip().lower() == "auto"
+        ):
+            play_render_mode = "record"
         return self._backend.resolve_play_render_plan(
             play_render_mode=play_render_mode,
             play_steps=play_steps,
