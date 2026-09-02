@@ -34,7 +34,7 @@
 ```
 
 - **异构 RL 运行时：** CPU 并行仿真通过共享内存流式传输 transition，而策略学习运行在 GPU 加速器上。
-- **两套物理后端：** MuJoCoUni 和 MotrixSim 通过后端专用适配器和任务 owner 配置接入。
+- **统一物理 package：** MuJoCo、Motrix、Drake、MJWarp、Genesis、IsaacGym、IsaacSim 七类后端通过独立的 `unisim-core` package 暴露；UniLab 继续负责 task owner 配置与生命周期编排。
 - **统一训练 CLI：** `uv run train` 和 `uv run eval` 覆盖 PPO、APPO、SAC、TD3 和 FlashSAC；额外的 HORA 与 HIM-PPO 路径以脚本级工作流文档化。
 - **配置拥有的任务：** Hydra owner YAML 会同时选择 task、reward、backend 和 algorithm；后端切换通过 `task=<task>/<backend>` 表达。
 - **跨平台安装路径：** 仓库覆盖 Linux CUDA、Linux ROCm、Linux XPU，以及 Apple Silicon / macOS 的安装流程。
@@ -141,6 +141,9 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 ```
 
 这会路由到 `go2_joystick_flat/motrix` 任务 owner 配置，并保持后端选择显式化。每个后端 owner 带一个可选的 `play_profile` 块，在 eval 时（`training.play_only=true`）叠加仅渲染相关的覆盖，不影响训练。
+
+roadmap #1428 执行期间，`unisim-core` 从 TestPyPI 解析，Python import namespace
+为 `unisim`；roadmap 完成后的生产 PyPI 发布由 maintainer 手动执行。
 
 在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
 
