@@ -85,7 +85,9 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
   --render-mode record
 ```
 
-支持的渲染模式为 `auto`、`interactive`、`record` 和 `none`。
+支持的渲染模式为 `auto`、`interactive`、`record` 和 `none`。其中 MuJoCo 交互模式
+（`--sim mujoco --render-mode interactive`）直接路由到 `play_interactive.py`，并始终只
+rollout 一个环境。
 
 ## 演示
 

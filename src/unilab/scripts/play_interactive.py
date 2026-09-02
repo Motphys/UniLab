@@ -127,15 +127,16 @@ def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     return algo_config_dict(cfg)
 
 
-SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "flashsac", "hora_distill")
+SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac", "hora_distill")
 _CONFIG_ROOT_BY_ALGO = {
     "ppo": "ppo",
     "appo": "appo",
     "sac": "sac",
+    "td3": "td3",
     "flashsac": "flashsac",
     "hora_distill": "hora_distill",
 }
-_OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "flashsac"}
+_OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "td3", "flashsac"}
 
 
 @dataclass(frozen=True)
@@ -1102,7 +1103,8 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             mj_model, env, getattr(args, "camera_focus_body_name", "")
         )
 
-        # Initialize camera to a reasonable default and keep lookat on robot base.
+        # Configure the camera once at startup.  Leave it untouched in the
+        # playback loop so the viewer can be adjusted interactively.
         has_cam = hasattr(viewer, "cam")
         if has_cam:
             if getattr(args, "camera_distance", None) is not None:
@@ -1118,6 +1120,19 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             if getattr(args, "camera_azimuth", None) is not None:
                 viewer.cam.azimuth = float(args.camera_azimuth)
 
+            # Use the reset pose for the initial target only.  Updating this
+            # in the loop would override the user's manual camera movement.
+            initial_phys = playback_session.physics_state()[0].astype(np.float64)
+            mujoco.mj_setState(mj_model, viz_data, initial_phys, state_spec)
+            mujoco.mj_forward(mj_model, viz_data)
+            if bool(getattr(args, "camera_follow_body", True)):
+                base_pos = viz_data.xpos[focus_body_id]
+                viewer.cam.lookat[0] = float(base_pos[0])
+                viewer.cam.lookat[1] = float(base_pos[1])
+                viewer.cam.lookat[2] = float(
+                    base_pos[2] + float(getattr(args, "camera_height_offset", 0.15))
+                )
+
         with torch.inference_mode():
             while viewer.is_running():
                 t0 = time.perf_counter()
@@ -1132,14 +1147,6 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 phys = playback_session.physics_state()[0].astype(np.float64)
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
-
-                if has_cam and bool(getattr(args, "camera_follow_body", True)):
-                    base_pos = viz_data.xpos[focus_body_id]
-                    viewer.cam.lookat[0] = float(base_pos[0])
-                    viewer.cam.lookat[1] = float(base_pos[1])
-                    viewer.cam.lookat[2] = float(
-                        base_pos[2] + float(getattr(args, "camera_height_offset", 0.15))
-                    )
 
                 if overlay.enabled:
                     if args.show_reward_debug:

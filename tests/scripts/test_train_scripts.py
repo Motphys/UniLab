@@ -3151,7 +3151,7 @@ def test_play_interactive_parses_explicit_cli():
     assert parsed.overrides == ["task=sharpa_inhand/mujoco_nodr"]
 
 
-@pytest.mark.parametrize("algo", ["appo", "sac", "hora_distill"])
+@pytest.mark.parametrize("algo", ["appo", "sac", "td3", "hora_distill"])
 def test_play_interactive_parses_feature_algo_flags(algo: str):
     mod = _play_interactive()
 
@@ -3208,6 +3208,7 @@ def test_play_interactive_dynamic_compose_supports_algo_roots():
     ppo_cfg = mod._compose_interactive_config("ppo", ["task=go1_joystick_flat/mujoco"])
     appo_cfg = mod._compose_interactive_config("appo", ["task=sharpa_inhand/mujoco_hora"])
     sac_cfg = mod._compose_interactive_config("sac", ["task=sharpa_inhand/mujoco_hora"])
+    td3_cfg = mod._compose_interactive_config("td3", ["task=g1_walk_flat/mujoco"])
     distill_cfg = mod._compose_interactive_config("hora_distill", ["task=sharpa_inhand/mujoco"])
 
     assert ppo_cfg.algo.algo == "ppo"
@@ -3216,6 +3217,7 @@ def test_play_interactive_dynamic_compose_supports_algo_roots():
     assert sac_cfg.algo.algo == "sac"
     assert sac_cfg.algo.runtime_impl == "hora_sac"
     assert sac_cfg.interactive.policy_obs_mode == "actor"
+    assert td3_cfg.algo.algo == "td3"
     assert distill_cfg.algo.algo_log_name == "hora_distill"
     assert distill_cfg.interactive.action_mode == "policy"
 

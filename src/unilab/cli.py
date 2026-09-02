@@ -19,6 +19,7 @@ SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
 SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym", "genesis", "isaacsim")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
+INTERACTIVE_PLAY_ALGOS = {"ppo", "appo", "sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
     "algo",
     "task",
@@ -127,8 +128,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         if not diagnostics.batch_available:
             detail = diagnostics.batch_import_error or "unknown import error"
             raise SystemExit(
-                "sim=drake requires a working Drake batch extension; "
-                f"diagnostic reported: {detail}"
+                f"sim=drake requires a working Drake batch extension; diagnostic reported: {detail}"
             )
     if sim == "isaacgym":
         from unisim.backend.isaacgym.dependencies import isaacgym_runtime_available
@@ -239,6 +239,21 @@ def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> R
     )
 
 
+def _uses_mujoco_interactive_play(
+    *,
+    mode: str,
+    algo: str,
+    sim: str,
+    render_mode: str | None,
+    overrides: Sequence[str],
+) -> bool:
+    """Return whether eval should use the dedicated MuJoCo viewer script."""
+    if mode != "eval" or sim != "mujoco" or algo not in INTERACTIVE_PLAY_ALGOS:
+        return False
+    selected_mode = _override_value(overrides, "training.play_render_mode") or render_mode
+    return selected_mode is not None and selected_mode.strip().lower() == "interactive"
+
+
 def build_command(
     *,
     mode: str,
@@ -258,7 +273,18 @@ def build_command(
     _check_runtime_requirements(algo, sim)
 
     route = build_route(algo, task, sim, profile)
-    script = _script_path(route, selected_root)
+    use_interactive_play = _uses_mujoco_interactive_play(
+        mode=mode,
+        algo=algo,
+        sim=sim,
+        render_mode=render_mode,
+        overrides=overrides,
+    )
+    script = (
+        selected_root / "scripts" / "play_interactive.py"
+        if use_interactive_play
+        else _script_path(route, selected_root)
+    )
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
 
@@ -268,9 +294,13 @@ def build_command(
             f"No owner config exists for algo={algo}, task={task}, sim={sim}: {owner_yaml}"
         )
 
-    generated = list(route.generated_overrides)
-    if render_mode is not None:
+    generated = [] if use_interactive_play else list(route.generated_overrides)
+    if render_mode is not None and _override_value(overrides, "training.play_render_mode") is None:
         generated.append(f"training.play_render_mode={render_mode}")
+    if use_interactive_play and _override_value(overrides, "interactive.action_mode") is None:
+        # The low-level viewer defaults to zero actions for debugging, while
+        # eval must preserve the policy-control behavior of the train scripts.
+        generated.append("interactive.action_mode=policy")
     if mode == "eval":
         generated.append("training.play_only=true")
         if load_run is not None:
@@ -280,6 +310,20 @@ def build_command(
             generated.append(f"algo.load_run={load_run}")
 
     executable = _python_executable_for_route(mode, sim, (*generated, *overrides))
+    if use_interactive_play:
+        owner = f"{sim}_{profile}" if profile is not None else sim
+        return [
+            executable,
+            str(script),
+            "--algo",
+            algo,
+            "--task",
+            task,
+            "--sim",
+            owner,
+            *generated,
+            *overrides,
+        ]
     return [executable, str(script), *generated, *overrides]
 
 
