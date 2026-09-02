@@ -13,17 +13,44 @@ YAML; do not switch a run by overriding `training.sim_backend` alone.
 - Any run using `--sim mujoco`, MuJoCo playback, or MuJoCo-only debugging tool
   still requires a working MuJoCo runtime.
 - Drake uses the external `drake-uni` package plus a locally built C++ batch
-  extension; see {doc}`7-drake` before selecting `--sim drake`.
+  extension; see {doc}`6-drake` before selecting `--sim drake`.
 - On macOS, the package CLI routes Motrix interactive playback through
   `mxpython` when needed. Direct script calls that open the native Motrix
   renderer should use `uv run mxpython`.
 
 ## Select A Backend
 
+UniLab selects the simulator through the task owner config. For normal usage,
+choose the task and backend with `--task` and `--sim`; off-policy commands keep
+the algorithm in `--algo`, not in `--task`. Do not switch a run by overriding
+`training.sim_backend` alone; that field is set by the owner YAML and identifies
+the composed backend.
+
+### Quick Choice
+
+| Need | Prefer |
+| --- | --- |
+| Default path or broadest owner coverage | MuJoCo |
+| Native interactive playback through the backend | Motrix |
+| MuJoCo-only tools such as `scripts/play_viser.py` | MuJoCo |
+| Task owner exists only under `src/unilab/conf/.../<task>/mujoco.yaml` | MuJoCo |
+| Task owner exists under `src/unilab/conf/.../<task>/motrix.yaml` and the support matrix marks the combination as tested or configured | Motrix |
+
+The support matrix is generated from registry, owner YAML, and tests; use it as
+the current evidence source: {doc}`../../5-reference/5-support_matrix`.
+
 ```bash
 uv run train --algo ppo --task go1_joystick_flat --sim mujoco
 uv run train --algo ppo --task go1_joystick_flat --sim motrix
 uv run train --algo ppo --task g1_walk_flat --sim isaacsim
+```
+
+More combinations:
+
+```bash
+uv run train --algo ppo --task stewart_balance --sim drake \
+  algo.max_iterations=1 algo.num_envs=8 training.no_play=true
+uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 Owner YAML locations:
@@ -60,15 +87,38 @@ the generated source data.
 - {doc}`Backend capability boundary ADR </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
 - {doc}`Registry bootstrap ADR </adr/ADR-0004-registry-bootstrap-contract>`
 
+## The unisim-core boundary
+
+UniLab's physics backends are provided by the independent `unisim-core`
+distribution, with `unisim` as the Python namespace. For example:
+
+```bash
+uv sync --extra mujoco
+uv run python -c "import unisim; print(unisim.ADAPTER_SPECS)"
+```
+
+`unisim` has no dependency on UniLab, Hydra, or training components. MuJoCo,
+Motrix, Drake, MJWarp, Genesis, IsaacGym, and IsaacSim use one public contract.
+Missing proprietary SDKs or GPU workers produce an explicit cold-path diagnostic;
+no backend silently falls back to another engine.
+
+Backend physics is owned exclusively by `unisim-core`. UniLab keeps only the
+owner-layer assembly entry point `unilab.base.backend_factory`; contracts and
+adapters are imported from `unisim`. The former `unilab.base.backend`
+implementation and compatibility layer have been removed; do not add backend
+APIs to UniLab.
+
+Benchmark v1 reserves only `BenchmarkCase`, `BenchmarkResult`, and provenance
+schema. Workloads, timing, comparisons, and performance claims require a
+separately authorized issue.
+
 ```{toctree}
 :hidden:
 
 1-mujoco
 2-motrix
-3-choosing_a_backend
-4-isaacgym
-5-isaacsim
-6-genesis
-7-drake
-7-unisim-core
+3-isaacgym
+4-isaacsim
+5-genesis
+6-drake
 ```

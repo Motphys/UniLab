@@ -6,7 +6,7 @@ repo facts.
 ## Start Here
 
 - Install and smoke check: {doc}`../1-getting_started/2-installation`
-- Backend choice: {doc}`../2-user_guide/3-backends/3-choosing_a_backend`
+- Backend choice: {doc}`../2-user_guide/3-backends/0-index`
 - Task index: {doc}`../2-user_guide/4-tasks/0-index`
 - Algorithms index: {doc}`../2-user_guide/2-algorithms/0-index`
 - PPO entrypoint: `src/unilab/scripts/train_rsl_rl.py`

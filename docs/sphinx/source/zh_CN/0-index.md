@@ -92,7 +92,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 :::
 
 :::{grid-item-card} 选择后端
-:link: 2-user_guide/3-backends/3-choosing_a_backend
+:link: 2-user_guide/3-backends/0-index
 :link-type: doc
 通过 task owner YAML 和后端能力文档对比 MuJoCo 与 Motrix。
 :::

@@ -94,7 +94,7 @@ Start with PPO on Go2, then move to evaluation, playback, or checkpoint resume.
 :::
 
 :::{grid-item-card} Choose a backend
-:link: 2-user_guide/3-backends/3-choosing_a_backend
+:link: 2-user_guide/3-backends/0-index
 :link-type: doc
 Compare MuJoCo and Motrix through task owner YAMLs and backend capability docs.
 :::
