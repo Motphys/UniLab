@@ -13,9 +13,9 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
+from unisim.backend.base import SimBackend
 
 from unilab.base import registry
-from unisim.backend.base import SimBackend
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, make_manager_based_rl_env
