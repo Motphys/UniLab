@@ -4,6 +4,7 @@ import ast
 import subprocess
 import sys
 import textwrap
+from importlib.metadata import distribution
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,15 @@ _MATERIALIZER_CONSUMERS = (
     "scripts/train_hora_distill.py",
     "scripts/manip_loco/benchmark_site_jacobian.py",
 )
+
+
+def test_unisim_dependency_is_installed_from_package_index() -> None:
+    direct_url = distribution("unisim-core").read_text("direct_url.json")
+
+    assert direct_url is None, (
+        "UniLab tests must consume the indexed unisim-core release, not a local, editable, "
+        "or VCS checkout"
+    )
 
 
 def test_materializer_consumers_use_unisim_owner_module() -> None:

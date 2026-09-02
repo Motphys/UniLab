@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import ast
 import subprocess
 import sys
 import textwrap
 from importlib.machinery import ModuleSpec
-from pathlib import Path
 
 import numpy as np
 import pytest
 from unisim.backend.mjwarp import dependencies
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def test_mjwarp_import_path_does_not_eagerly_import_warp_or_mujoco() -> None:
@@ -114,34 +108,6 @@ def test_mjwarp_identity_is_independent_from_mujoco(
         str(tmp_path / "scripts" / "train_rsl_rl.py"),
         "task=g1_walk_flat/mjwarp",
     ]
-
-
-def test_mjwarp_getters_do_not_materialize_warp_arrays() -> None:
-    backend_path = (
-        _repo_root() / ".." / "unisim" / "src" / "unisim" / "backend" / "mjwarp" / "backend.py"
-    )
-    tree = ast.parse(backend_path.read_text(encoding="utf-8"))
-    backend = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "MjwarpBackend"
-    )
-    getter_nodes = [
-        node
-        for node in backend.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("get_")
-    ]
-    assert getter_nodes
-    offenders: list[str] = []
-    for getter in getter_nodes:
-        for node in ast.walk(getter):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "numpy"
-            ):
-                offenders.append(getter.name)
-    assert offenders == []
 
 
 def test_mjwarp_actuation_metadata_uses_cpu_model_only() -> None:
