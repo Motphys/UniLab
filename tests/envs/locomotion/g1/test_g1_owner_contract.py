@@ -918,7 +918,7 @@ def test_ppo_penalty_curriculum_matches_legacy_effective_schedule() -> None:
 
 
 def _genesis_runtime_available() -> bool:
-    from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+    from unisim.backend.genesis.dependencies import genesis_dependencies_available
 
     if not genesis_dependencies_available():
         return False

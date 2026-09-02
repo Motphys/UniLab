@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from unilab.base.backend.mjwarp.backend import (
+from unisim.backend.mjwarp.backend import (
     MjwarpBackend,
     _cuda_graph_eligibility,
     _reset_scratch_capacity_for_batch,

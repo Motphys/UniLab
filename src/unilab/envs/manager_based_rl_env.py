@@ -13,8 +13,9 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
+from unisim.backend.base import SimBackend
 
-from unilab.base.backend import SimBackend, create_backend, env_backend_kwargs
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
 from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,

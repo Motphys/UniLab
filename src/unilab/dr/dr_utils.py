@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
-
-from unilab.dr.types import (
+from unisim.dr.types import (
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+
 from unilab.dtype_config import get_global_dtype
 
 
@@ -188,7 +188,7 @@ def validate_common_reset_randomization(
     )
     if payload is None:
         return frozenset()
-    return capabilities.get_unsupported_reset_terms(payload.requested_terms())
+    return cast(frozenset[str], capabilities.get_unsupported_reset_terms(payload.requested_terms()))
 
 
 def build_interval_push_plan(env: Any, step_counter: int) -> IntervalRandomizationPlan | None:

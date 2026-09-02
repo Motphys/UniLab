@@ -14,20 +14,22 @@ tests but has not completed playback on the currently available IsaacSim host.
 IsaacSim 5.1.0 is installed in a separate Python 3.11 environment because the
 main UniLab environment supports Python 3.10--3.13. The setup entry point is
 `scripts/tools/setup_isaacsim_env.sh`; it installs under
-`$UNILAB_ISAACSIM_HOME` (default `$HOME/.unilab/isaacsim`) and accepts the Kit
+`$UNISIM_ISAACSIM_HOME` (default `$HOME/.cache/unisim/isaacsim`) and accepts the Kit
 EULA through `OMNI_KIT_ACCEPT_EULA=1` for non-interactive worker startup.
 
 The backend resolves these optional variables without importing Kit in the host
 process:
 
-- `UNILAB_ISAACSIM_HOME` selects the runtime root.
-- `UNILAB_ISAACSIM_PYTHON` overrides the worker interpreter path.
+- `UNISIM_ISAACSIM_HOME` selects the runtime root.
+- `UNISIM_ISAACSIM_PYTHON` overrides the worker interpreter path.
+- The former `UNILAB_ISAACSIM_HOME` and `UNILAB_ISAACSIM_PYTHON` names remain
+  accepted as migration fallbacks.
 - `OMNI_KIT_ACCEPT_EULA=1` keeps worker startup non-interactive.
 
 The expected runtime layout is
-`$UNILAB_ISAACSIM_HOME/venv/bin/python`, the Python 3.11 site-packages and
+`$UNISIM_ISAACSIM_HOME/venv/bin/python`, the Python 3.11 site-packages and
 library directories under that venv, and an IsaacLab v2.3.0 source checkout at
-`$UNILAB_ISAACSIM_HOME/IsaacLab`.
+`$UNISIM_ISAACSIM_HOME/IsaacLab`.
 
 The render intent is part of the worker's cold `INIT` handshake. Training does
 not inject a render mode and starts the inexpensive headless, camera-disabled
@@ -88,7 +90,7 @@ not initialize.
 ## Inspecting The Contract
 
 ```bash
-VIRTUAL_ENV="$HOME/.unilab/isaacsim/venv" \
+VIRTUAL_ENV="$HOME/.cache/unisim/isaacsim/venv" \
 OMNI_KIT_ACCEPT_EULA=1 \
 uv run --active --no-project \
   scripts/tools/probe_isaacsim_contract.py \

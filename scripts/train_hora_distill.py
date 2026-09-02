@@ -14,6 +14,9 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from unisim.backend.base import log_playback_plan
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
+
 from unilab.algos.hora import HoraDistillationTrainer
 from unilab.algos.hora.distill import (
     build_student_actor_and_normalizer,
@@ -37,8 +40,6 @@ from unilab.algos.hora.distill_config import (
     teacher_run_metadata as _teacher_run_metadata,
 )
 from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
-from unilab.base.backend import materialize_scene_visual_override
-from unilab.base.backend.base import log_playback_plan
 from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,

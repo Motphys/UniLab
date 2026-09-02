@@ -9,10 +9,10 @@ from typing import cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import SimBackend
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import create_backend
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend_factory import create_backend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.scene import SceneCfg
 from unilab.envs.mdp import JointPositionAction, JointPositionActionCfg

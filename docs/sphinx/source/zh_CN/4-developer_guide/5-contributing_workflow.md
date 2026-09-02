@@ -227,3 +227,11 @@ summary 中已经确认的决策项；实施期间新增的决策项先更新 ow
 并将其反向链接进上述文档。
 新的 ADR 使用 {doc}`ADR Template </adr/ADR-TEMPLATE>`，且必须显式说明
 `Supersedes`、`Superseded by`、`Alternatives Considered` 与 `Evidence In Repo`。
+## UniSim extraction roadmap #1428
+
+物理后端的新 public contract 位于独立的 `unisim-core` distribution（import
+namespace 为 `unisim`）。UniLab 在迁移窗口内通过
+`unilab.base.backend_factory` 传递 task-owned `SceneCfg`；该 owner-layer
+只负责资产准备和边界翻译，不复制引擎实现。新增 consumer 应直接使用
+`unisim` contract，不访问 backend 的 model/data 私有对象。原实现与兼容层
+已在 roadmap #1428 中删除。

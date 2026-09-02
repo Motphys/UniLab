@@ -44,8 +44,8 @@ import mujoco
 import numpy as np
 from matplotlib.patches import Rectangle
 from mujoco_uni.batch_env import BatchEnvPool
+from unisim.backend.mujoco.xml import create_discardvisual_xml
 
-from unilab.base.backend.mujoco.xml import create_discardvisual_xml
 from unilab.dtype_config import get_global_dtype
 
 matplotlib.use("Agg")

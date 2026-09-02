@@ -7,7 +7,7 @@ The play/render decision is recorded in
 ## Stable Backend Interface
 
 All env-facing backend calls should go through `SimBackend` in
-`src/unilab/base/backend/base.py`. The interface includes base state, DOF state,
+`unisim.backend.base`. The interface includes base state, DOF state,
 body state in world and baselink frames, named sensors, state reset, physics
 stepping, domain-randomization hooks, and optional playback/render methods.
 
@@ -36,10 +36,10 @@ Optional capabilities are explicit:
 
 ## Evidence In Repo
 
-- Backend interface and play capabilities: `src/unilab/base/backend/base.py`
-- Backend factory: `src/unilab/base/backend/__init__.py`
-- MuJoCo backend: `src/unilab/base/backend/mujoco/backend.py`
-- Motrix backend: `src/unilab/base/backend/motrix/backend.py`
+- Backend interface and play capabilities: `unisim.backend.base`
+- Backend factory: `src/unilab/base/backend_factory.py`
+- MuJoCo backend: `unisim.backend.mujoco.backend`
+- Motrix backend: `unisim.backend.motrix.backend`
 - Backend contract tests: `tests/base/test_backend_sensor_view.py`,
   `tests/base/test_backend_conformance.py`, `tests/base/test_sim_backend.py`,
   `tests/base/test_backend_imports.py`, `tests/base/test_motrix_backend_options.py`

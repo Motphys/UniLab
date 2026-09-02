@@ -9,6 +9,8 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
+from unisim.backend.base import RenderClosedError, log_playback_plan
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
 from unilab.algos.rsl_rl import (
     RslRlVecEnvWrapper,
@@ -21,8 +23,6 @@ from unilab.algos.rsl_rl import (
     rsl_rl_single_process_topology,
 )
 from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-from unilab.base.backend import RenderClosedError, materialize_scene_visual_override
-from unilab.base.backend.base import log_playback_plan
 from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.base.run_control import RunComplete
 from unilab.ipc.dp_launcher import (

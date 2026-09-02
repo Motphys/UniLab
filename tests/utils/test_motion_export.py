@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from unisim.backend.mujoco.motion_export import compute_tracking_fk
+from unisim.backend.mujoco.xml import get_named_bodies
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import compute_tracking_fk, get_named_bodies
 
 
 def _g1_scene() -> str:

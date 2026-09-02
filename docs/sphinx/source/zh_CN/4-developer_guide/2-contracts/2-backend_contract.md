@@ -5,7 +5,7 @@ Backend 差异是契约边界，而不是脚本层面的特殊处理。play/rend
 
 ## 稳定的 Backend 接口
 
-所有面向 env 的 backend 调用都应经由 `src/unilab/base/backend/base.py` 中的
+所有面向 env 的 backend 调用都应经由 `unisim.backend.base` 中的
 `SimBackend`。该接口包括 base 状态、DOF 状态、世界系与 baselink 系下的 body
 状态、具名 sensor、状态 reset、物理 stepping、domain-randomization hook 以及
 可选的 playback/render 方法。
@@ -31,9 +31,9 @@ Backend 差异是契约边界，而不是脚本层面的特殊处理。play/rend
 
 ## 仓库中的证据
 
-- Backend 接口与 play 能力：`src/unilab/base/backend/base.py`
-- Backend 工厂：`src/unilab/base/backend/__init__.py`
-- MuJoCo backend：`src/unilab/base/backend/mujoco/backend.py`
-- Motrix backend：`src/unilab/base/backend/motrix/backend.py`
+- Backend 接口与 play 能力：`unisim.backend.base`
+- Backend 工厂：`src/unilab/base/backend_factory.py`
+- MuJoCo backend：`unisim.backend.mujoco.backend`
+- Motrix backend：`unisim.backend.motrix.backend`
 - Backend 契约测试：`tests/base/test_sim_backend.py`、
   `tests/base/test_backend_imports.py`、`tests/base/test_motrix_backend_options.py`

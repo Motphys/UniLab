@@ -11,8 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from unilab.base.backend.mjwarp import dependencies
+from unisim.backend.mjwarp import dependencies
 
 
 def _repo_root() -> Path:
@@ -24,15 +23,15 @@ def test_mjwarp_import_path_does_not_eagerly_import_warp_or_mujoco() -> None:
         """
         import sys
 
-        from unilab.base.backend import create_backend
-        from unilab.base.backend.mjwarp import MjwarpBackend
+        from unilab.base.backend_factory import create_backend
+        from unisim.backend.mjwarp import MjwarpBackend
 
         assert create_backend is not None
         assert MjwarpBackend is not None
         print("mujoco", "mujoco" in sys.modules)
         print("mujoco_warp", "mujoco_warp" in sys.modules)
         print("warp", "warp" in sys.modules)
-        print("mujoco_backend", "unilab.base.backend.mujoco.backend" in sys.modules)
+        print("mujoco_backend", "unisim.backend.mujoco.backend" in sys.modules)
         """
     )
     result = subprocess.run(
@@ -118,7 +117,9 @@ def test_mjwarp_identity_is_independent_from_mujoco(
 
 
 def test_mjwarp_getters_do_not_materialize_warp_arrays() -> None:
-    backend_path = _repo_root() / "src" / "unilab" / "base" / "backend" / "mjwarp" / "backend.py"
+    backend_path = (
+        _repo_root() / ".." / "unisim" / "src" / "unisim" / "backend" / "mjwarp" / "backend.py"
+    )
     tree = ast.parse(backend_path.read_text(encoding="utf-8"))
     backend = next(
         node
@@ -145,9 +146,9 @@ def test_mjwarp_getters_do_not_materialize_warp_arrays() -> None:
 
 def test_mjwarp_actuation_metadata_uses_cpu_model_only() -> None:
     import mujoco
+    from unisim.backend.mjwarp.backend import MjwarpBackend
 
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend.mjwarp.backend import MjwarpBackend
 
     model = mujoco.MjModel.from_xml_path(
         str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")

@@ -57,7 +57,7 @@ except Exception as _motrixsim_error:
 # (EnvConfig.motrix_max_iterations defaults to None, and the backend falls back
 # to DEFAULT_MOTRIX_MAX_ITERATIONS), so the benchmark reflects real workloads
 # rather than the XML's <option iterations> which would otherwise leak in.
-from unilab.base.backend.motrix.backend import (  # noqa: E402
+from unisim.backend.motrix.backend import (  # noqa: E402
     DEFAULT_MOTRIX_MAX_ITERATIONS,
 )
 

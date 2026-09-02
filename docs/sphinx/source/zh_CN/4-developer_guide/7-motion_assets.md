@@ -126,7 +126,7 @@ uv run unilab-pull-assets --robot all   # 所有已注册机器人
 - 资产解析模块：`src/unilab/assets/hub.py`（`resolve_motion_files`）。
 - motion 集成点：`src/unilab/tasks/motion_tracking/common/motion_loader.py` 中的
   `MotionLoader.__init__`，在冷路径上调用一次 resolver。
-- 机器人 mesh 集成点：`src/unilab/base/backend/__init__.py` 的 `create_backend`
+- 机器人 mesh 集成点：`src/unilab/base/backend_factory.py` 的 `create_backend`
   对 scene 的 `model_file`、`visual_model_file` 与 `fragment_files` 调用
   `ensure_robot_assets_for_paths`，然后再分发给具体 backend。
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析。

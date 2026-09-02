@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import torch
 from omegaconf import DictConfig
+from unisim.backend.base import log_playback_plan
 
 from unilab.algos.hora.appo_runner import HoraAPPORunner
 from unilab.algos.hora.rsl_rl_compat import (
@@ -17,7 +18,6 @@ from unilab.algos.hora.rsl_rl_compat import (
     is_rsl_rl_v4,
     is_rsl_rl_v5,
 )
-from unilab.base.backend.base import log_playback_plan
 from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.base.observations import get_obs_dims
 from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config

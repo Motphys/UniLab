@@ -5,10 +5,10 @@
 ## 需要阅读的文件
 
 - `src/unilab/terrains/heightfield_terrains.py`
-- `src/unilab/terrains/terrain_generator.py`
+- `unisim.terrain.generator`
 - `src/unilab/tasks/locomotion/go2/rough.py`
-- `src/unilab/base/backend/mujoco/xml.py`
-- `src/unilab/base/backend/motrix/scene.py`
+- `unisim.backend.mujoco.xml`
+- `unisim.backend.motrix.scene`
 
 ## 冒烟命令
 

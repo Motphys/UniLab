@@ -14,10 +14,10 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from unisim.backend.mjwarp.dependencies import load_mjwarp_dependencies
 
 from unilab.base import registry
-from unilab.base.backend import create_backend
-from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
+from unilab.base.backend_factory import create_backend
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.scene import SceneCfg
 
@@ -242,8 +242,7 @@ def test_g1_walk_flat_owner_one_step(
 def test_body_state_matches_mujoco_backend() -> None:
     """Tracked body kinematics on mjwarp match the MuJoCo backend on identical state."""
     import mujoco
-
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     _require_cuda_mjwarp()
     num_envs = 2

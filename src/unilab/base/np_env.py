@@ -10,9 +10,8 @@ from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
+from unisim.backend.base import BackendPlayRenderPlan, SimBackend
 
-from unilab.base.backend import SimBackend
-from unilab.base.backend.base import BackendPlayRenderPlan
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_env_cpu_runtime
 from unilab.base.scene import SceneCfg
@@ -515,19 +514,22 @@ class NpEnv(ABEnv):
         extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
         """Execute playback through the concrete backend."""
-        return self._backend.run_playback(
-            env=self,
-            initialize=initialize,
-            step=step,
-            num_steps=num_steps,
-            output_video=output_video,
-            render_spacing=render_spacing,
-            render_offset_mode=render_offset_mode,
-            headless=headless,
-            record_video=record_video,
-            frame_state_getter=frame_state_getter,
-            camera_kwargs=camera_kwargs,
-            extra_data_getter=extra_data_getter,
+        return cast(
+            str | None,
+            self._backend.run_playback(
+                env=self,
+                initialize=initialize,
+                step=step,
+                num_steps=num_steps,
+                output_video=output_video,
+                render_spacing=render_spacing,
+                render_offset_mode=render_offset_mode,
+                headless=headless,
+                record_video=record_video,
+                frame_state_getter=frame_state_getter,
+                camera_kwargs=camera_kwargs,
+                extra_data_getter=extra_data_getter,
+            ),
         )
 
     def render_play_frame(self) -> None:
@@ -590,7 +592,7 @@ class NpEnv(ABEnv):
 
     def get_scene_visual_model_file(self) -> str | None:
         """Return the backend scene visual model file on the cold path, when available."""
-        return self._backend.get_scene_visual_model_file()
+        return cast(str | None, self._backend.get_scene_visual_model_file())
 
     def set_nan_guard(self, guard: "NanGuard") -> None:
         self._nan_guard = guard

@@ -21,7 +21,7 @@ off-policy 算法则使用异步 runner、共享缓冲区，以及位于 `src/un
 
 | 层 | 路径 | 拥有 |
 | --- | --- | --- |
-| Backend | `src/unilab/base/backend/` | `SimBackend`、物理状态、可选能力 |
+| Backend | `unisim.backend` | `SimBackend`、物理状态、可选能力 |
 | Env | `src/unilab/envs/`、`src/unilab/base/np_env.py` | MDP 语义、观测、奖励、reset |
 | Config 与 registry | `src/unilab/conf/`、`src/unilab/base/registry.py`、`src/unilab/structured_configs.py` | Schema、owner YAML、env/backend 注册 |
 | 算法与 IPC | `src/unilab/algos/`、`src/unilab/ipc/` | Learner、runner、buffer、权重同步 |
@@ -77,7 +77,7 @@ off-policy 算法则使用异步 runner、共享缓冲区，以及位于 `src/un
 - `src/unilab/scripts/train_td3.py`
 - `src/unilab/scripts/train_flashsac.py`
 - `src/unilab/base/np_env.py`
-- `src/unilab/base/backend/base.py`
+- `unisim.backend.base`
 - `src/unilab/base/registry.py`
 - `src/unilab/ipc/async_runner.py`
 - `src/unilab/training/run.py`

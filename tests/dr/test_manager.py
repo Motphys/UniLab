@@ -7,6 +7,14 @@ from typing import Any
 
 import numpy as np
 import pytest
+from unisim.dr.types import (
+    RESET_TERM_BASE_MASS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_DOF_ARMATURE,
+    RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_GRAVITY,
+    RESET_TERM_KP,
+)
 
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -16,14 +24,6 @@ from unilab.dr import (
     ResetRandomizationPayload,
 )
 from unilab.dr.dr_utils import build_common_reset_randomization
-from unilab.dr.types import (
-    RESET_TERM_BASE_MASS,
-    RESET_TERM_BODY_MASS,
-    RESET_TERM_DOF_ARMATURE,
-    RESET_TERM_GEOM_FRICTION,
-    RESET_TERM_GRAVITY,
-    RESET_TERM_KP,
-)
 
 
 def test_capabilities_filter_reset_payload_drops_unsupported_terms():

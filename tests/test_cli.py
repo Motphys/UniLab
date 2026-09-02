@@ -668,7 +668,7 @@ def test_demo_main_teaser_dispatches_to_render_teaser(
 
 
 def _pretend_isaacgym_runtime(monkeypatch: pytest.MonkeyPatch, available: bool) -> None:
-    from unilab.base.backend.isaacgym import dependencies as isaacgym_deps
+    from unisim.backend.isaacgym import dependencies as isaacgym_deps
 
     monkeypatch.setattr(isaacgym_deps, "isaacgym_runtime_available", lambda: available)
 
@@ -719,7 +719,7 @@ def test_isaacgym_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.M
 
 
 def _pretend_genesis_runtime(monkeypatch: pytest.MonkeyPatch, available: bool) -> None:
-    from unilab.base.backend.genesis import dependencies as genesis_deps
+    from unisim.backend.genesis import dependencies as genesis_deps
 
     monkeypatch.setattr(genesis_deps, "genesis_dependencies_available", lambda: available)
 

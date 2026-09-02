@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from unilab.base.backend import env_backend_kwargs
+from unilab.base.backend_factory import env_backend_kwargs
 from unilab.base.base import EnvCfg
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -14,9 +14,9 @@ except Exception:
     )
 
 import mujoco
+from unisim.backend.mujoco.backend import MuJoCoBackend
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.backend import MuJoCoBackend
 from unilab.base.scene import SceneCfg
 
 _MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")
@@ -121,20 +121,20 @@ def test_benchmark_runs_and_logs_table_on_adaptive(caplog, monkeypatch, tmp_path
 
     Point the chunk_size cache at an empty ``tmp_path`` file so the resolve is a
     guaranteed MISS (no warm-cache short-circuit) and never pollutes the real
-    ``~/.cache/unilab/chunk_size.json``. A clean miss forces the benchmark path,
+    ``~/.cache/unisim/chunk_size.json``. A clean miss forces the benchmark path,
     so we can assert the benchmark-table INFO record specifically.
     """
     import logging
 
-    from unilab.base.backend.mujoco import backend as backend_mod
+    from unisim.backend.mujoco import backend as backend_mod
 
     # Force nthread < num_envs so there is genuinely something to tune; otherwise the
     # resolve short-circuits (num_envs <= nthread => one chunk => no benchmark). With
     # _effective_cpu_count()==1, nthread = min(_NUM_ENVS, 1) = 1 < _NUM_ENVS,
     # deterministically.
     monkeypatch.setattr(backend_mod, "_effective_cpu_count", lambda: 1)
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "chunk_size.json"))
-    with caplog.at_level(logging.INFO, logger="unilab.base.backend.mujoco.chunk_tuner"):
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(tmp_path / "chunk_size.json"))
+    with caplog.at_level(logging.INFO, logger="unisim.backend.mujoco.chunk_tuner"):
         backend = _build_small_backend(adaptive_chunk_size=True, chunk_size=None)
     assert backend._chunk_size is None or isinstance(backend._chunk_size, int)
     # Forced miss -> _log_benchmark_table emits the "chunk_size benchmark" record.

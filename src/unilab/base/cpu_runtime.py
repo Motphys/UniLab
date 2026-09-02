@@ -4,7 +4,7 @@ Multi-rank off-policy data-parallel runs partition host CPUs so each rank's
 collector owns one contiguous block (``training.dp_collector_cpu_ids``, routed
 into ``EnvCfg.cpu_ids``). The MuJoCo BatchEnvPool already pins its physics
 workers to that block, but the collector's host-side compute did not follow:
-Numba parallel kernels (``unilab.base.backend.body_state`` and the
+Numba parallel kernels (``unisim.backend.body_state`` and the
 motion-tracking kernels) size their pool from the host CPU count and leave
 placement to the OS, so they drift across rank boundaries and compete with
 sibling ranks' pinned physics workers.

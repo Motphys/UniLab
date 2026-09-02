@@ -67,4 +67,5 @@ Task/backend/entrypoint 的支持情况是按证据分级的。请参阅
 5-isaacsim
 6-genesis
 7-drake
+7-unisim-core
 ```

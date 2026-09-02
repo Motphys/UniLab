@@ -18,7 +18,7 @@
 ## 需要记住的契约
 
 - Env 契约：`src/unilab/base/np_env.py`
-- Backend 契约：`src/unilab/base/backend/base.py`
+- Backend 契约：`unisim.backend.base`
 - 训练辅助工具：`src/unilab/training/run.py`
 - Config schema：`src/unilab/structured_configs.py`
 - Developer 标准：{doc}`1-architecture/1-overview`

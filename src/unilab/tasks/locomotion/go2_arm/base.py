@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from unisim import SimBackend
 
-from unilab.base.backend import SimBackend
 from unilab.tasks.locomotion.common.base import (
     ControlConfigBase,
     LocomotionBaseCfg,

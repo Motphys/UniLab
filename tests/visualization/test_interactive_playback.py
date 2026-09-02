@@ -1202,7 +1202,6 @@ def test_available_backends_for_task_reads_registry(monkeypatch: pytest.MonkeyPa
 def test_build_play_backend_adapter_injects_root_dir_and_materializer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import unilab.base.backend as backend_pkg
     import unilab.base.config_adapter as config_adapter
     from unilab.visualization.interactive_playback import build_play_backend_adapter
 
@@ -1215,11 +1214,7 @@ def test_build_play_backend_adapter_injects_root_dir_and_materializer(
             captured.update(kwargs)
 
     monkeypatch.setattr(config_adapter, "BackendAdapter", FakeBackendAdapter)
-    monkeypatch.setattr(
-        backend_pkg,
-        "materialize_scene_visual_override",
-        sentinel_materializer,
-    )
+    monkeypatch.setattr(config_adapter, "materialize_scene_visual_override", sentinel_materializer)
 
     cfg = SimpleNamespace(training=SimpleNamespace(task_name="Task"))
     adapter = build_play_backend_adapter(cfg, root_dir="/repo", algo_name="appo")

@@ -23,6 +23,9 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
+    # Physics implementations are provided by the independently released
+    # unisim-core package. Production PyPI publication remains maintainer-owned.
+    "unisim-core>=0.1.12",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",
@@ -53,11 +56,14 @@ eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
 unilab-complete = "unilab.cli_completion:main"
 unilab-viz-nan = "unilab.utils.nan_viz:main"
-unilab-export-scene = "unilab.base.backend.mujoco.export_scene:main"
+unilab-export-scene = "unisim.backend.mujoco.export_scene:main"
 unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
 
 [project.optional-dependencies]
+drake = [
+    "drake-uni==0.1.0",
+]
 mujoco = [
     "mujoco>=3.5",
     # Bound stays loose; uv.rocm.lock pins the default solver version. The
@@ -80,6 +86,11 @@ name = "pytorch-rocm72"
 url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
 [tool.uv.sources]
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
@@ -87,6 +98,7 @@ torch = [
 triton-rocm = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
+unisim-core = { index = "testpypi" }
 
 [tool.uv]
 exclude-dependencies = [

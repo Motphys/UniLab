@@ -24,11 +24,11 @@ from typing import Any
 
 import numpy as np
 import pytest
+from unisim.dr.types import ResetRandomizationPayload
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.np_env import BACKEND_SET_STATE_DETAIL_TIMING_KEYS
 from unilab.base.scene import SceneCfg
-from unilab.dr.types import ResetRandomizationPayload
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -77,7 +77,7 @@ def _assert_gap_bounded(timing: dict[str, float]) -> None:
 
 
 def test_mujoco_set_state_returns_schema_conformant_timing() -> None:
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     backend = MuJoCoBackend(
         SceneCfg(model_file=_G1_MODEL_FILE),
@@ -105,7 +105,7 @@ def test_mujoco_set_state_returns_schema_conformant_timing() -> None:
 
 def test_mujoco_set_state_empty_env_indices_still_returns_timing_dict() -> None:
     """Backends must never return None even on the empty-reset fast path."""
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     backend = MuJoCoBackend(
         SceneCfg(model_file=_G1_MODEL_FILE),
@@ -131,7 +131,7 @@ def test_mujoco_set_state_empty_env_indices_still_returns_timing_dict() -> None:
 def test_motrix_set_state_returns_schema_conformant_timing() -> None:
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     backend = MotrixBackend(
         SceneCfg(model_file=_G1_MODEL_FILE),
@@ -169,7 +169,7 @@ def test_motrix_set_state_returns_schema_conformant_timing() -> None:
 def test_motrix_set_state_without_randomization_leaves_reset_rand_zero() -> None:
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     backend = MotrixBackend(
         SceneCfg(model_file=_G1_MODEL_FILE),

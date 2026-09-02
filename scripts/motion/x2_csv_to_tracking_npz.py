@@ -11,7 +11,7 @@ the shared humanoid motion-tracking loader.
 
 Velocity estimation reuses the library implementation in
 ``unilab.tasks.motion_tracking.common.motion_loader``; forward kinematics reuse
-``unilab.base.backend.compute_tracking_fk``.
+``unisim.backend.mujoco.motion_export.compute_tracking_fk``.
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+from unisim.backend.mujoco.motion_export import compute_tracking_fk
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import compute_tracking_fk
 from unilab.tasks.motion_tracking.common.motion_loader import (
     compute_motion_velocities,
     quat_slerp,

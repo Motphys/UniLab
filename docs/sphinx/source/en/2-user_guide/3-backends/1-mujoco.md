@@ -4,7 +4,7 @@ MuJoCo is the default backend path in the committed owner configs. The Python
 dependencies are the official `mujoco` package (`>=3.5`, with the default
 version pinned by the committed `uv.lock`) plus
 `mujoco-uni-runtime` in `pyproject.toml`, and the adapter lives
-under `src/unilab/base/backend/mujoco/`.
+under `unisim.backend.mujoco`.
 
 ## When To Use It
 
@@ -23,8 +23,8 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
 Playback mode is resolved by the backend contract in
-`src/unilab/base/backend/base.py`. MuJoCo reports physics-state playback support
-in `src/unilab/base/backend/mujoco/backend.py`; `auto` playback records video
+`unisim.backend.base`. MuJoCo reports physics-state playback support
+in `unisim.backend.mujoco.backend`; `auto` playback records video
 rather than opening the Motrix native interactive renderer.
 
 ## Switching MuJoCo Versions

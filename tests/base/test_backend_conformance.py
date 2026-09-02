@@ -12,14 +12,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import create_backend
-from unilab.base.backend.base import (
+from unisim.backend.base import (
     BackendRootStateLayout,
     BackendTerrainSpawnData,
     SimBackend,
 )
+
+from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base.backend_factory import create_backend
 from unilab.base.scene import SceneCfg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -55,7 +55,7 @@ def _module_available(module: str) -> bool:
 
 
 def _mjwarp_cuda_available() -> bool:
-    from unilab.base.backend.mjwarp.dependencies import (
+    from unisim.backend.mjwarp.dependencies import (
         load_mjwarp_dependencies,
         mjwarp_dependencies_available,
     )
@@ -70,7 +70,7 @@ def _mjwarp_cuda_available() -> bool:
 
 def _drake_batch_available() -> bool:
     try:
-        from unilab.base.backend.drake.backend import ensure_drake_batch_available
+        from unisim.backend.drake.backend import ensure_drake_batch_available
     except ImportError:
         return False
     available, _ = ensure_drake_batch_available()
@@ -78,13 +78,13 @@ def _drake_batch_available() -> bool:
 
 
 def _isaacgym_runtime_available() -> bool:
-    from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
+    from unisim.backend.isaacgym.dependencies import isaacgym_runtime_available
 
     return isaacgym_runtime_available()
 
 
 def _genesis_runtime_available() -> bool:
-    from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+    from unisim.backend.genesis.dependencies import genesis_dependencies_available
 
     if not genesis_dependencies_available():
         return False
@@ -97,7 +97,7 @@ def _genesis_runtime_available() -> bool:
 
 
 def _isaacsim_runtime_available() -> bool:
-    from unilab.base.backend.isaacsim.dependencies import isaacsim_runtime_available
+    from unisim.backend.isaacsim.dependencies import isaacsim_runtime_available
 
     return isaacsim_runtime_available()
 
@@ -321,6 +321,14 @@ def test_root_state_layout_contract(backend_type: str) -> None:
     )
     backend.materialize()
 
+    if backend_type == "drake":
+        with pytest.raises(
+            NotImplementedError,
+            match="DrakeBackend does not expose root-state layout.*pelvis",
+        ):
+            backend.get_root_state_layout("pelvis")
+        return
+
     layout = backend.get_root_state_layout("pelvis")
     assert isinstance(layout, BackendRootStateLayout)
     qpos_indices = np.asarray(layout.qpos_indices)
@@ -366,8 +374,7 @@ def test_root_qvel_body_angular_contract_reads_back_world_velocity(backend_type:
 
 def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
     import mujoco
-
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     model = mujoco.MjModel.from_xml_string(
         """
@@ -395,13 +402,13 @@ def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
         backend.get_root_state_layout("hinged")
 
 
-def test_drake_root_layout_fails_closed_without_runtime_metadata() -> None:
-    from unilab.base.backend.drake.backend import DrakeBackend
+def test_drake_root_layout_is_explicitly_unsupported_without_runtime_metadata() -> None:
+    from unisim.backend.drake.backend import DrakeBackend
 
     backend = object.__new__(DrakeBackend)
     with pytest.raises(
         NotImplementedError,
-        match="DrakeBackend root-state layout requires joint-to-body metadata",
+        match="DrakeBackend does not expose root-state layout.*trunk",
     ):
         backend.get_root_state_layout("trunk")
 

@@ -13,9 +13,9 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
+from unisim.backend.base import SimBackend
 
 from unilab.base import registry
-from unilab.base.backend.base import SimBackend
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, make_manager_based_rl_env
@@ -417,7 +417,7 @@ def _drake_batch_extension_available() -> bool:
 def _drake_geom_capability_available() -> bool:
     """Footstand's contact terms require geom-name metadata from the backend."""
     try:
-        from unilab.base.backend.drake.backend import DrakeBackend
+        from unisim.backend.drake.backend import DrakeBackend
     except ImportError:
         return False
     return DrakeBackend.get_geom_names is not SimBackend.get_geom_names

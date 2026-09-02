@@ -93,8 +93,9 @@ _VELOCITY_COMMAND_TASK_NAME_MARKERS = ("Joystick", "Walk")
 
 ensure_registries()
 
+from unisim.backend.mujoco.playback import resolve_render_play_model_files
+
 from unilab.base import registry
-from unilab.base.backend.mujoco.playback import resolve_render_play_model_files
 from unilab.base.scene import SceneCfg
 from unilab.structured_configs import PPOConfig as _StructuredPPOConfig
 

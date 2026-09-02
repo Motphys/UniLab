@@ -6,9 +6,7 @@ from collections import Counter
 
 import numpy as np
 import pytest
-
-from unilab.base.backend import BackendSensorView
-from unilab.base.backend.base import SimBackend
+from unisim.backend.base import BackendSensorView, SimBackend
 
 
 class _SensorBackend:

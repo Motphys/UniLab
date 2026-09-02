@@ -2,7 +2,7 @@
 
 The facade deliberately describes partitions of an already materialized UniLab scene.
 It is not a second scene composer: all name resolution and state reads go through the
-public :class:`~unilab.base.backend.base.SimBackend` contract.
+public :class:`~unisim.backend.base.SimBackend` contract.
 """
 
 from __future__ import annotations
@@ -13,12 +13,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import numpy as np
+from unisim.backend.base import BackendRootStateLayout, BackendSensorView, SimBackend
+from unisim.dr.types import IntervalRandomizationPlan
 
-from unilab.base.backend.base import BackendRootStateLayout, BackendSensorView, SimBackend
-from unilab.dr.types import IntervalRandomizationPlan
 from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_from_quat
 
 if TYPE_CHECKING:
@@ -2119,7 +2119,7 @@ class EntityScene(Mapping[str, Entity]):
         default_qpos: np.ndarray | None = None,
     ) -> EntityScene:
         return cls(
-            cfg.entities,
+            cast(Mapping[str, EntityCfg], cfg.entities),
             backend,
             control_buffer,
             reset_state=reset_state,

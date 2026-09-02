@@ -3,16 +3,16 @@
 #
 # IsaacGym (NVIDIA Preview 4, EOL) only supports Python 3.6-3.8, so it cannot
 # live in the main uv environment (requires-python >= 3.10). Everything is
-# installed under UNILAB_ISAACGYM_HOME (default: $HOME/.unilab/isaacgym) and
+# installed under UNISIM_ISAACGYM_HOME (default: $HOME/.cache/unisim/isaacgym) and
 # located at runtime purely through environment variables; this repo never
 # hard-codes machine-local paths.
 #
 # Layout produced by this script (aligned with the benchmark env vars used by
 # scripts/benchmark/physics/benchmark_physics_step_isaacgym.py):
-#   $UNILAB_ISAACGYM_HOME/miniconda3                        dedicated miniconda
-#   $UNILAB_ISAACGYM_HOME/miniconda3/envs/hsgym             Python 3.8 conda env
-#   $UNILAB_ISAACGYM_HOME/isaacgym/python                   unpacked Preview 4
-#   $UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz downloaded tarball
+#   $UNISIM_ISAACGYM_HOME/miniconda3                        dedicated miniconda
+#   $UNISIM_ISAACGYM_HOME/miniconda3/envs/hsgym             Python 3.8 conda env
+#   $UNISIM_ISAACGYM_HOME/isaacgym/python                   unpacked Preview 4
+#   $UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz downloaded tarball
 #
 # The script is idempotent: completed steps are skipped on re-run.
 
@@ -28,18 +28,18 @@ benchmarks. IsaacGym cannot be installed into the main uv environment.
 Options:
   --tarball <path>   Path to IsaacGym_Preview_4_Package.tar.gz.
                      Default: auto-downloaded (no login required) to
-                     $UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz
+                     $UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz
                      from https://developer.nvidia.com/isaac-gym-preview-4 ;
                      use this option to supply a pre-downloaded tarball
                      instead (e.g. on a machine without internet access).
   -h, --help         Show this help.
 
 Environment:
-  UNILAB_ISAACGYM_HOME   Install root. Default: $HOME/.unilab/isaacgym
+  UNISIM_ISAACGYM_HOME   Install root. Default: $HOME/.cache/unisim/isaacgym
 EOF
 }
 
-ISAACGYM_HOME="${UNILAB_ISAACGYM_HOME:-$HOME/.unilab/isaacgym}"
+ISAACGYM_HOME="${UNISIM_ISAACGYM_HOME:-${UNILAB_ISAACGYM_HOME:-$HOME/.cache/unisim/isaacgym}}"
 TARBALL_ARG=""
 
 while [ "$#" -gt 0 ]; do
@@ -163,8 +163,11 @@ export UNILAB_BENCHMARK_HSGYM_LIB="$ENV_ROOT/lib"
 export UNILAB_BENCHMARK_MODELS_ROOT="<path-to-your-urdf-models-root>"
 
 # 训练后端（task=<task>/isaacgym）默认从 ~/.unilab/isaacgym 自动发现运行时；
-# 若用了自定义 UNILAB_ISAACGYM_HOME，训练时同名导出即可：
-export UNILAB_ISAACGYM_HOME="$ISAACGYM_HOME"
+# 若用了自定义 UNISIM_ISAACGYM_HOME，训练时同名导出即可：
+export UNISIM_ISAACGYM_HOME="$ISAACGYM_HOME"
+
+# Legacy UniLab variable (optional for older launch scripts):
+# export UNILAB_ISAACGYM_HOME="$ISAACGYM_HOME"
 
 然后在仓库根目录用 benchmark 脚本验证：
 

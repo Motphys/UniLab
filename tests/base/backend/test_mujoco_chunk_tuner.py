@@ -5,8 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from unilab.base.backend.mujoco import chunk_tuner as ct
+from unisim.backend.mujoco import chunk_tuner as ct
 
 
 def test_make_candidates_never_exceeds_upper():
@@ -121,14 +120,14 @@ def test_make_cache_key_deterministic_and_sensitive():
 
 def test_cache_path_env_override(monkeypatch, tmp_path):
     target = tmp_path / "custom.json"
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(target))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(target))
     assert ct.cache_path() == target
 
 
 def test_cache_path_xdg(monkeypatch, tmp_path):
-    monkeypatch.delenv("UNILAB_CHUNK_SIZE_CACHE", raising=False)
+    monkeypatch.delenv("UNISIM_CHUNK_SIZE_CACHE", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    assert ct.cache_path() == tmp_path / "unilab" / "chunk_size.json"
+    assert ct.cache_path() == tmp_path / "unisim" / "chunk_size.json"
 
 
 def test_load_missing_cache_returns_empty(tmp_path):
@@ -252,7 +251,7 @@ def test_cache_hit_emits_full_candidate_table_without_logging(capsys, monkeypatc
     # Warm cache + spawn collector (INFO disabled): the cache-hit line must carry the
     # stored per-candidate breakdown, not just the chosen value -- otherwise the
     # candidate info is invisible on every run after the first cold benchmark.
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
     monkeypatch.setattr(
         ct, "benchmark_chunk_sizes", lambda *a, **k: {None: 0.009, 1: 0.025, 4: 0.0091}
     )
@@ -371,7 +370,7 @@ def test_resolve_skips_everything_when_nothing_to_tune(monkeypatch, tmp_path, ca
     # num_envs <= nthread -> at most one work-chunk -> chunk_size is a no-op. Must
     # return None WITHOUT benchmarking, caching, or emitting a line (this kills the
     # noisy num_envs=1 setup-env benchmark that APPO/off-policy emit).
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
     calls = {"n": 0}
 
     def _spy(*a, **k):
@@ -389,7 +388,7 @@ def test_resolve_skips_everything_when_nothing_to_tune(monkeypatch, tmp_path, ca
 
 
 def test_resolve_cache_hit_skips_benchmark(monkeypatch, tmp_path):
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
     calls = {"n": 0}
 
     def _bench(*a, **k):
@@ -406,7 +405,7 @@ def test_resolve_cache_hit_skips_benchmark(monkeypatch, tmp_path):
 
 def test_resolve_cache_miss_runs_benchmark_and_persists(monkeypatch, tmp_path):
     cache = tmp_path / "c.json"
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(cache))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(cache))
     monkeypatch.setattr(ct, "benchmark_chunk_sizes", lambda *a, **k: {None: 1.0, 4: 0.5})
     chosen = ct.resolve_chunk_size(**_resolve_kwargs())
     assert chosen == 4
@@ -417,7 +416,7 @@ def test_resolve_cache_miss_runs_benchmark_and_persists(monkeypatch, tmp_path):
 def test_resolve_cache_hit_none_is_valid(monkeypatch, tmp_path):
     # A prior benchmark concluded native default is best (chunk_size=None).
     # That is a legitimate cached value: a second call must return None and NOT re-benchmark.
-    monkeypatch.setenv("UNILAB_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
+    monkeypatch.setenv("UNISIM_CHUNK_SIZE_CACHE", str(tmp_path / "c.json"))
     calls = {"n": 0}
 
     def _bench(*a, **k):

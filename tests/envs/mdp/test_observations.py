@@ -10,8 +10,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import SimBackend
 
-from unilab.base.backend.base import SimBackend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.envs import mdp
 from unilab.managers import ObservationGroupCfg, ObservationManager, ObservationTermCfg
