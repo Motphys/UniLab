@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-··# Set up the UniLab Drake batch runtime on Linux or Apple Silicon macOS.
+# Set up the UniLab Drake batch runtime on Linux or Apple Silicon macOS.
 #
 # This script mirrors the external-runtime setup flow used by IsaacGym and
 # IsaacSim: expensive downloads are resumable, completed download/extract steps
@@ -188,14 +188,39 @@ done
   exit 1
 }
 
-# Official tarballs ship Eigen and fmt headers, while fmt is linked from the
-# host. Prefer explicit overrides, then discover Homebrew's fmt on macOS.
+# Prefer explicit Eigen and fmt include overrides, then discover the same
+# system/pkg-config paths used by DrakeUni's build helper.  fmt is linked from
+# the host.
 if [ -z "${EIGEN3_INCLUDE_DIR:-}" ]; then
   if [ -f "$DRAKE_PREFIX/include/eigen3/Eigen/Core" ]; then
     EIGEN3_INCLUDE_DIR="$DRAKE_PREFIX/include/eigen3"
   elif [ -f "$DRAKE_PREFIX/include/Eigen/Core" ]; then
     EIGEN3_INCLUDE_DIR="$DRAKE_PREFIX/include"
   fi
+fi
+if [ -z "${EIGEN3_INCLUDE_DIR:-}" ] && command -v pkg-config >/dev/null; then
+  # pkg-config emits one or more -I flags.  Select the first one that actually
+  # contains Eigen/Core so a stale .pc file cannot make setup pass falsely.
+  EIGEN3_CFLAGS="$(pkg-config --cflags-only-I eigen3 2>/dev/null || true)"
+  for flag in $EIGEN3_CFLAGS; do
+    case "$flag" in
+      -I*)
+        candidate="${flag#-I}"
+        if [ -f "$candidate/Eigen/Core" ]; then
+          EIGEN3_INCLUDE_DIR="$candidate"
+          break
+        fi
+        ;;
+    esac
+  done
+fi
+if [ -z "${EIGEN3_INCLUDE_DIR:-}" ]; then
+  for candidate in /usr/include/eigen3 /usr/local/include/eigen3; do
+    if [ -f "$candidate/Eigen/Core" ]; then
+      EIGEN3_INCLUDE_DIR="$candidate"
+      break
+    fi
+  done
 fi
 if [ -z "${FMT_INCLUDE_DIR:-}" ] && [ -f "$DRAKE_PREFIX/include/fmt/format.h" ]; then
   FMT_INCLUDE_DIR="$DRAKE_PREFIX/include"
