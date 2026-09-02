@@ -141,7 +141,7 @@ To add a new robot's binary assets:
   `src/unilab/tasks/motion_tracking/common/motion_loader.py`, which calls the
   resolver once on a cold path.
 - Robot mesh integration point: `create_backend` in
-  `src/unilab/base/backend/__init__.py` calls
+  `src/unilab/base/backend_factory.py` calls
   `ensure_robot_assets_for_paths` on the scene's `model_file`,
   `visual_model_file`, and `fragment_files` before dispatching to a backend.
 - Hot paths (`step` / `reset`) never trigger any file download or parsing.

@@ -42,7 +42,7 @@ capability is added to or removed from the backend contract.
   - Motrix reports support from runtime capability detection.
 ```
 
-Use `src/unilab/base/backend/base.py` as the contract source and backend tests
+Use `unisim.backend.base` as the contract source and backend tests
 under `tests/base/` as evidence for support claims.
 
 ## How to update this page

@@ -1,6 +1,6 @@
 # Scene Export
 
-Scene export is implemented by `src/unilab/base/backend/mujoco/export_scene.py` and registered
+Scene export is implemented by `unisim.backend.mujoco.export_scene` and registered
 as the `unilab-export-scene` console entry in `pyproject.toml`. It accepts a
 MuJoCo XML or MJB model path, writes `scene.xml`, copies mesh assets when they
 are discoverable, and can create a zip archive.

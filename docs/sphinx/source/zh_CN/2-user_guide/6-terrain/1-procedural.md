@@ -7,7 +7,7 @@
 3. 当我想修改子地形组成时，正确的入口是什么？
 4. 当前已知的边界是什么——这些不是 bug，而是约束？
 
-关于底层 contract（冷路径实例化、注册新的子地形、hfield 导出），参见 `src/unilab/base/backend/mujoco/xml.py`、`src/unilab/base/backend/motrix/scene.py` 和 `src/unilab/terrains/terrain_generator.py` 中的源码注释。
+关于底层 contract（冷路径实例化、注册新的子地形、hfield 导出），参见 `unisim.backend.mujoco.xml`、`unisim.backend.motrix.scene` 和 `unisim.terrain.generator` 中的源码注释。
 
 ## 当前状态
 
@@ -131,7 +131,7 @@ env:
 env 的 `__init__` 不需要直接调用 XML 实例化器；把 `scene` 交给后端构造函数即可：
 
 ```python
-from unilab.base.backend import create_backend
+from unilab.base.backend_factory import create_backend
 
 backend = create_backend(..., cfg.scene)
 terrain_origins = getattr(backend, "terrain_origins", None)

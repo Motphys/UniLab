@@ -87,11 +87,11 @@ env 通过 `src/unilab/tasks/manipulation/sharpa_inhand/base.py` 中的
 
 ## 建议的契约：用 backend 方法返回力大小
 
-在 `SimBackend` 接口（`src/unilab/base/backend/base.py`）增加
+在 `SimBackend` 接口（`unisim.backend.base`）增加
 `get_contact_force_magnitude(sensor_name) -> np.ndarray`，返回 `(num_envs,)` 的标量力大小。每个 backend 按自己的数据布局实现：
 
-- **MuJoCo**（`src/unilab/base/backend/mujoco/backend.py`）：对 `get_sensor_data(name)` 返回的 3D 力向量取范数。
-- **Motrix**（`src/unilab/base/backend/motrix/backend.py`）：按 reduce 模式解释布局：
+- **MuJoCo**（`unisim.backend.mujoco.backend`）：对 `get_sensor_data(name)` 返回的 3D 力向量取范数。
+- **Motrix**（`unisim.backend.motrix.backend`）：按 reduce 模式解释布局：
   - `reduce="netforce"`：取 `[1:4]` 后取 norm。
   - 无 reduce 多 contact：对各接触力求和后取 norm。
   - `reduce="maxforce"`：取力最大的接触点。
@@ -107,6 +107,6 @@ env 层的 `_read_tactile_force()` 对 contact sensor 走 `get_contact_force_mag
 | `src/unilab/tasks/manipulation/sharpa_inhand/base.py` | `_extract_sensor_scalar()`, `_read_tactile_force()` |
 | `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py` | reward 计算，virtual torque |
 | `src/unilab/assets/robots/sharpa_wave/right_sharpa_wave.xml` | contact sensor XML 定义 |
-| `src/unilab/base/backend/motrix/backend.py` | Motrix `get_sensor_data()` |
-| `src/unilab/base/backend/mujoco/backend.py` | MuJoCo `get_sensor_data()` |
-| `src/unilab/base/backend/base.py` | `SimBackend` 接口 |
+| `unisim.backend.motrix.backend` | Motrix `get_sensor_data()` |
+| `unisim.backend.mujoco.backend` | MuJoCo `get_sensor_data()` |
+| `unisim.backend.base` | `SimBackend` 接口 |

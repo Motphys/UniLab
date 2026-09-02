@@ -31,7 +31,7 @@ The detailed task status and field semantics are in {doc}`0-index`.
 Domain randomization is split by lifecycle: init, reset, and interval. The
 legacy path's manager is `src/unilab/dr/manager.py`; task providers live near
 the env owners, and backend capabilities are declared through
-`src/unilab/base/backend/base.py`.
+`unisim.backend.base`.
 
 ## Reset Gravity
 

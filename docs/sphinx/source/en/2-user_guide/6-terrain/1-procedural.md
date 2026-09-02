@@ -8,7 +8,7 @@ This page only answers four questions:
 3. When I want to change the sub-terrain composition, what is the correct entry point?
 4. What are the currently known boundaries — not bugs, but constraints?
 
-For the underlying contracts (cold-path materialization, registering a new sub-terrain, hfield export), see the source comments in `src/unilab/base/backend/mujoco/xml.py`, `src/unilab/base/backend/motrix/scene.py`, and `src/unilab/terrains/terrain_generator.py`.
+For the underlying contracts (cold-path materialization, registering a new sub-terrain, hfield export), see the source comments in `unisim.backend.mujoco.xml`, `unisim.backend.motrix.scene`, and `unisim.terrain.generator`.
 
 ## Current Status
 
@@ -132,7 +132,7 @@ env:
 The env's `__init__` does not need to call the XML materializer directly; hand `scene` over to the backend constructor:
 
 ```python
-from unilab.base.backend import create_backend
+from unilab.base.backend_factory import create_backend
 
 backend = create_backend(..., cfg.scene)
 terrain_origins = getattr(backend, "terrain_origins", None)

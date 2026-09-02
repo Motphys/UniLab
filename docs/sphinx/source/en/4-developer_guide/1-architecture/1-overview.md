@@ -20,7 +20,7 @@ primitives under `src/unilab/ipc/` and `src/unilab/algos/`.
 
 | Layer | Paths | Owns |
 | --- | --- | --- |
-| Backend | `src/unilab/base/backend/` | `SimBackend`, physics state, optional capabilities |
+| Backend | `unisim.backend` | `SimBackend`, physics state, optional capabilities |
 | Env | `src/unilab/envs/`, `src/unilab/base/np_env.py` | MDP semantics, observation, reward, reset |
 | Config and registry | `src/unilab/conf/`, `src/unilab/base/registry.py`, `src/unilab/structured_configs.py` | Schema, owner YAMLs, env/backend registration |
 | Algorithms and IPC | `src/unilab/algos/`, `src/unilab/ipc/` | Learners, runners, buffers, weight sync |
@@ -83,7 +83,7 @@ Use `make test` for the fast path and `make test-all` (`make check`,
 - `src/unilab/scripts/train_td3.py`
 - `src/unilab/scripts/train_flashsac.py`
 - `src/unilab/base/np_env.py`
-- `src/unilab/base/backend/base.py`
+- `unisim.backend.base`
 - `src/unilab/base/registry.py`
 - `src/unilab/ipc/async_runner.py`
 - `src/unilab/training/run.py`
