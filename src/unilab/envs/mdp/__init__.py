@@ -52,7 +52,6 @@ from unilab.envs.mdp.observations import (
 from unilab.envs.mdp.observations import (
     projected_gravity_imu_misaligned as projected_gravity_imu_misaligned,
 )
-from unilab.envs.mdp.observations import root_height as root_height
 from unilab.envs.mdp.recorders import LifecycleCounterRecorder as LifecycleCounterRecorder
 from unilab.envs.mdp.rewards import action_acc_l2 as action_acc_l2
 from unilab.envs.mdp.rewards import action_rate_l2 as action_rate_l2
@@ -65,6 +64,7 @@ from unilab.envs.mdp.rewards import is_terminated as is_terminated
 from unilab.envs.mdp.rewards import joint_pos_limits as joint_pos_limits
 from unilab.envs.mdp.rewards import joint_vel_l2 as joint_vel_l2
 from unilab.envs.mdp.rewards import posture as posture
+from unilab.envs.mdp.rewards import root_height as root_height
 from unilab.envs.mdp.rewards import track_angular_velocity as track_angular_velocity
 from unilab.envs.mdp.rewards import track_linear_velocity as track_linear_velocity
 from unilab.envs.mdp.rewards import variable_posture as variable_posture

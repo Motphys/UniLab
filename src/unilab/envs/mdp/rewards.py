@@ -97,6 +97,15 @@ def is_terminated(env: ManagerBasedRlEnv) -> np.ndarray:
     return env.termination_manager.terminated.astype(np.float32, copy=False)
 
 
+def root_height(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Return the world-frame root height as a scalar reward or metric term."""
+    asset = cast("Entity", env.scene[asset_cfg.name])
+    return np.asarray(asset.data.root_link_pos_w[:, 2])
+
+
 def joint_vel_l2(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -319,6 +328,7 @@ __all__ = [
     "joint_pos_limits",
     "joint_vel_l2",
     "posture",
+    "root_height",
     "track_angular_velocity",
     "track_linear_velocity",
     "variable_posture",
