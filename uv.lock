@@ -4983,6 +4983,7 @@ dependencies = [
 [package.optional-dependencies]
 drake = [
     { name = "drake-uni" },
+    { name = "mujoco" },
 ]
 genesis = [
     { name = "genesis-world" },
@@ -5027,6 +5028,7 @@ requires-dist = [
     { name = "lark", specifier = ">=1.3.1" },
     { name = "mediapy" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
+    { name = "mujoco", marker = "extra == 'drake'", specifier = ">=3.5" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.5" },
     { name = "mujoco-uni-runtime", marker = "extra == 'mujoco'", specifier = "==0.4.0" },
     { name = "mujoco-warp", marker = "extra == 'mjwarp'", specifier = "==3.10.0.3" },

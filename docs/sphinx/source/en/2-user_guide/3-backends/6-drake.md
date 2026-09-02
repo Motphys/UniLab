@@ -1,7 +1,9 @@
 # Drake Backend
 
 Drake is an experimental CPU batch backend. UniLab still owns the task,
-reward, observations, and training loop. The supported native setup is Linux
+reward, observations, and training loop. Rendering uses MuJoCo's native
+renderer: Drake advances physics and MuJoCo only draws the current state. The
+supported native setup is Linux
 x86_64 and Apple Silicon macOS (arm64); Intel macOS has no official Drake
 binary.
 
@@ -101,9 +103,11 @@ For an installation probe, temporarily add
 training.no_play=true env.drake_nthread=1`; these overrides are not production
 settings.
 
-Drake interactive rendering is not implemented. Use `--render-mode none` for
-headless evaluation. Recording uses the MuJoCo playback helper and therefore
-also needs the MuJoCo extra and visual assets.
+Drake has no separate renderer. Automatic recording and the interactive viewer
+use MuJoCo while Drake remains the only physics engine being stepped. Use
+`--render-mode none` for headless evaluation; recording and interactive
+playback require the MuJoCo extra and visual assets. MuJoCo is not stepped or
+used to re-evaluate the checkpoint.
 
 ## Troubleshooting
 

@@ -1,7 +1,8 @@
 # Drake 后端
 
 Drake 是实验性的 CPU 批量物理后端；task、reward、observation 和训练循环仍由
-UniLab 负责。原生路径支持 Linux x86_64 与 Apple Silicon macOS（arm64）；Intel
+UniLab 负责。渲染使用 MuJoCo 原生 renderer：Drake 推进物理，MuJoCo 只绘制当前状态。
+原生路径支持 Linux x86_64 与 Apple Silicon macOS（arm64）；Intel
 macOS 没有官方 Drake 二进制。
 
 ## 前置依赖
@@ -93,8 +94,9 @@ env.drake_nthread=1`；这些不是生产参数。
 在 Apple Silicon macOS 上已用 Drake 1.56.0、Python 3.13 和 1024 个环境完成该命令
 的全部 151 次迭代，耗时约 254 秒。
 
-Drake 尚未实现交互式渲染。无头评估使用 `--render-mode none`；录制依赖 MuJoCo 回放
-助手，因此还需要 MuJoCo extra 和视觉资产。
+Drake 没有独立 renderer。自动录制和交互 viewer 都使用 MuJoCo，实际推进的物理引擎
+始终只有 Drake。无头评估使用 `--render-mode none`；录制和交互回放需要 MuJoCo
+extra 与视觉资产。MuJoCo 不会推进物理，也不会重新评估 checkpoint。
 
 ## 常见问题
 
