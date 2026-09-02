@@ -15,9 +15,9 @@ import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from unisim.backend.mjwarp.dependencies import load_mjwarp_dependencies
 
 from unilab.base import registry
-from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
 from unilab.base.config_adapter import BackendAdapter
 from unilab.tasks.locomotion.microduck.deploy_contract import MICRODUCK_NUM_ACTION
 

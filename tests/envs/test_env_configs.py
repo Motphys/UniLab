@@ -122,7 +122,7 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
         builtins.__import__ = blocked_import
 
         from unilab.base import registry
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.registry import ensure_registries
 
         ensure_registries()

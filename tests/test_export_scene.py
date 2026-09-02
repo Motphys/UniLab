@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("mujoco")
 
-from unilab.base.backend.mujoco.export_scene import export_scene, main
+from unisim.backend.mujoco.export_scene import export_scene, main
 
 MINIMAL_XML = """\
 <mujoco>

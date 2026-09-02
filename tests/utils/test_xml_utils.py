@@ -6,15 +6,17 @@ import os
 import xml.etree.ElementTree as ET
 
 import pytest
-
-from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import (
-    inject_mujoco_tracking_sensors,
+from unisim.backend.motrix.scene import (
     materialize_motrix_hfield_attached_scene,
     materialize_motrix_scene,
+)
+from unisim.backend.mujoco.xml import (
+    inject_mujoco_tracking_sensors,
     materialize_mujoco_hfield_attached_scene,
     materialize_scene_fragments,
 )
+
+from unilab.assets import ASSETS_ROOT_PATH
 
 
 def _g1_scene() -> str:

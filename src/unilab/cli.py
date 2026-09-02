@@ -108,7 +108,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
             "`pip install unilab[motrix]` (or `uv sync --extra motrix` in a source checkout)."
         )
     if sim == "isaacgym":
-        from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
+        from unisim.backend.isaacgym.dependencies import isaacgym_runtime_available
 
         if not isaacgym_runtime_available():
             raise SystemExit(
@@ -117,7 +117,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
                 "IsaacGym backend docs page)."
             )
     if sim == "genesis":
-        from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+        from unisim.backend.genesis.dependencies import genesis_dependencies_available
 
         if not genesis_dependencies_available():
             raise SystemExit(
@@ -126,7 +126,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
                 "in a source checkout; see the Genesis backend docs page)."
             )
     if sim == "isaacsim":
-        from unilab.base.backend.isaacsim.dependencies import isaacsim_runtime_available
+        from unisim.backend.isaacsim.dependencies import isaacsim_runtime_available
 
         if not isaacsim_runtime_available():
             raise SystemExit(

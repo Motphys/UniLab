@@ -3,16 +3,16 @@
 #
 # IsaacSim/IsaacLab require Python 3.11 while the main UniLab uv environment
 # uses a newer Python, so (like the IsaacGym worker env) this runtime lives
-# outside the repo under UNILAB_ISAACSIM_HOME (default: $HOME/.unilab/isaacsim)
+# outside the repo under UNISIM_ISAACSIM_HOME (default: $HOME/.cache/unisim/isaacsim)
 # and is located purely through environment variables; this repo never
 # hard-codes machine-local paths.
 #
 # Layout produced by this script (mirrors setup_isaacgym_env.sh conventions):
-#   $UNILAB_ISAACSIM_HOME/venv                 dedicated Python 3.11 venv
-#   $UNILAB_ISAACSIM_HOME/IsaacLab             IsaacLab source tree
-#   $UNILAB_ISAACSIM_HOME/tools/bin/cmake      official cmake binary (no sudo)
-#   $UNILAB_ISAACSIM_HOME/.markers             per-step completion markers
-#   $UNILAB_ISAACSIM_HOME/install.log          full install log
+#   $UNISIM_ISAACSIM_HOME/venv                 dedicated Python 3.11 venv
+#   $UNISIM_ISAACSIM_HOME/IsaacLab             IsaacLab source tree
+#   $UNISIM_ISAACSIM_HOME/tools/bin/cmake      official cmake binary (no sudo)
+#   $UNISIM_ISAACSIM_HOME/.markers             per-step completion markers
+#   $UNISIM_ISAACSIM_HOME/install.log          full install log
 #
 # Design goals:
 #   * Idempotent — every completed step drops a marker file; re-running the
@@ -26,7 +26,7 @@
 #   bash scripts/tools/setup_isaacsim_env.sh [--verify-sim]
 #
 # Environment overrides:
-#   UNILAB_ISAACSIM_HOME  install root           (default: ~/.unilab/isaacsim)
+#   UNISIM_ISAACSIM_HOME  install root           (default: ~/.cache/unisim/isaacsim)
 #   ISAACLAB_VERSION      IsaacLab git tag       (default: v2.3.0)
 #   ISAACSIM_VERSION      isaacsim pip version   (default: 5.1.0)
 #   TORCH_VERSION         torch version          (default: 2.7.0)
@@ -35,7 +35,7 @@
 # Reference: https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/pip_installation.html
 set -euo pipefail
 
-ISAACSIM_HOME=${UNILAB_ISAACSIM_HOME:-$HOME/.unilab/isaacsim}
+ISAACSIM_HOME=${UNISIM_ISAACSIM_HOME:-${UNILAB_ISAACSIM_HOME:-$HOME/.cache/unisim/isaacsim}}
 ISAACLAB_VERSION=${ISAACLAB_VERSION:-v2.3.0}
 ISAACSIM_VERSION=${ISAACSIM_VERSION:-5.1.0}
 TORCH_VERSION=${TORCH_VERSION:-2.7.0}
@@ -75,7 +75,7 @@ run_step() {
 mkdir -p "$MARKER_DIR"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-log "UNILAB_ISAACSIM_HOME=$ISAACSIM_HOME"
+log "UNISIM_ISAACSIM_HOME=$ISAACSIM_HOME"
 log "isaacsim=$ISAACSIM_VERSION isaaclab=$ISAACLAB_VERSION torch=$TORCH_VERSION+cu128"
 
 # Accept the Omniverse Kit EULA non-interactively (install + any Kit launch)
@@ -262,10 +262,13 @@ cat <<EOF
 
 [setup_isaacsim_env] 完成。把下面几行写入你的 shell rc（如 ~/.bashrc）：
 
-export UNILAB_ISAACSIM_HOME="$ISAACSIM_HOME"
+export UNISIM_ISAACSIM_HOME="$ISAACSIM_HOME"
 export OMNI_KIT_ACCEPT_EULA=1
 # 交互调试时激活 venv：
-source "\$UNILAB_ISAACSIM_HOME/venv/bin/activate"
+source "\$UNISIM_ISAACSIM_HOME/venv/bin/activate"
+
+# Legacy UniLab variable (optional for older launch scripts):
+# export UNILAB_ISAACSIM_HOME="$ISAACSIM_HOME"
 
   venv:     $VENV_DIR
   IsaacLab: $ISAACLAB_DIR

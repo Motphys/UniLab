@@ -63,10 +63,11 @@ From the repository root, run:
 scripts/tools/setup_isaacgym_env.sh
 ```
 
-The script installs everything under `$HOME/.unilab/isaacgym` by default;
-override the install root with the `UNILAB_ISAACGYM_HOME` environment variable.
+The script installs everything under `$HOME/.cache/unisim/isaacgym` by default;
+override the install root with the `UNISIM_ISAACGYM_HOME` environment variable.
+The former `UNILAB_ISAACGYM_HOME` name remains accepted as a migration fallback.
 The tarball is downloaded automatically to
-`$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`; on offline machines,
+`$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz`; on offline machines,
 pass a pre-downloaded package with `--tarball <path>`. The script is
 idempotent and skips completed steps when re-run.
 
@@ -79,7 +80,7 @@ After installation, add the export lines printed by the script to your shell rc
 (e.g. `~/.bashrc`):
 
 ```bash
-export UNILAB_BENCHMARK_HOLOSOMA_DEPS="$HOME/.unilab/isaacgym"
+export UNILAB_BENCHMARK_HOLOSOMA_DEPS="$HOME/.cache/unisim/isaacgym"
 export UNILAB_BENCHMARK_HSGYM_PYTHON="$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/envs/hsgym/bin/python3.8"
 export UNILAB_BENCHMARK_HSGYM_LIB="$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/envs/hsgym/lib"
 ```
@@ -102,8 +103,8 @@ uv run --no-project "$UNILAB_BENCHMARK_HSGYM_PYTHON" \
 ## Training and Evaluation
 
 Once the external environment is installed, training works out of the box.
-The worker runtime is discovered automatically from `~/.unilab/isaacgym`;
-when using a custom install root, export `UNILAB_ISAACGYM_HOME` before
+The worker runtime is discovered automatically from `~/.cache/unisim/isaacgym`;
+when using a custom install root, export `UNISIM_ISAACGYM_HOME` before
 training. `g1_walk_flat` currently ships isaacgym owner configs for PPO and
 SAC:
 
@@ -166,35 +167,35 @@ above.
 If the automated script fails, the equivalent manual command sequence is:
 
 ```bash
-export UNILAB_ISAACGYM_HOME="${UNILAB_ISAACGYM_HOME:-$HOME/.unilab/isaacgym}"
-mkdir -p "$UNILAB_ISAACGYM_HOME"
+export UNISIM_ISAACGYM_HOME="${UNISIM_ISAACGYM_HOME:-$HOME/.cache/unisim/isaacgym}"
+mkdir -p "$UNISIM_ISAACGYM_HOME"
 
 # 1. Dedicated miniconda
 curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
-bash /tmp/miniconda.sh -b -u -p "$UNILAB_ISAACGYM_HOME/miniconda3"
+bash /tmp/miniconda.sh -b -u -p "$UNISIM_ISAACGYM_HOME/miniconda3"
 rm /tmp/miniconda.sh
 
 # 2. Python 3.8 conda environment
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n base -c conda-forge mamba
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/mamba" create -y -n hsgym python=3.8 -c conda-forge --override-channels
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n base -c conda-forge mamba
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/mamba" create -y -n hsgym python=3.8 -c conda-forge --override-channels
 
 # 3. Ubuntu 24.04 GLIBCXX fix
-"$UNILAB_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n hsgym -c conda-forge libstdcxx-ng
+"$UNISIM_ISAACGYM_HOME/miniconda3/bin/conda" install -y -n hsgym -c conda-forge libstdcxx-ng
 
 # 4. Download (or reuse) the tarball and install IsaacGym
 curl -fL --retry 3 "https://developer.nvidia.com/isaac-gym-preview-4" \
-  -o "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz"
-tar -xzf "$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNILAB_ISAACGYM_HOME"
-"$UNILAB_ISAACGYM_HOME/miniconda3/envs/hsgym/bin/pip" install -e "$UNILAB_ISAACGYM_HOME/isaacgym/python"
+  -o "$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz"
+tar -xzf "$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz" -C "$UNISIM_ISAACGYM_HOME"
+"$UNISIM_ISAACGYM_HOME/miniconda3/envs/hsgym/bin/pip" install -e "$UNISIM_ISAACGYM_HOME/isaacgym/python"
 ```
 
 ## Troubleshooting
 
 - **Tarball download or validation fails**: the script verifies the download
   is a valid gzip tarball. If it fails, delete
-  `$UNILAB_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` and re-run, or pass
+  `$UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz` and re-run, or pass
   a manually downloaded package with `--tarball <path>`.
 - **First INIT handshake times out (worker unresponsive)**: the first
   `gymtorch` import JIT-compiles a C++ extension (several minutes, cached

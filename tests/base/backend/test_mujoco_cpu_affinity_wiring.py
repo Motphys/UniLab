@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -28,8 +28,9 @@ if "cpu_ids" not in inspect.signature(BatchEnvPool.__init__).parameters:
         allow_module_level=True,
     )
 
+from unisim.backend.mujoco.backend import MuJoCoBackend
+
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.backend import MuJoCoBackend
 from unilab.base.scene import SceneCfg
 
 _MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")

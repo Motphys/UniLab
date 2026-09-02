@@ -6,9 +6,9 @@ from typing import Any, Sequence, cast
 
 import gymnasium as gym
 import numpy as np
+from unisim import SimBackend
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.scene import SceneCfg

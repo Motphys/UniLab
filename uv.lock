@@ -713,6 +713,19 @@ wheels = [
 ]
 
 [[package]]
+name = "drake-uni"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/3a/248c89902111de84dd8bbaa947da87f80a4ec6e251197f4b82f6636eb0fc/drake_uni-0.1.0.tar.gz", hash = "sha256:46875ba06685ab73ab9b77a955f04c441c2aef21f8e15a9199a2d2c0ebb328f3", size = 36819, upload-time = "2026-09-02T07:22:39.204Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/58/ac1b25a33b34965c3ef0a414fa595cea21cb2c9b6d18fe10da0da67a23d3/drake_uni-0.1.0-py3-none-any.whl", hash = "sha256:7acb6c39b5c343c6875137cc2589d7708f1d9afd5ed5da1cc93b7647e09ef5f0", size = 34949, upload-time = "2026-09-02T07:22:37.386Z" },
+]
+
+[[package]]
 name = "embreex"
 version = "2.17.7.post7"
 source = { registry = "https://pypi.org/simple" }
@@ -4968,6 +4981,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+drake = [
+    { name = "drake-uni" },
+]
 genesis = [
     { name = "genesis-world" },
 ]
@@ -5000,6 +5016,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "drake-uni", marker = "extra == 'drake'", specifier = "==0.1.0" },
     { name = "etils" },
     { name = "genesis-world", marker = "extra == 'genesis'", specifier = "==1.3.3" },
     { name = "gymnasium" },
@@ -5033,13 +5050,13 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = ">=0.1.4", index = "https://test.pypi.org/simple/" },
+    { name = "unisim-core", specifier = ">=0.1.12", index = "https://test.pypi.org/simple/" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = ">=1.14.0" },
     { name = "wheel", marker = "extra == 'mujoco'" },
 ]
-provides-extras = ["mujoco", "mjwarp", "motrix", "genesis", "viser"]
+provides-extras = ["drake", "mujoco", "mjwarp", "motrix", "genesis", "viser"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -5052,15 +5069,15 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "0.1.4"
+version = "0.1.12"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/90/42/53696047b3c1c0fbbde406cb60e269dc3c7b37676e937fe252eff2aa226e/unisim_core-0.1.4.tar.gz", hash = "sha256:46c58f2988a4be7c3d2b7523f3e747467ffae7c3f685ae2ea1a1cc4cafb1ab56", size = 11653, upload-time = "2026-09-02T05:06:48.29Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/83/98/7e88202e93ce7f4599fa7b67205116e6ec343843410794013dfa55eec358/unisim_core-0.1.12.tar.gz", hash = "sha256:1808b029e5a0ff76e598ffc0c69e72c8ddefda59b0c93da14849b517e88b61b3", size = 187036, upload-time = "2026-09-02T10:57:04.157Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/93/33/b29c6e9c50bf91e37d4ea58bb0aed665e0b22720d856e732bac00e5fb73d/unisim_core-0.1.4-py3-none-any.whl", hash = "sha256:57568fba88f2892cfc04d78f1389df35e61e3fb5582913a01cf89d59f80786c4", size = 20247, upload-time = "2026-09-02T05:06:46.636Z" },
+    { url = "https://test-files.pythonhosted.org/packages/08/1f/b49b4755e2a758a2eab98f72f30fb799967a5ead10286b75e8ed47947772/unisim_core-0.1.12-py3-none-any.whl", hash = "sha256:76ab24185daa9c038dde1cc8098e069dbabcefc648260e20a6a455b9b538f7f0", size = 216809, upload-time = "2026-09-02T10:57:02.316Z" },
 ]
 
 [[package]]

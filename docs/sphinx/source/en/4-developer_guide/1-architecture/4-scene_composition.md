@@ -42,7 +42,7 @@ Motrix materializers directly.
 
 ## Backend Dispatch
 
-`create_backend(...)` in `src/unilab/base/backend/__init__.py` routes on backend
+`create_backend(...)` in `src/unilab/base/backend_factory.py` routes on backend
 type and applies these rules to the `SceneCfg`:
 
 1. Static `SceneCfg(model_file=...)` with no terrain: load the full static scene
@@ -59,7 +59,7 @@ type and applies these rules to the `SceneCfg`:
 
 For procedural terrain, the MuJoCo backend calls
 `materialize_mujoco_hfield_attached_scene(...)` in
-`src/unilab/base/backend/mujoco/xml.py`. The cold-path steps are:
+`unisim.backend.mujoco.xml`. The cold-path steps are:
 
 1. `TerrainGenerator(terrain_cfg).write_png(...)` generates a backend-agnostic
    heightfield PNG.
@@ -106,9 +106,9 @@ Disallowed on hot paths:
 The current procedural terrain user-facing path is Go2 rough terrain:
 
 - Task owner: `src/unilab/tasks/locomotion/go2/rough.py`
-- Terrain generator: `src/unilab/terrains/terrain_generator.py`
-- MuJoCo materializer: `src/unilab/base/backend/mujoco/xml.py`
-- Motrix materializer: `src/unilab/base/backend/motrix/scene.py`
+- Terrain generator: `unisim.terrain.generator`
+- MuJoCo materializer: `unisim.backend.mujoco.xml`
+- Motrix materializer: `unisim.backend.motrix.scene`
 - Owner YAMLs: `src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml`,
   `src/unilab/conf/ppo/task/go2_joystick_rough/motrix.yaml`
 

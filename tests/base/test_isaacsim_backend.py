@@ -17,26 +17,26 @@ from typing import Any
 
 import numpy as np
 import pytest
-
-from unilab.base.backend import create_backend
-from unilab.base.backend.base import RenderClosedError
-from unilab.base.backend.isaacgym.backend import IsaacGymWorkerError
-from unilab.base.backend.isaacsim.backend import (
+from unisim.backend.base import RenderClosedError
+from unisim.backend.isaacgym.backend import IsaacGymWorkerError
+from unisim.backend.isaacsim.backend import (
     IsaacSimBackend,
     IsaacSimRenderError,
     IsaacSimWorkerError,
 )
-from unilab.base.backend.isaacsim.dependencies import (
+from unisim.backend.isaacsim.dependencies import (
     ENV_HOME,
     ENV_PYTHON,
     IsaacSimDependencyError,
     build_worker_env,
     resolve_isaacsim_runtime,
 )
-from unilab.base.backend.isaacsim.worker import (
+from unisim.backend.isaacsim.worker import (
     _quat_rotate_wxyz,
     _resolve_articulation_root_prim_path,
 )
+
+from unilab.base.backend_factory import create_backend
 from unilab.base.base import EnvCfg
 from unilab.base.scene import SceneCfg
 

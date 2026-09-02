@@ -8,8 +8,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import BackendSensorView
 
-from unilab.base.backend.base import BackendSensorView
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import (
     ObservationGroupCfg,

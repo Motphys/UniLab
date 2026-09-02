@@ -26,7 +26,7 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
 
 域随机化按生命周期划分：init、reset 和 interval。legacy 路径的 manager 位于
 `src/unilab/dr/manager.py`；task provider 位于 env owner 附近，
-后端能力通过 `src/unilab/base/backend/base.py` 声明。
+后端能力通过 `unisim.backend.base` 声明。
 
 ## Reset Gravity
 

@@ -8,10 +8,10 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import BackendRootStateLayout, SimBackend
 
 import unilab.base.entity as entity_module
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.base import BackendRootStateLayout, SimBackend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg
@@ -646,7 +646,7 @@ def test_entity_facade_has_no_backend_model_or_asset_access() -> None:
 
 
 def test_real_mujoco_entity_selector_and_numpy_state_smoke() -> None:
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     joint_names = (
         "FL_hip_joint",

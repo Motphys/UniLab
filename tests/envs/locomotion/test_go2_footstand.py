@@ -13,6 +13,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
+from unisim.backend.base import SimBackend
 
 from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
@@ -406,9 +407,25 @@ def test_footstand_reward_clips_aggregate_before_dt_scaling() -> None:
         env.close()
 
 
+def _drake_batch_extension_available() -> bool:
+    try:
+        return importlib.util.find_spec("drake_uni.compiled._drake_env_pool") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+def _drake_geom_capability_available() -> bool:
+    """Footstand's contact terms require geom-name metadata from the backend."""
+    try:
+        from unisim.backend.drake.backend import DrakeBackend
+    except ImportError:
+        return False
+    return DrakeBackend.get_geom_names is not SimBackend.get_geom_names
+
+
 @pytest.mark.skipif(
-    importlib.util.find_spec("drakeuni") is None,
-    reason="optional DrakeUni batch runtime is not installed",
+    not (_drake_batch_extension_available() and _drake_geom_capability_available()),
+    reason="Drake batch extension or geom metadata capability is unavailable",
 )
 def test_footstand_drake_real_runtime_when_available() -> None:
     registry.ensure_registries()

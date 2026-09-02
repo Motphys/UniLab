@@ -162,5 +162,12 @@ jobs:
             --no-install-package nvidia-nvtx-cu12 \
             --no-install-package triton
           uv pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Cache robot assets
+        uses: actions/cache@v4.2.3
+        with:
+          path: src/unilab/assets/robots
+          key: ${{ runner.os }}-robot-assets-v1-${{ hashFiles('src/unilab/assets/hub.py') }}
+      - name: Pull robot assets
+        run: uv run --no-sync unilab-pull-assets --robot all
       - name: Test with coverage
         run: uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-report "markdown-append:${GITHUB_STEP_SUMMARY:-/dev/null}" --cov-fail-under=25

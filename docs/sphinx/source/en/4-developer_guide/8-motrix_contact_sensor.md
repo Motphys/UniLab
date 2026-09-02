@@ -104,13 +104,13 @@ move the per-backend knowledge behind a backend method.
 ## Recommended Contract: a Backend Method for Force Magnitude
 
 Add `get_contact_force_magnitude(sensor_name) -> np.ndarray` to the
-`SimBackend` interface (`src/unilab/base/backend/base.py`), returning a
+`SimBackend` interface (`unisim.backend.base`), returning a
 `(num_envs,)` scalar magnitude. Each backend implements it according to its
 own data layout:
 
-- **MuJoCo** (`src/unilab/base/backend/mujoco/backend.py`): take the norm of
+- **MuJoCo** (`unisim.backend.mujoco.backend`): take the norm of
   the 3D force vector returned by `get_sensor_data(name)`.
-- **Motrix** (`src/unilab/base/backend/motrix/backend.py`): interpret the
+- **Motrix** (`unisim.backend.motrix.backend`): interpret the
   layout by reduce mode:
   - `reduce="netforce"`: take `[1:4]`, then norm.
   - no reduce, multiple contacts: sum the per-contact forces, then norm.
@@ -134,6 +134,6 @@ backend subclass.
 | `src/unilab/tasks/manipulation/sharpa_inhand/base.py` | `_extract_sensor_scalar()`, `_read_tactile_force()` |
 | `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py` | reward computation, virtual torque |
 | `src/unilab/assets/robots/sharpa_wave/right_sharpa_wave.xml` | contact-sensor XML definitions |
-| `src/unilab/base/backend/motrix/backend.py` | Motrix `get_sensor_data()` |
-| `src/unilab/base/backend/mujoco/backend.py` | MuJoCo `get_sensor_data()` |
-| `src/unilab/base/backend/base.py` | `SimBackend` interface |
+| `unisim.backend.motrix.backend` | Motrix `get_sensor_data()` |
+| `unisim.backend.mujoco.backend` | MuJoCo `get_sensor_data()` |
+| `unisim.backend.base` | `SimBackend` interface |

@@ -13,10 +13,11 @@ Motrix, Drake, MJWarp, Genesis, IsaacGym, and IsaacSim use one public contract.
 Missing proprietary SDKs or GPU workers produce an explicit cold-path
 diagnostic; no backend silently falls back to another engine.
 
-During migration, existing tasks may continue importing `unilab.base.backend`.
-New consumers should use `unilab.base.backend.unisim_bridge` or import `unisim`
-directly. The compatibility layer is temporary and is removed by roadmap #1428
-Child 12; do not add backend-specific APIs to it.
+Backend physics is now owned exclusively by `unisim-core`. UniLab keeps only
+the owner-layer assembly entry point `unilab.base.backend_factory`; contracts
+and adapters are imported from `unisim`. The former `unilab.base.backend`
+implementation and compatibility layer have been removed; do not add backend
+APIs to UniLab.
 
 Benchmark v1 reserves only `BenchmarkCase`, `BenchmarkResult`, and provenance
 schema. Workloads, timing, comparisons, and performance claims require a

@@ -17,12 +17,9 @@ from typing import Any
 
 import numpy as np
 import pytest
-
-from unilab.base.backend import create_backend
-from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
-from unilab.base.backend.mjwarp.randomization import EXPANDED_MODEL_FIELDS
-from unilab.base.scene import SceneCfg
-from unilab.dr.types import (
+from unisim.backend.mjwarp.dependencies import load_mjwarp_dependencies
+from unisim.backend.mjwarp.randomization import EXPANDED_MODEL_FIELDS
+from unisim.dr.types import (
     RESET_TERM_BASE_COM,
     RESET_TERM_BASE_MASS,
     RESET_TERM_BODY_INERTIA,
@@ -36,6 +33,9 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+
+from unilab.base.backend_factory import create_backend
+from unilab.base.scene import SceneCfg
 
 pytestmark = pytest.mark.slow
 
@@ -439,7 +439,7 @@ def test_dr_reset_bypasses_reset_scratch_graphs(monkeypatch: pytest.MonkeyPatch)
 def test_mass_and_com_randomization_match_mujoco_statistics() -> None:
     """Same sampled payloads on both backends drift to the same statistics."""
     _require_cuda_mjwarp()
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     num_envs = 16
     scene = _scene()

@@ -23,7 +23,7 @@ The exported NPZ format contains:
 
 Interpolation and velocity estimation reuse the library implementation in
 ``unilab.tasks.motion_tracking.common.motion_loader``; forward kinematics reuse
-``unilab.base.backend.compute_tracking_fk``.
+``unisim.backend.mujoco.motion_export.compute_tracking_fk``.
 
 Usage:
     uv run scripts/motion/bones_seed_csv_to_npz.py
@@ -44,9 +44,9 @@ from scripts.motion.bones_seed_csv import (
     parse_joint_names,
     resolve_input_files,
 )
+from unisim.backend.mujoco.motion_export import compute_tracking_fk
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import compute_tracking_fk
 from unilab.tasks.motion_tracking.common.motion_loader import interpolate_motion
 from unilab.utils.rotation import np_quat_ensure_continuity
 

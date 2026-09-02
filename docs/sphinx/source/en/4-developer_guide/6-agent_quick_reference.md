@@ -19,7 +19,7 @@ repo facts.
 ## Contracts To Keep In Mind
 
 - Env contract: `src/unilab/base/np_env.py`
-- Backend contract: `src/unilab/base/backend/base.py`
+- Backend contract: `unisim.backend.base`
 - Training helpers: `src/unilab/training/run.py`
 - Config schema: `src/unilab/structured_configs.py`
 - Developer standard: {doc}`1-architecture/1-overview`

@@ -76,64 +76,19 @@ save_json = _OUTPUT.save_json
 
 
 def _install_mjwarp_patch() -> bool:
-    """Route ``backend_type == "mjwarp"`` to ``scripts/benchmark/mjwarp`` via factory patch.
-
-    Must run before any task env module (e.g. ``unilab.tasks.locomotion.g1``)
-    is imported, because those modules bind ``create_backend`` at module load
-    time via ``from unilab.base.backend import create_backend``.
-
-    Returns True if ``mujoco_warp`` + ``warp`` are importable, False otherwise.
-    Idempotent.
-    """
+    """Probe the UniSim mjwarp adapter without installing a second backend."""
     try:
         import mujoco_warp  # noqa: F401
         import warp  # noqa: F401
     except ImportError:
         return False
 
-    import unilab.base.backend as _ub_backend
-
-    if getattr(_ub_backend, "_mjwarp_patched", False):
-        return True
-
-    # scripts/benchmark/ is not an installed package, so we load the adapter the same
-    # way device_info/mem_profile/output are loaded above (importlib by path).
-    mjwarp_backend_module = _load_helper_module(
-        "bench_env_step_mjwarp_backend",
-        "../mjwarp/backend.py",
-    )
-    mjwarp_backend_cls = mjwarp_backend_module.MjwarpBackend
-
-    _orig_create_backend = _ub_backend.create_backend
-
-    def _patched_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs):
-        if backend_type == "mjwarp":
-            # Strip kwargs that only apply to other backends so MjwarpBackend's
-            # signature stays narrow.
-            kwargs.pop("motrix_max_iterations", None)
-            return mjwarp_backend_cls(scene, num_envs, sim_dt, **kwargs)
-        return _orig_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
-
-    _ub_backend.create_backend = _patched_create_backend
-    _ub_backend._mjwarp_patched = True
-    _ub_backend._mjwarp_orig_create_backend = _orig_create_backend
     return True
 
 
 def _uninstall_mjwarp_patch() -> None:
-    """Undo the import-time factory patch installed by :func:`_install_mjwarp_patch`.
-
-    Importing this module inside a pytest session would otherwise leak the
-    mjwarp rerouting into unrelated tests that exercise the real factory.
-    """
-    import unilab.base.backend as _ub_backend
-
-    if not getattr(_ub_backend, "_mjwarp_patched", False):
-        return
-    orig = getattr(_ub_backend, "_mjwarp_orig_create_backend", None)
-    if orig is not None:
-        _ub_backend.create_backend = orig
-    _ub_backend._mjwarp_patched = False
+    """Retained as a no-op for callers that reset the old benchmark hook."""
+    return None
 
 
 MJWARP_AVAILABLE = _install_mjwarp_patch()
@@ -1482,7 +1437,7 @@ def _run_matrix(
     extra_args: list[str], *, out_json: Path, plot_dir: Path | None, skip_plots: bool
 ) -> None:
     """Run all task x backend combinations and print comparison."""
-    from unilab.base.backend import MOTRIX_AVAILABLE
+    from unisim.backend.motrix.backend import MOTRIX_AVAILABLE
 
     backends = ["mujoco"]
     if MOTRIX_AVAILABLE:

@@ -17,6 +17,8 @@ It will be auto-included in ALL_TERRAIN_PRESETS.
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from unisim.terrain.generator import SubTerrainCfg, TerrainGeneratorCfg
+
 from unilab.terrains.heightfield_terrains import (
     HfFlatTerrainCfg,
     HfInvertedPyramidStairsTerrainCfg,
@@ -25,7 +27,6 @@ from unilab.terrains.heightfield_terrains import (
     HfRandomUniformTerrainCfg,
     HfWaveTerrainCfg,
 )
-from unilab.terrains.terrain_generator import SubTerrainCfg, TerrainGeneratorCfg
 
 # Preset registry.
 

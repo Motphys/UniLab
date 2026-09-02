@@ -12,6 +12,7 @@ the composed backend.
 | --- | --- |
 | Default path or broadest owner coverage | MuJoCo |
 | Native interactive playback through the backend | Motrix |
+| CPU-oriented batch physics with an explicitly provisioned Drake C++ toolchain | Drake |
 | MuJoCo-only tools such as `scripts/play_viser.py` | MuJoCo |
 | Task owner exists only under `src/unilab/conf/.../<task>/mujoco.yaml` | MuJoCo |
 | Task owner exists under `src/unilab/conf/.../<task>/motrix.yaml` and the support matrix marks the combination as tested or configured | Motrix |
@@ -24,6 +25,8 @@ the current evidence source: {doc}`/zh_CN/5-reference/5-support_matrix`.
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 uv run train --algo ppo --task go2_joystick_flat --sim motrix
+uv run train --algo ppo --task stewart_balance --sim drake \
+  algo.max_iterations=1 algo.num_envs=8 training.no_play=true
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 

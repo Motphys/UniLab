@@ -368,7 +368,7 @@ def test_go2_flat_flashsac_uses_canonical_manager_events_and_numpy_noise() -> No
 
 
 def test_go2_flat_drake_missing_dependency_is_explicit() -> None:
-    from unilab.base.backend.drake.backend import ensure_drake_batch_available
+    from unisim.backend.drake.backend import ensure_drake_batch_available
 
     available, _ = ensure_drake_batch_available()
     if available:

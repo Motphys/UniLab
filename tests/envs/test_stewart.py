@@ -358,7 +358,13 @@ def test_stewart_drake_materializes_or_fails_at_optional_runtime_boundary() -> N
     try:
         env = make_manager_based_rl_env(env_cfg, num_envs=1, backend_type="drake")
     except ImportError as exc:
-        assert "DrakeUni batch runtime is not installed" in str(exc)
+        # The optional runtime can be absent entirely or installed without its
+        # native extension.  Both are actionable optional-boundary failures.
+        message = str(exc)
+        assert (
+            "DrakeUni batch runtime is not installed" in message
+            or "DrakeEnvPool batch extension has not been built" in message
+        )
         return
     try:
         obs, _ = env.reset(seed=5)

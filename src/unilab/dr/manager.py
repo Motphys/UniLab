@@ -5,9 +5,9 @@ import time
 from typing import Any
 
 import numpy as np
+from unisim.dr.types import DomainRandomizationCapabilities
 
 from .provider import DomainRandomizationProvider
-from .types import DomainRandomizationCapabilities
 
 logger = logging.getLogger(__name__)
 

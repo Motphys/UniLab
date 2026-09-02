@@ -9,8 +9,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import SimBackend
 
-from unilab.base.backend.base import SimBackend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.envs.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
 from unilab.envs.mdp.commands import (

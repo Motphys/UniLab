@@ -19,27 +19,27 @@ import mujoco
 import numpy as np
 import pytest
 import torch
-
-import unilab.base.backend.genesis.dependencies as genesis_dependencies
-import unilab.base.backend.genesis.materialization as genesis_materialization
-from unilab.base.backend import create_backend, env_backend_kwargs
-from unilab.base.backend.base import RenderClosedError
-from unilab.base.backend.genesis.dependencies import (
+import unisim.backend.genesis.dependencies as genesis_dependencies
+import unisim.backend.genesis.materialization as genesis_materialization
+from unisim.backend.base import RenderClosedError
+from unisim.backend.genesis.dependencies import (
     GenesisDependencies,
     GenesisDependencyError,
     genesis_dependencies_available,
     load_genesis_dependencies,
 )
-from unilab.base.backend.genesis.materialization import preserve_torch_globals
-from unilab.base.base import EnvCfg
-from unilab.base.scene import SceneCfg
-from unilab.dr.types import (
+from unisim.backend.genesis.materialization import preserve_torch_globals
+from unisim.dr.types import (
     GeomSizeOverride,
     InitRandomizationPlan,
     IntervalRandomizationPlan,
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
+
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
+from unilab.base.base import EnvCfg
+from unilab.base.scene import SceneCfg
 
 from .genesis_fake_runtime import ACTUATED_DOFS, N_LINKS, NQ, NV, make_fake_genesis
 

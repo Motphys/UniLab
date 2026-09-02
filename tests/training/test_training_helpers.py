@@ -8,12 +8,12 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
+from unisim.backend.base import RenderClosedError
+from unisim.backend.motrix.backend import MotrixBackend
+from unisim.backend.motrix.playback import run_motrix_playback
+from unisim.backend.mujoco.backend import MuJoCoBackend
+from unisim.backend.mujoco.playback import run_mujoco_playback
 
-from unilab.base.backend import RenderClosedError
-from unilab.base.backend.motrix.backend import MotrixBackend
-from unilab.base.backend.motrix.playback import run_motrix_playback
-from unilab.base.backend.mujoco.backend import MuJoCoBackend
-from unilab.base.backend.mujoco.playback import run_mujoco_playback
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.scene import SceneCfg
 from unilab.training import (
@@ -544,7 +544,7 @@ def test_motrix_interactive_run_playback_treats_window_close_as_done(
     backend.render = _render
     backend.capture_video_frame = lambda: np.zeros((2, 2, 3), dtype=np.uint8)
 
-    with caplog.at_level(logging.INFO, logger="unilab.base.backend.motrix.backend"):
+    with caplog.at_level(logging.INFO, logger="unisim.backend.motrix.backend"):
         result = backend.run_playback(
             env=FakeEnv(),
             initialize=lambda: 0,
@@ -609,7 +609,7 @@ def test_render_play_mode_uses_motrix_native_video_capture(
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
@@ -676,7 +676,7 @@ def test_render_play_mode_rejects_motrix_record_with_interactive_window(
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
@@ -730,13 +730,13 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
     )
     monkeypatch.setattr(
-        "unilab.visualization.render_many.render_states_get_frames",
+        "unisim.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
     )
 
@@ -831,13 +831,13 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
     )
     monkeypatch.setattr(
-        "unilab.visualization.render_many.render_states_get_frames",
+        "unisim.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
     )
 

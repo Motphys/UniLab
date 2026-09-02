@@ -19,7 +19,8 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.base.backend import materialize_scene_visual_override
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
+
 from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,

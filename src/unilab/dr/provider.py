@@ -4,8 +4,7 @@ import abc
 from typing import Any
 
 import numpy as np
-
-from .types import (
+from unisim.dr.types import (
     DomainRandomizationCapabilities,
     InitRandomizationPlan,
     IntervalRandomizationPlan,

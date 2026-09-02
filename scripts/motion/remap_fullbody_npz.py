@@ -20,9 +20,9 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from unisim.backend.mujoco.xml import get_named_bodies
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import get_named_bodies
 
 # MuJoCo root free-joint sizes
 _ROOT_QPOS_DIM = 7  # 3 pos + 4 quat

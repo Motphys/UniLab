@@ -3,9 +3,7 @@
 Invariant: this package must not depend on unilab.base.*
 """
 
-from .manager import DomainRandomizationManager
-from .provider import DomainRandomizationProvider
-from .types import (
+from unisim.dr.types import (
     DomainRandomizationCapabilities,
     GeomSizeOverride,
     InitRandomizationPlan,
@@ -14,6 +12,9 @@ from .types import (
     ResetPlan,
     ResetRandomizationPayload,
 )
+
+from .manager import DomainRandomizationManager
+from .provider import DomainRandomizationProvider
 
 __all__ = [
     "DomainRandomizationCapabilities",

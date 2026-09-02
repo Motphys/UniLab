@@ -13,9 +13,10 @@ Genesis、IsaacGym 和 IsaacSim 都通过同一个公开 contract 暴露。专�
 GPU worker 缺失时，构造 backend 会在冷路径给出明确诊断，不会静默回退到
 另一引擎。
 
-迁移期间旧的 `unilab.base.backend` 路径仍可用于已有 task。新代码应使用
-`unilab.base.backend.unisim_bridge` 或直接导入 `unisim`。该兼容层是临时的，
-在 roadmap #1428 Child 12 中删除；不要在其上新增 backend-specific API。
+仿真物理后端现在完全由 `unisim-core` 分发包负责。UniLab 只保留
+`unilab.base.backend_factory` 这一 owner-layer 组装入口；contract 和 adapter
+从 `unisim` 导入。原 `unilab.base.backend` 实现及兼容层已经删除，不要在
+UniLab 中新增 backend API。
 
 benchmark v1 目前只保留 `BenchmarkCase`、`BenchmarkResult` 和 provenance
 schema，不包含 workload、计时或性能结论。

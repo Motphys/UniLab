@@ -43,7 +43,7 @@ uv run --with genesis-world==1.3.3 python scripts/tools/genesis_feasibility/prob
 | torch | `==2.7.0`（linux x86_64）/ `==2.9.0`（aarch64） | **不在 install_requires**；import 缺失即 raise；`torch<2.8.0` 启动 warning（`__init__.py:34-39`） | **冲突行（实测）**：2.7.0 下主干可用，但属上游不支持窗口，且观测到一个传感器组合失效（第 4 节 R7）。方案 A 需 maintainer 决策：torch 窗口上调至 ≥2.8，或接受 unsupported+warning 并写入支持矩阵 |
 | mujoco | `>=3.5`（lock 3.10.0） | `>=3.2.5` | 兼容（实测同进程共存） |
 | quadrants | —（新依赖） | `==1.3.0` 精确 pin | 新增传递依赖；py3.13 DeprecationWarning（实测，上游兼容注记） |
-| 安装形态 | mjwarp 已有 `dependencies.py` 懒加载先例 | torch/quadrants 重依赖 | Genesis extra + lazy import + 版本钉扎 + 专属 DependencyError 是必选（源码推断，仿 `src/unilab/base/backend/mjwarp/dependencies.py`） |
+| 安装形态 | mjwarp 已有 `dependencies.py` 懒加载先例 | torch/quadrants 重依赖 | Genesis extra + lazy import + 版本钉扎 + 专属 DependencyError 是必选（源码推断，仿 `unisim-core/src/unisim/backend/mjwarp/dependencies.py`） |
 
 ## 3. SimBackend 契约能力矩阵
 

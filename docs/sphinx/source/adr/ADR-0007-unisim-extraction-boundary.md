@@ -14,7 +14,7 @@ orphan: true
 
 ## Context
 
-UniLab 已在 `src/unilab/base/backend/` 形成统一 `SimBackend` contract，并注册
+UniLab 已在 `unisim.backend` 形成统一 `SimBackend` contract，并注册
 MuJoCo、Motrix、Drake、MJWarp、Genesis、IsaacGym 和 IsaacSim。该层仍依赖 UniLab 的
 scene、asset、domain-randomization、dtype、playback 与 runtime helper，无法被物理引擎
 benchmark 或其他消费者独立使用。
@@ -79,8 +79,8 @@ compatibility shim，不保留长期双实现。
 
 ## Evidence In Repo
 
-- `src/unilab/base/backend/base.py`：统一 `SimBackend` contract。
-- `src/unilab/base/backend/__init__.py`：backend factory 与 lazy adapter loading。
+- `unisim.backend.base`：统一 `SimBackend` contract。
+- `src/unilab/base/backend_factory.py`：backend factory 与 lazy adapter loading。
 - `tests/base/test_backend_conformance.py`、`tests/base/test_backend_imports.py`：现有边界测试。
 - #888 / PR #892：第一阶段可提取 physics boundary。
 - #1428：跨仓拆分 roadmap、child 顺序与验收标准。

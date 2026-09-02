@@ -20,8 +20,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
-
-from unilab.base.backend.motrix.playback import run_motrix_playback
+from unisim.backend.motrix.playback import run_motrix_playback
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _PACKAGE_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "scripts"

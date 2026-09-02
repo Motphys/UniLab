@@ -32,8 +32,7 @@ import time
 import mujoco
 import numpy as np
 from mujoco_uni import BatchEnvPool
-
-from unilab.base.backend.mujoco.xml import (
+from unisim.backend.mujoco.xml import (
     create_discardvisual_xml,
     inject_mujoco_tracking_sensors,
 )

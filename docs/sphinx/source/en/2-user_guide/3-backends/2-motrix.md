@@ -2,7 +2,7 @@
 
 Motrix is an optional backend installed through the `motrix` extra. The pinned
 package is `motrixsim-core==0.8.2`, and the adapter lives under
-`src/unilab/base/backend/motrix/`.
+`unisim.backend.motrix`.
 
 ## Setup
 

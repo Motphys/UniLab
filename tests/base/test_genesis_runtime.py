@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import create_backend
+from unilab.base.backend_factory import create_backend
 from unilab.base.scene import SceneCfg
 
 pytestmark = pytest.mark.slow
@@ -25,7 +25,7 @@ _SIM_DT = 1.0 / 150.0
 
 
 def _genesis_runtime_available() -> bool:
-    from unilab.base.backend.genesis.dependencies import genesis_dependencies_available
+    from unisim.backend.genesis.dependencies import genesis_dependencies_available
 
     if not genesis_dependencies_available():
         return False
@@ -77,7 +77,7 @@ def test_g1_smoke_reset_step_and_cleanup(backend) -> None:
     np.testing.assert_allclose(backend.get_dof_pos(), qpos[:, -backend.num_actuators :], atol=1e-5)
 
     # DR round-trip on the measured per-env setters (batch_*_info build flags).
-    from unilab.dr.types import ResetRandomizationPayload
+    from unisim.dr.types import ResetRandomizationPayload
 
     kp, kd = backend.get_actuator_gains()
     payload = ResetRandomizationPayload(kp=(kp * 1.05)[None].repeat(2, axis=0))
@@ -210,8 +210,8 @@ def test_record_playback_writes_video(tmp_path, backend) -> None:
 
 def test_interactive_viewer_renders_frames() -> None:
     """#1388: interactive viewer attaches post-build and renders live frames."""
-    from unilab.base.backend.base import RenderClosedError
-    from unilab.base.backend.genesis import playback as genesis_playback
+    from unisim.backend.base import RenderClosedError
+    from unisim.backend.genesis import playback as genesis_playback
 
     if not _genesis_runtime_available():
         pytest.skip("genesis requires the genesis-world extra and a CUDA device")
@@ -260,7 +260,7 @@ def test_reinit_after_destroy_fails_closed(backend) -> None:
     later real-runtime tests in the same pytest process can re-init (the
     guard's RSS caveat is acceptable in tests; production still inits once).
     """
-    from unilab.base.backend.genesis.materialization import _reset_session_state_for_tests
+    from unisim.backend.genesis.materialization import _reset_session_state_for_tests
 
     backend.close()
     try:

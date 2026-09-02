@@ -9,7 +9,6 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MATERIALIZER_CONSUMERS = (
     "src/unilab/base/config_adapter.py",
-    "src/unilab/visualization/interactive_playback.py",
     "src/unilab/scripts/train_rsl_rl.py",
     "scripts/train_him_ppo.py",
     "scripts/train_hora_distill.py",
@@ -17,7 +16,7 @@ _MATERIALIZER_CONSUMERS = (
 )
 
 
-def test_materializer_consumers_use_backend_facade() -> None:
+def test_materializer_consumers_use_unisim_owner_module() -> None:
     offenders: list[str] = []
     for relative_path in _MATERIALIZER_CONSUMERS:
         path = _REPO_ROOT / relative_path
@@ -28,7 +27,7 @@ def test_materializer_consumers_use_backend_facade() -> None:
             if isinstance(node, ast.ImportFrom)
             and any(alias.name == "materialize_scene_visual_override" for alias in node.names)
         ]
-        if len(imports) != 1 or imports[0].module != "unilab.base.backend":
+        if len(imports) != 1 or imports[0].module != "unisim.backend.mujoco.xml":
             modules = [node.module for node in imports]
             offenders.append(f"{relative_path}: {modules}")
 
@@ -52,7 +51,7 @@ def test_site_jacobian_benchmark_imports_with_mujoco_stub() -> None:
         spec.loader.exec_module(module)
 
         print(module.materialize_scene_visual_override.__module__)
-        print("mujoco_backend", "unilab.base.backend.mujoco.backend" in sys.modules)
+        print("mujoco_backend", "unisim.backend.mujoco.backend" in sys.modules)
         """
     )
     script = _REPO_ROOT / "scripts" / "manip_loco" / "benchmark_site_jacobian.py"
@@ -64,7 +63,7 @@ def test_site_jacobian_benchmark_imports_with_mujoco_stub() -> None:
     )
 
     assert result.stdout.splitlines() == [
-        "unilab.base.backend.mujoco.xml",
+        "unisim.backend.mujoco.xml",
         "mujoco_backend False",
     ]
 
@@ -75,23 +74,26 @@ def test_mujoco_backend_import_path_does_not_eagerly_import_motrix() -> None:
         import importlib.util
         import sys
 
-        from unilab.base.backend import create_backend, materialize_scene_visual_override
-        from unilab.base.backend.mujoco.xml import create_discardvisual_xml
+        from unilab.base.backend_factory import create_backend
+        from unisim.backend.mujoco.xml import (
+            create_discardvisual_xml,
+            materialize_scene_visual_override,
+        )
 
         assert create_backend is not None
         assert materialize_scene_visual_override is not None
         assert create_discardvisual_xml is not None
 
         print("mujoco_runtime", "mujoco" in sys.modules)
-        print("mujoco_backend", "unilab.base.backend.mujoco.backend" in sys.modules)
+        print("mujoco_backend", "unisim.backend.mujoco.backend" in sys.modules)
 
         if importlib.util.find_spec("mujoco") is not None:
-            import unilab.base.backend.mujoco.backend
+            import unisim.backend.mujoco.backend
             print("mujoco_backend imported")
         else:
             print("mujoco_backend skipped")
 
-        print("motrix_backend", "unilab.base.backend.motrix.backend" in sys.modules)
+        print("motrix_backend", "unisim.backend.motrix.backend" in sys.modules)
         print("motrixsim", "motrixsim" in sys.modules)
         """
     )
@@ -115,8 +117,8 @@ def test_motrix_backend_import_path_does_not_eagerly_import_mujoco() -> None:
         import importlib.util
         import sys
 
-        from unilab.base.backend import (
-            create_backend,
+        from unilab.base.backend_factory import create_backend
+        from unisim.backend.motrix.scene import (
             materialize_motrix_hfield_attached_scene,
             materialize_motrix_scene,
         )
@@ -126,12 +128,12 @@ def test_motrix_backend_import_path_does_not_eagerly_import_mujoco() -> None:
         assert materialize_motrix_hfield_attached_scene is not None
 
         if importlib.util.find_spec("motrixsim") is not None:
-            import unilab.base.backend.motrix.backend
+            import unisim.backend.motrix.backend
             print("motrix_backend imported")
         else:
             print("motrix_backend skipped")
 
-        print("mujoco_backend", "unilab.base.backend.mujoco.backend" in sys.modules)
+        print("mujoco_backend", "unisim.backend.mujoco.backend" in sys.modules)
         print("mujoco", "mujoco" in sys.modules)
         """
     )
@@ -145,3 +147,14 @@ def test_motrix_backend_import_path_does_not_eagerly_import_mujoco() -> None:
     lines = result.stdout.splitlines()
     assert lines[0] in {"motrix_backend imported", "motrix_backend skipped"}
     assert lines[1:] == ["mujoco_backend False", "mujoco False"]
+
+
+def test_removed_unilab_backend_implementation_is_not_importable() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "import unilab.base.backend.mujoco.backend"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "No module named 'unilab.base.backend'" in result.stderr

@@ -16,18 +16,18 @@ from typing import Any
 
 import numpy as np
 import pytest
-
-from unilab.base.backend import create_backend
-from unilab.base.backend.isaacgym import protocol
-from unilab.base.backend.isaacgym.backend import IsaacGymBackend, IsaacGymWorkerError
-from unilab.base.backend.isaacgym.dependencies import (
+from unisim.backend.isaacgym import protocol
+from unisim.backend.isaacgym.backend import IsaacGymBackend, IsaacGymWorkerError
+from unisim.backend.isaacgym.dependencies import (
     ENV_HOME,
     ENV_PYTHON,
     IsaacGymDependencyError,
     build_worker_env,
     resolve_isaacgym_runtime,
 )
-from unilab.base.backend.isaacgym.sensors import scan_scene_metadata
+from unisim.backend.isaacgym.sensors import scan_scene_metadata
+
+from unilab.base.backend_factory import create_backend
 from unilab.base.scene import SceneCfg
 
 _MOCK_WORKER = str(Path(__file__).resolve().parent / "isaacgym_mock_worker.py")
@@ -170,7 +170,7 @@ def test_protocol_slot_layout() -> None:
 
 
 def test_legacy_protocol_module_reexports_canonical_public_surface() -> None:
-    from unilab.base.backend.subprocess_ipc import protocol as shared_protocol
+    from unisim.backend.subprocess_ipc import protocol as shared_protocol
 
     assert protocol.__all__ == shared_protocol.__all__
     for name in shared_protocol.__all__:
@@ -786,8 +786,9 @@ def test_g1_scene_framezaxis_sensors_resolve_from_real_xml(
     reports the owning bodies so the cold-path scan must resolve them to
     exact site-frame z axes.
     """
+    from unisim.backend.isaacgym.sensors import scan_scene_metadata
+
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend.isaacgym.sensors import scan_scene_metadata
 
     scene = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
     # Give the mock the real MJCF joint/body sets so the scene's "stand"
@@ -847,7 +848,7 @@ def test_play_capabilities_advertise_native_rendering(backend: IsaacGymBackend) 
 
 
 def test_normalize_camera_kwargs_maps_mujoco_convention() -> None:
-    from unilab.base.backend.isaacgym.backend import _normalize_camera_kwargs
+    from unisim.backend.isaacgym.backend import _normalize_camera_kwargs
 
     out = _normalize_camera_kwargs(
         {"cam_distance": 3.0, "cam_elevation": -20.0, "cam_azimuth": 90.0}
@@ -921,7 +922,7 @@ def test_interactive_renderer_roundtrip(backend: IsaacGymBackend) -> None:
 def test_viewer_close_raises_render_closed(
     scene_file: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from unilab.base.backend.base import RenderClosedError
+    from unisim.backend.base import RenderClosedError
 
     monkeypatch.setenv("UNILAB_ISAACGYM_MOCK_BEHAVIOR", "close_on_render")
     backend = _make_backend(scene_file)

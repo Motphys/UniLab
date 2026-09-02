@@ -31,7 +31,7 @@ in this reference, read this one.
 ```
 
 ```{eval-rst}
-.. autoclass:: unilab.base.backend.base.SimBackend
+.. autoclass:: unisim.backend.base.SimBackend
    :members:
    :show-inheritance:
    :member-order: bysource

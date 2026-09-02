@@ -7,8 +7,8 @@ from typing import ClassVar
 
 import gymnasium as gym
 import numpy as np
+from unisim import SimBackend
 
-from unilab.base.backend import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.dtype_config import get_global_dtype

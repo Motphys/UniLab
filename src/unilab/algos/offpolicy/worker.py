@@ -10,9 +10,9 @@ import torch
 
 from unilab.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.algos.offpolicy.thread_budget import apply_torch_thread_runtime
-from unilab.base.backend.process_device import configure_backend_process_device
 from unilab.base.final_observation import resolve_terminal_observation_contract
 from unilab.base.observations import split_obs_dict
+from unilab.base.process_device import configure_backend_process_device
 from unilab.base.registry import ensure_registries
 from unilab.utils.seed import apply_training_seed
 

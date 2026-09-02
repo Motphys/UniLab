@@ -253,7 +253,7 @@ Apache-2.0 和 UniLab 的修改类别。实现 PR 分别报告：
 ## Evidence In Repo
 
 - Env contract: `src/unilab/base/np_env.py`
-- Backend contract: `src/unilab/base/backend/base.py`
+- Backend contract: `unisim.backend.base`
 - Scene config owner: `src/unilab/base/scene.py`
 - Config schema and registry: `src/unilab/structured_configs.py`,
   `src/unilab/base/config_materialization.py`, `src/unilab/base/registry.py`, `src/unilab/conf/`

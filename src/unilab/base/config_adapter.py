@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from omegaconf import DictConfig, OmegaConf
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
 from unilab.base import registry
-from unilab.base.backend import materialize_scene_visual_override
 from unilab.base.scene import SceneCfg
 from unilab.utils.reward import extract_reward_config
 

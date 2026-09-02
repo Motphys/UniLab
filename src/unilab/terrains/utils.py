@@ -8,8 +8,7 @@ References:
 from __future__ import annotations
 
 import numpy as np
-
-from unilab.terrains.terrain_generator import FlatPatchSamplingCfg  # noqa: F401
+from unisim.terrain.generator import FlatPatchSamplingCfg  # noqa: F401
 
 
 def bilinear_zoom_2d(arr: np.ndarray, zoom_factors: float | tuple[float, float]) -> np.ndarray:

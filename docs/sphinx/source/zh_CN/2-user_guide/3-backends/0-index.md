@@ -1,7 +1,7 @@
 # 仿真后端
 
 UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner 注册后可用的
-`mujoco`、`motrix`、`mjwarp`、`isaacgym`、`genesis` 和 `isaacsim`。用户命令通过
+`mujoco`、`motrix`、`mjwarp`、`drake`、`isaacgym`、`genesis` 和 `isaacsim`。用户命令通过
 `--sim` 选择后端，该选项会路由到对应的 task owner YAML；不要仅靠 override
 `training.sim_backend` 来切换一次运行。
 
@@ -12,6 +12,8 @@ UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner �
   后端页面。
 - 任何使用 `--sim mujoco`、MuJoCo 回放或仅限 MuJoCo 的调试工具的运行，
   仍然需要一个可用的 MuJoCo 运行时。
+- Drake 需要外部 `drake-uni` Python 包和针对本地 Drake 编译的 C++ 批量扩展；
+  选择 `--sim drake` 前请先阅读 {doc}`7-drake`。
 - 在 macOS 上，软件包 CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。
   直接打开原生 Motrix 渲染器的脚本调用应使用 `uv run mxpython`。
 
@@ -64,5 +66,6 @@ Task/backend/entrypoint 的支持情况是按证据分级的。请参阅
 4-isaacgym
 5-isaacsim
 6-genesis
+7-drake
 7-unisim-core
 ```

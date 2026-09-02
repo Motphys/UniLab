@@ -376,7 +376,7 @@ def test_ensure_robot_assets_ignores_unknown_robots(monkeypatch: pytest.MonkeyPa
 
 def test_create_backend_resolves_robot_assets_before_dispatch(monkeypatch: pytest.MonkeyPatch):
     """create_backend must ensure HF-hosted robot assets before loading XML."""
-    import unilab.base.backend as backend_pkg
+    import unilab.base.backend_factory as backend_pkg
     from unilab.base.scene import SceneCfg
 
     seen: list[list[str | None]] = []
@@ -390,7 +390,7 @@ def test_create_backend_resolves_robot_assets_before_dispatch(monkeypatch: pytes
         model_file="src/unilab/assets/robots/g1/scene_flat.xml",
         fragment_files=["src/unilab/assets/robots/g1/locomotion_task.xml"],
     )
-    with pytest.raises(ValueError, match="Unknown backend"):
+    with pytest.raises(ValueError, match="unknown UniSim backend"):
         backend_pkg.create_backend("__bogus__", scene, 1, 0.02)
 
     assert seen == [

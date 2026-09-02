@@ -3,10 +3,11 @@
 Deprecated compatibility layer: the re-exports below are kept for existing
 callers only. New code should import from the canonical locations instead
 (``unilab.utils.*`` for layer-0 helpers, ``unilab.base.config_adapter`` /
-``unilab.base.backend.base`` for base-layer helpers).
+``unisim.backend.base`` for base-layer helpers).
 """
 
-from unilab.base.backend.base import log_playback_plan
+from unisim.backend.base import log_playback_plan
+
 from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.training.common import (
     assert_offpolicy_task_choice_matches_algo,

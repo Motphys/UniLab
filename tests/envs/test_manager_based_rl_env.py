@@ -7,11 +7,11 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import SimBackend
 
 import unilab.envs.manager_based_rl_env as manager_env_module
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend import create_backend, env_backend_kwargs
-from unilab.base.backend.base import SimBackend
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.entity import EntityCfg
 from unilab.base.scene import SceneCfg
 from unilab.envs import (

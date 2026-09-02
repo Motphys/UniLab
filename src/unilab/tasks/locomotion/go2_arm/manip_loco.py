@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from unisim.dr.types import ResetPlan
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base import registry
-from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.base.scene import SceneCfg
-from unilab.dr.types import ResetPlan
 from unilab.dtype_config import get_global_dtype
 from unilab.tasks.compatibility import adapt_legacy_factory
 from unilab.tasks.locomotion.common import rewards
