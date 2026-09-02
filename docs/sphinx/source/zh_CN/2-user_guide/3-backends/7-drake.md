@@ -28,8 +28,18 @@ Drake C++ 是外部工具链。安装 Python 包不会自动安装 Drake，也�
 ```bash
 make setup-drake
 # 等价命令：
-uv sync --extra mujoco --extra motrix --extra drake
+uv sync --extra drake
 ```
+
+如需可恢复的 Linux 完整安装（官方 Drake 前缀、Python extra、原生扩展和
+import 诊断），运行：
+
+```bash
+bash scripts/tools/setup_drake_env.sh --download-drake
+```
+
+脚本可重复执行，下载和日志默认保存在 `~/.unilab/drake`。使用已有本地安装时，
+可通过 `--drake-home`、`--deps-root` 和 `--drake-uni-source` 指定路径。
 
 本地开发 DrakeUni 时可以使用 editable 安装：
 

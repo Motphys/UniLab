@@ -26,6 +26,10 @@ def _batch_extension_built() -> bool:
     return _module_available("drake_uni.compiled._drake_env_pool")
 
 
+def _mujoco_available() -> bool:
+    return _module_available("mujoco")
+
+
 def _run_clean_python(code: str) -> str:
     result = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(code)],
@@ -546,6 +550,10 @@ def test_drake_batch_pool_worker_exception_reaches_python() -> None:
 @pytest.mark.skipif(
     not _batch_extension_built(),
     reason="optional Drake batch extension has not been built",
+)
+@pytest.mark.skipif(
+    not _mujoco_available(),
+    reason="MuJoCo is required for the cross-backend qpos-order assertion",
 )
 def test_drake_runtime_stewart_compact_state_matches_mujoco_qpos_order() -> None:
     output = _run_clean_python(

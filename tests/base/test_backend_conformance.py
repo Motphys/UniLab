@@ -321,14 +321,6 @@ def test_root_state_layout_contract(backend_type: str) -> None:
     )
     backend.materialize()
 
-    if backend_type == "drake":
-        with pytest.raises(
-            NotImplementedError,
-            match="DrakeBackend does not expose root-state layout.*pelvis",
-        ):
-            backend.get_root_state_layout("pelvis")
-        return
-
     layout = backend.get_root_state_layout("pelvis")
     assert isinstance(layout, BackendRootStateLayout)
     qpos_indices = np.asarray(layout.qpos_indices)
@@ -403,13 +395,13 @@ def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
         backend.get_root_state_layout("hinged")
 
 
-def test_drake_root_layout_is_explicitly_unsupported_without_runtime_metadata() -> None:
+def test_drake_root_layout_fails_closed_without_runtime_metadata() -> None:
     from unilab.base.backend.drake.backend import DrakeBackend
 
     backend = object.__new__(DrakeBackend)
     with pytest.raises(
         NotImplementedError,
-        match="DrakeBackend does not expose root-state layout.*trunk",
+        match="DrakeBackend root-state layout requires joint-to-body metadata",
     ):
         backend.get_root_state_layout("trunk")
 

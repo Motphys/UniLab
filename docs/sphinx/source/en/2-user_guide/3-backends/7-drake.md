@@ -29,8 +29,19 @@ From a UniLab checkout, install the optional Python dependency:
 ```bash
 make setup-drake
 # Equivalent:
-uv sync --extra mujoco --extra motrix --extra drake
+uv sync --extra drake
 ```
+
+For a resumable end-to-end Linux setup (official Drake prefix, Python extra,
+native build, and import diagnostic), run:
+
+```bash
+bash scripts/tools/setup_drake_env.sh --download-drake
+```
+
+The script is idempotent and stores its downloads and logs under
+`~/.unilab/drake`. Use `--drake-home`, `--deps-root`, and `--drake-uni-source`
+to select existing local installations.
 
 For local DrakeUni development, use an editable install instead:
 

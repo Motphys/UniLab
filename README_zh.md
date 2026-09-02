@@ -34,8 +34,7 @@
 ```
 
 - **异构 RL 运行时：** CPU 并行仿真通过共享内存流式传输 transition，而策略学习运行在 GPU 加速器上。
-- **多种物理后端：** MuJoCoUni 和 MotrixSim 是默认路径；实验性的 Drake 批量支持
-  通过独立 owner 和本地原生工具链提供。
+- **两套物理后端：** MuJoCoUni 和 MotrixSim 通过后端专用适配器和任务 owner 配置接入。
 - **统一训练 CLI：** `uv run train` 和 `uv run eval` 覆盖 PPO、APPO、SAC、TD3 和 FlashSAC；额外的 HORA 与 HIM-PPO 路径以脚本级工作流文档化。
 - **配置拥有的任务：** Hydra owner YAML 会同时选择 task、reward、backend 和 algorithm；后端切换通过 `task=<task>/<backend>` 表达。
 - **跨平台安装路径：** 仓库覆盖 Linux CUDA、Linux ROCm、Linux XPU，以及 Apple Silicon / macOS 的安装流程。
@@ -105,10 +104,6 @@ cd UniLab
 # Linux CUDA、macOS 或 Windows
 make setup
 
-# 可选的 Linux-first Drake 批量后端
-# 需要外部 Drake C++ 安装和本地原生扩展构建。
-# make setup-drake
-
 # Linux AMD / ROCm
 # make sync-rocm
 
@@ -148,19 +143,6 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 这会路由到 `go2_joystick_flat/motrix` 任务 owner 配置，并保持后端选择显式化。每个后端 owner 带一个可选的 `play_profile` 块，在 eval 时（`training.play_only=true`）叠加仅渲染相关的覆盖，不影响训练。
 
 在 macOS / MacBook 上，UniLab CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。Motrix 默认使用交互式回放；要导出无头视频请使用 `--render-mode record`，要跳过回放请使用 `--render-mode none`。更细的脚本级命令请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
-
-实验性的 Drake 批量后端当前是 Linux-first 路径，需要 `drake-uni` Python
-包（`import drake_uni`）和本地 Drake C++ 前缀。使用 `make setup-drake`
-安装 extra，针对 `DRAKE_HOME` 构建扩展，然后执行无回放的短时冒烟：
-
-```bash
-uv run train --algo ppo --task stewart_balance --sim drake \
-  algo.max_iterations=1 algo.num_envs=8 training.no_play=true
-```
-
-Drake 尚不支持交互式渲染。`--render-mode record` 使用 MuJoCo 离线渲染，
-所以录制仍需要 MuJoCo 和对应资产。完整安装与能力边界见
-[Drake 后端指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/3-backends/7-drake.html)。
 
 ## 🏃 示例运行
 

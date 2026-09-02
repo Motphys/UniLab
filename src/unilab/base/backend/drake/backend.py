@@ -23,6 +23,7 @@ import numpy as np
 from unilab.base.backend.base import (
     BackendPlayCapabilities,
     BackendPlayRenderPlan,
+    BackendRootStateLayout,
     SimBackend,
     normalize_play_render_mode,
 )
@@ -33,6 +34,7 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+from unilab.dtype_config import get_global_dtype
 
 
 # DrakeUni availability globals. These are cheap import-time probes so callers
@@ -200,6 +202,7 @@ class DrakeBackend(SimBackend):
         self._pre_step_control_fn = None
         self._scene_cleanup_handle = None
         self._num_envs = int(num_envs)
+        self._np_dtype = get_global_dtype()
         self._sim_dt = float(sim_dt)
         self._scene_model_file = str(_resolve_scene_path(scene))
         # DrakeUni receives only generic batch facts. Task concepts such as
@@ -214,12 +217,16 @@ class DrakeBackend(SimBackend):
         model_info = self._runtime.model_info()
         # Cache static model metadata once and expose copies through the
         # UniLab backend contract.
-        self._home_qpos_mujoco = model_info.home_qpos.copy()
-        self._home_qvel_mujoco = model_info.home_qvel.copy()
-        self._ctrl_limits = model_info.ctrl_limits.copy()
-        self._joint_ranges = model_info.joint_ranges.copy()
-        self._actuator_stiffness = model_info.actuator_stiffness.copy()
-        self._actuator_damping = model_info.actuator_damping.copy()
+        self._home_qpos_mujoco = np.asarray(model_info.home_qpos, dtype=self._np_dtype).copy()
+        self._home_qvel_mujoco = np.asarray(model_info.home_qvel, dtype=self._np_dtype).copy()
+        self._ctrl_limits = np.asarray(model_info.ctrl_limits, dtype=self._np_dtype).copy()
+        self._joint_ranges = np.asarray(model_info.joint_ranges, dtype=self._np_dtype).copy()
+        self._actuator_stiffness = np.asarray(
+            model_info.actuator_stiffness, dtype=self._np_dtype
+        ).copy()
+        self._actuator_damping = np.asarray(
+            model_info.actuator_damping, dtype=self._np_dtype
+        ).copy()
         self._actuator_qpos_adr = model_info.actuator_qpos_adr.astype(np.intp, copy=True)
         self._actuator_qvel_adr = model_info.actuator_qvel_adr.astype(np.intp, copy=True)
         raw_actuator_names = getattr(model_info, "actuator_names", None)
@@ -240,6 +247,11 @@ class DrakeBackend(SimBackend):
                 strict=True,
             )
         }
+        self._joint_qpos_adrs = np.asarray(getattr(model_info, "joint_qpos_adr", ()), dtype=np.intp)
+        self._joint_qvel_adrs = np.asarray(getattr(model_info, "joint_qvel_adr", ()), dtype=np.intp)
+        self._joint_qpos_dims = np.asarray(getattr(model_info, "joint_qpos_dim", ()), dtype=np.intp)
+        self._joint_qvel_dims = np.asarray(getattr(model_info, "joint_qvel_dim", ()), dtype=np.intp)
+        self._joint_names = tuple(str(name) for name in getattr(model_info, "joint_names", ()))
         self._joint_qvel_adr_by_name = {
             str(name): int(adr)
             for name, adr in zip(
@@ -248,6 +260,9 @@ class DrakeBackend(SimBackend):
                 strict=True,
             )
         }
+        self._joint_body_names = tuple(
+            str(name) for name in getattr(model_info, "joint_body_names", ())
+        )
         self._joint_dims_by_name = {
             str(name): (int(qpos_dim), int(qvel_dim))
             for name, qpos_dim, qvel_dim in zip(
@@ -287,10 +302,13 @@ class DrakeBackend(SimBackend):
         )
         self._nthread = int(getattr(self._runtime, "nthread", int(nthread)))
         # Runtime state and raw sensor views are refreshed after reset/step.
-        self._physics_state = self._runtime.physics_state()
+        # Keep Drake's compact packet in float64 so the time column and state
+        # playback retain simulator precision. Public observation getters cast
+        # to UniLab's configured global dtype at the boundary below.
+        self._physics_state = np.asarray(self._runtime.physics_state(), dtype=np.float64).copy()
         self._sensor_data = np.zeros(
             (self._num_envs, int(model_info.nsensordata)),
-            dtype=np.float64,
+            dtype=self._np_dtype,
         )
         self._sensor_views: dict[str, np.ndarray] = {}
         self._sync_runtime_state()
@@ -366,16 +384,61 @@ class DrakeBackend(SimBackend):
     def get_keyframe_qpos(self, name: str) -> np.ndarray:
         if name == "home":
             return self._home_qpos_mujoco.copy()
-        return self._runtime.keyframe_qpos(str(name))
+        dtype = getattr(self, "_np_dtype", get_global_dtype())
+        return np.asarray(self._runtime.keyframe_qpos(str(name)), dtype=dtype).copy()
 
     def get_default_qpos(self) -> np.ndarray:
         return self._home_qpos_mujoco.copy()
 
     def get_default_dof_pos(self) -> np.ndarray:
-        return np.asarray(self._home_qpos_mujoco[self._actuator_qpos_adr], dtype=np.float64).copy()
+        dtype = getattr(self, "_np_dtype", get_global_dtype())
+        return np.asarray(self._home_qpos_mujoco[self._actuator_qpos_adr], dtype=dtype).copy()
 
     def get_init_qvel(self) -> np.ndarray:
         return self._home_qvel_mujoco.copy()
+
+    def get_root_state_layout(self, root_body_name: str) -> BackendRootStateLayout:
+        """Resolve a Drake free-joint body's compact root-state columns."""
+
+        body_name = str(root_body_name)
+        joint_body_names = tuple(getattr(self, "_joint_body_names", ()))
+        joint_names = tuple(getattr(self, "_joint_names", ()))
+        if not joint_names or len(joint_body_names) != len(joint_names):
+            raise NotImplementedError(
+                "DrakeBackend root-state layout requires joint-to-body metadata from DrakeUni"
+            )
+        # Drake's MJCF parser represents an unnamed ``<freejoint>`` with an
+        # empty joint name.  Resolve the root by the body metadata and array
+        # position rather than requiring a non-empty name (actuated joints
+        # still retain their names for all other lookups).
+        matches = [
+            index for index, joint_body in enumerate(joint_body_names) if joint_body == body_name
+        ]
+        if not matches:
+            raise ValueError(f"Drake model does not contain a joint owned by body {body_name!r}")
+        if len(matches) != 1:
+            raise NotImplementedError(
+                "backend 'drake' capability 'root-state layout' requires body "
+                f"{body_name!r} to own exactly one free joint"
+            )
+        index = matches[0]
+        try:
+            qpos_adr = int(self._joint_qpos_adrs[index])
+            qvel_adr = int(self._joint_qvel_adrs[index])
+            dims = (int(self._joint_qpos_dims[index]), int(self._joint_qvel_dims[index]))
+        except (AttributeError, IndexError) as exc:
+            raise NotImplementedError(
+                "DrakeBackend root-state layout requires joint dimension metadata from DrakeUni"
+            ) from exc
+        if dims == (ROOT_QPOS_DIM, ROOT_QVEL_DIM):
+            return BackendRootStateLayout(
+                qpos_indices=tuple(range(qpos_adr, qpos_adr + ROOT_QPOS_DIM)),
+                qvel_indices=tuple(range(qvel_adr, qvel_adr + ROOT_QVEL_DIM)),
+            )
+        raise NotImplementedError(
+            "backend 'drake' capability 'root-state layout' requires body "
+            f"{body_name!r} to own exactly one free joint"
+        )
 
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         return (self._actuator_stiffness.copy(), self._actuator_damping.copy())
@@ -681,26 +744,30 @@ class DrakeBackend(SimBackend):
     # named views over that array.
     def get_base_pos(self) -> np.ndarray:
         self._require_floating_root()
-        return self._physics_state[:, 1:4].copy()
+        return self._physics_state[:, 1:4].astype(self._np_dtype, copy=True)
 
     def get_base_quat(self) -> np.ndarray:
         self._require_floating_root()
-        return self._physics_state[:, 4:8].copy()
+        return self._physics_state[:, 4:8].astype(self._np_dtype, copy=True)
 
     def get_base_lin_vel(self) -> np.ndarray:
         qvel_start = 1 + self._model.nq
-        return self._physics_state[:, qvel_start : qvel_start + 3].copy()
+        return self._physics_state[:, qvel_start : qvel_start + 3].astype(self._np_dtype, copy=True)
 
     def get_base_ang_vel(self) -> np.ndarray:
         qvel_start = 1 + self._model.nq
-        return self._physics_state[:, qvel_start + 3 : qvel_start + 6].copy()
+        return self._physics_state[:, qvel_start + 3 : qvel_start + 6].astype(
+            self._np_dtype, copy=True
+        )
 
     def get_dof_pos(self) -> np.ndarray:
-        return self._physics_state[:, 1 + self._actuator_qpos_adr].copy()
+        return self._physics_state[:, 1 + self._actuator_qpos_adr].astype(self._np_dtype, copy=True)
 
     def get_dof_vel(self) -> np.ndarray:
         qvel_start = 1 + self._model.nq
-        return self._physics_state[:, qvel_start + self._actuator_qvel_adr].copy()
+        return self._physics_state[:, qvel_start + self._actuator_qvel_adr].astype(
+            self._np_dtype, copy=True
+        )
 
     def get_body_pos_w(self, body_ids: np.ndarray) -> np.ndarray:
         return self._body_state(body_ids)["pos"]
@@ -719,31 +786,40 @@ class DrakeBackend(SimBackend):
         base_pos = self.get_base_pos()
         base_rot = _quat_to_rotation_matrix(self.get_base_quat())
         delta = body_state["pos"] - base_pos[:, None, :]
-        return np.einsum("nij,nkj->nki", np.swapaxes(base_rot, 1, 2), delta)
+        return np.asarray(
+            np.einsum("nij,nkj->nki", np.swapaxes(base_rot, 1, 2), delta),
+            dtype=self._np_dtype,
+        )
 
     def get_body_quat_b(self, body_ids: np.ndarray) -> np.ndarray:
         body_quat = self._body_state(body_ids)["quat"]
         base_inv = _quat_conjugate(self.get_base_quat())
-        return _quat_multiply(base_inv[:, None, :], body_quat)
+        return np.asarray(_quat_multiply(base_inv[:, None, :], body_quat), dtype=self._np_dtype)
 
     def get_body_lin_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         # Analytical per the SimBackend contract: world-frame velocity
         # expressed in each body's own frame.
         body_state = self._body_state(body_ids)
         body_rot = _quat_to_rotation_matrix(body_state["quat"])
-        return np.einsum(
-            "nkij,nkj->nki",
-            np.swapaxes(body_rot, -1, -2),
-            body_state["linvel"],
+        return np.asarray(
+            np.einsum(
+                "nkij,nkj->nki",
+                np.swapaxes(body_rot, -1, -2),
+                body_state["linvel"],
+            ),
+            dtype=self._np_dtype,
         )
 
     def get_body_ang_vel_b(self, body_ids: np.ndarray) -> np.ndarray:
         body_state = self._body_state(body_ids)
         body_rot = _quat_to_rotation_matrix(body_state["quat"])
-        return np.einsum(
-            "nkij,nkj->nki",
-            np.swapaxes(body_rot, -1, -2),
-            body_state["angvel"],
+        return np.asarray(
+            np.einsum(
+                "nkij,nkj->nki",
+                np.swapaxes(body_rot, -1, -2),
+                body_state["angvel"],
+            ),
+            dtype=self._np_dtype,
         )
 
     def get_sensor_data(self, name: str) -> np.ndarray:
@@ -766,7 +842,7 @@ class DrakeBackend(SimBackend):
             values = [
                 self._sensor_data[:, address : address + dimension] for address, dimension in slots
             ]
-            return np.concatenate(values, axis=1)
+            return np.concatenate(values, axis=1).astype(self._np_dtype, copy=False)
 
         return read
 
@@ -774,18 +850,18 @@ class DrakeBackend(SimBackend):
     def _sync_runtime_state(self, output: dict[str, Any] | None = None) -> None:
         # Keep UniLab's cached state/sensor views aligned after every DrakeUni update.
         if output is None:
-            self._physics_state = self._runtime.physics_state()
+            self._physics_state = np.asarray(self._runtime.physics_state(), dtype=np.float64).copy()
             sensor_data = self._runtime.sensor_data()
         elif "env_ids" in output:
             indices = np.asarray(output["env_ids"], dtype=np.int32)
             self._physics_state[indices] = np.asarray(output["state"], dtype=np.float64)
-            self._sensor_data[indices] = np.asarray(output["sensor_data"], dtype=np.float64)
+            self._sensor_data[indices] = np.asarray(output["sensor_data"], dtype=self._np_dtype)
             self._rebuild_sensor_views()
             return
         else:
             self._physics_state = np.asarray(output["state"], dtype=np.float64).copy()
             sensor_data = output["sensor_data"]
-        self._sensor_data = np.asarray(sensor_data, dtype=np.float64).copy()
+        self._sensor_data = np.asarray(sensor_data, dtype=self._np_dtype).copy()
         self._rebuild_sensor_views()
 
     def _rebuild_sensor_views(self) -> None:
@@ -799,7 +875,8 @@ class DrakeBackend(SimBackend):
         ids = np.asarray(body_ids, dtype=np.int32)
         if ids.ndim != 1:
             raise ValueError(f"body_ids must be one-dimensional, got {ids.shape}")
-        return cast(dict[str, np.ndarray], self._runtime.compute_body_state(ids))
+        raw = cast(dict[str, np.ndarray], self._runtime.compute_body_state(ids))
+        return {name: np.asarray(values, dtype=self._np_dtype) for name, values in raw.items()}
 
     def _pending_body_forces_or_none(self) -> np.ndarray | None:
         if np.any(self._pending_body_forces):

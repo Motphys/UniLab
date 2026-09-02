@@ -59,8 +59,21 @@ against a separately installed Drake C++ prefix.
 ```bash
 make setup-drake
 # Equivalent:
-uv sync --extra mujoco --extra motrix --extra drake
+uv sync --extra drake
 ```
+
+For a complete Linux x86_64 setup that downloads an official Drake prefix,
+installs the `drake` extra, builds the local native extension, and runs an
+import diagnostic, use the resumable external-runtime script:
+
+```bash
+bash scripts/tools/setup_drake_env.sh --download-drake
+```
+
+It is idempotent and keeps downloads, markers, and logs under
+`~/.unilab/drake` by default. To use an existing Drake prefix and a local
+DrakeUni checkout, pass `--drake-home`, `--deps-root`, and
+`--drake-uni-source`; the script never installs system packages with `sudo`.
 
 Before building the extension, provision a Drake prefix containing
 `include/drake/`, `include/pybind11/`, and `lib/libdrake.so`. Build with the
