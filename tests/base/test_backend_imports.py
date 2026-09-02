@@ -160,11 +160,12 @@ def test_motrix_backend_import_path_does_not_eagerly_import_mujoco() -> None:
 
 
 def test_removed_unilab_backend_implementation_is_not_importable() -> None:
+    removed_module = "unilab.base.backend.mujoco.backend"
     result = subprocess.run(
-        [sys.executable, "-c", "import unilab.base.backend.mujoco.backend"],
+        [sys.executable, "-c", f"import {removed_module}"],
         check=False,
         capture_output=True,
         text=True,
     )
     assert result.returncode != 0
-    assert "No module named 'unilab.base.backend'" in result.stderr
+    assert f"No module named '{removed_module}'" in result.stderr
