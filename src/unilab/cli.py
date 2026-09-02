@@ -16,7 +16,7 @@ from typing import Sequence
 from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
-SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim")
+SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym", "genesis", "isaacsim")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 RESERVED_OVERRIDE_KEYS = {
@@ -107,6 +107,29 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
             "sim=motrix requires the Motrix extra. Install it with "
             "`pip install unilab[motrix]` (or `uv sync --extra motrix` in a source checkout)."
         )
+    if sim == "drake":
+        if find_spec("drake_uni") is None:
+            raise SystemExit(
+                "sim=drake requires the Drake extra and a built DrakeUni batch extension. "
+                "Run `bash scripts/tools/setup_drake_env.sh --download-drake` in a source checkout."
+            )
+        try:
+            from drake_uni.runtime import batch_diagnostics
+
+            diagnostics = batch_diagnostics()
+        except Exception as exc:
+            raise SystemExit(
+                "sim=drake could not load the Drake batch extension. "
+                "Set DRAKE_HOME/LD_LIBRARY_PATH and rerun "
+                "`scripts/tools/setup_drake_env.sh`; details: "
+                f"{exc}"
+            ) from exc
+        if not diagnostics.batch_available:
+            detail = diagnostics.batch_import_error or "unknown import error"
+            raise SystemExit(
+                "sim=drake requires a working Drake batch extension; "
+                f"diagnostic reported: {detail}"
+            )
     if sim == "isaacgym":
         from unilab.base.backend.isaacgym.dependencies import isaacgym_runtime_available
 
