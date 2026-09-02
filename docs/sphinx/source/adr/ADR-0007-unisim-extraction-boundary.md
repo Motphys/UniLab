@@ -39,7 +39,7 @@ Roadmap #1428 将统一物理层拆到 GitHub 仓库 `unilabsim/unisim`。PyPI d
 - backend-neutral state/control/reset/mutation 类型、capability、错误和生命周期；
 - lazy adapter factory/registry、engine-native runtime 与必要的 subprocess IPC；
 - cold-path materialization/selector 和 hot-path buffer/step 规则；
-- conformance helper、benchmark API/result schema 预留、package 文档与 TestPyPI 发布。
+- conformance helper、benchmark API/result schema 预留、package 文档与 PyPI 发布。
 
 UniLab owns：
 
@@ -67,8 +67,8 @@ compatibility shim，不保留长期双实现。
 - UniLab declared base 是 `dev/issue-1042-manager-based-api`，执行期间只读；`main` 同样只读。
 - roadmap 集成分支为 `dev/issue-1428-unisim-extraction`，从 declared base 的只读快照创建。
 - child branch/PR 只合入 roadmap 集成分支；不得向 UniLab `main` 或 declared base 写入。
-- 开发与验证阶段只发布到 TestPyPI，凭据来自 `~/.pypirc` 且不得输出或提交；生产 PyPI
-  发布在 roadmap 完成后由 maintainer 手动执行。
+- `unisim-core` 正式版本发布到 PyPI；UniLab 从正式 PyPI 解析
+  `unisim-core>=0.1.14`，Python import namespace 为 `unisim`。
 
 ## Alternatives Considered
 
