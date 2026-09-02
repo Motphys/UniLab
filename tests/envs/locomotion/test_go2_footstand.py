@@ -407,8 +407,8 @@ def test_footstand_reward_clips_aggregate_before_dt_scaling() -> None:
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("drakeuni") is None,
-    reason="optional DrakeUni batch runtime is not installed",
+    importlib.util.find_spec("drake_uni.compiled._drake_env_pool") is None,
+    reason="optional DrakeUni batch extension has not been built",
 )
 def test_footstand_drake_real_runtime_when_available() -> None:
     registry.ensure_registries()

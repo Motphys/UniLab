@@ -50,6 +50,32 @@ uv sync
 uv sync --extra motrix
 ```
 
+## Drake batch backend (Linux-first)
+
+The Drake backend is optional and is not part of the default setup. It uses the
+PyPI package `drake-uni` (`import drake_uni`) and a native extension compiled
+against a separately installed Drake C++ prefix.
+
+```bash
+make setup-drake
+# Equivalent:
+uv sync --extra mujoco --extra motrix --extra drake
+```
+
+Before building the extension, provision a Drake prefix containing
+`include/drake/`, `include/pybind11/`, and `lib/libdrake.so`. Build with the
+same Python interpreter used by UniLab:
+
+```bash
+/path/to/UniLab/.venv/bin/python \
+  /path/to/drake_uni/scripts/build_drake_batch.py \
+  --drake-home /path/to/drake/install
+```
+
+The build is Linux-first and does not install Drake C++ automatically. Keep
+the process pydrake-free before constructing the Drake batch backend. For
+assets and a bounded training probe, see {doc}`../2-user_guide/3-backends/7-drake`.
+
 ## Conda And Pip
 
 The recommended path is still the in-repo `make setup` / `make setup-motrix` (or

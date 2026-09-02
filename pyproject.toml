@@ -82,6 +82,12 @@ unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
 
 [project.optional-dependencies]
+drake = [
+    # Python runtime for the Drake batch adapter. Drake C++ remains an external
+    # toolchain and the native extension must be built against the local
+    # DRAKE_HOME after this extra is synced.
+    "drake-uni==0.1.0",
+]
 mujoco = [
     # Bound stays loose; the committed uv.lock pins the default solver version
     # (uv prefer-locked semantics). The tested window is >=3.5,<3.11 — switch

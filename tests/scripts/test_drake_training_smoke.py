@@ -18,7 +18,7 @@ def _module_available(name: str) -> bool:
 
 
 def _drake_batch_available() -> bool:
-    return _module_available("drakeuni.compiled._drake_env_pool")
+    return _module_available("drake_uni.compiled._drake_env_pool")
 
 
 @pytest.mark.slow

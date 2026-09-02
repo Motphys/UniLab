@@ -34,7 +34,9 @@ Start with the `Quick Demo` below to run the primary training command. The recom
 ```
 
 - **Heterogeneous RL runtime:** CPU-parallel simulation streams transitions through shared memory while policy learning runs on GPU accelerators.
-- **Two physics backends:** MuJoCoUni and MotrixSim are integrated through backend-specific adapters and task owner configs.
+- **Multiple physics backends:** MuJoCoUni and MotrixSim are the default paths;
+  experimental Drake batch support is available through a separate owner and
+  local native toolchain.
 - **Unified training CLI:** `uv run train` and `uv run eval` cover PPO, APPO, SAC, TD3, and FlashSAC; additional HORA and HIM-PPO paths are documented as script-level workflows.
 - **Config-owned tasks:** Hydra owner YAML files select task, reward, backend, and algorithm settings together; backend switching is expressed as `task=<task>/<backend>`.
 - **Cross-platform setup paths:** The repository tracks Linux CUDA, Linux ROCm, Linux XPU, and Apple Silicon / macOS setup flows.
@@ -104,6 +106,10 @@ cd UniLab
 # Linux CUDA, macOS, or Windows
 make setup
 
+# Optional Linux-first Drake batch backend
+# Requires an external Drake C++ install and a local native extension build.
+# make setup-drake
+
 # Linux AMD / ROCm
 # make sync-rocm
 
@@ -141,6 +147,20 @@ uv run eval --algo appo --task go2_joystick_flat --sim motrix --load-run -1 --re
 This routes through the `go2_joystick_flat/motrix` task owner config and keeps backend selection explicit. Each backend owner carries an optional `play_profile` block that layers render-only overrides at eval time (`training.play_only=true`) without affecting training.
 
 On macOS / MacBook, the UniLab CLI routes Motrix interactive playback through `mxpython` when needed. Motrix defaults to interactive playback; use `--render-mode record` for headless video export or `--render-mode none` to skip playback. Detailed script-level commands are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
+
+The experimental Drake batch backend is Linux-first and requires the `drake-uni`
+Python package (`import drake_uni`) plus a local Drake C++ prefix. Install the
+extra with `make setup-drake`, build the extension against `DRAKE_HOME`, then
+run a bounded smoke without playback:
+
+```bash
+uv run train --algo ppo --task stewart_balance --sim drake \
+  algo.max_iterations=1 algo.num_envs=8 training.no_play=true
+```
+
+Drake interactive rendering is not available. `--render-mode record` uses
+MuJoCo as an offline visual renderer, so recording still requires MuJoCo and
+the corresponding assets. See the [Drake backend guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/3-backends/7-drake.html) for the complete installation and capability boundary.
 
 ## 🏃 Example Runs
 

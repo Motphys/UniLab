@@ -1,7 +1,7 @@
 # Simulation Backends
 
 UniLab exposes backend names through registry/config paths, including `mujoco`,
-`motrix`, `mjwarp`, `isaacgym`, `genesis`, and `isaacsim` where an owner is registered.
+`motrix`, `mjwarp`, `drake`, `isaacgym`, `genesis`, and `isaacsim` where an owner is registered.
 User commands select them with `--sim`, which routes to the matching task owner
 YAML; do not switch a run by overriding `training.sim_backend` alone.
 
@@ -12,6 +12,8 @@ YAML; do not switch a run by overriding `training.sim_backend` alone.
   backend pages for installation and runtime requirements.
 - Any run using `--sim mujoco`, MuJoCo playback, or MuJoCo-only debugging tool
   still requires a working MuJoCo runtime.
+- Drake uses the external `drake-uni` package plus a locally built C++ batch
+  extension; see {doc}`7-drake` before selecting `--sim drake`.
 - On macOS, the package CLI routes Motrix interactive playback through
   `mxpython` when needed. Direct script calls that open the native Motrix
   renderer should use `uv run mxpython`.
@@ -67,4 +69,5 @@ the generated source data.
 4-isaacgym
 5-isaacsim
 6-genesis
+7-drake
 ```

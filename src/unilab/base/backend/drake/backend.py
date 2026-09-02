@@ -44,14 +44,14 @@ def _module_available(name: str) -> bool:
         return False
 
 
-DRAKE_AVAILABLE = _module_available("drakeuni")
+DRAKE_AVAILABLE = _module_available("drake_uni")
 DRAKE_IMPORT_ERROR: ImportError | None = None
-DRAKE_BATCH_AVAILABLE = _module_available("drakeuni")
+DRAKE_BATCH_AVAILABLE = _module_available("drake_uni")
 DRAKE_BATCH_IMPORT_ERROR: ImportError | None = None
 DrakeBatchConfig = None
 create_drake_runtime = None
 
-_DRAKEUNI_SYMBOLS_LOADED = False
+_DRAKE_UNI_SYMBOLS_LOADED = False
 
 
 # Lazy import and pydrake guard helpers.
@@ -61,7 +61,7 @@ def _pydrake_loaded() -> bool:
     return any(name == "pydrake" or name.startswith("pydrake.") for name in sys.modules)
 
 
-def _load_drakeuni_symbols() -> None:
+def _load_drake_uni_symbols() -> None:
     """Load DrakeUni only when a Drake backend is actually constructed."""
 
     global DRAKE_AVAILABLE
@@ -69,14 +69,14 @@ def _load_drakeuni_symbols() -> None:
     global DRAKE_BATCH_IMPORT_ERROR
     global DrakeBatchConfig
     global create_drake_runtime
-    global _DRAKEUNI_SYMBOLS_LOADED
+    global _DRAKE_UNI_SYMBOLS_LOADED
 
-    if _DRAKEUNI_SYMBOLS_LOADED:
+    if _DRAKE_UNI_SYMBOLS_LOADED:
         return
     try:
-        from drakeuni.runtime import DrakeBatchConfig as ImportedDrakeBatchConfig
-        from drakeuni.runtime import batch_diagnostics
-        from drakeuni.runtime import create_runtime as imported_create_runtime
+        from drake_uni.runtime import DrakeBatchConfig as ImportedDrakeBatchConfig
+        from drake_uni.runtime import batch_diagnostics
+        from drake_uni.runtime import create_runtime as imported_create_runtime
     except ImportError as exc:  # pragma: no cover - optional local package.
         DRAKE_AVAILABLE = False
         DRAKE_BATCH_AVAILABLE = False
@@ -97,14 +97,14 @@ def _load_drakeuni_symbols() -> None:
     DRAKE_AVAILABLE = True
     DRAKE_BATCH_AVAILABLE = True
     DRAKE_BATCH_IMPORT_ERROR = None
-    _DRAKEUNI_SYMBOLS_LOADED = True
+    _DRAKE_UNI_SYMBOLS_LOADED = True
 
 
 def ensure_drake_batch_available() -> tuple[bool, ImportError | None]:
     """Report whether the DrakeUni batch extension can be used."""
 
     try:
-        _load_drakeuni_symbols()
+        _load_drake_uni_symbols()
     except ImportError as exc:
         return False, exc
     return True, None
@@ -189,7 +189,7 @@ class DrakeBackend(SimBackend):
             )
         if int(num_envs) < 1:
             raise ValueError(f"DrakeUni batch backend requires num_envs >= 1, got {num_envs}")
-        _load_drakeuni_symbols()
+        _load_drake_uni_symbols()
         if DrakeBatchConfig is None or create_drake_runtime is None:
             detail = DRAKE_BATCH_IMPORT_ERROR
             message = "DrakeUni runtime is not available."

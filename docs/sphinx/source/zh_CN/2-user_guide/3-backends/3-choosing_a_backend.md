@@ -11,6 +11,7 @@ UniLab 通过 task owner config 选择仿真器。常规用法下，使用 `--ta
 | --- | --- |
 | 默认路径或最广的 owner 覆盖 | MuJoCo |
 | 通过后端进行原生交互式回放 | Motrix |
+| 有明确本地 Drake C++ 工具链、需要 CPU 批量物理 | Drake |
 | 仅限 MuJoCo 的工具，例如 `scripts/play_viser.py` | MuJoCo |
 | task owner 仅以 `src/unilab/conf/.../<task>/mujoco.yaml` 形式存在 | MuJoCo |
 | task owner 以 `src/unilab/conf/.../<task>/motrix.yaml` 形式存在，且支持矩阵将该组合标记为 tested 或 configured | Motrix |
@@ -23,6 +24,8 @@ UniLab 通过 task owner config 选择仿真器。常规用法下，使用 `--ta
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 uv run train --algo ppo --task go2_joystick_flat --sim motrix
+uv run train --algo ppo --task stewart_balance --sim drake \
+  algo.max_iterations=1 algo.num_envs=8 training.no_play=true
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 
