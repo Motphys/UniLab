@@ -67,18 +67,6 @@ def _format_single_robot_summary(robot: str, summaries: Sequence[_AssetSummary])
     return f"{robot} assets ready: {'; '.join(parts)}"
 
 
-def _format_all_summary(robots: Sequence[str], summaries: Sequence[_AssetSummary]) -> str:
-    total_files = sum(summary.count for summary in summaries)
-    label_counts: dict[str, int] = {}
-    for summary in summaries:
-        label_counts[summary.label] = label_counts.get(summary.label, 0) + summary.count
-    counts = ", ".join(f"{count} {label}" for label, count in sorted(label_counts.items()))
-    return (
-        f"Robot assets ready: {len(robots)} robots, {len(summaries)} directories, "
-        f"{total_files} files ({counts})"
-    )
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     logging.basicConfig(
@@ -86,14 +74,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     robots = _sorted_robots() if args.robot == _ALL else [args.robot]
-    summaries: list[_AssetSummary] = []
     for robot in robots:
-        summaries.extend(_pull_robot(robot, show_progress=args.verbose))
-
-    if args.robot == _ALL:
-        print(_format_all_summary(robots, summaries))
-    else:
-        print(_format_single_robot_summary(args.robot, summaries))
+        summaries = _pull_robot(robot, show_progress=args.verbose)
+        print(_format_single_robot_summary(robot, summaries), flush=True)
     return 0
 
 
