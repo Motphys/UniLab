@@ -248,6 +248,7 @@ def test_eval_mujoco_interactive_routes_to_dedicated_viewer(
         "--sim",
         "mujoco",
         "training.play_render_mode=interactive",
+        "interactive.action_mode=policy",
         "training.play_only=true",
         "algo.load_run=-1",
     ]
@@ -293,11 +294,43 @@ def test_eval_mujoco_interactive_honors_profile_and_render_override(
         "g1_walk_flat",
         "--sim",
         "mujoco_hora",
+        "interactive.action_mode=policy",
         "training.play_only=true",
         "algo.load_run=run_1",
         "training.play_render_mode=interactive",
         "algo.num_envs=4096",
     ]
+
+
+def test_eval_mujoco_interactive_preserves_explicit_action_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name == "mujoco" else None,
+    )
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="mujoco",
+        overrides=["interactive.action_mode=random"],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert "interactive.action_mode=policy" not in command
+    assert "interactive.action_mode=random" in command
 
 
 def test_macos_motrix_render_mode_none_does_not_require_mxpython(

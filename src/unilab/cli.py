@@ -297,6 +297,10 @@ def build_command(
     generated = [] if use_interactive_play else list(route.generated_overrides)
     if render_mode is not None and _override_value(overrides, "training.play_render_mode") is None:
         generated.append(f"training.play_render_mode={render_mode}")
+    if use_interactive_play and _override_value(overrides, "interactive.action_mode") is None:
+        # The low-level viewer defaults to zero actions for debugging, while
+        # eval must preserve the policy-control behavior of the train scripts.
+        generated.append("interactive.action_mode=policy")
     if mode == "eval":
         generated.append("training.play_only=true")
         if load_run is not None:
