@@ -67,7 +67,11 @@ type:
 	uv run pyright
 
 .PHONY: check
-check: format type
+check: format type check-tests
+
+.PHONY: check-tests
+check-tests:
+	uv run ruff check tests --select F401,F821,F811,F841 --output-format concise
 
 .PHONY: test
 test:
