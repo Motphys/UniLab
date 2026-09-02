@@ -92,7 +92,10 @@ def _materialize_grasp_caches(
     missing_files: list[str] = []
     for scale_value in np.asarray(scale_values, dtype=np.float64):
         cache_file = resolve_grasp_cache_file(grasp_cache_path, float(scale_value))
-        resolved = cast(str, resolve_grasp_cache_files(str(cache_file)))
+        resolved = cast(
+            str,
+            resolve_grasp_cache_files(str(cache_file), show_progress=False),
+        )
         cache_file = Path(resolved)
         if not cache_file.exists():
             missing_files.append(str(cache_file))

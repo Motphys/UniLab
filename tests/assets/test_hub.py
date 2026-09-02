@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.assets.hub import resolve_grasp_cache_files, resolve_motion_files, resolve_scene_dir
+from unilab.assets.hub import (
+    resolve_grasp_cache_files,
+    resolve_motion_files,
+    resolve_robot_asset_dir,
+    resolve_scene_dir,
+)
 
 # ---------------------------------------------------------------------------
 # Local-path fast path
@@ -217,6 +222,32 @@ def test_resolve_grasp_cache_relative_path_uses_caches_repo():
     )
 
 
+def test_resolve_grasp_cache_can_disable_download_progress():
+    rel = "caches/__test_nonexistent_quiet__.npy"
+    local = ASSETS_ROOT_PATH / rel
+    assert not local.exists()
+
+    fake_download = MagicMock(return_value=str(local))
+    fake_module = MagicMock()
+    fake_module.hf_hub_download = fake_download
+
+    with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+        result = resolve_grasp_cache_files(rel, show_progress=False)
+
+    assert result == str(local)
+    fake_download.assert_called_once()
+    kwargs = fake_download.call_args.kwargs
+    assert kwargs["repo_id"] == "unilabsim/unilab-caches"
+    assert kwargs["filename"] == rel
+    assert kwargs["repo_type"] == "dataset"
+    assert kwargs["local_dir"] == str(ASSETS_ROOT_PATH)
+    progress = kwargs["tqdm_class"](range(1))
+    try:
+        assert progress.disable is True
+    finally:
+        progress.close()
+
+
 # Scene directory resolver
 # ---------------------------------------------------------------------------
 
@@ -277,6 +308,29 @@ def test_resolve_scene_dir_raises_import_error_when_hf_hub_missing(tmp_path: Pat
         with patch.dict("sys.modules", {"huggingface_hub": None}):
             with pytest.raises(ImportError, match="huggingface_hub"):
                 resolve_scene_dir("scenes/teaser")
+
+
+def test_resolve_robot_asset_dir_can_disable_snapshot_progress(tmp_path: Path):
+    fake_snapshot = MagicMock(return_value=str(tmp_path))
+    fake_module = MagicMock()
+    fake_module.snapshot_download = fake_snapshot
+
+    with patch("unilab.assets.hub.ASSETS_ROOT_PATH", tmp_path):
+        with patch.dict("sys.modules", {"huggingface_hub": fake_module}):
+            resolve_robot_asset_dir("robots/x2/meshes", marker="pelvis.STL", show_progress=False)
+
+    fake_snapshot.assert_called_once()
+    kwargs = fake_snapshot.call_args.kwargs
+    assert kwargs["repo_id"] == "unilabsim/unilab-robots"
+    assert kwargs["repo_type"] == "dataset"
+    assert kwargs["allow_patterns"] == "robots/x2/meshes/**"
+    assert kwargs["local_dir"] == str(tmp_path)
+    tqdm_class = kwargs["tqdm_class"]
+    progress = tqdm_class(range(1))
+    try:
+        assert progress.disable is True
+    finally:
+        progress.close()
 
 
 # ---------------------------------------------------------------------------

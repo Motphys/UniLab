@@ -18,10 +18,19 @@ from __future__ import annotations
 import argparse
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 from unilab.assets.hub import ROBOT_ASSET_SPECS, resolve_robot_asset_dir
 
 _ALL = "all"
+
+
+@dataclass(frozen=True)
+class _AssetSummary:
+    target: Path
+    count: int
+    label: str
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -32,6 +41,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=[*_sorted_robots(), _ALL],
         help="Robot whose binary assets to download, or 'all' (default: x2).",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show per-directory download logs and Hugging Face progress bars.",
+    )
     return parser.parse_args(argv)
 
 
@@ -39,20 +53,47 @@ def _sorted_robots() -> list[str]:
     return sorted(ROBOT_ASSET_SPECS)
 
 
-def _pull_robot(robot: str) -> None:
+def _pull_robot(robot: str, *, show_progress: bool) -> list[_AssetSummary]:
+    summaries: list[_AssetSummary] = []
     for directory, marker, pattern, label in ROBOT_ASSET_SPECS[robot]:
-        target = resolve_robot_asset_dir(directory, marker=marker)
+        target = resolve_robot_asset_dir(directory, marker=marker, show_progress=show_progress)
         count = sum(1 for path in target.rglob(pattern) if path.is_file())
-        print(f"{robot} assets ready at {target} ({count} {label} files)")
+        summaries.append(_AssetSummary(target=target, count=count, label=label))
+    return summaries
+
+
+def _format_single_robot_summary(robot: str, summaries: Sequence[_AssetSummary]) -> str:
+    parts = [f"{summary.count} {summary.label} files at {summary.target}" for summary in summaries]
+    return f"{robot} assets ready: {'; '.join(parts)}"
+
+
+def _format_all_summary(robots: Sequence[str], summaries: Sequence[_AssetSummary]) -> str:
+    total_files = sum(summary.count for summary in summaries)
+    label_counts: dict[str, int] = {}
+    for summary in summaries:
+        label_counts[summary.label] = label_counts.get(summary.label, 0) + summary.count
+    counts = ", ".join(f"{count} {label}" for label, count in sorted(label_counts.items()))
+    return (
+        f"Robot assets ready: {len(robots)} robots, {len(summaries)} directories, "
+        f"{total_files} files ({counts})"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s"
+    )
 
     robots = _sorted_robots() if args.robot == _ALL else [args.robot]
+    summaries: list[_AssetSummary] = []
     for robot in robots:
-        _pull_robot(robot)
+        summaries.extend(_pull_robot(robot, show_progress=args.verbose))
+
+    if args.robot == _ALL:
+        print(_format_all_summary(robots, summaries))
+    else:
+        print(_format_single_robot_summary(args.robot, summaries))
     return 0
 
 

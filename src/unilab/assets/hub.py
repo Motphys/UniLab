@@ -17,6 +17,7 @@ import os
 import posixpath
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from unilab.assets import ASSETS_ROOT_PATH
 
@@ -82,6 +83,8 @@ def resolve_motion_files(
 
 def resolve_grasp_cache_files(
     cache_file: str | Sequence[str],
+    *,
+    show_progress: bool = True,
 ) -> str | list[str]:
     """Ensure grasp cache file(s) exist locally, downloading from HF if needed.
 
@@ -95,8 +98,11 @@ def resolve_grasp_cache_files(
         returns a list of strings.
     """
     if isinstance(cache_file, str):
-        return _resolve_single(cache_file, repo_id=_HF_CACHES_REPO_ID)
-    return [_resolve_single(p, repo_id=_HF_CACHES_REPO_ID) for p in cache_file]
+        return _resolve_single(cache_file, repo_id=_HF_CACHES_REPO_ID, show_progress=show_progress)
+    return [
+        _resolve_single(p, repo_id=_HF_CACHES_REPO_ID, show_progress=show_progress)
+        for p in cache_file
+    ]
 
 
 def resolve_checkpoint_file(
@@ -118,7 +124,12 @@ def resolve_checkpoint_file(
     return [_resolve_single(p, repo_id=_HF_CHECKPOINTS_REPO_ID) for p in checkpoint_file]
 
 
-def _resolve_single(path_str: str, *, repo_id: str = _HF_MOTIONS_REPO_ID) -> str:
+def _resolve_single(
+    path_str: str,
+    *,
+    repo_id: str = _HF_MOTIONS_REPO_ID,
+    show_progress: bool = True,
+) -> str:
     """Resolve one asset file path, downloading if absent."""
     path = Path(path_str)
     is_absolute_input = path.is_absolute() or ntpath.isabs(path_str) or posixpath.isabs(path_str)
@@ -144,7 +155,7 @@ def _resolve_single(path_str: str, *, repo_id: str = _HF_MOTIONS_REPO_ID) -> str
                 f"ASSETS_ROOT_PATH ({ASSETS_ROOT_PATH}): {path_str}"
             ) from None
 
-    return _download_from_hf(relative, repo_id=repo_id)
+    return _download_from_hf(relative, repo_id=repo_id, show_progress=show_progress)
 
 
 def _hf_relative_path(path_str: str) -> str:
@@ -152,22 +163,30 @@ def _hf_relative_path(path_str: str) -> str:
     return path_str.replace("\\", "/")
 
 
-def _hf_download(hf_hub_download, relative_path: str, *, repo_id: str) -> str:  # type: ignore[no-untyped-def]
+def _hf_download(
+    hf_hub_download,
+    relative_path: str,
+    *,
+    repo_id: str,
+    show_progress: bool = True,
+) -> str:  # type: ignore[no-untyped-def]
     """Call ``hf_hub_download`` with the standard arguments."""
-    return str(
-        hf_hub_download(
-            repo_id=repo_id,
-            filename=relative_path,
-            repo_type=_HF_REPO_TYPE,
-            local_dir=str(ASSETS_ROOT_PATH),
-        )
-    )
+    kwargs: dict[str, Any] = {
+        "repo_id": repo_id,
+        "filename": relative_path,
+        "repo_type": _HF_REPO_TYPE,
+        "local_dir": str(ASSETS_ROOT_PATH),
+    }
+    if not show_progress:
+        kwargs["tqdm_class"] = _silent_tqdm_class()
+    return str(hf_hub_download(**kwargs))
 
 
 def _download_from_hf(
     relative_path: str,
     *,
     repo_id: str = _HF_MOTIONS_REPO_ID,
+    show_progress: bool = True,
 ) -> str:
     """Download *relative_path* from an HF dataset repo.
 
@@ -188,7 +207,12 @@ def _download_from_hf(
     logger.info("Downloading %s from HF repo %s ...", relative_path, repo_id)
 
     try:
-        local_path = _hf_download(hf_hub_download, relative_path, repo_id=repo_id)
+        local_path = _hf_download(
+            hf_hub_download,
+            relative_path,
+            repo_id=repo_id,
+            show_progress=show_progress,
+        )
     except Exception:
         # If a mirror endpoint is configured and it failed, retry with
         # the official endpoint before giving up.
@@ -202,7 +226,12 @@ def _download_from_hf(
             original = os.environ["HF_ENDPOINT"]
             os.environ["HF_ENDPOINT"] = _HF_OFFICIAL_ENDPOINT
             try:
-                local_path = _hf_download(hf_hub_download, relative_path, repo_id=repo_id)
+                local_path = _hf_download(
+                    hf_hub_download,
+                    relative_path,
+                    repo_id=repo_id,
+                    show_progress=show_progress,
+                )
             finally:
                 os.environ["HF_ENDPOINT"] = original
         else:
@@ -217,19 +246,40 @@ def _download_from_hf(
 # ---------------------------------------------------------------------------
 
 
-def _snapshot_download(snapshot_download_fn, directory: str, *, repo_id: str) -> str:  # type: ignore[no-untyped-def]
+def _silent_tqdm_class() -> type[Any]:
+    """Return a tqdm class that keeps HF snapshot downloads silent."""
+    from tqdm.auto import tqdm
+
+    class _SilentTqdm(tqdm):  # type: ignore[misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["disable"] = True
+            super().__init__(*args, **kwargs)
+
+    return _SilentTqdm
+
+
+def _snapshot_download(
+    snapshot_download_fn,
+    directory: str,
+    *,
+    repo_id: str,
+    show_progress: bool = True,
+) -> str:  # type: ignore[no-untyped-def]
     """Call ``snapshot_download`` with the standard arguments."""
-    return str(
-        snapshot_download_fn(
-            repo_id=repo_id,
-            repo_type=_HF_REPO_TYPE,
-            allow_patterns=f"{directory}/**",
-            local_dir=str(ASSETS_ROOT_PATH),
-        )
-    )
+    kwargs: dict[str, Any] = {
+        "repo_id": repo_id,
+        "repo_type": _HF_REPO_TYPE,
+        "allow_patterns": f"{directory}/**",
+        "local_dir": str(ASSETS_ROOT_PATH),
+    }
+    if not show_progress:
+        kwargs["tqdm_class"] = _silent_tqdm_class()
+    return str(snapshot_download_fn(**kwargs))
 
 
-def _resolve_snapshot_dir(directory: str, *, repo_id: str, marker: str) -> Path:
+def _resolve_snapshot_dir(
+    directory: str, *, repo_id: str, marker: str, show_progress: bool = True
+) -> Path:
     """Ensure an HF-hosted directory exists locally, downloading if needed.
 
     If the current ``HF_ENDPOINT`` (e.g. a mirror) fails, automatically
@@ -263,7 +313,9 @@ def _resolve_snapshot_dir(directory: str, *, repo_id: str, marker: str) -> Path:
     logger.info("Downloading %s from HF repo %s ...", hf_directory, repo_id)
 
     try:
-        _snapshot_download(snapshot_download, hf_directory, repo_id=repo_id)
+        _snapshot_download(
+            snapshot_download, hf_directory, repo_id=repo_id, show_progress=show_progress
+        )
     except Exception:
         current_endpoint = os.environ.get("HF_ENDPOINT", "")
         if current_endpoint and current_endpoint != _HF_OFFICIAL_ENDPOINT:
@@ -275,7 +327,9 @@ def _resolve_snapshot_dir(directory: str, *, repo_id: str, marker: str) -> Path:
             original = os.environ["HF_ENDPOINT"]
             os.environ["HF_ENDPOINT"] = _HF_OFFICIAL_ENDPOINT
             try:
-                _snapshot_download(snapshot_download, hf_directory, repo_id=repo_id)
+                _snapshot_download(
+                    snapshot_download, hf_directory, repo_id=repo_id, show_progress=show_progress
+                )
             finally:
                 os.environ["HF_ENDPOINT"] = original
         else:
@@ -299,7 +353,7 @@ def resolve_scene_dir(directory: str, *, marker: str = "teaser.xml") -> Path:
     return _resolve_snapshot_dir(directory, repo_id=_HF_SCENES_REPO_ID, marker=marker)
 
 
-def resolve_robot_asset_dir(directory: str, *, marker: str) -> Path:
+def resolve_robot_asset_dir(directory: str, *, marker: str, show_progress: bool = True) -> Path:
     """Ensure a robot asset directory (e.g. meshes) exists locally.
 
     Robot binary assets (STL meshes) are hosted on Hugging Face rather than
@@ -312,11 +366,17 @@ def resolve_robot_asset_dir(directory: str, *, marker: str) -> Path:
             (e.g. ``"robots/x2/meshes"``).
         marker: A file inside the directory used to check completeness
             (e.g. ``"pelvis.STL"``).
+        show_progress: Whether Hugging Face snapshot downloads may render progress bars.
 
     Returns:
         Absolute ``Path`` to the resolved directory.
     """
-    return _resolve_snapshot_dir(directory, repo_id=_HF_ROBOTS_REPO_ID, marker=marker)
+    return _resolve_snapshot_dir(
+        directory,
+        repo_id=_HF_ROBOTS_REPO_ID,
+        marker=marker,
+        show_progress=show_progress,
+    )
 
 
 def ensure_robot_assets_for_paths(paths: Sequence[str | None]) -> None:
