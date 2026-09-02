@@ -90,6 +90,9 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
 
 Supported render modes are `auto`, `interactive`, `record`, and `none`.
 
+The MuJoCo interactive mode (`--sim mujoco --render-mode interactive`) routes
+directly to `play_interactive.py` and always rolls out one environment.
+
 ## Demo
 
 ```bash

@@ -22,6 +22,10 @@ uv run demo dance
 - `record` — 将 MP4 写入 `runs/<run>/playback/`。
 - `none` — 跳过渲染，仅计算指标。
 
+当使用 `--sim mujoco --render-mode interactive` 时，`uv run eval` 会直接启动
+`play_interactive.py` MuJoCo viewer。该模式只 rollout 一个环境以保持相机和交互控制；
+`training.play_env_num` 在此模式下会被忽略。
+
 `training.export_onnx=false` 目前仅适用于 off-policy 回放路径
 （`src/unilab/scripts/train_sac.py` / `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
 以及使用 `--algo sac|td3|flashsac` 的 CLI 运行）。它会跳过
