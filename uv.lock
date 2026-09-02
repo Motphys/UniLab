@@ -4963,6 +4963,7 @@ dependencies = [
     { name = "torch", version = "2.9.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "tqdm" },
     { name = "typing-extensions" },
+    { name = "unisim-core" },
     { name = "wandb" },
 ]
 
@@ -5032,6 +5033,7 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
+    { name = "unisim-core", specifier = ">=0.1.4", index = "https://test.pypi.org/simple/" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = ">=1.14.0" },
@@ -5046,6 +5048,19 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+]
+
+[[package]]
+name = "unisim-core"
+version = "0.1.4"
+source = { registry = "https://test.pypi.org/simple/" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://test-files.pythonhosted.org/packages/90/42/53696047b3c1c0fbbde406cb60e269dc3c7b37676e937fe252eff2aa226e/unisim_core-0.1.4.tar.gz", hash = "sha256:46c58f2988a4be7c3d2b7523f3e747467ffae7c3f685ae2ea1a1cc4cafb1ab56", size = 11653, upload-time = "2026-09-02T05:06:48.29Z" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/93/33/b29c6e9c50bf91e37d4ea58bb0aed665e0b22720d856e732bac00e5fb73d/unisim_core-0.1.4-py3-none-any.whl", hash = "sha256:57568fba88f2892cfc04d78f1389df35e61e3fb5582913a01cf89d59f80786c4", size = 20247, upload-time = "2026-09-02T05:06:46.636Z" },
 ]
 
 [[package]]
