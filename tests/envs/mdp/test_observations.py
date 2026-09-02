@@ -178,6 +178,7 @@ def test_root_joint_action_and_command_terms_match_numpy_contract() -> None:
         [[0.0, 0.0, -1.0], [0.0, -1.0, 0.0]],
         atol=1e-6,
     )
+    np.testing.assert_array_equal(mdp.root_height(env), backend.body_pos[:, 0, 2])
     np.testing.assert_allclose(
         mdp.joint_pos_rel(env),
         backend.dof_pos - [0.1, 0.2, 0.3],

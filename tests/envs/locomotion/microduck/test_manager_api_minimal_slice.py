@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -15,11 +16,18 @@ from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnvCfg
-from unilab.envs.mdp import GroundPickPhaseCommandCfg, SitStandCommandCfg
+from unilab.envs.mdp import (
+    LifecycleCounterRecorder,
+    UniformVelocityCommandCfg,
+    root_height,
+)
 from unilab.tasks.locomotion.microduck.manager_terms import (
-    MicroduckTraceRecorder,
+    GroundPickPhaseCommand,
+    GroundPickPhaseCommandCfg,
+    SitStandCommand,
+    SitStandCommandCfg,
+    phase_height_tracking,
     posture_height_tracking,
-    root_height_metric,
 )
 
 ROOT_DIR = Path(__file__).parents[4]
@@ -63,9 +71,9 @@ def test_ground_pick_owner_exercises_phase_metrics_recorder_and_reward_terms() -
     assert isinstance(env_cfg.commands["twist"], GroundPickPhaseCommandCfg)
     assert tuple(env_cfg.metrics) == ("root_height",)
     assert tuple(env_cfg.recorders) == ("lifecycle",)
-    assert env_cfg.metrics["root_height"].func is root_height_metric
-    assert env_cfg.recorders["lifecycle"].func is MicroduckTraceRecorder
-    assert env_cfg.rewards["posture_height"].func is posture_height_tracking
+    assert env_cfg.metrics["root_height"].func is root_height
+    assert env_cfg.recorders["lifecycle"].func is LifecycleCounterRecorder
+    assert env_cfg.rewards["phase_height"].func is phase_height_tracking
 
 
 def test_sitstand_owner_exercises_binary_posture_command() -> None:
@@ -77,7 +85,142 @@ def test_sitstand_owner_exercises_binary_posture_command() -> None:
     assert isinstance(command, SitStandCommandCfg)
     assert command.sit_prob == 0.5
     assert command.ramp_s == 2.0
+    assert env_cfg.rewards["posture_height"].func is posture_height_tracking
     assert env_cfg.rewards["posture_height"].weight == 1.0
+
+
+def _velocity_ranges() -> UniformVelocityCommandCfg.Ranges:
+    return UniformVelocityCommandCfg.Ranges(
+        lin_vel_x=(-1.0, 1.0),
+        lin_vel_y=(-1.0, 1.0),
+        ang_vel_z=(-1.0, 1.0),
+    )
+
+
+def _command_env(num_envs: int = 2) -> SimpleNamespace:
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_link_pos_w=np.asarray(
+                [[0.0, 0.0, 0.115], [0.0, 0.0, 0.060]],
+                dtype=np.float32,
+            ),
+            root_link_lin_vel_b=np.zeros((num_envs, 3), dtype=np.float32),
+            root_link_ang_vel_b=np.zeros((num_envs, 3), dtype=np.float32),
+        )
+    )
+    return SimpleNamespace(
+        num_envs=num_envs,
+        rng=np.random.default_rng(11),
+        scene={"robot": robot},
+        step_dt=0.02,
+        episode_length_buf=np.zeros(num_envs, dtype=np.int64),
+    )
+
+
+def test_ground_pick_phase_is_continuous_and_does_not_resample() -> None:
+    env = _command_env()
+    cfg = GroundPickPhaseCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(1.0, 1.0),
+        ranges=_velocity_ranges(),
+        period=4.0,
+        randomize_phase=False,
+    )
+    term = cfg.build(env)
+    assert isinstance(term, GroundPickPhaseCommand)
+
+    ids = np.asarray([0, 1], dtype=np.int32)
+    term.reset(ids)
+    np.testing.assert_array_equal(term.phase, 0.0)
+    np.testing.assert_array_equal(term.command_counter, 0)
+
+    term.compute(1.0)
+    np.testing.assert_allclose(term.phase, 0.25)
+    np.testing.assert_allclose(term.command, [[0.0, 1.0, 0.0], [0.0, 1.0, 0.0]], atol=1e-6)
+    np.testing.assert_array_equal(term.command_counter, 0)
+
+    with pytest.raises(ValueError, match="non-finite dt"):
+        term.compute(float("nan"))
+
+
+def test_sit_stand_command_slews_from_measured_height_to_sampled_target() -> None:
+    env = _command_env()
+    cfg = SitStandCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(1.0, 1.0),
+        ranges=_velocity_ranges(),
+        sit_prob=1.0,
+        ramp_s=2.0,
+        sit_z=0.060,
+        stand_z=0.115,
+    )
+    term = cfg.build(env)
+    assert isinstance(term, SitStandCommand)
+
+    ids = np.asarray([0, 1], dtype=np.int32)
+    term.reset(ids)
+    term.compute(0.0, env_ids=ids)
+    np.testing.assert_allclose(term.command[:, 0], 1.0)
+    np.testing.assert_allclose(term.alpha, [0.0, 1.0])
+
+    term.compute(1.0)
+    np.testing.assert_allclose(term.alpha, [0.5, 1.0])
+
+
+def test_phase_and_posture_height_rewards_use_their_explicit_command_contracts() -> None:
+    env = _command_env()
+    ids = np.asarray([0, 1], dtype=np.int32)
+    phase = GroundPickPhaseCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(1.0, 1.0),
+        ranges=_velocity_ranges(),
+        period=4.0,
+        randomize_phase=False,
+    ).build(env)
+    phase.reset(ids)
+    phase.compute(1.0)
+    env.command_manager = SimpleNamespace(
+        get_command=lambda name: phase.command,
+        get_term=lambda name: phase,
+    )
+    phase_reward = phase_height_tracking(env)
+    assert phase_reward[0] < 1.0e-2
+    assert phase_reward[1] == pytest.approx(1.0)
+
+    posture = SitStandCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(1.0, 1.0),
+        ranges=_velocity_ranges(),
+        sit_prob=1.0,
+        ramp_s=2.0,
+        sit_z=0.060,
+        stand_z=0.115,
+    ).build(env)
+    posture.reset(ids)
+    posture.compute(0.0, env_ids=ids)
+    env.command_manager = SimpleNamespace(
+        get_command=lambda name: posture.command,
+        get_term=lambda name: posture,
+    )
+    np.testing.assert_allclose(posture_height_tracking(env), 1.0)
+
+
+def test_posture_commands_reject_invalid_tuning() -> None:
+    with pytest.raises(ValueError, match="period must be finite"):
+        GroundPickPhaseCommandCfg(
+            entity_name="robot",
+            resampling_time_range=(1.0, 1.0),
+            ranges=_velocity_ranges(),
+            period=float("nan"),
+        ).build(_command_env())
+
+    with pytest.raises(TypeError, match="ramp_s must be a real number"):
+        SitStandCommandCfg(
+            entity_name="robot",
+            resampling_time_range=(1.0, 1.0),
+            ranges=_velocity_ranges(),
+            ramp_s=True,
+        ).build(_command_env())
 
 
 @pytest.mark.slow

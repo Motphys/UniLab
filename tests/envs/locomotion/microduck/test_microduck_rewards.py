@@ -8,13 +8,10 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from unilab.envs.mdp import UniformPoseCommandCfg
 from unilab.managers import RewardTermCfg
 from unilab.managers._types import ManagerBasedRlEnv
-from unilab.tasks.locomotion.microduck.manager_terms import (
-    UniformVectorCommandCfg,
-    flight_phase,
-    foot_air_time_biped,
-)
+from unilab.tasks.locomotion.microduck.manager_terms import flight_phase, foot_air_time_biped
 
 
 class _SensorScene:
@@ -115,11 +112,11 @@ def test_contact_terms_fail_closed_when_sensor_is_missing() -> None:
         _term(flight_phase, env)
 
 
-def test_uniform_vector_command_resamples_from_live_ranges() -> None:
+def test_uniform_pose_command_resamples_from_live_ranges() -> None:
     """Step-staged command curricula mutate the live term cfg; the next
     resample must sample from the widened ranges without rebuilding the term."""
     env = cast(ManagerBasedRlEnv, SimpleNamespace(num_envs=8, rng=np.random.default_rng(0)))
-    cfg = UniformVectorCommandCfg(
+    cfg = UniformPoseCommandCfg(
         resampling_time_range=(2.0, 5.0),
         ranges=[[-0.05, 0.05], [-0.05, 0.05], [-0.07, 0.07], [-0.015, 0.015]],
     )
@@ -134,9 +131,9 @@ def test_uniform_vector_command_resamples_from_live_ranges() -> None:
     assert float(np.abs(term.command).max()) <= 1.4
 
 
-def test_uniform_vector_command_rejects_range_width_change() -> None:
+def test_uniform_pose_command_rejects_range_width_change() -> None:
     env = cast(ManagerBasedRlEnv, SimpleNamespace(num_envs=2, rng=np.random.default_rng(0)))
-    cfg = UniformVectorCommandCfg(
+    cfg = UniformPoseCommandCfg(
         resampling_time_range=(2.0, 5.0),
         ranges=[[-0.05, 0.05], [-0.05, 0.05], [-0.07, 0.07], [-0.015, 0.015]],
     )

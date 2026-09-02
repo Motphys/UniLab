@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 import unilab.managers as managers
+from unilab.envs.mdp.recorders import LifecycleCounterRecorder
 from unilab.managers import (
     CommandManager,
     CommandTerm,
@@ -224,6 +225,24 @@ def test_recorder_lifecycle_and_null(fake_env: FakeEnv) -> None:
     null = NullRecorderManager()
     with pytest.raises(KeyError, match="has no terms"):
         null.get_term("trace")
+
+
+def test_lifecycle_counter_recorder_is_task_independent(fake_env: FakeEnv) -> None:
+    manager = RecorderManager(
+        {"counter": RecorderTermCfg(func=LifecycleCounterRecorder)},
+        fake_env,
+    )
+    recorder = manager.get_term("counter")
+    ids = np.asarray([0, 3], dtype=np.int32)
+
+    manager.record_pre_reset(ids)
+    manager.record_post_reset(ids)
+    manager.record_post_step()
+
+    assert isinstance(recorder, LifecycleCounterRecorder)
+    assert recorder.pre_reset_count == 2
+    assert recorder.post_reset_count == 2
+    assert recorder.post_step_count == 1
 
 
 def test_public_exports_and_repository_import_boundary() -> None:

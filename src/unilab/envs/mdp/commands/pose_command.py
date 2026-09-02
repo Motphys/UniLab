@@ -46,7 +46,7 @@ def _range_pair(value: object, *, label: str) -> tuple[float, float]:
 class UniformPoseCommandCfg(CommandTermCfg):
     """Sample a fixed-width pose vector independently per dimension."""
 
-    ranges: tuple[tuple[float, float], ...] | list[list[float]] = ()
+    ranges: tuple[tuple[float, float], ...] | list[list[float]]
     zero_command_prob: float = 0.0
 
     def build(self, env: ManagerBasedRlEnv) -> UniformPoseCommand:
@@ -59,12 +59,7 @@ class UniformPoseCommand(CommandTerm):
     cfg: UniformPoseCommandCfg
 
     def __init__(self, cfg: UniformPoseCommandCfg, env: ManagerBasedRlEnv):
-        if not isinstance(cfg.ranges, (tuple, list)) or not cfg.ranges:
-            raise ValueError("UniformPoseCommandCfg ranges must not be empty")
-        self._ranges = tuple(
-            _range_pair(item, label=f"UniformPoseCommandCfg ranges[{index}]")
-            for index, item in enumerate(cfg.ranges)
-        )
+        ranges = self._validated_ranges(cfg.ranges)
         probability = _real(
             cfg.zero_command_prob,
             label="UniformPoseCommandCfg zero_command_prob",
@@ -73,7 +68,16 @@ class UniformPoseCommand(CommandTerm):
             raise ValueError("UniformPoseCommandCfg zero_command_prob must be within [0, 1]")
         self._zero_command_prob = probability
         super().__init__(cfg, env)
-        self._command = np.zeros((self.num_envs, len(self._ranges)), dtype=get_global_dtype())
+        self._command = np.zeros((self.num_envs, len(ranges)), dtype=get_global_dtype())
+
+    @staticmethod
+    def _validated_ranges(ranges: object) -> tuple[tuple[float, float], ...]:
+        if not isinstance(ranges, (tuple, list)) or not ranges:
+            raise ValueError("UniformPoseCommandCfg ranges must not be empty")
+        return tuple(
+            _range_pair(item, label=f"UniformPoseCommandCfg ranges[{index}]")
+            for index, item in enumerate(ranges)
+        )
 
     @property
     def command(self) -> np.ndarray:
@@ -85,7 +89,14 @@ class UniformPoseCommand(CommandTerm):
     def _resample_command(self, env_ids: np.ndarray) -> None:
         if len(env_ids) == 0:
             return
-        for column, (lower, upper) in enumerate(self._ranges):
+        ranges = self._validated_ranges(self.cfg.ranges)
+        if len(ranges) != self._command.shape[1]:
+            raise ValueError(
+                "UniformPoseCommandCfg ranges width changed from "
+                f"{self._command.shape[1]} to {len(ranges)}; curricula may only "
+                "change per-axis bounds"
+            )
+        for column, (lower, upper) in enumerate(ranges):
             self._command[env_ids, column] = self._env.rng.uniform(
                 lower,
                 upper,

@@ -12,10 +12,6 @@ from unilab.envs.mdp.actions import (
 from unilab.envs.mdp.actions import (
     RelativeJointPositionActionCfg as RelativeJointPositionActionCfg,
 )
-from unilab.envs.mdp.commands import GroundPickPhaseCommand as GroundPickPhaseCommand
-from unilab.envs.mdp.commands import GroundPickPhaseCommandCfg as GroundPickPhaseCommandCfg
-from unilab.envs.mdp.commands import SitStandCommand as SitStandCommand
-from unilab.envs.mdp.commands import SitStandCommandCfg as SitStandCommandCfg
 from unilab.envs.mdp.commands import UniformPoseCommand as UniformPoseCommand
 from unilab.envs.mdp.commands import UniformPoseCommandCfg as UniformPoseCommandCfg
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
@@ -56,6 +52,8 @@ from unilab.envs.mdp.observations import (
 from unilab.envs.mdp.observations import (
     projected_gravity_imu_misaligned as projected_gravity_imu_misaligned,
 )
+from unilab.envs.mdp.observations import root_height as root_height
+from unilab.envs.mdp.recorders import LifecycleCounterRecorder as LifecycleCounterRecorder
 from unilab.envs.mdp.rewards import action_acc_l2 as action_acc_l2
 from unilab.envs.mdp.rewards import action_rate_l2 as action_rate_l2
 from unilab.envs.mdp.rewards import (
@@ -84,14 +82,11 @@ __all__ = [
     "JointEffortActionCfg",
     "JointVelocityAction",
     "JointVelocityActionCfg",
+    "LifecycleCounterRecorder",
     "RelativeJointPositionAction",
     "RelativeJointPositionActionCfg",
     "UniformVelocityCommand",
     "UniformVelocityCommandCfg",
-    "GroundPickPhaseCommand",
-    "GroundPickPhaseCommandCfg",
-    "SitStandCommand",
-    "SitStandCommandCfg",
     "UniformPoseCommand",
     "UniformPoseCommandCfg",
     "action_acc_l2",
@@ -133,6 +128,7 @@ __all__ = [
     "resolve_env_ids",
     "reward_curriculum",
     "root_height_below_minimum",
+    "root_height",
     "termination_curriculum",
     "time_out",
     "track_angular_velocity",

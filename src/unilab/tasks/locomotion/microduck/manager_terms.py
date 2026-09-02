@@ -19,12 +19,8 @@ import numpy as np
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
 from unilab.managers import (
-    CommandTerm,
-    CommandTermCfg,
     ManagerTermBase,
     ManagerTermBaseCfg,
-    RecorderTerm,
-    RecorderTermCfg,
     SceneEntityCfg,
 )
 from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
@@ -108,65 +104,6 @@ def _asset_selection(
 
 
 @dataclass(kw_only=True)
-class UniformVectorCommandCfg(CommandTermCfg):
-    """Uniformly sample a fixed-width command vector from per-axis ranges."""
-
-    ranges: tuple[tuple[float, float], ...] | list[list[float]]
-
-    def build(self, env: ManagerBasedRlEnv) -> UniformVectorCommand:
-        return UniformVectorCommand(self, env)
-
-
-class UniformVectorCommand(CommandTerm):
-    """Task-local vector command with no runtime scene dependency.
-
-    ``cfg.ranges`` is re-read on every resample (not cached), so a step-staged
-    command curriculum can widen the sampling ranges by mutating the live term
-    config between resamples.
-    """
-
-    cfg: UniformVectorCommandCfg
-
-    def __init__(self, cfg: UniformVectorCommandCfg, env: ManagerBasedRlEnv):
-        ranges = self._validated_ranges(cfg.ranges)
-        super().__init__(cfg, env)
-        self._command = np.zeros((self.num_envs, ranges.shape[0]), dtype=get_global_dtype())
-
-    @staticmethod
-    def _validated_ranges(ranges: Any) -> np.ndarray:
-        array = np.asarray(ranges, dtype=np.float64)
-        if array.ndim != 2 or array.shape[0] == 0 or array.shape[1] != 2:
-            raise ValueError("UniformVectorCommandCfg ranges must have shape (N, 2)")
-        if not np.isfinite(array).all() or np.any(array[:, 0] > array[:, 1]):
-            raise ValueError("UniformVectorCommandCfg ranges must be finite ordered pairs")
-        return array
-
-    @property
-    def command(self) -> np.ndarray:
-        return self._command
-
-    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
-        del env_ids
-
-    def _resample_command(self, env_ids: np.ndarray) -> None:
-        ranges = self._validated_ranges(self.cfg.ranges)
-        if ranges.shape[0] != self._command.shape[1]:
-            raise ValueError(
-                "UniformVectorCommandCfg ranges width changed from "
-                f"{self._command.shape[1]} to {ranges.shape[0]}; curricula may only "
-                "widen per-axis bounds, not the command width"
-            )
-        self._command[env_ids] = self._env.rng.uniform(
-            ranges[:, 0],
-            ranges[:, 1],
-            size=(len(env_ids), ranges.shape[0]),
-        )
-
-    def _update_command(self, env_ids: np.ndarray | None) -> None:
-        del env_ids
-
-
-@dataclass(kw_only=True)
 class MicroduckVelocityCommandCfg(UniformVelocityCommandCfg):
     """Velocity command with MicroDuck's turn-in-place sampling branch."""
 
@@ -206,6 +143,176 @@ class MicroduckVelocityCommand(UniformVelocityCommand):
             self._turn_ang_max,
             len(turn_ids),
         )
+
+
+class GroundPickPhaseCommand(UniformVelocityCommand):
+    """Continuous cyclic task phase encoded as ``[cos, sin, 0]``."""
+
+    def __init__(self, cfg: GroundPickPhaseCommandCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        self._period = _finite_real(
+            cfg.period,
+            label="GroundPickPhaseCommand period",
+            minimum=0.0,
+            strict_minimum=True,
+        )
+        if not isinstance(cfg.randomize_phase, bool):
+            raise TypeError("GroundPickPhaseCommand randomize_phase must be bool")
+        self._randomize_phase = cfg.randomize_phase
+        self._phase = np.zeros(self.num_envs, dtype=get_global_dtype())
+
+    @property
+    def phase(self) -> np.ndarray:
+        return self._phase
+
+    def reset(self, env_ids: np.ndarray | slice | None) -> dict[str, float]:
+        ids = (
+            np.arange(self.num_envs, dtype=np.int32)
+            if env_ids is None
+            else (
+                np.arange(self.num_envs, dtype=np.int32)[env_ids]
+                if isinstance(env_ids, slice)
+                else np.asarray(env_ids, dtype=np.int32)
+            )
+        )
+        self.time_left[ids] = 0.0
+        self.command_counter[ids] = 0
+        self.metrics.clear()
+        if self._randomize_phase:
+            self._phase[ids] = self._env.rng.uniform(0.0, 1.0, size=len(ids))
+        else:
+            self._phase[ids] = 0.0
+        self._update_command(ids)
+        return {}
+
+    def compute(self, dt: float | np.ndarray, env_ids: np.ndarray | None = None) -> None:
+        # This is a continuous signal, so the sampled-command timer is not part
+        # of its lifecycle.
+        if env_ids is not None:
+            if isinstance(dt, np.ndarray):
+                raise ValueError("GroundPickPhaseCommand reset compute expects scalar dt")
+            if not np.isfinite(dt):
+                raise ValueError("GroundPickPhaseCommand received non-finite dt")
+            self._update_command(np.asarray(env_ids, dtype=np.int32))
+            return
+        delta = np.asarray(dt, dtype=get_global_dtype())
+        if not np.isfinite(delta).all():
+            raise ValueError("GroundPickPhaseCommand received non-finite dt")
+        if delta.ndim == 0:
+            self._phase[:] = (self._phase + float(delta) / self._period) % 1.0
+        elif delta.shape == (self.num_envs,):
+            self._phase[:] = (self._phase + delta / self._period) % 1.0
+        else:
+            raise ValueError(
+                f"GroundPickPhaseCommand dt must be scalar or ({self.num_envs},), got {delta.shape}"
+            )
+        self._update_command(None)
+
+    def _resample_command(self, env_ids: np.ndarray) -> None:
+        del env_ids
+
+    def _update_command(self, env_ids: np.ndarray | None = None) -> None:
+        del env_ids
+        self.vel_command_b[:, 0] = np.cos(2.0 * math.pi * self._phase)
+        self.vel_command_b[:, 1] = np.sin(2.0 * math.pi * self._phase)
+        self.vel_command_b[:, 2] = 0.0
+
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        del env_ids
+
+
+@dataclass(kw_only=True)
+class GroundPickPhaseCommandCfg(UniformVelocityCommandCfg):
+    # Retained because this task term specializes the shared velocity command
+    # config selected by the owner overlay.
+    turn_in_place_fraction: float = 0.0
+    turn_in_place_ang_min: float = 0.4
+    period: float = 4.0
+    randomize_phase: bool = True
+
+    def build(self, env: ManagerBasedRlEnv) -> GroundPickPhaseCommand:
+        return GroundPickPhaseCommand(self, env)
+
+
+class SitStandCommand(UniformVelocityCommand):
+    """Binary posture command with a bounded-rate internal target blend."""
+
+    def __init__(self, cfg: SitStandCommandCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        self._sit_prob = _ratio(cfg.sit_prob, label="SitStandCommand sit_prob")
+        self._ramp_s = _finite_real(
+            cfg.ramp_s,
+            label="SitStandCommand ramp_s",
+            minimum=0.0,
+            strict_minimum=True,
+        )
+        self._sit_z = _finite_real(cfg.sit_z, label="SitStandCommand sit_z")
+        self._stand_z = _finite_real(cfg.stand_z, label="SitStandCommand stand_z")
+        if self._sit_z >= self._stand_z:
+            raise ValueError("SitStandCommand sit_z must be below stand_z")
+        self._alpha = np.zeros(self.num_envs, dtype=get_global_dtype())
+        self._robot = cast("Entity", env.scene[cfg.entity_name])
+
+    @property
+    def alpha(self) -> np.ndarray:
+        return self._alpha
+
+    def _resample_command(self, env_ids: np.ndarray) -> None:
+        self.vel_command_b[env_ids] = 0.0
+        sit = self._env.rng.uniform(0.0, 1.0, size=len(env_ids)) < self._sit_prob
+        self.vel_command_b[env_ids, 0] = sit.astype(get_global_dtype())
+
+    def _update_command(self, env_ids: np.ndarray | None = None) -> None:
+        del env_ids
+
+    def compute(self, dt: float | np.ndarray, env_ids: np.ndarray | None = None) -> None:
+        super().compute(dt, env_ids)
+        if env_ids is not None:
+            ids = np.asarray(env_ids, dtype=np.int32)
+            fresh = self._env.episode_length_buf[ids] <= 1
+            if np.any(fresh):
+                self._alpha[ids[fresh]] = self._alpha_from_height(ids[fresh])
+            return
+        dt_values = np.asarray(dt, dtype=get_global_dtype())
+        if dt_values.ndim == 0:
+            step = np.full(self.num_envs, float(dt_values), dtype=get_global_dtype())
+        elif dt_values.shape == (self.num_envs,):
+            step = dt_values
+        else:
+            raise ValueError(
+                f"SitStandCommand dt must be scalar or ({self.num_envs},), got {dt_values.shape}"
+            )
+        fresh = self._env.episode_length_buf <= 1
+        if np.any(fresh):
+            self._alpha[fresh] = self._alpha_from_height(np.flatnonzero(fresh))
+        target = self.vel_command_b[:, 0]
+        self._alpha += np.clip(target - self._alpha, -step / self._ramp_s, step / self._ramp_s)
+
+    def _alpha_from_height(self, ids: np.ndarray) -> np.ndarray:
+        height = self._robot.data.root_link_pos_w[ids, 2]
+        return np.clip(
+            (self._stand_z - height) / max(self._stand_z - self._sit_z, 1e-6),
+            0.0,
+            1.0,
+        ).astype(get_global_dtype(), copy=False)
+
+    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+        del env_ids
+
+
+@dataclass(kw_only=True)
+class SitStandCommandCfg(UniformVelocityCommandCfg):
+    # Retained because this task term specializes the shared velocity command
+    # config selected by the owner overlay.
+    turn_in_place_fraction: float = 0.0
+    turn_in_place_ang_min: float = 0.4
+    sit_prob: float = 0.5
+    ramp_s: float = 2.0
+    sit_z: float = 0.060
+    stand_z: float = 0.115
+
+    def build(self, env: ManagerBasedRlEnv) -> SitStandCommand:
+        return SitStandCommand(self, env)
 
 
 class _JointCommandTerm(ManagerTermBase):
@@ -392,10 +499,11 @@ def posture_height_tracking(
     if not isinstance(asset_cfg, SceneEntityCfg):
         raise TypeError("posture_height_tracking asset_cfg must be SceneEntityCfg")
     command_term = env.command_manager.get_term(command_name)
-    alpha = getattr(command_term, "alpha", None)
-    if alpha is None:
-        command = _command(env, "posture_height_tracking", command_name)
-        alpha = np.clip(command[:, 0], 0.0, 1.0)
+    if not isinstance(command_term, SitStandCommand):
+        raise TypeError(
+            f"posture_height_tracking requires a SitStandCommand, got {type(command_term).__name__}"
+        )
+    alpha = command_term.alpha
     target = (1.0 - alpha) * stand_height + alpha * sit_height
     actual = _state(
         "posture_height_tracking",
@@ -406,59 +514,46 @@ def posture_height_tracking(
     return np.asarray(np.exp(-np.square((actual - target) / std)), dtype=get_global_dtype())
 
 
-def root_height_metric(
+def phase_height_tracking(
     env: ManagerBasedRlEnv,
+    command_name: str = "twist",
+    sit_height: float = 0.060,
+    stand_height: float = 0.115,
+    std: float = 0.02,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> np.ndarray:
-    """Expose a finite root-height metric for the MetricsManager contract."""
+    """Track a cyclic stand-to-sit height target encoded by phase sine."""
+    if std <= 0.0 or not np.isfinite(std):
+        raise ValueError("phase_height_tracking std must be finite and positive")
     if not isinstance(asset_cfg, SceneEntityCfg):
-        raise TypeError("root_height_metric asset_cfg must be SceneEntityCfg")
-    return np.asarray(
-        _state(
-            "root_height_metric",
-            "root position",
-            cast("Entity", env.scene[asset_cfg.name]).data.root_link_pos_w,
-            (env.num_envs, 3),
-        )[:, 2],
-        dtype=get_global_dtype(),
-    )
-
-
-class MicroduckTraceRecorder(RecorderTerm):
-    """Allocation-free in-memory recorder used by the minimal API task owners.
-
-    The recorder deliberately has no file or backend dependency.  It provides
-    observable lifecycle evidence for users defining a real recorder term while
-    keeping the default training path free of filesystem I/O.
-    """
-
-    def __init__(self, cfg: RecorderTermCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        self.post_reset_count = 0
-        self.post_step_count = 0
-        self.pre_reset_count = 0
-
-    def record_pre_reset(self, env_ids: np.ndarray) -> None:
-        self.pre_reset_count += int(len(env_ids))
-
-    def record_post_reset(self, env_ids: np.ndarray) -> None:
-        self.post_reset_count += int(len(env_ids))
-
-    def record_post_step(self) -> None:
-        self.post_step_count += 1
+        raise TypeError("phase_height_tracking asset_cfg must be SceneEntityCfg")
+    command = _command(env, "phase_height_tracking", command_name)
+    if command.shape[1] < 2:
+        raise ValueError("phase_height_tracking command must contain cosine and sine")
+    midpoint = 0.5 * (stand_height + sit_height)
+    amplitude = 0.5 * (stand_height - sit_height)
+    target = midpoint - amplitude * command[:, 1]
+    actual = _state(
+        "phase_height_tracking",
+        "root position",
+        cast("Entity", env.scene[asset_cfg.name]).data.root_link_pos_w,
+        (env.num_envs, 3),
+    )[:, 2]
+    return np.asarray(np.exp(-np.square((actual - target) / std)), dtype=get_global_dtype())
 
 
 __all__ = [
+    "GroundPickPhaseCommand",
+    "GroundPickPhaseCommandCfg",
     "MicroduckVelocityCommand",
     "MicroduckVelocityCommandCfg",
-    "UniformVectorCommand",
-    "UniformVectorCommandCfg",
+    "SitStandCommand",
+    "SitStandCommandCfg",
     "flight_phase",
     "foot_air_time_biped",
     "head_pose_bias",
     "head_pose_tracking",
     "leg_pose",
-    "MicroduckTraceRecorder",
+    "phase_height_tracking",
     "posture_height_tracking",
-    "root_height_metric",
 ]

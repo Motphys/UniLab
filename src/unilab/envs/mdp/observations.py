@@ -117,6 +117,15 @@ def projected_gravity(
     return asset.data.projected_gravity_b
 
 
+def root_height(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Return the world-frame root height for each environment."""
+    asset = cast("Entity", env.scene[asset_cfg.name])
+    return np.asarray(asset.data.root_link_pos_w[:, 2])
+
+
 # Per-env constant IMU mounting-misalignment quaternions, keyed by env instance
 # and max_angle_rad. Sampled once per (env, angle) at term construction and
 # shared by every misaligned term of that env, so the gyroscope and gravity
@@ -270,4 +279,5 @@ __all__ = [
     "projected_gravity",
     "projected_gravity_from_sensor",
     "projected_gravity_imu_misaligned",
+    "root_height",
 ]
