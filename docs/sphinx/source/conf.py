@@ -275,6 +275,7 @@ _LANGUAGE_ROOT_INDEX = {
 # instead of bouncing to the language index. Forward direction only — reverse
 # map is computed below.
 _LANGUAGE_PATH_FORWARD: dict[str, str] = {
+    "en/2-user_guide/3-backends/7-drake": "zh_CN/2-user_guide/3-backends/7-drake",
     "en/1-getting_started/5-faq": "zh_CN/1-getting_started/5-faq",
     "en/4-developer_guide/1-architecture/6-manager_based_api": (
         "zh_CN/4-developer_guide/1-architecture/6-manager_based_api"

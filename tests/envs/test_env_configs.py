@@ -42,7 +42,7 @@ def _allegro_manager_override(
 
     repo_root = Path(__file__).parents[2]
     with initialize_config_dir(
-        config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / config_root), version_base="1.3"
     ):
         cfg = compose("config", overrides=[f"task={task}/{backend}"])
     return BackendAdapter(
@@ -50,7 +50,9 @@ def _allegro_manager_override(
     ).build_task_env_cfg_override()
 
 
-def _g1_manager_override(task: str = "g1_walk_flat", backend: str = "mujoco") -> dict[str, Any]:
+def _g1_manager_override(
+    task: str = "g1_walk_flat", backend: str = "mujoco", config_group: str = "ppo"
+) -> dict[str, Any]:
     from hydra import compose, initialize_config_dir
 
     from unilab.base.config_adapter import BackendAdapter
@@ -58,14 +60,20 @@ def _g1_manager_override(task: str = "g1_walk_flat", backend: str = "mujoco") ->
     repo_root = Path(__file__).parents[2]
     if task == "g1_walk_rough":
         # There is no ppo g1_walk_rough owner; use the SAC owner instead.
-        with initialize_config_dir(config_dir=str(repo_root / "conf" / "sac"), version_base="1.3"):
+        with initialize_config_dir(
+            config_dir=str(repo_root / "src" / "unilab" / "conf" / "sac"), version_base="1.3"
+        ):
             cfg = compose("config", overrides=[f"task={task}/mujoco"])
         return BackendAdapter(
             cfg, root_dir=repo_root, algo_name="sac"
         ).build_task_env_cfg_override()
-    with initialize_config_dir(config_dir=str(repo_root / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / config_group), version_base="1.3"
+    ):
         cfg = compose("config", overrides=[f"task={task}/{backend}"])
-    return BackendAdapter(cfg, root_dir=repo_root, algo_name="ppo").build_task_env_cfg_override()
+    return BackendAdapter(
+        cfg, root_dir=repo_root, algo_name=config_group
+    ).build_task_env_cfg_override()
 
 
 def _motion_manager_override(
@@ -82,7 +90,7 @@ def _motion_manager_override(
     repo_root = Path(__file__).parents[2]
     GlobalHydra.instance().clear()
     with initialize_config_dir(
-        config_dir=str(repo_root / "conf" / config_root), version_base="1.3"
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / config_root), version_base="1.3"
     ):
         overrides = [f"task={task}/{backend}"]
         cfg = compose("config", overrides=overrides)
@@ -151,6 +159,8 @@ def test_g1_walk_tasks_register_to_manager_based_env():
         "mjwarp",
         "motrix",
         "isaacgym",
+        "genesis",
+        "isaacsim",
     ]
     assert metadata["G1WalkRough"]["available_backends"] == ["mujoco", "motrix"]
 
@@ -179,6 +189,39 @@ def test_g1_walk_flat_isaacgym_owner_composes_and_materializes():
     # Effort-mode dofs carry no PD gains, so the owner disables kp/kd
     # randomization like the mjwarp/motrix owners.
     assert env_cfg.events["pd_gains"] is None
+
+
+@pytest.mark.parametrize("config_group", ("ppo", "sac"))
+def test_g1_walk_flat_genesis_owner_composes_and_materializes(config_group):
+    """The genesis owners compose and materialize a plain manager env cfg."""
+    from unilab.base import registry
+    from unilab.base.config_materialization import apply_cfg_overrides
+    from unilab.envs import ManagerBasedRlEnvCfg
+
+    ensure_registries()
+    override = _g1_manager_override("g1_walk_flat", backend="genesis", config_group=config_group)
+    env_cfg = registry.materialize_env_config("G1WalkFlat")
+    assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
+    apply_cfg_overrides(env_cfg, override)
+    env_cfg.validate()
+
+    assert env_cfg.scene is not None
+    # The in-process backend consumes the self-contained MJCF scene directly;
+    # scene fragments and generated terrain stay unset.
+    assert env_cfg.scene.model_file.endswith("robots/g1/scene_flat.xml")
+    assert env_cfg.scene.fragment_files == []
+    assert env_cfg.scene.terrain is None
+    assert env_cfg.scene.default_keyframe_name == "stand"
+    # The owner re-declares the MJCF <option integrator="implicitfast"> that
+    # Genesis drops at import; the other global options stay at Genesis
+    # defaults (None).
+    assert env_cfg.genesis_integrator == "implicitfast"
+    assert env_cfg.genesis_constraint_solver is None
+    assert env_cfg.genesis_friction_cone is None
+    assert env_cfg.genesis_solver_iterations is None
+    # kp/kd reset randomization stays enabled: the backend declares the
+    # measured RESET_TERM_KP/KD DR terms.
+    assert env_cfg.events["pd_gains"] is not None
 
 
 def test_g1_walk_flat_assets_define_contact_sensors_for_gait_rewards():

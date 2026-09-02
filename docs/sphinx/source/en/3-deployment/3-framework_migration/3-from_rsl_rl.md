@@ -29,7 +29,7 @@ and it's nearly drop-in.
 ## Migration steps
 
 1. Move your env into `unilab.envs.<family>.<task>/`.
-2. Convert your training config to a Hydra group under `conf/ppo/<task>/`.
+2. Convert your training config to a Hydra group under `src/unilab/conf/ppo/<task>/`.
 3. Run `uv run train --algo ppo --task <task> --sim <backend>`.
 4. Compare reward curves against your standalone RSL-RL baseline.
 

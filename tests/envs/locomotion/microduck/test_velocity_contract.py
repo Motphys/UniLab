@@ -30,7 +30,7 @@ from unilab.tasks.locomotion.microduck.manager_terms import (
 )
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf" / "ppo"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf" / "ppo"
 
 JOINT_NAMES = (
     "left_hip_yaw",

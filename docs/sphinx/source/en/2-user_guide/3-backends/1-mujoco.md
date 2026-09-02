@@ -10,7 +10,7 @@ under `src/unilab/base/backend/mujoco/`.
 
 - You want the default training route for PPO, APPO, off-policy SAC/TD3, or
   FlashSAC.
-- The task owner exists only as `conf/.../<task>/mujoco.yaml`.
+- The task owner exists only as `src/unilab/conf/.../<task>/mujoco.yaml`.
 - You need MuJoCo-specific tooling such as `scripts/play_viser.py` or scene
   export from a MuJoCo XML/MJB model.
 

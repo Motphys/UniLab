@@ -1,6 +1,26 @@
 [build-system]
-requires = ["uv_build>=0.11.3,<0.12"]
+requires = ["uv_build>=0.12.1,<0.13"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# Robot meshes/textures are hosted on Hugging Face (unilabsim/unilab-robots)
+# and downloaded into these paths on first use; keep them out of the
+# wheel/sdist even when they exist in the source tree. XML and small metadata
+# stay packaged. Directories must stay in sync with ROBOT_ASSET_SPECS in
+# src/unilab/assets/hub.py.
+source-exclude = [
+    "/src/unilab/assets/robots/a2/assets",
+    "/src/unilab/assets/robots/allegro_hand/assets",
+    "/src/unilab/assets/robots/g1/assets",
+    "/src/unilab/assets/robots/g1/textures",
+    "/src/unilab/assets/robots/go2/assets",
+    "/src/unilab/assets/robots/go2_arm/assets",
+    "/src/unilab/assets/robots/microduck/assets",
+    "/src/unilab/assets/robots/sharpa_wave/meshes",
+    "/src/unilab/assets/robots/t800/assets",
+    "/src/unilab/assets/robots/t800/textures",
+    "/src/unilab/assets/robots/x2/meshes",
+]
 
 [project]
 name = "unilab"
@@ -9,13 +29,24 @@ description = "Universal Lab for Robot Learning"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+authors = [{ name = "UniLab Authors" }]
+keywords = ["robot-learning", "reinforcement-learning", "mujoco", "simulation"]
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torch==2.7.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    "torch==2.8.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
     "gymnasium",
     "imageio",
     "etils",
@@ -25,7 +56,9 @@ dependencies = [
     "packaging",
     "mediapy",
     "tensorboard",
-    "setuptools<70",
+    # Unpinned: quadrants (genesis-world 1.3.3 pin) requires setuptools>=77,
+    # and nothing in this repo imports setuptools/pkg_resources at runtime.
+    "setuptools",
     "rich",
     "tqdm",
     "typing-extensions",
@@ -49,6 +82,12 @@ unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
 
 [project.optional-dependencies]
+drake = [
+    # Python runtime for the Drake batch adapter. Drake C++ remains an external
+    # toolchain and the native extension must be built against the local
+    # DRAKE_HOME after this extra is synced.
+    "drake-uni==0.1.0",
+]
 mujoco = [
     # Bound stays loose; the committed uv.lock pins the default solver version
     # (uv prefer-locked semantics). The tested window is >=3.5,<3.11 — switch
@@ -72,6 +111,12 @@ mjwarp = [
     "warp-lang>=1.14.0",
 ]
 motrix = ["motrixsim-core==0.8.2"]
+genesis = [
+    # Genesis imports as ``genesis`` and owns the GPU physics implementation;
+    # it is a separate optional extra pinned exactly to the probed release
+    # (scripts/tools/genesis_feasibility/REPORT.md, #1372).
+    "genesis-world==1.3.3",
+]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 
 [dependency-groups]

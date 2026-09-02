@@ -75,7 +75,9 @@ def test_mjwarp_plan_is_explicit_and_finite() -> None:
 
 
 def test_g1_mjwarp_owner_enables_explicit_record_profile() -> None:
-    owner = OmegaConf.load(REPO_ROOT / "conf" / "ppo" / "task" / "g1_walk_flat" / "mjwarp.yaml")
+    owner = OmegaConf.load(
+        REPO_ROOT / "src" / "unilab" / "conf" / "ppo" / "task" / "g1_walk_flat" / "mjwarp.yaml"
+    )
 
     assert OmegaConf.select(owner, "training.no_play") is None
     assert owner.training.play_render_mode == "record"

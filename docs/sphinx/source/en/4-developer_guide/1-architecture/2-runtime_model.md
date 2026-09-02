@@ -9,7 +9,7 @@ summary close to the code paths.
 
 ### Synchronous PPO Paths
 
-`scripts/train_rsl_rl.py` composes Hydra config,
+`src/unilab/scripts/train_rsl_rl.py` composes Hydra config,
 calls registry bootstrap, constructs the env through `registry.make(...)`, and runs
 the learner in the same process. The RSL-RL path adapts `NpEnv` through
 `src/unilab/training/rsl_rl.py`.
@@ -40,7 +40,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 ## Evidence In Repo
 
-- PPO entrypoint: `scripts/train_rsl_rl.py`
+- PPO entrypoint: `src/unilab/scripts/train_rsl_rl.py`
 - APPO runner: `src/unilab/algos/appo/runner.py`
 - Off-policy runner: `src/unilab/algos/offpolicy/double_buffer_runner.py`
 - IPC primitives: `src/unilab/ipc/async_runner.py`,

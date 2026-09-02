@@ -79,7 +79,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     ensure_registries()
     with hydra.initialize_config_dir(
-        version_base="1.3", config_dir=os.path.join(REPO_ROOT, "conf", args.config_group)
+        version_base="1.3",
+        config_dir=os.path.join(REPO_ROOT, "src", "unilab", "conf", args.config_group),
     ):
         cfg = hydra.compose(
             config_name="config",

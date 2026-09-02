@@ -434,7 +434,7 @@ def test_resolver_class_extract_and_dim_guard_delegate():
 
 
 def _compose_task(task: str) -> Any:
-    conf_dir = str(Path(__file__).resolve().parents[2] / "conf" / "ppo")
+    conf_dir = str(Path(__file__).resolve().parents[2] / "src" / "unilab" / "conf" / "ppo")
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=conf_dir, version_base="1.3"):
         return compose("config", overrides=[f"task={task}"])
@@ -469,3 +469,15 @@ def test_g1_walk_flat_mujoco_to_isaacgym_play_passes_guard(tmp_path):
     isaacgym = _compose_task("g1_walk_flat/isaacgym")
     assert OmegaConf.select(isaacgym, "training.sim_backend") == "isaacgym"
     assert resolve_sim2sim_config(tmp_path, isaacgym) is isaacgym
+
+
+def test_g1_walk_flat_mujoco_to_genesis_play_passes_guard(tmp_path):
+    # The genesis owner keeps DENYLIST parity with the MuJoCo owner, so a
+    # MuJoCo-trained checkpoint passes the contract guard for genesis play.
+    snapshot = extract_contract_snapshot(_compose_task("g1_walk_flat/mujoco"))
+    (tmp_path / "run_config.json").write_text(
+        json.dumps({"contract_snapshot": snapshot}), encoding="utf-8"
+    )
+    genesis = _compose_task("g1_walk_flat/genesis")
+    assert OmegaConf.select(genesis, "training.sim_backend") == "genesis"
+    assert resolve_sim2sim_config(tmp_path, genesis) is genesis

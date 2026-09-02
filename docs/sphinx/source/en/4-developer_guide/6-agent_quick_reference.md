@@ -9,10 +9,10 @@ repo facts.
 - Backend choice: {doc}`../2-user_guide/3-backends/3-choosing_a_backend`
 - Task index: {doc}`../2-user_guide/4-tasks/0-index`
 - Algorithms index: {doc}`../2-user_guide/2-algorithms/0-index`
-- PPO entrypoint: `scripts/train_rsl_rl.py`
-- APPO entrypoint: `scripts/train_appo.py`
-- SAC / TD3 / FlashSAC entrypoints: `scripts/train_sac.py` /
-  `scripts/train_td3.py` / `scripts/train_flashsac.py`
+- PPO entrypoint: `src/unilab/scripts/train_rsl_rl.py`
+- APPO entrypoint: `src/unilab/scripts/train_appo.py`
+- SAC / TD3 / FlashSAC entrypoints: `src/unilab/scripts/train_sac.py` /
+  `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
 - HIM-PPO entrypoint: `scripts/train_him_ppo.py`
 - HORA distillation entrypoint: `scripts/train_hora_distill.py`
 

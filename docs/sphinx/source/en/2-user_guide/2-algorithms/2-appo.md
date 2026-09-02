@@ -1,7 +1,7 @@
 # APPO
 
-APPO is UniLab's asynchronous PPO path. It uses `scripts/train_appo.py`,
-`conf/appo/config.yaml`, and the runtime under `src/unilab/algos/appo/`.
+APPO is UniLab's asynchronous PPO path. It uses `src/unilab/scripts/train_appo.py`,
+`src/unilab/conf/appo/config.yaml`, and the runtime under `src/unilab/algos/appo/`.
 The config exposes `algo.steps_per_env`, `training.collector_device`, and
 `training.replay_queue_size`; the algorithm config includes V-trace clipping
 fields.
@@ -73,4 +73,4 @@ gantt
 - `algo.save_interval`: checkpoint save interval.
 
 The default log root is `logs/appo/<task>/`, from `algo.algo_log_name=appo`
-in `conf/appo/config.yaml`.
+in `src/unilab/conf/appo/config.yaml`.

@@ -23,7 +23,7 @@ UNILAB_DP_WORLD_SIZE = "UNILAB_DP_WORLD_SIZE"
 UNILAB_DP_DEVICES = "UNILAB_DP_DEVICES"
 UNILAB_DP_LOG_DIR = "UNILAB_DP_LOG_DIR"
 
-_SCRIPTS_ROOT = Path(__file__).resolve().parents[3] / "scripts"
+_SCRIPTS_ROOT = Path(__file__).resolve().parents[1] / "scripts"
 
 _WATCHDOG_INTERVAL_S = 0.5
 _COOPERATIVE_EXIT_GRACE_S = 10.0
@@ -321,7 +321,7 @@ class DpRankSupervisor:
     """Rank-0 supervisor that spawns and watches data-parallel rank subprocesses.
 
     Ranks 1..N-1 re-run the current entry script (``sys.argv[0]``, e.g.
-    ``scripts/train_sac.py``) with the same Hydra
+    ``unilab/scripts/train_sac.py``) with the same Hydra
     argv plus the ``UNILAB_DP_*`` environment; each spawned rank builds its
     own learner+collector pair through the regular runner path. If any rank
     subprocess dies with a non-zero exit code while active, the supervisor

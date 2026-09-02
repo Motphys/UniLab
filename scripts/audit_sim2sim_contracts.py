@@ -26,14 +26,20 @@ from omegaconf import OmegaConf
 from unilab.utils.sim2sim import DENYLIST, ENV_STRUCTURAL_DENYLIST, WARNING_LIST, _normalize
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONF_ROOT = REPO_ROOT / "conf"
+CONF_ROOT = REPO_ROOT / "src" / "unilab" / "conf"
 ABSENT = "<absent>"
 
 # Audited backend pairs. mujoco<->motrix is the historical primary contract;
-# mujoco<->isaacgym covers the subprocess backend owners.
+# mujoco<->isaacgym covers the subprocess backend owners; mujoco<->genesis
+# covers the in-process Genesis backend owners; mujoco<->isaacsim covers the
+# Python 3.11 worker backend owners. The additional adapters are audited
+# independently so a new owner cannot accidentally drift from the canonical
+# MuJoCo policy contract.
 CONTRACT_PAIRS: tuple[tuple[str, str], ...] = (
     ("mujoco", "motrix"),
     ("mujoco", "isaacgym"),
+    ("mujoco", "genesis"),
+    ("mujoco", "isaacsim"),
 )
 
 
@@ -124,7 +130,7 @@ def audit_tree(tree: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     discovered = _discover(tree)
     if not discovered:
-        raise ValueError(f"No task owner configs discovered under conf/{tree}/task")
+        raise ValueError(f"No task owner configs discovered under src/unilab/conf/{tree}/task")
     for task, backends in discovered.items():
         values: dict[str, dict[str, Any]] = {}
         errors: dict[str, str] = {}
@@ -218,7 +224,7 @@ def main() -> None:
         "--trees",
         nargs="+",
         default=["ppo", "appo"],
-        help="Hydra config trees under conf/ to audit (default: ppo appo).",
+        help="Hydra config trees under src/unilab/conf/ to audit (default: ppo appo).",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only.")
     args = parser.parse_args()

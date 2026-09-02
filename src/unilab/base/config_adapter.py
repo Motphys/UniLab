@@ -50,6 +50,18 @@ class BackendAdapter:
     def build_play_env_cfg_override(self) -> dict[str, Any]:
         """Build play-mode overrides from an optional backend-agnostic play profile."""
         env_cfg_override = self.build_task_env_cfg_override()
+        # IsaacSim must know the render intent before its Python 3.11 worker
+        # launches Kit.  Keep this routing in the config adapter (the owner
+        # layer) so training env construction remains headless and the
+        # renderer never leaks into runners/learners.  Other backends do not
+        # consume this field and retain their existing play contracts.
+        if str(OmegaConf.select(self.cfg, "training.sim_backend", default="")) == "isaacsim":
+            play_render_mode = OmegaConf.select(
+                self.cfg, "training.play_render_mode", default="auto"
+            )
+            env_cfg_override["isaacsim_render_mode"] = (
+                "auto" if play_render_mode is None else str(play_render_mode)
+            )
         play_profile = getattr(self.cfg, "play_profile", None)
         if (
             play_profile is None
@@ -70,8 +82,15 @@ class BackendAdapter:
         if not source_model_file:
             raise ValueError("play_profile.scene.source_model_file must be configured")
 
+        # Cold path: the materializer parses the source XML before any
+        # create_backend hook runs, so resolve HF-hosted robot assets first.
+        from unilab.assets.hub import ensure_robot_assets_for_paths
+
+        resolved_source = self._resolve_root_relative_path(str(source_model_file))
+        ensure_robot_assets_for_paths([resolved_source])
+
         materialized_model_file = self.scene_materializer(
-            self._resolve_root_relative_path(str(source_model_file)),
+            resolved_source,
             ground_texture_file=(
                 self._resolve_root_relative_path(str(scene_override.ground_texture_file))
                 if getattr(scene_override, "ground_texture_file", None)

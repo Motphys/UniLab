@@ -49,7 +49,7 @@ README 把 UniLab 描述为通过共享内存把 CPU 物理仿真连接到策略
 
 :::{grid-item-card} 后端选择留在配置里
 用 CLI flag 切换后端，例如 `--task go2_joystick_flat --sim motrix`；
-CLI 会组合 `conf/` 下对应的 owner YAML。不要把
+CLI 会组合 `src/unilab/conf/` 下对应的 owner YAML。不要把
 `training.sim_backend` 当作独立的后端开关。
 :::
 
@@ -123,8 +123,8 @@ registry 和 task-owner contract。
 
 ```{mermaid}
 flowchart LR
-  cli["uv run train/eval<br/>--algo --task --sim"] --> owner["Task owner YAML<br/>conf/*/task/..."]
-  cli --> script["Thin script routing<br/>scripts/train_*.py"]
+  cli["uv run train/eval<br/>--algo --task --sim"] --> owner["Task owner YAML<br/>src/unilab/conf/*/task/..."]
+  cli --> script["Thin script routing<br/>src/unilab/scripts/train_*.py"]
   owner --> registry["Registry bootstrap<br/>src/unilab/base/registry.py"]
   registry --> env["NpEnv contract<br/>obs dict + info dict"]
   env --> backend["SimBackend<br/>MuJoCo or Motrix"]
@@ -146,11 +146,11 @@ recommendation 元数据。
 | --- | --- | --- |
 | Go1 joystick | PPO、APPO、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。APPO 有已测试的 MuJoCo 行和 Motrix registered 行。TD3 有 `go1_joystick_flat` 的 Motrix owner YAML。 |
 | Go2 joystick | PPO、FlashSAC、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。FlashSAC 有 `go2_joystick_flat` 的 MuJoCo owner YAML；TD3 有 `go2_joystick_flat` 的 Motrix owner YAML。 |
-| Go2 arm manip-loco | PPO、HIM-PPO | `conf/ppo/task/go2_arm_manip_loco/` 和 `conf/ppo_him/task/go2_arm_manip_loco/` 下有已提交的 MuJoCo owner YAML。 |
-| Go2W joystick | PPO | `conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
+| Go2 arm manip-loco | PPO、HIM-PPO | `src/unilab/conf/ppo/task/go2_arm_manip_loco/` 和 `src/unilab/conf/ppo_him/task/go2_arm_manip_loco/` 下有已提交的 MuJoCo owner YAML。 |
+| Go2W joystick | PPO | `src/unilab/conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
 | G1 locomotion / tracking | PPO、APPO、SAC、TD3 | PPO、APPO、SAC 都为 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
 | Allegro in-hand | PPO、APPO | PPO 和 APPO 为 Allegro in-hand 任务提供了已提交的 MuJoCo 与 Motrix owner YAML。 |
-| Sharpa in-hand | PPO、APPO HORA teacher、HORA distillation | Sharpa owner YAML 为 PPO/APPO teacher 路径已提交；student distillation 使用 `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`。 |
+| Sharpa in-hand | PPO、APPO HORA teacher、HORA distillation | Sharpa owner YAML 为 PPO/APPO teacher 路径已提交；student distillation 使用 `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`。 |
 
 ```{toctree}
 :hidden:

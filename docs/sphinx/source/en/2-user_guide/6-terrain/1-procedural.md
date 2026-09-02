@@ -44,7 +44,7 @@ uv run train --algo ppo --task go2_joystick_rough --sim motrix
 
 ## 2. Overriding Terrain Parameters via Hydra Command Line
 
-`Go2JoystickRough` explicitly lists a set of override-able fields in `conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml`; these fields allow Hydra struct mode to accept command-line overrides.
+`Go2JoystickRough` explicitly lists a set of override-able fields in `src/unilab/conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml`; these fields allow Hydra struct mode to accept command-line overrides.
 
 | Field | Purpose | YAML Default |
 | --- | --- | --- |

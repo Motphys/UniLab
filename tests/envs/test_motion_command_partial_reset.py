@@ -71,7 +71,9 @@ _MOTION_DATA_FIELDS = (
 def _make_env(config_root: str, task: str, backend: str, identity: str, num_envs: int):
     registry.ensure_registries()
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_ROOT / "conf" / config_root), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(_ROOT / "src" / "unilab" / "conf" / config_root), version_base="1.3"
+    ):
         owner = compose("config", overrides=[f"task={task}/{backend}"])
     cfg = registry.materialize_env_config(identity)
     assert isinstance(cfg, ManagerBasedRlEnvCfg)

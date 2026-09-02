@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-CONF_DIR = Path(__file__).parent.parent.parent / "conf"
+CONF_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "conf"
 
 G1_BEYONDMIMIC_ACTION_SCALE = [
     0.5475464629911068,

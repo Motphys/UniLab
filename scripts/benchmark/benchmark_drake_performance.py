@@ -17,7 +17,7 @@ import numpy as np
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT_DIR / "src"
-DEFAULT_DRAKEUNI_SRC = ROOT_DIR.parent / "drakeuni" / "src"
+DEFAULT_DRAKE_UNI_SRC = ROOT_DIR.parent / "drake_uni" / "src"
 DEFAULT_OUTPUT = (
     ROOT_DIR / "scripts" / "benchmark" / "outputs" / "drake_performance" / "results.json"
 )
@@ -29,11 +29,11 @@ def _prepend_import_path(path: Path) -> None:
         sys.path.insert(0, path_str)
 
 
-def _install_import_paths(drakeuni_src: Path | None) -> None:
+def _install_import_paths(drake_uni_src: Path | None) -> None:
     for path in (SRC_DIR, ROOT_DIR):
         _prepend_import_path(path)
-    if drakeuni_src is not None and drakeuni_src.exists():
-        _prepend_import_path(drakeuni_src)
+    if drake_uni_src is not None and drake_uni_src.exists():
+        _prepend_import_path(drake_uni_src)
 
 
 @dataclass(frozen=True)
@@ -124,7 +124,9 @@ def _compose_env_cfg(task: str, backend: str, spec: TaskSpec) -> Any:
     from unilab.base.registry import apply_cfg_overrides
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[
@@ -334,10 +336,10 @@ def main() -> None:
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-json", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--drakeuni-src", type=Path, default=DEFAULT_DRAKEUNI_SRC)
+    parser.add_argument("--drake-uni-src", type=Path, default=DEFAULT_DRAKE_UNI_SRC)
     args = parser.parse_args()
 
-    _install_import_paths(args.drakeuni_src)
+    _install_import_paths(args.drake_uni_src)
     specs = _task_specs()
     task_ids = _parse_csv(args.tasks)
     backends = _parse_csv(args.backends)

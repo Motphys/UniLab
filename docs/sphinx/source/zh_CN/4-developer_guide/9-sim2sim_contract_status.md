@@ -24,7 +24,7 @@ uv run scripts/audit_sim2sim_contracts.py
 > 守卫对不对称出现一律 fail-closed；`algo` 专属字段（`empirical_normalization` /
 > `obs_normalization`）在目标缺省时按设计跳过（跨算法合法）。
 
-## `conf/ppo/task/`
+## `src/unilab/conf/ppo/task/`
 
 | Task | 判定 | 分歧 |
 |---|---|---|
@@ -35,7 +35,7 @@ uv run scripts/audit_sim2sim_contracts.py
 | go1_joystick_flat | ❌ | `empirical_normalization` false↔true |
 | g1_motion_tracking_deploy | ⚪ | 仅 mujoco |
 
-## `conf/appo/task/`
+## `src/unilab/conf/appo/task/`
 
 | Task | 判定 | 分歧 |
 |---|---|---|
@@ -46,8 +46,8 @@ uv run scripts/audit_sim2sim_contracts.py
 
 ## 其它配置树
 
-`conf/ppo_him/task`、`conf/sac/task`、`conf/td3/task`、`conf/flashsac/task`、
-`conf/hora_distill/task` 均无 mujoco↔motrix
+`src/unilab/conf/ppo_him/task`、`src/unilab/conf/sac/task`、`src/unilab/conf/td3/task`、`src/unilab/conf/flashsac/task`、
+`src/unilab/conf/hora_distill/task` 均无 mujoco↔motrix
 配对，sim2sim 不适用。
 
 ## 字段语义速查
@@ -70,7 +70,7 @@ uv run scripts/audit_sim2sim_contracts.py
 | `action_scale` | **不可** | 改值即改训练动力学，必须 owner 决策 + 重训 |
 | `empirical_normalization` | **不可** | 改变网络结构，必须重训 |
 
-试点示例：`conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`。后端 owner 通过 Hydra
+试点示例：`src/unilab/conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`。后端 owner 通过 Hydra
 defaults 继承共享 base owner 的完整契约，`motrix.yaml` 为单后端调参 override
 了若干契约字段——这种 override
 即令该 task 在该后端不可 sim2sim 迁移，去掉 override 即可恢复。

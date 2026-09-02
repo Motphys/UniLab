@@ -20,7 +20,7 @@ from unilab.tasks.locomotion.t800.manager_terms import (
 )
 
 ROOT_DIR = Path(__file__).parents[4]
-CONF_DIR = ROOT_DIR / "conf" / "sac"
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf" / "sac"
 
 _JOINT_NAMES = (
     "J00_HIP_PITCH_L",

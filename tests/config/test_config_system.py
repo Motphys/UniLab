@@ -16,8 +16,8 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-CONF_DIR = Path(__file__).parent.parent.parent / "conf"
-_BACKENDS = ("mujoco", "mjwarp", "motrix", "isaacgym")
+CONF_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "conf"
+_BACKENDS = ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim")
 
 
 def _expected_backend_from_variant(name: str) -> str | None:

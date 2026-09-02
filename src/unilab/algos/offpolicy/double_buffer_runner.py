@@ -157,6 +157,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         replay_prefetch_mode: str = "one_tick",
         collector_cpu_ids: list[int] | None = None,
         dp_sync: DpParameterSync | None = None,
+        inference_request_timeout_sec: float | None = None,
         **kwargs,
     ):
         kwargs["device"] = require_offpolicy_replay_device(kwargs.get("device"))
@@ -170,6 +171,23 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "DoubleBufferOffPolicyRunner only supports replay_prefetch_mode='one_tick'"
             )
         self.replay_prefetch_mode = replay_prefetch_mode
+        if inference_request_timeout_sec is not None and (
+            isinstance(inference_request_timeout_sec, bool)
+            or not isinstance(inference_request_timeout_sec, (int, float))
+            or inference_request_timeout_sec <= 0
+        ):
+            raise ValueError(
+                "inference_request_timeout_sec must be a positive number or None, "
+                f"got {inference_request_timeout_sec!r}"
+            )
+        # Tick-0 wait covers collector env construction, whose cost is
+        # backend-owned (e.g. genesis kernel compilation at scale); owners of
+        # slow-start backends raise this via their task YAML.
+        self.inference_request_timeout_sec = (
+            float(inference_request_timeout_sec)
+            if inference_request_timeout_sec is not None
+            else self.INFERENCE_REQUEST_TIMEOUT_SEC
+        )
         # Per-rank CPU block owned by this rank's collector (multi-GPU DP);
         # merged into the collector-only env override at collector startup.
         self.collector_cpu_ids = list(collector_cpu_ids) if collector_cpu_ids is not None else None
@@ -528,7 +546,7 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         ckpt_path: str | None,
         train_start_wall: float,
     ) -> int:
-        deadline = time.monotonic() + self.INFERENCE_REQUEST_TIMEOUT_SEC
+        deadline = time.monotonic() + self.inference_request_timeout_sec
         while True:
             try:
                 tick_id = int(queue.get(timeout=0.1))
@@ -553,7 +571,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                     )
                 if time.monotonic() >= deadline:
                     raise TimeoutError(
-                        f"Timed out waiting for collector inference tick {expected_tick}"
+                        f"Timed out waiting for collector inference tick {expected_tick} "
+                        f"(inference_request_timeout_sec={self.inference_request_timeout_sec})"
                     )
                 continue
             if tick_id != int(expected_tick):

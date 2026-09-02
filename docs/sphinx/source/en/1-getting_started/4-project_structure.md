@@ -7,7 +7,7 @@ changing behavior.
 | Path | Owner Role |
 | --- | --- |
 | `scripts/` | Thin training and tooling entrypoints. Scripts compose Hydra config and call owner-layer code. |
-| `conf/` | Hydra roots and task owner YAMLs. The top-level CLI exposes backend selection as `--task` plus `--sim`, then composes the matching owner YAML. |
+| `src/unilab/conf/` | Hydra roots and task owner YAMLs. The top-level CLI exposes backend selection as `--task` plus `--sim`, then composes the matching owner YAML. |
 | `src/unilab/base/` | Registry, env state, scene, and backend contracts. |
 | `src/unilab/envs/` | Task env implementations and task-specific reset, reward, observation, and DR logic. |
 | `src/unilab/algos/` | PPO, APPO, off-policy, HIM-PPO, and HORA algorithm code. |
@@ -22,12 +22,12 @@ changing behavior.
 
 The main config roots are:
 
-- `conf/ppo/config.yaml` for torch PPO.
-- `conf/appo/config.yaml` for APPO.
-- `conf/sac/config.yaml`, `conf/td3/config.yaml`, and
-  `conf/flashsac/config.yaml` for SAC, TD3, and FlashSAC, each with its
+- `src/unilab/conf/ppo/config.yaml` for torch PPO.
+- `src/unilab/conf/appo/config.yaml` for APPO.
+- `src/unilab/conf/sac/config.yaml`, `src/unilab/conf/td3/config.yaml`, and
+  `src/unilab/conf/flashsac/config.yaml` for SAC, TD3, and FlashSAC, each with its
   algorithm hyperparameters inlined.
-- `conf/ppo_him/config.yaml` and `conf/hora_distill/config.yaml` for the
+- `src/unilab/conf/ppo_him/config.yaml` and `src/unilab/conf/hora_distill/config.yaml` for the
   specialized HIM-PPO and HORA paths.
 
 Task owner YAMLs are the backend identity. Examples:

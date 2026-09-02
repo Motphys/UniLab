@@ -17,12 +17,12 @@ The training scripts follow the same high-level sequence:
 
 ## Runtime-Specific Owners
 
-- `scripts/train_rsl_rl.py` uses `RslRlVecEnvWrapper` and RSL-RL's
+- `src/unilab/scripts/train_rsl_rl.py` uses `RslRlVecEnvWrapper` and RSL-RL's
   `OnPolicyRunner`.
-- `scripts/train_appo.py` uses `APPORunner`, `RolloutRingBuffer`, and
+- `src/unilab/scripts/train_appo.py` uses `APPORunner`, `RolloutRingBuffer`, and
   `SharedWeightSync`.
-- `scripts/train_sac.py`, `scripts/train_td3.py`, and
-  `scripts/train_flashsac.py` use off-policy runners with `ReplayBuffer` and
+- `src/unilab/scripts/train_sac.py`, `src/unilab/scripts/train_td3.py`, and
+  `src/unilab/scripts/train_flashsac.py` use off-policy runners with `ReplayBuffer` and
   `SharedWeightSync`.
 - `AsyncRunner` owns collector process lifecycle and shared-resource cleanup for
   async runners.

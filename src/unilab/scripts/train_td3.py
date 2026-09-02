@@ -1,0 +1,15 @@
+"""TD3 training/playback entrypoint (shared implementation in unilab.scripts.train_offpolicy)."""
+
+import hydra
+from omegaconf import DictConfig
+
+from unilab.scripts.train_offpolicy import main as _offpolicy_main
+
+
+@hydra.main(version_base="1.3", config_path="../conf/td3", config_name="config")
+def main(cfg: DictConfig) -> None:
+    _offpolicy_main(cfg)
+
+
+if __name__ == "__main__":
+    main()

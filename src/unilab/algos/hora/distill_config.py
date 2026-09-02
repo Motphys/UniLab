@@ -12,20 +12,27 @@ from omegaconf import DictConfig, OmegaConf
 
 from unilab.utils.checkpoint import resolve_task_checkpoint_path
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_PACKAGE_CONF_ROOT = Path(__file__).resolve().parents[2] / "conf"
 
 # Teacher owner configs are Hydra-composed from their family config tree.
 # SAC teachers live in their own per-algo tree; there is no `algo` group anymore.
 _TEACHER_TREE_BY_FAMILY = {"sac": "sac"}
 
 # Teacher -> student `algo.model` mappings expressed in YAML; see
-# conf/hora_distill/student_model/*.yaml. The mapping files interpolate against
-# the composed teacher owner config mounted at `teacher_owner`.
-_STUDENT_MODEL_MAPPING_DIR = Path("conf") / "hora_distill" / "student_model"
+# hora_distill/student_model/*.yaml in the packaged conf tree. The mapping files
+# interpolate against the composed teacher owner config mounted at
+# `teacher_owner`.
+_STUDENT_MODEL_MAPPING_DIR = Path("hora_distill") / "student_model"
 
 
-def _root(root_dir: str | Path | None) -> Path:
-    return Path(root_dir) if root_dir is not None else _REPO_ROOT
+def _conf_root(root_dir: str | Path | None) -> Path:
+    """Root of the conf tree: ``root_dir/"conf"`` when given, else packaged conf."""
+    return Path(root_dir) / "conf" if root_dir is not None else _PACKAGE_CONF_ROOT
+
+
+def _logs_root(root_dir: str | Path | None) -> Path:
+    """Root for run artifacts: ``root_dir`` when given, else the caller's CWD."""
+    return Path(root_dir) if root_dir is not None else Path.cwd()
 
 
 def _load_yaml_config(path: Path) -> DictConfig:
@@ -52,9 +59,8 @@ def load_teacher_owner_config(
     ``scripts/audit_sim2sim_contracts.py``), so package directives, nested
     ``defaults`` lists, and interpolations in the teacher tree all resolve.
     """
-    root = _root(root_dir)
     algo_family = str(algo_family)
-    conf_dir = root / "conf" / _TEACHER_TREE_BY_FAMILY.get(algo_family, algo_family)
+    conf_dir = _conf_root(root_dir) / _TEACHER_TREE_BY_FAMILY.get(algo_family, algo_family)
     overrides = [f"task={task}"]
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(conf_dir.absolute()), version_base="1.3"):
@@ -99,7 +105,7 @@ def _student_model_defaults(
     mapping_name: str,
     teacher_cfg: DictConfig,
     *,
-    root: Path,
+    root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Resolve the YAML-expressed teacher -> student model mapping.
 
@@ -108,7 +114,7 @@ def _student_model_defaults(
     Hydra-composed teacher hyperparameters. The mapping file owns all fallback
     defaults; this function only mounts and resolves it.
     """
-    mapping_path = root / _STUDENT_MODEL_MAPPING_DIR / f"{mapping_name}.yaml"
+    mapping_path = _conf_root(root) / _STUDENT_MODEL_MAPPING_DIR / f"{mapping_name}.yaml"
     merged = OmegaConf.merge(
         {"teacher_owner": teacher_cfg},
         _load_yaml_config(mapping_path),
@@ -137,18 +143,17 @@ def teacher_default_cfg(
     if teacher_algo_family is None or teacher_task is None:
         return OmegaConf.create()
 
-    root = _root(root_dir)
     teacher_cfg = load_teacher_owner_config(
         teacher_algo_family,
         teacher_task,
-        root_dir=root,
+        root_dir=root_dir,
     )
     mapping_name = _teacher_contract_mapping_name(
         teacher_algo_family,
         teacher_task,
         teacher_cfg,
     )
-    model_cfg = _student_model_defaults(mapping_name, teacher_cfg, root=root)
+    model_cfg = _student_model_defaults(mapping_name, teacher_cfg, root=root_dir)
     return OmegaConf.create(
         {
             "training": OmegaConf.select(teacher_cfg, "training"),
@@ -196,7 +201,7 @@ def teacher_run_metadata(
 ) -> dict[str, Any]:
     """Build explicit teacher provenance metadata for distillation outputs."""
     teacher_task = OmegaConf.select(cfg, "teacher.task")
-    root = _root(root_dir).resolve()
+    root = _logs_root(root_dir).resolve()
     checkpoint_path = teacher_checkpoint.resolve()
     try:
         checkpoint_display = str(checkpoint_path.relative_to(root))
@@ -225,11 +230,11 @@ def resolve_teacher_checkpoint_path(
     if teacher_algo_family is None or teacher_task is None:
         return None, None
 
-    root = _root(root_dir)
+    root = _logs_root(root_dir)
     teacher_cfg = load_teacher_owner_config(
         teacher_algo_family,
         teacher_task,
-        root_dir=root,
+        root_dir=root_dir,
     )
     teacher_task_name = OmegaConf.select(teacher_cfg, "training.task_name")
     teacher_algo_log_name = OmegaConf.select(teacher_cfg, "algo.algo_log_name")

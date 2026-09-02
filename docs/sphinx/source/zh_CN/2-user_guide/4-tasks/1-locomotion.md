@@ -1,7 +1,7 @@
 # 运动控制
 
 运动控制任务注册在 `src/unilab/tasks/locomotion/` 和
-`src/unilab/tasks/motion_tracking/` 中。`conf/` 下可用的 owner YAML
+`src/unilab/tasks/motion_tracking/` 中。`src/unilab/conf/` 下可用的 owner YAML
 定义了哪些算法与后端组合是可运行的。
 
 ## 系列
@@ -32,8 +32,8 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 `go2_footstand` 是 Go2 前足站立任务。PPO owner YAML 已注册 MuJoCo、
 Motrix 和 Drake；当前 SAC owner 使用 Drake。
 
-- PPO canonical 配置：`conf/ppo/task/go2_footstand/base.yaml`
-- 后端 owner：`conf/ppo/task/go2_footstand/{mujoco,motrix,drake}.yaml`
+- PPO canonical 配置：`src/unilab/conf/ppo/task/go2_footstand/base.yaml`
+- 后端 owner：`src/unilab/conf/ppo/task/go2_footstand/{mujoco,motrix,drake}.yaml`
 - 环境注册名：`Go2FootStand`（MuJoCo、Motrix、Drake）
 - 环境实现：`src/unilab/tasks/locomotion/go2/footstand.py`
   （通用 Manager-Based runtime 上的 task-owned NumPy manager terms）
@@ -79,7 +79,7 @@ gyro(3) + accelerometer(3) + linvel(3) + global_angvel(3) + dof_pos(12) + dof_ve
 
 ### 奖励与终止项
 
-默认奖励来自 `conf/ppo/task/go2_footstand/base.yaml`，后端 leaf 只覆盖
+默认奖励来自 `src/unilab/conf/ppo/task/go2_footstand/base.yaml`，后端 leaf 只覆盖
 后端专属 term 和调优项。奖励权重包括站立 `height`、
 `orientation`、`rear_feet_contact`、前腿目标角度（`tar`）、`action_rate`、
 `dof_pos_limits`、`front_leg_motion`、`rear_leg_symmetry`、`knee_clearance`、

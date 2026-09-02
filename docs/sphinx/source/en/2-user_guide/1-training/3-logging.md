@@ -23,11 +23,11 @@ stack overrides `training.log_root` or `training.log_dir`:
 
 | Algorithm | Log root | `algo_log_name` source |
 | --- | --- | --- |
-| PPO | `logs/rsl_rl_ppo/<task>/` | `conf/ppo/config.yaml` |
-| APPO | `logs/appo/<task>/` | `conf/appo/config.yaml` |
-| SAC | `logs/fast_sac/<task>/` | `conf/sac/config.yaml` |
-| FlashSAC | `logs/flash_sac/<task>/` | `conf/flashsac/config.yaml` |
-| TD3 | `logs/fast_td3/<task>/` | `conf/td3/config.yaml` |
+| PPO | `logs/rsl_rl_ppo/<task>/` | `src/unilab/conf/ppo/config.yaml` |
+| APPO | `logs/appo/<task>/` | `src/unilab/conf/appo/config.yaml` |
+| SAC | `logs/fast_sac/<task>/` | `src/unilab/conf/sac/config.yaml` |
+| FlashSAC | `logs/flash_sac/<task>/` | `src/unilab/conf/flashsac/config.yaml` |
+| TD3 | `logs/fast_td3/<task>/` | `src/unilab/conf/td3/config.yaml` |
 
 A run directory is named `YYYY-MM-DD_HH-MM-SS_<sim_backend>`, for example
 `2026-03-09_18-30-00_mujoco`. Common artifacts include `run_config.json`,

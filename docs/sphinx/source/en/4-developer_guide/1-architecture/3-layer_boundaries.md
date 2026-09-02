@@ -10,7 +10,7 @@ standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 | --- | --- | --- |
 | L0 Backend | `src/unilab/base/backend/` | Physics backend abstraction, backend-owned scene materialization, backend capabilities. |
 | L1 Env | `src/unilab/envs/`, `src/unilab/base/np_env.py` | MDP semantics, observations, rewards, reset logic, backend-to-task adaptation. |
-| L2 Config and Registry | `conf/`, `src/unilab/structured_configs.py`, `src/unilab/base/registry.py`, `src/unilab/training/reward.py` | Hydra composition, owner YAML identity, env/reward registration. |
+| L2 Config and Registry | `src/unilab/conf/`, `src/unilab/structured_configs.py`, `src/unilab/base/registry.py`, `src/unilab/training/reward.py` | Hydra composition, owner YAML identity, env/reward registration. |
 | L3 Algo and IPC | `src/unilab/algos/`, `src/unilab/ipc/` | Learners, runners, collectors, replay and rollout buffers, weight sync. |
 | L4 Scripts | `scripts/` | Entrypoint assembly only. |
 
@@ -21,7 +21,7 @@ standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 - Env code may depend on the declared `SimBackend` contract in
   `src/unilab/base/backend/base.py`; if shared env logic needs a new backend
   capability, add it to `SimBackend` before using it.
-- Config choices should stay in Hydra owner YAMLs under `conf/`, not in
+- Config choices should stay in Hydra owner YAMLs under `src/unilab/conf/`, not in
   Python-side backend switches.
 - Asset, XML, and model metadata work belongs on init, materialization, or cache
   paths. Do not move asset parsing into `step()`, `reset()`, or runtime domain
@@ -33,6 +33,6 @@ standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 - Backend boundary: `src/unilab/base/backend/base.py`
 - Env state contract: `src/unilab/base/np_env.py`
 - Registry construction path: `src/unilab/base/registry.py`
-- Training entrypoints: `scripts/train_rsl_rl.py`,
-  `scripts/train_appo.py`, `scripts/train_sac.py`,
-  `scripts/train_td3.py`, `scripts/train_flashsac.py`
+- Training entrypoints: `src/unilab/scripts/train_rsl_rl.py`,
+  `src/unilab/scripts/train_appo.py`, `src/unilab/scripts/train_sac.py`,
+  `src/unilab/scripts/train_td3.py`, `src/unilab/scripts/train_flashsac.py`

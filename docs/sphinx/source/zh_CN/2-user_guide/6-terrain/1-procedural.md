@@ -43,7 +43,7 @@ uv run train --algo ppo --task go2_joystick_rough --sim motrix
 
 ## 2. 通过 Hydra 命令行覆盖地形参数
 
-`Go2JoystickRough` 在 `conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml` 中显式列出了一组可覆盖字段；这些字段允许 Hydra struct 模式接受命令行覆盖。
+`Go2JoystickRough` 在 `src/unilab/conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml` 中显式列出了一组可覆盖字段；这些字段允许 Hydra struct 模式接受命令行覆盖。
 
 | 字段 | 用途 | YAML 默认值 |
 | --- | --- | --- |

@@ -3,7 +3,7 @@
 The committed HORA path is the Sharpa in-hand teacher/student flow. Teacher
 owners live under the PPO and APPO task trees through the `7-hora` profile for
 `sharpa_inhand`; student distillation uses `scripts/train_hora_distill.py` and
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml`.
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`.
 
 ## Teacher
 
@@ -19,7 +19,7 @@ variant sets `algo.algo_log_name=hora_appo`.
 ## Student Distillation
 
 Student distillation is implemented by `scripts/train_hora_distill.py` and
-configured by `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`. The top-level
+configured by `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`. The top-level
 CLI does not currently declare a separate HORA distillation `--algo` route, so
 the public CLI examples on this page stay on the teacher path above.
 

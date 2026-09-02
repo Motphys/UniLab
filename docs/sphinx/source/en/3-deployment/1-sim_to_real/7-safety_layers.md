@@ -49,7 +49,7 @@ safety loop — that boundary is yours to build and test.
 ## What the policy assumes you've configured
 
 The policy expects the action mapping and limits its training owner declared.
-For the G1 WBT owner (`conf/sac/task/g1_wbt_obs/mujoco.yaml`):
+For the G1 WBT owner (`src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml`):
 
 | Quantity | Authority |
 | --- | --- |

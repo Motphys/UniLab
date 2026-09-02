@@ -277,3 +277,147 @@ def test_resolve_scene_dir_raises_import_error_when_hf_hub_missing(tmp_path: Pat
         with patch.dict("sys.modules", {"huggingface_hub": None}):
             with pytest.raises(ImportError, match="huggingface_hub"):
                 resolve_scene_dir("scenes/teaser")
+
+
+# ---------------------------------------------------------------------------
+# Robot asset registry + scene-path resolution
+# ---------------------------------------------------------------------------
+
+
+def test_robot_asset_specs_cover_hf_hosted_robots():
+    """Every robot whose binary assets live on HF is registered exactly once."""
+    from unilab.assets.hub import ROBOT_ASSET_SPECS
+
+    expected = {
+        "a2",
+        "allegro_hand",
+        "g1",
+        "go2",
+        "go2_arm",
+        "go2w",
+        "microduck",
+        "sharpa_wave",
+        "t800",
+        "x2",
+    }
+    assert set(ROBOT_ASSET_SPECS) == expected
+    for robot, specs in ROBOT_ASSET_SPECS.items():
+        assert specs, robot
+        for directory, marker, pattern, label in specs:
+            # go2_arm / go2w additionally reference the shared go2 mesh dir.
+            assert directory.startswith("robots/")
+            assert marker and pattern and label
+
+
+def test_ensure_robot_assets_resolves_registered_robot(monkeypatch: pytest.MonkeyPatch):
+    from unilab.assets import hub
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_resolve(directory: str, *, marker: str) -> Path:
+        calls.append((directory, marker))
+        return Path(directory)
+
+    monkeypatch.setattr(hub, "resolve_robot_asset_dir", fake_resolve)
+
+    hub.ensure_robot_assets_for_paths(["src/unilab/assets/robots/g1/scene_flat.xml", None, ""])
+
+    assert calls == [
+        ("robots/g1/assets", "head_link.STL"),
+        ("robots/g1/textures", "floor.png"),
+    ]
+
+
+def test_ensure_robot_assets_handles_absolute_and_windows_paths(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from unilab.assets import hub
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        hub,
+        "resolve_robot_asset_dir",
+        lambda directory, *, marker: calls.append((directory, marker)) or Path(directory),
+    )
+
+    hub.ensure_robot_assets_for_paths(
+        [
+            "/home/user/project/src/unilab/assets/robots/go2/go2.xml",
+            r"src\unilab\assets\robots\sharpa_wave\right_sharpa_wave.xml",
+        ]
+    )
+
+    assert calls == [
+        ("robots/go2/assets", "base_0.obj"),
+        ("robots/sharpa_wave/meshes", "DP_HB1_4F.STL"),
+    ]
+
+
+def test_ensure_robot_assets_ignores_unknown_robots(monkeypatch: pytest.MonkeyPatch):
+    from unilab.assets import hub
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        hub,
+        "resolve_robot_asset_dir",
+        lambda directory, *, marker: calls.append((directory, marker)) or Path(directory),
+    )
+
+    hub.ensure_robot_assets_for_paths(
+        [
+            "src/unilab/assets/robots/go1/scene_flat.xml",
+            "src/unilab/assets/objects/cube.xml",
+            "some/other/scene.xml",
+        ]
+    )
+
+    assert calls == []
+
+
+def test_create_backend_resolves_robot_assets_before_dispatch(monkeypatch: pytest.MonkeyPatch):
+    """create_backend must ensure HF-hosted robot assets before loading XML."""
+    import unilab.base.backend as backend_pkg
+    from unilab.base.scene import SceneCfg
+
+    seen: list[list[str | None]] = []
+
+    def fake_ensure(paths):
+        seen.append(list(paths))
+
+    monkeypatch.setattr(backend_pkg, "ensure_robot_assets_for_paths", fake_ensure)
+
+    scene = SceneCfg(
+        model_file="src/unilab/assets/robots/g1/scene_flat.xml",
+        fragment_files=["src/unilab/assets/robots/g1/locomotion_task.xml"],
+    )
+    with pytest.raises(ValueError, match="Unknown backend"):
+        backend_pkg.create_backend("__bogus__", scene, 1, 0.02)
+
+    assert seen == [
+        [
+            "src/unilab/assets/robots/g1/scene_flat.xml",
+            None,
+            "src/unilab/assets/robots/g1/locomotion_task.xml",
+        ]
+    ]
+
+
+def test_ensure_robot_assets_go2_arm_pulls_shared_go2_meshes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """go2_arm XMLs reference ``../go2/assets``; both dirs must resolve."""
+    from unilab.assets import hub
+
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        hub,
+        "resolve_robot_asset_dir",
+        lambda directory, *, marker: calls.append((directory, marker)) or Path(directory),
+    )
+
+    hub.ensure_robot_assets_for_paths(["src/unilab/assets/robots/go2_arm/scene_flat.xml"])
+
+    assert calls == [
+        ("robots/go2_arm/assets", "arm_base_0.obj"),
+        ("robots/go2/assets", "base_0.obj"),
+    ]

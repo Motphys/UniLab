@@ -57,6 +57,24 @@ class EnvCfg:
     # backend defaults (device 0, generous handshake/step timeout).
     isaacgym_device_id: Optional[int] = None
     isaacgym_worker_timeout_s: Optional[float] = None
+    # ``genesis`` drops the MJCF global <option> block at import (REPORT #1372
+    # §3.3), so integrator / constraint solver / friction cone / solver
+    # iterations must be explicit owner fields. ``None`` keeps the Genesis
+    # defaults; the backend validates the spellings fail-closed.
+    genesis_integrator: Optional[str] = None
+    genesis_constraint_solver: Optional[str] = None
+    genesis_friction_cone: Optional[str] = None
+    genesis_solver_iterations: Optional[int] = None
+    # ``isaacsim`` runs IsaacLab/PhysX in a dedicated Python 3.11 worker.
+    # Keep its knobs separate from IsaacGym because the two runtimes have
+    # incompatible interpreters and installation roots.  The render intent is
+    # populated only by play/eval config materialization; training leaves it
+    # unset so the worker stays on the cheap headless experience.
+    isaacsim_device_id: Optional[int] = None
+    isaacsim_worker_timeout_s: Optional[float] = None
+    isaacsim_render_mode: Optional[str] = None
+    isaacsim_render_width: int = 1280
+    isaacsim_render_height: int = 720
 
     @property
     def max_episode_steps(self) -> Optional[int]:
@@ -106,6 +124,54 @@ class EnvCfg:
                 "isaacgym_worker_timeout_s must be a positive number or None, "
                 f"got {self.isaacgym_worker_timeout_s!r}"
             )
+        for name, value in (
+            ("genesis_integrator", self.genesis_integrator),
+            ("genesis_constraint_solver", self.genesis_constraint_solver),
+            ("genesis_friction_cone", self.genesis_friction_cone),
+        ):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValueError(f"{name} must be a non-empty string or None, got {value!r}")
+        if self.genesis_solver_iterations is not None and (
+            isinstance(self.genesis_solver_iterations, bool)
+            or not isinstance(self.genesis_solver_iterations, int)
+            or self.genesis_solver_iterations <= 0
+        ):
+            raise ValueError(
+                "genesis_solver_iterations must be a positive integer or None, "
+                f"got {self.genesis_solver_iterations!r}"
+            )
+        if self.isaacsim_device_id is not None and (
+            isinstance(self.isaacsim_device_id, bool)
+            or not isinstance(self.isaacsim_device_id, int)
+            or self.isaacsim_device_id < 0
+        ):
+            raise ValueError(
+                "isaacsim_device_id must be a non-negative integer or None, "
+                f"got {self.isaacsim_device_id!r}"
+            )
+        if self.isaacsim_worker_timeout_s is not None and (
+            not isinstance(self.isaacsim_worker_timeout_s, (int, float))
+            or isinstance(self.isaacsim_worker_timeout_s, bool)
+            or self.isaacsim_worker_timeout_s <= 0
+        ):
+            raise ValueError(
+                "isaacsim_worker_timeout_s must be a positive number or None, "
+                f"got {self.isaacsim_worker_timeout_s!r}"
+            )
+        if self.isaacsim_render_mode is not None:
+            mode = str(self.isaacsim_render_mode).strip().lower()
+            if mode not in {"auto", "interactive", "record", "none"}:
+                raise ValueError(
+                    "isaacsim_render_mode must be one of auto, interactive, record, none, or None; "
+                    f"got {self.isaacsim_render_mode!r}"
+                )
+            self.isaacsim_render_mode = mode
+        for name, value in (
+            ("isaacsim_render_width", self.isaacsim_render_width),
+            ("isaacsim_render_height", self.isaacsim_render_height),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer, got {value!r}")
         if self.cpu_ids is not None:
             ids = list(self.cpu_ids)
             if not ids:

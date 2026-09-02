@@ -16,11 +16,11 @@ from hydra.errors import ConfigCompositionException
 from unilab.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
 
 _ROOT = Path(__file__).parent.parent.parent
-_CONF_DIR = _ROOT / "conf"
+_CONF_DIR = _ROOT / "src" / "unilab" / "conf"
 
 
 def _offpolicy():
-    path = _ROOT / "scripts" / "train_offpolicy.py"
+    path = _ROOT / "src" / "unilab" / "scripts" / "train_offpolicy.py"
     spec = importlib.util.spec_from_file_location("train_offpolicy", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -208,6 +208,13 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
         "nvtx_profile_ranges": cfg.training.nvtx_profile_ranges,
         "critic_obs_dim": 6,
     }
+    assert runner.kwargs["inference_request_timeout_sec"] == 30.0
+
+
+def test_sac_genesis_owner_raises_inference_request_timeout():
+    """Genesis kernel compilation exceeds the 30 s default tick-0 budget."""
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/genesis"])
+    assert cfg.training.inference_request_timeout_sec == 180.0
 
 
 def test_sac_owner_custom_runtime_can_override_base_learner_kwargs(

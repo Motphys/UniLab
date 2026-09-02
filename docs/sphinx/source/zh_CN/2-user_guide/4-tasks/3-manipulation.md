@@ -16,7 +16,7 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora trainin
 ```
 
 HORA student 蒸馏由
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置；它当前未作为
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置；它当前未作为
 单独的顶层 CLI 路线暴露。
 
 ## 平台平衡

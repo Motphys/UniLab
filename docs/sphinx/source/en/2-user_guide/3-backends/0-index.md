@@ -1,14 +1,19 @@
 # Simulation Backends
 
-UniLab currently uses two backend names in registry/config paths: `1-mujoco` and
-`2-motrix`. User commands select them with `--sim`, which routes to the matching
-task owner YAML; do not switch a run by overriding `training.sim_backend` alone.
+UniLab exposes backend names through registry/config paths, including `mujoco`,
+`motrix`, `mjwarp`, `drake`, `isaacgym`, `genesis`, and `isaacsim` where an owner is registered.
+User commands select them with `--sim`, which routes to the matching task owner
+YAML; do not switch a run by overriding `training.sim_backend` alone.
 
 ## Runtime Prerequisites
 
 - Install Motrix support with `uv sync --extra motrix`.
+- IsaacGym and IsaacSim use dedicated external worker runtimes; see their
+  backend pages for installation and runtime requirements.
 - Any run using `--sim mujoco`, MuJoCo playback, or MuJoCo-only debugging tool
   still requires a working MuJoCo runtime.
+- Drake uses the external `drake-uni` package plus a locally built C++ batch
+  extension; see {doc}`7-drake` before selecting `--sim drake`.
 - On macOS, the package CLI routes Motrix interactive playback through
   `mxpython` when needed. Direct script calls that open the native Motrix
   renderer should use `uv run mxpython`.
@@ -18,12 +23,13 @@ task owner YAML; do not switch a run by overriding `training.sim_backend` alone.
 ```bash
 uv run train --algo ppo --task go1_joystick_flat --sim mujoco
 uv run train --algo ppo --task go1_joystick_flat --sim motrix
+uv run train --algo ppo --task g1_walk_flat --sim isaacsim
 ```
 
 Owner YAML locations:
 
-- PPO / APPO: `conf/{ppo,appo}/task/<task>/<backend>.yaml`
-- Off-policy (SAC / TD3 / FlashSAC): `conf/<algo>/task/<task>/<backend>.yaml`
+- PPO / APPO: `src/unilab/conf/{ppo,appo}/task/<task>/<backend>.yaml`
+- Off-policy (SAC / TD3 / FlashSAC): `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`
 
 The selected owner YAML sets `training.sim_backend` as an identity field.
 
@@ -61,4 +67,7 @@ the generated source data.
 2-motrix
 3-choosing_a_backend
 4-isaacgym
+5-isaacsim
+6-genesis
+7-drake
 ```

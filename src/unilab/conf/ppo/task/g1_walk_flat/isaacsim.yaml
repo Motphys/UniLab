@@ -1,0 +1,34 @@
+# @package _global_
+# IsaacSim owner for the headless Python 3.11 IsaacLab/PhysX subprocess.
+# The owner keeps all policy-defining fields inherited from the MuJoCo base
+# unchanged so a checkpoint has the same observation/action contract. IsaacSim
+# keeps interval randomization and reset-time PD-gain mutation disabled at the
+# owner layer; eval rendering is selected before Kit startup.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: isaacsim
+  play_render_mode: auto
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+env:
+  # IsaacSim 5.1 / IsaacLab v2.3.0 run in a dedicated Python 3.11 worker.
+  isaacsim_device_id: 0
+  isaacsim_worker_timeout_s: 120.0
+  isaacsim_render_width: 1280
+  isaacsim_render_height: 720
+  events:
+    pd_gains: null
+play_profile:
+  enabled: false

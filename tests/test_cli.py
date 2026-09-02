@@ -550,7 +550,8 @@ def test_demo_local_only_checkpoint_uses_existing_file(
     calls: list[list[str]] = []
 
     monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", assets)
-    monkeypatch.setattr(demo, "_repo_root", lambda: checkout)
+    monkeypatch.setattr(demo, "_package_root", lambda: checkout)
+    monkeypatch.setattr(demo, "_dev_venv", lambda: checkout / ".venv")
     monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fail_resolve(_: str) -> str:
@@ -640,9 +641,13 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     command, env = calls[0]
     assert command == [
         "/tmp/unilab/.venv/bin/mxpython",
-        str(demo._repo_root() / "src" / "unilab" / "visualization" / "teaser.py"),
+        str(demo._package_root() / "visualization" / "teaser.py"),
     ]
-    assert env["UV_PROJECT_ENVIRONMENT"] == str(demo._repo_root() / ".venv")
+    dev_venv = demo._dev_venv()
+    if dev_venv is not None:
+        assert env["UV_PROJECT_ENVIRONMENT"] == str(dev_venv)
+    else:
+        assert "UV_PROJECT_ENVIRONMENT" not in env
 
 
 def test_demo_main_teaser_dispatches_to_render_teaser(
@@ -709,5 +714,54 @@ def test_isaacgym_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.M
     assert command[1:] == [
         str(tmp_path / "scripts" / "train_sac.py"),
         "task=g1_walk_flat/isaacgym",
+        "algo.num_envs=64",
+    ]
+
+
+def _pretend_genesis_runtime(monkeypatch: pytest.MonkeyPatch, available: bool) -> None:
+    from unilab.base.backend.genesis import dependencies as genesis_deps
+
+    monkeypatch.setattr(genesis_deps, "genesis_dependencies_available", lambda: available)
+
+
+def test_genesis_without_extra_exits_with_install_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "conf").mkdir()
+    _pretend_genesis_runtime(monkeypatch, available=False)
+
+    with pytest.raises(SystemExit, match="uv sync --extra genesis"):
+        cli.build_command(
+            mode="train",
+            algo="ppo",
+            task="g1_walk_flat",
+            sim="genesis",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_genesis_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "genesis.yaml").write_text("training:\n  sim_backend: genesis\n", encoding="utf-8")
+    _pretend_genesis_runtime(monkeypatch, available=True)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="train",
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="genesis",
+        overrides=["algo.num_envs=64"],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=g1_walk_flat/genesis",
         "algo.num_envs=64",
     ]

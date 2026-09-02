@@ -49,6 +49,7 @@ class CompletionMetadata:
     tasks: tuple[TaskCompletionEntry, ...]
     run_paths: tuple[str, ...] = ()
     root: Path | None = None
+    log_base: Path | None = None
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -192,16 +193,28 @@ def _run_path_entries(root: Path) -> tuple[str, ...]:
 
 
 def build_metadata(root: Path | None = None) -> CompletionMetadata:
-    selected_root = root or _find_project_root(Path.cwd()) or cli.repo_root()
-    scripts = _read_project_scripts(selected_root / "pyproject.toml")
-    training_commands = _training_commands(scripts)
+    checkout = _find_project_root(Path.cwd()) if root is None else None
+    selected_root = root or checkout or cli.package_root()
+    # Task/owner YAML always come from the packaged conf tree; the checkout
+    # root only contributes run-path entries and [project.scripts] metadata.
+    task_root = selected_root if root is not None else cli.package_root()
+    pyproject_path = selected_root / "pyproject.toml"
+    if pyproject_path.is_file():
+        scripts = _read_project_scripts(pyproject_path)
+        training_commands = _training_commands(scripts)
+        commands = _project_commands(scripts)
+    else:
+        # pip install outside a source checkout: no pyproject to read.
+        training_commands = tuple(TRAINING_ENTRYPOINTS)
+        commands = (*training_commands, "demo")
     return CompletionMetadata(
-        commands=_project_commands(scripts),
+        commands=commands,
         flags={command: _parser_flags(command) for command in training_commands},
         choices={command: _parser_choices(command) for command in training_commands},
-        tasks=_task_entries(selected_root),
+        tasks=_task_entries(task_root),
         run_paths=_run_path_entries(selected_root),
         root=selected_root,
+        log_base=None if root is not None else (checkout or Path.cwd()),
     )
 
 
@@ -395,11 +408,19 @@ def _load_run_choices(
     selected_profile: str | None,
 ) -> list[str]:
     candidates = ["-1"]
-    if metadata.root is None or not selected_algo or not selected_task or not selected_sim:
+    # Explicitly injected metadata keeps its historical root-based logs lookup;
+    # the default build_metadata path anchors logs at the training CWD.
+    logs_base = metadata.log_base or metadata.root
+    if logs_base is None or not selected_algo or not selected_task or not selected_sim:
         return _matching(candidates, prefix)
 
+    # Injected metadata (tests) reads owner YAML under metadata.root; the
+    # default path reads the packaged conf tree.
+    owner_root = metadata.root if metadata.log_base is None else cli.package_root()
+    if owner_root is None:
+        return _matching(candidates, prefix)
     owner_paths = _owner_yaml_paths(
-        metadata.root,
+        owner_root,
         selected_algo=selected_algo,
         selected_task=selected_task,
         selected_sim=selected_sim,
@@ -412,16 +433,14 @@ def _load_run_choices(
     log_root = _first_yaml_section_scalar(owner_paths, "training", "log_root")
     if log_root is not None:
         log_root_path = Path(log_root)
-        base_log_root = (
-            log_root_path if log_root_path.is_absolute() else metadata.root / log_root_path
-        )
+        base_log_root = log_root_path if log_root_path.is_absolute() else logs_base / log_root_path
     else:
         algo_log_name = _first_yaml_section_scalar(
             owner_paths, "algo", "algo_log_name"
         ) or DEFAULT_ALGO_LOG_NAMES.get(selected_algo)
         if algo_log_name is None:
             return _matching(candidates, prefix)
-        base_log_root = metadata.root / "logs" / algo_log_name
+        base_log_root = logs_base / "logs" / algo_log_name
 
     task_log_root = base_log_root / task_name
     if task_log_root.is_dir():
@@ -566,8 +585,15 @@ def _default_rc_file(shell: str) -> Path:
 
 
 def _completion_script_path(shell: str) -> Path:
-    root = _find_project_root(Path.cwd()) or cli.repo_root()
-    return root / "scripts" / "completions" / f"unilab.{shell}"
+    checkout = _find_project_root(Path.cwd())
+    if checkout is not None:
+        script = checkout / "scripts" / "completions" / f"unilab.{shell}"
+        if script.is_file():
+            return script
+    raise SystemExit(
+        "completion install requires a source checkout of the UniLab repository; "
+        "run `uv run unilab-complete install` from the checkout."
+    )
 
 
 def _quote_shell_path(path: Path) -> str:

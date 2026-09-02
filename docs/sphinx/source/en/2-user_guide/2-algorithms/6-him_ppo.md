@@ -1,8 +1,8 @@
 # HIM-PPO
 
 HIM-PPO has its own config group and script. The entrypoint is
-`scripts/train_him_ppo.py`, the base config is `conf/ppo_him/config.yaml`, and
-the committed task owner is `conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`.
+`scripts/train_him_ppo.py`, the base config is `src/unilab/conf/ppo_him/config.yaml`, and
+the committed task owner is `src/unilab/conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`.
 
 ## Current Entrypoint
 

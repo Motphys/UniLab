@@ -1,4 +1,0 @@
-newmtl material_0
-# shader_type beckmann
-map_Kd texture_map.png 
-

@@ -162,7 +162,7 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
     return str(output_video)
 
 
-@hydra.main(version_base="1.3", config_path="../conf/ppo_him", config_name="config")
+@hydra.main(version_base="1.3", config_path="../src/unilab/conf/ppo_him", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 

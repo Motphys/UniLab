@@ -48,6 +48,42 @@ uv sync
 uv sync --extra motrix
 ```
 
+## Drake 批量后端（Linux-first）
+
+Drake 后端是可选路径，不包含在默认 setup 中。它使用 PyPI 包
+`drake-uni`（`import drake_uni`）以及针对独立安装的 Drake C++ 前缀编译的
+原生扩展。
+
+```bash
+make setup-drake
+# 等价命令：
+uv sync --extra drake
+```
+
+如果要在 Linux x86_64 上完整安装，可使用可恢复的外部运行时脚本。它会下载
+官方 Drake 前缀、安装 `drake` extra、构建本地原生扩展并执行 import 诊断：
+
+```bash
+bash scripts/tools/setup_drake_env.sh --download-drake
+```
+
+脚本可重复执行，下载、标记和日志默认保存在 `~/.unilab/drake`。使用已有
+Drake 前缀和本地 DrakeUni checkout 时，可传入 `--drake-home`、`--deps-root`
+和 `--drake-uni-source`；脚本不会使用 `sudo` 安装系统软件包。
+
+构建扩展前，需要准备包含 `include/drake/`、`include/pybind11/` 和
+`lib/libdrake.so` 的 Drake 前缀，并使用与 UniLab 相同的 Python 解释器：
+
+```bash
+/path/to/UniLab/.venv/bin/python \
+  /path/to/drake_uni/scripts/build_drake_batch.py \
+  --drake-home /path/to/drake/install
+```
+
+该构建路径当前以 Linux 为主，不会自动安装 Drake C++。构造 Drake batch
+backend 前请保持进程未导入 `pydrake`。资产准备和短时训练探针见
+{doc}`../2-user_guide/3-backends/7-drake`。
+
 ## conda 与 pip
 
 当前推荐路径仍然是源码仓库内的 `make setup` / `make setup-motrix`（或 `uv`）工作
@@ -65,10 +101,11 @@ make setup-motrix
 
 如果不需要 Motrix，可使用 `make setup`；ROCm / XPU 仍走下方专用的 `make` 路径。
 
-`pip install -e .` 和 `pip install .` 当前只适合源码 checkout 内的开发验证，尚不支
-持通过构建好的 wheel / sdist 在任意目录直接运行训练。训练入口仍依赖仓库中的
-`conf/` 和 `scripts/`。pip-only 安装、仓库外运行以及正式发布 wheel 的验证路径由
-#360 跟踪。
+`pip install -e .` 和 `pip install .` 构建的 wheel 已打包任务配置
+（`unilab/conf/`）与训练入口，因此 `train` / `eval` / `demo` 命令可以在任意目录运
+行；日志与 checkpoint 写入当前工作目录。仍有两项限制：isaacgym / isaacsim 后端和
+HORA 多卡提交路径仍假设源码 checkout；任务配置中的机器人资产路径仍相对 checkout
+解析，需等待 #1326 的资产外置子任务落地。
 
 ## 平台配置档
 

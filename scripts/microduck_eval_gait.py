@@ -22,13 +22,13 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from scripts.train_rsl_rl import (  # noqa: E402
+from unilab.algos.rsl_rl import get_policy_obs_dims, normalize_ppo_train_cfg  # noqa: E402
+from unilab.base.config_adapter import create_env  # noqa: E402
+from unilab.scripts.train_rsl_rl import (  # noqa: E402
     _resolve_ppo_wrapper_cls,
     apply_ppo_runtime_flags,
     build_ppo_play_env_cfg_override,
 )
-from unilab.algos.rsl_rl import get_policy_obs_dims, normalize_ppo_train_cfg  # noqa: E402
-from unilab.base.config_adapter import create_env  # noqa: E402
 from unilab.training import (  # noqa: E402
     algo_config_dict,
     ensure_registries,
@@ -114,7 +114,10 @@ def _compose_eval_cfg(args: argparse.Namespace, vx: float) -> DictConfig:
             ]
         )
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"),
+        version_base="1.3",
+    ):
         return compose("config", overrides=overrides)
 
 

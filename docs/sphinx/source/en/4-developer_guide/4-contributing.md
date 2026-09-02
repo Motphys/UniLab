@@ -208,7 +208,7 @@ workflow runs the prose-only Sphinx build.
 
 Task, backend, reward, and algorithm selection belongs in Hydra owner YAMLs.
 When adding or changing a runnable path, update the relevant owner config under
-`conf/` and verify script composition with tests under `tests/config/` or
+`src/unilab/conf/` and verify script composition with tests under `tests/config/` or
 `tests/scripts/`.
 
 See {doc}`2-contracts/3-task_owner` and

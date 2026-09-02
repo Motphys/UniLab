@@ -6,19 +6,19 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
 
 ## Choose The Integration Path
 
-- Synchronous on-policy example: `scripts/train_rsl_rl.py`.
-- Async on-policy example: `scripts/train_appo.py` with `APPORunner`.
-- Off-policy examples: `scripts/train_sac.py`, `scripts/train_td3.py`, and
-  `scripts/train_flashsac.py`, each with its own config tree under
-  `conf/<algo>/`.
+- Synchronous on-policy example: `src/unilab/scripts/train_rsl_rl.py`.
+- Async on-policy example: `src/unilab/scripts/train_appo.py` with `APPORunner`.
+- Off-policy examples: `src/unilab/scripts/train_sac.py`, `src/unilab/scripts/train_td3.py`, and
+  `src/unilab/scripts/train_flashsac.py`, each with its own config tree under
+  `src/unilab/conf/<algo>/`.
 
 ## Implementation Checklist
 
 1. Put reusable learner or runner code under `src/unilab/algos/`.
 2. Add Hydra config under the owning config root. A new off-policy variant should
-   add its own config tree: `conf/<algo>/config.yaml` with the algorithm
+   add its own config tree: `src/unilab/conf/<algo>/config.yaml` with the algorithm
    hyperparameters inlined, plus matching
-   `conf/<algo>/task/<task>/<backend>.yaml` owner YAMLs.
+   `src/unilab/conf/<algo>/task/<task>/<backend>.yaml` owner YAMLs.
 3. If a new top-level training script is required, keep it as assembly:
    compose Hydra, call `ensure_registries()`, construct the env through the
    registry path, then hand control to the runner or trainer.
@@ -29,7 +29,7 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
    lifecycle.
 6. For off-policy algorithms, the CLI `--algo <algo>` selection maps to the
    per-algorithm config tree; owner YAMLs live at
-   `conf/<algo>/task/<task>/<backend>.yaml`.
+   `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`.
 
 ## Validation Near Risk
 

@@ -11,7 +11,7 @@
 2. 如果地形应当可以按名称选择，在 `src/unilab/terrains/config.py` 中用
    `@terrain_preset` 添加一个 preset。
 3. 把地形接入 `TerrainGeneratorCfg`，可以通过已有的命名集合（例如
-   `ROUGH_TERRAINS_CFG`），也可以通过 `conf/` 下的 owner YAML。
+   `ROUGH_TERRAINS_CFG`），也可以通过 `src/unilab/conf/` 下的 owner YAML。
 4. 通过 `src/unilab/base/scene.py` 中的 `SceneCfg.terrain` 与
    `TerrainSceneCfg` 把地形暴露给场景。
 5. 如果某个 env 需要高度 observation，在 init 时通过

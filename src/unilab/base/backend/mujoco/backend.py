@@ -54,10 +54,16 @@ def _effective_cpu_count() -> int:
     ``os.cpu_count`` which reports machine-wide CPUs. Falls back to
     ``os.cpu_count`` where the syscall is unavailable (e.g. macOS).
     """
-    try:
-        return max(1, len(os.sched_getaffinity(0)))
-    except (AttributeError, OSError):
-        return max(1, cpu_count() or 1)
+    # ``sched_getaffinity`` is Linux-only and is absent from both the
+    # macOS runtime and its type stubs.  Resolve it dynamically so this
+    # module remains importable/type-checkable on every supported platform.
+    sched_getaffinity = getattr(os, "sched_getaffinity", None)
+    if sched_getaffinity is not None:
+        try:
+            return max(1, len(sched_getaffinity(0)))
+        except OSError:
+            pass
+    return max(1, cpu_count() or 1)
 
 
 def _root_state_dims(model) -> tuple[int, int]:
