@@ -24,10 +24,16 @@ setup-mujoco:
 	uv sync --extra mujoco
 	uv run --no-sync unilab-complete install
 
+# Installs the Python extra and builds DrakeUni's native extension. By default
+# the host-compatible official tarball is downloaded; use DRAKE_HOME=<prefix>
+# to build against an existing installation.
 .PHONY: setup-drake
 setup-drake:
-	uv sync --extra drake
-	uv run --no-sync unilab-complete install
+	@ if [ -n "$(DRAKE_HOME)" ]; then \
+		bash scripts/tools/setup_drake_env.sh --drake-home "$(DRAKE_HOME)"; \
+	else \
+		bash scripts/tools/setup_drake_env.sh --download-drake; \
+	fi
 
 .PHONY: setup-motrix
 setup-motrix:

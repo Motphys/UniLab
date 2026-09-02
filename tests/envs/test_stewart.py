@@ -357,13 +357,15 @@ def test_stewart_drake_materializes_or_fails_at_optional_runtime_boundary() -> N
     _, env_cfg, _ = _materialize("ppo", ("task=stewart_balance/drake",))
     try:
         env = make_manager_based_rl_env(env_cfg, num_envs=1, backend_type="drake")
-    except ImportError as exc:
-        # The optional runtime can be absent entirely or installed without its
-        # native extension.  Both are actionable optional-boundary failures.
+    except (ImportError, NotImplementedError) as exc:
+        # The optional runtime can be absent, lack its native extension, or
+        # expose no floating-root layout yet. All are actionable boundary
+        # failures for this backend owner.
         message = str(exc)
         assert (
             "DrakeUni batch runtime is not installed" in message
             or "DrakeEnvPool batch extension has not been built" in message
+            or "does not expose root-state layout" in message
         )
         return
     try:

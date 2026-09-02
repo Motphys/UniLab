@@ -6,6 +6,9 @@ defaults:
 training:
   task_name: Go2JoystickFlat
   sim_backend: drake
+  # Drake batch currently exposes NumPy float64 buffers and no floating-root
+  # reset contract; keep the owner on CPU and use the scene keyframe reset.
+  device: cpu
 
 algo:
   num_envs: 1024
@@ -26,4 +29,5 @@ env:
   drake_backend_mode: batch
   drake_nthread: 0
   events:
+    reset_root_state_uniform: null
     pd_gains: null

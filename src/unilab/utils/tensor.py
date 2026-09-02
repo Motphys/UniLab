@@ -18,6 +18,12 @@ def to_torch(x, device: str | torch.device) -> torch.Tensor:
     if isinstance(x, torch.Tensor):
         return x.to(device)
     if isinstance(x, np.ndarray):
+        # Simulators such as Drake expose float64 buffers by default, while
+        # policy networks are constructed in float32 (and MPS rejects float64).
+        # Normalize floating observations at this boundary so every backend
+        # follows the same learner contract.
+        if np.issubdtype(x.dtype, np.floating) and x.dtype != np.float32:
+            x = x.astype(np.float32, copy=False)
         return torch.from_numpy(x).to(device)
     if hasattr(x, "__dlpack__"):
         try:

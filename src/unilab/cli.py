@@ -111,7 +111,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         if find_spec("drake_uni") is None:
             raise SystemExit(
                 "sim=drake requires the Drake extra and a built DrakeUni batch extension. "
-                "Run `bash scripts/tools/setup_drake_env.sh --download-drake` in a source checkout."
+                "Run `make setup-drake` in a source checkout (or use the setup script directly)."
             )
         try:
             from drake_uni.runtime import batch_diagnostics
@@ -120,15 +120,14 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         except Exception as exc:
             raise SystemExit(
                 "sim=drake could not load the Drake batch extension. "
-                "Set DRAKE_HOME/LD_LIBRARY_PATH and rerun "
-                "`scripts/tools/setup_drake_env.sh`; details: "
+                "Set DRAKE_HOME and the platform library path (LD_LIBRARY_PATH on Linux, "
+                "DYLD_LIBRARY_PATH on macOS), then rerun `make setup-drake`; details: "
                 f"{exc}"
             ) from exc
         if not diagnostics.batch_available:
             detail = diagnostics.batch_import_error or "unknown import error"
             raise SystemExit(
-                "sim=drake requires a working Drake batch extension; "
-                f"diagnostic reported: {detail}"
+                f"sim=drake requires a working Drake batch extension; diagnostic reported: {detail}"
             )
     if sim == "isaacgym":
         from unisim.backend.isaacgym.dependencies import isaacgym_runtime_available
