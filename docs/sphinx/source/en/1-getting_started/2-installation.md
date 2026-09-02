@@ -50,6 +50,45 @@ uv sync
 uv sync --extra motrix
 ```
 
+## Drake batch backend (Linux-first)
+
+The Drake backend is optional and is not part of the default setup. It uses the
+PyPI package `drake-uni` (`import drake_uni`) and a native extension compiled
+against a separately installed Drake C++ prefix.
+
+```bash
+make setup-drake
+# Equivalent:
+uv sync --extra drake
+```
+
+For a complete Linux x86_64 setup that downloads an official Drake prefix,
+installs the `drake` extra, builds the local native extension, and runs an
+import diagnostic, use the resumable external-runtime script:
+
+```bash
+bash scripts/tools/setup_drake_env.sh --download-drake
+```
+
+It is idempotent and keeps downloads, markers, and logs under
+`~/.unilab/drake` by default. To use an existing Drake prefix and a local
+DrakeUni checkout, pass `--drake-home`, `--deps-root`, and
+`--drake-uni-source`; the script never installs system packages with `sudo`.
+
+Before building the extension, provision a Drake prefix containing
+`include/drake/`, `include/pybind11/`, and `lib/libdrake.so`. Build with the
+same Python interpreter used by UniLab:
+
+```bash
+/path/to/UniLab/.venv/bin/python \
+  /path/to/drake_uni/scripts/build_drake_batch.py \
+  --drake-home /path/to/drake/install
+```
+
+The build is Linux-first and does not install Drake C++ automatically. Keep
+the process pydrake-free before constructing the Drake batch backend. For
+assets and a bounded training probe, see {doc}`../2-user_guide/3-backends/7-drake`.
+
 ## Conda And Pip
 
 The recommended path is still the in-repo `make setup` / `make setup-motrix` (or

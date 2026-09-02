@@ -24,6 +24,11 @@ setup-mujoco:
 	uv sync --extra mujoco
 	uv run --no-sync unilab-complete install
 
+.PHONY: setup-drake
+setup-drake:
+	uv sync --extra drake
+	uv run --no-sync unilab-complete install
+
 .PHONY: setup-motrix
 setup-motrix:
 	uv sync --extra motrix
