@@ -48,6 +48,7 @@ class TestToTorch:
         result = to_torch(x, "cpu")
         assert isinstance(result, torch.Tensor)
         assert result.shape == (2, 3)
+        assert result.dtype == torch.float32
         np.testing.assert_array_almost_equal(result.numpy(), x)
 
     def test_numpy_array_input_1d(self) -> None:
