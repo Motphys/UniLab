@@ -3790,7 +3790,7 @@ requires-dist = [
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "triton-rocm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==3.6.0", index = "https://download.pytorch.org/whl/rocm7.2" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = ">=0.1.10", index = "https://test.pypi.org/simple/" },
+    { name = "unisim-core", specifier = ">=0.1.11", index = "https://test.pypi.org/simple/" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "wheel", marker = "extra == 'mujoco'" },
@@ -3808,15 +3808,15 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "0.1.10"
+version = "0.1.11"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/48/bd/44aa9ba0b399f969792cbbca9ae26cb1190d0288dcce5206cb8c1eeb8595/unisim_core-0.1.10.tar.gz", hash = "sha256:472ac036156eb8d2116c1225e80fc12ae3c7c7fa85cc2dbd905e429f52a9ba7c", size = 186581, upload-time = "2026-09-02T10:08:52.418Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/73/5e/8696df4eaec42b9ed8117e0c4e3ccebfab5e404487f786ecb96cffe91e84/unisim_core-0.1.11.tar.gz", hash = "sha256:e768ff4aa49a73b3f23d71c327cbadfa54769d3ed99f2bd78d77ef51206eefeb", size = 186599, upload-time = "2026-09-02T10:26:44.381Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/3d/dc/0bffa2a1e0a55ab566eedb894c646927f4f5904b27a4c3d8809bf663636c/unisim_core-0.1.10-py3-none-any.whl", hash = "sha256:469cec723dd069c8b53c402075372dc6c484be874519b91641db79f8b442e818", size = 216301, upload-time = "2026-09-02T10:08:50.096Z" },
+    { url = "https://test-files.pythonhosted.org/packages/8f/d5/62e33d5a8334ec3214fd9972038e9eb923532100043208b35c292f98f087/unisim_core-0.1.11-py3-none-any.whl", hash = "sha256:9a0b97cff2ca2da1838c3ce71c1c7af7ac9d7d539afac7ca299c8dc1c7e126f4", size = 216301, upload-time = "2026-09-02T10:26:41.953Z" },
 ]
 
 [[package]]
