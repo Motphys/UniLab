@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import pytest
 from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError

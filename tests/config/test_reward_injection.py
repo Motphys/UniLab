@@ -1,4 +1,5 @@
 """Test reward config injection system."""
+
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 

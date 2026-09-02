@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+
 import torch
 
 from unilab.ipc.weight_sync import SharedWeightSync
