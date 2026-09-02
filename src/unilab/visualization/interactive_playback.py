@@ -71,6 +71,9 @@ class PlayInteractiveArgs:
     keyboard_step_ang: float = 0.2
     require_keyboard_command_obs: bool = True
     algo: str = "ppo"
+    # Physics owner selected by the interactive CLI. MuJoCo remains the viewer
+    # implementation for every value, including ``drake``.
+    sim: str = "mujoco"
 
 
 def build_playback_config(args: Any, *, num_envs: int = 1) -> RslRlPlaybackConfig:
@@ -255,6 +258,11 @@ class RslRlPlaybackSession:
         action_space = self.env.action_space
         action_dim = int(action_space.shape[0])
         if self.action_mode == "policy" and self.policy is not None:
+            # Backends may expose double-precision observations (Drake's
+            # native state/sensor path does). Policies are trained and stored
+            # in float32, so normalize the playback tensor at this boundary.
+            if isinstance(self.obs, torch.Tensor) and self.obs.dtype != torch.float32:
+                self.obs = self.obs.float()
             return self.policy(self.obs)
         if self.action_mode == "random":
             actions = np.random.uniform(
@@ -360,6 +368,8 @@ class OffPolicyPlaybackSession:
         action_dim = int(action_space.shape[0])
         if self.action_mode == "policy" and self.actor is not None:
             obs_torch = torch.from_numpy(self.obs).to(self.device)
+            if obs_torch.dtype != torch.float32:
+                obs_torch = obs_torch.float()
             if self.normalizer is not None:
                 obs_torch = self.normalizer(obs_torch, update=False)
             if self.actor_algo_type == "hora_sac":

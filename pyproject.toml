@@ -91,6 +91,10 @@ drake = [
     # toolchain and the native extension must be built against the local
     # DRAKE_HOME after this extra is synced.
     "drake-uni==0.1.0",
+    # Drake playback always uses MuJoCo's native renderer (MuJoCo is never
+    # stepped). Keep the renderer available from the single Drake install
+    # path; the MuJoCo physics extension remains in the separate mujoco extra.
+    "mujoco>=3.5",
 ]
 mujoco = [
     # Bound stays loose; the committed uv.lock pins the default solver version

@@ -1,8 +1,8 @@
 """MuJoCo interactive play script for trained policies.
 
-This MuJoCo-only viewer tool opens a live MuJoCo window for a task owner config.
-``--sim`` selects which owner config to read; playback visualization still uses
-MuJoCo.
+This MuJoCo-only viewer implementation opens a live MuJoCo window for any task
+owner config. ``--sim`` selects the physics owner; Drake runs the rollout while
+MuJoCo renders the current Drake state.
 
 Usage:
     # Zero-action playback for a task/backend owner config
@@ -894,18 +894,21 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     algo = str(algo or getattr(args, "algo", "ppo"))
 
     # Always use a single env for interactive view
+    # Keep programmatic callers that construct the pre-Drake argument shape
+    # working; the CLI builder always supplies ``sim`` explicitly.
+    sim_backend = str(getattr(args, "sim", "mujoco"))
     available_backends = available_backends_for_task(args.task)
-    if available_backends and "mujoco" not in available_backends:
+    if available_backends and sim_backend not in available_backends:
         print(
-            "[play_interactive] Task does not support MuJoCo backend: "
+            "[play_interactive] Task does not support requested simulation backend: "
             f"{args.task}. Available backends: {available_backends or ('<none>',)}. "
-            "This script only supports MuJoCo viewer mode."
+            "MuJoCo is used only as the renderer."
         )
         return
 
     def _create_env(num_envs: int):
         if cfg is None:
-            return registry.make(args.task, num_envs=num_envs, sim_backend="mujoco")
+            return registry.make(args.task, num_envs=num_envs, sim_backend=sim_backend)
         from unilab.base.config_adapter import create_env
 
         if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
@@ -919,15 +922,15 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 cfg,
                 num_envs=num_envs,
                 env_cfg_override=env_cfg_override,
-                sim_backend="mujoco",
+                sim_backend=sim_backend,
                 task_name=args.task,
             )
         except ValueError as exc:
-            if "does not support simulation backend 'mujoco'" in str(exc):
+            if f"does not support simulation backend '{sim_backend}'" in str(exc):
                 print(
-                    "[play_interactive] Task does not support MuJoCo backend: "
+                    "[play_interactive] Task does not support requested simulation backend: "
                     f"{args.task}. Available backends: {available_backends or ('<none>',)}. "
-                    "This script only supports MuJoCo viewer mode."
+                    "MuJoCo is used only as the renderer."
                 )
                 raise RuntimeError(_PLAYBACK_ENV_UNAVAILABLE) from exc
             raise
@@ -1259,6 +1262,7 @@ def _build_play_args(cfg: DictConfig, *, algo: str = "ppo") -> PlayInteractiveAr
             OmegaConf.select(cfg, "interactive.require_keyboard_command_obs", default=True)
         ),
         algo=algo,
+        sim=str(OmegaConf.select(cfg, "training.sim_backend", default="mujoco")),
     )
 
 
