@@ -6,11 +6,10 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
-
-from unilab.base.backend.mujoco.playback import (
+from unisim.backend.mujoco.playback import (
     materialize_visual_playback_model as _materialize_visual_playback_model,
 )
-from unilab.base.backend.mujoco.playback import (
+from unisim.backend.mujoco.playback import (
     resolve_render_play_model_files as _resolve_render_play_model_files,
 )
 

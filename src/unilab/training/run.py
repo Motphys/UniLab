@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from omegaconf import DictConfig, OmegaConf
+from unisim.backend.base import normalize_play_render_mode
 
-from unilab.base.backend.base import normalize_play_render_mode
 from unilab.utils.checkpoint import (
     _TEST_LOG_ROOT_ENV,
     _normalize_load_run,

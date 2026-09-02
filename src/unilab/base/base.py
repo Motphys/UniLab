@@ -6,8 +6,7 @@ from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
-
-from unilab.base.backend.base import BackendPlayRenderPlan
+from unisim.backend.base import BackendPlayRenderPlan
 
 from .scene import SceneCfg
 

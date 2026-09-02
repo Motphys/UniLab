@@ -5,8 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from unilab.base.backend.mujoco import chunk_tuner as ct
+from unisim.backend.mujoco import chunk_tuner as ct
 
 
 def test_make_candidates_never_exceeds_upper():

@@ -15,7 +15,7 @@ from weakref import WeakKeyDictionary
 
 import numpy as np
 
-from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.curriculum import EpisodeLengthTracker
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.manager_based_rl_env import (

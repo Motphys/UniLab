@@ -39,9 +39,10 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
+from unisim.dr.types import ResetRandomizationPayload  # noqa: E402
+
 from unilab.assets import ASSETS_ROOT_PATH  # noqa: E402
 from unilab.base.scene import SceneCfg  # noqa: E402
-from unilab.dr.types import ResetRandomizationPayload  # noqa: E402
 
 _G1_MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml")
 
@@ -171,7 +172,7 @@ def _baseline_set_state(
 
 
 def _make_backend(num_envs: int):
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     return MotrixBackend(
         SceneCfg(model_file=_G1_MODEL_FILE),

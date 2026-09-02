@@ -8,10 +8,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from unisim.backend.mujoco.xml import create_discardvisual_xml
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.assets.hub import resolve_robot_asset_dir
-from unilab.base.backend.mujoco.xml import create_discardvisual_xml
 
 ROBOT_XML = ASSETS_ROOT_PATH / "robots" / "t800" / "t800.xml"
 SCENE_XML = ASSETS_ROOT_PATH / "robots" / "t800" / "scene_flat.xml"

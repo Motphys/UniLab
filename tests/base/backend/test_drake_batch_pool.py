@@ -142,7 +142,7 @@ def test_batch_import_diagnostic_is_preserved() -> None:
 
 
 def test_drake_batch_thread_policy_matches_mujoco_auto(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unilab.base.backend.drake import backend
+    from unisim.backend.drake import backend
 
     monkeypatch.setattr(backend, "cpu_count", lambda: 10)
 
@@ -153,7 +153,7 @@ def test_drake_batch_thread_policy_matches_mujoco_auto(monkeypatch: pytest.Monke
 
 
 def test_drake_actuation_metadata_is_detached_and_fails_closed() -> None:
-    from unilab.base.backend.drake.backend import DrakeBackend
+    from unisim.backend.drake.backend import DrakeBackend
 
     backend = object.__new__(DrakeBackend)
     backend._model = SimpleNamespace(nu=2)
@@ -187,7 +187,7 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
         import sys
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         sys.modules["pydrake"] = object()
@@ -218,7 +218,7 @@ def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> No
         import sys
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend.drake.backend import DrakeBackend
+        from unisim.backend.drake.backend import DrakeBackend
         from unilab.base.scene import SceneCfg
 
         sys.modules["pydrake"] = object()
@@ -243,7 +243,7 @@ def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> No
 
 def test_create_backend_rejects_pydrake_mode() -> None:
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend import create_backend
+    from unilab.base.backend_factory import create_backend
     from unilab.base.scene import SceneCfg
 
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
@@ -257,8 +257,9 @@ def test_create_backend_rejects_pydrake_mode() -> None:
 
 
 def test_direct_drake_backend_rejects_pydrake_mode() -> None:
+    from unisim.backend.drake.backend import DrakeBackend
+
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend.drake.backend import DrakeBackend
     from unilab.base.scene import SceneCfg
 
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
@@ -276,7 +277,7 @@ def test_direct_drake_backend_rejects_pydrake_mode() -> None:
 )
 def test_drake_backend_constructs_without_task_base_name() -> None:
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend import create_backend
+    from unilab.base.backend_factory import create_backend
     from unilab.base.scene import SceneCfg
 
     backend = create_backend(
@@ -367,12 +368,12 @@ def test_unilab_drake_public_surface_excludes_batch_backend_symbol() -> None:
         """
         import json
 
-        import unilab.base.backend as backend_root
-        import unilab.base.backend.drake as drake_pkg
-        from unilab.base.backend.drake import backend as backend_module
+        import unilab.base.backend_factory as backend_root
+        import unisim.backend.drake as drake_pkg
+        from unisim.backend.drake import backend as backend_module
 
         try:
-            from unilab.base.backend.drake.backend import DrakeUniBatchBackend  # noqa: F401
+            from unisim.backend.drake.backend import DrakeUniBatchBackend  # noqa: F401
         except ImportError:
             direct_import = "failed"
         else:
@@ -633,7 +634,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         assert "pydrake" not in sys.modules
@@ -704,7 +705,7 @@ def test_drake_backend_pre_step_hook_refreshes_between_substeps() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         backend = create_backend(
@@ -751,7 +752,7 @@ def test_drake_backend_body_frame_getters_use_compact_root_frame() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         backend = create_backend(
@@ -810,7 +811,7 @@ def test_create_go2_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         assert "pydrake" not in sys.modules

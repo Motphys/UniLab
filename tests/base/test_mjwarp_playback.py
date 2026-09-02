@@ -10,14 +10,14 @@ pytest.importorskip("mujoco", reason="mjwarp playback validation requires mujoco
 
 import mujoco
 from omegaconf import OmegaConf
-
-from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.base import BackendPlayCapabilities
-from unilab.base.backend.mjwarp.backend import MjwarpBackend
-from unilab.base.backend.mjwarp.playback import (
+from unisim.backend.base import BackendPlayCapabilities
+from unisim.backend.mjwarp.backend import MjwarpBackend
+from unisim.backend.mjwarp.playback import (
     run_mjwarp_playback,
     validate_mjwarp_visual_model,
 )
+
+from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
 
 G1_SCENE = ASSETS_ROOT_PATH / "robots" / "g1" / "scene_flat.xml"
@@ -113,16 +113,16 @@ def test_g1_visual_model_and_replay_forward_camera_and_spacing(
     )
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr("unilab.visualization.render_many.render_backend_usable", lambda: True)
+    monkeypatch.setattr("unisim.visualization.render_many.render_backend_usable", lambda: True)
     monkeypatch.setattr(
-        "unilab.visualization.render_many.render_states_get_frames",
+        "unisim.visualization.render_many.render_states_get_frames",
         lambda states, model_file, **kwargs: (
             captured.update(states=states, model_file=model_file, render_kwargs=kwargs)
             or [np.zeros((2, 2, 3), dtype=np.uint8)]
         ),
     )
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(video_path=str(path), fps=fps),
     )
 
@@ -158,7 +158,7 @@ def test_mjwarp_playback_rejects_bad_snapshot_and_renderer(
 ) -> None:
     backend = _stub_backend(num_envs=1)
     env = SimpleNamespace(get_physics_state_snapshot=lambda: np.zeros((1, 4), dtype=np.float32))
-    monkeypatch.setattr("unilab.visualization.render_many.render_backend_usable", lambda: True)
+    monkeypatch.setattr("unisim.visualization.render_many.render_backend_usable", lambda: True)
     with pytest.raises(ValueError, match=r"\[time, qpos, qvel\]"):
         run_mjwarp_playback(
             backend=backend,
@@ -175,7 +175,7 @@ def test_mjwarp_playback_rejects_bad_snapshot_and_renderer(
             camera_kwargs=None,
         )
 
-    monkeypatch.setattr("unilab.visualization.render_many.render_backend_usable", lambda: False)
+    monkeypatch.setattr("unisim.visualization.render_many.render_backend_usable", lambda: False)
     with pytest.raises(RuntimeError, match="usable MuJoCo off-screen renderer"):
         run_mjwarp_playback(
             backend=backend,

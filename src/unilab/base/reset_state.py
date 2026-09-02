@@ -10,11 +10,11 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import cast
 
 import numpy as np
-
-from unilab.base.backend.base import BackendRootStateLayout, SimBackend
-from unilab.dr.types import (
+from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_DOF_ARMATURE,
@@ -24,6 +24,7 @@ from unilab.dr.types import (
     RESET_TERM_KP,
     ResetRandomizationPayload,
 )
+
 from unilab.utils.rotation import np_quat_apply_inverse
 
 
@@ -576,7 +577,7 @@ class ResetStateTransaction:
                     if isinstance(backend_timing, dict):
                         timing.update(backend_timing)
                 self._last_set_state_timing_ms = timing
-                return result
+                return cast(dict | None, result)
             except (AttributeError, NotImplementedError) as exc:
                 terms = ", ".join(sorted(self._requesting_terms))
                 raise NotImplementedError(

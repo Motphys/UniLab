@@ -14,8 +14,9 @@ except Exception:
         "mujoco_uni.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
     )
 
+from unisim.backend.mujoco.backend import MuJoCoBackend
+
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.backend import MuJoCoBackend
 from unilab.base.scene import SceneCfg
 
 MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")

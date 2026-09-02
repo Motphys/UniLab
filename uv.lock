@@ -5033,7 +5033,7 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = ">=0.1.5", index = "https://test.pypi.org/simple/" },
+    { name = "unisim-core", specifier = ">=0.1.9", index = "https://test.pypi.org/simple/" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = ">=1.14.0" },
@@ -5052,15 +5052,15 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "0.1.5"
+version = "0.1.9"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/aa/4a/162693d8ad7f1c5b5158295b9a0ca05902b0fe879e212e7e5b91f1f24c00/unisim_core-0.1.5.tar.gz", hash = "sha256:be983258292d957f926cbcaefd3d14652138a9eab9d426f0f2ff45064dea9127", size = 11691, upload-time = "2026-09-02T05:30:38.101Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/e9/cc/e8b969cdf12d8b66b74d72f4703cef0d74769e9657e69cc99acf6ced2bcc/unisim_core-0.1.9.tar.gz", hash = "sha256:cca563dcf3db2bbd8fa6c4bd4cbdb612d128322abe123adb9d60a4acbf0f84de", size = 186565, upload-time = "2026-09-02T09:09:51.291Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/c4/8f/0dfdcd7f9ae8aa8a1a6f413736bbb156bb16956871050ac47ef645f7e2bd/unisim_core-0.1.5-py3-none-any.whl", hash = "sha256:75259586a8009ccfbd57dc6efd2832ee8c5a9380f74f43ce3af0e0ff413f914d", size = 20314, upload-time = "2026-09-02T05:30:36.371Z" },
+    { url = "https://test-files.pythonhosted.org/packages/1b/53/1918ae589c9516900f6e436b294565c041c44d2b601d544116f0f15d03c4/unisim_core-0.1.9-py3-none-any.whl", hash = "sha256:708b65b14464645b258df53524dd11560fbb103d341bf9c3ea2c557f22bb96d3", size = 216261, upload-time = "2026-09-02T09:09:49.89Z" },
 ]
 
 [[package]]

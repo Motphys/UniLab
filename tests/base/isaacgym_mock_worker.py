@@ -1,7 +1,7 @@
 """Deterministic mock IsaacGym worker for protocol-level backend tests.
 
 Runs on the host Python (no IsaacGym install required) and speaks the exact
-``unilab.base.backend.isaacgym.protocol`` wire protocol against shared-memory
+``unisim.backend.isaacgym.protocol`` wire protocol against shared-memory
 slots.  The physics model is a deterministic kinematic fake, documented here
 so tests can assert exact values:
 

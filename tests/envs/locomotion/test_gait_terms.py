@@ -8,8 +8,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.base import BackendSensorView
 
-from unilab.base.backend.base import BackendSensorView
 from unilab.managers import RewardManager, RewardTermCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.managers.scene_entity_config import SceneEntityCfg

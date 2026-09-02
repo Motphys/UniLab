@@ -5,9 +5,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from unisim.backend.mjwarp import runtime as mjwarp_runtime
 
-from unilab.base.backend.mjwarp import runtime as mjwarp_runtime
-from unilab.base.backend.process_device import (
+from unilab.base.process_device import (
     configure_backend_process_device,
     resolve_backend_process_device,
 )

@@ -10,11 +10,11 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.mujoco.xml import get_named_body_ids
+from unisim.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.xml import get_named_body_ids
 from unilab.base.scene import SceneCfg
-from unilab.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -74,7 +74,7 @@ def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
 
 @pytest.mark.parametrize("robot", BASIC_ROBOTS)
 def test_mujoco_backend_smoke_contract(robot):
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
@@ -117,7 +117,7 @@ def test_mujoco_backend_smoke_contract(robot):
 def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_ALLEGRO["model_file"]),
@@ -137,7 +137,7 @@ def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
 
 
 def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_sensors():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_xml("go2")),
@@ -194,7 +194,7 @@ def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_senso
 
 
 def test_mujoco_interval_root_velocity_kick_rejects_invalid_contracts():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_xml("go2")),
@@ -247,7 +247,7 @@ def test_mujoco_interval_root_velocity_kick_rejects_invalid_contracts():
 
 
 def test_mujoco_interval_root_angular_velocity_kick_converts_to_body_frame():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_xml("go2")),
@@ -304,7 +304,7 @@ def test_mujoco_interval_root_angular_velocity_kick_converts_to_body_frame():
 
 
 def test_mujoco_interval_body_force_and_torque_have_observable_effect(tmp_path):
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     # A single free body gives exact rigid-body dynamics: dv = F/m * dt and
     # dw = I^-1 tau * dt at identity orientation with diagonal inertia.
@@ -365,7 +365,7 @@ def test_mujoco_interval_body_force_and_torque_have_observable_effect(tmp_path):
 def test_motrix_backend_smoke_contract(robot):
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
@@ -405,7 +405,7 @@ def test_motrix_backend_smoke_contract(robot):
 def test_motrix_backend_fixed_base_base_views_are_available():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=_ALLEGRO["model_file"]),
@@ -430,8 +430,8 @@ def test_motrix_backend_fixed_base_base_views_are_available():
 def test_cross_backend_base_pose_smoke(robot):
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.motrix.backend import MotrixBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     mj = MuJoCoBackend(
         SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
@@ -459,8 +459,8 @@ def test_cross_backend_base_pose_smoke(robot):
 def test_cross_backend_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.motrix.backend import MotrixBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     mj = MuJoCoBackend(
         SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
@@ -484,7 +484,7 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
     if backend_type == "motrix":
         pytest.importorskip("motrixsim")
 
-    from unilab.base.backend import create_backend
+    from unilab.base.backend_factory import create_backend
     from unilab.tasks.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
 
     bkd = create_backend(
@@ -514,7 +514,7 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
 
 
 def test_mujoco_model_properties_smoke():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
@@ -532,8 +532,11 @@ def test_mujoco_model_properties_smoke():
 def test_mujoco_metadata_getters_return_stable_copies():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
+    from unilab.assets.hub import ensure_robot_assets_for_paths
+
+    ensure_robot_assets_for_paths([_SHARPA["model_file"]])
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
     )
@@ -609,7 +612,7 @@ def test_mujoco_metadata_getters_return_stable_copies():
 
 
 def test_mujoco_copy_body_state_matches_split_queries():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_G1["model_file"]),
@@ -654,7 +657,7 @@ def test_mujoco_copy_body_state_matches_split_queries():
 def test_motrix_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
@@ -672,7 +675,7 @@ def test_motrix_model_properties_smoke():
 def test_motrix_copy_body_state_matches_split_queries():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=_G1["model_file"]),
@@ -720,8 +723,11 @@ def test_motrix_copy_body_state_matches_split_queries():
 def test_motrix_default_qpos_uses_mujoco_quaternion_convention():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
+    from unilab.assets.hub import ensure_robot_assets_for_paths
+
+    ensure_robot_assets_for_paths([_SHARPA["model_file"]])
     bkd = MotrixBackend(
         SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
     )

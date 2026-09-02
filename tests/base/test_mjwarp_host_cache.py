@@ -6,8 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
-
-from unilab.base.backend.mjwarp.backend import MjwarpBackend
+from unisim.backend.mjwarp.backend import MjwarpBackend
 
 
 class _FakeStorage:

@@ -46,7 +46,7 @@ dependencies = [
     # Physics implementations are provided by the independently released
     # unisim-core package.  During roadmap execution this source is pinned to
     # TestPyPI; production PyPI publication is a maintainer-only final step.
-    "unisim-core>=0.1.5",
+    "unisim-core>=0.1.9",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
@@ -81,7 +81,7 @@ eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
 unilab-complete = "unilab.cli_completion:main"
 unilab-viz-nan = "unilab.utils.nan_viz:main"
-unilab-export-scene = "unilab.base.backend.mujoco.export_scene:main"
+unilab-export-scene = "unisim.backend.mujoco.export_scene:main"
 unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
 
@@ -213,7 +213,6 @@ venv = ".venv"
 include = ["src/unilab"]
 exclude = [
     "src/unilab/algos/rsl_rl/",       # vendored third-party
-    "src/unilab/base/backend/",             # mujoco-uni-runtime stubs mismatch; optional backends
     "src/unilab/envs/",                     # mujoco-uni-runtime internal API, stubs mismatch
     "src/unilab/terrains/",                 # mujoco-uni-runtime MjSpec API, stubs mismatch
     "src/unilab/utils/monitoring.py",       # optional pynvml/psutil deps

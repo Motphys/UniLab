@@ -7,11 +7,11 @@ from typing import Any
 
 import numpy as np
 import pytest
+from unisim.backend.mjwarp.dependencies import load_mjwarp_dependencies
+from unisim.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
-from unilab.base.backend import create_backend
-from unilab.base.backend.mjwarp.dependencies import load_mjwarp_dependencies
+from unilab.base.backend_factory import create_backend
 from unilab.base.scene import SceneCfg
-from unilab.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
 pytestmark = pytest.mark.slow
 

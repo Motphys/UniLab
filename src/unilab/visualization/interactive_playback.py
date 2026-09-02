@@ -439,9 +439,9 @@ def infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
 
 
 def _scene_visual_materializer() -> Any:
-    from unilab.base.backend import materialize_scene_visual_override
+    from unilab.base import config_adapter
 
-    return materialize_scene_visual_override
+    return config_adapter.materialize_scene_visual_override
 
 
 def build_play_backend_adapter(cfg: Any, *, root_dir: str | Path, algo_name: str = "ppo") -> Any:

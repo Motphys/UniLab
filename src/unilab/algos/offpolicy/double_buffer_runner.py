@@ -27,7 +27,7 @@ from unilab.algos.offpolicy.thread_budget import (
     torch_thread_env,
 )
 from unilab.algos.offpolicy.worker import off_policy_collector_fn, sample_offpolicy_actions
-from unilab.base.backend.process_device import resolve_backend_process_device
+from unilab.base.process_device import resolve_backend_process_device
 from unilab.ipc.async_runner import _SPAWN_CTX
 from unilab.ipc.inference_slot import SharedInferenceSlot
 from unilab.ipc.replay_buffer import DEFAULT_REPLAY_INGRESS_DEPTH, ReplayBuffer

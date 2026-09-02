@@ -5,10 +5,19 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+from unisim.dr.types import (
+    RESET_TERM_BODY_IPOS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_GRAVITY,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
+    ResetRandomizationPayload,
+)
 
 from unilab.assets.hub import resolve_grasp_cache_files
 from unilab.base import registry
-from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.dr import (
     DomainRandomizationCapabilities,
@@ -20,15 +29,6 @@ from unilab.dr import (
     ResetPlan,
 )
 from unilab.dr.dr_utils import build_common_reset_randomization, validate_common_reset_randomization
-from unilab.dr.types import (
-    RESET_TERM_BODY_IPOS,
-    RESET_TERM_BODY_MASS,
-    RESET_TERM_GEOM_FRICTION,
-    RESET_TERM_GRAVITY,
-    RESET_TERM_KD,
-    RESET_TERM_KP,
-    ResetRandomizationPayload,
-)
 from unilab.dtype_config import get_global_dtype
 from unilab.tasks.compatibility import adapt_legacy_factory
 from unilab.tasks.manipulation.sharpa_inhand.base import (

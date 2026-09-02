@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 import gymnasium as gym
 import numpy as np
 import pytest
+from unisim.backend.base import SimBackend
 
-from unilab.base.backend.base import SimBackend
 from unilab.base.base import EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.scene import SceneCfg

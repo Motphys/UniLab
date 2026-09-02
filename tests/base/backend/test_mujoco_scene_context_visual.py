@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.base.backend.mujoco.backend import _build_mujoco_scene_context
+from unisim.backend.mujoco.backend import _build_mujoco_scene_context
+
 from unilab.base.scene import SceneCfg
 
 

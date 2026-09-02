@@ -14,12 +14,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-
-from unilab.terrains.terrain_generator import (
+from unisim.terrain.generator import (
     SubTerrainCfg,
     TerrainHeightField,
     TerrainOutput,
 )
+
 from unilab.terrains.utils import (
     bilinear_resample_grid,
     find_flat_patches_from_heightfield,

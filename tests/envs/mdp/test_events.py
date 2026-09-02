@@ -9,11 +9,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-
-from unilab.base.backend.base import BackendRootStateLayout, SimBackend
-from unilab.base.entity import EntityCfg, EntityScene
-from unilab.base.reset_state import ResetStateTransaction
-from unilab.dr.types import (
+from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_DOF_ARMATURE,
@@ -25,6 +22,9 @@ from unilab.dr.types import (
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
 )
+
+from unilab.base.entity import EntityCfg, EntityScene
+from unilab.base.reset_state import ResetStateTransaction
 from unilab.envs import mdp
 from unilab.managers import EventManager, EventTermCfg, SceneEntityCfg
 from unilab.managers._types import ManagerBasedRlEnv

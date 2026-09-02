@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 from weakref import WeakKeyDictionary
 
 import numpy as np
+from unisim.backend.base import BackendTerrainSpawnData
+from unisim.terrain.generator import SubTerrainCfg, TerrainGeneratorCfg
 
-from unilab.base.backend.base import BackendTerrainSpawnData
+from unilab.base.entity import EntityCfg
 from unilab.dtype_config import get_global_dtype
 from unilab.envs.mdp.actions.actions import JointPositionAction, JointPositionActionCfg
 from unilab.envs.mdp.commands.velocity_command import (
@@ -29,8 +31,6 @@ from unilab.tasks.locomotion.common.terrain_spawn import (
     TerrainSpawnManager,
 )
 from unilab.terrains import (
-    SubTerrainCfg,
-    TerrainGeneratorCfg,
     flat,
     hf_pyramid_slope,
     hf_pyramid_slope_inv,
@@ -42,7 +42,8 @@ from unilab.terrains import (
 from unilab.utils.rotation import np_quat_from_euler_xyz, np_quat_mul
 
 if TYPE_CHECKING:
-    from unilab.base.backend.base import BackendHeightScanner
+    from unisim.backend.base import BackendHeightScanner
+
     from unilab.base.entity import Entity
     from unilab.envs.manager_based_rl_env import ManagerBasedRlEnv as RoughManagerBasedRlEnv
     from unilab.managers._types import ManagerBasedRlEnv
@@ -421,7 +422,8 @@ class RoughHeightScan(ManagerTermBase):
                 raise ValueError(
                     f"RoughHeightScan scene entity '{asset_cfg.name}' is not configured"
                 )
-            base_body_name = scene.entities[asset_cfg.name].root_body_name
+            entity_cfg = cast(EntityCfg, scene.entities[asset_cfg.name])
+            base_body_name = entity_cfg.root_body_name
         if not isinstance(base_body_name, str) or not base_body_name:
             raise ValueError("RoughHeightScan requires base_body_name or an entity root_body_name")
         points_x = cfg.params.get("measured_points_x", DEFAULT_SCAN_POINTS_X)
