@@ -1,8 +1,4 @@
 """Test reward config injection system."""
-
-from typing import Any, cast
-
-import pytest
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 

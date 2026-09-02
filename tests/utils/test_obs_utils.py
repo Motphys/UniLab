@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from unilab.base.observations import flatten_obs_dict, get_obs_dims, split_obs_dict
 

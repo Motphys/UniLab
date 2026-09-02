@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _LIBRARY_PACKAGE = _REPO_ROOT / "src" / "unilab"
 
@@ -66,3 +68,35 @@ def test_utils_does_not_import_higher_layers() -> None:
     ]
 
     assert violations == [], "src/unilab/utils must not import higher unilab layers"
+
+
+_NUMPY_MDP_MODULES = (
+    "envs/mdp/events.py",
+    "envs/mdp/observations.py",
+    "envs/mdp/rewards.py",
+    "envs/mdp/terminations.py",
+    "envs/mdp/commands/velocity_command.py",
+)
+_NUMPY_MDP_FORBIDDEN_LAYERS = (
+    "torch",
+    "unilab.ipc",
+    "unilab.algos",
+    "unilab.training",
+    "unilab.base.backend",
+)
+
+
+@pytest.mark.parametrize("relative_path", _NUMPY_MDP_MODULES)
+def test_numpy_mdp_modules_do_not_import_runtime_layers(relative_path: str) -> None:
+    path = _LIBRARY_PACKAGE / relative_path
+    imports = _imports(path)
+    violations = sorted(
+        module
+        for module in imports
+        if any(
+            module == forbidden or module.startswith(f"{forbidden}.")
+            for forbidden in _NUMPY_MDP_FORBIDDEN_LAYERS
+        )
+    )
+
+    assert violations == [], f"{relative_path} imports forbidden runtime layers: {violations}"

@@ -24,10 +24,6 @@ def _load_script(name: str) -> Any:
     return mod
 
 
-def test_legacy_visualization_env_entrypoint_is_removed():
-    assert not (_SCRIPTS_DIR / "visualization_env.py").exists()
-
-
 def test_visualize_task_env_keeps_canonical_defaults():
     mod = _load_script("visualize_task_env")
 

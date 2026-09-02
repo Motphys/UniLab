@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -1129,19 +1127,6 @@ def test_uniform_root_state_invalid_ranges_fail_before_write(
         mdp.reset_root_state_uniform(env, np.asarray([0], dtype=np.int32), pose_range)
 
     assert entity.writes == []
-
-
-def test_events_module_has_no_forbidden_runtime_dependencies() -> None:
-    path = Path(__file__).resolve().parents[3] / "src" / "unilab" / "envs" / "mdp" / "events.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    forbidden = ("torch", "unilab.ipc", "unilab.algos", "unilab.training", "unilab.base.backend")
-    imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)] + [
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    ]
-    assert not [name for name in imports if name.startswith(forbidden)]
 
 
 class _BiasEntity:

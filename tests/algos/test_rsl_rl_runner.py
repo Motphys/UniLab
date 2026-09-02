@@ -6,7 +6,6 @@ Requires MuJoCo and rsl_rl to be installed. Run with:
 
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any, cast
