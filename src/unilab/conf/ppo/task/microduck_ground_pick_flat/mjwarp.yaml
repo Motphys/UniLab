@@ -1,0 +1,58 @@
+# @package _global_
+# Minimal MicroDuck phase-command owner.  This is an Adapted task intended to
+# exercise a continuous phase command, metrics, recorder lifecycle, and the
+# shared locomotion manager contract without claiming full legacy parity.
+defaults:
+  - /task/microduck_velocity_flat/base
+  - _self_
+
+training:
+  task_name: MicroduckGroundPickFlat
+  sim_backend: mjwarp
+  play_render_mode: record
+
+algo:
+  num_envs: 2048
+  max_iterations: 500
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - policy
+    critic:
+      - critic
+
+env:
+  mjwarp_nconmax: 128
+  mjwarp_njmax: 256
+  render_spacing: 2.0
+  commands:
+    twist:
+      _target_: unilab.envs.mdp.GroundPickPhaseCommandCfg
+      period: 4.0
+      randomize_phase: true
+  metrics:
+    root_height:
+      _target_: unilab.managers.MetricsTermCfg
+      func: unilab.tasks.locomotion.microduck.manager_terms.root_height_metric
+      reduce: mean
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+  recorders:
+    lifecycle:
+      _target_: unilab.managers.RecorderTermCfg
+      func: unilab.tasks.locomotion.microduck.manager_terms.MicroduckTraceRecorder
+
+reward:
+  posture_height:
+    func: unilab.tasks.locomotion.microduck.manager_terms.posture_height_tracking
+    weight: 0.5
+    params:
+      command_name: twist
+      sit_height: 0.060
+      stand_height: 0.115
+      std: 0.02
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot

@@ -1216,6 +1216,67 @@ class Entity:
             )
         self.data.write_ctrl(target, env_ids, actuator_ids=actuator_ids)
 
+    def _set_joint_control_target(
+        self,
+        target: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None,
+        env_ids: np.ndarray | slice | None,
+        *,
+        capability: str,
+    ) -> None:
+        """Map a joint target to the entity-owned actuator control buffer.
+
+        The action term selects the semantic transmission while this helper
+        owns only the stable joint-to-actuator mapping and validation. The
+        backend remains responsible for interpreting each actuator's control
+        signal, and no backend-private model access is needed in the manager
+        hot path.
+        """
+        joint_to_actuator = self._joint_to_actuator_local
+        if joint_to_actuator is None:
+            raise self._capability_error(
+                capability, "joint-to-actuator metadata was not materialized"
+            )
+        local_joint_ids = self._normalize_local_joint_ids(joint_ids, capability=capability)
+        actuator_ids = joint_to_actuator[local_joint_ids]
+        if np.any(actuator_ids < 0):
+            passive_names = [
+                self.joint_names[int(index)] for index in local_joint_ids[actuator_ids < 0]
+            ]
+            raise NotImplementedError(
+                f"Entity '{self.name}' capability '{capability}' is unavailable "
+                f"for passive joints on backend '{self._backend_type}': {passive_names}"
+            )
+        self.data.write_ctrl(target, env_ids, actuator_ids=actuator_ids)
+
+    def set_joint_velocity_target(
+        self,
+        target: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Map joint velocity targets to the entity actuator control buffer."""
+        self._set_joint_control_target(
+            target,
+            joint_ids,
+            env_ids,
+            capability="joint velocity target",
+        )
+
+    def set_joint_effort_target(
+        self,
+        target: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> None:
+        """Map joint effort (torque) targets to the actuator control buffer."""
+        self._set_joint_control_target(
+            target,
+            joint_ids,
+            env_ids,
+            capability="joint effort target",
+        )
+
     def bind_body_state_copy(
         self,
         body_ids: np.ndarray | Sequence[int] | slice | None = None,

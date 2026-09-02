@@ -1,7 +1,23 @@
 """Community-style built-in MDP terms for UniLab's NumPy manager runtime."""
 
+from unilab.envs.mdp.actions import JointEffortAction as JointEffortAction
+from unilab.envs.mdp.actions import JointEffortActionCfg as JointEffortActionCfg
 from unilab.envs.mdp.actions import JointPositionAction as JointPositionAction
 from unilab.envs.mdp.actions import JointPositionActionCfg as JointPositionActionCfg
+from unilab.envs.mdp.actions import JointVelocityAction as JointVelocityAction
+from unilab.envs.mdp.actions import JointVelocityActionCfg as JointVelocityActionCfg
+from unilab.envs.mdp.actions import (
+    RelativeJointPositionAction as RelativeJointPositionAction,
+)
+from unilab.envs.mdp.actions import (
+    RelativeJointPositionActionCfg as RelativeJointPositionActionCfg,
+)
+from unilab.envs.mdp.commands import GroundPickPhaseCommand as GroundPickPhaseCommand
+from unilab.envs.mdp.commands import GroundPickPhaseCommandCfg as GroundPickPhaseCommandCfg
+from unilab.envs.mdp.commands import SitStandCommand as SitStandCommand
+from unilab.envs.mdp.commands import SitStandCommandCfg as SitStandCommandCfg
+from unilab.envs.mdp.commands import UniformPoseCommand as UniformPoseCommand
+from unilab.envs.mdp.commands import UniformPoseCommandCfg as UniformPoseCommandCfg
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
 from unilab.envs.mdp.curriculums import command_curriculum as command_curriculum
@@ -64,8 +80,20 @@ from unilab.envs.mdp.terminations import time_out as time_out
 __all__ = [
     "JointPositionAction",
     "JointPositionActionCfg",
+    "JointEffortAction",
+    "JointEffortActionCfg",
+    "JointVelocityAction",
+    "JointVelocityActionCfg",
+    "RelativeJointPositionAction",
+    "RelativeJointPositionActionCfg",
     "UniformVelocityCommand",
     "UniformVelocityCommandCfg",
+    "GroundPickPhaseCommand",
+    "GroundPickPhaseCommandCfg",
+    "SitStandCommand",
+    "SitStandCommandCfg",
+    "UniformPoseCommand",
+    "UniformPoseCommandCfg",
     "action_acc_l2",
     "action_rate_l2",
     "apply_body_impulse",

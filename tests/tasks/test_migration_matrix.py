@@ -17,7 +17,7 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
 
     assert PRODUCTION_TASK_NAMES <= registered.keys()
     assert {record.task_name for record in records} == set(PRODUCTION_TASK_NAMES)
-    assert len(records) == 41
+    assert len(records) == 43
     assert sum(record.status == "Compatible" for record in records) == 38
     assert sum(record.target == "compatibility" for record in records) == 3
 
@@ -32,6 +32,8 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
         ("X2WallFlipTracking", "motion_tracking", "complete", "Compatible"),
         ("G1WalkRough", "g1_locomotion", "complete", "Compatible"),
         ("MicroduckVelocityFlat", "microduck_locomotion", "complete", "Compatible"),
+        ("MicroduckGroundPickFlat", "microduck_locomotion", "mba", "Adapted"),
+        ("MicroduckSitStandFlat", "microduck_locomotion", "mba", "Adapted"),
         ("T800WalkFlat", "t800_locomotion", "complete", "Compatible"),
         ("Go2JoystickRough", "quadruped_rough", "complete", "Compatible"),
     ],

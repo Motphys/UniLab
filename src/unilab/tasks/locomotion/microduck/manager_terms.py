@@ -23,6 +23,8 @@ from unilab.managers import (
     CommandTermCfg,
     ManagerTermBase,
     ManagerTermBaseCfg,
+    RecorderTerm,
+    RecorderTermCfg,
     SceneEntityCfg,
 )
 from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
@@ -376,6 +378,76 @@ class flight_phase(_FootContactTerm):
         return np.asarray(~np.any(self._contact(env), axis=1), dtype=get_global_dtype())
 
 
+def posture_height_tracking(
+    env: ManagerBasedRlEnv,
+    command_name: str = "twist",
+    sit_height: float = 0.060,
+    stand_height: float = 0.115,
+    std: float = 0.02,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Track the slewed height target exposed by :class:`SitStandCommand`."""
+    if std <= 0.0 or not np.isfinite(std):
+        raise ValueError("posture_height_tracking std must be finite and positive")
+    if not isinstance(asset_cfg, SceneEntityCfg):
+        raise TypeError("posture_height_tracking asset_cfg must be SceneEntityCfg")
+    command_term = env.command_manager.get_term(command_name)
+    alpha = getattr(command_term, "alpha", None)
+    if alpha is None:
+        command = _command(env, "posture_height_tracking", command_name)
+        alpha = np.clip(command[:, 0], 0.0, 1.0)
+    target = (1.0 - alpha) * stand_height + alpha * sit_height
+    actual = _state(
+        "posture_height_tracking",
+        "root position",
+        cast("Entity", env.scene[asset_cfg.name]).data.root_link_pos_w,
+        (env.num_envs, 3),
+    )[:, 2]
+    return np.asarray(np.exp(-np.square((actual - target) / std)), dtype=get_global_dtype())
+
+
+def root_height_metric(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Expose a finite root-height metric for the MetricsManager contract."""
+    if not isinstance(asset_cfg, SceneEntityCfg):
+        raise TypeError("root_height_metric asset_cfg must be SceneEntityCfg")
+    return np.asarray(
+        _state(
+            "root_height_metric",
+            "root position",
+            cast("Entity", env.scene[asset_cfg.name]).data.root_link_pos_w,
+            (env.num_envs, 3),
+        )[:, 2],
+        dtype=get_global_dtype(),
+    )
+
+
+class MicroduckTraceRecorder(RecorderTerm):
+    """Allocation-free in-memory recorder used by the minimal API task owners.
+
+    The recorder deliberately has no file or backend dependency.  It provides
+    observable lifecycle evidence for users defining a real recorder term while
+    keeping the default training path free of filesystem I/O.
+    """
+
+    def __init__(self, cfg: RecorderTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        self.post_reset_count = 0
+        self.post_step_count = 0
+        self.pre_reset_count = 0
+
+    def record_pre_reset(self, env_ids: np.ndarray) -> None:
+        self.pre_reset_count += int(len(env_ids))
+
+    def record_post_reset(self, env_ids: np.ndarray) -> None:
+        self.post_reset_count += int(len(env_ids))
+
+    def record_post_step(self) -> None:
+        self.post_step_count += 1
+
+
 __all__ = [
     "MicroduckVelocityCommand",
     "MicroduckVelocityCommandCfg",
@@ -386,4 +458,7 @@ __all__ = [
     "head_pose_bias",
     "head_pose_tracking",
     "leg_pose",
+    "MicroduckTraceRecorder",
+    "posture_height_tracking",
+    "root_height_metric",
 ]

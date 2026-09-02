@@ -15,7 +15,16 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend_factory import create_backend
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.scene import SceneCfg
-from unilab.envs.mdp import JointPositionAction, JointPositionActionCfg
+from unilab.envs.mdp import (
+    JointEffortAction,
+    JointEffortActionCfg,
+    JointPositionAction,
+    JointPositionActionCfg,
+    JointVelocityAction,
+    JointVelocityActionCfg,
+    RelativeJointPositionAction,
+    RelativeJointPositionActionCfg,
+)
 from unilab.envs.mdp.actions import (
     JointPositionAction as ExportedJointPositionAction,
 )
@@ -67,6 +76,10 @@ class _Backend:
 def _action(
     **overrides,
 ) -> tuple[JointPositionAction, np.ndarray, EntityScene]:
+    return _build_action(JointPositionActionCfg, **overrides)
+
+
+def _build_action(action_cfg_type, **overrides):
     backend = _Backend()
     control = np.zeros((backend.num_envs, backend.num_actuators), dtype=np.float32)
     scene = EntityScene(
@@ -84,7 +97,7 @@ def _action(
         "actuator_names": ("hip|knee",),
         **overrides,
     }
-    cfg = JointPositionActionCfg(**cfg_values)
+    cfg = action_cfg_type(**cfg_values)
     env = cast(ManagerBasedRlEnv, SimpleNamespace(num_envs=backend.num_envs, scene=scene))
     return cfg.build(env), control, scene
 
@@ -154,6 +167,50 @@ def test_non_finite_and_wrong_shape_actions_fail_before_control_write() -> None:
     with pytest.raises(ValueError, match="NaN or Inf"):
         action.process_actions(np.full((2, 2), np.nan, dtype=np.float32))
     np.testing.assert_array_equal(control, 0.0)
+
+
+@pytest.mark.parametrize(
+    ("action_cfg_type", "action_type"),
+    [
+        (JointVelocityActionCfg, JointVelocityAction),
+        (JointEffortActionCfg, JointEffortAction),
+    ],
+)
+def test_velocity_and_effort_actions_use_the_shared_joint_control_mapping(
+    action_cfg_type, action_type
+) -> None:
+    action, control, _ = _build_action(action_cfg_type, scale=2.0)
+    assert isinstance(action, action_type)
+    raw = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+
+    action.process_actions(raw)
+    action.apply_actions()
+
+    np.testing.assert_allclose(control[:, 1], raw[:, 0] * 2.0)
+    np.testing.assert_allclose(control[:, 0], raw[:, 1] * 2.0)
+    np.testing.assert_array_equal(control[:, 2], 0.0)
+
+
+def test_relative_joint_position_action_reads_current_position_at_apply_time() -> None:
+    action, control, scene = _build_action(RelativeJointPositionActionCfg, scale=0.25)
+    assert isinstance(action, RelativeJointPositionAction)
+    scene["robot"]._backend.dof_pos[:] = np.asarray(
+        [[0.4, 0.5, 0.6], [0.7, 0.8, 0.9]], dtype=np.float32
+    )
+    raw = np.asarray([[0.4, -0.8], [0.8, -0.4]], dtype=np.float32)
+
+    action.process_actions(raw)
+    action.apply_actions()
+
+    # Entity joint order is hip, knee, ankle while backend actuator order is
+    # knee, hip, ankle.
+    np.testing.assert_allclose(control[:, 1], [0.4 + 0.4 * 0.25, 0.7 + 0.8 * 0.25])
+    np.testing.assert_allclose(control[:, 0], [0.5 - 0.8 * 0.25, 0.8 - 0.4 * 0.25])
+
+
+def test_relative_joint_position_action_rejects_nonzero_offsets() -> None:
+    with pytest.raises(ValueError, match="does not support a non-zero offset"):
+        _build_action(RelativeJointPositionActionCfg, offset={"hip": 0.1})
 
 
 @pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])

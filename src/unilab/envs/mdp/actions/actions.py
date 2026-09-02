@@ -2,7 +2,7 @@
 # src/mjlab/envs/mdp/actions/actions.py.
 # Copyright 2025, The mjlab Developers.
 # Modified by UniLab for NumPy and the SimBackend/entity contracts; Apache-2.0.
-"""Actions that write joint-position targets to entity actuator controls."""
+"""Joint transmission actions for the NumPy Manager-Based runtime."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 def _real(value: Any, *, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
         raise TypeError(f"{label} must be a real number, got {type(value).__name__}")
     result = float(value)
     if not math.isfinite(result):
@@ -220,4 +220,92 @@ class JointPositionAction(BaseAction):
         self._entity.set_joint_position_target(self._target, joint_ids=self._target_ids)
 
 
-__all__ = ["JointPositionAction", "JointPositionActionCfg"]
+@dataclass(kw_only=True)
+class RelativeJointPositionActionCfg(BaseActionCfg):
+    """Joint position targets relative to the current measured position.
+
+    ``target = current_joint_pos + action * scale``.  A fixed offset has no
+    useful meaning for this transmission and is rejected during construction.
+    """
+
+    def __post_init__(self) -> None:
+        if isinstance(self.offset, dict):
+            resolved = [
+                _real(value, label="RelativeJointPositionActionCfg offset")
+                for value in self.offset.values()
+            ]
+            nonzero = [value for value in resolved if value != 0.0]
+        else:
+            value = _real(self.offset, label="RelativeJointPositionActionCfg offset")
+            nonzero = [value] if value != 0.0 else []
+        if nonzero:
+            raise ValueError("RelativeJointPositionActionCfg does not support a non-zero offset")
+
+    def build(self, env: ManagerBasedRlEnv) -> RelativeJointPositionAction:
+        return RelativeJointPositionAction(self, env)
+
+
+class RelativeJointPositionAction(BaseAction):
+    """Control joints via position targets relative to current positions."""
+
+    def apply_actions(self) -> None:
+        current = self._entity.data.joint_pos[:, self._target_ids]
+        target = current + self._processed_actions
+        self._entity.set_joint_position_target(target, joint_ids=self._target_ids)
+
+
+@dataclass(kw_only=True)
+class JointVelocityActionCfg(BaseActionCfg):
+    """Configuration for joint velocity control."""
+
+    use_default_offset: bool = True
+
+    def build(self, env: ManagerBasedRlEnv) -> JointVelocityAction:
+        return JointVelocityAction(self, env)
+
+
+class JointVelocityAction(BaseAction):
+    """Control joints via velocity targets."""
+
+    def __init__(self, cfg: JointVelocityActionCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg=cfg, env=env)
+        if not isinstance(cfg.use_default_offset, bool):
+            raise TypeError("JointVelocityActionCfg use_default_offset must be bool")
+        if cfg.use_default_offset:
+            self._offset = self._entity.data.default_joint_vel[:, self._target_ids].copy()
+
+    def apply_actions(self) -> None:
+        self._entity.set_joint_velocity_target(
+            self._processed_actions,
+            joint_ids=self._target_ids,
+        )
+
+
+@dataclass(kw_only=True)
+class JointEffortActionCfg(BaseActionCfg):
+    """Configuration for joint effort (torque) control."""
+
+    def build(self, env: ManagerBasedRlEnv) -> JointEffortAction:
+        return JointEffortAction(self, env)
+
+
+class JointEffortAction(BaseAction):
+    """Control joints via effort targets."""
+
+    def apply_actions(self) -> None:
+        self._entity.set_joint_effort_target(
+            self._processed_actions,
+            joint_ids=self._target_ids,
+        )
+
+
+__all__ = [
+    "JointEffortAction",
+    "JointEffortActionCfg",
+    "JointPositionAction",
+    "JointPositionActionCfg",
+    "JointVelocityAction",
+    "JointVelocityActionCfg",
+    "RelativeJointPositionAction",
+    "RelativeJointPositionActionCfg",
+]

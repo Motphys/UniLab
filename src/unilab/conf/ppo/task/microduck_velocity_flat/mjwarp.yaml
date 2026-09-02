@@ -1,0 +1,32 @@
+# @package _global_
+# PPO + mjwarp owner for the canonical MicroDuck Manager-Based velocity task.
+# The owner keeps the MuJoCo manager/observation/reward contract unchanged and
+# only selects the explicit mjwarp host profile.
+defaults:
+  - /task/microduck_velocity_flat/base
+  - _self_
+
+training:
+  task_name: MicroduckVelocityFlat
+  sim_backend: mjwarp
+  play_render_mode: record
+
+algo:
+  num_envs: 2048
+  max_iterations: 500
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - policy
+    critic:
+      - critic
+  policy:
+    init_noise_std: 1.0
+  algorithm:
+    learning_rate: 1.0e-3
+    entropy_coef: 0.01
+
+env:
+  mjwarp_nconmax: 128
+  mjwarp_njmax: 256
+  render_spacing: 2.0
