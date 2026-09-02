@@ -10,6 +10,9 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
    - Linux default (installs PyTorch cu128 wheels; requires an NVIDIA GPU/driver supported by current PyTorch cu128 wheels): `uv sync`
    - Linux AMD / ROCm workstation: `make sync-rocm`, then run commands with `uv run --no-sync ...`
    - When you need Motrix, append `--extra motrix`
+   - Physics adapters are supplied by `unisim-core` (import namespace
+     `unisim`). During roadmap #1428, its package source is TestPyPI; do not
+     upload production releases from a development branch.
 3. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.
 
 ## Development Rules

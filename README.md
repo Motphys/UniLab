@@ -34,7 +34,7 @@ Start with the `Quick Demo` below to run the primary training command. The recom
 ```
 
 - **Heterogeneous RL runtime:** CPU-parallel simulation streams transitions through shared memory while policy learning runs on GPU accelerators.
-- **Two physics backends:** MuJoCoUni and MotrixSim are integrated through backend-specific adapters and task owner configs.
+- **Unified physics package:** all seven physics identities (MuJoCo, Motrix, Drake, MJWarp, Genesis, IsaacGym, IsaacSim) are exposed through the independent `unisim-core` package; UniLab keeps task owner configs and lifecycle orchestration.
 - **Unified training CLI:** `uv run train` and `uv run eval` cover PPO, APPO, SAC, TD3, and FlashSAC; additional HORA and HIM-PPO paths are documented as script-level workflows.
 - **Config-owned tasks:** Hydra owner YAML files select task, reward, backend, and algorithm settings together; backend switching is expressed as `task=<task>/<backend>`.
 - **Cross-platform setup paths:** The repository tracks Linux CUDA, Linux ROCm, Linux XPU, and Apple Silicon / macOS setup flows.
@@ -120,6 +120,10 @@ uv run demo dance
 ```
 
 Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`. See the [Unified CLI](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/1-cli_reference.html) page for the full list and flags.
+
+The roadmap migration currently resolves `unisim-core` from TestPyPI. Its
+public import namespace is `unisim`; production PyPI publication is performed
+manually by the maintainer after roadmap #1428 closes.
 
 > Mainland China users: motions, scenes, robot meshes, and demo checkpoints are pulled from Hugging Face on first run. If `huggingface.co` is unreachable, point the client at the community mirror before running demo commands:
 >
