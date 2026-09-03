@@ -234,9 +234,16 @@ def test_go2_flat_owner_materializes_complete_plain_manager_cfg(
             "contact": 0.24,
             "swing_feet_z": 4.0,
         }
+        if backend == "drake":
+            # The drake owner disables contact: drake_uni reports world-frame
+            # per-body net contact force, not contact-frame force (#1471).
+            del expected_weights["contact"]
         if alive_declared:
             expected_weights["alive"] = 0.0
-        assert {name: term.weight for name, term in env_cfg.rewards.items()} == expected_weights
+        actual_weights = {
+            name: term.weight for name, term in env_cfg.rewards.items() if term is not None
+        }
+        assert actual_weights == expected_weights
 
     if fixed_command:
         ranges = env_cfg.commands["twist"].ranges

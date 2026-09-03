@@ -122,6 +122,8 @@ class _FootContactTerm(SensorTermBase):
         # MuJoCo ``<contact data="force">`` sensors report the force in the
         # contact frame whose first axis is the contact normal, so the gating
         # component is column 0 for both 1-D ``found`` and 3-D ``force``.
+        # ``reduce="netforce"`` variants report world-frame force instead and
+        # are outside this contract.
         columns = starts
         self._flat_width = int(sum(self._view.dimensions))
         # Per-foot column groups in the flattened sensor layout.

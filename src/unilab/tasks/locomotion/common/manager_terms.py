@@ -395,6 +395,8 @@ class feet_phase_contact(_FootSensorTerm):
         # MuJoCo ``<contact data="force">`` sensors report the force in the
         # contact frame whose first axis is the contact normal, so the gating
         # component is column 0 for both 1-D ``found`` and 3-D ``force``.
+        # ``reduce="netforce"`` variants report world-frame force instead and
+        # are outside this contract.
         self._columns = starts
 
     def __call__(self, env: _GaitEnv, **params: Any) -> np.ndarray:
@@ -498,6 +500,8 @@ class feet_air_while_standing(ManagerTermBase):
         # MuJoCo ``<contact data="force">`` sensors report the force in the
         # contact frame whose first axis is the contact normal, so the gating
         # component is column 0 for both 1-D ``found`` and 3-D ``force``.
+        # ``reduce="netforce"`` variants report world-frame force instead and
+        # are outside this contract.
         self._columns = starts
 
     def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
