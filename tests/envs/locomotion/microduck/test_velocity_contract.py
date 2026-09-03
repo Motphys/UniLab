@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import math
 from pathlib import Path
 from typing import Any, cast
 
@@ -160,35 +161,46 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
     expected_rewards = (
         "tracking_lin_vel",
         "tracking_ang_vel",
+        "upright",
         "head_pose_tracking",
         "head_pose_bias",
+        "body_pose_tracking",
         "leg_pose",
         "air_time",
         "foot_clearance",
         "foot_swing_height",
         "foot_slip",
-        "flight_phase",
-        "lin_vel_z",
-        "ang_vel_xy",
-        "orientation",
-        "base_height",
+        "body_ang_vel",
+        "self_collisions",
         "dof_pos_limits",
         "angular_momentum",
         "action_rate",
-        "alive",
     )
     assert tuple(env_cfg.rewards) == expected_rewards
-    assert env_cfg.rewards["tracking_lin_vel"].weight == pytest.approx(3.0)
+    # Upstream HEAD reward stack (anchor 29e887ec): vz² is folded into the
+    # tracking kernel, so no standalone lin_vel_z / orientation / base_height /
+    # flight_phase / alive terms.
+    assert env_cfg.rewards["tracking_lin_vel"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["tracking_lin_vel"].params["std"] == pytest.approx(math.sqrt(0.1))
     assert env_cfg.rewards["tracking_ang_vel"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["upright"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["upright"].params["std"] == pytest.approx(math.sqrt(0.05))
+    assert env_cfg.rewards["head_pose_tracking"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["body_pose_tracking"].weight == pytest.approx(0.0)
+    assert env_cfg.rewards["body_pose_tracking"].params["nominal_height"] == pytest.approx(0.095)
+    assert env_cfg.rewards["leg_pose"].weight == pytest.approx(1.0)
+    assert env_cfg.rewards["leg_pose"].params["walking_threshold"] == pytest.approx(0.01)
+    assert env_cfg.rewards["leg_pose"].params["std_walking"][".*knee.*"] == pytest.approx(0.4)
     assert env_cfg.rewards["air_time"].weight == pytest.approx(3.0)
     assert env_cfg.rewards["air_time"].params["threshold_min"] == pytest.approx(0.125)
     assert env_cfg.rewards["air_time"].params["threshold_max"] == pytest.approx(0.3)
     assert env_cfg.rewards["foot_clearance"].weight == pytest.approx(-2.0)
     assert env_cfg.rewards["foot_swing_height"].weight == pytest.approx(-0.25)
     assert env_cfg.rewards["foot_slip"].weight == pytest.approx(-0.1)
+    assert env_cfg.rewards["body_ang_vel"].weight == pytest.approx(-0.05)
+    assert env_cfg.rewards["self_collisions"].weight == pytest.approx(-1.0)
     assert env_cfg.rewards["dof_pos_limits"].weight == pytest.approx(-1.0)
     assert env_cfg.rewards["angular_momentum"].weight == pytest.approx(-0.02)
-    assert env_cfg.rewards["flight_phase"].weight == pytest.approx(-2.0)
     assert env_cfg.rewards["head_pose_bias"].weight == pytest.approx(0.0)
     assert env_cfg.rewards["action_rate"].weight == pytest.approx(-0.1)
     assert tuple(env_cfg.events) == (

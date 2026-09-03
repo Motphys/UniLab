@@ -403,17 +403,17 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.tracking_lin_vel.weight"),
         2.0,
-        "gap",
-        "当前 3.0；上游 track_linear_velocity 权重 2.0。",
+        "match",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
         "mdp.reward.track_linear_velocity.std",
         "mdp",
-        _hydra("reward.tracking_lin_vel.params.tracking_sigma"),
+        _hydra("reward.tracking_lin_vel.params.std"),
         math.sqrt(0.1),
-        "gap",
-        "当前 tracking_sigma=0.25 且只跟踪 xy；上游 std=√0.1，指数内含 vz²，body frame。",
+        "match",
+        "unilab.envs.mdp.track_linear_velocity：exp(-(‖cmd_xy−v_xy‖²+v_z²)/std²)，"
+        "body frame，vz² 并入指数（上游不再单列 lin_vel_z term）。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -437,8 +437,8 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.upright.weight"),
         2.0,
-        "gap",
-        "缺失；上游 upright 2.0（std=√0.05，trunk_base）。",
+        "match",
+        "unilab.envs.mdp.upright：exp(-‖pg_xy‖²/std²)，std=√0.05，body=trunk_base。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -446,9 +446,10 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.leg_pose.params.std_walking"),
         PRESENT,
-        "gap",
-        "上游 pose（variable_posture）站立/行走两套 std 并在行走时继续评分；"
-        "UniLab leg_pose 仅 std_standing，行走时置零。",
+        "match",
+        "上游 pose（variable_posture）：仅腿关节，站立/行走两套 std，行走时按 "
+        "std_walking 继续评分（std_running 与 std_walking 相同）；UniLab 以 "
+        "unilab.envs.mdp.variable_posture 实现，walking_threshold=0.01。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -465,8 +466,10 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.body_ang_vel.weight"),
         -0.05,
-        "gap",
-        "缺失；上游惩罚 trunk_base 全三轴角速度。UniLab ang_vel_xy(-0.05) 只覆盖 xy。",
+        "match",
+        "上游 body_angular_velocity_penalty 只罚 trunk_base 的 world-frame ω_xy"
+        "（yaw 自由，mjlab 注释明确不罚 z 轴）；UniLab 同名 term 同源实现，"
+        "取代旧的 gyro 传感器 ang_vel_xy(-0.05)。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -555,8 +558,10 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.self_collisions.weight"),
         -1.0,
-        "gap",
-        "缺失；上游 self_collision_cost（10 N 接触力阈值）。",
+        "match",
+        "上游 self_collision_cost 在 found-only 传感器下是碰撞 geom 对计数"
+        "（force_threshold=10 N 仅在 force history 启用时生效，上游未启用）；"
+        "UniLab 由 locomotion_task.xml 三个 self_collision_* found 传感器驱动。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -564,8 +569,7 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.head_pose_tracking.weight"),
         2.0,
-        "gap",
-        "当前 0.5；上游 2.0。",
+        "match",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -581,8 +585,9 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.body_pose_tracking.weight"),
         0.0,
-        "gap",
-        "缺失；上游挂起态（weight 0.0，保持 command/obs 通道活性）。",
+        "match",
+        "挂起态（weight 0.0，保持 command/obs 通道活性）；6D 高斯均值："
+        "nominal_height 0.095、xy_std 0.05、z_std 0.02、angle_std 15°。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -599,8 +604,8 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.orientation.weight"),
         ABSENT,
-        "gap",
-        "上游无此 term（当前 -3.0）；对齐时需移除。",
+        "match",
+        "上游无此 term（旧栈 -3.0 已移除；直立性由 upright 承载）。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -608,8 +613,8 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.base_height.weight"),
         ABSENT,
-        "gap",
-        "上游无此 term（当前 -50.0）；对齐时需移除。",
+        "match",
+        "上游无此 term（旧栈 -50.0 已移除）。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -617,8 +622,8 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.alive.weight"),
         ABSENT,
-        "gap",
-        "上游无此 term（当前 +0.1）；对齐时需移除。",
+        "match",
+        "上游无此 term（旧栈 +0.1 已移除）。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -626,8 +631,8 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.flight_phase.weight"),
         ABSENT,
-        "gap",
-        "上游无此 term（当前 -2.0）；对齐时需移除。",
+        "match",
+        "上游无此 term（旧栈 -2.0 已移除）。",
         tasks=VELOCITY_TASK,
     ),
     AlignmentEntry(
@@ -635,7 +640,7 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "mdp",
         _hydra("reward.lin_vel_z.weight"),
         ABSENT,
-        "gap",
+        "match",
         "上游无独立 lin_vel_z term（vz² 已并入 track_linear_velocity 指数）。",
         tasks=VELOCITY_TASK,
     ),

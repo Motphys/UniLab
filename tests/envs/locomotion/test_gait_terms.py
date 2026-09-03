@@ -272,6 +272,31 @@ def test_angular_momentum_penalty_matches_mjlab_squared_norm() -> None:
     np.testing.assert_allclose(term(env), [14.0, 0.3125], rtol=1e-6)
 
 
+def test_self_collision_cost_counts_active_pairs() -> None:
+    """mjlab found-count form: one point per geom pair reporting contact."""
+    scene = _Scene()
+    scene.contacts = {
+        "self_trunk_left": np.array([[1.0], [0.0]], dtype=np.float32),
+        "self_trunk_right": np.array([[0.0], [0.0]], dtype=np.float32),
+        "self_legs": np.array([[1.0], [1.0]], dtype=np.float32),
+    }
+    env = _env(scene)
+    term = _term(
+        gait_terms.self_collision_cost,
+        env,
+        sensor_groups=[["self_trunk_left"], ["self_trunk_right"], ["self_legs"]],
+    )
+    np.testing.assert_allclose(term(env), [2.0, 1.0])
+    # Any-reduce within a group: two sensors of the same pair count once.
+    scene.contacts["self_trunk_right"] = np.array([[1.0], [0.0]], dtype=np.float32)
+    term = _term(
+        gait_terms.self_collision_cost,
+        env,
+        sensor_groups=[["self_trunk_left"], ["self_trunk_right", "self_legs"]],
+    )
+    np.testing.assert_allclose(term(env), [2.0, 1.0])
+
+
 # ---------------------------------------------------------------------------
 # Validation and manager integration
 # ---------------------------------------------------------------------------

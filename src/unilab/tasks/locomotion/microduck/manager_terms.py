@@ -24,6 +24,7 @@ from unilab.managers import (
     SceneEntityCfg,
 )
 from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
+from unilab.utils.rotation import np_wrap_to_pi
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -542,6 +543,67 @@ def phase_height_tracking(
     return np.asarray(np.exp(-np.square((actual - target) / std)), dtype=get_global_dtype())
 
 
+def body_pose_tracking(
+    env: ManagerBasedRlEnv,
+    command_name: str = "body_pose",
+    nominal_height: float = 0.095,
+    xy_std: float = 0.05,
+    z_std: float = 0.02,
+    angle_std: float = math.radians(15),
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Mean of six per-axis Gaussians tracking the commanded 6D body pose delta.
+
+    Mirrors upstream ``body_pose_tracking_6d``: the command is
+    ``[x, y, z, roll, pitch, yaw]`` as deltas from the nominal standing pose
+    (xy from the env origin, z from ``nominal_height``, angles from upright).
+    The velocity task keeps this term at weight zero so the body_pose command
+    and observation channels stay alive for tasks that raise the weight.
+    """
+    _finite_real(nominal_height, label="body_pose_tracking nominal_height")
+    for label, value in (("xy_std", xy_std), ("z_std", z_std), ("angle_std", angle_std)):
+        _finite_real(
+            value,
+            label=f"body_pose_tracking {label}",
+            minimum=0.0,
+            strict_minimum=True,
+        )
+    if not isinstance(asset_cfg, SceneEntityCfg):
+        raise TypeError("body_pose_tracking asset_cfg must be SceneEntityCfg")
+    command = _command(env, "body_pose_tracking", command_name)
+    if command.shape[1] != 6:
+        raise ValueError(
+            f"body_pose_tracking command '{command_name}' must have width 6, "
+            f"received shape {command.shape}"
+        )
+    asset = cast("Entity", env.scene[asset_cfg.name])
+    position = _state(
+        "body_pose_tracking",
+        "root position",
+        asset.data.root_link_pos_w - np.asarray(env.scene.env_origins),
+        (env.num_envs, 3),
+    )
+    quat = _state(
+        "body_pose_tracking",
+        "root quaternion",
+        asset.data.root_link_quat_w,
+        (env.num_envs, 4),
+    )
+    qw, qx, qy, qz = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+    roll = np.arctan2(2.0 * (qw * qx + qy * qz), 1.0 - 2.0 * (qx * qx + qy * qy))
+    pitch = np.arcsin(np.clip(2.0 * (qw * qy - qz * qx), -1.0, 1.0))
+    yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+    errors = (
+        ((position[:, 0] - command[:, 0]) / xy_std) ** 2,
+        ((position[:, 1] - command[:, 1]) / xy_std) ** 2,
+        ((position[:, 2] - nominal_height - command[:, 2]) / z_std) ** 2,
+        ((roll - command[:, 3]) / angle_std) ** 2,
+        ((pitch - command[:, 4]) / angle_std) ** 2,
+        (np_wrap_to_pi(yaw - command[:, 5]) / angle_std) ** 2,
+    )
+    return np.asarray(np.mean(np.exp(-np.stack(errors, axis=1)), axis=1), dtype=get_global_dtype())
+
+
 __all__ = [
     "GroundPickPhaseCommand",
     "GroundPickPhaseCommandCfg",
@@ -549,6 +611,7 @@ __all__ = [
     "MicroduckVelocityCommandCfg",
     "SitStandCommand",
     "SitStandCommandCfg",
+    "body_pose_tracking",
     "flight_phase",
     "foot_air_time_biped",
     "head_pose_bias",

@@ -68,6 +68,7 @@ from unilab.envs.mdp.rewards import posture as posture
 from unilab.envs.mdp.rewards import root_height as root_height
 from unilab.envs.mdp.rewards import track_angular_velocity as track_angular_velocity
 from unilab.envs.mdp.rewards import track_linear_velocity as track_linear_velocity
+from unilab.envs.mdp.rewards import upright as upright
 from unilab.envs.mdp.rewards import variable_posture as variable_posture
 from unilab.envs.mdp.terminations import bad_orientation as bad_orientation
 from unilab.envs.mdp.terminations import nan_detection as nan_detection
@@ -135,5 +136,6 @@ __all__ = [
     "time_out",
     "track_angular_velocity",
     "track_linear_velocity",
+    "upright",
     "variable_posture",
 ]
