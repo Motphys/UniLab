@@ -192,12 +192,13 @@ def test_resolve_grasp_cache_calls_hf_download_with_caches_repo():
         result = resolve_grasp_cache_files(str(missing))
 
     assert result == str(missing)
-    fake_download.assert_called_once_with(
-        repo_id="unilabsim/unilab-caches",
-        filename=expected_relative,
-        repo_type="dataset",
-        local_dir=str(ASSETS_ROOT_PATH),
-    )
+    fake_download.assert_called_once()
+    kwargs = fake_download.call_args.kwargs
+    assert kwargs["repo_id"] == "unilabsim/unilab-caches"
+    assert kwargs["filename"] == expected_relative
+    assert kwargs["repo_type"] == "dataset"
+    assert kwargs["local_dir"] == str(ASSETS_ROOT_PATH)
+    assert kwargs["tqdm_class"] is not None
 
 
 def test_resolve_grasp_cache_relative_path_uses_caches_repo():
@@ -214,12 +215,13 @@ def test_resolve_grasp_cache_relative_path_uses_caches_repo():
         result = resolve_grasp_cache_files(rel)
 
     assert result == str(local)
-    fake_download.assert_called_once_with(
-        repo_id="unilabsim/unilab-caches",
-        filename=rel,
-        repo_type="dataset",
-        local_dir=str(ASSETS_ROOT_PATH),
-    )
+    fake_download.assert_called_once()
+    kwargs = fake_download.call_args.kwargs
+    assert kwargs["repo_id"] == "unilabsim/unilab-caches"
+    assert kwargs["filename"] == rel
+    assert kwargs["repo_type"] == "dataset"
+    assert kwargs["local_dir"] == str(ASSETS_ROOT_PATH)
+    assert kwargs["tqdm_class"] is not None
 
 
 def test_resolve_grasp_cache_can_disable_download_progress():

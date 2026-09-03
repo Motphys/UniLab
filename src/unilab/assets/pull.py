@@ -44,7 +44,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="Show per-directory download logs and Hugging Face progress bars.",
+        help="Retained for compatibility; Hugging Face output remains suppressed.",
     )
     return parser.parse_args(argv)
 
@@ -53,26 +53,21 @@ def _sorted_robots() -> list[str]:
     return sorted(ROBOT_ASSET_SPECS)
 
 
-def _pull_robot(robot: str, *, show_progress: bool) -> list[_AssetSummary]:
+def _pull_robot(robot: str) -> list[_AssetSummary]:
     summaries: list[_AssetSummary] = []
     for directory, marker, pattern, label in ROBOT_ASSET_SPECS[robot]:
-        target = resolve_robot_asset_dir(directory, marker=marker, show_progress=show_progress)
+        target = resolve_robot_asset_dir(directory, marker=marker, show_progress=False)
         count = sum(1 for path in target.rglob(pattern) if path.is_file())
         summaries.append(_AssetSummary(target=target, count=count, label=label))
     return summaries
 
 
-def _format_single_robot_summary(robot: str, summaries: Sequence[_AssetSummary]) -> str:
-    parts = [f"{summary.count} {summary.label} files at {summary.target}" for summary in summaries]
-    return f"{robot} assets ready: {'; '.join(parts)}"
-
-
-def _format_all_summary(robots: Sequence[str], summaries: Sequence[_AssetSummary]) -> str:
+def _format_total_summary(robots: Sequence[str], summaries: Sequence[_AssetSummary]) -> str:
     total_files = sum(summary.count for summary in summaries)
     label_counts: dict[str, int] = {}
     for summary in summaries:
         label_counts[summary.label] = label_counts.get(summary.label, 0) + summary.count
-    counts = ", ".join(f"{count} {label}" for label, count in sorted(label_counts.items()))
+    counts = ", ".join(f"{count} {label} files" for label, count in sorted(label_counts.items()))
     return (
         f"Robot assets ready: {len(robots)} robots, {len(summaries)} directories, "
         f"{total_files} files ({counts})"
@@ -81,19 +76,18 @@ def _format_all_summary(robots: Sequence[str], summaries: Sequence[_AssetSummary
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s"
-    )
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     robots = _sorted_robots() if args.robot == _ALL else [args.robot]
     summaries: list[_AssetSummary] = []
     for robot in robots:
-        summaries.extend(_pull_robot(robot, show_progress=args.verbose))
-
-    if args.robot == _ALL:
-        print(_format_all_summary(robots, summaries))
-    else:
-        print(_format_single_robot_summary(args.robot, summaries))
+        print(f"Downloading {robot} assets ...", flush=True)
+        robot_summaries = _pull_robot(robot)
+        summaries.extend(robot_summaries)
+    print(_format_total_summary(robots, summaries), flush=True)
     return 0
 
 
