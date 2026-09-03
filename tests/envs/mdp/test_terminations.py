@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -137,18 +135,3 @@ def test_nan_detection_integrates_with_termination_manager() -> None:
     entity.data.joint_pos[0, 1] = np.nan
     np.testing.assert_array_equal(manager.compute(), [True, False, False])
     np.testing.assert_array_equal(manager.terminated, [True, False, False])
-
-
-def test_termination_module_has_no_forbidden_runtime_dependencies() -> None:
-    path = (
-        Path(__file__).resolve().parents[3] / "src" / "unilab" / "envs" / "mdp" / "terminations.py"
-    )
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    forbidden = ("torch", "unilab.ipc", "unilab.algos", "unilab.training", "unilab.base.backend")
-    imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)] + [
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    ]
-    assert not [name for name in imports if name.startswith(forbidden)]

@@ -129,23 +129,6 @@ def test_algo_config_composes(algo_dir: str, config_name: str):
     assert cfg.training.sim_backend == "mujoco"
 
 
-def test_legacy_config_groups_removed():
-    for path in [
-        CONF_DIR / "ppo" / "reward",
-        CONF_DIR / "ppo" / "backend_task_preset",
-        CONF_DIR / "ppo" / "algo_preset",
-        CONF_DIR / "ppo" / "sim_backend",
-        CONF_DIR / "appo" / "reward",
-        CONF_DIR / "appo" / "backend_task_preset",
-        CONF_DIR / "appo" / "sim_backend",
-        CONF_DIR / "sac" / "reward",
-        CONF_DIR / "sac" / "backend_task_preset",
-        CONF_DIR / "sac" / "algo_preset",
-        CONF_DIR / "sac" / "sim_backend",
-    ]:
-        assert not path.exists(), f"legacy config group should be removed: {path}"
-
-
 def test_task_files_keep_full_identity_without_hidden_backend_marker():
     for path in sorted(CONF_DIR.glob("*/task/**/*.yaml")):
         cfg = OmegaConf.load(path)

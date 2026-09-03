@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import signal
-import time
 from typing import Any
 from unittest.mock import MagicMock
 

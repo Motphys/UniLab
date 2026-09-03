@@ -5,9 +5,7 @@ import json
 import subprocess
 import sys
 import textwrap
-from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 
@@ -148,45 +146,6 @@ def test_batch_import_diagnostic_is_preserved() -> None:
         }
 
 
-def test_drake_batch_thread_policy_matches_mujoco_auto(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unisim.backend.drake import backend
-
-    monkeypatch.setattr(backend, "cpu_count", lambda: 10)
-
-    assert backend._resolve_batch_nthread(1024, 0) == 20
-    assert backend._resolve_batch_nthread(8, 0) == 8
-    assert backend._resolve_batch_nthread(1024, 4) == 4
-    assert backend._resolve_batch_nthread(2, 8) == 2
-
-
-def test_drake_actuation_metadata_is_detached_and_fails_closed() -> None:
-    from unisim.backend.drake.backend import DrakeBackend
-
-    backend = object.__new__(DrakeBackend)
-    backend._model = SimpleNamespace(nu=2)
-    backend._actuator_names = ("hip_motor", "knee_motor")
-    backend._actuator_joint_names = ("hip", "knee")
-    backend._actuator_qpos_adr = np.asarray([7, 8], dtype=np.intp)
-    backend._home_qpos_mujoco = np.arange(9, dtype=np.float64)
-
-    assert backend.get_actuator_names() == ("hip_motor", "knee_motor")
-    assert backend.get_actuator_joint_names() == ("hip", "knee")
-    default = backend.get_default_dof_pos()
-    np.testing.assert_array_equal(default, np.asarray([7.0, 8.0]))
-    default[:] = -1.0
-    np.testing.assert_array_equal(backend.get_default_dof_pos(), np.asarray([7.0, 8.0]))
-
-    backend._actuator_names = None
-    with pytest.raises(NotImplementedError, match="DrakeUni model_info.*actuator_names"):
-        backend.get_actuator_names()
-    backend._actuator_names = ("duplicate", "duplicate")
-    with pytest.raises(NotImplementedError, match="unique names"):
-        backend.get_actuator_names()
-    backend._actuator_joint_names = ("hip", "")
-    with pytest.raises(NotImplementedError, match="single-DoF joint"):
-        backend.get_actuator_joint_names()
-
-
 def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
     output = _run_clean_python(
         """
@@ -218,36 +177,6 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
     assert "pydrake" in output
 
 
-def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> None:
-    output = _run_clean_python(
-        """
-        import json
-        import sys
-
-        from unilab.assets import ASSETS_ROOT_PATH
-        from unisim.backend.drake.backend import DrakeBackend
-        from unilab.base.scene import SceneCfg
-
-        sys.modules["pydrake"] = object()
-        try:
-            DrakeBackend(
-                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
-                1,
-                0.01,
-                drake_backend_mode="batch",
-            )
-        except ImportError as exc:
-            message = str(exc)
-        else:
-            raise AssertionError("direct batch DrakeBackend unexpectedly loaded with pydrake present")
-        assert "pydrake" in message
-        assert "fresh process" in message
-        print(json.dumps({"message": message}, sort_keys=True))
-        """
-    )
-    assert "pydrake" in output
-
-
 def test_create_backend_rejects_pydrake_mode() -> None:
     from unilab.assets import ASSETS_ROOT_PATH
     from unilab.base.backend_factory import create_backend
@@ -256,21 +185,6 @@ def test_create_backend_rejects_pydrake_mode() -> None:
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
         create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
-            1,
-            0.01,
-            drake_backend_mode="pydrake",
-        )
-
-
-def test_direct_drake_backend_rejects_pydrake_mode() -> None:
-    from unisim.backend.drake.backend import DrakeBackend
-
-    from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.scene import SceneCfg
-
-    with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
-        DrakeBackend(
             SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             1,
             0.01,

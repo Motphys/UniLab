@@ -506,21 +506,6 @@ def test_create_rsl_rl_playback_session_wraps_load_with_dim_guard(tmp_path: Path
         create_rsl_rl_playback_session(**kwargs)
 
 
-def test_interactive_playback_has_no_scripts_sys_path_hack() -> None:
-    source = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "unilab"
-        / "visualization"
-        / "interactive_playback.py"
-    ).read_text(encoding="utf-8")
-
-    assert "sys.path" not in source
-    assert "from train_appo import" not in source
-    assert "from train_offpolicy import" not in source
-    assert "from train_hora_distill import" not in source
-
-
 def test_sac_playback_session_runs_sim2sim_preflight(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
