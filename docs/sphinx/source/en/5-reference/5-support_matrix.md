@@ -24,9 +24,11 @@ in English. Do not infer support beyond the evidence grade shown below.
 - `mujoco`: `--render-mode auto` exports `play_video.mp4`.
 - `motrix`: `--render-mode auto` opens an interactive renderer window; it does
   not record a video and is not bound by `play_steps`.
-- `mjwarp`: only supports explicit, finite-step `record`, rendered offline
-  through the task owner's MuJoCo visual model; `auto`, interactive, and
-  native renderers are not supported.
+- `mjwarp`: supports explicit, finite-step `record` by default, rendered offline
+  through the task owner's MuJoCo visual model; `--render-mode interactive`
+  routes to the MuJoCo interactive viewer (mjwarp runs the physics while
+  MuJoCo renders env[0], forced to a single env); `auto` and native renderers
+  are not supported.
 - `isaacsim`: headless physics only. Interactive GUI, camera capture, native
   playback, and video recording are fail-closed for the current IsaacSim 5.1 /
   IsaacLab v2.3.0 worker profile.
@@ -54,8 +56,10 @@ validation and have backend, contract, and playback automated coverage, so
 they are marked `Tested`. The SAC `t800_walk_flat` mjwarp owner only has an
 owner YAML and compose coverage, so it is marked `Configured`, which does not
 imply training validation. mjwarp playback
-only supports explicit, finite-step `record` and reuses the MuJoCo offline
-renderer; it does not support `auto`, interactive, or native playback. A
+supports explicit, finite-step `record` and reuses the MuJoCo offline
+renderer; `uv run eval --sim mjwarp --render-mode interactive` routes to the
+MuJoCo interactive viewer (mjwarp physics, MuJoCo rendering of env[0], forced
+single env); it does not support `auto` or native playback. A
 `Registered` mark on other entrypoints only denotes env/backend registry
 identity, not support for the corresponding algorithm, terrain, full DR, or
 production training.

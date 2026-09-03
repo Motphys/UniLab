@@ -2,7 +2,8 @@
 # Configured-only FlashSAC mjwarp owner. Mirrors the MuJoCo owner's algo /
 # env / reward identity; mjwarp-specific host-adapter settings follow
 # conf/sac/task/g1_walk_flat/mjwarp.yaml. Offline record reuses
-# MuJoCo rendering; native playback and device-resident runtime are absent.
+# MuJoCo rendering; interactive eval routes through the MuJoCo viewer.
+# Native playback and device-resident runtime are absent.
 defaults:
   - /task/g1_walk_flat/base
   - _self_

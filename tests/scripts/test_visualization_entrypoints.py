@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -288,3 +289,65 @@ def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
     assert resolved["env"] is env
     assert resolved["num_envs"] == 1
     assert Path(resolved["tmp_dir"]).name.startswith("unilab-interactive-viewer-")
+
+
+def test_play_interactive_binds_mjwarp_process_device_before_session(monkeypatch):
+    mod = _load_script("play_interactive")
+    bound: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        mod,
+        "configure_backend_process_device",
+        lambda backend_type, device: bound.append((backend_type, device)),
+    )
+    monkeypatch.setattr(mod, "_select_playback_device", lambda cfg: "cuda:0")
+    monkeypatch.setattr(mod, "available_backends_for_task", lambda task: ["mjwarp"])
+
+    def _stop_before_session(**kwargs):
+        raise RuntimeError("stop-before-session")
+
+    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", _stop_before_session)
+
+    args = SimpleNamespace(
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mjwarp",
+        load_run="-1",
+        checkpoint=None,
+        action_mode="policy",
+        policy_obs_mode="actor",
+    )
+    with pytest.raises(RuntimeError, match="stop-before-session"):
+        mod.play_interactive(args, None)
+
+    assert bound == [("mjwarp", "cuda:0")]
+
+
+def test_play_interactive_device_binding_is_noop_for_mujoco(monkeypatch):
+    mod = _load_script("play_interactive")
+    bound: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        mod,
+        "configure_backend_process_device",
+        lambda backend_type, device: bound.append((backend_type, device)),
+    )
+    monkeypatch.setattr(mod, "_select_playback_device", lambda cfg: "cuda:0")
+    monkeypatch.setattr(mod, "available_backends_for_task", lambda task: ["mujoco"])
+
+    def _stop_before_session(**kwargs):
+        raise RuntimeError("stop-before-session")
+
+    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", _stop_before_session)
+
+    args = SimpleNamespace(
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mujoco",
+        load_run="-1",
+        checkpoint=None,
+        action_mode="policy",
+        policy_obs_mode="actor",
+    )
+    with pytest.raises(RuntimeError, match="stop-before-session"):
+        mod.play_interactive(args, None)
+
+    assert bound == [("mujoco", "cuda:0")]

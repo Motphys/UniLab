@@ -1,8 +1,8 @@
 """MuJoCo interactive play script for trained policies.
 
 This MuJoCo-only viewer implementation opens a live MuJoCo window for any task
-owner config. ``--sim`` selects the physics owner; Drake runs the rollout while
-MuJoCo renders the current Drake state.
+owner config. ``--sim`` selects the physics owner; Drake and mjwarp run the
+rollout while MuJoCo renders the current physics state.
 
 Usage:
     # Zero-action playback for a task/backend owner config
@@ -49,6 +49,7 @@ from unilab.algos.rsl_rl import (
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+from unilab.base.process_device import configure_backend_process_device
 from unilab.training import (
     algo_config_dict,
     ensure_registries,
@@ -905,6 +906,11 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             "MuJoCo is used only as the renderer."
         )
         return
+
+    # mjwarp requires an active CUDA Warp device; bind it process-wide before
+    # any env is constructed (same pattern as the offpolicy train entrypoint).
+    # No-op for backends without a device binding requirement.
+    configure_backend_process_device(sim_backend, device)
 
     def _create_env(num_envs: int):
         if cfg is None:

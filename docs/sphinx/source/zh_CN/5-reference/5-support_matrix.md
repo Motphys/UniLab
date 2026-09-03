@@ -20,7 +20,7 @@
 
 - `mujoco`: `--render-mode auto` 会导出 `play_video.mp4`
 - `motrix`: `--render-mode auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制
-- `mjwarp`: 仅支持显式、有限步数的 `record`，通过 task owner 的 MuJoCo visual model 离线录制；不支持 `auto`、interactive 或 native renderer
+- `mjwarp`: 默认仅支持显式、有限步数的 `record`，通过 task owner 的 MuJoCo visual model 离线录制；`--render-mode interactive` 路由到 MuJoCo 交互 viewer（mjwarp 跑物理、MuJoCo 渲染 env[0]，强制单 env）；不支持 `auto` 或 native renderer
 - `isaacsim`: `auto` 在有 display 时选择 Kit viewer，否则选择 headless RGB camera；当前真实主机仍有 RTX renderer 初始化 blocker，支持等级保持 `Configured`
 - `--render-mode record`: MuJoCo、mjwarp、Motrix 和 IsaacSim 都只录制视频
 - `--render-mode none`: 不回放
@@ -46,7 +46,7 @@ uv run scripts/generate_support_matrix.py --write
 
 `Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
 
-`mjwarp` 完成训练验证的只有 `g1_walk_flat` host adapter：PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。SAC `t800_walk_flat` 的 mjwarp owner 只有 owner YAML 与 compose 覆盖，标记为 `Configured`，不代表训练验证。mjwarp playback 仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer，不支持 `auto`、interactive 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
+`mjwarp` 完成训练验证的只有 `g1_walk_flat` host adapter：PPO (torch) 与 SAC (torch) owner 已完成训练验证，并有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。SAC `t800_walk_flat` 的 mjwarp owner 只有 owner YAML 与 compose 覆盖，标记为 `Configured`，不代表训练验证。mjwarp playback 默认仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer；`uv run eval --sim mjwarp --render-mode interactive` 路由到 MuJoCo 交互 viewer（mjwarp 跑物理、MuJoCo 渲染 env[0]，强制单 env）；不支持 `auto` 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
 
 `isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`。SAC (torch) owner 已在真机（external Python 3.8 worker runtime，不在仓库 CI 覆盖）完成训练与 record playback 验证，标记为 `Tested`；其余 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练或 play 验证。playback 走 IsaacGym 原生渲染（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，无显示器时自动降级为离屏录制。
 
