@@ -57,7 +57,8 @@ env:
           - bearing_roll
         # Foot collision geoms for the foot_friction DR event.
         geom_names: [left_foot_collision, right_foot_collision]
-  sim_dt: 0.01
+  # Upstream recipe: 200 Hz physics under 50 Hz control (substeps = ctrl_dt / sim_dt = 4).
+  sim_dt: 0.005
   ctrl_dt: 0.02
   max_episode_seconds: 20.0
   observations:
@@ -213,6 +214,20 @@ env:
     reset_scene_to_default:
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
+    # Upstream reset_base: uniform root offsets around the `home` keyframe —
+    # xy ±0.5 m, yaw ±π, z +[0, 0.01] on the keyframe z=0.12 (absolute
+    # z ∈ [0.12, 0.13]); velocities stay zero and joints return to HOME
+    # exactly (reset_scene_to_default above stages the keyframe state first).
+    reset_base:
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.01]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range: {}
     base_com:
       func: unilab.envs.mdp.randomize_rigid_body_com
       mode: reset
@@ -270,11 +285,24 @@ env:
           joint_names: ".*"
         ranges: [0.9, 1.1]
         operation: scale
+    # Upstream startup mass/inertia DR (mjlab dr.pseudo_inertia, alpha-only):
+    # trunk_base mass and inertia share one log-uniform factor s ∈ [0.95, 1.05]
+    # sampled once per env and held fixed for the whole run; CoM unchanged.
+    randomize_mass_inertia:
+      func: unilab.envs.mdp.randomize_body_mass_inertia
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: trunk_base
+        scale_range: [0.95, 1.05]
     push_robot:
       func: unilab.envs.mdp.push_by_setting_velocity
       mode: interval
       interval_range_s: [3.0, 6.0]
-      is_global_time: true
+      # Upstream samples the push interval independently per env.
+      is_global_time: false
       params:
         velocity_range:
           x: [-0.3, 0.3]
@@ -291,9 +319,6 @@ env:
       func: unilab.envs.mdp.bad_orientation
       # Legacy fell_over threshold: 70 degrees.
       params: {limit_angle: 1.2217304763960306}
-    base_height:
-      func: unilab.envs.mdp.root_height_below_minimum
-      params: {minimum_height: 0.08}
     nan_state:
       func: unilab.envs.mdp.nan_detection
   curriculum:

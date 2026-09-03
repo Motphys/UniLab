@@ -1545,6 +1545,53 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def bind_body_inertia_write(
+        self,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        default: np.ndarray,
+        default_mass: np.ndarray,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local body columns and caller-compiled default inertias.
+
+        ``default`` / ``default_mass`` are the full backend-width inertial
+        tables compiled from the scene model on the cold path; the transaction
+        cross-validates ``default_mass`` against the backend's authoritative
+        body-mass table before trusting the inertia rows.
+        """
+        reset_state, local_ids, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-inertia write",
+        )
+        _, defaults = reset_state.bind_body_inertia_write(
+            backend_ids,
+            default=default,
+            default_mass=default_mass,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_body_inertia_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "randomize_body_mass_inertia",
+    ) -> None:
+        """Stage selected entity body principal inertias in the reset transaction."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-inertia write",
+        )
+        reset_state.write_body_inertia(
+            self._normalize_reset_env_ids(env_ids),
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def bind_root_linear_velocity_delta(self, *, term_name: str) -> None:
         """Validate the interval root-velocity capability on the cold path."""
         self._bind_root_velocity_delta(angular=False, term_name=term_name)
