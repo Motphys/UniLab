@@ -27,5 +27,13 @@ registry.register_env(
     sim_backend="mjwarp",
 )
 
+# The minimal command/term owners deliberately share the same generic
+# ManagerBasedRlEnv factory.  Their behavior is selected entirely by the
+# Hydra owner (command, metrics, recorder, and reward terms); the runtime does
+# not branch on task names.
+for _task_name in ("MicroduckGroundPickFlat", "MicroduckSitStandFlat"):
+    registry.register_env_config(_task_name, ManagerBasedRlEnvCfg)
+    registry.register_env(_task_name, make_microduck_velocity_env, sim_backend="mjwarp")
+
 
 __all__ = ["make_microduck_velocity_env"]

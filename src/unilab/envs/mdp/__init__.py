@@ -1,7 +1,19 @@
 """Community-style built-in MDP terms for UniLab's NumPy manager runtime."""
 
+from unilab.envs.mdp.actions import JointEffortAction as JointEffortAction
+from unilab.envs.mdp.actions import JointEffortActionCfg as JointEffortActionCfg
 from unilab.envs.mdp.actions import JointPositionAction as JointPositionAction
 from unilab.envs.mdp.actions import JointPositionActionCfg as JointPositionActionCfg
+from unilab.envs.mdp.actions import JointVelocityAction as JointVelocityAction
+from unilab.envs.mdp.actions import JointVelocityActionCfg as JointVelocityActionCfg
+from unilab.envs.mdp.actions import (
+    RelativeJointPositionAction as RelativeJointPositionAction,
+)
+from unilab.envs.mdp.actions import (
+    RelativeJointPositionActionCfg as RelativeJointPositionActionCfg,
+)
+from unilab.envs.mdp.commands import UniformPoseCommand as UniformPoseCommand
+from unilab.envs.mdp.commands import UniformPoseCommandCfg as UniformPoseCommandCfg
 from unilab.envs.mdp.commands import UniformVelocityCommand as UniformVelocityCommand
 from unilab.envs.mdp.commands import UniformVelocityCommandCfg as UniformVelocityCommandCfg
 from unilab.envs.mdp.curriculums import command_curriculum as command_curriculum
@@ -40,6 +52,7 @@ from unilab.envs.mdp.observations import (
 from unilab.envs.mdp.observations import (
     projected_gravity_imu_misaligned as projected_gravity_imu_misaligned,
 )
+from unilab.envs.mdp.recorders import LifecycleCounterRecorder as LifecycleCounterRecorder
 from unilab.envs.mdp.rewards import action_acc_l2 as action_acc_l2
 from unilab.envs.mdp.rewards import action_rate_l2 as action_rate_l2
 from unilab.envs.mdp.rewards import (
@@ -51,6 +64,7 @@ from unilab.envs.mdp.rewards import is_terminated as is_terminated
 from unilab.envs.mdp.rewards import joint_pos_limits as joint_pos_limits
 from unilab.envs.mdp.rewards import joint_vel_l2 as joint_vel_l2
 from unilab.envs.mdp.rewards import posture as posture
+from unilab.envs.mdp.rewards import root_height as root_height
 from unilab.envs.mdp.rewards import track_angular_velocity as track_angular_velocity
 from unilab.envs.mdp.rewards import track_linear_velocity as track_linear_velocity
 from unilab.envs.mdp.rewards import variable_posture as variable_posture
@@ -64,8 +78,17 @@ from unilab.envs.mdp.terminations import time_out as time_out
 __all__ = [
     "JointPositionAction",
     "JointPositionActionCfg",
+    "JointEffortAction",
+    "JointEffortActionCfg",
+    "JointVelocityAction",
+    "JointVelocityActionCfg",
+    "LifecycleCounterRecorder",
+    "RelativeJointPositionAction",
+    "RelativeJointPositionActionCfg",
     "UniformVelocityCommand",
     "UniformVelocityCommandCfg",
+    "UniformPoseCommand",
+    "UniformPoseCommandCfg",
     "action_acc_l2",
     "action_rate_l2",
     "apply_body_impulse",
@@ -105,6 +128,7 @@ __all__ = [
     "resolve_env_ids",
     "reward_curriculum",
     "root_height_below_minimum",
+    "root_height",
     "termination_curriculum",
     "time_out",
     "track_angular_velocity",

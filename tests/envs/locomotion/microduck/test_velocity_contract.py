@@ -16,7 +16,7 @@ from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnvCfg
-from unilab.envs.mdp import JointPositionActionCfg
+from unilab.envs.mdp import JointPositionActionCfg, UniformPoseCommandCfg
 from unilab.tasks import __unilab_registry_modules__
 from unilab.tasks.locomotion.microduck.deploy_contract import (
     MICRODUCK_ACTOR_OBS_DIM,
@@ -26,7 +26,6 @@ from unilab.tasks.locomotion.microduck.deploy_contract import (
 )
 from unilab.tasks.locomotion.microduck.manager_terms import (
     MicroduckVelocityCommandCfg,
-    UniformVectorCommandCfg,
 )
 
 ROOT_DIR = Path(__file__).parents[4]
@@ -150,7 +149,7 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
     assert twist.rel_standing_envs == pytest.approx(0.02)
     assert twist.rel_forward_envs == pytest.approx(0.2)
     assert twist.turn_in_place_fraction == pytest.approx(0.15)
-    assert isinstance(env_cfg.commands["head_pose"], UniformVectorCommandCfg)
+    assert isinstance(env_cfg.commands["head_pose"], UniformPoseCommandCfg)
     assert len(env_cfg.commands["head_pose"].ranges) == 4
     assert len(env_cfg.commands["body_pose"].ranges) == 6
 
