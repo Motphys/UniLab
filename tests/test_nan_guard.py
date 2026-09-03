@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from unilab.utils.nan_guard import NanGuard, NanGuardCfg
 from unilab.utils.nan_viz import load_dump

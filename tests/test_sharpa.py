@@ -12,7 +12,6 @@ from unilab.tasks.manipulation.sharpa_inhand.grasp_gen import (
 )
 from unilab.tasks.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationEnv,
-    sample_random_quaternion,
 )
 from unilab.utils.rotation import np_quat_apply
 

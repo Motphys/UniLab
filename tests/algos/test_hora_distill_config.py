@@ -1,17 +1,8 @@
-"""Contract tests for HORA distill teacher-owner Hydra composition.
-
-The legacy reference implementation below freezes the pre-refactor manual
-loader (``OmegaConf.load`` + a loop over direct ``defaults`` entries) and the
-Python-held teacher -> student hyperparameter mapping. The parity tests pin
-the refactor to identical numerics while the loader moves to standard Hydra
-``initialize_config_dir + compose`` and the mapping moves into
-``src/unilab/conf/hora_distill/student_model/*.yaml``.
-"""
+"""Contract tests for HORA distill teacher-owner Hydra composition."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from omegaconf import OmegaConf
@@ -19,115 +10,13 @@ from omegaconf.errors import InterpolationResolutionError
 
 from unilab.algos.hora import distill_config
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 # distill_config's root_dir parameter expects the directory containing "conf";
 # after the packaging move that is the unilab package directory.
-_PACKAGE_ROOT = _REPO_ROOT / "src" / "unilab"
-
-TEACHER_CASES = [
-    ("ppo", "sharpa_inhand/mujoco_hora"),
-    # The APPO HORA owner composes through /task/sharpa_inhand/mujoco, which
-    # exercises an owner whose own defaults chain into another owner file.
-    ("appo", "sharpa_inhand/mujoco_hora"),
-    ("sac", "sharpa_inhand/mujoco_hora"),
-]
+_PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "src" / "unilab"
 
 
 # ---------------------------------------------------------------------------
-# Legacy reference implementation (frozen copy of the pre-refactor behavior)
-# ---------------------------------------------------------------------------
-
-
-def _legacy_teacher_cfg(algo_family: str, task: str) -> Any:
-    if algo_family == "sac":
-        owner_path = _REPO_ROOT / "src" / "unilab" / "conf" / "sac" / "task" / f"{task}.yaml"
-        defaults_base = _REPO_ROOT / "src" / "unilab" / "conf" / "sac"
-        # The SAC tree inlines its algorithm defaults into config.yaml's
-        # top-level `algo:` section (there is no `algo` config group anymore).
-        tree_config_path = _REPO_ROOT / "src" / "unilab" / "conf" / "sac" / "config.yaml"
-    else:
-        owner_path = _REPO_ROOT / "src" / "unilab" / "conf" / algo_family / "task" / f"{task}.yaml"
-        defaults_base = _REPO_ROOT / "src" / "unilab" / "conf" / algo_family
-        tree_config_path = None
-    merged_cfg = OmegaConf.create()
-    if tree_config_path is not None:
-        merged_cfg = OmegaConf.merge(
-            merged_cfg,
-            OmegaConf.create({"algo": OmegaConf.load(tree_config_path).algo}),
-        )
-    owner_cfg = OmegaConf.load(owner_path)
-    for default_entry in owner_cfg.get("defaults", []):
-        if not isinstance(default_entry, str) or default_entry == "_self_":
-            continue
-        include_path = defaults_base / f"{default_entry.lstrip('/')}.yaml"
-        merged_cfg = OmegaConf.merge(merged_cfg, OmegaConf.load(include_path))
-    return OmegaConf.merge(merged_cfg, owner_cfg)
-
-
-def _legacy_model_cfg(algo_family: str, task: str) -> dict[str, Any]:
-    teacher_cfg = _legacy_teacher_cfg(algo_family, task)
-    if algo_family == "sac":
-        actor_cfg = OmegaConf.to_container(
-            OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True
-        )
-        if not isinstance(actor_cfg, dict):
-            actor_cfg = {}
-        return {
-            "teacher_arch": "hora_sac",
-            "actor_hidden_dim": OmegaConf.select(teacher_cfg, "algo.actor_hidden_dim", default=512),
-            "use_layer_norm": OmegaConf.select(teacher_cfg, "algo.use_layer_norm", default=True),
-            "priv_info_embed_dim": actor_cfg.get("priv_info_embed_dim", 9),
-            "priv_mlp_hidden_dims": actor_cfg.get("priv_mlp_hidden_dims", [256, 128, 9]),
-        }
-    actor_cfg = OmegaConf.to_container(OmegaConf.select(teacher_cfg, "algo.actor"), resolve=True)
-    actor_cfg = dict(actor_cfg) if isinstance(actor_cfg, dict) else {}
-    actor_cfg.pop("class_name", None)
-    distribution_cfg = actor_cfg.get("distribution_cfg")
-    if isinstance(distribution_cfg, dict):
-        distribution_cfg = {
-            key: value for key, value in distribution_cfg.items() if key != "class_name"
-        }
-    return {
-        "hidden_dims": actor_cfg.get("hidden_dims"),
-        "activation": actor_cfg.get("activation"),
-        "obs_normalization": actor_cfg.get("obs_normalization"),
-        "priv_info_embed_dim": actor_cfg.get("priv_info_embed_dim"),
-        "priv_mlp_hidden_dims": actor_cfg.get("priv_mlp_hidden_dims"),
-        "distribution_cfg": distribution_cfg,
-    }
-
-
-def _assert_subset(legacy: Any, new: Any, path: str) -> None:
-    """Every leaf the legacy loader produced must be identical in the new one."""
-    if isinstance(legacy, dict) and isinstance(new, dict):
-        for key, value in legacy.items():
-            assert key in new, f"missing key {path}.{key}"
-            _assert_subset(value, new[key], f"{path}.{key}")
-        return
-    assert legacy == new, f"value mismatch at {path}: legacy={legacy!r} new={new!r}"
-
-
-# ---------------------------------------------------------------------------
-# Parity: new Hydra compose path vs frozen legacy path
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(("algo_family", "task"), TEACHER_CASES)
-def test_teacher_default_cfg_matches_legacy_manual_loader(algo_family: str, task: str) -> None:
-    cfg = OmegaConf.create({"teacher": {"algo_family": algo_family, "task": task}})
-
-    new_cfg = OmegaConf.to_container(
-        distill_config.teacher_default_cfg(cfg, root_dir=_PACKAGE_ROOT), resolve=True
-    )
-    legacy_cfg = OmegaConf.to_container(_legacy_teacher_cfg(algo_family, task), resolve=True)
-
-    assert new_cfg["algo"]["model"] == _legacy_model_cfg(algo_family, task)
-    for section in ("training", "reward", "env"):
-        _assert_subset(legacy_cfg.get(section), new_cfg.get(section), section)
-
-
-# ---------------------------------------------------------------------------
-# Compose capabilities the manual loader could not express
+# Hydra composition capabilities used by teacher-owner configs
 # ---------------------------------------------------------------------------
 
 

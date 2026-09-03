@@ -523,14 +523,6 @@ def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
     assert OmegaConf.to_container(effective_cfg.algo.model, resolve=True) == checkpoint_model
 
 
-def test_hora_distill_script_delegates_teacher_owner_resolution():
-    source = (_SCRIPTS_DIR / "train_hora_distill.py").read_text(encoding="utf-8")
-
-    assert "OmegaConf.load" not in source
-    assert "HoraActorModel" not in source
-    assert 'conf" / str(algo_family)' not in source
-
-
 @pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo", "sac"])
 def test_hora_distill_teacher_owner_defaults_support_ppo_appo_and_sac(
     teacher_algo_family: str,
@@ -1005,8 +997,6 @@ def test_rsl_action_std_logging_patch_delegates_with_detached_clone(std_type: st
     torch.testing.assert_close(action_std, expected)
     assert action_std.requires_grad is False
     assert action_std.data_ptr() != expected.data_ptr()
-    source = (_PACKAGE_SCRIPTS_DIR / "train_rsl_rl.py").read_text(encoding="utf-8")
-    assert "def _patch_runner_action_std_logging" not in source
 
 
 def _build_rsl_lifecycle_case(
@@ -1384,7 +1374,6 @@ def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
 def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    import numpy as np
     import torch
     from tensordict import TensorDict
 

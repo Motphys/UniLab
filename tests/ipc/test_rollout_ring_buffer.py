@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 
 from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer

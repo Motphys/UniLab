@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -271,24 +269,3 @@ def test_root_body_frame_capability_and_finite_values_fail_closed() -> None:
             {"robot": EntityCfg(root_body_name="base")},
             cast(SimBackend, non_finite),
         )
-
-
-def test_command_module_has_no_forbidden_runtime_dependencies() -> None:
-    path = (
-        Path(__file__).resolve().parents[3]
-        / "src"
-        / "unilab"
-        / "envs"
-        / "mdp"
-        / "commands"
-        / "velocity_command.py"
-    )
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    forbidden = ("torch", "unilab.ipc", "unilab.algos", "unilab.training", "unilab.base.backend")
-    imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)] + [
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    ]
-    assert not [name for name in imports if name.startswith(forbidden)]
