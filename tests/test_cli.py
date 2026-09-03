@@ -499,6 +499,103 @@ def test_eval_mujoco_interactive_falls_back_to_sibling_owner(
     assert "training.play_only=true" in command
 
 
+def _pretend_mjwarp_is_installed(
+    monkeypatch: pytest.MonkeyPatch, *, with_mujoco: bool = True
+) -> None:
+    installed = {"mujoco_warp", "warp"} | ({"mujoco"} if with_mujoco else set())
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name in installed else None,
+    )
+
+
+def _make_mjwarp_checkout(root: Path) -> Path:
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = root / "conf" / "ppo" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mjwarp.yaml").write_text("training:\n  sim_backend: mjwarp\n", encoding="utf-8")
+    return scripts_dir
+
+
+def test_eval_mjwarp_interactive_routes_to_dedicated_viewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = _make_mjwarp_checkout(tmp_path)
+    _pretend_mjwarp_is_installed(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mjwarp",
+        overrides=[],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert command == [
+        sys.executable,
+        str(scripts_dir / "play_interactive.py"),
+        "--algo",
+        "ppo",
+        "--task",
+        "g1_walk_flat",
+        "--sim",
+        "mjwarp",
+        "training.play_render_mode=interactive",
+        "interactive.action_mode=policy",
+        "training.play_only=true",
+        "algo.load_run=-1",
+    ]
+    assert "task=g1_walk_flat/mjwarp" not in command
+
+
+def test_eval_mjwarp_record_stays_on_train_script_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = _make_mjwarp_checkout(tmp_path)
+    _pretend_mjwarp_is_installed(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mjwarp",
+        overrides=[],
+        load_run="-1",
+        render_mode="record",
+        root=tmp_path,
+    )
+
+    assert command[:2] == [sys.executable, str(scripts_dir / "train_rsl_rl.py")]
+    assert "task=g1_walk_flat/mjwarp" in command
+    assert "training.play_render_mode=record" in command
+
+
+def test_eval_mjwarp_interactive_requires_mujoco_viewer_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_mjwarp_checkout(tmp_path)
+    _pretend_mjwarp_is_installed(monkeypatch, with_mujoco=False)
+
+    with pytest.raises(SystemExit, match="MuJoCo"):
+        cli.build_command(
+            mode="eval",
+            algo="ppo",
+            task="g1_walk_flat",
+            sim="mjwarp",
+            overrides=[],
+            load_run="-1",
+            render_mode="interactive",
+            root=tmp_path,
+        )
+
+
 def test_macos_motrix_render_mode_none_does_not_require_mxpython(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

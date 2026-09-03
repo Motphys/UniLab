@@ -1,8 +1,9 @@
 # @package _global_
 # Configured-only mjwarp owner for the unified host contract adapter. Keeps
 # DENYLIST parity with the MuJoCo owner; legacy kp/kd randomization is disabled.
-# Offline record reuses MuJoCo rendering; native playback and device-resident
-# runtime routing are intentionally absent.
+# Offline record reuses MuJoCo rendering; interactive eval routes through the
+# MuJoCo viewer (mjwarp physics, single env). Native playback and
+# device-resident runtime routing are intentionally absent.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
