@@ -427,6 +427,24 @@ def test_foot_contact_reports_float_flags() -> None:
     np.testing.assert_allclose(term(env), [[1.0, 0.0], [0.0, 0.0]])
 
 
+def test_force_contact_gating_uses_contact_frame_normal_column() -> None:
+    """Width-3 ``data="force"`` contact sensors gate on column 0.
+
+    MuJoCo reports contact force in the contact frame whose first axis is the
+    contact normal; tangential columns 1-2 must not trigger contact.
+    """
+    scene = _Scene()
+    scene.contacts = {
+        "left_contact_0": np.array([[0.5, 0.0, 0.0], [0.5, 0.0, 0.0]], dtype=np.float32),
+        "left_contact_1": np.zeros((2, 3), dtype=np.float32),
+        "right_contact_0": np.array([[0.0, 0.0, 3.0], [0.0, 0.0, 3.0]], dtype=np.float32),
+        "right_contact_1": np.zeros((2, 3), dtype=np.float32),
+    }
+    env = _env(scene)
+    term = _term(gait_terms.foot_contact, env, sensor_groups=GROUPS)
+    np.testing.assert_allclose(term(env), [[1.0, 0.0], [1.0, 0.0]])
+
+
 def test_foot_contact_forces_log_compressed_in_group_order() -> None:
     scene = _Scene()
     scene.contacts = {

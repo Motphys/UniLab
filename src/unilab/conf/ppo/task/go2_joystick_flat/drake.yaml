@@ -31,3 +31,10 @@ env:
   events:
     reset_root_state_uniform: null
     pd_gains: null
+
+reward:
+  # drake_uni reports per-body net contact force in the world frame, not the
+  # MuJoCo contact frame (normal first) the gait terms gate on; keep the
+  # contact reward off until the drake adapter reports contact-frame force
+  # (issue #1471).
+  contact: null
