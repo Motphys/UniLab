@@ -711,7 +711,9 @@ def test_ppo_go2_drake_batch_config_matches_go2_training_defaults():
     assert cfg.env.drake_nthread == 0
     assert cfg.env.scene.model_file == "src/unilab/assets/robots/go2/scene_flat.xml"
     assert cfg.env.events.pd_gains is None
-    assert cfg.reward.contact.weight == pytest.approx(0.24)
+    # Contact reward disabled on drake: drake_uni reports world-frame net
+    # contact force, not contact-frame force (issue #1471).
+    assert cfg.reward.contact is None
 
 
 def test_build_ppo_env_cfg_override_go1_motrix(
