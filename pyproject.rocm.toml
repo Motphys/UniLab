@@ -28,7 +28,7 @@ dependencies = [
     "unisim-core>=0.1.14",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
-    "unilab-rl==0.1.0a2",
+    "unilab-rl==0.1.0",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",
@@ -89,7 +89,7 @@ name = "pytorch-rocm72"
 url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
-# TestPyPI hosts the uni-rl (unilab-rl) prereleases; explicit so nothing
+# TestPyPI hosts the uni-rl (unilab-rl) releases; explicit so nothing
 # else resolves from it.
 [[tool.uv.index]]
 name = "testpypi"

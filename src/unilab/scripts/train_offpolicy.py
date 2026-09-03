@@ -173,6 +173,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         "torch_thread_runtime": torch_thread_runtime,
         "collector_cpu_ids": collector_cpu_ids,
         "dp_sync": dp_sync,
+        "backend_device_binder": bind_backend_process_device,
     }
     if algo_name == "sac":
         from uni_rl.fast_sac.double_buffer import (
@@ -195,10 +196,6 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     else:
         raise ValueError(f"Unsupported algo: {algo_name}")
 
-    # uni_rl 0.1.0a2's builder helpers do not forward backend_device_binder to
-    # DoubleBufferOffPolicyRunner; the runner reads the attribute at collector
-    # spawn time, so set it here until uni_rl grows the builder kwarg.
-    runner.backend_device_binder = bind_backend_process_device
     return runner
 
 
