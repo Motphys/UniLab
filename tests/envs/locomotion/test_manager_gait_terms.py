@@ -31,9 +31,12 @@ class _Scene:
         self.calls: Counter[str] = Counter()
         self.values = {
             "fl_contact": np.array([[0.2], [0.0]], dtype=np.float32),
-            "fr_contact": np.array([[0, 0, 0], [0, 0, 0.2]], dtype=np.float32),
+            # Width-3 contact ``force`` sensors follow the MuJoCo contact-frame
+            # convention: column 0 is the normal force, columns 1-2 are
+            # tangential and must not gate contact.
+            "fr_contact": np.array([[0, 0.9, 0.9], [0.2, 0, 0]], dtype=np.float32),
             "rl_contact": np.array([[0.0], [0.2]], dtype=np.float32),
-            "rr_contact": np.array([[0, 0, 0.2], [0, 0, 0]], dtype=np.float32),
+            "rr_contact": np.array([[0.2, 0, 0], [0, 0.9, 0.9]], dtype=np.float32),
             "fl_pos": np.array([[0, 0, 0.1], [0, 0, 0]], dtype=np.float32),
             "fr_pos": np.array([[0, 0, 0.2], [0, 0, 0.1]], dtype=np.float32),
             "rl_pos": np.array([[0, 0, 0.1], [0, 0, 0.2]], dtype=np.float32),

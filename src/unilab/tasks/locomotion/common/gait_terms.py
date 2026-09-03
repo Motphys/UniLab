@@ -119,7 +119,10 @@ class _FootContactTerm(SensorTermBase):
                 f"received {self._view.dimensions} on backend '{self._view.backend_type}'"
             )
         starts = np.cumsum((0, *self._view.dimensions[:-1]), dtype=np.int64)
-        columns = starts + [0 if width == 1 else 2 for width in self._view.dimensions]
+        # MuJoCo ``<contact data="force">`` sensors report the force in the
+        # contact frame whose first axis is the contact normal, so the gating
+        # component is column 0 for both 1-D ``found`` and 3-D ``force``.
+        columns = starts
         self._flat_width = int(sum(self._view.dimensions))
         # Per-foot column groups in the flattened sensor layout.
         self._columns: list[np.ndarray] = []

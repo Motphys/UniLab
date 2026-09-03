@@ -392,7 +392,10 @@ class feet_phase_contact(_FootSensorTerm):
                 f"received {self._view.dimensions} on backend '{self._view.backend_type}'"
             )
         starts = np.cumsum((0, *self._view.dimensions[:-1]), dtype=np.int64)
-        self._columns = starts + [0 if width == 1 else 2 for width in self._view.dimensions]
+        # MuJoCo ``<contact data="force">`` sensors report the force in the
+        # contact frame whose first axis is the contact normal, so the gating
+        # component is column 0 for both 1-D ``found`` and 3-D ``force``.
+        self._columns = starts
 
     def __call__(self, env: _GaitEnv, **params: Any) -> np.ndarray:
         del params
@@ -492,7 +495,10 @@ class feet_air_while_standing(ManagerTermBase):
                 f"received {self._view.dimensions} on backend '{self._view.backend_type}'"
             )
         starts = np.cumsum((0, *self._view.dimensions[:-1]), dtype=np.int64)
-        self._columns = starts + [0 if width == 1 else 2 for width in self._view.dimensions]
+        # MuJoCo ``<contact data="force">`` sensors report the force in the
+        # contact frame whose first axis is the contact normal, so the gating
+        # component is column 0 for both 1-D ``found`` and 3-D ``force``.
+        self._columns = starts
 
     def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
         del params
