@@ -14,7 +14,11 @@
 #   $UNISIM_ISAACGYM_HOME/isaacgym/python                   unpacked Preview 4
 #   $UNISIM_ISAACGYM_HOME/IsaacGym_Preview_4_Package.tar.gz downloaded tarball
 #
-# The script is idempotent: completed steps are skipped on re-run.
+# The script is idempotent: completed steps are skipped on re-run. A conda env
+# is not relocatable, so if the whole ISAACGYM_HOME tree was moved since the
+# env was created, the script repairs the stale absolute paths (entry-point
+# shebangs, .pth files, egg-links, conda-meta) in place instead of re-creating
+# the env.
 
 set -euo pipefail
 
@@ -99,6 +103,43 @@ else
     python=3.8 -c conda-forge --override-channels
 fi
 
+# Conda envs hard-code their install prefix in entry-point shebangs, .pth
+# files, egg-links and conda-meta. If the tree was relocated (e.g. from the
+# legacy $HOME/.unilab/isaacgym to the current default), those references go
+# stale: `bin/pip` fails with "cannot execute: required file not found" and
+# the editable install disappears from sys.path, while every skip-check above
+# still passes. Detect the stale prefix from the pip shebang and rewrite it
+# in place; this is far cheaper than re-creating the env (torch is ~GBs).
+repair_env_prefix_if_needed() {
+  local pip_script="$ENV_ROOT/bin/pip"
+  [ -f "$pip_script" ] || return 0
+  local shebang interp old_prefix
+  shebang="$(head -n 1 "$pip_script")"
+  case "$shebang" in '#!'*) ;; *) return 0 ;; esac
+  interp="${shebang#'#!'}"
+  interp="${interp%% *}"
+  case "$interp" in */bin/python*) ;; *) return 0 ;; esac
+  old_prefix="${interp%/bin/python*}"
+  if [ -z "$old_prefix" ] || [ "$old_prefix" = "$ENV_ROOT" ]; then
+    return 0
+  fi
+  log "env '$ENV_NAME' was relocated from $old_prefix; repairing stale paths in place"
+  find "$ENV_ROOT/bin" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
+    if [ "$(head -c 2 "$f")" = '#!' ]; then
+      sed -i "1s|^#!$old_prefix/|#!$ENV_ROOT/|" "$f"
+    fi
+  done
+  local sp="$ENV_ROOT/lib/python3.8/site-packages"
+  if [ -d "$sp" ]; then
+    find "$sp" -maxdepth 1 -type f \( -name '*.pth' -o -name '*.egg-link' \) \
+      -exec sed -i "s|$old_prefix|$ENV_ROOT|g" {} +
+  fi
+  if [ -d "$ENV_ROOT/conda-meta" ]; then
+    sed -i "s|$old_prefix|$ENV_ROOT|g" "$ENV_ROOT"/conda-meta/*.json
+  fi
+}
+repair_env_prefix_if_needed
+
 # Fix `version GLIBCXX_3.4.32 not found` on Ubuntu 24.04 by shipping a newer
 # libstdc++ inside the env.
 if [ -f "$LIBSTDCXX_SENTINEL" ]; then
@@ -135,11 +176,15 @@ else
   tar -xzf "$TARBALL_PATH" -C "$ISAACGYM_HOME"
 fi
 
-if "$ENV_ROOT/bin/pip" show isaacgym >/dev/null 2>&1; then
+# Use `python -m pip` rather than the bin/pip entry point so this still works
+# even if that script's shebang is broken. pip show alone is not a reliable
+# skip-check: it trusts a possibly stale egg-link, so also verify the import.
+if "$HSGYM_PYTHON" -m pip show isaacgym >/dev/null 2>&1 && \
+   LD_LIBRARY_PATH="$ENV_ROOT/lib" "$HSGYM_PYTHON" -c "import isaacgym" >/dev/null 2>&1; then
   log "isaacgym already installed in '$ENV_NAME', skipping pip install"
 else
   log "installing isaacgym (pip install -e) into '$ENV_NAME'"
-  "$ENV_ROOT/bin/pip" install -e "$ISAACGYM_DIR/python"
+  "$HSGYM_PYTHON" -m pip install -e "$ISAACGYM_DIR/python"
 fi
 
 # Step 5: self-check the import with the env's lib/ on LD_LIBRARY_PATH. The

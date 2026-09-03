@@ -21,6 +21,9 @@
 #   * Resumable — large downloads use curl -C - so an interrupted transfer
 #     continues where it stopped; pip's HTTP cache covers pip downloads.
 #   * Isolated — UniLab code, configs, and the UniLab venv are never touched.
+#   * Relocation-aware — a venv is not relocatable; if ISAACSIM_HOME was moved
+#     since the install, stale shebang/activate/editable-finder paths are
+#     repaired in place instead of reinstalling multi-GB wheels.
 #
 # Usage:
 #   bash scripts/tools/setup_isaacsim_env.sh [--verify-sim]
@@ -78,6 +81,48 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 log "UNISIM_ISAACSIM_HOME=$ISAACSIM_HOME"
 log "isaacsim=$ISAACSIM_VERSION isaaclab=$ISAACLAB_VERSION torch=$TORCH_VERSION+cu128"
 
+# A venv is not relocatable: entry-point shebangs, activate scripts and the
+# PEP 660 __editable__ finder modules all hard-code the install prefix. If the
+# whole ISAACSIM_HOME tree was moved since the install (e.g. from the legacy
+# $HOME/.unilab/isaacsim to the current default), every step marker is still
+# present but pip cannot execute and isaaclab disappears from sys.path. Detect
+# the stale prefix from the pip shebang and rewrite it in place; this is far
+# cheaper than reinstalling multi-GB wheels.
+repair_env_prefix_if_needed() {
+  local pip_script=$VENV_DIR/bin/pip
+  [[ -f $pip_script ]] || return 0
+  local shebang interp old_venv old_home
+  shebang=$(head -n 1 "$pip_script")
+  [[ $shebang == '#!'* ]] || return 0
+  interp=${shebang#'#!'}
+  interp=${interp%% *}
+  [[ $interp == */bin/python* ]] || return 0
+  old_venv=${interp%/bin/python*}
+  old_home=${old_venv%/venv}
+  [[ -n $old_home && $old_venv != "$VENV_DIR" ]] || return 0
+  log "venv was relocated from $old_home; repairing stale paths in place"
+  # Entry-point scripts: rewrite only the shebang line (never touch binaries).
+  local f
+  while IFS= read -r -d '' f; do
+    if [[ $(head -c 2 "$f") == '#!' ]]; then
+      sed -i "1s|^#!$old_venv/|#!$VENV_DIR/|" "$f"
+    fi
+  done < <(find "$VENV_DIR/bin" -maxdepth 1 -type f -print0)
+  # activate scripts carry VIRTUAL_ENV in the body, not in a shebang.
+  sed -i "s|$old_venv|$VENV_DIR|g" "$VENV_DIR"/bin/activate* 2>/dev/null || true
+  # Editable finders / stray .pth reference the IsaacLab source tree.
+  local sp=$VENV_DIR/lib/python$PYTHON_VERSION/site-packages
+  if [[ -d $sp ]]; then
+    find "$sp" -maxdepth 1 -type f \( -name '__editable__*_finder.py' -o -name '*.pth' \) \
+      -exec grep -lF "$old_home" {} + | while read -r f; do
+        sed -i "s|$old_home|$ISAACSIM_HOME|g" "$f"
+      done
+  fi
+  # Re-verify imports against the repaired env.
+  rm -f "$MARKER_DIR/06_verify"
+}
+repair_env_prefix_if_needed
+
 # Accept the Omniverse Kit EULA non-interactively (install + any Kit launch)
 export OMNI_KIT_ACCEPT_EULA=${OMNI_KIT_ACCEPT_EULA:-1}
 
@@ -116,8 +161,10 @@ step_create_venv() {
 }
 run_step 01_venv step_create_venv
 
-PIP="$VENV_DIR/bin/pip"
 PYTHON="$VENV_DIR/bin/python"
+# Go through `python -m pip` rather than the bin/pip entry point so pip still
+# works even if that script's shebang is broken (e.g. mid-relocation).
+pip_cmd() { "$PYTHON" -m pip "$@"; }
 
 # ---------------------------------------------------------------------------
 # Step 1b: real cmake binary (avoids sudo; used by egl_probe's native build).
@@ -138,7 +185,7 @@ step_cmake() {
   mkdir -p "$ISAACSIM_HOME/tools/bin"
   ln -sfn "$dest/bin/cmake" "$ISAACSIM_HOME/tools/bin/cmake"
   # drop the fragile pip-cmake entry point so it cannot shadow the real binary
-  "$PIP" uninstall -y cmake >/dev/null 2>&1 || true
+  pip_cmd uninstall -y cmake >/dev/null 2>&1 || true
 }
 run_step 01b_cmake step_cmake
 
@@ -150,15 +197,15 @@ export PATH="$ISAACSIM_HOME/tools/bin:$VENV_DIR/bin:$PATH"
 # re-runs cheap if the wheel was fetched before.
 # ---------------------------------------------------------------------------
 run_step 02_torch \
-  "$PIP" install -U "torch==$TORCH_VERSION" "torchvision==$TORCHVISION_VERSION" \
+  pip_cmd install -U "torch==$TORCH_VERSION" "torchvision==$TORCHVISION_VERSION" \
   --index-url https://download.pytorch.org/whl/cu128
 
 # ---------------------------------------------------------------------------
 # Step 3: IsaacSim from the NVIDIA PyPI index (multi-GB; cached by pip on re-run)
 # ---------------------------------------------------------------------------
 step_isaacsim() {
-  "$PIP" install pyperclip
-  "$PIP" install "isaacsim[all,extscache]==$ISAACSIM_VERSION" \
+  pip_cmd install pyperclip
+  pip_cmd install "isaacsim[all,extscache]==$ISAACSIM_VERSION" \
     --extra-index-url https://pypi.nvidia.com
 }
 run_step 03_isaacsim step_isaacsim
@@ -192,7 +239,7 @@ run_step 04_isaaclab_src step_fetch_isaaclab
 # ---------------------------------------------------------------------------
 step_install_isaaclab() {
   cd "$ISAACLAB_DIR"
-  "$PIP" install 'setuptools<81'
+  pip_cmd install 'setuptools<81'
   echo 'setuptools<81' > build-constraints.txt
   export PIP_BUILD_CONSTRAINT="$ISAACLAB_DIR/build-constraints.txt"
   # Pin torch stack: pip would otherwise upgrade to a newer torch/CUDA build
