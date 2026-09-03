@@ -27,6 +27,16 @@ registry.register_env(
     sim_backend="mjwarp",
 )
 
+# BAM voltage-actuator variant (issue #1474): mujoco only, because the substep
+# state-feedback contract (SimBackend.set_pre_step_control) is unavailable on
+# the mjwarp host_numpy profile.
+registry.register_env_config("MicroduckVelocityBamFlat", ManagerBasedRlEnvCfg)
+registry.register_env(
+    "MicroduckVelocityBamFlat",
+    make_microduck_velocity_env,
+    sim_backend="mujoco",
+)
+
 # The minimal command/term owners deliberately share the same generic
 # ManagerBasedRlEnv factory.  Their behavior is selected entirely by the
 # Hydra owner (command, metrics, recorder, and reward terms); the runtime does

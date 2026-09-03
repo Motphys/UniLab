@@ -56,6 +56,7 @@ _G1_LOCOMOTION_TASKS = frozenset(
 
 _EXTERNAL_ASSET_LOCOMOTION_TASKS = frozenset(
     {
+        "MicroduckVelocityBamFlat",
         "MicroduckVelocityFlat",
         "T800WalkFlat",
     }
@@ -177,6 +178,13 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             if task_name == "MicroduckVelocityFlat"
             else "Hydra owner YAML materializes the locomotion task on the canonical NumPy Manager-Based runtime."
         )
+        if task_name == "MicroduckVelocityBamFlat":
+            scope = (
+                "Hydra owner YAML materializes the BAM voltage-actuator variant of the "
+                "MicroDuck velocity task on the canonical NumPy Manager-Based runtime "
+                "(mujoco owner only; the substep state-feedback contract is unavailable "
+                "on mjwarp)."
+            )
         return TaskMigrationRecord(
             task_name,
             family,
