@@ -2,7 +2,8 @@
 # Configured-only SAC mjwarp owner for the unified host contract adapter. Keeps
 # DENYLIST parity with the MuJoCo owner plus the mjwarp capacity knobs; legacy
 # kp/kd randomization is disabled. Offline record reuses MuJoCo rendering;
-# native playback and device-resident runtime are intentionally absent.
+# interactive eval routes through the MuJoCo viewer; native playback and
+# device-resident runtime are intentionally absent.
 defaults:
   - /task/g1_walk_flat/base
   - _self_

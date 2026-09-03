@@ -20,6 +20,9 @@ SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym", "genesis", 
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 INTERACTIVE_PLAY_ALGOS = {"ppo", "appo", "sac", "td3", "flashsac"}
+# Physics backends whose interactive eval runs through the dedicated MuJoCo
+# viewer script: the selected backend owns the rollout while MuJoCo renders.
+MUJOCO_VIEWER_PHYSICS_SIMS = frozenset({"mujoco", "mjwarp"})
 RESERVED_OVERRIDE_KEYS = {
     "algo",
     "task",
@@ -248,7 +251,11 @@ def _uses_mujoco_interactive_play(
     overrides: Sequence[str],
 ) -> bool:
     """Return whether eval should use the dedicated MuJoCo viewer script."""
-    if mode != "eval" or sim != "mujoco" or algo not in INTERACTIVE_PLAY_ALGOS:
+    if (
+        mode != "eval"
+        or sim not in MUJOCO_VIEWER_PHYSICS_SIMS
+        or algo not in INTERACTIVE_PLAY_ALGOS
+    ):
         return False
     selected_mode = _override_value(overrides, "training.play_render_mode") or render_mode
     return selected_mode is not None and selected_mode.strip().lower() == "interactive"
@@ -280,6 +287,12 @@ def build_command(
         render_mode=render_mode,
         overrides=overrides,
     )
+    if use_interactive_play and find_spec("mujoco") is None:
+        raise SystemExit(
+            "interactive eval renders through the MuJoCo viewer and requires the MuJoCo "
+            "extra. Install it with `pip install unilab[mujoco]` (or `uv sync --extra "
+            "mujoco` in a source checkout)."
+        )
     script = (
         selected_root / "scripts" / "play_interactive.py"
         if use_interactive_play
