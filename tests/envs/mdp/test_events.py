@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from unisim.backend.base import BackendRootStateLayout, SimBackend
 from unisim.dr.types import (
+    RESET_TERM_BODY_INERTIA,
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_DOF_ARMATURE,
@@ -1264,3 +1265,181 @@ def test_rigid_body_com_event_consumes_live_params_between_applies() -> None:
     second = backend.randomization_calls[-1].body_ipos
     assert second is not None
     np.testing.assert_allclose(second, [[[0.5, 0.0, -0.2]]] * 2)
+
+
+class _InertiaBackend(_Backend):
+    """Fake backend with a world-body row so MJCF-compiled inertial defaults align."""
+
+    def __init__(self, *, inertia_supported: bool = True) -> None:
+        super().__init__()
+        self.inertia_supported = inertia_supported
+        # Row 0 is the world body, matching the compiled MJCF body table.
+        self.body_mass = np.array([0.0, 10.0])
+        self.body_pos = np.zeros((self.num_envs, 2, 3))
+        self.body_quat = np.zeros((self.num_envs, 2, 4))
+        self.body_quat[:, :, 0] = 1.0
+        self.body_velocity = np.zeros((self.num_envs, 2, 3))
+
+    def get_body_ids(self, names) -> np.ndarray:
+        if tuple(names) != ("base",):
+            raise KeyError(names)
+        return np.asarray([1], dtype=np.int32)
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        capabilities = super().get_dr_capabilities()
+        if not self.inertia_supported:
+            return capabilities
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset(
+                set(capabilities.supported_reset_terms) | {RESET_TERM_BODY_INERTIA}
+            ),
+            supports_interval_push=capabilities.supports_interval_push,
+            supports_interval_body_velocity_delta=(
+                capabilities.supports_interval_body_velocity_delta
+            ),
+            supports_interval_body_angular_velocity_delta=(
+                capabilities.supports_interval_body_angular_velocity_delta
+            ),
+            supports_interval_body_force=capabilities.supports_interval_body_force,
+            supports_interval_body_torque=capabilities.supports_interval_body_torque,
+        )
+
+
+_MASS_INERTIA_SCENE_XML = (
+    '<mujoco><worldbody><body name="base" pos="0 0 0.5">'
+    "<freejoint/>"
+    '<inertial pos="0 0 0" mass="10.0" diaginertia="0.1 0.2 0.3"/>'
+    '<geom type="sphere" size="0.1"/>'
+    "</body></worldbody></mujoco>"
+)
+
+
+def _mass_inertia_env(
+    tmp_path,
+    *,
+    inertia_supported: bool = True,
+    rng_seed: int = 5,
+) -> tuple[ManagerBasedRlEnv, _InertiaBackend, ResetStateTransaction]:
+    model_file = tmp_path / "mass_inertia_scene.xml"
+    model_file.write_text(_MASS_INERTIA_SCENE_XML, encoding="utf-8")
+    backend = _InertiaBackend(inertia_supported=inertia_supported)
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    scene = EntityScene(
+        {
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=("j0", "j1", "j2"),
+                body_names=("base",),
+                geom_names=("floor", "foot", "base_geom"),
+                actuator_names=("a0", "a1", "a2"),
+            )
+        },
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=backend.num_envs,
+            rng=np.random.default_rng(rng_seed),
+            scene=scene,
+            step_dt=0.02,
+            cfg=SimpleNamespace(scene=SimpleNamespace(model_file=str(model_file))),
+        ),
+    )
+    return env, backend, transaction
+
+
+def _mass_inertia_manager(env: ManagerBasedRlEnv) -> EventManager:
+    return EventManager(
+        {
+            "mass_inertia": EventTermCfg(
+                func=mdp.randomize_body_mass_inertia,
+                mode="reset",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                    "scale_range": (0.95, 1.05),
+                },
+            )
+        },
+        env,
+    )
+
+
+def test_randomize_body_mass_inertia_scales_once_and_replays_cached_factor(tmp_path) -> None:
+    env, backend, transaction = _mass_inertia_env(tmp_path, rng_seed=11)
+    manager = _mass_inertia_manager(env)
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    assert payload.body_mass is not None
+    assert payload.body_inertia is not None
+    # World-body rows pass through untouched; the selected body is scaled by one
+    # shared log-uniform factor per env.
+    scales = payload.body_mass[:, 1] / 10.0
+    assert np.all(scales >= 0.95)
+    assert np.all(scales <= 1.05)
+    np.testing.assert_allclose(payload.body_mass[:, 0], 0.0)
+    np.testing.assert_allclose(payload.body_inertia[:, 0, :], 0.0)
+    np.testing.assert_allclose(
+        payload.body_inertia[:, 1, :],
+        scales[:, None] * np.array([0.1, 0.2, 0.3]),
+        rtol=1e-12,
+    )
+
+    # The factor is sampled once (startup semantics): a later reset replays the
+    # cached per-env values instead of resampling.
+    second_ids = np.array([2], dtype=np.int32)
+    with transaction.scoped(second_ids):
+        mdp.reset_scene_to_default(env, second_ids)
+        manager.apply(mode="reset", env_ids=second_ids, global_env_step_count=1)
+    replay = backend.randomization_calls[1]
+    assert replay is not None
+    assert replay.body_mass is not None
+    np.testing.assert_allclose(replay.body_mass[0, 1], payload.body_mass[1, 1])
+    np.testing.assert_allclose(replay.body_inertia[0, 1], payload.body_inertia[1, 1])
+
+
+def test_randomize_body_mass_inertia_capability_gap_fails_during_construction(tmp_path) -> None:
+    env, backend, _ = _mass_inertia_env(tmp_path, inertia_supported=False)
+    with pytest.raises(NotImplementedError, match="body_inertia randomization.*unsupported"):
+        _mass_inertia_manager(env)
+    assert backend.set_state_calls == []
+
+
+def test_randomize_body_mass_inertia_cross_check_fails_on_model_divergence(tmp_path) -> None:
+    env, backend, _ = _mass_inertia_env(tmp_path)
+    backend.body_mass = np.array([0.0, 11.0])  # backend model drifted from the scene file
+    with pytest.raises(ValueError, match="does not match backend"):
+        _mass_inertia_manager(env)
+    assert backend.set_state_calls == []
+
+
+@pytest.mark.parametrize(
+    "scale_range",
+    [(0.9, 0.1), (0.0, 1.05)],
+)
+def test_randomize_body_mass_inertia_rejects_invalid_scale_range(tmp_path, scale_range) -> None:
+    env, backend, _ = _mass_inertia_env(tmp_path)
+    with pytest.raises(ValueError, match="scale_range"):
+        EventManager(
+            {
+                "mass_inertia": EventTermCfg(
+                    func=mdp.randomize_body_mass_inertia,
+                    mode="reset",
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                        "scale_range": scale_range,
+                    },
+                )
+            },
+            env,
+        )
+    assert backend.set_state_calls == []
