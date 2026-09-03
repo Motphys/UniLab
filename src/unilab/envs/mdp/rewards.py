@@ -13,6 +13,7 @@ import numpy as np
 
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.utils.rotation import np_quat_apply_inverse
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -138,6 +139,30 @@ def flat_orientation_l2(
     """Penalize non-flat base orientation."""
     asset = cast("Entity", env.scene[asset_cfg.name])
     return np.sum(np.square(asset.data.projected_gravity_b[:, :2]), axis=1)
+
+
+def upright(
+    env: ManagerBasedRlEnv,
+    std: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> np.ndarray:
+    """Gaussian reward for keeping one selected body upright (mjlab ``upright``).
+
+    The reward is ``exp(-||pg_xy||^2 / std^2)`` where ``pg`` is the world
+    gravity vector expressed in the selected body's link frame.  Flat-ground
+    form only: mjlab's optional terrain-normal sensors are not ported.
+    """
+    scale = _positive_std("upright", std)
+    asset = cast("Entity", env.scene[asset_cfg.name])
+    body_quat_w = asset.data.body_link_quat_w[:, asset_cfg.body_ids, :]
+    if body_quat_w.shape != (env.num_envs, 1, 4):
+        raise ValueError(
+            f"upright requires exactly one body; received state shape {body_quat_w.shape}"
+        )
+    gravity = np.asarray(asset.data.gravity_vec_w)
+    projected_gravity_b = np_quat_apply_inverse(body_quat_w[:, 0, :], gravity)
+    xy_squared = np.sum(np.square(projected_gravity_b[:, :2]), axis=1)
+    return np.exp(-xy_squared / scale**2)
 
 
 def track_linear_velocity(
@@ -331,5 +356,6 @@ __all__ = [
     "root_height",
     "track_angular_velocity",
     "track_linear_velocity",
+    "upright",
     "variable_posture",
 ]

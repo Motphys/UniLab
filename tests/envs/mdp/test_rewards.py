@@ -58,6 +58,15 @@ class _Entity:
                 ],
                 dtype=np.float32,
             ),
+            body_link_quat_w=np.asarray(
+                [
+                    [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                    [[0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                    [[np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], [1.0, 0.0, 0.0, 0.0]],
+                ],
+                dtype=np.float32,
+            ),
+            gravity_vec_w=np.asarray([0.0, 0.0, -1.0], dtype=np.float32),
         )
 
     def find_joints(self, keys, preserve_order: bool = False):
@@ -149,6 +158,22 @@ def test_body_angular_velocity_requires_one_selected_body() -> None:
     )
     with pytest.raises(ValueError, match="requires exactly one body"):
         mdp.body_angular_velocity_penalty(env)
+
+
+def test_upright_matches_mjlab_projected_gravity_kernel() -> None:
+    env = _env()
+    # Body 0 quats per env: identity (pg_xy = 0), 180° roll (pg_xy = 0),
+    # 90° pitch (pg_b = (1, 0, 0), pg_xy^2 = 1).
+    selector = SceneEntityCfg("robot", body_ids=[0])
+    np.testing.assert_allclose(
+        mdp.upright(env, std=0.5, asset_cfg=selector),
+        [1.0, 1.0, np.exp(-1.0 / 0.25)],
+        rtol=1e-6,
+    )
+    with pytest.raises(ValueError, match="requires exactly one body"):
+        mdp.upright(env, std=0.5)
+    with pytest.raises(ValueError, match="std must be finite and positive"):
+        mdp.upright(env, std=0.0, asset_cfg=selector)
 
 
 def test_joint_pos_limits_matches_mjlab_soft_limit_equation() -> None:

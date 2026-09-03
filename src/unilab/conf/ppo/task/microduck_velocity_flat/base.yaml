@@ -1,11 +1,14 @@
 # @package _global_
 # Canonical Pollen Robotics MicroDuck Manager-Based velocity task.
 #
-# Recipe aligned with legacy microduck_rl velocity2 (issue #1402): command
-# ranges/resampling, gait rewards, termination limits, observation delays, DR
-# events, and the five step-staged curricula all mirror the legacy values
-# (stage step = legacy iteration x 24 = env control steps, matching UniLab's
-# num_steps_per_env=24).
+# Reward/MDP stack aligned with upstream microduck_rl HEAD (issue #1455, anchor
+# commit 29e887ec, mjlab 1.3.0): the velocity recipe's reward terms, weights
+# and parameters mirror `microduck_velocity_env_cfg.py` at the anchor; terms
+# without an upstream counterpart (orientation, base_height, alive,
+# flight_phase, lin_vel_z) are removed.  Command ranges/resampling, gait
+# reward windows, observation delays, DR events, and the step-staged curricula
+# mirror the same anchor (stage step = upstream iteration x 24 env control
+# steps, matching UniLab's num_steps_per_env=24).
 env:
   scene:
     model_file: src/unilab/assets/robots/microduck/scene_flat.xml
@@ -57,7 +60,8 @@ env:
           - bearing_roll
         # Foot collision geoms for the foot_friction DR event.
         geom_names: [left_foot_collision, right_foot_collision]
-  sim_dt: 0.01
+  # Upstream recipe: 200 Hz physics under 50 Hz control (substeps = ctrl_dt / sim_dt = 4).
+  sim_dt: 0.005
   ctrl_dt: 0.02
   max_episode_seconds: 20.0
   observations:
@@ -213,6 +217,20 @@ env:
     reset_scene_to_default:
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
+    # Upstream reset_base: uniform root offsets around the `home` keyframe —
+    # xy ±0.5 m, yaw ±π, z +[0, 0.01] on the keyframe z=0.12 (absolute
+    # z ∈ [0.12, 0.13]); velocities stay zero and joints return to HOME
+    # exactly (reset_scene_to_default above stages the keyframe state first).
+    reset_base:
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.01]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range: {}
     base_com:
       func: unilab.envs.mdp.randomize_rigid_body_com
       mode: reset
@@ -270,11 +288,24 @@ env:
           joint_names: ".*"
         ranges: [0.9, 1.1]
         operation: scale
+    # Upstream startup mass/inertia DR (mjlab dr.pseudo_inertia, alpha-only):
+    # trunk_base mass and inertia share one log-uniform factor s ∈ [0.95, 1.05]
+    # sampled once per env and held fixed for the whole run; CoM unchanged.
+    randomize_mass_inertia:
+      func: unilab.envs.mdp.randomize_body_mass_inertia
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: trunk_base
+        scale_range: [0.95, 1.05]
     push_robot:
       func: unilab.envs.mdp.push_by_setting_velocity
       mode: interval
       interval_range_s: [3.0, 6.0]
-      is_global_time: true
+      # Upstream samples the push interval independently per env.
+      is_global_time: false
       params:
         velocity_range:
           x: [-0.3, 0.3]
@@ -291,9 +322,6 @@ env:
       func: unilab.envs.mdp.bad_orientation
       # Legacy fell_over threshold: 70 degrees.
       params: {limit_angle: 1.2217304763960306}
-    base_height:
-      func: unilab.envs.mdp.root_height_below_minimum
-      params: {minimum_height: 0.08}
     nan_state:
       func: unilab.envs.mdp.nan_detection
   curriculum:
@@ -367,17 +395,30 @@ env:
 
 reward:
   tracking_lin_vel:
-    func: unilab.tasks.locomotion.common.sensor_reward_terms.track_lin_vel
-    weight: 3.0
-    params: {sensor_name: local_linvel, tracking_sigma: 0.25, command_name: twist}
+    # Upstream track_linear_velocity: exp(-(‖cmd_xy−v_xy‖² + v_z²)/std²),
+    # std=√0.1, body-frame root velocity (vz penalty folded into the kernel).
+    func: unilab.envs.mdp.track_linear_velocity
+    weight: 2.0
+    params: {std: 0.31622776601683794, command_name: twist}
   tracking_ang_vel:
-    # Legacy merged form: exp(-((cmd-wz)^2 + wx^2 + wy^2) / 0.5), std=sqrt(0.5).
+    # Upstream track_angular_velocity merged form:
+    # exp(-((cmd-wz)^2 + wx^2 + wy^2) / std^2), std=√0.5.
     func: unilab.envs.mdp.track_angular_velocity
     weight: 2.0
     params: {std: 0.7071067811865476, command_name: twist}
+  upright:
+    # Upstream upright: exp(-pg_xy²/std²), std=√0.05, body=trunk_base.
+    func: unilab.envs.mdp.upright
+    weight: 2.0
+    params:
+      std: 0.22360679774997896
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
   head_pose_tracking:
     func: unilab.tasks.locomotion.microduck.manager_terms.head_pose_tracking
-    weight: 0.5
+    weight: 2.0
     params:
       command_name: head_pose
       std: 0.5
@@ -397,19 +438,55 @@ reward:
         name: robot
         joint_names: [neck_pitch, head_pitch, head_yaw, head_roll]
         preserve_order: true
+  body_pose_tracking:
+    # Upstream keep-alive term: weight 0.0 keeps the body_pose command/obs
+    # channels alive for tasks that raise the weight (standup family).
+    func: unilab.tasks.locomotion.microduck.manager_terms.body_pose_tracking
+    weight: 0.0
+    params:
+      command_name: body_pose
+      nominal_height: 0.095
+      xy_std: 0.05
+      z_std: 0.02
+      angle_std: 0.2617993877991494
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
   leg_pose:
-    func: unilab.tasks.locomotion.microduck.manager_terms.leg_pose
+    # Upstream pose (variable_posture): leg joints only (head/neck are
+    # command-driven), speed-dependent per-joint std — still scored while
+    # walking, with the looser walking std set (running set identical).
+    func: unilab.envs.mdp.variable_posture
     weight: 1.0
     params:
       command_name: twist
-      std_standing: 0.1
+      walking_threshold: 0.01
+      running_threshold: 1.5
+      std_standing:
+        ".*hip_yaw.*": 0.1
+        ".*hip_roll.*": 0.05
+        ".*hip_pitch.*": 0.15
+        ".*knee.*": 0.15
+        ".*ankle.*": 0.1
+      std_walking:
+        ".*hip_yaw.*": 0.3
+        ".*hip_roll.*": 0.05
+        ".*hip_pitch.*": 0.4
+        ".*knee.*": 0.4
+        ".*ankle.*": 0.25
+      std_running:
+        ".*hip_yaw.*": 0.3
+        ".*hip_roll.*": 0.05
+        ".*hip_pitch.*": 0.4
+        ".*knee.*": 0.4
+        ".*ankle.*": 0.25
       asset_cfg:
         _target_: unilab.managers.SceneEntityCfg
         name: robot
         joint_names: [left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle]
         preserve_order: true
   air_time:
-    # Legacy window form: feet with current air time in (0.125, 0.300) s score.
+    # Upstream window form: feet with current air time in (0.125, 0.300) s score.
     func: unilab.tasks.locomotion.common.gait_terms.feet_air_time
     weight: 3.0
     params:
@@ -455,25 +532,22 @@ reward:
         name: robot
         body_names: [ankle_left, ankle_right]
         preserve_order: true
-  flight_phase:
-    func: unilab.tasks.locomotion.microduck.manager_terms.flight_phase
-    weight: -2.0
-  lin_vel_z:
-    func: unilab.tasks.locomotion.common.sensor_reward_terms.lin_vel_z
-    weight: -1.0
-    params: {sensor_name: local_linvel}
-  ang_vel_xy:
-    func: unilab.tasks.locomotion.common.sensor_reward_terms.ang_vel_xy
+  body_ang_vel:
+    # Upstream body_ang_vel: trunk_base world-frame ω_xy penalty (yaw free).
+    func: unilab.envs.mdp.body_angular_velocity_penalty
     weight: -0.05
-    params: {sensor_name: gyro}
-  orientation:
-    func: unilab.tasks.locomotion.common.sensor_reward_terms.orientation
-    weight: -3.0
-    params: {sensor_name: upvector}
-  base_height:
-    func: unilab.tasks.locomotion.common.manager_terms.base_height_l2
-    weight: -50.0
-    params: {target_height: 0.12}
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  self_collisions:
+    # Upstream self_collision_cost: count of active self-collision geom pairs
+    # (locomotion_task.xml self_collision_* found sensors).
+    func: unilab.tasks.locomotion.common.gait_terms.self_collision_cost
+    weight: -1.0
+    params:
+      sensor_groups: [[self_collision_trunk_left_leg], [self_collision_trunk_right_leg], [self_collision_legs]]
   dof_pos_limits:
     func: unilab.envs.mdp.joint_pos_limits
     weight: -1.0
@@ -484,6 +558,3 @@ reward:
   action_rate:
     func: unilab.envs.mdp.action_rate_l2
     weight: -0.1
-  alive:
-    func: unilab.tasks.locomotion.common.manager_terms.alive
-    weight: 0.1

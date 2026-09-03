@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import math
 from pathlib import Path
 from typing import Any, cast
 
@@ -16,7 +17,11 @@ from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnvCfg
-from unilab.envs.mdp import JointPositionActionCfg, UniformPoseCommandCfg
+from unilab.envs.mdp import (
+    JointPositionActionCfg,
+    UniformPoseCommandCfg,
+    randomize_body_mass_inertia,
+)
 from unilab.tasks import __unilab_registry_modules__
 from unilab.tasks.locomotion.microduck.deploy_contract import (
     MICRODUCK_ACTOR_OBS_DIM,
@@ -80,7 +85,7 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
     assert cfg.algo.obs_groups.critic == ["critic"]
     assert cfg.algo.empirical_normalization is True
 
-    assert env_cfg.sim_dt == pytest.approx(0.01)
+    assert env_cfg.sim_dt == pytest.approx(0.005)
     assert env_cfg.ctrl_dt == pytest.approx(0.02)
     assert env_cfg.max_episode_seconds == pytest.approx(20.0)
     assert env_cfg.policy_observation_group == "policy"
@@ -156,53 +161,85 @@ def test_microduck_owner_materializes_complete_manager_contract() -> None:
     expected_rewards = (
         "tracking_lin_vel",
         "tracking_ang_vel",
+        "upright",
         "head_pose_tracking",
         "head_pose_bias",
+        "body_pose_tracking",
         "leg_pose",
         "air_time",
         "foot_clearance",
         "foot_swing_height",
         "foot_slip",
-        "flight_phase",
-        "lin_vel_z",
-        "ang_vel_xy",
-        "orientation",
-        "base_height",
+        "body_ang_vel",
+        "self_collisions",
         "dof_pos_limits",
         "angular_momentum",
         "action_rate",
-        "alive",
     )
     assert tuple(env_cfg.rewards) == expected_rewards
-    assert env_cfg.rewards["tracking_lin_vel"].weight == pytest.approx(3.0)
+    # Upstream HEAD reward stack (anchor 29e887ec): vz² is folded into the
+    # tracking kernel, so no standalone lin_vel_z / orientation / base_height /
+    # flight_phase / alive terms.
+    assert env_cfg.rewards["tracking_lin_vel"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["tracking_lin_vel"].params["std"] == pytest.approx(math.sqrt(0.1))
     assert env_cfg.rewards["tracking_ang_vel"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["upright"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["upright"].params["std"] == pytest.approx(math.sqrt(0.05))
+    assert env_cfg.rewards["head_pose_tracking"].weight == pytest.approx(2.0)
+    assert env_cfg.rewards["body_pose_tracking"].weight == pytest.approx(0.0)
+    assert env_cfg.rewards["body_pose_tracking"].params["nominal_height"] == pytest.approx(0.095)
+    assert env_cfg.rewards["leg_pose"].weight == pytest.approx(1.0)
+    assert env_cfg.rewards["leg_pose"].params["walking_threshold"] == pytest.approx(0.01)
+    assert env_cfg.rewards["leg_pose"].params["std_walking"][".*knee.*"] == pytest.approx(0.4)
     assert env_cfg.rewards["air_time"].weight == pytest.approx(3.0)
     assert env_cfg.rewards["air_time"].params["threshold_min"] == pytest.approx(0.125)
     assert env_cfg.rewards["air_time"].params["threshold_max"] == pytest.approx(0.3)
     assert env_cfg.rewards["foot_clearance"].weight == pytest.approx(-2.0)
     assert env_cfg.rewards["foot_swing_height"].weight == pytest.approx(-0.25)
     assert env_cfg.rewards["foot_slip"].weight == pytest.approx(-0.1)
+    assert env_cfg.rewards["body_ang_vel"].weight == pytest.approx(-0.05)
+    assert env_cfg.rewards["self_collisions"].weight == pytest.approx(-1.0)
     assert env_cfg.rewards["dof_pos_limits"].weight == pytest.approx(-1.0)
     assert env_cfg.rewards["angular_momentum"].weight == pytest.approx(-0.02)
-    assert env_cfg.rewards["flight_phase"].weight == pytest.approx(-2.0)
     assert env_cfg.rewards["head_pose_bias"].weight == pytest.approx(0.0)
     assert env_cfg.rewards["action_rate"].weight == pytest.approx(-0.1)
     assert tuple(env_cfg.events) == (
         "reset_scene_to_default",
+        "reset_base",
         "base_com",
         "head_com",
         "encoder_bias",
         "foot_friction",
         "randomize_armature",
+        "randomize_mass_inertia",
         "push_robot",
     )
+    # Upstream reset_base: uniform root offsets around the `home` keyframe
+    # (z offset [0, 0.01] on the keyframe z=0.12 -> absolute z in [0.12, 0.13]).
+    reset_base = env_cfg.events["reset_base"]
+    assert reset_base.mode == "reset"
+    assert reset_base.params["pose_range"]["x"] == [-0.5, 0.5]
+    assert reset_base.params["pose_range"]["y"] == [-0.5, 0.5]
+    assert reset_base.params["pose_range"]["z"] == [0.0, 0.01]
+    assert reset_base.params["pose_range"]["yaw"] == [
+        pytest.approx(-np.pi),
+        pytest.approx(np.pi),
+    ]
+    assert reset_base.params["velocity_range"] == {}
+    # Upstream startup mass/inertia DR: one shared log-uniform factor per env,
+    # sampled once and held fixed for the run.
+    mass_inertia = env_cfg.events["randomize_mass_inertia"]
+    assert mass_inertia.func is randomize_body_mass_inertia
+    assert mass_inertia.params["scale_range"] == [0.95, 1.05]
+    assert mass_inertia.params["asset_cfg"].body_names == "trunk_base"
     assert env_cfg.events["push_robot"].mode == "interval"
     assert env_cfg.events["push_robot"].interval_range_s == [3.0, 6.0]
+    assert env_cfg.events["push_robot"].is_global_time is False
     assert env_cfg.events["foot_friction"].params["ranges"] == [0.7, 1.3]
     assert env_cfg.events["randomize_armature"].params["ranges"] == [0.9, 1.1]
     assert env_cfg.events["randomize_armature"].params["operation"] == "scale"
 
-    assert tuple(env_cfg.terminations) == ("time_out", "tilt", "base_height", "nan_state")
+    assert tuple(env_cfg.terminations) == ("time_out", "tilt", "nan_state")
     assert env_cfg.terminations["tilt"].params["limit_angle"] == pytest.approx(1.2217304763960306)
 
     # Legacy step-staged curricula (stage step = legacy iteration x 24).

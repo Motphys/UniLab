@@ -11,7 +11,11 @@ import pytest
 from unilab.envs.mdp import UniformPoseCommandCfg
 from unilab.managers import RewardTermCfg
 from unilab.managers._types import ManagerBasedRlEnv
-from unilab.tasks.locomotion.microduck.manager_terms import flight_phase, foot_air_time_biped
+from unilab.tasks.locomotion.microduck.manager_terms import (
+    body_pose_tracking,
+    flight_phase,
+    foot_air_time_biped,
+)
 
 
 class _SensorScene:
@@ -141,3 +145,63 @@ def test_uniform_pose_command_rejects_range_width_change() -> None:
     cfg.ranges = [[-1.0, 1.0]] * 3
     with pytest.raises(ValueError, match="width changed"):
         term.reset(np.arange(2))
+
+
+class _PoseScene:
+    def __init__(self, position: np.ndarray, quat: np.ndarray) -> None:
+        self.env_origins = np.zeros((position.shape[0], 3), dtype=np.float32)
+        self._robot = SimpleNamespace(
+            data=SimpleNamespace(root_link_pos_w=position, root_link_quat_w=quat)
+        )
+
+    def __getitem__(self, name: str):
+        if name != "robot":
+            raise KeyError(name)
+        return self._robot
+
+
+def _pose_env(position: np.ndarray, quat: np.ndarray, command: np.ndarray) -> ManagerBasedRlEnv:
+    return cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=position.shape[0],
+            scene=_PoseScene(position, quat),
+            command_manager=SimpleNamespace(get_command=lambda name: command),
+        ),
+    )
+
+
+def test_body_pose_tracking_matches_upstream_6d_gaussian_mean() -> None:
+    identity = np.asarray([[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+    # env0 is exactly at the nominal pose with a zero command; env1 is one
+    # xy_std off in x and one z_std off in z: two axes at exp(-1), four at 1.
+    position = np.asarray([[0.0, 0.0, 0.095], [0.05, 0.0, 0.095 + 0.02]], dtype=np.float32)
+    command = np.zeros((2, 6), dtype=np.float32)
+    env = _pose_env(position, identity, command)
+    expected = (4.0 + 2.0 * np.exp(-1.0)) / 6.0
+    np.testing.assert_allclose(body_pose_tracking(env), [1.0, expected], rtol=1e-6)
+
+    # One angle_std of roll error: quat for roll=15deg about x.
+    half = np.deg2rad(15.0) / 2.0
+    rolled = np.asarray(
+        [[1.0, 0.0, 0.0, 0.0], [np.cos(half), np.sin(half), 0.0, 0.0]], dtype=np.float32
+    )
+    position = np.asarray([[0.0, 0.0, 0.095], [0.0, 0.0, 0.095]], dtype=np.float32)
+    env = _pose_env(position, rolled, command)
+    expected = (5.0 + np.exp(-1.0)) / 6.0
+    np.testing.assert_allclose(body_pose_tracking(env), [1.0, expected], rtol=1e-5)
+
+
+def test_body_pose_tracking_uses_env_origins_and_command_targets() -> None:
+    # A root parked at the env origin plus the commanded xyz delta scores 1.
+    position = np.asarray([[2.01, -1.01, 0.105]], dtype=np.float32)
+    quat = np.asarray([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+    command = np.asarray([[0.01, -0.01, 0.01, 0.0, 0.0, 0.0]], dtype=np.float32)
+    env = _pose_env(position, quat, command)
+    scene = cast(Any, env.scene)
+    scene.env_origins = np.asarray([[2.0, -1.0, 0.0]], dtype=np.float32)
+    np.testing.assert_allclose(body_pose_tracking(env), [1.0], rtol=1e-6)
+
+    bad_env = _pose_env(position, quat, np.zeros((1, 4), dtype=np.float32))
+    with pytest.raises(ValueError, match="width 6"):
+        body_pose_tracking(bad_env)

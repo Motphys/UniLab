@@ -12,8 +12,13 @@ training:
   play_render_mode: record
 
 algo:
-  num_envs: 2048
-  max_iterations: 500
+  # Upstream scale: 4096 envs, seed 42 (issue #1456).
+  seed: 42
+  num_envs: 4096
+  # 2000 iterations x 24 env steps = 48000 env steps, exactly covering every
+  # curriculum terminal stage (step 48000). Upstream runs 50000 iterations; the
+  # final training budget is decided by child 5.
+  max_iterations: 2000
   empirical_normalization: true
   obs_groups:
     actor:
@@ -27,6 +32,9 @@ algo:
     entropy_coef: 0.01
 
 env:
+  # Env-level RNG seed (command / obs-noise / delay / DR sampling) matching
+  # upstream seed=42 so runs are reproducible (issue #1456).
+  seed: 42
   mjwarp_nconmax: 128
   mjwarp_njmax: 256
   render_spacing: 2.0

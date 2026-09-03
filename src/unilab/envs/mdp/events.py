@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import math
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -20,6 +22,7 @@ from unilab.utils.rotation import np_quat_apply_batched, np_quat_from_euler_xyz,
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
+    from unilab.envs.manager_based_rl_env import ManagerBasedRlEnv as ManagerBasedRlEnvImpl
     from unilab.managers._types import ManagerBasedRlEnv
 
 
@@ -29,6 +32,7 @@ _XYZ_KEYS = ("x", "y", "z")
 _PD_GAIN_PARAM_NAMES = frozenset(("kp_range", "kd_range", "asset_cfg", "distribution", "operation"))
 _DISTRIBUTIONS = ("uniform", "log_uniform", "gaussian")
 _OPERATIONS = ("add", "scale", "abs")
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _gain_range(
@@ -781,6 +785,141 @@ class RandomizeRigidBodyMass(ManagerTermBase):
 randomize_rigid_body_mass = RandomizeRigidBodyMass
 
 
+def _scene_inertial_defaults(
+    env: ManagerBasedRlEnv,
+    *,
+    term_name: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compile the configured MJCF scene on the cold path for inertial defaults.
+
+    Returns the full ``(nbody,)`` body-mass and ``(nbody, 3)`` principal-inertia
+    tables in model body order. ``SimBackend`` exposes no body-inertia getter,
+    so the defaults come from the same scene file the MuJoCo-family backends
+    compile; the reset transaction cross-validates the mass table against the
+    backend's authoritative values before trusting the inertia rows.
+    """
+    try:
+        import mujoco
+    except ImportError as exc:
+        raise NotImplementedError(
+            f"EventManager term '{term_name}' requires the mujoco package to compile "
+            "the scene model for inertial defaults"
+        ) from exc
+    scene = cast("ManagerBasedRlEnvImpl", env).cfg.scene
+    if scene is None:
+        raise ValueError(f"EventManager term '{term_name}' requires a configured scene model file")
+    model_file = str(scene.model_file)
+    candidates = [Path(model_file)]
+    if not Path(model_file).is_absolute():
+        candidates.append(_REPO_ROOT / model_file)
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        raise ValueError(
+            f"EventManager term '{term_name}' cannot locate scene model file "
+            f"{model_file!r} (tried {', '.join(str(candidate) for candidate in candidates)})"
+        )
+    model = mujoco.MjModel.from_xml_path(str(path))
+    mass = np.asarray(model.body_mass, dtype=np.float64)
+    inertia = np.asarray(model.body_inertia, dtype=np.float64)
+    return mass, inertia
+
+
+class RandomizeBodyMassInertia(ManagerTermBase):
+    """Startup-style mass+inertia scaling via one shared per-env factor.
+
+    NumPy adapter for the alpha-only slice of mjlab's ``dr.pseudo_inertia``:
+    mass and principal inertia of the selected bodies are multiplied by the
+    same factor s = e^{2α} with α ~ U(ln(lo)/2, ln(hi)/2) — i.e. s is
+    log-uniform in ``scale_range``; the CoM (``body_ipos``) and the principal
+    frame (``body_iquat``) stay untouched.
+
+    Upstream runs this as a startup event (fixed per env for the whole run).
+    UniLab startup events have no reset-transaction write path, so this term
+    runs in reset mode but samples the factor only once — at the first reset —
+    and reapplies the cached per-env values on every later reset. Both writes
+    re-derive from immutable compile-time defaults, so reapplication is
+    idempotent and non-accumulating.
+    """
+
+    _PARAMS = frozenset(("asset_cfg", "scale_range"))
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        term_name = "randomize_body_mass_inertia"
+        _validate_event_term(
+            cfg,
+            term_name=term_name,
+            mode="reset",
+            allowed_params=self._PARAMS,
+            required_params=("asset_cfg", "scale_range"),
+        )
+        asset_cfg = cfg.params["asset_cfg"]
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(
+                f"EventManager term '{term_name}' asset_cfg must be SceneEntityCfg, "
+                f"got {type(asset_cfg).__name__}"
+            )
+        bounds = _distribution_parameters(
+            cfg.params["scale_range"],
+            term_name=term_name,
+            name="scale_range",
+            distribution="log_uniform",
+        )
+        self._scale_lo = float(bounds[0])
+        self._scale_hi = float(bounds[1])
+        self._entity = cast("Entity", env.scene[asset_cfg.name])
+        default_mass, default_inertia = _scene_inertial_defaults(env, term_name=term_name)
+        self._body_ids, self._default_mass = self._entity.bind_body_mass_write(
+            asset_cfg.body_ids,
+            term_name=term_name,
+        )
+        inertia_ids, self._default_inertia = self._entity.bind_body_inertia_write(
+            asset_cfg.body_ids,
+            default=default_inertia,
+            default_mass=default_mass,
+            term_name=term_name,
+        )
+        if not np.array_equal(self._body_ids, inertia_ids):
+            raise RuntimeError(
+                f"EventManager term '{term_name}' mass/inertia body bindings diverged: "
+                f"{self._body_ids.tolist()} != {inertia_ids.tolist()}"
+            )
+        self._scales: np.ndarray | None = None
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: np.ndarray | None,
+        asset_cfg: SceneEntityCfg,
+        scale_range: tuple[float, float],
+    ) -> None:
+        del asset_cfg, scale_range
+        ids = resolve_env_ids(env, env_ids)
+        if self._scales is None:
+            alpha = env.rng.uniform(
+                math.log(self._scale_lo) / 2.0,
+                math.log(self._scale_hi) / 2.0,
+                size=(env.num_envs, self._body_ids.size),
+            )
+            self._scales = np.exp(2.0 * alpha)
+        scales = self._scales[ids]
+        self._entity.write_body_mass_to_sim(
+            self._default_mass[None, :] * scales,
+            body_ids=self._body_ids,
+            env_ids=ids,
+            term_name="randomize_body_mass_inertia",
+        )
+        self._entity.write_body_inertia_to_sim(
+            self._default_inertia[None, :, :] * scales[:, :, None],
+            body_ids=self._body_ids,
+            env_ids=ids,
+            term_name="randomize_body_mass_inertia",
+        )
+
+
+randomize_body_mass_inertia = RandomizeBodyMassInertia
+
+
 class RandomizeRigidBodyCom(ManagerTermBase):
     """Community-compatible additive rigid-body CoM randomization.
 
@@ -1317,6 +1456,7 @@ __all__ = [
     "joint_armature",
     "pd_gains",
     "push_by_setting_velocity",
+    "randomize_body_mass_inertia",
     "randomize_encoder_bias",
     "randomize_physics_scene_gravity",
     "randomize_rigid_body_com",

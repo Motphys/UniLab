@@ -2,6 +2,13 @@
   <sensor>
     <contact name="left_foot_contact" geom1="floor" geom2="left_foot_collision" data="force" num="1" reduce="mindist"/>
     <contact name="right_foot_contact" geom1="floor" geom2="right_foot_collision" data="force" num="1" reduce="mindist"/>
+    <!-- Upstream self_collision sensor (trunk_base subtree vs itself).  The
+         self_collision_only geoms are the only robot geoms that can collide
+         with each other (contype/conaffinity bit 2), so one found-sensor per
+         geom pair reproduces the upstream contact count. -->
+    <contact name="self_collision_trunk_left_leg" geom1="trunk_base_self_collision" geom2="left_leg_self_collision" data="found" num="1" reduce="none"/>
+    <contact name="self_collision_trunk_right_leg" geom1="trunk_base_self_collision" geom2="right_leg_self_collision" data="found" num="1" reduce="none"/>
+    <contact name="self_collision_legs" geom1="left_leg_self_collision" geom2="right_leg_self_collision" data="found" num="1" reduce="none"/>
   </sensor>
 
   <keyframe>

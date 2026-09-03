@@ -26,6 +26,7 @@ from unilab.envs.mdp.events import geom_friction as geom_friction
 from unilab.envs.mdp.events import joint_armature as joint_armature
 from unilab.envs.mdp.events import pd_gains as pd_gains
 from unilab.envs.mdp.events import push_by_setting_velocity as push_by_setting_velocity
+from unilab.envs.mdp.events import randomize_body_mass_inertia as randomize_body_mass_inertia
 from unilab.envs.mdp.events import randomize_encoder_bias as randomize_encoder_bias
 from unilab.envs.mdp.events import (
     randomize_physics_scene_gravity as randomize_physics_scene_gravity,
@@ -67,6 +68,7 @@ from unilab.envs.mdp.rewards import posture as posture
 from unilab.envs.mdp.rewards import root_height as root_height
 from unilab.envs.mdp.rewards import track_angular_velocity as track_angular_velocity
 from unilab.envs.mdp.rewards import track_linear_velocity as track_linear_velocity
+from unilab.envs.mdp.rewards import upright as upright
 from unilab.envs.mdp.rewards import variable_posture as variable_posture
 from unilab.envs.mdp.terminations import bad_orientation as bad_orientation
 from unilab.envs.mdp.terminations import nan_detection as nan_detection
@@ -114,6 +116,7 @@ __all__ = [
     "pd_gains",
     "posture",
     "push_by_setting_velocity",
+    "randomize_body_mass_inertia",
     "randomize_encoder_bias",
     "randomize_physics_scene_gravity",
     "randomize_rigid_body_com",
@@ -133,5 +136,6 @@ __all__ = [
     "time_out",
     "track_angular_velocity",
     "track_linear_velocity",
+    "upright",
     "variable_posture",
 ]

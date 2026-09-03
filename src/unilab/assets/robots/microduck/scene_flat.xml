@@ -1,6 +1,12 @@
 <mujoco model="microduck flat scene">
   <include file="microduck.xml"/>
 
+  <!-- Solver contract from the upstream microduck_rl recipe (mjlab SimCfg):
+       implicitfast integrator, Newton solver, 10/20 iteration budgets.
+       `timestep` stays undeclared: each backend overrides it from `sim_dt`. -->
+  <option integrator="implicitfast" solver="Newton" cone="pyramidal" iterations="10"
+    ls_iterations="20" tolerance="1e-8" ls_tolerance="0.01" gravity="0 0 -9.81" impratio="1.0"/>
+
   <statistic center="0 0 0.12" extent="0.5"/>
 
   <visual>

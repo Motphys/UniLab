@@ -346,6 +346,21 @@ def feet_clearance(
     return np.asarray(cost, dtype=get_global_dtype())
 
 
+class self_collision_cost(_FootContactTerm):
+    """Count monitored self-collision geom pairs reporting contact.
+
+    Mirrors mjlab ``self_collision_cost`` in its found-count form: each sensor
+    group binds one contact sensor watching a geom pair, and the cost is the
+    number of pairs with an active contact.  mjlab's ``force_threshold`` only
+    applies when the sensor records force history, which the upstream config
+    does not enable, so it is not ported.
+    """
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+        del params
+        return np.asarray(np.sum(self._contact(env), axis=1), dtype=get_global_dtype())
+
+
 class angular_momentum_penalty(SensorTermBase):
     """Penalize whole-body angular momentum read from a named vec3 sensor."""
 
@@ -476,4 +491,5 @@ __all__ = [
     "foot_contact",
     "foot_contact_forces",
     "foot_height",
+    "self_collision_cost",
 ]
