@@ -51,7 +51,7 @@ dependencies = [
     # package (distribution name ``unilab-rl``), consumed via the injected
     # env contract (uni_rl.env_contract.EnvFactory). Published on TestPyPI
     # during the split rollout (issue #1480).
-    "unilab-rl==0.1.0a2",
+    "unilab-rl==0.1.0",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
@@ -147,7 +147,7 @@ name = "r2-cu130"
 url = "https://download-r2.pytorch.org/whl/cu130"
 explicit = true
 
-# TestPyPI hosts the uni-rl (unilab-rl) prereleases consumed during the
+# TestPyPI hosts the uni-rl (unilab-rl) releases consumed during the
 # algo-layer split; explicit so nothing else resolves from it.
 [[tool.uv.index]]
 name = "testpypi"
