@@ -242,6 +242,24 @@ def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> R
     )
 
 
+def _eval_fallback_owner(route: Route, root: Path, *, sim: str, profile: str | None) -> str | None:
+    """Pick a sibling backend owner for eval when the requested sim has no owner YAML.
+
+    Eval replays a trained checkpoint, so any sibling owner of the same task (and
+    profile shape) supplies the task/algo contract; the requested backend is
+    re-applied through the sim2sim-allowlisted ``training.sim_backend`` override
+    and validated by the runtime sim2sim preflight against the source run.
+    """
+    task_dir = _owner_yaml_path(route, root).parent
+    for candidate_sim in SUPPORTED_SIMS:
+        if candidate_sim == sim:
+            continue
+        owner = f"{candidate_sim}_{profile}" if profile is not None else candidate_sim
+        if (task_dir / f"{owner}.yaml").is_file():
+            return owner
+    return None
+
+
 def _uses_mujoco_interactive_play(
     *,
     mode: str,
@@ -301,13 +319,37 @@ def build_command(
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
 
+    owner = f"{sim}_{profile}" if profile is not None else sim
+    sim_backend_override: str | None = None
     owner_yaml = _owner_yaml_path(route, selected_root)
     if not owner_yaml.is_file():
-        raise SystemExit(
-            f"No owner config exists for algo={algo}, task={task}, sim={sim}: {owner_yaml}"
+        if mode != "eval":
+            raise SystemExit(
+                f"No owner config exists for algo={algo}, task={task}, sim={sim}: {owner_yaml}"
+            )
+        fallback_owner = _eval_fallback_owner(route, selected_root, sim=sim, profile=profile)
+        if fallback_owner is None:
+            raise SystemExit(
+                f"No owner config exists for algo={algo}, task={task}, sim={sim}: {owner_yaml}; "
+                "eval fallback found no sibling backend owner config for this task either"
+            )
+        owner = fallback_owner
+        route = Route(
+            script_name=route.script_name,
+            config_group=route.config_group,
+            owner_task=f"{task}/{fallback_owner}.yaml",
+            generated_overrides=(f"task={task}/{fallback_owner}",),
+        )
+        sim_backend_override = sim
+        print(
+            f"[eval] no owner config for sim={sim}; reusing sibling owner {fallback_owner!r} "
+            f"with training.sim_backend={sim} (sim2sim contract check still applies)",
+            file=sys.stderr,
         )
 
     generated = [] if use_interactive_play else list(route.generated_overrides)
+    if sim_backend_override is not None:
+        generated.append(f"training.sim_backend={sim_backend_override}")
     if render_mode is not None and _override_value(overrides, "training.play_render_mode") is None:
         generated.append(f"training.play_render_mode={render_mode}")
     if use_interactive_play and _override_value(overrides, "interactive.action_mode") is None:
@@ -324,7 +366,6 @@ def build_command(
 
     executable = _python_executable_for_route(mode, sim, (*generated, *overrides))
     if use_interactive_play:
-        owner = f"{sim}_{profile}" if profile is not None else sim
         return [
             executable,
             str(script),

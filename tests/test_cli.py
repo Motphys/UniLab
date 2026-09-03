@@ -333,6 +333,172 @@ def test_eval_mujoco_interactive_preserves_explicit_action_mode(
     assert "interactive.action_mode=random" in command
 
 
+def test_eval_falls_back_to_sibling_owner_when_sim_owner_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=go2_joystick_flat/mujoco",
+        "training.sim_backend=motrix",
+        "training.play_only=true",
+        "algo.load_run=-1",
+    ]
+    assert "reusing sibling owner 'mujoco'" in capsys.readouterr().err
+
+
+def test_train_still_requires_owner_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="No owner config exists"):
+        cli.build_command(
+            mode="train",
+            algo="ppo",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_eval_without_any_sibling_owner_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat").mkdir(parents=True)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="no sibling backend owner config"):
+        cli.build_command(
+            mode="eval",
+            algo="ppo",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            load_run="-1",
+            root=tmp_path,
+        )
+
+
+def test_eval_fallback_prefers_same_profile_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco_hora.yaml").write_text(
+        "training:\n  sim_backend: mujoco\n", encoding="utf-8"
+    )
+    (owner_dir / "motrix.yaml").write_text("training:\n  sim_backend: motrix\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="sharpa_inhand",
+        sim="motrix",
+        profile="hora",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert "task=sharpa_inhand/mujoco_hora" in command
+    assert "training.sim_backend=motrix" in command
+
+
+def test_eval_fallback_without_same_profile_sibling_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="no sibling backend owner config"):
+        cli.build_command(
+            mode="eval",
+            algo="ppo",
+            task="sharpa_inhand",
+            sim="motrix",
+            profile="hora",
+            overrides=[],
+            load_run="-1",
+            root=tmp_path,
+        )
+
+
+def test_eval_mujoco_interactive_falls_back_to_sibling_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "motrix.yaml").write_text("training:\n  sim_backend: motrix\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name == "mujoco" else None,
+    )
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="mujoco",
+        overrides=[],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert command[:8] == [
+        sys.executable,
+        str(scripts_dir / "play_interactive.py"),
+        "--algo",
+        "ppo",
+        "--task",
+        "go2_joystick_flat",
+        "--sim",
+        "motrix",
+    ]
+    assert "training.sim_backend=mujoco" in command
+    assert "training.play_only=true" in command
+
+
 def _pretend_mjwarp_is_installed(
     monkeypatch: pytest.MonkeyPatch, *, with_mujoco: bool = True
 ) -> None:
