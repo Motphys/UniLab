@@ -757,16 +757,25 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         "infra",
         _hydra("algo.num_envs"),
         4096,
-        "gap",
-        "当前 2048。",
+        "match",
+        "issue #1456：三任务 mjwarp owner 统一 4096。",
     ),
     AlignmentEntry(
         "infra.seed",
         "infra",
         _hydra("algo.seed"),
         42,
-        "gap",
-        "当前 1。",
+        "match",
+        "issue #1456：三任务 mjwarp owner 统一 42；env 级采样 RNG 由 env.seed=42 固定。",
+    ),
+    AlignmentEntry(
+        "infra.env_seed",
+        "infra",
+        _hydra("env.seed"),
+        42,
+        "match",
+        "issue #1456：env 级 RNG（command / obs noise / delay / DR 采样）经 Hydra "
+        "env.seed 固定为 42，run 间可复现；默认 None 行为不变（opt-in）。",
     ),
     AlignmentEntry(
         "infra.max_iterations",
@@ -774,7 +783,8 @@ ENTRIES: tuple[AlignmentEntry, ...] = (
         _hydra("algo.max_iterations"),
         None,
         "note",
-        "当前 500，上游 50000；训练预算由 child 5 决策，不参与 match/gap 判定。",
+        "当前 2000（2000×24=48000 env step，恰好覆盖全部 curriculum 终档），上游 50000；"
+        "训练预算由 child 5 决策，不参与 match/gap 判定。",
     ),
     AlignmentEntry(
         "infra.mujoco_warp_version",
