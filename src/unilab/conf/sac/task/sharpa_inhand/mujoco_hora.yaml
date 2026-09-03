@@ -24,7 +24,7 @@ interactive:
 algo:
   algo_log_name: hora_sac
   runtime_impl: hora_sac
-  runtime_resolver: unilab.algos.hora.sac:resolve_hora_sac_runtime
+  runtime_resolver: uni_rl.hora.sac:resolve_hora_sac_runtime
   num_envs: 1024
   batch_size: 2048
   replay_buffer_n: 1280

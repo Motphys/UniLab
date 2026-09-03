@@ -18,10 +18,10 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from uni_rl.him_ppo.runner import HIMOnPolicyRunner
+from uni_rl.rsl_rl import RslRlVecEnvWrapper, get_policy_obs_dims
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
-from unilab.algos.him_ppo.runner import HIMOnPolicyRunner
-from unilab.algos.rsl_rl import RslRlVecEnvWrapper, get_policy_obs_dims
 from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,

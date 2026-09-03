@@ -5,11 +5,11 @@ import sys
 from typing import Any
 
 import pytest
+import uni_rl.logging.common as common_module
 from rich.console import Console
+from uni_rl.logging import OffPolicyLogger, OnPolicyLogger
 
-import unilab.logging.common as common_module
 import unilab.training.experiment as experiment_module
-from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
 

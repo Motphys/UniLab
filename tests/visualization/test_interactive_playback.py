@@ -270,6 +270,7 @@ def test_create_hora_distill_playback_session_loads_student_policy(tmp_path: Pat
             "model_state_dict": {},
             "distill_runtime_cfg": {"algo": {"model": {"hidden_dims": [8]}}},
         },
+        "apply_teacher_defaults": lambda cfg_obj: cfg_obj,
         "cfg_with_checkpoint_runtime": lambda cfg_obj, checkpoint: runtime_cfg,
         "build_play_env_cfg_override": lambda cfg_obj: {"env": "override"},
         "create_env": lambda cfg_obj, *, num_envs, env_cfg_override: FakeEnv(),
@@ -510,9 +511,9 @@ def test_sac_playback_session_runs_sim2sim_preflight(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    import uni_rl.common.actor_factory as actor_factory
     from omegaconf import OmegaConf
 
-    import unilab.algos.common.actor_factory as actor_factory
     import unilab.utils.checkpoint as checkpoint_utils
     import unilab.visualization.interactive_playback as interactive_playback
     import unilab.visualization.interactive_playback as offpolicy_play
@@ -649,11 +650,10 @@ def test_appo_hora_playback_session_uses_hora_wrapper_and_actor_checkpoint(
     tmp_path: Path,
 ) -> None:
     import rsl_rl.utils as rsl_rl_utils
+    import uni_rl.hora.models as hora_models
+    import uni_rl.hora.rsl_rl as hora_rsl
     from omegaconf import OmegaConf
     from tensordict import TensorDict
-
-    import unilab.algos.hora.models as hora_models
-    import unilab.algos.hora.rsl_rl as hora_rsl
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)
@@ -766,9 +766,9 @@ def test_sac_hora_playback_session_updates_priv_info_after_reset_and_step(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    import uni_rl.common.actor_factory as actor_factory
     from omegaconf import OmegaConf
 
-    import unilab.algos.common.actor_factory as actor_factory
     import unilab.utils.checkpoint as checkpoint_utils
     import unilab.visualization.interactive_playback as offpolicy_play
 
@@ -898,11 +898,11 @@ def test_hora_distill_playback_session_loads_stage2_checkpoint_and_student_polic
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    import uni_rl.hora.distill as distill
+    import uni_rl.hora.rsl_rl as hora_rsl
     from omegaconf import OmegaConf
     from tensordict import TensorDict
 
-    import unilab.algos.hora.distill as distill
-    import unilab.algos.hora.rsl_rl as hora_rsl
     import unilab.base.config_adapter as config_adapter
     import unilab.training as training
 
@@ -1298,9 +1298,9 @@ def test_create_sac_playback_session_td3_load_filters_noise_scales(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    import uni_rl.common.actor_factory as actor_factory
     from omegaconf import OmegaConf
 
-    import unilab.algos.common.actor_factory as actor_factory
     import unilab.utils.checkpoint as checkpoint_utils
 
     checkpoint = tmp_path / "model_10.pt"

@@ -46,6 +46,12 @@ dependencies = [
     # Physics implementations are provided by the independently released
     # unisim-core package from the production PyPI index.
     "unisim-core>=0.1.14",
+    # RL algorithms and async runtimes (PPO/APPO/SAC/TD3/HORA runners,
+    # collectors, IPC, logging) live in the independently released uni-rl
+    # package (distribution name ``unilab-rl``), consumed via the injected
+    # env contract (uni_rl.env_contract.EnvFactory). Published on TestPyPI
+    # during the split rollout (issue #1480).
+    "unilab-rl==0.1.0a2",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
@@ -141,7 +147,15 @@ name = "r2-cu130"
 url = "https://download-r2.pytorch.org/whl/cu130"
 explicit = true
 
+# TestPyPI hosts the uni-rl (unilab-rl) prereleases consumed during the
+# algo-layer split; explicit so nothing else resolves from it.
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
 [tool.uv.sources]
+unilab-rl = { index = "testpypi" }
 torch = [
     { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
     { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },
@@ -193,9 +207,6 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 no_site_packages = true
-exclude = [
-    "src/unilab/algos/rsl_rl/", # vendored third-party, tracked in .gitignore
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -206,7 +217,6 @@ addopts = "--tb=short -m 'not slow'"
 
 [tool.coverage.run]
 source = ["src/unilab"]
-omit = ["*/rsl_rl/*"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
@@ -217,7 +227,6 @@ venvPath = "."
 venv = ".venv"
 include = ["src/unilab"]
 exclude = [
-    "src/unilab/algos/rsl_rl/",       # vendored third-party
     "src/unilab/envs/",                     # mujoco-uni-runtime internal API, stubs mismatch
     "src/unilab/terrains/",                 # mujoco-uni-runtime MjSpec API, stubs mismatch
     "src/unilab/utils/monitoring.py",       # optional pynvml/psutil deps

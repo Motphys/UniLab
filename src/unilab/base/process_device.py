@@ -22,9 +22,24 @@ def configure_backend_process_device(backend_type: str, learner_device: str | No
     resolved = resolve_backend_process_device(backend_type, learner_device)
     if resolved is None:
         return None
+    return bind_backend_process_device(resolved)
+
+
+def bind_backend_process_device(resolved: str) -> str | None:
+    """Bind a resolved backend process device in the current process.
+
+    Top-level on purpose: uni_rl's off-policy collectors receive this as the
+    injected ``backend_device_binder`` and pickle it by reference into
+    spawn-based subprocesses. The mjwarp import stays lazy so the binder is
+    importable without the ``mjwarp`` extra installed.
+    """
     from unisim.backend.mjwarp.runtime import bind_mjwarp_process_device
 
     return cast(str | None, bind_mjwarp_process_device(resolved))
 
 
-__all__ = ["configure_backend_process_device", "resolve_backend_process_device"]
+__all__ = [
+    "bind_backend_process_device",
+    "configure_backend_process_device",
+    "resolve_backend_process_device",
+]

@@ -14,7 +14,7 @@ mostly mechanical.
 | `_reward_*` methods | env's `compute_reward()` + reward term registry |
 | `command_ranges` | task owner YAML's `commands` block |
 | Terrain curriculum | {doc}`../../2-user_guide/6-terrain/1-procedural` |
-| RSL-RL PPO | `unilab.algos.rsl_rl_ppo` |
+| RSL-RL PPO | `uni_rl.rsl_rl_ppo` |
 
 ## What's new
 
@@ -22,7 +22,7 @@ mostly mechanical.
   + Motrix. Pick one (or both) before porting; see
   {doc}`../2-sim_to_sim/1-backend_swap`.
 - **Async collection.** Legged Gym collects on-GPU synchronously; UniLab's
-  APPO (`unilab.algos.appo`) decouples collectors from
+  APPO (`uni_rl.appo`) decouples collectors from
   learner. If wall-clock matters, port to APPO once your reward parity is
   established.
 - **Hardware deployment.** Legged Gym → real-world deployment is a

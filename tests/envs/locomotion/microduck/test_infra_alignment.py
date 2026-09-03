@@ -23,8 +23,8 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from uni_rl.rsl_rl import RslRlVecEnvWrapper
 
-from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides

@@ -1,12 +1,6 @@
-# `unilab.logging` — Logging Adapters
+# Training Logging — moved to `uni_rl`
 
-On-policy / off-policy metric adapters, trace events, common helpers.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-   :template: autosummary/module.rst
-   :recursive:
-
-   unilab.logging
-```
+The W&B / TensorBoard bridges and structured training loggers moved out of
+the `unilab` package into the independently released **uni_rl** package
+(issue #1480): `uni_rl.logging` hosts `OnPolicyLogger`, `OffPolicyLogger`,
+and the trace-event recorder.

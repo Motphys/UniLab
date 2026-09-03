@@ -15,11 +15,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from omegaconf import DictConfig, OmegaConf
-from unisim.backend.base import log_playback_plan
-
-from unilab.base.config_adapter import create_env
-from unilab.base.process_device import configure_backend_process_device
-from unilab.ipc.dp_launcher import (
+from uni_rl.ipc.dp_launcher import (
     UNILAB_DP_LOG_DIR,
     DpRankSupervisor,
     apply_dp_rank_config,
@@ -30,6 +26,11 @@ from unilab.ipc.dp_launcher import (
     resolve_dp_topology,
     validate_dp_launchable,
 )
+from unisim.backend.base import log_playback_plan
+
+from unilab.base.config_adapter import create_env
+from unilab.base.env_factory import registry_env_factory
+from unilab.base.process_device import bind_backend_process_device, configure_backend_process_device
 from unilab.training import (
     assert_offpolicy_task_choice_matches_algo,
     build_run_dir_name,
@@ -94,7 +95,8 @@ def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> di
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     """Build algorithm runner from unified Hydra config."""
     env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
-    from unilab.algos.offpolicy.thread_budget import (
+    env_factory = registry_env_factory(str(cfg.training.task_name), str(cfg.training.sim_backend))
+    from uni_rl.offpolicy.thread_budget import (
         apply_torch_thread_runtime,
         resolve_torch_thread_runtime,
     )
@@ -136,7 +138,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
                 "build_runner requires log_dir for multi-GPU data-parallel rank 0 "
                 "(it anchors the DP rendezvous FileStore)"
             )
-        from unilab.ipc.dp_sync import DpParameterSync
+        from uni_rl.ipc.dp_sync import DpParameterSync
 
         dp_sync = DpParameterSync(
             world_size=dp_world_size,
@@ -159,58 +161,45 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             f"Unsupported training.replay_prefetch_mode={replay_prefetch_mode!r}; "
             "expected 'one_tick'"
         )
-    from unilab.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
+    from uni_rl.ipc.replay_pipelines.gpu_resident import require_offpolicy_replay_device
 
     replay_device = require_offpolicy_replay_device(rank_device)
+    builder_kwargs: dict[str, Any] = {
+        "env_factory": env_factory,
+        "env_cfg_override": env_cfg_override,
+        "replay_prefetch_mode": replay_prefetch_mode,
+        "device": replay_device,
+        "nan_guard_cfg": _nan_guard_cfg,
+        "torch_thread_runtime": torch_thread_runtime,
+        "collector_cpu_ids": collector_cpu_ids,
+        "dp_sync": dp_sync,
+    }
     if algo_name == "sac":
-        from unilab.algos.fast_sac.double_buffer import (
+        from uni_rl.fast_sac.double_buffer import (
             build_sac_double_buffer_runner,
         )
 
-        return build_sac_double_buffer_runner(
-            cfg,
-            env_cfg_override=env_cfg_override,
-            replay_prefetch_mode=replay_prefetch_mode,
-            device=replay_device,
-            nan_guard_cfg=_nan_guard_cfg,
-            torch_thread_runtime=torch_thread_runtime,
-            collector_cpu_ids=collector_cpu_ids,
-            dp_sync=dp_sync,
-        )
-
-    if algo_name == "td3":
-        from unilab.algos.fast_td3.double_buffer import (
+        runner = build_sac_double_buffer_runner(cfg, **builder_kwargs)
+    elif algo_name == "td3":
+        from uni_rl.fast_td3.double_buffer import (
             build_td3_double_buffer_runner,
         )
 
-        return build_td3_double_buffer_runner(
-            cfg,
-            env_cfg_override=env_cfg_override,
-            replay_prefetch_mode=replay_prefetch_mode,
-            device=replay_device,
-            nan_guard_cfg=_nan_guard_cfg,
-            torch_thread_runtime=torch_thread_runtime,
-            collector_cpu_ids=collector_cpu_ids,
-            dp_sync=dp_sync,
-        )
-
-    if algo_name == "flashsac":
-        from unilab.algos.flash_sac.double_buffer import (
+        runner = build_td3_double_buffer_runner(cfg, **builder_kwargs)
+    elif algo_name == "flashsac":
+        from uni_rl.flash_sac.double_buffer import (
             build_flashsac_double_buffer_runner,
         )
 
-        return build_flashsac_double_buffer_runner(
-            cfg,
-            env_cfg_override=env_cfg_override,
-            replay_prefetch_mode=replay_prefetch_mode,
-            device=replay_device,
-            nan_guard_cfg=_nan_guard_cfg,
-            torch_thread_runtime=torch_thread_runtime,
-            collector_cpu_ids=collector_cpu_ids,
-            dp_sync=dp_sync,
-        )
+        runner = build_flashsac_double_buffer_runner(cfg, **builder_kwargs)
+    else:
+        raise ValueError(f"Unsupported algo: {algo_name}")
 
-    raise ValueError(f"Unsupported algo: {algo_name}")
+    # uni_rl 0.1.0a2's builder helpers do not forward backend_device_binder to
+    # DoubleBufferOffPolicyRunner; the runner reads the attribute at collector
+    # spawn time, so set it here until uni_rl grows the builder kwarg.
+    runner.backend_device_binder = bind_backend_process_device
+    return runner
 
 
 def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
