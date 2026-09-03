@@ -84,13 +84,14 @@ def resolve_motion_files(
 def resolve_grasp_cache_files(
     cache_file: str | Sequence[str],
     *,
-    show_progress: bool = True,
+    show_progress: bool = False,
 ) -> str | list[str]:
     """Ensure grasp cache file(s) exist locally, downloading from HF if needed.
 
     Args:
         cache_file: Absolute path or ``ASSETS_ROOT_PATH``-relative path
             (single string or sequence of strings).
+        show_progress: Whether Hugging Face downloads may render progress bars.
 
     Returns:
         Resolved absolute path(s) guaranteed to exist on disk.

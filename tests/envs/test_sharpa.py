@@ -205,8 +205,7 @@ def test_sharpa_grasp_cache_is_materialized_once_and_reset_samples_memory(
         path_resolve_calls.append((path, scale))
         return original_resolve_grasp_cache_file(path, scale)
 
-    def resolve_hf_once(path: str, *, show_progress: bool) -> str:
-        assert show_progress is False
+    def resolve_hf_once(path: str) -> str:
         hf_resolve_calls.append(path)
         return path
 
