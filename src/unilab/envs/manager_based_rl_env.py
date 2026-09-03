@@ -669,6 +669,28 @@ class ManagerBasedRlEnv(NpEnv):
         self.obs_buf = self._state.obs
         return self.obs_buf
 
+    def set_episode_length_buf(self, values: np.ndarray) -> None:
+        """Overwrite per-env episode counters (cold path, runner-init only).
+
+        ``episode_length_buf`` mirrors ``state.info["steps"]``: each step writes
+        ``info["steps"] + 1`` into the buffer and ``reset()`` zeroes both, so a
+        direct assignment must update the two together. RL runners (e.g. RSL-RL
+        ``init_at_random_ep_len``) call this once before learning starts to
+        stagger initial episode lengths across envs.
+        """
+        values = np.asarray(values)
+        if values.shape != (self.num_envs,):
+            raise ValueError(
+                f"ManagerBasedRlEnv.set_episode_length_buf expects shape "
+                f"({self.num_envs},), got {values.shape}"
+            )
+        values = values.astype(np.int64)
+        if np.any(values < 0):
+            raise ValueError("episode length counters must be non-negative")
+        np.copyto(self.episode_length_buf, values)
+        if self._state is not None:
+            np.copyto(self._state.info["steps"], values, casting="unsafe")
+
     def seed(self, seed: int = -1) -> int:
         if seed == -1:
             seed = secrets.randbits(63)

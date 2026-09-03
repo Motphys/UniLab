@@ -212,9 +212,27 @@ class RslRlVecEnvWrapper:
 
         self.episode_returns = torch.zeros(self.num_envs, device=device)
         self.episode_lengths = torch.zeros(self.num_envs, device=device)
-        self.episode_length_buf = self.episode_lengths
         self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
         self.reset()
+
+    @property
+    def episode_length_buf(self) -> torch.Tensor:
+        """RSL-RL VecEnv contract view of the wrapper's episode bookkeeping."""
+        return self.episode_lengths
+
+    @episode_length_buf.setter
+    def episode_length_buf(self, value: torch.Tensor) -> None:
+        # RSL-RL's init_at_random_ep_len assigns a fresh tensor here at learn()
+        # start. Propagate the staggered counters into the wrapped env so the
+        # env's own timeout accounting (ManagerBasedRlEnv.episode_length_buf,
+        # mirrored from state.info["steps"]) staggers too — otherwise only the
+        # wrapper's local bookkeeping would randomize. Cold path: the runner
+        # calls this at most once per learn().
+        value = torch.as_tensor(value, device=self.device).clone()
+        self.episode_lengths = value
+        set_env_episode_lengths = getattr(self.env, "set_episode_length_buf", None)
+        if callable(set_env_episode_lengths):
+            set_env_episode_lengths(to_numpy(value).astype(np.int64))
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":
