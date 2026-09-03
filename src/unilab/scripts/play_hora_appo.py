@@ -1,4 +1,12 @@
-"""HORA-owned APPO entry helpers."""
+"""HORA APPO checkpoint playback, owned by UniLab (issue #1480).
+
+The HORA APPO *training* runner lives in uni_rl (``uni_rl.hora.appo_runner``);
+the play-mode orchestration is UniLab-side business logic because it drives
+UniLab's registry-backed env construction, sim2sim contract validation, and
+backend playback plan logging. ``resolve_hora_appo_runtime`` is the owner
+config's ``runtime_resolver`` entrypoint consumed by
+``uni_rl.appo.runtime.resolve_appo_runtime``.
+"""
 
 from __future__ import annotations
 
@@ -10,21 +18,20 @@ from typing import Any, cast
 
 import torch
 from omegaconf import DictConfig
-from unisim.backend.base import log_playback_plan
-
-from unilab.algos.hora.appo_runner import HoraAPPORunner
-from unilab.algos.hora.rsl_rl_compat import (
+from uni_rl.hora.appo_runner import HoraAPPORunner
+from uni_rl.hora.models import build_hora_shared_actor_critic
+from uni_rl.hora.observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
+from uni_rl.hora.rsl_rl_compat import (
     convert_config_v3_to_v4,
     is_rsl_rl_v4,
     is_rsl_rl_v5,
 )
-from unilab.base.config_adapter import BackendAdapter, create_env
-from unilab.base.observations import get_obs_dims
-from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from uni_rl.hora.runtime import is_hora_appo_runtime
+from uni_rl.utils.observations import get_obs_dims
+from unisim.backend.base import log_playback_plan
 
-from .models import build_hora_shared_actor_critic
-from .observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
-from .runtime import is_hora_appo_runtime
+from unilab.base.config_adapter import BackendAdapter, create_env
+from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 
 @dataclass(frozen=True)
@@ -255,4 +262,8 @@ def play_hora_appo(
     return play_video_path
 
 
-__all__ = ["HoraAPPORunner", "HoraAPPORuntime", "play_hora_appo", "resolve_hora_appo_runtime"]
+__all__ = [
+    "HoraAPPORuntime",
+    "play_hora_appo",
+    "resolve_hora_appo_runtime",
+]

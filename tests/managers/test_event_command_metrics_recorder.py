@@ -265,7 +265,7 @@ def test_public_exports_and_repository_import_boundary() -> None:
 
     package_root = Path(managers.__file__).parent
     forbidden_roots = {"torch", "mjlab"}
-    forbidden_unilab = {"unilab.ipc", "unilab.runners", "unilab.scripts", "unilab.base.backend"}
+    forbidden_unilab = {"uni_rl", "unilab.runners", "unilab.scripts", "unilab.base.backend"}
     for path in package_root.rglob("*.py"):
         tree = ast.parse(path.read_text())
         imports = []

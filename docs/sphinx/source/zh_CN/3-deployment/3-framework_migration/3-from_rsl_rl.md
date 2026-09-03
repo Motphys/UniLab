@@ -1,7 +1,7 @@
 # 从 RSL-RL 迁移
 
 你已经在独立使用 RSL-RL 了？好消息：UniLab 把 RSL-RL PPO 作为其受支持算法之一
-（`unilab.algos.rsl_rl_ppo`）提供，而且几乎是即插即用的。
+（`uni_rl.rsl_rl_ppo`）提供，而且几乎是即插即用的。
 
 ## 迁移进 UniLab 后你能获得什么
 
@@ -10,7 +10,7 @@
    更不容易出错。
 2. **任务 owner。** 基于 Hydra 的配置组合，外加 registry 驱动的
    backend / task / algo 选择。不再需要为每种机器人编写定制的训练脚本。
-3. **异步 runner。** 把 RSL-RL PPO 包进 `unilab.algos.appo`，在拥有许多
+3. **异步 runner。** 把 RSL-RL PPO 包进 `uni_rl.appo`，在拥有许多
    CPU 核心的机器上获得更高吞吐量。
 4. **部署流程。** 配合正确 wrapper 的 ONNX 导出、安全层文档，以及
    {doc}`../1-sim_to_real/1-overview` 流水线。

@@ -15,8 +15,10 @@ from hydra.core.global_hydra import GlobalHydra
 
 pytest.importorskip("mujoco")
 
-from unilab.algos.appo.runner import APPORunner
+from uni_rl.appo.runner import APPORunner
+
 from unilab.base.config_adapter import BackendAdapter
+from unilab.base.env_factory import registry_env_factory
 from unilab.structured_configs import APPOConfig
 
 
@@ -28,6 +30,7 @@ def test_appo_runner_init_no_crash(mock_env_name):
 
     runner = APPORunner(
         env_name=mock_env_name,
+        env_factory=registry_env_factory(mock_env_name, "mujoco"),
         env_cfg_overrides={},
         rl_cfg=cfg,
         num_envs=4,
@@ -60,6 +63,7 @@ def test_appo_runner_learn_two_iterations(env_name):
 
     runner = APPORunner(
         env_name=env_name,
+        env_factory=registry_env_factory(env_name, "mujoco"),
         env_cfg_overrides=env_cfg_overrides,
         rl_cfg=cfg,
         num_envs=128,
@@ -80,6 +84,7 @@ def test_appo_runner_close_is_idempotent(mock_env_name):
 
     runner = APPORunner(
         env_name=mock_env_name,
+        env_factory=registry_env_factory(mock_env_name, "mujoco"),
         env_cfg_overrides={},
         rl_cfg=cfg,
         num_envs=4,

@@ -296,7 +296,7 @@ def test_action_module_has_no_runtime_or_backend_private_dependencies() -> None:
         / "actions.py"
     )
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    forbidden = ("torch", "unilab.ipc", "unilab.algos", "unilab.training", "unilab.base.backend")
+    forbidden = ("torch", "uni_rl", "unilab.training", "unilab.base.backend")
     imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)] + [
         alias.name
         for node in ast.walk(tree)

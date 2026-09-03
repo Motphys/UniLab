@@ -11,14 +11,15 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
+from uni_rl.appo.runtime import resolve_appo_runtime
+from uni_rl.rsl_rl import RslRlVecEnvWrapper
 from unisim.backend.base import log_playback_plan
 
-from unilab.algos.appo.runtime import resolve_appo_runtime
-from unilab.algos.rsl_rl import RslRlVecEnvWrapper
 from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,
 )
+from unilab.base.env_factory import registry_env_factory
 from unilab.training import (
     algo_config_dict,
     build_run_dir_name,
@@ -55,6 +56,9 @@ def build_appo_runner_kwargs(
 
     runner_kwargs = {
         "env_name": cfg.training.task_name,
+        "env_factory": registry_env_factory(
+            str(cfg.training.task_name), str(cfg.training.sim_backend)
+        ),
         "env_cfg_overrides": env_cfg_override,
         "rl_cfg": rl_cfg,
         "device": cfg.training.device,

@@ -15,7 +15,7 @@ from tensordict import TensorDict
 def test_hora_ppo_logs_when_symmetry_is_logging_only(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from unilab.algos.hora.ppo import HoraPPO
+    from uni_rl.hora.ppo import HoraPPO
 
     actor = torch.nn.Linear(2, 2)
     critic = torch.nn.Linear(2, 1)
@@ -27,7 +27,7 @@ def test_hora_ppo_logs_when_symmetry_is_logging_only(
         "data_augmentation_func": lambda *_args: None,
     }
 
-    with caplog.at_level(logging.WARNING, logger="unilab.algos.hora.ppo"):
+    with caplog.at_level(logging.WARNING, logger="uni_rl.hora.ppo"):
         HoraPPO(
             cast(Any, actor),
             cast(Any, critic),
@@ -39,7 +39,7 @@ def test_hora_ppo_logs_when_symmetry_is_logging_only(
 
 
 def test_hora_sac_actor_shapes_and_stable_module_names() -> None:
-    from unilab.algos.hora.sac_models import HoraSACActor
+    from uni_rl.hora.sac_models import HoraSACActor
 
     actor = HoraSACActor(
         obs_dim=5,
@@ -65,7 +65,7 @@ def test_hora_sac_actor_shapes_and_stable_module_names() -> None:
 
 
 def test_hora_sac_learner_derives_priv_info_from_critic_contract() -> None:
-    from unilab.algos.hora.sac_learner import derive_priv_info_from_critic_obs
+    from uni_rl.hora.sac_learner import derive_priv_info_from_critic_obs
 
     actor_obs = torch.zeros((4, 5), dtype=torch.float32)
     priv_info = torch.arange(12, dtype=torch.float32).reshape(4, 3)
@@ -81,7 +81,7 @@ def test_hora_sac_learner_derives_priv_info_from_critic_contract() -> None:
 
 
 def test_hora_sac_learner_updates_with_privileged_tail() -> None:
-    from unilab.algos.hora.sac_learner import HoraSACLearner
+    from uni_rl.hora.sac_learner import HoraSACLearner
 
     torch.manual_seed(23)
     learner = HoraSACLearner(
@@ -123,7 +123,7 @@ def test_hora_sac_learner_updates_with_privileged_tail() -> None:
 
 
 def test_hora_sac_disables_cuda_graph_critic_path() -> None:
-    from unilab.algos.hora.sac_learner import HoraSACLearner
+    from uni_rl.hora.sac_learner import HoraSACLearner
 
     learner = HoraSACLearner(
         obs_dim=5,
@@ -144,7 +144,7 @@ def test_hora_sac_disables_cuda_graph_critic_path() -> None:
 
 
 def test_hora_sac_distilled_student_forward_does_not_require_priv_info() -> None:
-    from unilab.algos.hora.distill import HoraSACDistillActor, HoraSACDistillShared
+    from uni_rl.hora.distill import HoraSACDistillActor, HoraSACDistillShared
 
     shared = HoraSACDistillShared(
         obs_dim=12,
@@ -175,12 +175,12 @@ def test_hora_sac_distilled_student_forward_does_not_require_priv_info() -> None
 
 
 def test_hora_sac_distill_loads_teacher_actor_weights(tmp_path) -> None:
-    from unilab.algos.hora.distill import (
+    from uni_rl.hora.distill import (
         HoraSACDistillActor,
         HoraSACDistillShared,
         load_teacher_actor_weights,
     )
-    from unilab.algos.hora.sac_models import HoraSACActor
+    from uni_rl.hora.sac_models import HoraSACActor
 
     teacher = HoraSACActor(
         obs_dim=12,
@@ -226,7 +226,7 @@ def test_hora_sac_distill_loads_teacher_actor_weights(tmp_path) -> None:
 
 def test_hora_rsl_wrapper_uses_explicit_np_env_state_contract() -> None:
     """HORA wrapper must not probe required NpEnvState fields dynamically."""
-    from unilab.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
+    from uni_rl.hora.rsl_rl import HoraRslRlVecEnvWrapper
 
     source = textwrap.dedent(inspect.getsource(HoraRslRlVecEnvWrapper.step))
     tree = ast.parse(source)
@@ -245,7 +245,7 @@ def test_hora_rsl_wrapper_uses_explicit_np_env_state_contract() -> None:
 
 
 def test_hora_appo_learner_derives_priv_info_from_critic_contract() -> None:
-    from unilab.algos.hora.appo_learner import _derive_priv_info_from_critic
+    from uni_rl.hora.appo_learner import _derive_priv_info_from_critic
 
     actor_obs = torch.zeros((2, 3, 4), dtype=torch.float32)
     priv_info = torch.arange(12, dtype=torch.float32).reshape(2, 3, 2)
@@ -261,8 +261,8 @@ def test_hora_appo_learner_derives_priv_info_from_critic_contract() -> None:
 
 
 def _make_hora_appo_learner(**algorithm_overrides):
-    from unilab.algos.hora.appo_learner import HoraAPPOLearner
-    from unilab.algos.hora.models import (
+    from uni_rl.hora.appo_learner import HoraAPPOLearner
+    from uni_rl.hora.models import (
         HoraActorModel,
         HoraCriticModel,
         HoraSharedActorCritic,
@@ -326,7 +326,7 @@ def test_hora_appo_minibatch_tensor_path_matches_tensordict_forward() -> None:
 
 
 def test_hora_appo_runner_builds_shared_actor_critic_core() -> None:
-    from unilab.algos.hora.appo_runner import HoraAPPORunner
+    from uni_rl.hora.appo_runner import HoraAPPORunner
 
     runner = HoraAPPORunner.__new__(HoraAPPORunner)
     runner.num_envs = 4
@@ -341,13 +341,13 @@ def test_hora_appo_runner_builds_shared_actor_critic_core() -> None:
             "critic": {"actor": 5, "priv_info": 2},
         },
         "actor": {
-            "class_name": "unilab.algos.hora:HoraActorModel",
+            "class_name": "uni_rl.hora:HoraActorModel",
             "hidden_dims": [8],
             "priv_info_embed_dim": 2,
             "priv_mlp_hidden_dims": [4, 2],
         },
         "critic": {
-            "class_name": "unilab.algos.hora:HoraCriticModel",
+            "class_name": "uni_rl.hora:HoraCriticModel",
             "priv_info_embed_dim": 2,
             "priv_mlp_hidden_dims": [4, 2],
         },
@@ -363,7 +363,7 @@ def test_hora_appo_runner_builds_shared_actor_critic_core() -> None:
 
 
 def test_hora_appo_worker_builds_shared_actor_critic_core() -> None:
-    from unilab.algos.hora.appo_worker import hora_appo_collector_fn
+    from uni_rl.hora.appo_worker import hora_appo_collector_fn
 
     source = textwrap.dedent(inspect.getsource(hora_appo_collector_fn))
     tree = ast.parse(source)
@@ -381,7 +381,7 @@ def test_hora_appo_worker_builds_shared_actor_critic_core() -> None:
 
 
 def test_hora_appo_play_builds_explicit_shared_actor_core() -> None:
-    from unilab.algos.hora.appo import play_hora_appo
+    from unilab.scripts.play_hora_appo import play_hora_appo
 
     source = textwrap.dedent(inspect.getsource(play_hora_appo))
     tree = ast.parse(source)
@@ -405,7 +405,7 @@ def _patch_hora_appo_play_fakes(monkeypatch: pytest.MonkeyPatch, *, actor_cls: t
     import numpy as np
     import rsl_rl.utils as rsl_rl_utils
 
-    import unilab.algos.hora.appo as hora_appo
+    import unilab.scripts.play_hora_appo as hora_appo
 
     fake_env = SimpleNamespace(
         obs_groups_spec={"obs": 3, "critic": 5},
@@ -466,7 +466,7 @@ def test_hora_appo_play_runs_sim2sim_preflight_before_checkpoint_load(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    import unilab.algos.hora.appo as hora_appo
+    import unilab.scripts.play_hora_appo as hora_appo
 
     checkpoint = tmp_path / "model_10.pt"
     torch.save({"actor": {"weight": torch.tensor(1.0)}}, checkpoint)
@@ -506,7 +506,7 @@ def test_hora_appo_play_dim_mismatch_reraises_explicit_sim2sim_diagnostic(
     tmp_path,
     capsys,
 ) -> None:
-    import unilab.algos.hora.appo as hora_appo
+    import unilab.scripts.play_hora_appo as hora_appo
     from unilab.utils.sim2sim import CrossBackendIncompatibleError
 
     checkpoint = tmp_path / "model_10.pt"
@@ -534,7 +534,7 @@ def test_hora_appo_play_dim_mismatch_reraises_explicit_sim2sim_diagnostic(
 
 
 def test_hora_appo_resume_rejects_inconsistent_shared_checkpoint() -> None:
-    from unilab.algos.hora.appo_runner import _validate_hora_shared_checkpoint
+    from uni_rl.hora.appo_runner import _validate_hora_shared_checkpoint
 
     learner = _make_hora_appo_learner()
     joint_checkpoint = {

@@ -4976,6 +4976,7 @@ dependencies = [
     { name = "torch", version = "2.9.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "tqdm" },
     { name = "typing-extensions" },
+    { name = "unilab-rl" },
     { name = "unisim-core" },
     { name = "wandb" },
 ]
@@ -5052,6 +5053,7 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
+    { name = "unilab-rl", specifier = "==0.1.0a2", index = "https://test.pypi.org/simple/" },
     { name = "unisim-core", specifier = ">=0.1.14" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
@@ -5067,6 +5069,30 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+]
+
+[[package]]
+name = "unilab-rl"
+version = "0.1.0a2"
+source = { registry = "https://test.pypi.org/simple/" }
+dependencies = [
+    { name = "hydra-core" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "omegaconf" },
+    { name = "packaging" },
+    { name = "rich" },
+    { name = "rsl-rl-lib" },
+    { name = "tensorboard" },
+    { name = "tensordict" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'linux' and sys_platform != 'win32')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'win32'" },
+    { name = "torch", version = "2.9.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
+    { name = "wandb" },
+]
+sdist = { url = "https://test-files.pythonhosted.org/packages/78/cd/d493eb07083701a83b6562231d0f7dfb089fd4ccd1d52fde93fe3c105c99/unilab_rl-0.1.0a2.tar.gz", hash = "sha256:c379f6c98866a76698b30c756ff184448c710a29fdeb40d845910137fe0a30e3", size = 173712, upload-time = "2026-09-03T19:14:06.19Z" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/36/da/ddac23e8a65ee963456d3ddcc91a2290758c5784d501c2a755df48c45be3/unilab_rl-0.1.0a2-py3-none-any.whl", hash = "sha256:a29971a6aeb0a63ae9ee0fc628314c22fe87452973b1a3c2f5e885b39bd660f2", size = 217988, upload-time = "2026-09-03T19:14:03.235Z" },
 ]
 
 [[package]]

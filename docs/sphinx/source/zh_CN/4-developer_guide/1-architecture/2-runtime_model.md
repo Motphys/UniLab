@@ -35,7 +35,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 - SAC、TD3 与 FlashSAC 只使用一条 off-policy execution path：`ReplayBuffer`
   提供有界 host ingress，完整 ring 驻留在一个 CUDA/MPS learner device，
   `SharedWeightSync` 负责发布 actor 权重。
-- `src/unilab/ipc/async_runner.py` 中的 `AsyncRunner` 负责 collector 进程启动、
+- `uni_rl.ipc.async_runner` (uni_rl repo) 中的 `AsyncRunner` 负责 collector 进程启动、
   停止信号以及共享资源清理。
 
 ## 边界规则
@@ -50,8 +50,8 @@ CPU physics env loop -> shared IPC buffer -> learner
 ## 仓库中的证据
 
 - PPO 入口：`src/unilab/scripts/train_rsl_rl.py`
-- APPO runner：`src/unilab/algos/appo/runner.py`
-- Off-policy runner：`src/unilab/algos/offpolicy/double_buffer_runner.py`
-- IPC 原语：`src/unilab/ipc/async_runner.py`、
-  `src/unilab/ipc/rollout_ring_buffer.py`、`src/unilab/ipc/replay_buffer.py`、
-  `src/unilab/ipc/weight_sync.py`
+- APPO runner：`uni_rl.appo.runner` (uni_rl repo)
+- Off-policy runner：`uni_rl.offpolicy.double_buffer_runner` (uni_rl repo)
+- IPC 原语：`uni_rl.ipc.async_runner` (uni_rl repo)、
+  `uni_rl.ipc.rollout_ring_buffer` (uni_rl repo)、`uni_rl.ipc.replay_buffer` (uni_rl repo)、
+  `uni_rl.ipc.weight_sync` (uni_rl repo)

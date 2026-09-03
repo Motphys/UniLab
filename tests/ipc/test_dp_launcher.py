@@ -11,12 +11,11 @@ from pathlib import Path
 
 import pytest
 import torch
+import uni_rl.ipc.dp_launcher as dp_launcher
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
-
-import unilab.ipc.dp_launcher as dp_launcher
-from unilab.ipc.dp_launcher import (
+from uni_rl.ipc.dp_launcher import (
     UNILAB_DP_DEVICES,
     UNILAB_DP_LOG_DIR,
     UNILAB_DP_RANK,

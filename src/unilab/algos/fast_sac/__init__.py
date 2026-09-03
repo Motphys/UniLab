@@ -1,1 +1,0 @@
-# FastSAC algorithm

@@ -14,7 +14,7 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
 
 ## Implementation Checklist
 
-1. Put reusable learner or runner code under `src/unilab/algos/`.
+1. Put reusable learner or runner code under `uni_rl` (uni_rl repo).
 2. Add Hydra config under the owning config root. A new off-policy variant should
    add its own config tree: `src/unilab/conf/<algo>/config.yaml` with the algorithm
    hyperparameters inlined, plus matching
@@ -43,4 +43,4 @@ Algorithm work must preserve the env, config, and runner contracts. Start with
 - Structured config dataclasses: `src/unilab/structured_configs.py`
 - Training helpers: `src/unilab/training/common.py`,
   `src/unilab/training/run.py`
-- Existing algorithm packages: `src/unilab/algos/`
+- Existing algorithm packages: `uni_rl` (uni_rl repo)
