@@ -148,9 +148,7 @@ def test_pull_assets_all_covers_every_registered_robot(
     assert output_lines[:-1] == [
         f"Downloading {robot} assets ..." for robot in sorted(ROBOT_ASSET_SPECS)
     ]
-    assert output_lines[-1].startswith(
-        f"Robot assets ready: {len(ROBOT_ASSET_SPECS)} robots"
-    )
+    assert output_lines[-1].startswith(f"Robot assets ready: {len(ROBOT_ASSET_SPECS)} robots")
 
 
 def test_pull_assets_verbose_keeps_output_compact(

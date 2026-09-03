@@ -67,9 +67,7 @@ def _format_total_summary(robots: Sequence[str], summaries: Sequence[_AssetSumma
     label_counts: dict[str, int] = {}
     for summary in summaries:
         label_counts[summary.label] = label_counts.get(summary.label, 0) + summary.count
-    counts = ", ".join(
-        f"{count} {label} files" for label, count in sorted(label_counts.items())
-    )
+    counts = ", ".join(f"{count} {label} files" for label, count in sorted(label_counts.items()))
     return (
         f"Robot assets ready: {len(robots)} robots, {len(summaries)} directories, "
         f"{total_files} files ({counts})"
@@ -78,7 +76,6 @@ def _format_total_summary(robots: Sequence[str], summaries: Sequence[_AssetSumma
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    del args.verbose
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
