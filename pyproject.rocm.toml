@@ -89,15 +89,7 @@ name = "pytorch-rocm72"
 url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
-# TestPyPI hosts the uni-rl (unilab-rl) releases; explicit so nothing
-# else resolves from it.
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-explicit = true
-
 [tool.uv.sources]
-unilab-rl = { index = "testpypi" }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
