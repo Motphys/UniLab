@@ -44,6 +44,7 @@ ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
         ("robots/g1/assets", "head_link.STL", "**/*", "asset"),
         ("robots/g1/textures", "floor.png", "*.png", "PNG"),
     ),
+    "go1": (("robots/go1/assets", "trunk.stl", "*.stl", "STL"),),
     "go2": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
     # go2_arm reuses the Go2 base meshes via ``../go2/assets`` references.
     "go2_arm": (

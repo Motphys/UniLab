@@ -82,6 +82,7 @@ src/unilab/assets/motions/x2/*.csv
 src/unilab/assets/robots/x2/meshes/*.STL
 src/unilab/assets/robots/g1/assets/
 src/unilab/assets/robots/g1/textures/
+src/unilab/assets/robots/go1/assets/
 src/unilab/assets/robots/go2/assets/
 src/unilab/assets/robots/a2/assets/
 src/unilab/assets/robots/allegro_hand/assets/

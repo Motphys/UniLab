@@ -348,6 +348,7 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
         "a2",
         "allegro_hand",
         "g1",
+        "go1",
         "go2",
         "go2_arm",
         "go2w",
@@ -419,7 +420,7 @@ def test_ensure_robot_assets_ignores_unknown_robots(monkeypatch: pytest.MonkeyPa
 
     hub.ensure_robot_assets_for_paths(
         [
-            "src/unilab/assets/robots/go1/scene_flat.xml",
+            "src/unilab/assets/robots/t800/scene_flat.xml",
             "src/unilab/assets/objects/cube.xml",
             "some/other/scene.xml",
         ]
