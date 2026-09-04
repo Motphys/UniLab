@@ -124,7 +124,9 @@ jobs:
 
   test:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    timeout-minutes: 15
+    # The merged manager-based suite needs ~20 min on ubuntu-slim; 15 min
+    # cancels the step at ~60%.
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [ubuntu-slim]
