@@ -203,6 +203,14 @@ ROCm 说明：
   后重新执行 `make setup-motrix`（或 `uv sync --extra motrix`）；提交任何非 ROCm
   依赖改动前先确认当前配置档。
 - 训练配置里的设备字段仍沿用 `cuda` 语义，不要改成 `rocm`。
+- 从 PyPI 安装（不克隆仓库）时，`make sync-rocm` 不适用；先从 PyTorch ROCm 索引
+  安装仓库验证过的 torch build，再安装 `unilab`。发布的依赖范围是
+  `torch>=2.8,<2.12`，pip 会保留已安装的 ROCm build，不会替换为 CUDA wheel：
+
+  ```bash
+  pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+  pip install unilab
+  ```
 
 Intel XPU 说明：
 

@@ -50,8 +50,13 @@ dependencies = [
     "unilab-rl==1.0.0",
     "numba>=0.67",
     "prettytable>=3.10",
-    "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torch==2.8.0 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    # torch is a range (not an exact pin) so that published PyPI metadata lets
+    # ROCm users substitute a rocm build installed from the PyTorch ROCm index
+    # (install torch there first, then unilab; pip keeps the installed build).
+    # Repo development and CI stay reproducible: uv.lock pins the tested
+    # cu128/cu130 builds below via tool.uv.sources.
+    "torch>=2.9,<2.12 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch>=2.8,<2.12 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
     "gymnasium",
     "imageio",
     "etils",

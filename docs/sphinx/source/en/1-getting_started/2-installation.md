@@ -224,6 +224,16 @@ ROCm notes:
   (or `uv sync --extra motrix`); confirm the active profile before committing any
   non-ROCm dependency change.
 - The training device field keeps `cuda` semantics; do not set it to `rocm`.
+- When installing from PyPI instead of a source checkout, `make sync-rocm` does
+  not apply. Install the torch build validated by the repository from the
+  PyTorch ROCm index first, then `unilab`. The published dependency range is
+  `torch>=2.8,<2.12`, so pip keeps the installed ROCm build instead of
+  replacing it with the CUDA wheel:
+
+  ```bash
+  pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+  pip install unilab
+  ```
 
 Intel XPU notes:
 
