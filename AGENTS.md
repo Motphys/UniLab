@@ -109,6 +109,17 @@ git push -u origin fix/issue-174-ppo-config-alignment
 gh pr create --title "fix: xxx" --body "Fixes #174" --base <target-branch>
 ```
 
+## PyPI Release
+
+`.github/workflows/release.yml` 是生产发布路径，由 `v*` tag 推送触发（`workflow_dispatch` 只做构建与验证，不发布）：
+
+1. 更新 `pyproject.toml` 的 `[project].version`（版本单一来源）及相关文档，本地 `make test-all` 与 `uv build` 通过。
+2. 确认目标 commit 有成功的 `ci.yml` 运行：ci.yml 只在 PR 与 `workflow_dispatch` 上运行，若目标 commit 没有记录，先对该 commit 手动 dispatch 一次 ci.yml 再发 tag。
+3. 推送与 `[project].version` 完全一致的 annotated tag（如 `v0.1.0`）。release workflow 会校验 tag 与版本一致、该 commit CI 已通过，然后构建 sdist + wheel、twine check、`--no-deps` 安装 wheel 并做 import / 版本 smoke test。
+4. 构建验证通过后，`publish` job 通过 trusted publishing（OIDC，`environment: pypi`）上传到 PyPI，无 token 入仓；`skip-existing: true` 支持安全重跑。
+
+发布失败时：产物未变可用同一 tag 修复重跑；改了代码必须升级版本与新 tag，绝不覆盖已发布版本。
+
 ## Context
 
 - 架构标准与验证详情：[docs/sphinx/source/zh_CN/4-developer_guide/0-index.md](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)
