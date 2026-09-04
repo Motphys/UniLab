@@ -8,8 +8,8 @@ UniLab 将运行时 contract、配置、训练脚本和文档分置于不同的 
 | `src/unilab/conf/` | Hydra 根配置和任务 owner YAML。顶层 CLI 将后端选择暴露为 `--task` 加 `--sim`，然后组合出匹配的 owner YAML。 |
 | `src/unilab/base/` | Registry、env state、scene 以及 backend contract。 |
 | `src/unilab/envs/` | 任务 env 实现，以及任务专属的 reset、reward、observation 和 DR 逻辑。 |
-| `uni_rl` (uni_rl repo) | PPO、APPO、off-policy、HIM-PPO 和 HORA 算法代码。 |
-| `uni_rl.ipc` (uni_rl repo) | 共享内存与异步 runner 原语。 |
+| `uni_rl` (unilab-rl repo) | PPO、APPO、off-policy、HIM-PPO 和 HORA 算法代码。 |
+| `uni_rl.ipc` (unilab-rl repo) | 共享内存与异步 runner 原语。 |
 | `src/unilab/training/` | 共享的训练辅助工具，用于日志、回放、种子处理和配置守卫（config guard）。 |
 | `src/unilab/visualization/` | 回放、渲染、NaN 检查以及 scene/export 工具。 |
 | `tests/` | Contract、config、env、algorithm、script 和集成测试。 |

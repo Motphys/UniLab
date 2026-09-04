@@ -18,7 +18,7 @@ from uni_rl.ipc.dp_launcher import (
     resolve_dp_topology,
     validate_dp_launchable,
 )
-from uni_rl.rsl_rl import (
+from uni_rl.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
     finish_rsl_rl_distributed,
@@ -28,7 +28,7 @@ from uni_rl.rsl_rl import (
     resolve_rsl_rl_device,
     rsl_rl_single_process_topology,
 )
-from uni_rl.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+from uni_rl.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 from unisim.backend.base import RenderClosedError, log_playback_plan
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 

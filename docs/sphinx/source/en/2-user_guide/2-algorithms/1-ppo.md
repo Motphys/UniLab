@@ -2,7 +2,7 @@
 
 PPO is the default synchronous on-policy training path. It uses
 `src/unilab/scripts/train_rsl_rl.py`, composes from `src/unilab/conf/ppo/config.yaml`, and runs the
-RSL-RL adapter code in `uni_rl.rsl_rl_ppo` (uni_rl repo) and
+RSL-RL adapter code in `uni_rl.algos.rsl_rl_ppo` (unilab-rl repo) and
 `src/unilab/training/rsl_rl.py`.
 
 ## Quick Start

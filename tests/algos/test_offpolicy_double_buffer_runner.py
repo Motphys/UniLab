@@ -155,7 +155,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
     cfg = _offpolicy_cfg([])
 
-    import uni_rl.fast_sac.double_buffer as owner_module
+    import uni_rl.algos.fast_sac.double_buffer as owner_module
 
     monkeypatch.setattr(module, "registry_env_factory", lambda *args, **kwargs: _fake_env_factory)
     monkeypatch.setattr(owner_module, "FastSACLearner", _FakeLearner)
@@ -214,7 +214,7 @@ def test_sac_genesis_owner_raises_inference_request_timeout():
 def test_sac_owner_custom_runtime_can_override_base_learner_kwargs(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from uni_rl.fast_sac import double_buffer as owner_module
+    from uni_rl.algos.fast_sac import double_buffer as owner_module
     from uni_rl.offpolicy.runtime import OffPolicyRuntime
 
     cfg = _offpolicy_cfg([])
@@ -248,7 +248,7 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     module = _offpolicy()
     cfg = _offpolicy_cfg(algo="td3")
 
-    import uni_rl.fast_td3.double_buffer as owner_module
+    import uni_rl.algos.fast_td3.double_buffer as owner_module
 
     monkeypatch.setattr(owner_module, "get_env_dims", lambda *args, **kwargs: (4, 2, 6))
     monkeypatch.setattr(owner_module, "FastTD3Learner", _FakeLearner)
@@ -321,7 +321,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     module = _offpolicy()
     cfg = _offpolicy_cfg(algo="flashsac")
 
-    import uni_rl.flash_sac.double_buffer as flash_module
+    import uni_rl.algos.flash_sac.double_buffer as flash_module
 
     monkeypatch.setattr(module, "registry_env_factory", lambda *args, **kwargs: _fake_env_factory)
     monkeypatch.setattr(flash_module, "FlashSACLearner", _FakeLearner)
@@ -384,7 +384,7 @@ def _build_sac_runner_with_fakes(
             lambda backend, device: backend_binding_calls.append((str(backend), str(device))),
         )
 
-    import uni_rl.fast_sac.double_buffer as owner_module
+    import uni_rl.algos.fast_sac.double_buffer as owner_module
 
     monkeypatch.setattr(
         module, "registry_env_factory", lambda *args, **kwargs: fake_probe_env_factory

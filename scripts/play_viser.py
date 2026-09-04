@@ -46,7 +46,7 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from uni_rl.rsl_rl import (
+from uni_rl.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
