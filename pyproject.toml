@@ -47,7 +47,7 @@ dependencies = [
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
     # env contract (uni_rl.env_contract.EnvFactory). Published on PyPI.
-    "unilab-rl==0.2.0",
+    "unilab-rl==1.0.0",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.9.0 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
