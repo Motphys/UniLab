@@ -4,6 +4,7 @@ import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from importlib.metadata import entry_points
 from typing import (
     Any,
     Callable,
@@ -47,6 +48,12 @@ _DEFAULT_REGISTRY_PACKAGES = ("unilab.tasks",)
 # Mainly intended for test setups that need to ship a fixture-only registry into
 # spawn subprocesses (which do not inherit pytest conftest state).
 _EXTRA_REGISTRY_PACKAGES_ENV = "UNILAB_EXTRA_REGISTRY_PACKAGES"
+# Entry-point group through which third-party task packages self-register.
+# A package declares e.g. ``[project.entry-points."unilab.tasks"]`` with
+# ``microduck = "microduck_rl_unilab.tasks"``; the value is the importable
+# package name, consumed exactly like a default/env-var package (it must
+# declare ``__unilab_registry_modules__``).
+_REGISTRY_ENTRY_POINT_GROUP = "unilab.tasks"
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +328,16 @@ def ensure_registries(
                 # must never break a production training run that happens to
                 # have the env var leaked from a parent shell.
                 optional.add(extra)
+
+    # Third-party task packages discovered through the "unilab.tasks"
+    # entry-point group. Entry-point metadata lives in site-packages, so
+    # spawn-based collector subprocesses (fresh interpreters re-running
+    # ensure_registries) discover the same packages without any env-var
+    # forwarding. Unlike env-var packages, an installed entry point is a
+    # deliberate installation choice, so import failures stay strict.
+    for ep in entry_points(group=_REGISTRY_ENTRY_POINT_GROUP):
+        if ep.value and ep.value not in package_names:
+            package_names.append(ep.value)
 
     for package_name in package_names:
         is_optional = package_name in optional
