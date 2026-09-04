@@ -74,11 +74,17 @@ UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.
 CI 工作流在 `.github/workflows/docs.yml`:
 
 - **PR**: prose-only HTML build,跳过 API reference,failed 阻塞 PR
-- **push to main**: prose-only HTML build,不部署
-- **手动**: `workflow_dispatch` 可在 GitHub Actions 网页端触发同一套 prose-only CI
+- **push to main**: prose-only build 通过后,`deploy` job 执行完整构建(安装
+  UniLab + autodoc)并通过 deploy key(`UNILAB_DOC_DEPLOY_KEY` secret)推送到
+  [`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc) 的
+  `gh-pages` 分支,GitHub Pages 自动更新站点。完整构建安装失败时降级为
+  prose-only 构建并仍然部署
+- **手动**: `workflow_dispatch` 在 `main` 上触发时走同一套构建 + 部署;
+  在其他分支触发时只做 prose-only build
 
-CI 明确设置 `UNILAB_DOCS_SKIP_AUTODOC=1`,不执行 `pip install -e .`,不安装 UniLab
-运行时依赖,也不跑 linkcheck。完整构建和站点发布由开发者本地完成。
+PR 与 push 的检查性构建明确设置 `UNILAB_DOCS_SKIP_AUTODOC=1`,不安装 UniLab
+运行时依赖,也不跑 linkcheck。下面的本地发布流程保留为 CI 部署不可用时的
+fallback。
 
 ### UniLab-doc 仓的 Pages 设置
 
