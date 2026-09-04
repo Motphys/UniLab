@@ -4,7 +4,7 @@
 
 UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructure 仓库。
 
-RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collector、IPC、训练日志）由独立包 **uni_rl**（仓库 [unilabsim/unilab-rl](https://github.com/unilabsim/unilab-rl)，distribution 名 `unilab-rl`，拆分期发布在 TestPyPI）承载；UniLab 不构造 uni_rl 消费的 env，而是通过注入式 env contract 对接：`uni_rl.env_contract.EnvFactory = Callable[[int, Mapping | None], EnvProtocol]`（必须可被 pickle 引用，collector 跑在 spawn 子进程），UniLab 侧适配器为 `src/unilab/base/env_factory.py` 的 `registry_env_factory`，mjwarp 设备绑定经 `src/unilab/base/process_device.py` 的 `bind_backend_process_device` 注入。unilab 可以 import uni_rl；uni_rl 永远不 import unilab / unisim。
+RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collector、IPC、训练日志）由独立包 **uni_rl**（仓库 [unilabsim/unilab_rl](https://github.com/unilabsim/unilab_rl)，distribution 名 `unilab-rl`，拆分期发布在 TestPyPI）承载；UniLab 不构造 uni_rl 消费的 env，而是通过注入式 env contract 对接：`uni_rl.env_contract.EnvFactory = Callable[[int, Mapping | None], EnvProtocol]`（必须可被 pickle 引用，collector 跑在 spawn 子进程），UniLab 侧适配器为 `src/unilab/base/env_factory.py` 的 `registry_env_factory`，mjwarp 设备绑定经 `src/unilab/base/process_device.py` 的 `bind_backend_process_device` 注入。unilab 可以 import uni_rl；uni_rl 永远不 import unilab / unisim。
 
 ## Core Principles
 
@@ -67,6 +67,7 @@ RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collec
 - uni_rl env factory 适配: `src/unilab/base/env_factory.py`
 - HORA APPO play 编排: `src/unilab/scripts/play_hora_appo.py`；HORA distill 配置组合: `src/unilab/training/hora_distill_config.py`
 - sim2sim 跨后端契约: `src/unilab/utils/sim2sim.py`
+- new algorithm recipe（三档扩展方式 + 约定式 CLI 路由 footprint）: `docs/sphinx/source/zh_CN/4-developer_guide/3-extending/3-new_algorithm.md`
 
 ## GitHub CLI (gh) 速查
 

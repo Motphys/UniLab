@@ -19,6 +19,9 @@ SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
 SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym", "genesis", "isaacsim")
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
+# Built-in algos whose entrypoint script does not follow the train_<algo>.py
+# naming convention.
+SPECIAL_SCRIPT_NAMES = {"ppo": "train_rsl_rl.py", "appo": "train_appo.py"}
 INTERACTIVE_PLAY_ALGOS = {"ppo", "appo", "sac", "td3", "flashsac"}
 # Physics backends whose interactive eval runs through the dedicated MuJoCo
 # viewer script: the selected backend owns the rollout while MuJoCo renders.
@@ -223,17 +226,49 @@ def _mxpython_executable() -> str:
     )
 
 
-def build_route(algo: str, task: str, sim: str, profile: str | None = None) -> Route:
+def available_algos(root: Path | None = None) -> tuple[str, ...]:
+    """Return routable algo names: built-ins plus convention-discovered ones.
+
+    A custom algo ``X`` is routable when both ``conf/X/config.yaml`` and
+    ``scripts/train_X.py`` exist under the package root. Config trees without
+    an entrypoint script (e.g. ``hora_distill``) are not routable.
+    """
+    selected_root = root or package_root()
+    discovered: list[str] = []
+    conf_root = selected_root / "conf"
+    if conf_root.is_dir():
+        for child in sorted(conf_root.iterdir()):
+            if not child.is_dir() or child.name in SUPPORTED_ALGOS:
+                continue
+            if not (child / "config.yaml").is_file():
+                continue
+            if (selected_root / "scripts" / f"train_{child.name}.py").is_file():
+                discovered.append(child.name)
+    return (*SUPPORTED_ALGOS, *discovered)
+
+
+def build_route(
+    algo: str, task: str, sim: str, profile: str | None = None, *, root: Path | None = None
+) -> Route:
     owner = f"{sim}_{profile}" if profile is not None else sim
     task_choice = f"{task}/{owner}"
     if algo in OFFPOLICY_ALGOS:
         script_name = f"train_{algo}.py"
-    elif algo == "ppo":
-        script_name = "train_rsl_rl.py"
-    elif algo == "appo":
-        script_name = "train_appo.py"
+    elif algo in SPECIAL_SCRIPT_NAMES:
+        script_name = SPECIAL_SCRIPT_NAMES[algo]
     else:
-        raise SystemExit(f"Unsupported algo={algo!r}; choose one of: {', '.join(SUPPORTED_ALGOS)}")
+        selected_root = root or package_root()
+        script_name = f"train_{algo}.py"
+        routable = (
+            TASK_NAME_PATTERN.fullmatch(algo) is not None
+            and (selected_root / "conf" / algo / "config.yaml").is_file()
+            and (selected_root / "scripts" / script_name).is_file()
+        )
+        if not routable:
+            raise SystemExit(
+                f"Unsupported algo={algo!r}; choose one of: "
+                f"{', '.join(available_algos(selected_root))}"
+            )
     return Route(
         script_name=script_name,
         config_group=algo,
@@ -297,7 +332,7 @@ def build_command(
     _check_reserved_overrides(overrides)
     _check_runtime_requirements(algo, sim)
 
-    route = build_route(algo, task, sim, profile)
+    route = build_route(algo, task, sim, profile, root=selected_root)
     use_interactive_play = _uses_mujoco_interactive_play(
         mode=mode,
         algo=algo,
@@ -383,7 +418,16 @@ def build_command(
 
 def _train_eval_parser(*, mode: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=mode)
-    parser.add_argument("--algo", required=True, choices=SUPPORTED_ALGOS)
+    parser.add_argument(
+        "--algo",
+        required=True,
+        metavar="ALGO",
+        help=(
+            "algorithm config tree under conf/; built-ins: "
+            f"{', '.join(SUPPORTED_ALGOS)}. Custom algos are routable when "
+            "conf/<algo>/config.yaml and scripts/train_<algo>.py both exist."
+        ),
+    )
     parser.add_argument("--task", required=True)
     parser.add_argument("--sim", required=True, choices=SUPPORTED_SIMS)
     parser.add_argument("--profile", default=None)
