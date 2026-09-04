@@ -14,6 +14,9 @@
    后端实现。
 4. 如果任务位于一个新模块中，请把该模块加入包的
    `__unilab_registry_modules__` 元组，以便 `ensure_registries()` 导入它。
+   仓库外的第三方任务包还需在 `pyproject.toml` 声明
+   `[project.entry-points."unilab.tasks"]`（见
+   {doc}`../1-architecture/5-registry`）。
 5. 保持 `obs_groups_spec` 准确。它必须包含 `obs`，并且可以包含
    `critic`；wrapper 和 learner 都信任这些维度。
 6. 把 reset 与 step 语义保留在 env owner 层：

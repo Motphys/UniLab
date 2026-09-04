@@ -14,6 +14,9 @@ Start from the contracts: {doc}`../2-contracts/1-env_contract`,
    `@registry.env("EnvName", sim_backend="motrix")`.
 4. If the task lives in a new module, add that module to the package
    `__unilab_registry_modules__` tuple so `ensure_registries()` imports it.
+   Third-party packages outside this repo additionally declare
+   `[project.entry-points."unilab.tasks"]` in their `pyproject.toml` (see
+   {doc}`../1-architecture/5-registry`).
 5. Keep `obs_groups_spec` accurate. It must include `obs` and may include
    `critic`; wrappers and learners trust these dimensions.
 6. Keep reset and step semantics at the env owner layer:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
@@ -368,3 +370,71 @@ def test_make_with_invalid_cfg_override_raises():
     """make() with a config key that doesn't exist raises ValueError."""
     with pytest.raises(ValueError, match="has no attribute"):
         registry_mod.make(_TEST_ENV_A, sim_backend="mujoco", env_cfg_override={"__bogus_key__": 1})
+
+
+# ---------------------------------------------------------------------------
+# Third-party "unilab.tasks" entry-point discovery (issue #1500)
+# ---------------------------------------------------------------------------
+
+
+def _track_imports(monkeypatch):
+    """Patch importlib.import_module to record every imported module name."""
+    imported: list[str] = []
+    real_import = importlib.import_module
+
+    def tracking_import(name, package=None):
+        imported.append(name)
+        return real_import(name, package)
+
+    monkeypatch.setattr("unilab.base.registry.importlib.import_module", tracking_import)
+    return imported
+
+
+def _fake_entry_points(*values: str):
+    eps = [SimpleNamespace(value=v) for v in values]
+
+    def fake_entry_points(*, group: str):
+        assert group == "unilab.tasks"
+        return eps
+
+    return fake_entry_points
+
+
+def test_ensure_registries_discovers_entry_point_packages(monkeypatch):
+    """Packages declared via the "unilab.tasks" entry-point group are imported
+    together with their declared ``__unilab_registry_modules__`` leaf modules."""
+    imported = _track_imports(monkeypatch)
+    monkeypatch.setattr(registry_mod, "entry_points", _fake_entry_points("tests._test_registry"))
+    # Scrub the env var so the fixture package can only arrive via the
+    # entry-point seam under test.
+    monkeypatch.delenv("UNILAB_EXTRA_REGISTRY_PACKAGES", raising=False)
+
+    registry_mod.ensure_registries(packages=[])
+
+    assert "tests._test_registry" in imported
+    assert "tests._test_registry.dummy_flat_env" in imported
+
+
+def test_ensure_registries_entry_point_dedupes_default_packages(monkeypatch):
+    """An entry point naming an already-listed package must not be imported twice."""
+    imported = _track_imports(monkeypatch)
+    monkeypatch.setattr(registry_mod, "entry_points", _fake_entry_points("unilab.tasks"))
+    monkeypatch.delenv("UNILAB_EXTRA_REGISTRY_PACKAGES", raising=False)
+
+    registry_mod.ensure_registries()
+
+    assert imported.count("unilab.tasks") == 1
+
+
+def test_ensure_registries_entry_point_import_failure_is_strict(monkeypatch):
+    """Unlike env-var packages, an installed entry point is deliberate: a broken
+    import must fail closed instead of being downgraded to a warning."""
+    monkeypatch.setattr(
+        registry_mod,
+        "entry_points",
+        _fake_entry_points("definitely_not_a_real_pkg_xyz"),
+    )
+    monkeypatch.delenv("UNILAB_EXTRA_REGISTRY_PACKAGES", raising=False)
+
+    with pytest.raises(ImportError, match="definitely_not_a_real_pkg_xyz"):
+        registry_mod.ensure_registries(packages=[])
