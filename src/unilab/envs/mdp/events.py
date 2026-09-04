@@ -1062,6 +1062,12 @@ class PushBySettingVelocity(ManagerTermBase):
     are world-frame deltas, matching the pinned mjlab semantics. Angular kicks
     require the backend's interval angular-velocity capability; backends
     without it fail closed at construction.
+
+    ``__call__`` re-reads the live ``velocity_range`` on every apply so
+    ``event_curriculum`` range stages take effect (the documented manager
+    contract); construction still parses the initial ranges to decide which
+    backend capabilities to bind. A curriculum that activates angular ranges
+    on a term constructed without them fails closed at apply time.
     """
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
@@ -1086,9 +1092,7 @@ class PushBySettingVelocity(ManagerTermBase):
             name="velocity_range",
             keys=_SE3_KEYS,
         )
-        self._linear_ranges = ranges[:3]
-        self._angular_ranges = ranges[3:]
-        self._angular_active = bool(np.any(self._angular_ranges != 0.0))
+        self._angular_active = bool(np.any(ranges[3:] != 0.0))
         self._entity = cast("Entity", env.scene[asset_cfg.name])
         self._entity.bind_root_linear_velocity_delta(term_name=term_name)
         if self._angular_active:
@@ -1101,18 +1105,33 @@ class PushBySettingVelocity(ManagerTermBase):
         velocity_range: dict[str, tuple[float, float]],
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
     ) -> None:
-        del velocity_range, asset_cfg
+        del asset_cfg
         ids = resolve_env_ids(env, env_ids)
+        ranges = _axis_ranges(
+            velocity_range,
+            term_name="push_by_setting_velocity",
+            name="velocity_range",
+            keys=_SE3_KEYS,
+        )
+        linear_ranges = ranges[:3]
+        angular_ranges = ranges[3:]
         linear_delta = env.rng.uniform(
-            self._linear_ranges[:, 0],
-            self._linear_ranges[:, 1],
+            linear_ranges[:, 0],
+            linear_ranges[:, 1],
             size=(ids.size, 3),
         )
         angular_delta = None
-        if self._angular_active:
+        if np.any(angular_ranges != 0.0):
+            if not self._angular_active:
+                raise NotImplementedError(
+                    "EventManager term 'push_by_setting_velocity' velocity_range activated "
+                    "angular axes after construction, but the backend angular-velocity "
+                    "capability was never bound; declare non-zero angular ranges in the "
+                    "initial params"
+                )
             angular_delta = env.rng.uniform(
-                self._angular_ranges[:, 0],
-                self._angular_ranges[:, 1],
+                angular_ranges[:, 0],
+                angular_ranges[:, 1],
                 size=(ids.size, 3),
             )
         self._entity.apply_root_velocity_delta_to_sim(

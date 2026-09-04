@@ -59,6 +59,7 @@ _EXTERNAL_ASSET_LOCOMOTION_TASKS = frozenset(
         "MicroduckVelocityBamFlat",
         "MicroduckVelocityFlat",
         "MicroduckVelstandFlat",
+        "MicroduckStandupFlat",
         "T800WalkFlat",
     }
 )
@@ -192,6 +193,14 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
                 "fall recovery on the ground-contact BAM model) on the canonical NumPy "
                 "Manager-Based runtime (mujoco owner only; the substep state-feedback "
                 "contract is unavailable on mjwarp)."
+            )
+        if task_name == "MicroduckStandupFlat":
+            scope = (
+                "Hydra owner YAML materializes the MicroDuck standup task (mixed "
+                "ground-state resets -> gentle rise -> body-pose tracking on the "
+                "ground-contact BAM model) on the canonical NumPy Manager-Based "
+                "runtime (mujoco owner only; the substep state-feedback contract "
+                "is unavailable on mjwarp)."
             )
         return TaskMigrationRecord(
             task_name,

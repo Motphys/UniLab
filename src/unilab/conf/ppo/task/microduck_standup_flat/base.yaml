@@ -1,0 +1,759 @@
+# @package _global_
+# MicroDuck Standup task: sit-keyframe / prone / supine / standing mixed resets
+# -> gentle rise to the standing target, then body-pose (z/roll/pitch) command
+# tracking. Ported from the upstream microduck_rl microduck_standup_env_cfg.py
+# (anchor commit 29e887e). Built on the BAM ground-contact recipe
+# (task/microduck_velstand_flat): observations, DR events, action term and the
+# head_pose command layer are item-for-item identical. Deltas:
+#   - 6 s episodes; the walk reward layer (track_*, air_time, foot_*,
+#     leg_pose, upright) is replaced by the fixed-target stand layer
+#     (pose_stand_*, height_stand_*, upright_*, standing_composite,
+#     gentle_rise, arrival_damping, com_upward_velocity ungated).
+#   - body_pose command gets zero_command_prob 0.3 and the
+#     body_pose_tracking_locomotion reward (z/roll/pitch axes), ramped in from
+#     iter 2500 with the conflict-relax stages on the sharp stand attractors.
+#   - random_prone_init is replaced by set_ground_state (4-bucket mix with the
+#     sitting keyframe joint overrides, curriculum-ramped easy -> hard).
+#   - Terminations drop fell_over/fallen_too_long; nan_state gains the
+#     upstream contact-force sensor coverage (robot_state_is_nan).
+# mjwarp has no owner: the BAM substep state-feedback contract is unavailable
+# there (host_numpy profile raises NotImplementedError).
+env:
+  scene:
+    model_file: src/unilab/assets/robots/microduck/scene_flat_groundcontact_bam.xml
+    fragment_files: [src/unilab/assets/robots/microduck/locomotion_task.xml]
+    default_keyframe_name: home
+    entities:
+      robot:
+        root_body_name: trunk_base
+        joint_names:
+          - left_hip_yaw
+          - left_hip_roll
+          - left_hip_pitch
+          - left_knee
+          - left_ankle
+          - neck_pitch
+          - head_pitch
+          - head_yaw
+          - head_roll
+          - right_hip_yaw
+          - right_hip_roll
+          - right_hip_pitch
+          - right_knee
+          - right_ankle
+        actuator_names:
+          - left_hip_yaw
+          - left_hip_roll
+          - left_hip_pitch
+          - left_knee
+          - left_ankle
+          - neck_pitch
+          - head_pitch
+          - head_yaw
+          - head_roll
+          - right_hip_yaw
+          - right_hip_roll
+          - right_hip_pitch
+          - right_knee
+          - right_ankle
+        # trunk_base: root + trunk CoM DR + height/upright/composite rewards;
+        # ankle_*: feet reference for body_pose_tracking_locomotion and the
+        # critic foot terms; neck chain + bearing_roll: legacy head CoM DR set.
+        body_names:
+          - trunk_base
+          - ankle_left
+          - ankle_right
+          - neck
+          - neck_pitch
+          - yaw_roll_motion
+          - jaw_soft
+          - bearing_roll
+        # Foot collision geoms for the foot_friction DR event.
+        geom_names: [left_foot_collision, right_foot_collision]
+  # Upstream recipe: 200 Hz physics under 50 Hz control (substeps = ctrl_dt / sim_dt = 4).
+  sim_dt: 0.005
+  ctrl_dt: 0.02
+  # Upstream EPISODE_LENGTH_S: long enough for a gentle rise + stabilisation.
+  max_episode_seconds: 6.0
+  observations:
+    policy:
+      enable_corruption: true
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.base_ang_vel_imu_misaligned
+          params: {max_angle_deg: 6.0}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.03
+            n_max: 0.03
+            operation: add
+          # Legacy IMU latency envelope: 0-1 ctrl step lag, resampled every 64 steps.
+          delay_min_lag: 0
+          delay_max_lag: 1
+          delay_update_period: 64
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_imu_misaligned
+          params: {max_angle_deg: 6.0}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+            operation: add
+          delay_min_lag: 0
+          delay_max_lag: 1
+          delay_update_period: 64
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+          params: {biased: true}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.001
+            n_max: 0.001
+            operation: add
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.25
+            n_max: 0.25
+            operation: add
+          # Legacy fixed 1-ctrl-step (20 ms) joint-velocity lag (Dynamixel
+          # firmware moving-average velocity estimate).
+          delay_min_lag: 1
+          delay_max_lag: 1
+        actions:
+          func: unilab.envs.mdp.last_action
+          params: {action_name: joint_pos}
+        twist_command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        head_pose_command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: head_pose}
+        body_pose_command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: body_pose}
+    critic:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: gyro}
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: upvector}
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          func: unilab.envs.mdp.last_action
+          params: {action_name: joint_pos}
+        twist_command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        head_pose_command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: head_pose}
+        body_pose_command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: body_pose}
+        base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: local_linvel}
+        # Privileged per-foot terms (upstream keeps these and drops the
+        # terrain-sensor foot_height/height_scan terms; this model has no
+        # height scanner and the walk foot rewards are gone, so foot_height is
+        # dropped here too). NOTE: upstream wraps foot_air_time /
+        # foot_contact_forces in NaN-safe nan_to_num variants; the UniLab
+        # shared terms fail closed on non-finite sensor data instead, and the
+        # nan_state termination below covers the same contact-force blow-ups.
+        foot_air_time:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_air_time
+          params:
+            sensor_groups: [[left_foot_contact], [right_foot_contact]]
+        foot_contact:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_contact
+          params:
+            sensor_groups: [[left_foot_contact], [right_foot_contact]]
+        foot_contact_forces:
+          func: unilab.tasks.locomotion.common.gait_terms.foot_contact_forces
+          params:
+            sensor_groups: [[left_foot_contact], [right_foot_contact]]
+  actions:
+    joint_pos:
+      # Upstream bam xl330-m6 (microduck_rl microduck_constants.py): kp_fw=200,
+      # vin ~ U(6.5, 8.2) sampled once at startup, load-dependent sag
+      # vin_drop_gain ~ U(0.0, 0.2) V/Nm floored at 6.0 V, command delay lag ~
+      # U{3..6} physics substeps resampled every substep, friction budget
+      # scaled per episode by U(0.9, 1.1). The fitted electrical/friction
+      # constants stay at the dataclass defaults (= bam params xl330/m6.json).
+      _target_: unilab.tasks.locomotion.microduck.bam_action.BamVoltageActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      scale: 1.0
+      kp_fw: 200.0
+      vin_range: [6.5, 8.2]
+      vin_drop_gain_range: [0.0, 0.2]
+      vin_min: 6.0
+      delay_min_lag: 3
+      delay_max_lag: 6
+      friction_scale_range: [0.9, 1.1]
+  commands:
+    twist:
+      # Upstream standup twist: near-zero noise around stand-still, kept for
+      # obs-shape parity (VelocityCommandCommandOnlyCfg equivalent). No
+      # standing/heading/world/forward buckets and no turn-in-place slice.
+      _target_: unilab.tasks.locomotion.microduck.manager_terms.MicroduckVelocityCommandCfg
+      entity_name: robot
+      resampling_time_range: [6.0, 12.0]
+      heading_command: false
+      rel_standing_envs: 0.0
+      rel_heading_envs: 0.0
+      rel_world_envs: 0.0
+      rel_forward_envs: 0.0
+      init_velocity_prob: 0.0
+      turn_in_place_fraction: 0.0
+      ranges:
+        lin_vel_x: [-0.01, 0.01]
+        lin_vel_y: [-0.01, 0.01]
+        ang_vel_z: [-0.05, 0.05]
+    head_pose:
+      _target_: unilab.envs.mdp.UniformPoseCommandCfg
+      resampling_time_range: [2.0, 5.0]
+      ranges:
+        - [-0.05, 0.05]
+        - [-0.05, 0.05]
+        - [-0.07, 0.07]
+        - [-0.015, 0.015]
+    body_pose:
+      # 6D delta from nominal standing [x, y, z, roll, pitch, yaw]; only
+      # z/roll/pitch are tracked (body_pose_tracking axis_weights). x/y/yaw
+      # stay at tiny alive ranges forever. zero_command_prob 0.3 trains the
+      # deployment idle case (exact all-zero command).
+      _target_: unilab.envs.mdp.UniformPoseCommandCfg
+      resampling_time_range: [2.0, 5.0]
+      zero_command_prob: 0.3
+      ranges:
+        - [-0.005, 0.005]
+        - [-0.005, 0.005]
+        - [-0.005, 0.005]
+        - [-0.05, 0.05]
+        - [-0.05, 0.05]
+        - [-0.05, 0.05]
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    # Upstream reset_base: uniform root offsets around the `home` keyframe —
+    # xy ±0.5 m, yaw ±π, z +[0, 0.01] on the keyframe z=0.12. set_ground_state
+    # below overwrites z/orientation/velocities for every env and reuses the
+    # staged xy.
+    reset_base:
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.0, 0.01]
+          yaw: [-3.141592653589793, 3.141592653589793]
+        velocity_range: {}
+    base_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: trunk_base
+        com_range:
+          x: [-0.003, 0.003]
+          y: [-0.003, 0.003]
+          z: [-0.003, 0.003]
+    head_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          # Legacy HEAD_BODY_NAMES resolved against this model: the head-roll
+          # body is jaw_soft here (bottom_head_shell in the legacy walk model).
+          body_names: [neck, neck_pitch, yaw_roll_motion, jaw_soft, bearing_roll]
+        com_range:
+          x: [-0.003, 0.003]
+          y: [-0.003, 0.003]
+          z: [-0.003, 0.003]
+    encoder_bias:
+      func: unilab.envs.mdp.randomize_encoder_bias
+      mode: reset
+      params:
+        bias_range: [-0.015, 0.015]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: [left_foot_collision, right_foot_collision]
+        ranges: [0.7, 1.3]
+        operation: abs
+        axes: [0]
+        shared_random: true
+    randomize_armature:
+      func: unilab.envs.mdp.joint_armature
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+        ranges: [0.9, 1.1]
+        operation: scale
+    # Upstream startup mass/inertia DR (mjlab dr.pseudo_inertia, alpha-only):
+    # trunk_base mass and inertia share one log-uniform factor s ∈ [0.95, 1.05]
+    # sampled once per env and held fixed for the whole run; CoM unchanged.
+    randomize_mass_inertia:
+      func: unilab.envs.mdp.randomize_body_mass_inertia
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: trunk_base
+        scale_range: [0.95, 1.05]
+    # Standup ground-state init (runs inside the reset transaction AFTER
+    # reset_base, reusing its staged xy): each episode starts face-down /
+    # face-up / sitting / standing per the bucket mix. The sitting bucket
+    # applies the upstream SITTING_JOINT_OVERRIDES (sit-policy end pose:
+    # knee ±1.35, hip_pitch ∓0.4079, keyed here by joint name; upstream servo
+    # indices 1,2,3,4,10,11,12,13) plus N(0, 0.12) joint noise and ±10° tilt;
+    # face-up spawns get a ±90° roll about the body long axis. Bucket
+    # probabilities are ramped easy -> hard by the ground_state_mix
+    # curriculum; the values here are the step-0 stage.
+    set_ground_state:
+      func: unilab.tasks.locomotion.microduck.standup_terms.set_random_ground_state
+      mode: reset
+      params:
+        face_down_prob: 0.20
+        face_up_prob: 0.0
+        sitting_prob: 0.40
+        standing_prob: 0.40
+        prone_z_min: 0.05
+        prone_z_max: 0.09
+        sitting_z_min: 0.05
+        sitting_z_max: 0.09
+        standing_z_min: 0.11
+        standing_z_max: 0.12
+        face_up_roll_max: 1.5707963267948966
+        sitting_joint_overrides:
+          left_hip_roll: 0.0
+          left_hip_pitch: -0.4079
+          left_knee: 1.35
+          left_ankle: 0.0
+          right_hip_roll: 0.0
+          right_hip_pitch: 0.4079
+          right_knee: -1.35
+          right_ankle: 0.0
+        sitting_joint_noise_std: 0.12
+        sitting_tilt_max: 0.17453292519943295
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [3.0, 6.0]
+      # Upstream samples the push interval independently per env.
+      is_global_time: false
+      params:
+        # Step-0 values of the push_magnitude curriculum: no pushes while the
+        # sit-rise bootstrap is discovered.
+        velocity_range:
+          x: [0.0, 0.0]
+          y: [0.0, 0.0]
+          z: [0.0, 0.0]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
+  terminations:
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    # Upstream robot_state_is_nan: full physics state + the contact-sensor
+    # forces (degenerate contacts blow up a step before the integrated state
+    # does; standup lands and flips constantly). No fell_over (tilt)
+    # termination: the robot starts seated/prone by design.
+    nan_state:
+      func: unilab.tasks.locomotion.microduck.standup_terms.robot_state_is_nan
+      time_out: false
+      params:
+        sensor_names: [left_foot_contact, right_foot_contact]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+  curriculum:
+    # Init-pose mix EASY -> HARD (steps = iters x 24): standing/sitting first,
+    # face-down next, face-up last and biased late so the hard poses get the
+    # most practice after the skills exist.
+    ground_state_mix:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: set_ground_state
+        stages:
+          - {step: 0, params: {standing_prob: 0.40, sitting_prob: 0.40, face_down_prob: 0.20, face_up_prob: 0.00}}
+          - {step: 14400, params: {standing_prob: 0.25, sitting_prob: 0.30, face_down_prob: 0.35, face_up_prob: 0.10}}
+          - {step: 36000, params: {standing_prob: 0.20, sitting_prob: 0.25, face_down_prob: 0.30, face_up_prob: 0.25}}
+          - {step: 60000, params: {standing_prob: 0.15, sitting_prob: 0.20, face_down_prob: 0.30, face_up_prob: 0.35}}
+    # Legacy curriculum D: head_pose command ranges widen to
+    # ±1.10 / ±1.10 / ±1.40 / ±0.31 rad (neck_pitch, head_pitch, head_yaw, head_roll).
+    head_pose_range:
+      func: unilab.envs.mdp.command_curriculum
+      params:
+        command_name: head_pose
+        stages:
+          - {step: 0, ranges: [[-0.05, 0.05], [-0.05, 0.05], [-0.07, 0.07], [-0.015, 0.015]]}
+          - {step: 12000, ranges: [[-0.17, 0.17], [-0.17, 0.17], [-0.21, 0.21], [-0.047, 0.047]]}
+          - {step: 24000, ranges: [[-0.39, 0.39], [-0.39, 0.39], [-0.49, 0.49], [-0.11, 0.11]]}
+          - {step: 36000, ranges: [[-0.72, 0.72], [-0.72, 0.72], [-0.91, 0.91], [-0.2, 0.2]]}
+          - {step: 48000, ranges: [[-1.1, 1.1], [-1.1, 1.1], [-1.4, 1.4], [-0.31, 0.31]]}
+    # Legacy curriculum E (trunk): base CoM range ±3mm -> ±15mm.
+    base_com_range:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: base_com
+        stages:
+          - {step: 0, params: {com_range: {x: [-0.003, 0.003], y: [-0.003, 0.003], z: [-0.003, 0.003]}}}
+          - {step: 12000, params: {com_range: {x: [-0.005, 0.005], y: [-0.005, 0.005], z: [-0.005, 0.005]}}}
+          - {step: 24000, params: {com_range: {x: [-0.01, 0.01], y: [-0.01, 0.01], z: [-0.01, 0.01]}}}
+          - {step: 36000, params: {com_range: {x: [-0.015, 0.015], y: [-0.015, 0.015], z: [-0.015, 0.015]}}}
+    # Legacy curriculum E (head): head CoM range ±3mm -> ±10mm.
+    head_com_range:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: head_com
+        stages:
+          - {step: 0, params: {com_range: {x: [-0.003, 0.003], y: [-0.003, 0.003], z: [-0.003, 0.003]}}}
+          - {step: 12000, params: {com_range: {x: [-0.005, 0.005], y: [-0.005, 0.005], z: [-0.005, 0.005]}}}
+          - {step: 24000, params: {com_range: {x: [-0.01, 0.01], y: [-0.01, 0.01], z: [-0.01, 0.01]}}}
+    # Push ramp: no pushes during the sit-rise bootstrap, ±0.08 at iter 500,
+    # full ±0.3 at iter 1000 (velocity's audited final magnitude).
+    push_magnitude:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: push_robot
+        stages:
+          - {step: 0, params: {velocity_range: {x: [0.0, 0.0], y: [0.0, 0.0]}}}
+          - {step: 12000, params: {velocity_range: {x: [-0.08, 0.08], y: [-0.08, 0.08]}}}
+          - {step: 24000, params: {velocity_range: {x: [-0.3, 0.3], y: [-0.3, 0.3]}}}
+    # Legacy curriculum A: action_rate weight -0.1 -> -1.0 by iter 1500.
+    action_rate_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: action_rate
+        stages:
+          - {step: 0, weight: -0.1}
+          - {step: 12000, weight: -0.2}
+          - {step: 18000, weight: -0.4}
+          - {step: 24000, weight: -0.6}
+          - {step: 30000, weight: -0.8}
+          - {step: 36000, weight: -1.0}
+    # Smoothness polish: anti-violence terms introduced only AFTER the recovery
+    # skills exist (ground_state_mix final at iter 2500) — any attempt-tax
+    # active from step 0 prevents the prone flips from being discovered.
+    arrival_damping_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: arrival_damping
+        stages:
+          - {step: 0, weight: 0.0}
+          - {step: 72000, weight: -0.025}
+          - {step: 96000, weight: -0.05}
+    head_pose_bias_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: head_pose_bias
+        stages:
+          - {step: 0, weight: 0.0}
+          - {step: 72000, weight: 0.5}
+          - {step: 96000, weight: 1.5}
+    torque_rate_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: joint_torque_rate_l2
+        stages:
+          - {step: 0, weight: 0.0}
+          - {step: 72000, weight: -0.001}
+    # Body control: tracking weight ramps in at iter 2500 (after
+    # ground_state_mix finishes); final 4.0 out-bids the relaxed fixed-stand
+    # attractors at full command.
+    body_pose_tracking_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: body_pose_tracking
+        stages:
+          - {step: 0, weight: 0.0}
+          - {step: 60000, weight: 1.5}
+          - {step: 72000, weight: 3.0}
+          - {step: 96000, weight: 4.0}
+    # Body command range widening, synced to the weight ramp; x/y/yaw stay at
+    # the alive ranges, z is asymmetric (crouch below / extend above STAND_Z),
+    # angles cap at ±15° (radians(8/12/15) = 0.13962634/0.20943951/0.26179939).
+    body_pose_range:
+      func: unilab.envs.mdp.command_curriculum
+      params:
+        command_name: body_pose
+        stages:
+          - {step: 0, ranges: [[-0.005, 0.005], [-0.005, 0.005], [-0.005, 0.005], [-0.05, 0.05], [-0.05, 0.05], [-0.05, 0.05]]}
+          - {step: 60000, ranges: [[-0.005, 0.005], [-0.005, 0.005], [-0.01, 0.005], [-0.13962634015954636, 0.13962634015954636], [-0.13962634015954636, 0.13962634015954636], [-0.05, 0.05]]}
+          - {step: 72000, ranges: [[-0.005, 0.005], [-0.005, 0.005], [-0.018, 0.008], [-0.20943951023931953, 0.20943951023931953], [-0.20943951023931953, 0.20943951023931953], [-0.05, 0.05]]}
+          - {step: 96000, ranges: [[-0.005, 0.005], [-0.005, 0.005], [-0.04, 0.03], [-0.2617993877991494, 0.2617993877991494], [-0.2617993877991494, 0.2617993877991494], [-0.05, 0.05]]}
+    # Conflict relax: the sharp fixed-stand attractors step down once
+    # body_pose_tracking (cmd=0 at 30% of resamples, tighter stds) takes over
+    # the "sharp peak at nominal stand" role.
+    height_stand_sharp_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: height_stand_sharp
+        stages:
+          - {step: 0, weight: 1.0}
+          - {step: 72000, weight: 0.5}
+          - {step: 96000, weight: 0.2}
+    upright_sharp_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: upright_sharp
+        stages:
+          - {step: 0, weight: 1.5}
+          - {step: 72000, weight: 1.0}
+          - {step: 96000, weight: 0.5}
+    standing_composite_weight:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: standing_composite
+        stages:
+          - {step: 0, weight: 3.75}
+          - {step: 72000, weight: 2.5}
+          - {step: 96000, weight: 1.5}
+  policy_observation_group: policy
+  critic_observation_group: critic
+
+reward:
+  # Fixed-target stand layer (upstream microduck_standup_env_cfg.py; all task
+  # weights are the 2026-07 ÷4 rebalance). Self-negating terms
+  # (pose_stand_l1, height_stand_l1, gentle_rise) carry POSITIVE weights.
+  pose_stand_legs:
+    # Upstream pose_target_match on the 10 leg joints, target = HOME.
+    func: unilab.tasks.locomotion.microduck.standup_terms.pose_target_match
+    weight: 2.0
+    params:
+      std: 0.5
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: [left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle]
+        preserve_order: true
+  head_pose_tracking:
+    func: unilab.tasks.locomotion.microduck.manager_terms.head_pose_tracking
+    weight: 0.75
+    params:
+      command_name: head_pose
+      std: 0.5
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: [neck_pitch, head_pitch, head_yaw, head_roll]
+        preserve_order: true
+  head_pose_bias:
+    # Head DC-droop penalty with the upright gate (same gate values as
+    # arrival_damping): the ground/rising phase accumulates nothing. Weight
+    # ramps 0 -> 0.5 -> 1.5 at iters 3000/4000 (head_pose_bias_weight).
+    func: unilab.tasks.locomotion.microduck.manager_terms.head_pose_bias
+    weight: 0.0
+    params:
+      command_name: head_pose
+      tau_s: 1.0
+      gate_height_low: 0.09
+      gate_height_high: 0.11
+      gate_tilt_full_deg: 20.0
+      gate_tilt_zero_deg: 45.0
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: [neck_pitch, head_pitch, head_yaw, head_roll]
+        preserve_order: true
+  pose_stand_l1:
+    # L1 bootstrap — constant gradient even when far from HOME (self-negating).
+    func: unilab.tasks.locomotion.microduck.standup_terms.pose_l1_penalty
+    weight: 1.25
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: [left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle]
+        preserve_order: true
+  height_stand:
+    # Wide bootstrap layer of the two-layer trunk-height target (STAND_Z=0.115).
+    func: unilab.tasks.locomotion.microduck.standup_terms.height_target_gaussian
+    weight: 1.0
+    params:
+      std: 0.04
+      target_height: 0.115
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  height_stand_sharp:
+    # Narrow layer: strong gradient in the final cm. Weight relaxes
+    # 1.0 -> 0.5 -> 0.2 at iters 3000/4000 (conflict relax).
+    func: unilab.tasks.locomotion.microduck.standup_terms.height_target_gaussian
+    weight: 1.0
+    params:
+      std: 0.015
+      target_height: 0.115
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  height_stand_l1:
+    # L1 companion: sitting still costs -0.41/step and forces exploration
+    # (self-negating).
+    func: unilab.tasks.locomotion.microduck.standup_terms.height_l1_penalty
+    weight: 7.5
+    params:
+      target_height: 0.115
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  com_upward_velocity:
+    # Pays for the MOTION of rising below max_height (just above STAND_Z so
+    # the reward stays active through the final cm). Ungated (unlike velstand)
+    # and NO max_vz cap — capping the rewarded rise speed broke recovery
+    # discovery twice upstream.
+    func: unilab.tasks.locomotion.microduck.recovery_terms.com_upward_velocity
+    weight: 0.75
+    params:
+      max_height: 0.125
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  gentle_rise:
+    # trunk_vertical_accel_penalty: -|a_z|, GLOBAL (prone flips pay it too).
+    # POSITIVE weight — the function is self-negating; a negative weight
+    # double-negates into a reward for vertical shocks.
+    func: unilab.tasks.locomotion.microduck.standup_terms.trunk_vertical_accel_penalty
+    weight: 0.005
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  arrival_damping:
+    # Trunk ω_xy² arrival damper, gated on height (0.09/0.11 smoothstep) AND
+    # tilt (full ≤ 20°, zero ≥ 45°) so the approach to vertical stays free.
+    # Weight ramps 0 -> -0.025 -> -0.05 at iters 3000/4000.
+    func: unilab.tasks.locomotion.microduck.standup_terms.body_ang_vel_at_height
+    weight: 0.0
+    params:
+      height_low: 0.09
+      height_high: 0.11
+      tilt_full_deg: 20.0
+      tilt_zero_deg: 45.0
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  upright_linear:
+    # cos(tilt): bootstrap pull from any orientation (gradient everywhere).
+    func: unilab.tasks.locomotion.microduck.standup_terms.body_upright_linear
+    weight: 1.5
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  upright_sharp:
+    # Gaussian upright (std 0.3 ≈ 17°) gated by trunk z (SIT_Z -> STAND_Z
+    # smoothstep) so a low vertical crouch cannot farm it. Weight relaxes
+    # 1.5 -> 1.0 -> 0.5 at iters 3000/4000.
+    func: unilab.tasks.locomotion.microduck.standup_terms.upright_gaussian_at_height
+    weight: 1.5
+    params:
+      std: 0.3
+      height_low: 0.06
+      height_high: 0.115
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  standing_composite:
+    # Multiplicative goal-state score (height x upright x pose Gaussians,
+    # broad stds) — collapses on any single deficient factor. Weight relaxes
+    # 3.75 -> 2.5 -> 1.5 at iters 3000/4000.
+    func: unilab.tasks.locomotion.microduck.standup_terms.standing_composite_score
+    weight: 3.75
+    params:
+      target_height: 0.115
+      height_std: 0.04
+      upright_std: 0.4
+      pose_std: 0.4
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        joint_names: [left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle, right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle]
+        preserve_order: true
+  body_pose_tracking:
+    # Locomotion-aware 6D tracking; only z/roll/pitch are weighted (the
+    # runtime body-control axes). Tight stds on purpose: at 1 cm z error with
+    # z_std 0.01 the axis reward drops to 0.37 (real gradient). Weight ramps
+    # 0 -> 1.5 -> 3.0 -> 4.0 at iters 2500/3000/4000.
+    func: unilab.tasks.locomotion.microduck.standup_terms.body_pose_tracking_locomotion
+    weight: 0.0
+    params:
+      command_name: body_pose
+      nominal_height: 0.115
+      z_std: 0.01
+      angle_std: 0.08726646259971647
+      axis_weights: [0.0, 0.0, 1.0, 1.0, 1.0, 0.0]
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+      feet_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [ankle_left, ankle_right]
+        preserve_order: true
+  # Sim2real regularisers matched to velocity absolute weights.
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.1
+  joint_torque_rate_l2:
+    # Anti-jitter (torque CHANGE, never magnitude). Starts at 0; ramps to
+    # -1e-3 at iter 3000 (torque_rate_weight). Reads BamVoltageAction.applied_torque.
+    func: unilab.tasks.locomotion.microduck.recovery_terms.joint_torque_rate_l2
+    weight: 0.0
+  body_ang_vel:
+    # Trunk_base world-frame ω_xy penalty (yaw free). Motion-blocker: kept LIGHT.
+    func: unilab.envs.mdp.body_angular_velocity_penalty
+    weight: -0.05
+    params:
+      asset_cfg:
+        _target_: unilab.managers.SceneEntityCfg
+        name: robot
+        body_names: [trunk_base]
+  angular_momentum:
+    func: unilab.tasks.locomotion.common.gait_terms.angular_momentum_penalty
+    weight: -0.02
+    params: {sensor_name: root_angmom}
+  self_collisions:
+    func: unilab.tasks.locomotion.common.gait_terms.self_collision_cost
+    weight: -1.0
+    params:
+      sensor_groups: [[self_collision_trunk_left_leg], [self_collision_trunk_right_leg], [self_collision_legs]]
+  dof_pos_limits:
+    func: unilab.envs.mdp.joint_pos_limits
+    weight: -1.0
