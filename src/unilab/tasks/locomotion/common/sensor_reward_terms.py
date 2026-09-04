@@ -120,10 +120,33 @@ class orientation(_Vec3SensorTerm):
         )
 
 
+class upright(_Vec3SensorTerm):
+    """Gaussian reward for keeping the declared body up-vector vertical."""
+
+    _allowed_params = frozenset({"sensor_name", "std"})
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        self._std = _real(
+            self.name,
+            "std",
+            cfg.params.get("std", 1.0),
+            minimum=0.0,
+            strict_minimum=True,
+        )
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+        del params
+        upvector = self._read_sensor(env)
+        tilt_error = np.square(upvector[:, 0]) + np.square(upvector[:, 1])
+        return np.asarray(np.exp(-tilt_error / self._std**2), dtype=get_global_dtype())
+
+
 __all__ = [
     "ang_vel_xy",
     "lin_vel_z",
     "orientation",
     "track_ang_vel",
     "track_lin_vel",
+    "upright",
 ]

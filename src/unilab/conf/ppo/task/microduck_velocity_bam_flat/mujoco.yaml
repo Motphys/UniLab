@@ -22,3 +22,10 @@ algo:
   algorithm:
     learning_rate: 1.0e-3
     entropy_coef: 0.01
+    # Same bilateral mapping as the PD owner. One-sided turning is not an
+    # actuator-model artifact; keep the 61D/14D mirror loss on the BAM path.
+    symmetry_cfg:
+      use_data_augmentation: false
+      use_mirror_loss: true
+      mirror_loss_coeff: 0.5
+      data_augmentation_func: unilab.tasks.locomotion.microduck.symmetry.microduck_velocity_symmetry

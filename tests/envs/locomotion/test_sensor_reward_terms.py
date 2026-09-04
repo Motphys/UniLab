@@ -91,10 +91,12 @@ def test_lin_vel_z_ang_vel_xy_and_orientation_read_declared_sensor() -> None:
     lin_vel_z = _term(sensor_reward_terms.lin_vel_z, env, sensor_name="local_linvel")
     ang_vel_xy = _term(sensor_reward_terms.ang_vel_xy, env, sensor_name="gyro")
     orientation = _term(sensor_reward_terms.orientation, env, sensor_name="upvector")
+    upright = _term(sensor_reward_terms.upright, env, sensor_name="upvector", std=0.5)
 
     np.testing.assert_allclose(lin_vel_z(env), [0.09, 0.25], rtol=1e-6)
     np.testing.assert_allclose(ang_vel_xy(env), [0.05, 0.0], rtol=1e-6)
     np.testing.assert_allclose(orientation(env), [0.0, 0.25], rtol=1e-6)
+    np.testing.assert_allclose(upright(env), np.exp(-np.array([0.0, 0.25]) / 0.25), rtol=1e-6)
     assert scene.bound_names == ("upvector",)
 
 
@@ -115,6 +117,8 @@ def test_tracking_terms_validate_params_at_construction() -> None:
         )
     with pytest.raises(TypeError, match="unsupported parameters"):
         _term(sensor_reward_terms.lin_vel_z, env, sensor_name="local_linvel", bogus=1.0)
+    with pytest.raises(ValueError, match="std"):
+        _term(sensor_reward_terms.upright, env, sensor_name="upvector", std=0.0)
 
 
 def test_terms_fail_closed_on_missing_or_misshapen_sensor() -> None:
@@ -145,6 +149,7 @@ def test_hot_paths_use_only_cached_runtime_objects() -> None:
         sensor_reward_terms.lin_vel_z,
         sensor_reward_terms.ang_vel_xy,
         sensor_reward_terms.orientation,
+        sensor_reward_terms.upright,
     ):
         source = inspect.getsource(term_type.__call__)
         for forbidden in (

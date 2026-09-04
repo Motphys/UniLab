@@ -8,10 +8,11 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from unilab.envs.mdp import UniformPoseCommandCfg
+from unilab.envs.mdp import UniformPoseCommandCfg, UniformVelocityCommand, UniformVelocityCommandCfg
 from unilab.managers import RewardTermCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.tasks.locomotion.microduck.manager_terms import (
+    MicroduckVelocityCommandCfg,
     body_pose_tracking,
     flight_phase,
     foot_air_time_biped,
@@ -87,6 +88,52 @@ def test_flight_phase_penalizes_only_double_air() -> None:
     )
     term = _term(flight_phase, env)
     np.testing.assert_array_equal(term(env), [1.0, 0.0])
+
+
+def test_turn_in_place_bucket_overrides_independent_standing_sample(monkeypatch) -> None:
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=2,
+            step_dt=0.02,
+            rng=np.random.default_rng(4),
+            scene={
+                "robot": SimpleNamespace(
+                    data=SimpleNamespace(
+                        root_link_lin_vel_b=np.zeros((2, 3), dtype=np.float32),
+                        root_link_ang_vel_b=np.zeros((2, 3), dtype=np.float32),
+                    )
+                )
+            },
+        ),
+    )
+    cfg = MicroduckVelocityCommandCfg(
+        entity_name="robot",
+        resampling_time_range=(1.0, 1.0),
+        rel_standing_envs=1.0,
+        turn_in_place_fraction=1.0,
+        ranges=UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(-0.4, 0.4),
+            lin_vel_y=(-0.3, 0.3),
+            ang_vel_z=(-1.0, 1.0),
+        ),
+    )
+    term = cfg.build(env)
+
+    def sample_standing(self, env_ids):
+        self.vel_command_b[env_ids] = (0.2, 0.1, 0.0)
+        self.vel_command_w[env_ids] = self.vel_command_b[env_ids]
+        self.is_standing_env[env_ids] = True
+
+    monkeypatch.setattr(UniformVelocityCommand, "_resample_command", sample_standing)
+    ids = np.asarray([0, 1], dtype=np.int32)
+    term._resample_command(ids)
+    term._update_command()
+
+    np.testing.assert_array_equal(term.is_standing_env, False)
+    np.testing.assert_array_equal(term.command[:, :2], 0.0)
+    assert np.all(np.abs(term.command[:, 2]) >= 0.4)
+    np.testing.assert_array_equal(term.vel_command_w, term.command)
 
 
 def test_contact_terms_read_first_component_from_vector_force_sensors() -> None:

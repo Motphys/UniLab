@@ -144,6 +144,11 @@ class MicroduckVelocityCommand(UniformVelocityCommand):
             self._turn_ang_max,
             len(turn_ids),
         )
+        # The base sampler may independently mark one of these rows as
+        # standing. Keep the dedicated turn bucket authoritative and refresh
+        # the world-frame copy, matching upstream VelocityCommandCommandOnly.
+        self.is_standing_env[turn_ids] = False
+        self.vel_command_w[turn_ids] = self.vel_command_b[turn_ids]
 
 
 class GroundPickPhaseCommand(UniformVelocityCommand):

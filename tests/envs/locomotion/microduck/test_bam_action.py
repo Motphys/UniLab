@@ -382,7 +382,7 @@ def _materialize(task: str, task_name: str) -> tuple[Any, ManagerBasedRlEnvCfg]:
 
 def test_bam_owner_materializes_and_matches_pd_recipe() -> None:
     cfg, env_cfg = _materialize("microduck_velocity_bam_flat", "MicroduckVelocityBamFlat")
-    _, pd_env_cfg = _materialize("microduck_velocity_flat", "MicroduckVelocityFlat")
+    pd_cfg, pd_env_cfg = _materialize("microduck_velocity_flat", "MicroduckVelocityFlat")
 
     assert cfg.training.task_name == "MicroduckVelocityBamFlat"
     assert cfg.training.sim_backend == "mujoco"
@@ -414,6 +414,13 @@ def test_bam_owner_materializes_and_matches_pd_recipe() -> None:
     # Events: same DR stack as the PD owner (encoder bias, armature, CoM,
     # mass/inertia, foot friction); BAM-specific DR lives inside the term.
     assert list(env_cfg.events) == list(pd_env_cfg.events)
+    assert (
+        cfg.algo.algorithm.symmetry_cfg.data_augmentation_func
+        == pd_cfg.algo.algorithm.symmetry_cfg.data_augmentation_func
+        == "unilab.tasks.locomotion.microduck.symmetry.microduck_velocity_symmetry"
+    )
+    assert cfg.algo.algorithm.symmetry_cfg.use_mirror_loss is True
+    assert pd_cfg.algo.algorithm.symmetry_cfg.use_mirror_loss is True
 
     registered = registry.list_registered_envs()
     assert registered["MicroduckVelocityBamFlat"]["available_backends"] == ["mujoco"]
