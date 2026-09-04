@@ -666,8 +666,8 @@ def _build_appo_actor(
     rl_cfg_dict = deepcopy(rl_cfg)
 
     if is_hora:
-        from uni_rl.hora.models import build_hora_shared_actor_critic
-        from uni_rl.hora.rsl_rl_compat import (
+        from uni_rl.algos.hora.models import build_hora_shared_actor_critic
+        from uni_rl.algos.hora.rsl_rl_compat import (
             convert_config_v3_to_v4,
             is_rsl_rl_v4,
             is_rsl_rl_v5,
@@ -766,13 +766,13 @@ def create_appo_playback_session(
     if env is None:
         raise RuntimeError("Playback env factory did not return an environment.")
 
-    from uni_rl.hora.runtime import is_hora_appo_runtime
+    from uni_rl.algos.hora.runtime import is_hora_appo_runtime
 
     is_hora = is_hora_appo_runtime(rl_cfg)
     selected_wrapper_cls = wrapper_cls
     policy_obs_mode = playback_cfg.policy_obs_mode
     if is_hora:
-        from uni_rl.hora.rsl_rl import HoraRslRlVecEnvWrapper
+        from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
 
         selected_wrapper_cls = HoraRslRlVecEnvWrapper
         policy_obs_mode = "actor"
@@ -909,7 +909,7 @@ def build_play_actor(
 ) -> tuple[Any, Any | None, str, dict[str, Any]]:
     """Build the policy actor selected by an off-policy owner config."""
     import torch
-    from uni_rl.common.actor_factory import build_actor
+    from uni_rl.algos.common.actor_factory import build_actor
 
     actor_algo_type, actor_kwargs = resolve_play_actor_spec(
         algo_name,
@@ -929,7 +929,7 @@ def build_play_actor(
             **actor_kwargs,
         )
     elif algo_name == "td3":
-        from uni_rl.fast_td3.learner import EmpiricalNormalization, TD3Actor
+        from uni_rl.algos.fast_td3.learner import EmpiricalNormalization, TD3Actor
 
         actor = TD3Actor(
             obs_dim,
@@ -956,7 +956,7 @@ def build_play_actor(
             actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
         )
         if cfg.algo.obs_normalization:
-            from uni_rl.common.normalization import EmpiricalNormalization
+            from uni_rl.algos.common.normalization import EmpiricalNormalization
 
             normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
     else:
@@ -1040,7 +1040,7 @@ def create_sac_playback_session(
 
     import os
 
-    from uni_rl.common.actor_factory import build_actor
+    from uni_rl.algos.common.actor_factory import build_actor
     from uni_rl.offpolicy.worker import resolve_offpolicy_actor_priv_info
 
     from unilab.utils.checkpoint import resolve_offpolicy_checkpoint_path
@@ -1074,7 +1074,7 @@ def create_sac_playback_session(
     checkpoint_path: str | None = None
     normalizer = None
     if bool(getattr(cfg.algo, "obs_normalization", False)):
-        from uni_rl.common.normalization import EmpiricalNormalization
+        from uni_rl.algos.common.normalization import EmpiricalNormalization
 
         normalizer = EmpiricalNormalization(shape=obs_dim, device=device_name)
     if playback_cfg.action_mode == "policy":
@@ -1135,13 +1135,13 @@ def create_sac_playback_session(
 
 
 def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
-    from uni_rl.hora.distill import (
+    from uni_rl.algos.hora.distill import (
         build_student_actor_and_normalizer,
         cfg_with_checkpoint_runtime,
         load_distilled_checkpoint,
         student_policy,
     )
-    from uni_rl.hora.rsl_rl import HoraRslRlVecEnvWrapper
+    from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
 
     from unilab.base.config_adapter import BackendAdapter, create_env
     from unilab.training import (

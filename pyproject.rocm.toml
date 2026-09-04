@@ -28,7 +28,7 @@ dependencies = [
     "unisim-core>=0.1.14",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
-    "unilab-rl==0.1.0",
+    "unilab-rl==0.2.0",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",

@@ -3,7 +3,7 @@
 FlashSAC runs through `src/unilab/scripts/train_flashsac.py` in its own config tree.
 Select it with `--algo flashsac`; defaults are inlined in
 `src/unilab/conf/flashsac/config.yaml`, and the implementation lives under
-`uni_rl.flash_sac` (uni_rl repo).
+`uni_rl.algos.flash_sac` (unilab-rl repo).
 
 It shares the off-policy runner design with SAC and TD3, but does not use the
 same default networks: the actor uses a block-based structure and the critic

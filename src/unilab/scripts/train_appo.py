@@ -11,8 +11,8 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
-from uni_rl.appo.runtime import resolve_appo_runtime
-from uni_rl.rsl_rl import RslRlVecEnvWrapper
+from uni_rl.algos.appo.runtime import resolve_appo_runtime
+from uni_rl.algos.rsl_rl import RslRlVecEnvWrapper
 from unisim.backend.base import log_playback_plan
 
 from unilab.base.config_adapter import (

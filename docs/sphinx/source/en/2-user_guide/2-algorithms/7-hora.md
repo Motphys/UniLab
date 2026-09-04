@@ -13,7 +13,7 @@ uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora traini
 ```
 
 The HORA PPO owner sets `algo.algo_log_name=hora_ppo` and resolves the runtime
-through `uni_rl.hora.rsl_rl:resolve_hora_ppo_runtime`. The APPO
+through `uni_rl.algos.hora.rsl_rl:resolve_hora_ppo_runtime`. The APPO
 variant sets `algo.algo_log_name=hora_appo`.
 
 ## Student Distillation

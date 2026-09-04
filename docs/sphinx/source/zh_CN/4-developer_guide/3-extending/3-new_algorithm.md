@@ -13,7 +13,7 @@
 
 ## 实现清单
 
-1. 把可复用的 learner 或 runner 代码放在 `uni_rl` (uni_rl repo) 下。
+1. 把可复用的 learner 或 runner 代码放在 `uni_rl` (unilab-rl repo) 下。
 2. 在归属的 config 根目录下添加 Hydra config。一个新的 off-policy 变体
    应当建立自己的配置树：算法超参数内联在 `src/unilab/conf/<algo>/config.yaml` 中，
    并添加对应的 `src/unilab/conf/<algo>/task/<task>/<backend>.yaml` owner YAML。
@@ -40,4 +40,4 @@
 - 结构化 config dataclass：`src/unilab/structured_configs.py`
 - 训练辅助工具：`src/unilab/training/common.py`、
   `src/unilab/training/run.py`
-- 现有算法包：`uni_rl` (uni_rl repo)
+- 现有算法包：`uni_rl` (unilab-rl repo)

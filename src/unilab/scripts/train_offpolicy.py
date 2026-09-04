@@ -176,19 +176,19 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         "backend_device_binder": bind_backend_process_device,
     }
     if algo_name == "sac":
-        from uni_rl.fast_sac.double_buffer import (
+        from uni_rl.algos.fast_sac.double_buffer import (
             build_sac_double_buffer_runner,
         )
 
         runner = build_sac_double_buffer_runner(cfg, **builder_kwargs)
     elif algo_name == "td3":
-        from uni_rl.fast_td3.double_buffer import (
+        from uni_rl.algos.fast_td3.double_buffer import (
             build_td3_double_buffer_runner,
         )
 
         runner = build_td3_double_buffer_runner(cfg, **builder_kwargs)
     elif algo_name == "flashsac":
-        from uni_rl.flash_sac.double_buffer import (
+        from uni_rl.algos.flash_sac.double_buffer import (
             build_flashsac_double_buffer_runner,
         )
 

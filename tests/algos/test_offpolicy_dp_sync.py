@@ -350,7 +350,7 @@ def test_learn_source_orders_sync_around_collector_and_logging():
 
 
 def test_fast_sac_initial_sync_tensors_return_live_references():
-    from uni_rl.fast_sac.learner import FastSACLearner
+    from uni_rl.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=4,
@@ -389,7 +389,7 @@ def test_fast_sac_initial_sync_tensors_return_live_references():
 
 
 def test_fast_sac_syncs_each_optimizer_gradient_before_step():
-    from uni_rl.fast_sac.learner import FastSACLearner
+    from uni_rl.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=4,
@@ -446,7 +446,7 @@ def test_fast_sac_syncs_each_optimizer_gradient_before_step():
 
 
 def test_fast_sac_gradient_sync_preserves_cuda_graph_capture():
-    from uni_rl.fast_sac.learner import FastSACLearner
+    from uni_rl.algos.fast_sac.learner import FastSACLearner
 
     learner = FastSACLearner(
         obs_dim=4,
@@ -482,7 +482,7 @@ def _build_sac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: 
     cfg = _offpolicy_cfg(overrides)
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
 
-    import uni_rl.fast_sac.double_buffer as owner_module
+    import uni_rl.algos.fast_sac.double_buffer as owner_module
 
     class _Learner:
         def __init__(self, *args, **kwargs):
@@ -552,7 +552,7 @@ def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.Monke
 
 
 def test_flash_sac_initial_sync_tensors_return_live_references():
-    from uni_rl.flash_sac.learner import FlashSACLearner
+    from uni_rl.algos.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
         obs_dim=4,
@@ -599,7 +599,7 @@ def test_flash_sac_initial_sync_tensors_return_live_references():
 
 
 def test_flash_sac_syncs_each_optimizer_gradient_before_step():
-    from uni_rl.flash_sac.learner import FlashSACLearner
+    from uni_rl.algos.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
         obs_dim=4,
@@ -646,7 +646,7 @@ def test_flash_sac_syncs_each_optimizer_gradient_before_step():
 
 
 def test_flash_sac_gradient_sync_preserves_cuda_graph_and_cpu_fallback_updates():
-    from uni_rl.flash_sac.learner import FlashSACLearner
+    from uni_rl.algos.flash_sac.learner import FlashSACLearner
 
     learner = FlashSACLearner(
         obs_dim=4,
@@ -702,7 +702,7 @@ def _build_flashsac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overri
     cfg = _offpolicy_cfg(overrides, algo="flashsac")
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
 
-    import uni_rl.flash_sac.double_buffer as flash_module
+    import uni_rl.algos.flash_sac.double_buffer as flash_module
 
     monkeypatch.setattr(module, "registry_env_factory", lambda *args, **kwargs: _fake_env_factory)
 

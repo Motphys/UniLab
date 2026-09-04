@@ -20,7 +20,7 @@ rsl_rl = pytest.importorskip("rsl_rl")
 import numpy as np
 import torch
 from tensordict import TensorDict
-from uni_rl.rsl_rl import normalize_ppo_train_cfg
+from uni_rl.algos.rsl_rl import normalize_ppo_train_cfg
 
 from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
