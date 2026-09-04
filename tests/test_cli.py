@@ -1218,9 +1218,7 @@ def test_convention_requires_entrypoint_script(
     assert "dreamer" not in cli.available_algos(tmp_path)
 
 
-def test_convention_requires_config_yaml(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_convention_requires_config_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _make_custom_algo_checkout(tmp_path, with_config=False)
     _pretend_motrix_is_installed(monkeypatch)
     monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
