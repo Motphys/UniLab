@@ -37,6 +37,24 @@ registry.register_env(
     sim_backend="mujoco",
 )
 
+# VelStand (walking + fall recovery) on the ground-contact BAM model; mujoco
+# only for the same BAM substep state-feedback reason as the walk variant.
+registry.register_env_config("MicroduckVelstandFlat", ManagerBasedRlEnvCfg)
+registry.register_env(
+    "MicroduckVelstandFlat",
+    make_microduck_velocity_env,
+    sim_backend="mujoco",
+)
+
+# Standup (sit/ground-pose mixed resets -> stand + body-pose tracking) on the
+# ground-contact BAM model; mujoco only for the same BAM reason.
+registry.register_env_config("MicroduckStandupFlat", ManagerBasedRlEnvCfg)
+registry.register_env(
+    "MicroduckStandupFlat",
+    make_microduck_velocity_env,
+    sim_backend="mujoco",
+)
+
 # The minimal command/term owners deliberately share the same generic
 # ManagerBasedRlEnv factory.  Their behavior is selected entirely by the
 # Hydra owner (command, metrics, recorder, and reward terms); the runtime does

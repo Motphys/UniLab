@@ -651,6 +651,25 @@ class ResetStateTransaction:
             self._qvel[ids[:, None], qvel_columns[None, :]] = encoded_velocity
         self._dirty_mask[ids] = True
 
+    def read_root_pose(
+        self,
+        env_ids: np.ndarray,
+        layout: BackendRootStateLayout,
+        *,
+        term_name: str,
+    ) -> np.ndarray:
+        """Read the world position and wxyz orientation staged for one floating root.
+
+        Returns a detached ``(len(env_ids), 7)`` copy of the pose currently
+        staged in this transaction. Rows no term has written yet are first
+        initialized to the backend default pose, so a later reset term can
+        build on an earlier term's root placement without re-deriving it.
+        """
+        ids = self._prepare_state_write(env_ids, capability="root-pose", term_name=term_name)
+        qpos_columns, _ = self._validate_root_layout(layout, term_name=term_name)
+        assert self._qpos is not None
+        return np.array(self._qpos[ids[:, None], qpos_columns[None, :]], copy=True)
+
     def commit(self) -> dict | None:
         """Commit all staged rows through one public backend call."""
         self._require_active()

@@ -361,7 +361,17 @@ class head_pose_tracking(_JointCommandTerm):
 
 
 class head_pose_bias(_JointCommandTerm):
-    _allowed_params = frozenset({"asset_cfg", "command_name", "tau_s"})
+    _allowed_params = frozenset(
+        {
+            "asset_cfg",
+            "command_name",
+            "tau_s",
+            "gate_height_low",
+            "gate_height_high",
+            "gate_tilt_full_deg",
+            "gate_tilt_zero_deg",
+        }
+    )
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
@@ -373,17 +383,65 @@ class head_pose_bias(_JointCommandTerm):
         )
         self._alpha = min(1.0, env.step_dt / tau)
         self._ema = np.zeros((env.num_envs, self._joint_ids.size), dtype=get_global_dtype())
+        gate_height_low = cfg.params.get("gate_height_low")
+        if gate_height_low is None:
+            self._gate: tuple[float, float, float, float] | None = None
+        else:
+            # Upright gate for recovery envs (upstream head_pose_bias_penalty):
+            # smoothstep in root height and tilt, multiplied into the EMA input
+            # and the output so the bias clock starts at ~0 when standing up.
+            self._gate = (
+                _finite_real(gate_height_low, label=f"{self.name} gate_height_low"),
+                _finite_real(
+                    cfg.params.get("gate_height_high", 0.11),
+                    label=f"{self.name} gate_height_high",
+                ),
+                _finite_real(
+                    cfg.params.get("gate_tilt_full_deg", 20.0),
+                    label=f"{self.name} gate_tilt_full_deg",
+                ),
+                _finite_real(
+                    cfg.params.get("gate_tilt_zero_deg", 45.0),
+                    label=f"{self.name} gate_tilt_zero_deg",
+                ),
+            )
 
     def reset(self, env_ids: np.ndarray | slice | None) -> None:
         self._ema[slice(None) if env_ids is None else env_ids] = 0.0
+
+    def _upright_gate(self, env: ManagerBasedRlEnv) -> np.ndarray:
+        assert self._gate is not None
+        height_low, height_high, tilt_full_deg, tilt_zero_deg = self._gate
+        z = np.nan_to_num(
+            self._entity.data.root_link_pos_w[:, 2] - np.asarray(env.scene.env_origins)[:, 2],
+            nan=0.0,
+        )
+        t = np.clip((z - height_low) / max(height_high - height_low, 1e-6), 0.0, 1.0)
+        gate = t * t * (3.0 - 2.0 * t)
+        quat = self._entity.data.root_link_quat_w
+        cos_tilt = 1.0 - 2.0 * (np.square(quat[:, 1]) + np.square(quat[:, 2]))
+        tilt_deg = np.degrees(np.arccos(np.clip(cos_tilt, -1.0, 1.0)))
+        st = np.clip(
+            (tilt_zero_deg - tilt_deg) / max(tilt_zero_deg - tilt_full_deg, 1e-6),
+            0.0,
+            1.0,
+        )
+        return gate * (st * st * (3.0 - 2.0 * st))
 
     def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
         del params
         fresh = env.episode_length_buf <= 1
         self._ema[fresh] = 0.0
+        error = self._joint_error(env)
+        gate = self._upright_gate(env) if self._gate is not None else None
+        if gate is not None:
+            error = error * gate[:, None]
         self._ema *= 1.0 - self._alpha
-        self._ema += self._alpha * self._joint_error(env)
-        return np.asarray(-np.mean(np.abs(self._ema), axis=1), dtype=get_global_dtype())
+        self._ema += self._alpha * error
+        output = -np.mean(np.abs(self._ema), axis=1)
+        if gate is not None:
+            output = output * gate
+        return np.asarray(output, dtype=get_global_dtype())
 
 
 class leg_pose(_JointCommandTerm):

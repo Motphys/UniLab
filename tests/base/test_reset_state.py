@@ -266,6 +266,59 @@ def test_root_pose_and_world_velocity_compose_at_nonzero_columns() -> None:
     np.testing.assert_allclose(qvel[1, 5:8], [0.0, -1.0, 0.0], atol=1e-7)
 
 
+def test_read_root_pose_returns_staged_or_default_pose_without_dirtying() -> None:
+    default_qpos = np.array([99.0, 1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0, 88.0])
+    default_qvel = np.zeros(9)
+    backend = _Backend(qpos=default_qpos, qvel=default_qvel)
+    transaction = _transaction(backend)
+    layout = BackendRootStateLayout(tuple(range(1, 8)), tuple(range(2, 8)))
+
+    with transaction.scoped(np.array([0, 2], dtype=np.int32)):
+        transaction.write_root_pose(
+            np.array([2], dtype=np.int32),
+            layout,
+            np.array([[10.0, 11.0, 12.0, 1.0, 0.0, 0.0, 0.0]]),
+            term_name="reset_base",
+        )
+        staged = transaction.read_root_pose(
+            np.array([0, 2], dtype=np.int32),
+            layout,
+            term_name="random_prone_init",
+        )
+        # Env 2 reflects the earlier term's write; env 0 the backend default.
+        np.testing.assert_allclose(staged[0], default_qpos[1:8])
+        np.testing.assert_allclose(staged[1], [10.0, 11.0, 12.0, 1.0, 0.0, 0.0, 0.0])
+        # The read is a detached copy: mutating it must not leak back.
+        staged[1, 0] = -5.0
+        reread = transaction.read_root_pose(
+            np.array([2], dtype=np.int32),
+            layout,
+            term_name="random_prone_init",
+        )
+        assert reread[0, 0] == 10.0
+
+    # Reading alone does not dirty a row: only the written env is committed.
+    assert len(backend.set_state_calls) == 1
+    ids, _, _ = backend.set_state_calls[0]
+    np.testing.assert_array_equal(ids, [2])
+
+
+def test_read_root_pose_fails_closed_outside_reset_scope() -> None:
+    backend = _Backend(
+        qpos=np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        qvel=np.zeros(6),
+    )
+    transaction = _transaction(backend)
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+
+    with pytest.raises(RuntimeError, match="requires an active reset event"):
+        transaction.read_root_pose(np.array([0], dtype=np.int32), layout, term_name="t")
+
+    with transaction.scoped(np.array([0], dtype=np.int32)):
+        with pytest.raises(ValueError, match="outside the active reset"):
+            transaction.read_root_pose(np.array([1], dtype=np.int32), layout, term_name="t")
+
+
 def test_combined_root_state_uses_staged_pose_for_angular_velocity() -> None:
     backend = _Backend(
         qpos=np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),

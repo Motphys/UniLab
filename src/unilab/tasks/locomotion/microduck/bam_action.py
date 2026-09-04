@@ -281,6 +281,16 @@ class BamVoltageAction(ActionTerm):
         return self._motor_torque
 
     @property
+    def applied_torque(self) -> np.ndarray:
+        """Last joint torque written to ctrl after the friction/static clip.
+
+        Closest observable to the upstream ``actuator_force`` used by
+        ``joint_torque_rate_l2``: the torque actually applied for the current
+        control step, zeroed on reset.
+        """
+        return self._prev_applied_torque
+
+    @property
     def friction_scale(self) -> np.ndarray:
         return self._friction_scale
 

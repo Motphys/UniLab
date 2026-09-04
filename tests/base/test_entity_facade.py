@@ -431,6 +431,31 @@ def test_entity_root_writes_use_cached_layout_and_one_reset_commit() -> None:
     np.testing.assert_allclose(qvel[1, 2:8], [1.0, 2.0, 3.0, 0.0, -1.0, 0.0], atol=1e-6)
 
 
+def test_entity_read_reset_root_pose_returns_staged_or_default_pose() -> None:
+    backend = _StrictBackendProfile("mujoco")
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    scene = EntityScene(
+        {"robot": EntityCfg(root_body_name="base")},
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    robot = scene["robot"]
+
+    with transaction.scoped(np.array([0, 2], dtype=np.int32)):
+        robot.write_root_link_pose_to_sim(
+            np.array([[10.0, 11.0, 12.0, 1.0, 0.0, 0.0, 0.0]], dtype=np.float32),
+            env_ids=np.array([2], dtype=np.int32),
+        )
+        staged = robot.read_reset_root_pose(env_ids=np.array([0, 2], dtype=np.int32))
+
+    # Env 2 reflects the staged write; env 0 the backend default root pose.
+    np.testing.assert_allclose(staged[1], [10.0, 11.0, 12.0, 1.0, 0.0, 0.0, 0.0])
+    np.testing.assert_allclose(staged[0], backend.default_qpos[1:8])
+    # Only the written row was committed.
+    assert len(backend.set_state_calls) == 1
+    np.testing.assert_array_equal(backend.set_state_calls[0][0], [2])
+
+
 def test_entity_caches_unsupported_root_layout_without_hot_path_probe() -> None:
     backend = _StrictBackendProfile(
         "drake",

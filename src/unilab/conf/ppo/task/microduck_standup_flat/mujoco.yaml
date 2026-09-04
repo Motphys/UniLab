@@ -1,0 +1,36 @@
+# @package _global_
+defaults:
+  - /task/microduck_standup_flat/base
+  - _self_
+
+training:
+  task_name: MicroduckStandupFlat
+  sim_backend: mujoco
+  play_steps: 2000
+
+algo:
+  # Upstream standup runner (microduck_standup_env_cfg.py): 15000
+  # iterations x 24 env steps, save every 250, experiment/run name
+  # microduck_stand, seed 42 (issue #1456).
+  seed: 42
+  num_envs: 4096
+  max_iterations: 15000
+  save_interval: 250
+  experiment_name: microduck_stand
+  run_name: microduck_stand
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - policy
+    critic:
+      - critic
+  policy:
+    init_noise_std: 1.0
+  algorithm:
+    learning_rate: 1.0e-3
+    entropy_coef: 0.01
+
+env:
+  # Env-level RNG seed (command / obs-noise / delay / DR sampling) matching
+  # upstream seed=42 so runs are reproducible (issue #1456).
+  seed: 42
