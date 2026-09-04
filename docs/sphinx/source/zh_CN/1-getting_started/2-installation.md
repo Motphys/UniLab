@@ -121,6 +121,20 @@ uv 路径。机器人 mesh 和纹理不会打进 wheel，而是在 cold path 从
 `uv run unilab-pull-assets` 预拉取。isaacgym / isaacsim 后端和 HORA 多卡提交路径仍假设
 源码 checkout；外部后端请使用下方专用安装页。
 
+## 运行时 Asset
+
+大型 asset 不打包进 wheel，而是在 cold path（所属功能首次使用时）从 Hugging Face
+数据集仓库懒加载：
+
+- [机器人网格与纹理](https://huggingface.co/datasets/unilabsim/unilab-robots)
+- [动作片段](https://huggingface.co/datasets/unilabsim/unilab-motions)
+- [场景](https://huggingface.co/datasets/unilabsim/unilab-scenes)
+- [抓取缓存](https://huggingface.co/datasets/unilabsim/unilab-caches)
+- [Demo checkpoint](https://huggingface.co/datasets/unilabsim/unilab-checkpoints)
+
+机器人 asset 可通过 `uv run unilab-pull-assets` 预拉取。中国大陆用户在默认
+Hugging Face endpoint 无法访问时，可设置 `HF_ENDPOINT=https://hf-mirror.com`。
+
 ## 后端 Extras
 
 基础 package 会安装公开的 `unisim-core` contract；具体仿真器的依赖保持为可选项。

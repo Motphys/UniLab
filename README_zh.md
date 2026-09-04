@@ -187,23 +187,12 @@ IsaacGym 和 IsaacSim 使用专用的外部 worker 环境。后端安装细节�
 [后端指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/3-backends/0-index.html)
 和[支持矩阵](https://unilabsim.github.io/UniLab-doc/zh_CN/5-reference/5-support_matrix.html)。
 
-## 生态与 asset
+## 生态
 
 UniLab 被设计为机器人专属仓库共享的产品界面。目前的下游示例包括
 [MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab) 和
 [EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab)。它们可以独立发布机器人
 recipe，同时消费同一套 task、backend 和 RL contract。
-
-大型 asset 只在 cold path 获取，不打包进 wheel：
-
-- [机器人网格与纹理](https://huggingface.co/datasets/unilabsim/unilab-robots)
-- [动作片段](https://huggingface.co/datasets/unilabsim/unilab-motions)
-- [场景](https://huggingface.co/datasets/unilabsim/unilab-scenes)
-- [抓取缓存](https://huggingface.co/datasets/unilabsim/unilab-caches)
-- [Demo checkpoint](https://huggingface.co/datasets/unilabsim/unilab-checkpoints)
-
-中国大陆用户在默认 Hugging Face endpoint 无法访问时，可设置
-`HF_ENDPOINT=https://hf-mirror.com`。
 
 ## 文档
 

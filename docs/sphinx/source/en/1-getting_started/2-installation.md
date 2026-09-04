@@ -133,6 +133,21 @@ source checkout. The isaacgym / isaacsim backends and the HORA multi-GPU
 submission path still assume a source checkout; use their dedicated setup pages
 below.
 
+## Runtime Assets
+
+Large assets are not bundled into the wheel; they are downloaded lazily on
+cold paths (first use of the owning feature) from Hugging Face dataset repos:
+
+- [Robot meshes and textures](https://huggingface.co/datasets/unilabsim/unilab-robots)
+- [Motion clips](https://huggingface.co/datasets/unilabsim/unilab-motions)
+- [Scenes](https://huggingface.co/datasets/unilabsim/unilab-scenes)
+- [Grasp caches](https://huggingface.co/datasets/unilabsim/unilab-caches)
+- [Demo checkpoints](https://huggingface.co/datasets/unilabsim/unilab-checkpoints)
+
+Pre-fetch robot assets with `uv run unilab-pull-assets`. For mainland China,
+set `HF_ENDPOINT=https://hf-mirror.com` when the default Hugging Face endpoint
+is unreachable.
+
 ## Backend Extras
 
 The base package installs the public `unisim-core` contract; simulator-specific

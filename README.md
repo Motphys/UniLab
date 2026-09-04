@@ -198,7 +198,7 @@ matrix live in the
 [backend guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/3-backends/0-index.html)
 and [support matrix](https://unilabsim.github.io/UniLab-doc/en/5-reference/5-support_matrix.html).
 
-## Ecosystem and assets
+## Ecosystem
 
 UniLab is designed to be the shared product surface for robot-specific
 repositories. Current downstream examples include
@@ -206,17 +206,6 @@ repositories. Current downstream examples include
 [EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab). They can ship
 robot recipes independently while consuming the same task, backend, and RL
 contracts.
-
-Large assets are fetched on cold paths instead of being bundled into the wheel:
-
-- [Robot meshes and textures](https://huggingface.co/datasets/unilabsim/unilab-robots)
-- [Motion clips](https://huggingface.co/datasets/unilabsim/unilab-motions)
-- [Scenes](https://huggingface.co/datasets/unilabsim/unilab-scenes)
-- [Grasp caches](https://huggingface.co/datasets/unilabsim/unilab-caches)
-- [Demo checkpoints](https://huggingface.co/datasets/unilabsim/unilab-checkpoints)
-
-For mainland China, set `HF_ENDPOINT=https://hf-mirror.com` when the default
-Hugging Face endpoint is unreachable.
 
 ## Documentation
 
