@@ -71,7 +71,7 @@ jobs:
               assert version == ref, f'{version} != {ref}'
           print('installed unilab', version)
           "
-      - uses: actions/upload-artifact@v4.2.3
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: release-dist
           path: dist/*
@@ -85,7 +85,7 @@ jobs:
       id-token: write
     environment: pypi
     steps:
-      - uses: actions/download-artifact@v4.2.3
+      - uses: actions/download-artifact@v4.3.0
         with:
           name: release-dist
           path: dist
