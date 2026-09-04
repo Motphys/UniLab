@@ -10,8 +10,6 @@ training:
 
 algo:
   # algo.num_envs is per rank. Upstream trains 4096 global environments.
-  # On this 4x MI210 host, 2048 per rank (8192 global) with
-  # training.devices=[0,1,2,3] improved omnidirectional coverage versus 1024.
   num_envs: 4096
   max_iterations: 6000
   save_interval: 250
