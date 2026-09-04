@@ -15,6 +15,9 @@ from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnvCfg
 from unilab.envs.mdp.actions import JointPositionAction
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 _ROOT = Path(__file__).parents[2]
 
 _PROFILE_IDENTITIES = (

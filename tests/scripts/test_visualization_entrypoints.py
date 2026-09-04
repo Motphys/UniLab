@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 import pytest
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _PACKAGE_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "scripts"
 

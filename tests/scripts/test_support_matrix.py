@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from scripts.tools.support_matrix import BACKENDS, EvidenceLevel, build_support_rows
+
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
 
 
 def _row(entrypoint_label: str, task_slug: str):

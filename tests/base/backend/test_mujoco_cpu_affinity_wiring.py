@@ -177,4 +177,6 @@ def test_default_nthread_capped_by_num_envs():
         sim_dt=0.01,
         base_name=_BASE_NAME,
     )
-    assert backend._n_threads == 2
+    # num_envs caps the pool size, but the effective-CPU cap wins first on
+    # single-core hosts (e.g. ubuntu-slim CI runners).
+    assert backend._n_threads == min(len(os.sched_getaffinity(0)), 2)

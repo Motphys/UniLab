@@ -28,6 +28,9 @@ from unilab.tasks.locomotion.common.rough_manager_terms import (
 from unilab.tasks.locomotion.go2w.manager_terms import Go2WMixedAction
 from unilab.utils.sim2sim import extract_contract_snapshot
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 ROOT_DIR = Path(__file__).parents[3]
 CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf" / "ppo"
 

@@ -16,6 +16,9 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 CONF_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "conf"
 _BACKENDS = ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim")
 

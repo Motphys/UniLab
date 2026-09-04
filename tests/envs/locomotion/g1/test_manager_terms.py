@@ -19,6 +19,9 @@ from unilab.tasks.locomotion.g1.manager_terms import (
     compute_feet_phase_height_targets,
 )
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 
 def _fake_scene(sensor_data: dict[str, np.ndarray]) -> Any:
     class _Scene(dict):

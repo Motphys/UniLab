@@ -1,9 +1,7 @@
 """Tests for env config completeness and env instantiation.
 
-Config-attribute tests (non-slow) verify that config dataclasses expose every
-attribute accessed by their paired env class, WITHOUT running a simulation.
-
-Slow tests actually call registry.make() and run reset + step.
+The whole module is marked slow: Hydra composition and ``registry.make()``
+over every owner are CPU-bound and too slow for the single-core CI runner.
 """
 
 from __future__ import annotations
@@ -20,6 +18,9 @@ import numpy as np
 import pytest
 
 from unilab.base.registry import ensure_registries
+
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
 
 
 def _require_mujoco_runtime() -> None:
@@ -102,7 +103,7 @@ def _motion_manager_override(
 
 
 # ---------------------------------------------------------------------------
-# Non-slow: config attribute completeness (no env.step(), no MuJoCo sim)
+# Config attribute completeness (no env.step(), no MuJoCo sim)
 # ---------------------------------------------------------------------------
 
 

@@ -27,6 +27,9 @@ _PACKAGE_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / 
 _CONF_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "conf"
 _SRC_DIR = Path(__file__).parent.parent.parent / "src"
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 
 def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
     normalized: list[str] = []
