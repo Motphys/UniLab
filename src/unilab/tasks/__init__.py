@@ -13,7 +13,6 @@ __unilab_registry_modules__ = (
     "unilab.tasks.locomotion.go2_arm",
     "unilab.tasks.locomotion.a2",
     "unilab.tasks.locomotion.microduck",
-    "unilab.tasks.locomotion.t800",
     "unilab.tasks.manipulation.allegro_inhand",
     "unilab.tasks.manipulation.sharpa_inhand",
     "unilab.tasks.manipulation.stewart",

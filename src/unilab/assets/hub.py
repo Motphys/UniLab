@@ -54,10 +54,6 @@ ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
     "go2w": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
     "microduck": (("robots/microduck/assets", "trunk_base.stl", "*.stl", "STL"),),
     "sharpa_wave": (("robots/sharpa_wave/meshes", "DP_HB1_4F.STL", "*.STL", "STL"),),
-    "t800": (
-        ("robots/t800/assets", "LINK_BASE.obj", "*.obj", "OBJ"),
-        ("robots/t800/textures", "LINK_BASE.png", "*.png", "PNG"),
-    ),
     "x2": (("robots/x2/meshes", "pelvis.STL", "*.STL", "STL"),),
 }
 

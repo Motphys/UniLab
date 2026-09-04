@@ -13,9 +13,9 @@ in English. Do not infer support beyond the evidence grade shown below.
   headless physics in an external Python 3.11 worker; its owner scope is
   currently limited to the configured G1 walk-flat PPO/SAC paths.
 - `--sim mjwarp` has completed training validation only on the `g1_walk_flat`
-  host adapter, where PPO (torch) and SAC (torch) are Tested; the SAC
-  `t800_walk_flat` mjwarp owner is Configured only, other entrypoints follow
-  the matrix below, and using it requires installing the `mjwarp` extra.
+  host adapter, where PPO (torch) and SAC (torch) are Tested; other
+  entrypoints follow the matrix below, and using it requires installing the
+  `mjwarp` extra.
 - `--algo`, `--task`, and `--sim` jointly select the owner YAML.
 - Do not treat `training.sim_backend` as a standalone backend switch.
 
@@ -53,9 +53,7 @@ owner may only cover training smoke and an explicitly enabled DR subset.
 `mjwarp` has completed training validation only on the `g1_walk_flat` host
 adapter: the PPO (torch) and SAC (torch) owners have completed training
 validation and have backend, contract, and playback automated coverage, so
-they are marked `Tested`. The SAC `t800_walk_flat` mjwarp owner only has an
-owner YAML and compose coverage, so it is marked `Configured`, which does not
-imply training validation. mjwarp playback
+they are marked `Tested`. mjwarp playback
 supports explicit, finite-step `record` and reuses the MuJoCo offline
 renderer; `uv run eval --sim mjwarp --render-mode interactive` routes to the
 MuJoCo interactive viewer (mjwarp physics, MuJoCo rendering of env[0], forced
@@ -110,7 +108,6 @@ rendering/playback paths remain unsupported.
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested | - | - |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested | - | - |
 | PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested | - | - |
-| PPO (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Registered | - | - | - |
 | APPO (torch) | `go1_joystick_flat` (Go1 joystick) | Tested | - | Tested | - | - |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested | - | - |
 | APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered | Registered |
@@ -137,7 +134,6 @@ rendering/playback paths remain unsupported.
 | SAC (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Registered | - | - |
 | SAC (torch) | `g1_23dof_wbt_obs` (g1 23dof wbt obs) | Tested | - | Registered | - | - |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered | - | - |
-| SAC (torch) | `t800_walk_flat` (t800 walk flat) | Tested | Configured | - | - | - |
 | TD3 (torch) | `go1_joystick_flat` (Go1 joystick) | Registered | - | Tested | - | - |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested | - | - |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered | Registered |

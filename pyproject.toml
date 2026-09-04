@@ -17,8 +17,6 @@ source-exclude = [
     "/src/unilab/assets/robots/go2_arm/assets",
     "/src/unilab/assets/robots/microduck/assets",
     "/src/unilab/assets/robots/sharpa_wave/meshes",
-    "/src/unilab/assets/robots/t800/assets",
-    "/src/unilab/assets/robots/t800/textures",
     "/src/unilab/assets/robots/x2/meshes",
 ]
 

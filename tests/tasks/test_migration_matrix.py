@@ -31,7 +31,6 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
         ("MicroduckVelocityFlat", "microduck_locomotion", "complete", "Compatible"),
         ("MicroduckGroundPickFlat", "microduck_locomotion", "mba", "Adapted"),
         ("MicroduckSitStandFlat", "microduck_locomotion", "mba", "Adapted"),
-        ("T800WalkFlat", "t800_locomotion", "complete", "Compatible"),
         ("Go2JoystickRough", "quadruped_rough", "complete", "Compatible"),
     ],
 )
