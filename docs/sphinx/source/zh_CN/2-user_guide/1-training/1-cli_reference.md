@@ -40,21 +40,32 @@ choices，不改变命令行为。在新 checkout 上，可用一条 setup 命�
 安装：
 
 ```bash
+# 完整默认环境（MuJoCo + Motrix）：
 make setup
 
-# 需要 Motrix 时：
-make setup-motrix
+# 仅 MuJoCo：
+# make setup-mujoco
+
+# 仅 Motrix（运行 Motrix demo 的最快路径）：
+# make setup-motrix
 ```
 
-`make setup` 会执行 `uv sync` 和 `uv run --no-sync unilab-complete install`；
-`make setup-motrix` 会执行 `uv sync --extra motrix` 和同样的补全安装。安装命令会按
-`$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被自动激活，重新
-打开终端或 source 对应 rc 文件后生效。
+`make setup` 会执行 `uv sync --extra mujoco --extra motrix`，随后运行
+`uv run --no-sync unilab-complete install`；`make setup-mujoco` 和
+`make setup-motrix` 只选择对应的 extra，并安装相同的补全。一个环境只选择一条安装路径。
+安装命令会按 `$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被自动
+激活，重新打开终端或 source 对应 rc 文件后生效。
 
 如果系统没有 `make`，可直接执行：
 
 ```bash
-uv sync && uv run --no-sync unilab-complete install
+# 完整默认环境：
+uv sync --extra mujoco --extra motrix
+uv run --no-sync unilab-complete install
+
+# 或选择一个后端 extra：
+# uv sync --extra mujoco && uv run --no-sync unilab-complete install
+# uv sync --extra motrix && uv run --no-sync unilab-complete install
 ```
 
 Linux / WSL 的 Bash 用户也可手动把下面内容写入 `~/.bashrc`：

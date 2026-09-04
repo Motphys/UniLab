@@ -10,13 +10,13 @@ sd_hide_title: true
 
 # UniLab
 
-### 面向 CPU 仿真与加速器训练的 contract 驱动机器人学习基础设施。
+### 一次配置任务语义，跨物理后端运行机器人 RL。
 
-{bdg-primary}`Python >=3.10,<3.14` {bdg-secondary}`Hydra owner YAML` {bdg-info}`MuJoCo + Motrix` {bdg-success}`uv workflow`
+{bdg-primary}`Python >=3.10,<3.14` {bdg-secondary}`Hydra + Manager API` {bdg-info}`跨后端 contract` {bdg-success}`uv workflow`
 
-UniLab 通过 `uv run train` / `uv run eval` CLI、task-owner Hydra 配置和 backend
-contract 来组织机器人 RL。可以从这个着陆页开始：安装、跑一次冒烟训练、选择
-算法/后端，或直接跳到部署与扩展文档。
+UniLab 将任务语义变成可复用配置：组装 manager term、选择物理后端，并在手头的硬件
+上运行同一套训练/评估工作流。可以从这个着陆页开始：安装、运行第一次 demo、再做
+冒烟训练、选择算法/后端，或直接跳到部署与扩展文档。
 
 ```{button-ref} 1-getting_started/1-quick_demo
 :ref-type: doc
@@ -42,20 +42,19 @@ contract 来组织机器人 RL。可以从这个着陆页开始：安装、跑�
 ::::{grid} 1 1 3 3
 :gutter: 3
 
-:::{grid-item-card} CPU 仿真，加速器训练
-README 把 UniLab 描述为通过共享内存把 CPU 物理仿真连接到策略训练，
-以 MuJoCo 和 Motrix 作为仿真后端。
+:::{grid-item-card} 配置任务，无需样板代码
+在 Hydra owner YAML 中用 manager term 组装 action、observation、reward、termination、
+event、command 和 curriculum。常见任务变体无需新写 environment class。
 :::
 
 :::{grid-item-card} 后端选择留在配置里
-用 CLI flag 切换后端，例如 `--task go2_joystick_flat --sim motrix`；
-CLI 会组合 `src/unilab/conf/` 下对应的 owner YAML。不要把
-`training.sim_backend` 当作独立的后端开关。
+用 CLI flag 在当前和未来的物理 adapter 之间切换，例如
+`--task go2_joystick_flat --sim motrix`；CLI 会组合 `src/unilab/conf/` 下对应的 owner YAML。
 :::
 
-:::{grid-item-card} 部署路径都有文档
-部署文档覆盖 sim-to-real、sim-to-sim、ONNX/runtime 导出、安全
-层，以及 G1、Go2、Allegro 的机器人专属说明。
+:::{grid-item-card} 跨硬件扩展
+任务 contract 将 CPU 并行或外部 worker 仿真连接到 accelerator learner，实验可以随着
+手头可用的硬件持续扩展。
 :::
 
 ::::
@@ -67,6 +66,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 uv sync --extra motrix
+uv run demo dance
 uv run train --algo ppo --task go2_joystick_flat --sim motrix \
   algo.max_iterations=1 algo.num_envs=16 training.no_play=true
 ```
@@ -88,13 +88,13 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 :::{grid-item-card} 运行或回放训练
 :link: 1-getting_started/1-quick_demo
 :link-type: doc
-先在 Go2 上跑 PPO，再进入评估、回放或 checkpoint 续训。
+先运行预训练 demo，再进入 PPO 训练、评估、回放或 checkpoint 续训。
 :::
 
-:::{grid-item-card} 选择后端
+:::{grid-item-card} 选择物理后端
 :link: 2-user_guide/3-backends/0-index
 :link-type: doc
-通过 task owner YAML 和后端能力文档对比 MuJoCo 与 Motrix。
+通过 task owner YAML 选择后端，并阅读其安装与能力要求。
 :::
 
 :::{grid-item-card} 挑选算法
@@ -127,8 +127,9 @@ flowchart LR
   cli --> script["Thin script routing<br/>src/unilab/scripts/train_*.py"]
   owner --> registry["Registry bootstrap<br/>src/unilab/base/registry.py"]
   registry --> env["NpEnv contract<br/>obs dict + info dict"]
-  env --> backend["SimBackend<br/>MuJoCo or Motrix"]
-  env --> runtime["Runner / IPC<br/>shared memory lifecycle"]
+  env --> backend["SimBackend<br/>unisim-core adapters"]
+  env --> factory["EnvFactory contract"]
+  factory --> runtime["Runner / IPC<br/>unilab-rl async runtime"]
   runtime --> learner["Learner<br/>PPO / APPO / SAC / TD3"]
 ```
 

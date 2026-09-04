@@ -22,7 +22,7 @@ source-exclude = [
 [project]
 name = "unilab"
 version = "0.1.0"
-description = "Universal Lab for Robot Learning"
+description = "Configurable, contract-driven robot learning across physics backends"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -87,6 +87,12 @@ unilab-viz-nan = "unilab.utils.nan_viz:main"
 unilab-export-scene = "unisim.backend.mujoco.export_scene:main"
 unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
+
+[project.urls]
+Homepage = "https://unilabsim.github.io"
+Documentation = "https://unilabsim.github.io/UniLab-doc/"
+Repository = "https://github.com/unilabsim/UniLab"
+Issues = "https://github.com/unilabsim/UniLab/issues"
 
 [project.optional-dependencies]
 drake = [

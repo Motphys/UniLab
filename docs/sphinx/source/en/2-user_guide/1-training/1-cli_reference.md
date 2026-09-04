@@ -42,22 +42,33 @@ On a fresh checkout, one setup command syncs the environment and installs the
 completion:
 
 ```bash
+# Full default environment (MuJoCo + Motrix):
 make setup
 
-# When you need Motrix:
-make setup-motrix
+# MuJoCo only:
+# make setup-mujoco
+
+# Motrix only (the shortest path for Motrix demos):
+# make setup-motrix
 ```
 
-`make setup` runs `uv sync` followed by `uv run --no-sync unilab-complete install`;
-`make setup-motrix` runs `uv sync --extra motrix` followed by the same completion
-install. The install command picks Bash or Zsh from `$SHELL` / platform and only
-writes user-level rc files. The current shell is not auto-activated; reopen the
-terminal or source the rc file to apply.
+`make setup` runs `uv sync --extra mujoco --extra motrix` followed by
+`uv run --no-sync unilab-complete install`; `make setup-mujoco` and
+`make setup-motrix` select only their named extra and install the same completion.
+Choose one setup path for an environment. The install command picks Bash or Zsh
+from `$SHELL` / platform and only writes user-level rc files. The current shell
+is not auto-activated; reopen the terminal or source the rc file to apply.
 
 If `make` is unavailable, run the steps directly:
 
 ```bash
-uv sync && uv run --no-sync unilab-complete install
+# Full default environment:
+uv sync --extra mujoco --extra motrix
+uv run --no-sync unilab-complete install
+
+# Or choose one backend extra:
+# uv sync --extra mujoco && uv run --no-sync unilab-complete install
+# uv sync --extra motrix && uv run --no-sync unilab-complete install
 ```
 
 Bash users (Linux / WSL) can instead add this to `~/.bashrc`:

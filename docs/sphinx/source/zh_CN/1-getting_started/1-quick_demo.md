@@ -33,15 +33,16 @@ make setup-motrix
 # make sync-xpu
 ```
 
-## 演示
+## 第一次成功
 
-演示回放（首次运行会从 Hugging Face 拉取预训练检查点）：
+在修改任务配置前，先运行一个预训练策略（首次运行会从 Hugging Face 拉取检查点和 asset）：
 
 ```bash
 uv run demo dance
 ```
 
-可用的 demo 名称：`teaser`、`dance`、`wallflip`、`boxtracking`、`locomani`、`inhandgrasp`。
+可用的 demo 名称为 `teaser`、`dance`、`wallflip`、`boxtracking`、`locomani` 和
+`inhandgrasp`。运行 `uv run demo --help` 查看 device 和 refresh 选项。
 
 中国大陆用户：运动、场景、机器人网格和 demo 检查点在首次运行时从 Hugging Face 拉取。如果
 `huggingface.co` 无法访问，请在运行训练、评估或 demo 命令前切到社区镜像：

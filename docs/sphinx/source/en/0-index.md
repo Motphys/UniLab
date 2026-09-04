@@ -10,14 +10,15 @@ sd_hide_title: true
 
 # UniLab
 
-### Contract-driven robot learning infrastructure for CPU simulation and accelerator learning.
+### Configure task semantics once. Run robot RL across physics backends.
 
-{bdg-primary}`Python >=3.10,<3.14` {bdg-secondary}`Hydra owner YAML` {bdg-info}`MuJoCo + Motrix` {bdg-success}`uv workflow`
+{bdg-primary}`Python >=3.10,<3.14` {bdg-secondary}`Hydra + Manager API` {bdg-info}`Cross-backend contract` {bdg-success}`uv workflow`
 
-UniLab routes robot RL through the `uv run train` / `uv run eval` CLI,
-task-owner Hydra configs, and backend contracts. Use the landing page to
-install, run a smoke training job, choose an algorithm/backend, or jump into
-deployment and extension docs.
+UniLab turns task semantics into reusable configuration: assemble manager terms,
+select a physics backend, and run the same train/eval workflow on the hardware
+available to you. Use this landing page to install, run a first demo, follow it
+with a smoke job, choose an algorithm or backend, or jump into deployment and
+extension docs.
 
 ```{button-ref} 1-getting_started/1-quick_demo
 :ref-type: doc
@@ -43,20 +44,22 @@ User guide
 ::::{grid} 1 1 3 3
 :gutter: 3
 
-:::{grid-item-card} CPU simulation, accelerator learning
-The README describes UniLab as CPU physics simulation connected to policy
-training through shared memory, with MuJoCo and Motrix as simulation backends.
+:::{grid-item-card} Configure tasks without boilerplate
+Compose actions, observations, rewards, terminations, events, commands, and
+curricula from manager terms in Hydra owner YAML. Common task variants need no
+new environment class.
 :::
 
 :::{grid-item-card} Backend choice stays in config
-Switch backends with CLI flags such as `--task go2_joystick_flat --sim motrix`;
-the CLI composes the matching owner YAML under `src/unilab/conf/`. Do not use
-`training.sim_backend` as a standalone backend switch.
+Move between current and future physics adapters with CLI flags such as
+`--task go2_joystick_flat --sim motrix`; the CLI composes the matching owner
+YAML under `src/unilab/conf/`.
 :::
 
-:::{grid-item-card} Deployment paths are documented
-The deployment docs cover sim-to-real, sim-to-sim, ONNX/runtime export, safety
-layers, and robot-specific notes for G1, Go2, and Allegro.
+:::{grid-item-card} Scale across hardware
+The task contract connects CPU-parallel and external-worker simulation to
+accelerator learners, so the experiment can grow with the hardware available
+to you.
 :::
 
 ::::
@@ -68,6 +71,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
 uv sync --extra motrix
+uv run demo dance
 uv run train --algo ppo --task go2_joystick_flat --sim motrix \
   algo.max_iterations=1 algo.num_envs=16 training.no_play=true
 ```
@@ -90,13 +94,15 @@ machine.
 :::{grid-item-card} Run or replay training
 :link: 1-getting_started/1-quick_demo
 :link-type: doc
-Start with PPO on Go2, then move to evaluation, playback, or checkpoint resume.
+Run a pre-trained demo first, then move to PPO training, evaluation, playback,
+or checkpoint resume.
 :::
 
-:::{grid-item-card} Choose a backend
+:::{grid-item-card} Choose a physics backend
 :link: 2-user_guide/3-backends/0-index
 :link-type: doc
-Compare MuJoCo and Motrix through task owner YAMLs and backend capability docs.
+Select a backend through task owner YAMLs and read its installation and
+capability requirements.
 :::
 
 :::{grid-item-card} Pick an algorithm
@@ -129,8 +135,9 @@ flowchart LR
   cli --> script["Thin script routing<br/>src/unilab/scripts/train_*.py"]
   owner --> registry["Registry bootstrap<br/>src/unilab/base/registry.py"]
   registry --> env["NpEnv contract<br/>obs dict + info dict"]
-  env --> backend["SimBackend<br/>MuJoCo or Motrix"]
-  env --> runtime["Runner / IPC<br/>shared memory lifecycle"]
+  env --> backend["SimBackend<br/>unisim-core adapters"]
+  env --> factory["EnvFactory contract"]
+  factory --> runtime["Runner / IPC<br/>unilab-rl async runtime"]
   runtime --> learner["Learner<br/>PPO / APPO / SAC / TD3"]
 ```
 
