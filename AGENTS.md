@@ -4,6 +4,8 @@
 
 UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructure 仓库。
 
+RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collector、IPC、训练日志）由独立包 **uni_rl**（仓库 [unilabsim/unilab_rl](https://github.com/unilabsim/unilab_rl)，distribution 名 `unilab-rl`，拆分期发布在 TestPyPI）承载；UniLab 不构造 uni_rl 消费的 env，而是通过注入式 env contract 对接：`uni_rl.env_contract.EnvFactory = Callable[[int, Mapping | None], EnvProtocol]`（必须可被 pickle 引用，collector 跑在 spawn 子进程），UniLab 侧适配器为 `src/unilab/base/env_factory.py` 的 `registry_env_factory`，mjwarp 设备绑定经 `src/unilab/base/process_device.py` 的 `bind_backend_process_device` 注入。unilab 可以 import uni_rl；uni_rl 永远不 import unilab / unisim。
+
 ## Core Principles
 
 1. **Contract first**: 不为了一次通过绕过 env / backend / runner contract。
@@ -34,7 +36,7 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 | Backend | backend-specific 逻辑留在 backend / env 适配层，不向训练脚本扩散。env 层只能调用 `SimBackend`（`base.py`）中已声明的方法；若某方法只在 MuJoCo 或 Motrix 中存在，必须先将其加入 `SimBackend` 抽象接口（可抛 `NotImplementedError`），禁止直接在 env 里调用 backend 子类的私有方法（即"功能泄漏/feature leakage"）。新增 backend 专有能力时，需同步更新 `SimBackend`。 |
 | Asset / Metadata | `ASSETS_ROOT_PATH`、`model_file`、XML / asset 元数据只允许在 init / materialization / cache 等低频路径访问；`step/reset/domain randomization` 等热路径不得解析 asset 或基于 asset 元数据做运行时分支。机器人 mesh/纹理不入 git：托管在 HF 数据集 `unilabsim/unilab-robots`，注册表为 `src/unilab/assets/hub.py` 的 `ROBOT_ASSET_SPECS`，由 `create_backend` 冷路径自动下载（也可 `unilab-pull-assets` 预拉取），落盘回原路径使 XML `meshdir` 引用不变；这些目录在 `.gitignore` 与 `pyproject.toml` 的 `tool.uv.build-backend.source-exclude` 中同步排除。 |
 | Asset / XML structure | `<keyframe>` 必须放在 task-level XML（`scene_*.xml` 或 `locomotion_task.xml` 等 fragment），**禁止放进 robot.xml**。robot.xml 是纯机器人描述（body / joint / actuator / sensor），跟 task / 场景无关；keyframe 是 task 起始姿态，属于场景或 task 资源。motrix 后端需要 keyframe 时通过 `scene.fragment_files` 引用 fragment XML。 |
-| Async | 不绕开 runner lifecycle，也不另起 collector / learner 同步协议。 |
+| Async | 不绕开 runner lifecycle（实现在 uni_rl 仓库的 `uni_rl.ipc.async_runner`），也不另起 collector / learner 同步协议。 |
 | Sim2Sim 契约 | 跨后端 play 时，影响策略 I/O / 网络结构的字段必须跨后端一致；不一致即 `CrossBackendIncompatibleError`。详见下方 Sim2Sim 章节。 |
 
 ## Sim2Sim 跨后端配置契约
@@ -60,8 +62,12 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 - visualization helpers: `src/unilab/visualization/`
 - shared numeric helpers: `src/unilab/utils/rotation.py`, `src/unilab/utils/geometry.py`
 - config schema: `src/unilab/structured_configs.py`
-- async runner: `src/unilab/ipc/async_runner.py`
+- async runner: `uni_rl.ipc.async_runner`（独立 uni_rl 仓库 / `unilab-rl` 包）
+- algo 实现（runner / learner / collector）: uni_rl 包（独立仓库，distribution 名 `unilab-rl`）；UniLab 只保留入口脚本与 play 编排
+- uni_rl env factory 适配: `src/unilab/base/env_factory.py`
+- HORA APPO play 编排: `src/unilab/scripts/play_hora_appo.py`；HORA distill 配置组合: `src/unilab/training/hora_distill_config.py`
 - sim2sim 跨后端契约: `src/unilab/utils/sim2sim.py`
+- new algorithm recipe（三档扩展方式 + 约定式 CLI 路由 footprint）: `docs/sphinx/source/zh_CN/4-developer_guide/3-extending/3-new_algorithm.md`
 
 ## GitHub CLI (gh) 速查
 

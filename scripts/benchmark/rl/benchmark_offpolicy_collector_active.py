@@ -536,8 +536,9 @@ def _make_env(
     *,
     env_cfg_override: dict[str, Any] | None,
 ):
+    from uni_rl.utils.observations import get_obs_dims
+
     from unilab.base.config_adapter import create_env
-    from unilab.base.observations import get_obs_dims
 
     env = create_env(cfg, num_envs=int(cfg.algo.num_envs), env_cfg_override=env_cfg_override)
     if env.state is None:
@@ -559,9 +560,9 @@ def _run_active_window_case(
     measure_steps: int,
     profile_numpy_random: bool = False,
 ) -> CollectorResult:
-    from unilab.base.final_observation import resolve_terminal_observation_contract
-    from unilab.base.observations import split_obs_dict
-    from unilab.ipc.replay_buffer import ReplayBuffer
+    from uni_rl.ipc.replay_buffer import ReplayBuffer
+    from uni_rl.utils.final_observation import resolve_terminal_observation_contract
+    from uni_rl.utils.observations import split_obs_dict
 
     replay_buffer = ReplayBuffer(
         capacity=case.replay_capacity_rows,

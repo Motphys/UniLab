@@ -2,7 +2,7 @@
 
 FlashSAC 通过 `src/unilab/scripts/train_flashsac.py` 运行，拥有独立的配置树。使用
 `--algo flashsac` 选择它；默认值内联在 `src/unilab/conf/flashsac/config.yaml` 中，实现位于
-`src/unilab/algos/flash_sac/` 下。
+`uni_rl.algos.flash_sac` (unilab-rl repo) 下。
 
 它与 SAC、TD3 共用 off-policy runner 设计，但默认网络并不相同：actor 使用
 block-based 结构，critic 使用 distributional（categorical）Q 变体。

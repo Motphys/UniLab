@@ -26,6 +26,7 @@ import shutil
 
 import pytest
 import torch
+from uni_rl.ipc.rollout_ring_buffer import RolloutRingBuffer
 
 # ---------------------------------------------------------------------------
 # Dummy flat env — no MuJoCo required
@@ -38,7 +39,6 @@ import torch
 from tests._test_registry.dummy_flat_env import (  # noqa: E402  (side-effect import)
     DUMMY_ENV_NAME as _DUMMY_ENV_NAME,
 )
-from unilab.ipc.rollout_ring_buffer import RolloutRingBuffer
 
 _DUMMY_OBS_DIM = 8
 _DUMMY_ACT_DIM = 3

@@ -26,6 +26,9 @@ dependencies = [
     # Physics implementations are provided by the independently released
     # unisim-core package from the production PyPI index.
     "unisim-core>=0.1.14",
+    # RL algorithms and async runtimes live in the independently released
+    # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
+    "unilab-rl==0.2.0",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",
@@ -86,7 +89,15 @@ name = "pytorch-rocm72"
 url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
+# TestPyPI hosts the uni-rl (unilab-rl) releases; explicit so nothing
+# else resolves from it.
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
 [tool.uv.sources]
+unilab-rl = { index = "testpypi" }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
@@ -143,9 +154,6 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 no_site_packages = true
-exclude = [
-    "src/unilab/algos/rsl_rl/",
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -156,7 +164,6 @@ addopts = "--tb=short -m 'not slow'"
 
 [tool.coverage.run]
 source = ["unilab"]
-omit = ["*/rsl_rl/*"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
@@ -167,8 +174,6 @@ venvPath = "."
 venv = ".venv"
 include = ["src/unilab"]
 exclude = [
-    "src/unilab/algos/rsl_rl/",
-    "src/unilab/algos/common/ane_*",
     "src/unilab/base/backend/",
     "src/unilab/envs/",
     "src/unilab/terrains/",

@@ -13,7 +13,7 @@ uv run train --algo appo --task sharpa_inhand --sim mujoco --profile hora traini
 ```
 
 The HORA PPO owner sets `algo.algo_log_name=hora_ppo` and resolves the runtime
-through `unilab.algos.hora.rsl_rl:resolve_hora_ppo_runtime`. The APPO
+through `uni_rl.algos.hora.rsl_rl:resolve_hora_ppo_runtime`. The APPO
 variant sets `algo.algo_log_name=hora_appo`.
 
 ## Student Distillation
@@ -24,5 +24,5 @@ CLI does not currently declare a separate HORA distillation `--algo` route, so
 the public CLI examples on this page stay on the teacher path above.
 
 Teacher checkpoint resolution is implemented in
-`src/unilab/algos/hora/distill_config.py`. The student log family is
+`src/unilab/training/hora_distill_config.py`. The student log family is
 `hora_distill`.

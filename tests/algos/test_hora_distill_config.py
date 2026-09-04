@@ -8,7 +8,7 @@ import pytest
 from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError
 
-from unilab.algos.hora import distill_config
+from unilab.training import hora_distill_config as distill_config
 
 # distill_config's root_dir parameter expects the directory containing "conf";
 # after the packaging move that is the unilab package directory.
@@ -76,7 +76,7 @@ def test_hora_actor_mapping_strips_distribution_class_name() -> None:
         {
             "algo": {
                 "actor": {
-                    "class_name": "unilab.algos.hora:HoraActorModel",
+                    "class_name": "uni_rl.algos.hora:HoraActorModel",
                     "hidden_dims": [64, 32],
                     "activation": "relu",
                     "obs_normalization": False,
@@ -111,7 +111,7 @@ def test_hora_actor_mapping_fails_closed_when_teacher_field_is_missing() -> None
         {
             "algo": {
                 "actor": {
-                    "class_name": "unilab.algos.hora:HoraActorModel",
+                    "class_name": "uni_rl.algos.hora:HoraActorModel",
                     "activation": "elu",
                     "obs_normalization": True,
                     "priv_info_embed_dim": 9,

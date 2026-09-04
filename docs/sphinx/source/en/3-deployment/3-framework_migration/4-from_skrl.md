@@ -8,9 +8,9 @@ deployment path.
 
 | skrl | UniLab |
 |---|---|
-| `Agent` (PPO, SAC, …) | `unilab.algos.*` |
-| `RolloutMemory` | `unilab.ipc.rollout_ring_buffer` |
-| `ReplayMemory` | `unilab.ipc.replay_buffer` |
+| `Agent` (PPO, SAC, …) | `uni_rl.*` |
+| `RolloutMemory` | `uni_rl.ipc.rollout_ring_buffer` |
+| `ReplayMemory` | `uni_rl.ipc.replay_buffer` |
 | `Trainer` | `unilab.training.run` |
 | `Wrapper` for env | `NpEnv` subclassing |
 

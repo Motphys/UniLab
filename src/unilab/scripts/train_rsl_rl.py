@@ -9,10 +9,7 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
-from unisim.backend.base import RenderClosedError, log_playback_plan
-from unisim.backend.mujoco.xml import materialize_scene_visual_override
-
-from unilab.algos.rsl_rl import (
+from uni_rl.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
     finish_rsl_rl_distributed,
@@ -22,10 +19,8 @@ from unilab.algos.rsl_rl import (
     resolve_rsl_rl_device,
     rsl_rl_single_process_topology,
 )
-from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
-from unilab.base.config_adapter import BackendAdapter, create_env
-from unilab.base.run_control import RunComplete
-from unilab.ipc.dp_launcher import (
+from uni_rl.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+from uni_rl.ipc.dp_launcher import (
     UNILAB_DP_LOG_DIR,
     current_torch_distributed_local_rank,
     current_torch_distributed_rank,
@@ -34,6 +29,11 @@ from unilab.ipc.dp_launcher import (
     resolve_dp_topology,
     validate_dp_launchable,
 )
+from unisim.backend.base import RenderClosedError, log_playback_plan
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
+
+from unilab.base.config_adapter import BackendAdapter, create_env
+from unilab.base.run_control import RunComplete
 from unilab.training import (
     algo_config_dict,
     apply_env_nan_guard,
@@ -144,10 +144,13 @@ def _resolve_ppo_wrapper_cls(rl_cfg: dict[str, Any]) -> type[RslRlVecEnvWrapper]
         Wrapper class used to adapt the UniLab env contract to the active
         RSL-RL PPO runtime.
     """
-    return resolve_rsl_rl_ppo_runtime(
-        rl_cfg,
-        default_wrapper_cls=RslRlVecEnvWrapper,
-    ).wrapper_cls
+    return cast(
+        "type[RslRlVecEnvWrapper]",
+        resolve_rsl_rl_ppo_runtime(
+            rl_cfg,
+            default_wrapper_cls=RslRlVecEnvWrapper,
+        ).wrapper_cls,
+    )
 
 
 def apply_ppo_runtime_flags(
@@ -216,7 +219,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         return None
 
     def _normalize_play_train_cfg(train_cfg: dict[str, Any]) -> dict[str, Any]:
-        normalized = normalize_ppo_train_cfg(train_cfg)
+        normalized = cast("dict[str, Any]", normalize_ppo_train_cfg(train_cfg))
         apply_ppo_runtime_flags(normalized, cfg, training_enabled=False)
         return normalized
 

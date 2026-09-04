@@ -12,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from unilab.utils.checkpoint import resolve_task_checkpoint_path
 
-_PACKAGE_CONF_ROOT = Path(__file__).resolve().parents[2] / "conf"
+_PACKAGE_CONF_ROOT = Path(__file__).resolve().parents[1] / "conf"
 
 # Teacher owner configs are Hydra-composed from their family config tree.
 # SAC teachers live in their own per-algo tree; there is no `algo` group anymore.

@@ -1,6 +1,6 @@
 # Teacher -> student `algo.model` mapping for HoraActorModel teachers (PPO/APPO).
 #
-# Loaded by unilab.algos.hora.distill_config and merged next to the
+# Loaded by unilab.training.hora_distill_config and merged next to the
 # Hydra-composed teacher owner config mounted at `teacher_owner`, so every
 # student field interpolates directly from the teacher owner YAML. The teacher
 # owner config stays the single source of truth for these hyperparameters;

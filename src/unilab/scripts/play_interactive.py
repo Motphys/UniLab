@@ -44,11 +44,12 @@ from omegaconf import DictConfig, OmegaConf
 
 _PACKAGE_CONF_ROOT = Path(__file__).resolve().parents[1] / "conf"
 
-from unilab.algos.rsl_rl import (
+from uni_rl.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+
 from unilab.base.process_device import configure_backend_process_device
 from unilab.training import (
     algo_config_dict,
@@ -946,7 +947,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         if algo == "ppo":
             wrapper_cls = RslRlVecEnvWrapper
             if cfg is not None:
-                from unilab.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+                from uni_rl.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 
                 wrapper_cls = resolve_rsl_rl_ppo_runtime(
                     _algo_config_dict(cfg),

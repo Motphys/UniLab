@@ -1,7 +1,7 @@
 # PPO
 
 PPO 是默认的同步 on-policy 训练路径。它使用 `src/unilab/scripts/train_rsl_rl.py`，从
-`src/unilab/conf/ppo/config.yaml` 组合配置，并运行 `src/unilab/algos/rsl_rl_ppo.py`
+`src/unilab/conf/ppo/config.yaml` 组合配置，并运行 `uni_rl.algos.rsl_rl_ppo` (unilab-rl repo)
 和 `src/unilab/training/rsl_rl.py` 中的 RSL-RL 适配代码。
 
 ## 快速开始

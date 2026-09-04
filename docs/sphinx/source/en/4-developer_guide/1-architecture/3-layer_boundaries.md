@@ -11,7 +11,7 @@ standard is {doc}`/zh_CN/4-developer_guide/0-index`.
 | L0 Backend | `unisim.backend` | Physics backend abstraction, backend-owned scene materialization, backend capabilities. |
 | L1 Env | `src/unilab/envs/`, `src/unilab/base/np_env.py` | MDP semantics, observations, rewards, reset logic, backend-to-task adaptation. |
 | L2 Config and Registry | `src/unilab/conf/`, `src/unilab/structured_configs.py`, `src/unilab/base/registry.py`, `src/unilab/training/reward.py` | Hydra composition, owner YAML identity, env/reward registration. |
-| L3 Algo and IPC | `src/unilab/algos/`, `src/unilab/ipc/` | Learners, runners, collectors, replay and rollout buffers, weight sync. |
+| L3 Algo and IPC | `uni_rl` (unilab-rl repo), `uni_rl.ipc` (unilab-rl repo) | Learners, runners, collectors, replay and rollout buffers, weight sync. |
 | L4 Scripts | `scripts/` | Entrypoint assembly only. |
 
 ## Rules

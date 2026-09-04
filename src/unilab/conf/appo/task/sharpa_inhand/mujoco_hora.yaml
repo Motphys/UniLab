@@ -23,7 +23,7 @@ interactive:
 algo:
   algo_log_name: hora_appo
   runtime_impl: hora_appo
-  runtime_resolver: unilab.algos.hora.appo:resolve_hora_appo_runtime
+  runtime_resolver: unilab.scripts.play_hora_appo:resolve_hora_appo_runtime
   num_envs: 2048
   steps_per_env: 8
   max_iterations: 305
@@ -38,11 +38,11 @@ algo:
       actor: 0
       priv_info: 0
   actor:
-    class_name: unilab.algos.hora:HoraActorModel
+    class_name: uni_rl.algos.hora:HoraActorModel
     priv_info_embed_dim: 9
     priv_mlp_hidden_dims: [256, 128, 9]
   critic:
-    class_name: unilab.algos.hora:HoraCriticModel
+    class_name: uni_rl.algos.hora:HoraCriticModel
     priv_info_embed_dim: 9
     priv_mlp_hidden_dims: [256, 128, 9]
   algorithm:

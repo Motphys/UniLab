@@ -46,11 +46,12 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.algos.rsl_rl import (
+from uni_rl.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     get_policy_obs_dims,
     normalize_ppo_train_cfg,
 )
+
 from unilab.training import ensure_registries
 from unilab.utils.checkpoint import get_entrypoint_log_root
 from unilab.visualization.interactive_playback import (

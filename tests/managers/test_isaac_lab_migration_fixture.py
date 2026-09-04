@@ -149,7 +149,7 @@ def test_fixture_stays_test_only_and_has_no_external_runtime_imports() -> None:
         "from torch",
         "import isaaclab",
         "from isaaclab",
-        "unilab.ipc",
+        "uni_rl",
         "unilab.training",
     ):
         assert forbidden not in executable
