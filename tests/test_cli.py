@@ -1150,3 +1150,112 @@ def test_genesis_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.Mo
         "task=g1_walk_flat/genesis",
         "algo.num_envs=64",
     ]
+
+
+def _make_custom_algo_checkout(
+    root: Path,
+    *,
+    algo: str = "dreamer",
+    task: str = "go2_joystick_flat",
+    with_script: bool = True,
+    with_config: bool = True,
+    with_owner: bool = True,
+) -> None:
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    if with_script:
+        (root / "scripts" / f"train_{algo}.py").write_text("", encoding="utf-8")
+    if with_config:
+        (root / "conf" / algo).mkdir(parents=True, exist_ok=True)
+        (root / "conf" / algo / "config.yaml").write_text("algo: {}\n", encoding="utf-8")
+    if with_owner:
+        owner_dir = root / "conf" / algo / "task" / task
+        owner_dir.mkdir(parents=True, exist_ok=True)
+        (owner_dir / "motrix.yaml").write_text(
+            "training:\n  sim_backend: motrix\n",
+            encoding="utf-8",
+        )
+
+
+def test_convention_routes_custom_algo_with_config_and_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_custom_algo_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="train",
+        algo="dreamer",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_dreamer.py"),
+        "task=go2_joystick_flat/motrix",
+    ]
+    assert "dreamer" in cli.available_algos(tmp_path)
+
+
+def test_convention_requires_entrypoint_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_custom_algo_checkout(tmp_path, with_script=False)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="Unsupported algo='dreamer'"):
+        cli.build_command(
+            mode="train",
+            algo="dreamer",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            root=tmp_path,
+        )
+    assert "dreamer" not in cli.available_algos(tmp_path)
+
+
+def test_convention_requires_config_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_custom_algo_checkout(tmp_path, with_config=False)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="Unsupported algo='dreamer'"):
+        cli.build_command(
+            mode="train",
+            algo="dreamer",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_unknown_algo_error_lists_builtin_and_discovered_algos(tmp_path: Path) -> None:
+    _make_custom_algo_checkout(tmp_path)
+
+    with pytest.raises(SystemExit, match="choose one of") as excinfo:
+        cli.build_route("dqn", "go2_joystick_flat", "motrix", root=tmp_path)
+
+    message = str(excinfo.value)
+    assert "Unsupported algo='dqn'" in message
+    for builtin in ("ppo", "appo", "sac", "td3", "flashsac"):
+        assert builtin in message
+    assert "dreamer" in message
+
+
+def test_conf_tree_without_entrypoint_is_not_routable() -> None:
+    # hora_distill ships a conf tree (compose-only) but no train_hora_distill.py.
+    with pytest.raises(SystemExit, match="Unsupported algo='hora_distill'"):
+        cli.build_route("hora_distill", "sharpa_inhand", "mujoco")
+    assert "hora_distill" not in cli.available_algos()
+
+
+def test_malformed_algo_name_is_rejected_fail_closed(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="Unsupported algo"):
+        cli.build_route("../etc", "go2_joystick_flat", "motrix", root=tmp_path)
