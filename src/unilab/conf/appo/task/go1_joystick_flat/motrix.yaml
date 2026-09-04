@@ -1,0 +1,39 @@
+# @package _global_
+defaults:
+  - /task/go1_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go1JoystickFlat
+  sim_backend: motrix
+algo:
+  num_envs: 1024
+  steps_per_env: 24
+  max_iterations: 300
+  actor:
+    distribution_cfg:
+      init_std: 0.5
+  algorithm:
+    learning_rate: 5.0e-4
+    entropy_coef: 1.0e-3
+    desired_kl: 0.008
+env:
+  commands:
+    twist:
+      ranges:
+        lin_vel_x: [0.5, 0.5]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [0.0, 0.0]
+  events:
+    push_robot: null
+reward:
+  action_rate:
+    weight: -0.015
+  action_smooth:
+    func: unilab.envs.mdp.action_acc_l2
+    weight: -0.01
+  similar_to_default:
+    weight: -0.15
+  contact: null
+  swing_feet_z:
+    weight: 2.0

@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 def _write_sharpa_smoke_cache(cache_prefix, scale_values: list[float]) -> None:
-    from unilab.envs.manipulation.sharpa_inhand.base import (
+    from unilab.tasks.manipulation.sharpa_inhand.base import (
         SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
         resolve_grasp_cache_file,
     )
@@ -80,7 +80,7 @@ def _appo_motion_file_overrides(task: str, tmp_path: Path) -> list[str]:
         return []
     motion_file = tmp_path / f"{task.split('/', 1)[0]}_smoke_motion.npz"
     _write_g1_motion_smoke_npz(motion_file)
-    return [f"++env.motion_file={motion_file}"]
+    return [f"env.commands.motion.params.motion_file={motion_file}"]
 
 
 def test_appo_mujoco_smoke_tasks_have_owner_configs():
@@ -88,7 +88,7 @@ def test_appo_mujoco_smoke_tasks_have_owner_configs():
     missing = [
         task
         for task in APPO_MUJOCO_SMOKE_TASKS
-        if not (ROOT_DIR / "conf" / "appo" / "task" / f"{task}.yaml").is_file()
+        if not (ROOT_DIR / "src" / "unilab" / "conf" / "appo" / "task" / f"{task}.yaml").is_file()
     ]
     assert missing == []
 
@@ -101,7 +101,7 @@ def test_appo_task_configs_load(task, tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/train_appo.py",
+            "src/unilab/scripts/train_appo.py",
             f"task={task}",
             "algo.max_iterations=1",
             "training.no_play=true",
@@ -116,16 +116,19 @@ def test_appo_task_configs_load(task, tmp_path):
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "task",
-    ["sac/g1_walk_flat/mujoco", "sac/g1_walk_rough/mujoco", "td3/g1_walk_flat/mujoco"],
+    ("algo", "task"),
+    [
+        ("sac", "g1_walk_flat/mujoco"),
+        ("sac", "g1_walk_rough/mujoco"),
+        ("td3", "g1_walk_flat/mujoco"),
+    ],
 )
-def test_offpolicy_task_configs_load(task):
+def test_offpolicy_task_configs_load(algo, task):
     """Off-policy task configs can start training with supported MuJoCo owners."""
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/train_offpolicy.py",
-            f"algo={task.split('/', 1)[0]}",
+            f"src/unilab/scripts/train_{algo}.py",
             f"task={task}",
             "algo.max_iterations=1",
             "training.no_play=true",
@@ -134,7 +137,7 @@ def test_offpolicy_task_configs_load(task):
         text=True,
         timeout=120,
     )
-    assert result.returncode == 0, f"Off-policy {task} failed:\n{result.stderr}"
+    assert result.returncode == 0, f"Off-policy {algo} {task} failed:\n{result.stderr}"
 
 
 @pytest.mark.slow
@@ -150,7 +153,7 @@ def test_ppo_sharpa_motrix_one_iteration_training_smoke(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/train_rsl_rl.py",
+            "src/unilab/scripts/train_rsl_rl.py",
             "task=sharpa_inhand/motrix",
             "algo.num_envs=16",
             "algo.num_steps_per_env=2",
@@ -188,7 +191,7 @@ def test_ppo_two_gpu_rsl_rl_training_smoke(task: str, task_name: str, tmp_path: 
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/train_rsl_rl.py",
+            "src/unilab/scripts/train_rsl_rl.py",
             f"task={task}",
             "training.devices=[0,1]",
             "training.play_render_mode=record",

@@ -17,8 +17,8 @@ uv run eval  --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 ## 生效链路
 
 1. **训练时**：`ExperimentTracker` 把决定策略 I/O 的契约字段快照进 `run_config.json` 的 `contract_snapshot`（不改动 checkpoint 格式，历史 checkpoint 天然兼容）。
-2. **回放时**：`eval` 读取 `--sim` 指定的**目标后端** owner 配置（如 `conf/ppo/task/go2_joystick_flat/motrix.yaml`），并注入 `training.play_only=true`。
-3. **建 env 前**：四个 play 入口（rsl_rl / appo / offpolicy / him_ppo）调用 `resolve_sim2sim_config`，把目标配置与源 run 的契约快照逐字段比对。
+2. **回放时**：`eval` 读取 `--sim` 指定的**目标后端** owner 配置（如 `src/unilab/conf/ppo/task/go2_joystick_flat/motrix.yaml`），并注入 `training.play_only=true`。若该任务没有所请求后端的 owner 配置，`eval` 会回退到同任务的兄弟后端 owner，并通过 ALLOWLIST 中的 `training.sim_backend` override 重新指定目标后端（`train` 仍要求 owner 配置必须存在）；下面的守卫链路不受影响。
+3. **建 env 前**：各 play 入口（rsl_rl / appo / sac / td3 / flashsac / him_ppo）调用 `resolve_sim2sim_config`，把目标配置与源 run 的契约快照逐字段比对。
 4. **加载权重时**：`policy_load_dim_guard` 包裹 checkpoint 加载，把底层 tensor 维度不匹配的晦涩报错重抛为清晰的 sim2sim 诊断。
 
 ## 守卫的字段
@@ -27,7 +27,7 @@ uv run eval  --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 
 | 档位 | 行为 | 字段 |
 |---|---|---|
-| **DENYLIST** | 差异即 `CrossBackendIncompatibleError`，中断 | `algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization` / `algo.obs_normalization`、`env.sampling_mode` |
+| **DENYLIST** | 差异即 `CrossBackendIncompatibleError`，中断 | `algo.obs_groups`、legacy `env.control_config.action_scale`、Manager-Based `env.observations` / `env.actions` / policy 与 critic group mapping、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization` / `algo.obs_normalization`、`env.sampling_mode` |
 | **WARNING_LIST** | 仅打印 warning，继续 | `reward.*`、`env.control_config.simulate_action_latency`、`env.ctrl_dt` |
 | **ALLOWLIST** | 自由覆盖，不检查 | `training.sim_backend`、`env.scene`、`training.play_steps`、`env.domain_rand`、`env.noise_config`、`env.commands.vel_limit` |
 
@@ -39,6 +39,10 @@ uv run eval  --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 - **强制放行**（自担风险）：`uv run eval ... training.sim2sim_strict=false`，把 DENYLIST 差异降级为 warning。
 
 > 兼容旧 run：若 `run_config.json` 没有 `contract_snapshot`（早期训练），守卫自动跳过并打印 warning，不会中断现有工作流。
+
+Manager-Based snapshot 会保存 Hydra 中完整的 typed observation/action 声明。缺少这些字段的旧
+snapshot 无法证明其 policy I/O 与 Manager-Based 目标等价，因此不对称出现时会 fail-closed。
+只有用户显式设置 `training.sim2sim_strict=false` 才会继续；加载权重时的维度守卫仍然生效。
 
 ## 另请参阅
 

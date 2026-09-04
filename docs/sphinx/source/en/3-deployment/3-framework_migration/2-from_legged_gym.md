@@ -9,12 +9,12 @@ mostly mechanical.
 
 | Legged Gym | UniLab |
 |---|---|
-| `LeggedRobot` env class | `unilab.envs.locomotion.common.base` |
+| `LeggedRobot` env class | `unilab.tasks.locomotion.common.base` |
 | `compute_observations()` | env-side obs builder + `unilab.base.observations` |
 | `_reward_*` methods | env's `compute_reward()` + reward term registry |
 | `command_ranges` | task owner YAML's `commands` block |
 | Terrain curriculum | {doc}`../../2-user_guide/6-terrain/1-procedural` |
-| RSL-RL PPO | `unilab.algos.torch.rsl_rl_ppo` |
+| RSL-RL PPO | `uni_rl.algos.rsl_rl_ppo` |
 
 ## What's new
 
@@ -22,7 +22,7 @@ mostly mechanical.
   + Motrix. Pick one (or both) before porting; see
   {doc}`../2-sim_to_sim/1-backend_swap`.
 - **Async collection.** Legged Gym collects on-GPU synchronously; UniLab's
-  APPO (`unilab.algos.torch.appo`) decouples collectors from
+  APPO (`uni_rl.algos.appo`) decouples collectors from
   learner. If wall-clock matters, port to APPO once your reward parity is
   established.
 - **Hardware deployment.** Legged Gym → real-world deployment is a
@@ -32,7 +32,7 @@ mostly mechanical.
 ## Migration checklist
 
 1. Copy your URDF / MJCF assets under `src/unilab/assets/robots/<robot>/`.
-2. Create a task module under `src/unilab/envs/locomotion/<robot>/`.
+2. Create a task module under `src/unilab/tasks/locomotion/<robot>/`.
 3. Mirror your reward terms; keep the same names so reward parity is
    diff-able.
 4. Translate command sampling — Legged Gym's `_resample_commands` becomes

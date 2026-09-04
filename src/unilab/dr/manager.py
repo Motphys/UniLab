@@ -5,9 +5,9 @@ import time
 from typing import Any
 
 import numpy as np
+from unisim.dr.types import DomainRandomizationCapabilities
 
 from .provider import DomainRandomizationProvider
-from .types import DomainRandomizationCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +106,20 @@ class DomainRandomizationManager:
             raise NotImplementedError(
                 f"{self._env._backend.backend_type} backend does not support interval body velocity perturbation"
             )
+        if (
+            plan.body_angular_velocity_delta is not None
+            and not self._capabilities.supports_interval_body_angular_velocity_delta
+        ):
+            raise NotImplementedError(
+                f"{self._env._backend.backend_type} backend does not support interval body angular velocity perturbation"
+            )
         if plan.body_force is not None and not self._capabilities.supports_interval_body_force:
             raise NotImplementedError(
                 f"{self._env._backend.backend_type} backend does not support interval body force perturbation"
+            )
+        if plan.body_torque is not None and not self._capabilities.supports_interval_body_torque:
+            raise NotImplementedError(
+                f"{self._env._backend.backend_type} backend does not support interval body torque perturbation"
             )
         self._env._backend.apply_interval_randomization(plan)
 

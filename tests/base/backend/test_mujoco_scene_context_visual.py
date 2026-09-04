@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unilab.base.backend.mujoco.backend import _build_mujoco_scene_context
+from unisim.backend.mujoco.backend import _build_mujoco_scene_context
+
 from unilab.base.scene import SceneCfg
 
 
@@ -35,9 +36,23 @@ def test_visual_model_file_override_is_render_only() -> None:
 
 
 def test_x2_wall_flip_wires_render_only_visual_twin() -> None:
-    from unilab.envs.motion_tracking.x2.flip_tracking import X2WallFlipTrackingEnvCfg
+    from hydra import compose, initialize_config_dir
 
-    cfg = X2WallFlipTrackingEnvCfg()
+    from unilab.base import registry
+    from unilab.base.config_adapter import BackendAdapter
+    from unilab.base.config_materialization import apply_cfg_overrides
+
+    repo_root = Path(__file__).parents[3]
+    with initialize_config_dir(
+        config_dir=str(repo_root / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
+        owner = compose("config", overrides=["task=x2_wall_flip_tracking/mujoco"])
+    registry.ensure_registries()
+    cfg = registry.materialize_env_config("X2WallFlipTracking")
+    apply_cfg_overrides(
+        cfg,
+        BackendAdapter(owner, root_dir=repo_root, algo_name="ppo").build_task_env_cfg_override(),
+    )
 
     # Physics = trained <body> wall; render = worldbody-geom twin.
     assert cfg.scene.model_file.endswith("scene_flat_with_wall.xml")

@@ -8,6 +8,10 @@ The source CSV is expected to contain one frame per row:
 
 The output layout matches the existing X2 ``*_g1format.npz`` assets consumed by
 the shared humanoid motion-tracking loader.
+
+Velocity estimation reuses the library implementation in
+``unilab.tasks.motion_tracking.common.motion_loader``; forward kinematics reuse
+``unisim.backend.mujoco.motion_export.compute_tracking_fk``.
 """
 
 from __future__ import annotations
@@ -17,34 +21,20 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+from unisim.backend.mujoco.motion_export import compute_tracking_fk
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.xml import inject_mujoco_tracking_sensors
-from unilab.utils.rotation import np_quat_angular_velocity, np_quat_ensure_continuity
+from unilab.tasks.motion_tracking.common.motion_loader import (
+    compute_motion_velocities,
+    quat_slerp,
+)
+from unilab.utils.rotation import np_quat_ensure_continuity
 
 ROOT_QPOS_DIM = 7
 ROOT_QVEL_DIM = 6
 DEFAULT_INPUT = ASSETS_ROOT_PATH / "motions" / "x2" / "csv" / "shangxiaoche_5-28_15.csv"
 DEFAULT_OUTPUT = ASSETS_ROOT_PATH / "motions" / "x2" / "shangxiaoche_5-28_15_g1format.npz"
 DEFAULT_MODEL = ASSETS_ROOT_PATH / "robots" / "x2" / "x2_simple_collision.xml"
-
-
-def _quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
-    q1 = q1.astype(np.float64, copy=False)
-    q2 = q2.astype(np.float64, copy=False)
-    dot = float(np.dot(q1, q2))
-    if dot < 0.0:
-        q2 = -q2
-        dot = -dot
-    if dot > 0.9995:
-        result = q1 + t * (q2 - q1)
-        return (result / np.linalg.norm(result)).astype(np.float32)
-
-    theta = np.arccos(np.clip(dot, -1.0, 1.0))
-    sin_theta = np.sin(theta)
-    w1 = np.sin((1.0 - t) * theta) / sin_theta
-    w2 = np.sin(t * theta) / sin_theta
-    return (w1 * q1 + w2 * q2).astype(np.float32)
 
 
 def _load_csv_qpos(input_path: Path, model_nq: int) -> np.ndarray:
@@ -92,11 +82,12 @@ def _resample_qpos(qpos: np.ndarray, input_fps: int, output_fps: int) -> np.ndar
     out = np.empty((output_times.shape[0], qpos.shape[1]), dtype=np.float32)
     out[:, :3] = qpos[index_0, :3] * (1.0 - blend[:, None]) + qpos[index_1, :3] * blend[:, None]
     for frame, t in enumerate(blend):
-        out[frame, 3:7] = _quat_slerp(
-            qpos[index_0[frame], 3:7],
-            qpos[index_1[frame], 3:7],
+        # Interpolate in float64, then cast back to float32.
+        out[frame, 3:7] = quat_slerp(
+            qpos[index_0[frame], 3:7].astype(np.float64),
+            qpos[index_1[frame], 3:7].astype(np.float64),
             float(t),
-        )
+        ).astype(np.float32)
     out[:, 7:] = qpos[index_0, 7:] * (1.0 - blend[:, None]) + qpos[index_1, 7:] * blend[:, None]
     out[:, 3:7] = np_quat_ensure_continuity(out[:, 3:7])
     return out
@@ -104,10 +95,13 @@ def _resample_qpos(qpos: np.ndarray, input_fps: int, output_fps: int) -> np.ndar
 
 def _qvel_from_qpos(qpos: np.ndarray, fps: int) -> np.ndarray:
     dt = 1.0 / float(fps)
+    base_lin_vels, base_ang_vels, dof_vels = compute_motion_velocities(
+        qpos[:, :3], qpos[:, 3:7], qpos[:, 7:], dt
+    )
     qvel = np.empty((qpos.shape[0], qpos.shape[1] - 1), dtype=np.float32)
-    qvel[:, :3] = np.gradient(qpos[:, :3], dt, axis=0).astype(np.float32)
-    qvel[:, 3:6] = np_quat_angular_velocity(qpos[:, 3:7], dt).astype(np.float32)
-    qvel[:, 6:] = np.gradient(qpos[:, 7:], dt, axis=0).astype(np.float32)
+    qvel[:, :3] = base_lin_vels.astype(np.float32)
+    qvel[:, 3:6] = base_ang_vels.astype(np.float32)
+    qvel[:, 6:] = dof_vels.astype(np.float32)
     return qvel
 
 
@@ -123,75 +117,6 @@ def _target_joint_names(model: mujoco.MjModel) -> list[str]:
     return names
 
 
-def _sensor_addresses(model: mujoco.MjModel) -> np.ndarray:
-    sensor_adrs = np.full((model.nbody, 4), -1, dtype=np.int32)
-    prefixes = (
-        "track_pos_w_",
-        "track_quat_w_",
-        "track_linvel_w_",
-        "track_angvel_w_",
-    )
-    for body_id in range(model.nbody):
-        body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id)
-        if not body_name:
-            continue
-        for slot, prefix in enumerate(prefixes):
-            sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, prefix + body_name)
-            if sensor_id >= 0:
-                sensor_adrs[body_id, slot] = int(model.sensor_adr[sensor_id])
-    return sensor_adrs
-
-
-def _export_body_arrays(
-    model: mujoco.MjModel,
-    qpos: np.ndarray,
-    qvel: np.ndarray,
-    target_joint_names: list[str],
-) -> dict[str, np.ndarray]:
-    data = mujoco.MjData(model)
-    frames = qpos.shape[0]
-    body_pos_w = np.zeros((frames, model.nbody, 3), dtype=np.float32)
-    body_quat_w = np.zeros((frames, model.nbody, 4), dtype=np.float32)
-    body_lin_vel_w = np.zeros((frames, model.nbody, 3), dtype=np.float32)
-    body_ang_vel_w = np.zeros((frames, model.nbody, 3), dtype=np.float32)
-    sensor_adrs = _sensor_addresses(model)
-
-    joint_ids = [
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name) for name in target_joint_names
-    ]
-    if any(joint_id < 0 for joint_id in joint_ids):
-        raise ValueError("Target joint list contains joints not found in model")
-
-    for frame in range(frames):
-        data.qpos[:] = qpos[frame]
-        data.qvel[:] = qvel[frame]
-        mujoco.mj_forward(model, data)
-
-        for body_id in range(model.nbody):
-            pos_adr, quat_adr, lin_adr, ang_adr = sensor_adrs[body_id]
-            if pos_adr >= 0:
-                body_pos_w[frame, body_id] = data.sensordata[pos_adr : pos_adr + 3]
-            else:
-                body_pos_w[frame, body_id] = data.xpos[body_id]
-
-            if quat_adr >= 0:
-                body_quat_w[frame, body_id] = data.sensordata[quat_adr : quat_adr + 4]
-            else:
-                body_quat_w[frame, body_id] = data.xquat[body_id]
-
-            if lin_adr >= 0:
-                body_lin_vel_w[frame, body_id] = data.sensordata[lin_adr : lin_adr + 3]
-            if ang_adr >= 0:
-                body_ang_vel_w[frame, body_id] = data.sensordata[ang_adr : ang_adr + 3]
-
-    return {
-        "body_pos_w": body_pos_w,
-        "body_quat_w": body_quat_w,
-        "body_lin_vel_w": body_lin_vel_w,
-        "body_ang_vel_w": body_ang_vel_w,
-    }
-
-
 def convert_csv(
     input_path: Path,
     output_path: Path,
@@ -200,22 +125,17 @@ def convert_csv(
     output_fps: int,
     dry_run: bool,
 ) -> None:
-    tmp_model_path, _, _ = inject_mujoco_tracking_sensors(str(model_file))
-    try:
-        model = mujoco.MjModel.from_xml_path(tmp_model_path)
-    finally:
-        Path(tmp_model_path).unlink(missing_ok=True)
+    model = mujoco.MjModel.from_xml_path(str(model_file))
 
     target_names = _target_joint_names(model)
     qpos_input = _load_csv_qpos(input_path, model.nq)
     qpos = _resample_qpos(qpos_input, input_fps, output_fps)
     qvel = _qvel_from_qpos(qpos, output_fps)
-    joint_pos = qpos[:, ROOT_QPOS_DIM:].astype(np.float32)
-    joint_vel = qvel[:, ROOT_QVEL_DIM:].astype(np.float32)
 
-    if joint_pos.shape[1] != len(target_names):
+    if qpos.shape[1] - ROOT_QPOS_DIM != len(target_names):
         raise ValueError(
-            f"CSV joint count {joint_pos.shape[1]} does not match model joints {len(target_names)}"
+            f"CSV joint count {qpos.shape[1] - ROOT_QPOS_DIM} does not match model joints "
+            f"{len(target_names)}"
         )
 
     print(f"Source : {input_path}")
@@ -223,7 +143,7 @@ def convert_csv(
     print(f"Output : {output_path}")
     print(f"frames : {qpos_input.shape[0]} -> {qpos.shape[0]}")
     print(f"fps    : {input_fps} -> {output_fps}")
-    print(f"joints : {joint_pos.shape[1]}")
+    print(f"joints : {qpos.shape[1] - ROOT_QPOS_DIM}")
     print(f"bodies : {model.nbody} (MuJoCo body-id layout, including world)")
 
     if dry_run:
@@ -231,13 +151,20 @@ def convert_csv(
         return
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    body_arrays = _export_body_arrays(model, qpos, qvel, target_names)
+    arrays = compute_tracking_fk(
+        str(model_file),
+        joint_names=target_names,
+        base_poss=qpos[:, :3],
+        base_rots=qpos[:, 3:7],
+        base_lin_vels=qvel[:, :3],
+        base_ang_vels=qvel[:, 3:6],
+        dof_poss=qpos[:, ROOT_QPOS_DIM:],
+        dof_vels=qvel[:, ROOT_QVEL_DIM:],
+    )
     np.savez(
         output_path,
         fps=np.array([output_fps], dtype=np.int32),
-        joint_pos=joint_pos,
-        joint_vel=joint_vel,
-        **body_arrays,
+        **arrays,
     )
 
 

@@ -1,8 +1,8 @@
 # HIM-PPO
 
 HIM-PPO 有自己的配置组和脚本。入口是 `scripts/train_him_ppo.py`，基础配置是
-`conf/ppo_him/config.yaml`，已提交的 task owner 是
-`conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
+`src/unilab/conf/ppo_him/config.yaml`，已提交的 task owner 是
+`src/unilab/conf/ppo_him/task/go2_arm_manip_loco/mujoco.yaml`。
 
 ## 当前入口
 

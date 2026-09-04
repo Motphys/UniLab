@@ -14,6 +14,9 @@ Usage:
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --cases auto --backend motrix
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --cases sac/g1_walk_flat/mujoco
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --cases sac/g1_walk_flat/motrixsim
+    # mjwarp (GPU) is opt-in and requires the optional mjwarp extra:
+    uv run --extra mjwarp scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
+        --cases sac/g1_motion_tracking/mjwarp
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --num-envs 1024 --measure-steps 100
 """
 
@@ -32,6 +35,7 @@ import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from importlib.util import find_spec
 from pathlib import Path
 from statistics import mean, median, pstdev
 from typing import Any, Sequence, cast
@@ -61,6 +65,10 @@ DEFAULT_CASE_TEMPLATES = (
 DEFAULT_ALGOS = ("sac", "flashsac", "td3")
 DEFAULT_BACKEND = "motrix"
 BENCHMARK_BACKENDS = ("mujoco", "motrix")
+# mjwarp (GPU) is opt-in only: it requires the optional ``mjwarp`` extra
+# (mujoco-warp + warp-lang) and is never part of --all. Request it explicitly
+# via --backend mjwarp or an explicit <algo>/<task>/mjwarp case.
+OPTIONAL_BACKENDS = ("mjwarp",)
 DEFAULT_COLLECTOR_CPU_THREADS = 8
 COLLECTOR_CPU_THREADS_ENV = "UNILAB_COLLECTOR_TORCH_THREADS"
 BACKEND_ALIASES = {
@@ -119,6 +127,9 @@ NP_ENV_STEP_TIMING_KEYS = (
     "set_state_qpos_convert_ms",
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
+    "set_state_reset_upload_ms",
+    "set_state_reset_forward_ms",
+    "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
 )
 NP_ENV_STEP_COUNT_KEYS = ("reset_done_count",)
@@ -175,6 +186,9 @@ NP_ENV_STEP_TIMING_CSV_FIELDS = (
     ("set_state_qpos_convert_ms", "set_state_qpos_convert_ms"),
     ("set_state_pool_reset_ms", "set_state_pool_reset_ms"),
     ("set_state_state_scatter_ms", "set_state_state_scatter_ms"),
+    ("set_state_reset_upload_ms", "set_state_reset_upload_ms"),
+    ("set_state_reset_forward_ms", "set_state_reset_forward_ms"),
+    ("set_state_host_cache_refresh_ms", "set_state_host_cache_refresh_ms"),
     ("set_state_internal_gap_ms", "set_state_internal_gap_ms"),
 )
 
@@ -382,8 +396,7 @@ def _compose_offpolicy_cfg(
 ) -> DictConfig:
     owner_sim = _runtime_sim_backend(sim)
     overrides = [
-        f"algo={algo}",
-        f"task={algo}/{task}/{owner_sim}",
+        f"task={task}/{owner_sim}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -395,13 +408,22 @@ def _compose_offpolicy_cfg(
         overrides.extend(extra_overrides)
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / algo), version_base="1.3"
+    ):
         return compose(config_name="config", overrides=overrides)
 
 
 def _owner_config_path(algo: str, task: str, sim: str) -> Path:
     return (
-        ROOT_DIR / "conf" / "offpolicy" / "task" / algo / task / f"{_runtime_sim_backend(sim)}.yaml"
+        ROOT_DIR
+        / "src"
+        / "unilab"
+        / "conf"
+        / algo
+        / "task"
+        / task
+        / f"{_runtime_sim_backend(sim)}.yaml"
     )
 
 
@@ -409,7 +431,7 @@ def _discover_cases(*, algos: list[str], sim: str) -> list[str]:
     cases: list[str] = []
     owner_sim = _runtime_sim_backend(sim)
     for algo in algos:
-        task_root = ROOT_DIR / "conf" / "offpolicy" / "task" / algo
+        task_root = ROOT_DIR / "src" / "unilab" / "conf" / algo / "task"
         if not task_root.is_dir():
             continue
         for path in sorted(task_root.glob(f"*/{owner_sim}.yaml")):
@@ -420,9 +442,23 @@ def _discover_cases(*, algos: list[str], sim: str) -> list[str]:
 def _resolve_backend_selection(*, backend: str, all_backends: bool) -> tuple[str, ...]:
     if all_backends:
         return BENCHMARK_BACKENDS
+    if backend in OPTIONAL_BACKENDS:
+        _check_optional_backend_deps(backend)
+        return (backend,)
     if backend not in BENCHMARK_BACKENDS:
-        raise ValueError(f"unsupported backend {backend!r}; expected one of {BENCHMARK_BACKENDS}")
+        raise ValueError(
+            f"unsupported backend {backend!r}; expected one of "
+            f"{BENCHMARK_BACKENDS + OPTIONAL_BACKENDS}"
+        )
     return (backend,)
+
+
+def _check_optional_backend_deps(backend: str) -> None:
+    if backend == "mjwarp" and (find_spec("mujoco_warp") is None or find_spec("warp") is None):
+        raise SystemExit(
+            "backend=mjwarp requires the mjwarp extra. Install it with `uv sync --extra mjwarp` "
+            "or run this benchmark with `uv run --extra mjwarp ...`."
+        )
 
 
 def _default_case_specs(backends: Sequence[str]) -> list[str]:
@@ -500,8 +536,9 @@ def _make_env(
     *,
     env_cfg_override: dict[str, Any] | None,
 ):
-    from unilab.base.observations import get_obs_dims
-    from unilab.training import create_env
+    from uni_rl.utils.observations import get_obs_dims
+
+    from unilab.base.config_adapter import create_env
 
     env = create_env(cfg, num_envs=int(cfg.algo.num_envs), env_cfg_override=env_cfg_override)
     if env.state is None:
@@ -523,9 +560,9 @@ def _run_active_window_case(
     measure_steps: int,
     profile_numpy_random: bool = False,
 ) -> CollectorResult:
-    from unilab.base.final_observation import resolve_terminal_observation_contract
-    from unilab.base.observations import split_obs_dict
-    from unilab.ipc.replay_buffer import ReplayBuffer
+    from uni_rl.ipc.replay_buffer import ReplayBuffer
+    from uni_rl.utils.final_observation import resolve_terminal_observation_contract
+    from uni_rl.utils.observations import split_obs_dict
 
     replay_buffer = ReplayBuffer(
         capacity=case.replay_capacity_rows,
@@ -610,7 +647,6 @@ def _run_active_window_case(
                 )
             else:
                 env_step_timing_values["env_step_internal_gap_ms"] = None
-
             phase_start_ns = time.perf_counter_ns()
             next_obs_np, next_critic_np = split_obs_dict(state.obs)
             next_obs_np = np.asarray(next_obs_np, dtype=np.float32)
@@ -691,7 +727,7 @@ def _run_active_window_case(
                     aux_samples["env_step_overhead_ms"].append(env_step_ms - physics_ms)
                 for key, value in env_step_timing_values.items():
                     if value is not None:
-                        env_step_timing_samples[key].append(value)
+                        env_step_timing_samples.setdefault(key, []).append(value)
     finally:
         if random_profiler is not None:
             random_profiler.uninstall()
@@ -750,8 +786,9 @@ def _build_and_run_case(
     variant: str = "default",
     profile_numpy_random: bool = False,
 ) -> CollectorResult:
-    from unilab.training import BackendAdapter, ensure_registries
-    from unilab.training.seed import apply_training_seed
+    from unilab.base.config_adapter import BackendAdapter
+    from unilab.training import ensure_registries
+    from unilab.utils.seed import apply_training_seed
 
     algo, task, sim = _parse_case(spec)
     owner_path = _owner_config_path(algo, task, sim)
@@ -1296,6 +1333,13 @@ _SET_STATE_MUJOCO_KEYS = (
     ("set_state_internal_gap_ms", "Gap"),
 )
 
+_SET_STATE_MJWARP_KEYS = (
+    ("set_state_reset_upload_ms", "Reset upload"),
+    ("set_state_reset_forward_ms", "Reset forward"),
+    ("set_state_host_cache_refresh_ms", "Host cache refresh"),
+    ("set_state_internal_gap_ms", "Gap"),
+)
+
 
 def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
     """Backend set_state sub-timing table (motrix keyset).
@@ -1351,6 +1395,32 @@ def _format_set_state_mujoco_table(results: list[CollectorResult]) -> str:
                 result.case.runtime_sim_backend,
                 _format_np_env_timing(result, "dr_reset_set_state_ms"),
                 *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MUJOCO_KEYS),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_set_state_mjwarp_table(results: list[CollectorResult]) -> str:
+    """Backend set_state sub-timing table (mjwarp keyset)."""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MJWARP_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_np_env_timing(result, "dr_reset_set_state_ms"),
+                *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MJWARP_KEYS),
             )
         )
     return _format_table(headers, rows)
@@ -1565,9 +1635,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=BENCHMARK_BACKENDS,
+        choices=(*BENCHMARK_BACKENDS, *OPTIONAL_BACKENDS),
         default=DEFAULT_BACKEND,
-        help="Backend to benchmark for --cases default/auto. Default: motrix.",
+        help=(
+            "Backend to benchmark for --cases default/auto. Default: motrix. "
+            "mjwarp is opt-in and requires the mjwarp extra."
+        ),
     )
     parser.add_argument(
         "--all",
@@ -1577,7 +1650,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--sim",
-        choices=(*BENCHMARK_BACKENDS, *BACKEND_ALIASES.keys()),
+        choices=(*BENCHMARK_BACKENDS, *OPTIONAL_BACKENDS, *BACKEND_ALIASES.keys()),
         default=None,
         help=argparse.SUPPRESS,
     )
@@ -1637,6 +1710,12 @@ def main() -> int:
     specs = _resolve_case_specs(args.cases, algos_arg=args.algos, backends=backends)
     if not specs:
         raise SystemExit("No benchmark cases resolved.")
+    # Explicit <algo>/<task>/<sim> cases bypass --backend, so check optional
+    # backend deps per resolved case as well.
+    for spec in specs:
+        _, _, spec_sim = _parse_case(spec)
+        if spec_sim in OPTIONAL_BACKENDS:
+            _check_optional_backend_deps(spec_sim)
 
     hardware_info = _get_benchmark_hardware_info()
     print(f"Device: {get_device_info_line()}")
@@ -1722,6 +1801,8 @@ def main() -> int:
         print(_format_set_state_detail_table(results))
         print("\nBackend set_state detail — mujoco keyset:")
         print(_format_set_state_mujoco_table(results))
+        print("\nBackend set_state detail — mjwarp keyset:")
+        print(_format_set_state_mjwarp_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1

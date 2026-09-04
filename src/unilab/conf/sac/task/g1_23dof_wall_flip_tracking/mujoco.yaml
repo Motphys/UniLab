@@ -1,0 +1,41 @@
+# @package _global_
+defaults:
+  - /task/g1_23dof_flip_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1WallFlipTrackingSAC23Dof
+  sim_backend: mujoco
+
+algo:
+  algo_params:
+    target_entropy_ratio: 0.0
+
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_flat_23dof_with_wall.xml
+  commands:
+    motion:
+      params:
+        motion_file: motions/g1/flip_from_wall_104__A304_23dof.npz
+        sampling_mode: uniform
+        sampling_start_ratio: 0.0
+  terminations:
+    anchor_pos:
+      params: {command_name: motion, threshold: 1.0e9}
+    ee_body_pos:
+      params:
+        command_name: motion
+        threshold: 1.0e9
+        body_names:
+          - left_ankle_roll_link
+          - right_ankle_roll_link
+          - left_wrist_roll_rubber_hand
+          - right_wrist_roll_rubber_hand
+    undesired_contacts: null
+
+reward:
+  motion_joint_pos:
+    weight: 0.5
+  motion_joint_vel:
+    weight: 0.25

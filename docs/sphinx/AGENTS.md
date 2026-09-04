@@ -90,7 +90,7 @@ language-independent absolute path.
 ## Core Principles
 
 1. **Evidence only**: only document facts that can be verified in `src/`,
-   `conf/`, `tests/`, `scripts/`, ADRs, or generated support data.
+   `src/unilab/conf/`, `tests/`, `scripts/`, ADRs, or generated support data.
 2. **Code is the source of truth**: names, signatures, defaults, Hydra keys, and
    commands follow the repository, not memory.
 3. **Owner layer first**: scripts assemble; contracts live in backend, env,
@@ -106,7 +106,7 @@ language-independent absolute path.
 7. **Use canonical commands**: user-facing examples use the top-level CLI:
    `uv run train --algo <algo> --task <task> --sim <backend>`,
    `uv run eval ...`, or `uv run demo`. Script paths such as
-   `scripts/train_rsl_rl.py` may be named as implementation evidence, but they
+   `src/unilab/scripts/train_rsl_rl.py` may be named as implementation evidence, but they
    are not the primary command shape for docs readers.
 
 ## Before Writing
@@ -116,9 +116,9 @@ language-independent absolute path.
 3. Search first with `rg` / `rg --files`; update an existing page instead of
    creating a duplicate.
 4. Gather evidence near the claim:
-   - algorithms and tasks: `conf/`, `scripts/train_*.py`, `src/unilab/algos/`
-   - env contract: `src/unilab/base/np_env.py`, `src/unilab/training/rsl_rl.py`
-   - backend contract: `src/unilab/base/backend/base.py`
+   - algorithms and tasks: `src/unilab/conf/`, `src/unilab/scripts/train_*.py`, `src/unilab/algos/`
+   - env contract: `src/unilab/base/np_env.py`, `src/unilab/algos/rsl_rl.py`
+   - backend contract: `unisim.backend.base`
    - registry: `src/unilab/base/registry.py`
    - runner/IPC: `src/unilab/ipc/`, `src/unilab/training/run.py`
    - architecture: ADRs and `development-standard.md`
@@ -241,7 +241,7 @@ rules instead of treating the change as docs-only.
 
 Before reporting success, confirm:
 
-- all cited `src/`, `conf/`, `tests/`, and `scripts/` paths exist;
+- all cited `src/`, `src/unilab/conf/`, `tests/`, and `scripts/` paths exist;
 - English pages in scope have no manual navigation block;
 - root, `en/0-index.md`, and `zh_CN/0-index.md` remain included in toctrees;
 - any warnings from Sphinx are understood and not introduced by the current edit.

@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Profile Drake vs MuJoCo env-step performance on selected UniLab tasks.
-
-This benchmark is intentionally task-level rather than raw-simulator-level. It
-keeps UniLab's reset, observation, sensor-view, and body-query paths in the
-loop so G1 motion tracking can expose the expensive integration points.
-"""
+"""Profile Drake vs MuJoCo env-step performance on selected UniLab tasks."""
 
 from __future__ import annotations
 
@@ -22,7 +17,7 @@ import numpy as np
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT_DIR / "src"
-DEFAULT_DRAKEUNI_SRC = ROOT_DIR.parent / "drakeuni" / "src"
+DEFAULT_DRAKE_UNI_SRC = ROOT_DIR.parent / "drake_uni" / "src"
 DEFAULT_OUTPUT = (
     ROOT_DIR / "scripts" / "benchmark" / "outputs" / "drake_performance" / "results.json"
 )
@@ -34,17 +29,17 @@ def _prepend_import_path(path: Path) -> None:
         sys.path.insert(0, path_str)
 
 
-def _install_import_paths(drakeuni_src: Path | None) -> None:
+def _install_import_paths(drake_uni_src: Path | None) -> None:
     for path in (SRC_DIR, ROOT_DIR):
         _prepend_import_path(path)
-    if drakeuni_src is not None and drakeuni_src.exists():
-        _prepend_import_path(drakeuni_src)
+    if drake_uni_src is not None and drake_uni_src.exists():
+        _prepend_import_path(drake_uni_src)
 
 
 @dataclass(frozen=True)
 class TaskSpec:
     env_cfg_factory: Callable[[], Any]
-    env_cls_factory: Callable[[], type]
+    env_cls_factory: Callable[[], Callable[..., Any]]
 
 
 @dataclass
@@ -101,39 +96,23 @@ class StepProfiler:
 
 def _task_specs() -> dict[str, TaskSpec]:
     def go1_cfg() -> Any:
-        from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
+        from unilab.envs import ManagerBasedRlEnvCfg
 
-        return Go1JoystickCfg()
+        return ManagerBasedRlEnvCfg()
 
-    def go1_env() -> type:
-        from unilab.envs.locomotion.go1.joystick import Go1WalkTask
+    def manager_env() -> Callable[..., Any]:
+        from unilab.envs import make_manager_based_rl_env
 
-        return Go1WalkTask
+        return make_manager_based_rl_env
 
     def go2_cfg() -> Any:
-        from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+        from unilab.envs import ManagerBasedRlEnvCfg
 
-        return Go2JoystickCfg()
-
-    def go2_env() -> type:
-        from unilab.envs.locomotion.go2.joystick import Go2WalkTask
-
-        return Go2WalkTask
-
-    def g1_tracking_cfg() -> Any:
-        from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
-
-        return G1MotionTrackingEnvCfg()
-
-    def g1_tracking_env() -> type:
-        from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
-
-        return G1MotionTrackingEnv
+        return ManagerBasedRlEnvCfg()
 
     return {
-        "g1_motion_tracking": TaskSpec(g1_tracking_cfg, g1_tracking_env),
-        "go1_joystick_flat": TaskSpec(go1_cfg, go1_env),
-        "go2_joystick_flat": TaskSpec(go2_cfg, go2_env),
+        "go1_joystick_flat": TaskSpec(go1_cfg, manager_env),
+        "go2_joystick_flat": TaskSpec(go2_cfg, manager_env),
     }
 
 
@@ -141,11 +120,13 @@ def _compose_env_cfg(task: str, backend: str, spec: TaskSpec) -> Any:
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
+    from unilab.base.config_adapter import BackendAdapter
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.training import BackendAdapter
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[
@@ -341,10 +322,7 @@ def main() -> None:
     parser.add_argument(
         "--tasks",
         default="go1_joystick_flat,go2_joystick_flat",
-        help=(
-            "Comma-separated task ids. Defaults stay within committed Drake task configs; "
-            "pass g1_motion_tracking explicitly when its Drake config is available."
-        ),
+        help="Comma-separated task ids with committed Drake YAML owners.",
     )
     parser.add_argument("--backends", default="drake,mujoco", help="Comma-separated backends.")
     parser.add_argument("--num-envs", default="64,256,1024", help="Comma-separated env counts.")
@@ -358,10 +336,10 @@ def main() -> None:
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-json", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--drakeuni-src", type=Path, default=DEFAULT_DRAKEUNI_SRC)
+    parser.add_argument("--drake-uni-src", type=Path, default=DEFAULT_DRAKE_UNI_SRC)
     args = parser.parse_args()
 
-    _install_import_paths(args.drakeuni_src)
+    _install_import_paths(args.drake_uni_src)
     specs = _task_specs()
     task_ids = _parse_csv(args.tasks)
     backends = _parse_csv(args.backends)

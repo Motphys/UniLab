@@ -6,9 +6,8 @@ page in this section drills into one stage.
 ## What "sim-to-real" means in UniLab
 
 A deployable UniLab policy is the exported policy plus the exact observation
-and action contracts used by the selected task owner. The G1 WBT helper path
-materializes this as `policy.onnx`, `deploy_config.yaml`, and a motion binary;
-other robots need an equivalent hardware-side runtime that:
+and action contracts used by the selected task owner. UniLab ships the training
+side and the ONNX export; every robot needs a hardware-side runtime that:
 
 1. Reads sensors → assembles the **same observation vector** the policy saw
    in simulation.
@@ -70,10 +69,10 @@ flowchart LR
   runtime (units, frame, filter cutoffs). Log the first deploy-side
   observation window and compare it with a sim rollout built from the same
   owner YAML.
-- **Action latency.** Some task configs expose one-step delayed action
-  execution through `control_config.simulate_action_latency`. Measure the
-  deploy loop and make the training owner match that contract before a
-  hardware run. See {doc}`8-latency_budget`.
+- **Action latency.** Some task owners expose one-step delayed action execution
+  through a control config or Manager-Based action term. Measure the deploy loop
+  and make the training owner match that contract before a hardware run. See
+  {doc}`8-latency_budget`.
 - **Friction / damping mismatch.** Especially for in-hand manipulation.
   Sweep friction in DR; cross-check via {doc}`../2-sim_to_sim/3-contact_and_friction_alignment`.
 - **Reset transients.** Sim resets to a stable pose; deployment starts from a

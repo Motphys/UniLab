@@ -9,7 +9,7 @@ summary close to the code paths.
 
 ### Synchronous PPO Paths
 
-`scripts/train_rsl_rl.py` composes Hydra config,
+`src/unilab/scripts/train_rsl_rl.py` composes Hydra config,
 calls registry bootstrap, constructs the env through `registry.make(...)`, and runs
 the learner in the same process. The RSL-RL path adapts `NpEnv` through
 `src/unilab/training/rsl_rl.py`.
@@ -28,7 +28,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 - SAC, TD3, and FlashSAC use one off-policy execution path: `ReplayBuffer`
   provides bounded host ingress, the complete ring lives on one CUDA/MPS
   learner device, and `SharedWeightSync` publishes actor weights.
-- `AsyncRunner` in `src/unilab/ipc/async_runner.py` owns collector process
+- `AsyncRunner` in `uni_rl.ipc.async_runner` (unilab-rl repo) owns collector process
   startup, stop signaling, and shared-resource cleanup.
 
 ## Boundary Rules
@@ -40,9 +40,9 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 ## Evidence In Repo
 
-- PPO entrypoint: `scripts/train_rsl_rl.py`
-- APPO runner: `src/unilab/algos/torch/appo/runner.py`
-- Off-policy runner: `src/unilab/algos/torch/offpolicy/double_buffer_runner.py`
-- IPC primitives: `src/unilab/ipc/async_runner.py`,
-  `src/unilab/ipc/rollout_ring_buffer.py`, `src/unilab/ipc/replay_buffer.py`,
-  `src/unilab/ipc/weight_sync.py`
+- PPO entrypoint: `src/unilab/scripts/train_rsl_rl.py`
+- APPO runner: `uni_rl.algos.appo.runner` (unilab-rl repo)
+- Off-policy runner: `uni_rl.offpolicy.double_buffer_runner` (unilab-rl repo)
+- IPC primitives: `uni_rl.ipc.async_runner` (unilab-rl repo),
+  `uni_rl.ipc.rollout_ring_buffer` (unilab-rl repo), `uni_rl.ipc.replay_buffer` (unilab-rl repo),
+  `uni_rl.ipc.weight_sync` (unilab-rl repo)

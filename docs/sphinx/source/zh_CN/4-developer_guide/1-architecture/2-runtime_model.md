@@ -9,7 +9,7 @@
 
 ### 同步 PPO 路径
 
-`scripts/train_rsl_rl.py` 会 compose Hydra config、
+`src/unilab/scripts/train_rsl_rl.py` 会 compose Hydra config、
 调用 registry bootstrap、通过 `registry.make(...)` 构造 env，并在同一进程内运行
 learner。默认配置保持单进程；`training.devices` 指定多张卡时，父进程通过 PyTorch
 elastic launcher 启动本机 worker，worker 再进入同一脚本完成上述构造。RSL-RL 路径
@@ -35,7 +35,7 @@ CPU physics env loop -> shared IPC buffer -> learner
 - SAC、TD3 与 FlashSAC 只使用一条 off-policy execution path：`ReplayBuffer`
   提供有界 host ingress，完整 ring 驻留在一个 CUDA/MPS learner device，
   `SharedWeightSync` 负责发布 actor 权重。
-- `src/unilab/ipc/async_runner.py` 中的 `AsyncRunner` 负责 collector 进程启动、
+- `uni_rl.ipc.async_runner` (unilab-rl repo) 中的 `AsyncRunner` 负责 collector 进程启动、
   停止信号以及共享资源清理。
 
 ## 边界规则
@@ -49,9 +49,9 @@ CPU physics env loop -> shared IPC buffer -> learner
 
 ## 仓库中的证据
 
-- PPO 入口：`scripts/train_rsl_rl.py`
-- APPO runner：`src/unilab/algos/torch/appo/runner.py`
-- Off-policy runner：`src/unilab/algos/torch/offpolicy/double_buffer_runner.py`
-- IPC 原语：`src/unilab/ipc/async_runner.py`、
-  `src/unilab/ipc/rollout_ring_buffer.py`、`src/unilab/ipc/replay_buffer.py`、
-  `src/unilab/ipc/weight_sync.py`
+- PPO 入口：`src/unilab/scripts/train_rsl_rl.py`
+- APPO runner：`uni_rl.algos.appo.runner` (unilab-rl repo)
+- Off-policy runner：`uni_rl.offpolicy.double_buffer_runner` (unilab-rl repo)
+- IPC 原语：`uni_rl.ipc.async_runner` (unilab-rl repo)、
+  `uni_rl.ipc.rollout_ring_buffer` (unilab-rl repo)、`uni_rl.ipc.replay_buffer` (unilab-rl repo)、
+  `uni_rl.ipc.weight_sync` (unilab-rl repo)

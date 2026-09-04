@@ -10,7 +10,6 @@ in this reference, read this one.
 | `Registry` | Task / backend / algorithm registration and lookup |
 | `Scene` | Cold-path scene materialization |
 | `observations`, `final_observation` | Observation builders & terminal handling |
-| `augmentation` | Symmetry / mirror augmentation utilities |
 | `curriculum` | Curriculum schedule primitives |
 
 ```{eval-rst}
@@ -32,7 +31,7 @@ in this reference, read this one.
 ```
 
 ```{eval-rst}
-.. autoclass:: unilab.base.backend.base.SimBackend
+.. autoclass:: unisim.backend.base.SimBackend
    :members:
    :show-inheritance:
    :member-order: bysource

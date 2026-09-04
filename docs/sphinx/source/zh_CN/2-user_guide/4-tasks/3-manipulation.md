@@ -1,7 +1,7 @@
 # 操作
 
-操作任务位于 `src/unilab/envs/manipulation/` 中，Go2 机械臂 manip-loco
-env 位于 `src/unilab/envs/locomotion/go2_arm/` 中。
+操作任务位于 `src/unilab/tasks/manipulation/` 中，Go2 机械臂 manip-loco
+env 位于 `src/unilab/tasks/locomotion/go2_arm/` 中。
 
 ## 手内操作
 
@@ -16,7 +16,7 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora trainin
 ```
 
 HORA student 蒸馏由
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置；它当前未作为
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置；它当前未作为
 单独的顶层 CLI 路线暴露。
 
 ## 平台平衡

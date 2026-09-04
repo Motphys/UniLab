@@ -58,12 +58,12 @@ UniLab 同时支持多种算法入口和两种仿真后端。没有统一 runtim
 ## Evidence In Repo
 
 - 架构基线文档: `docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
-- Backend 抽象: `src/unilab/base/backend/base.py`
+- Backend 抽象: `unisim.backend.base`
 - Env contract: `src/unilab/base/np_env.py`
 - Registry 入口: `src/unilab/base/registry.py`
 - Async runner: `src/unilab/ipc/async_runner.py`
 - PPO distributed adapter: `src/unilab/ipc/dp_launcher.py`,
-  `src/unilab/training/rsl_rl.py`, `scripts/train_rsl_rl.py`
+  `src/unilab/training/rsl_rl.py`, `src/unilab/scripts/train_rsl_rl.py`
 - PPO distributed tests: `tests/ipc/test_dp_launcher.py`,
   `tests/algos/test_rsl_rl_ppo.py`, `tests/scripts/test_train_script_configs.py`
 

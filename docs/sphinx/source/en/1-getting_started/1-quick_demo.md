@@ -33,7 +33,20 @@ make setup-motrix
 # make sync-xpu
 ```
 
-## Train
+## First Success
+
+Run a pre-trained policy before changing any task configuration:
+
+```bash
+# Fetches the checkpoint and assets from Hugging Face on first run.
+uv run demo dance
+```
+
+Available demo names are `teaser`, `dance`, `wallflip`, `boxtracking`,
+`locomani`, and `inhandgrasp`. Use `uv run demo --help` for device and refresh
+options.
+
+## Train A Task
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim motrix
@@ -43,7 +56,7 @@ This command routes to the registered `go2_joystick_flat` task with the Motrix
 backend. The CLI keeps algorithm, task, and backend selection explicit through
 `--algo`, `--task`, and `--sim`; internally it composes the matching owner YAML.
 
-## Evaluate Or Demo
+## Evaluate And Replay
 
 ```bash
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
@@ -52,11 +65,7 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1
 uv run eval --algo ppo --task go2_joystick_flat --sim motrix \
   --load-run -1 --render-mode record
 
-# Demo playback (fetches a pre-trained checkpoint from Hugging Face on first run)
-uv run demo dance
 ```
-
-Available demo names: `teaser`, `dance`, `wallflip`, `boxtracking`, `locomani`, `inhandgrasp`.
 
 Mainland China users: motions, scenes, robot meshes, and demo checkpoints come
 from Hugging Face on first run. If `huggingface.co` is unreachable, switch to the

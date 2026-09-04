@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: motrix
+algo:
+  num_envs: 512
+  steps_per_env: 24
+  max_iterations: 180
+env:
+  # The former 0.015/0.02 ratio was not an integer number of physics substeps.
+  # MBA keeps the shared 0.01/0.02 contract and fails on fractional ratios.
+  events:
+    pd_gains: null

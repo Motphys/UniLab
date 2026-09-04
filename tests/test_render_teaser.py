@@ -1,11 +1,11 @@
-"""Tests for the teaser scene renderer (``unilab.tools.render_teaser``)."""
+"""Tests for the teaser scene renderer (``unilab.visualization.teaser``)."""
 
 from __future__ import annotations
 
 import inspect
 from unittest.mock import MagicMock, patch
 
-from unilab.tools import render_teaser
+from unilab.visualization import teaser as render_teaser
 
 
 def test_set_teaser_system_camera_view_uses_packaged_view():

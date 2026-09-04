@@ -1,0 +1,152 @@
+# @package _global_
+# Shared terrain/reset/command owner for all production rough quadrupeds.
+env:
+  scene:
+    default_keyframe_name: home
+    terrain:
+      hfield_name: terrain_hfield
+      geom_name: floor
+      generator:
+        _target_: unilab.tasks.locomotion.common.rough_manager_terms.QuadrupedRoughTerrainCfg
+        seed: 42
+        curriculum: false
+        size: [8.0, 8.0]
+        num_rows: 6
+        num_cols: 6
+        border_width: 20.0
+  ctrl_dt: 0.02
+  max_episode_seconds: 20.0
+  commands:
+    twist:
+      _target_: unilab.tasks.locomotion.common.rough_manager_terms.RoughVelocityCommandCfg
+      entity_name: robot
+      resampling_time_range: [10.0, 10.0]
+      heading_command: true
+      heading_control_stiffness: 0.5
+      rel_standing_envs: 0.1
+      rel_heading_envs: 1.0
+      rel_world_envs: 0.0
+      rel_forward_envs: 0.0
+      init_velocity_prob: 0.0
+      planar_dead_zone: 0.08
+      ranges:
+        lin_vel_x: [-1.0, 1.0]
+        lin_vel_y: [-1.0, 1.0]
+        ang_vel_z: [-1.0, 1.0]
+        heading: [-3.141592653589793, 3.141592653589793]
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    terrain_root_state:
+      func: unilab.tasks.locomotion.common.rough_manager_terms.RoughTerrainReset
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: SceneEntityCfg
+          name: robot
+        pose_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [0.25, 0.5]
+          roll: [-3.14, 3.14]
+          pitch: [-3.14, 3.14]
+          yaw: [-3.14, 3.14]
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.5, 0.5]
+          roll: [-0.5, 0.5]
+          pitch: [-0.5, 0.5]
+          yaw: [-0.5, 0.5]
+        promote_frac: 0.5
+        demote_frac: 0.25
+        cycle_top_frac: 0.5
+        spawn_height_margin: 0.05
+    base_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: SceneEntityCfg
+          name: robot
+          body_names: ".*"
+        mass_distribution_params: [-1.0, 3.0]
+        operation: add
+        recompute_inertia: false
+    base_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: SceneEntityCfg
+          name: robot
+          body_names: ".*"
+        com_range:
+          x: [-0.05, 0.05]
+          y: [0.0, 0.0]
+          z: [0.0, 0.0]
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [17.5, 70.0]
+        kd_range: [0.25, 1.0]
+        operation: abs
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [12.5, 12.5]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-1.0, 1.0]
+          y: [-1.0, 1.0]
+          z: [-0.5, 0.5]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
+  terminations:
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    terrain_out_of_bounds:
+      func: unilab.tasks.locomotion.common.rough_manager_terms.RoughTerrainOutOfBounds
+      time_out: true
+      params:
+        asset_cfg:
+          _target_: SceneEntityCfg
+          name: robot
+        distance_buffer: 3.0
+  curriculum:
+    terrain_levels:
+      func: unilab.tasks.locomotion.common.rough_manager_terms.RoughTerrainCurriculum
+      params:
+        asset_cfg:
+          _target_: SceneEntityCfg
+          name: robot
+  policy_observation_group: policy
+  critic_observation_group: critic
+
+reward:
+  tracking_lin_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    weight: 3.0
+    params:
+      std: 0.5
+      command_name: twist
+  tracking_ang_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel_z_exp
+    weight: 1.5
+    params:
+      std: 0.5
+      command_name: twist
+  lin_vel_z:
+    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z_l2
+    weight: -2.0
+  ang_vel_xy:
+    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy_l2
+    weight: -0.05
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.01

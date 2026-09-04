@@ -20,9 +20,9 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from unisim.backend.mujoco.xml import get_named_bodies
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.xml import _get_named_bodies
 
 # MuJoCo root free-joint sizes
 _ROOT_QPOS_DIM = 7  # 3 pos + 4 quat
@@ -57,7 +57,7 @@ def remap_npz(input_path: str, output_path: str, model_file: str, *, dry_run: bo
     source_body_names: list[str] = data["body_names"].tolist()
 
     # --- target body list from training model --------------------------------
-    _, named_bodies = _get_named_bodies(model_file)
+    _, named_bodies = get_named_bodies(model_file)
     target_body_names = ["world"] + named_bodies  # prepend MuJoCo implicit body 0
 
     remap = _build_body_remap(source_body_names, target_body_names)

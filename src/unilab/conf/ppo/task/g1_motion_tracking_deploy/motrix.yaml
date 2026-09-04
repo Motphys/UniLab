@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - /task/g1_motion_tracking_deploy/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingDeploy
+  sim_backend: motrix
+  play_env_num: 16
+
+env:
+  events:
+    foot_friction: null
+    push_robot: null
+
+reward:
+  motion_global_root_pos:
+    weight: 1.0
+  action_rate_l2:
+    weight: -0.05
+  undesired_contacts:
+    func: unilab.tasks.motion_tracking.common.manager_terms.undesired_body_contacts
+    weight: -0.1
+    params:
+      command_name: motion
+      threshold: 0.05
+      body_names:
+        - pelvis
+        - left_hip_roll_link
+        - left_knee_link
+        - right_hip_roll_link
+        - right_knee_link
+        - torso_link
+        - left_shoulder_roll_link
+        - left_elbow_link
+        - right_shoulder_roll_link
+        - right_elbow_link
+
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.5

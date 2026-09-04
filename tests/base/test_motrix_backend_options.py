@@ -5,9 +5,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-
-from unilab.base.scene import SceneCfg
-from unilab.dr.types import (
+from unisim.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_GEOM_FRICTION,
@@ -20,6 +18,8 @@ from unilab.dr.types import (
     ModelVariantSpec,
     ResetRandomizationPayload,
 )
+
+from unilab.base.scene import SceneCfg
 
 
 class _FakeMotrixLink:
@@ -228,8 +228,8 @@ class _FakePositionActuatorWithDampingOverride:
 
 
 def _install_fake_motrix(monkeypatch, tmp_path):
-    import unilab.base.backend.motrix.backend as mod
-    import unilab.base.backend.motrix.scene as scene_mod
+    import unisim.backend.motrix.backend as mod
+    import unisim.backend.motrix.scene as scene_mod
 
     fake_model = _FakeMotrixModel()
     _FakeTerrainScanner.instances.clear()
@@ -245,12 +245,16 @@ def _install_fake_motrix(monkeypatch, tmp_path):
         ),
         raising=False,
     )
-    monkeypatch.setattr(scene_mod, "materialize_motrix_scene", lambda **kwargs: fake_model)
+    monkeypatch.setattr(
+        scene_mod,
+        "_materialize_motrix_scene_with_sensor_names",
+        lambda **kwargs: (fake_model, ()),
+    )
     return mod, fake_model
 
 
 def test_motrix_backend_kd_override_supports_damping_api() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     actuator = _FakePositionActuatorWithDampingOverride()
     backend = object.__new__(mod.MotrixBackend)
@@ -266,7 +270,7 @@ def test_motrix_backend_kd_override_supports_damping_api() -> None:
 
 
 def test_motrix_backend_dr_capabilities_include_pd_gains_when_overrides_available() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     backend = object.__new__(mod.MotrixBackend)
     backend._supports_position_actuator_gains = True
@@ -286,7 +290,7 @@ def test_motrix_backend_dr_capabilities_include_pd_gains_when_overrides_availabl
 
 
 def test_motrix_backend_uses_cached_batch_link_velocities() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     backend = object.__new__(mod.MotrixBackend)
     backend._link_velocities = np.arange(2 * 3 * 6, dtype=np.float32).reshape(2, 3, 6)
@@ -308,8 +312,57 @@ def test_motrix_backend_uses_cached_batch_link_velocities() -> None:
     np.testing.assert_allclose(ang_vel, backend._link_velocities[:, body_ids, 3:])
 
 
+def test_motrix_copy_body_state_uses_cached_state_and_reuses_scratch() -> None:
+    import unisim.backend.motrix.backend as mod
+
+    num_envs, num_bodies = 2, 4
+    poses = np.arange(num_envs * num_bodies * 7, dtype=np.float32).reshape(num_envs, num_bodies, 7)
+    velocities = np.arange(num_envs * num_bodies * 6, dtype=np.float32).reshape(
+        num_envs, num_bodies, 6
+    )
+
+    backend = object.__new__(mod.MotrixBackend)
+    backend._num_envs = num_envs
+    backend._np_dtype = np.float32
+    backend._link_poses = poses
+    backend._link_velocities = velocities
+    backend._link_velocity_cache_valid = True
+    backend._link_velocity_cache = None
+    body_ids = np.asarray([3, 1], dtype=np.int32)
+    shape = (num_envs, len(body_ids), 3)
+    out_pos = np.empty(shape, dtype=np.float32)
+    out_quat = np.empty((num_envs, len(body_ids), 4), dtype=np.float32)
+    out_lin_vel = np.empty(shape, dtype=np.float32)
+    out_ang_vel = np.empty(shape, dtype=np.float32)
+
+    result = backend.copy_body_state_w(
+        body_ids,
+        out_pos,
+        out_quat,
+        out_lin_vel,
+        out_ang_vel,
+    )
+
+    assert result[0] is out_pos
+    assert result[1] is out_quat
+    assert result[2] is out_lin_vel
+    assert result[3] is out_ang_vel
+    np.testing.assert_array_equal(out_pos, poses[:, body_ids, :3])
+    np.testing.assert_array_equal(out_quat[:, :, 0], poses[:, body_ids, 6])
+    np.testing.assert_array_equal(out_quat[:, :, 1:], poses[:, body_ids, 3:6])
+    np.testing.assert_array_equal(out_lin_vel, velocities[:, body_ids, :3])
+    np.testing.assert_array_equal(out_ang_vel, velocities[:, body_ids, 3:])
+
+    first_scratch = backend._link_velocity_cache
+    velocities += 1000.0
+    backend.copy_body_state_w(body_ids, out_pos, out_quat, out_lin_vel, out_ang_vel)
+
+    assert backend._link_velocity_cache is first_scratch
+    np.testing.assert_array_equal(out_lin_vel, velocities[:, body_ids, :3])
+
+
 def test_motrix_backend_get_body_pose_w_slices_cached_poses_once() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     backend = object.__new__(mod.MotrixBackend)
     backend._link_poses = np.asarray(
@@ -326,6 +379,29 @@ def test_motrix_backend_get_body_pose_w_slices_cached_poses_once() -> None:
 
     np.testing.assert_allclose(pos, [[[4.0, 5.0, 6.0]]])
     np.testing.assert_allclose(quat, [[[0.8, 0.5, 0.6, 0.7]]])
+
+
+def test_motrix_root_layout_uses_selected_body_floating_base_indices() -> None:
+    import unisim.backend.motrix.backend as mod
+
+    floating_base = SimpleNamespace(
+        dof_pos_indices=[4, 5, 6, 7, 8, 9, 10],
+        dof_vel_indices=[3, 4, 5, 6, 7, 8],
+    )
+    bodies = {
+        "fixed": SimpleNamespace(floatingbase=None),
+        "floating": SimpleNamespace(floatingbase=floating_base),
+    }
+    backend = object.__new__(mod.MotrixBackend)
+    backend._model = SimpleNamespace(get_body=lambda name: bodies.get(name))
+
+    layout = backend.get_root_state_layout("floating")
+    assert layout.qpos_indices == tuple(range(4, 11))
+    assert layout.qvel_indices == tuple(range(3, 9))
+    with pytest.raises(NotImplementedError, match="fixed.*floating base"):
+        backend.get_root_state_layout("fixed")
+    with pytest.raises(ValueError, match="missing.*not found"):
+        backend.get_root_state_layout("missing")
 
 
 def test_motrix_backend_applies_init_geom_size_overrides(monkeypatch, tmp_path) -> None:
@@ -380,7 +456,7 @@ def test_motrix_backend_default_override_caches_are_float32(monkeypatch, tmp_pat
 
 
 def test_motrix_backend_applies_body_mass_and_ipos_reset_payload() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     link0 = _FakeMotrixLink()
     link1 = _FakeMotrixLink()
@@ -416,7 +492,7 @@ def test_motrix_backend_applies_body_mass_and_ipos_reset_payload() -> None:
 
 
 def test_motrix_backend_applies_geom_friction_reset_payload() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     geom0 = _FakeMotrixGeom(name="floor")
     geom1 = _FakeMotrixGeom(name="object")
@@ -447,7 +523,7 @@ def test_motrix_backend_applies_geom_friction_reset_payload() -> None:
 
 
 def test_motrix_backend_skips_visual_geom_friction_override() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     collision_geom = _FakeMotrixGeom(name="object")
     visual_geom = _FakeMotrixGeom(
@@ -480,7 +556,7 @@ def test_motrix_backend_skips_visual_geom_friction_override() -> None:
 
 
 def test_motrix_backend_applies_gravity_reset_payload() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     fake_model = _FakeMotrixModel()
     backend = object.__new__(mod.MotrixBackend)
@@ -504,7 +580,7 @@ def test_motrix_backend_applies_gravity_reset_payload() -> None:
 
 
 def test_motrix_backend_interval_body_force_uses_link_external_force_delta() -> None:
-    import unilab.base.backend.motrix.backend as mod
+    import unisim.backend.motrix.backend as mod
 
     link = _FakeMotrixLink()
     backend = object.__new__(mod.MotrixBackend)
@@ -659,244 +735,3 @@ def test_motrix_backend_hfield_sampling_uses_terrain_scanner_output_contract(
     assert scanner.out is not None
     assert heights.dtype == np.float32
     np.testing.assert_allclose(heights, [[1.0]], atol=1e-6)
-
-
-def test_create_backend_routes_motrix_max_iterations_override(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMotrixBackend:
-        def __init__(
-            self,
-            scene: SceneCfg,
-            num_envs: int,
-            sim_dt: float,
-            *,
-            max_iterations: int = 3,
-            **kwargs: Any,
-        ) -> None:
-            captured["max_iterations"] = max_iterations
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(
-        backend_factory,
-        "_load_motrix_backend",
-        lambda: (FakeMotrixBackend, True),
-    )
-
-    backend_factory.create_backend(
-        "motrix",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        motrix_max_iterations=9,
-    )
-
-    assert captured["max_iterations"] == 9
-    assert "motrix_max_iterations" not in captured["kwargs"]
-
-
-def test_create_backend_does_not_route_motrix_option_to_mujoco(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMuJoCoBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(backend_factory, "_load_mujoco_backend", lambda: FakeMuJoCoBackend)
-
-    backend_factory.create_backend(
-        "mujoco",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        motrix_max_iterations=9,
-    )
-
-    assert "motrix_max_iterations" not in captured["kwargs"]
-    assert "max_iterations" not in captured["kwargs"]
-
-
-def test_create_backend_routes_post_step_forward_sensor_to_mujoco(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMuJoCoBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(backend_factory, "_load_mujoco_backend", lambda: FakeMuJoCoBackend)
-
-    backend_factory.create_backend(
-        "mujoco",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        post_step_forward_sensor=False,
-    )
-
-    assert captured["kwargs"]["post_step_forward_sensor"] is False
-
-
-def test_create_backend_does_not_route_post_step_forward_sensor_to_motrix(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMotrixBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(
-        backend_factory,
-        "_load_motrix_backend",
-        lambda: (FakeMotrixBackend, True),
-    )
-
-    backend_factory.create_backend(
-        "motrix",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        post_step_forward_sensor=False,
-    )
-
-    assert "post_step_forward_sensor" not in captured["kwargs"]
-
-
-def test_create_backend_warns_when_mjwarp_ignores_non_default_mujoco_options(
-    monkeypatch,
-) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMjwarpBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(backend_factory, "_load_mjwarp_backend", lambda: FakeMjwarpBackend)
-
-    with pytest.warns(
-        UserWarning,
-        match="post_step_forward_sensor=False.*adaptive_chunk_size=True.*bench_nsteps=4",
-    ):
-        backend_factory.create_backend(
-            "mjwarp",
-            SceneCfg(model_file="model.xml"),
-            num_envs=1,
-            sim_dt=0.01,
-            post_step_forward_sensor=False,
-            adaptive_chunk_size=True,
-            bench_nsteps=4,
-        )
-
-    assert "post_step_forward_sensor" not in captured["kwargs"]
-    assert "adaptive_chunk_size" not in captured["kwargs"]
-    assert "bench_nsteps" not in captured["kwargs"]
-
-
-def test_create_backend_routes_iterations_to_mujoco(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMuJoCoBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(backend_factory, "_load_mujoco_backend", lambda: FakeMuJoCoBackend)
-
-    backend_factory.create_backend(
-        "mujoco",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        iterations=7,
-    )
-
-    assert captured["kwargs"]["iterations"] == 7
-
-
-def test_create_backend_does_not_route_iterations_to_motrix(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMotrixBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(
-        backend_factory,
-        "_load_motrix_backend",
-        lambda: (FakeMotrixBackend, True),
-    )
-
-    backend_factory.create_backend(
-        "motrix",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        iterations=7,
-    )
-
-    assert "iterations" not in captured["kwargs"]
-
-
-def test_create_backend_does_not_route_iterations_to_drake(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeDrakeBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(backend_factory, "_load_drake_backend", lambda: FakeDrakeBackend)
-
-    backend_factory.create_backend(
-        "drake",
-        SceneCfg(model_file="model.xml"),
-        num_envs=1,
-        sim_dt=0.01,
-        iterations=7,
-    )
-
-    assert "iterations" not in captured["kwargs"]
-
-
-def test_create_backend_warns_when_mjwarp_ignores_iterations(monkeypatch) -> None:
-    import unilab.base.backend as backend_factory
-    from unilab.base.scene import SceneCfg
-
-    captured: dict[str, Any] = {}
-
-    class FakeMjwarpBackend:
-        def __init__(self, scene: SceneCfg, num_envs: int, sim_dt: float, **kwargs: Any) -> None:
-            captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(backend_factory, "_load_mjwarp_backend", lambda: FakeMjwarpBackend)
-
-    with pytest.warns(UserWarning, match="iterations=7"):
-        backend_factory.create_backend(
-            "mjwarp",
-            SceneCfg(model_file="model.xml"),
-            num_envs=1,
-            sim_dt=0.01,
-            iterations=7,
-        )
-
-    assert "iterations" not in captured["kwargs"]

@@ -17,11 +17,12 @@ The training scripts follow the same high-level sequence:
 
 ## Runtime-Specific Owners
 
-- `scripts/train_rsl_rl.py` uses `RslRlVecEnvWrapper` and RSL-RL's
+- `src/unilab/scripts/train_rsl_rl.py` uses `RslRlVecEnvWrapper` and RSL-RL's
   `OnPolicyRunner`.
-- `scripts/train_appo.py` uses `APPORunner`, `RolloutRingBuffer`, and
+- `src/unilab/scripts/train_appo.py` uses `APPORunner`, `RolloutRingBuffer`, and
   `SharedWeightSync`.
-- `scripts/train_offpolicy.py` uses off-policy runners with `ReplayBuffer` and
+- `src/unilab/scripts/train_sac.py`, `src/unilab/scripts/train_td3.py`, and
+  `src/unilab/scripts/train_flashsac.py` use off-policy runners with `ReplayBuffer` and
   `SharedWeightSync`.
 - `AsyncRunner` owns collector process lifecycle and shared-resource cleanup for
   async runners.
@@ -38,6 +39,6 @@ The training scripts follow the same high-level sequence:
 
 - Shared training helpers: `src/unilab/training/common.py`,
   `src/unilab/training/run.py`
-- Async lifecycle: `src/unilab/ipc/async_runner.py`
+- Async lifecycle: `uni_rl.ipc.async_runner` (unilab-rl repo)
 - Runner tests: `tests/algos/test_appo_runner.py`,
   `tests/algos/test_offpolicy_runner.py`, `tests/ipc/test_async_runner.py`

@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - /task/g1_23dof_wall_flip_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1WallFlipTracking23Dof
+  sim_backend: motrix
+  replay_queue_size: null
+
+algo:
+  steps_per_env: 24
+  max_iterations: 5000
+  algorithm:
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    entropy_coef: 0.01
+    desired_kl: 0.01
+    enable_compile: true
+
+env:
+  actions:
+    joint_pos:
+      scale: 0.25
+
+reward:
+  motion_body_pos:
+    weight: 1.0
+  motion_body_ori:
+    weight: 1.0
+  motion_ee_body_pos_z: null
+  action_rate_l2:
+    weight: -0.1

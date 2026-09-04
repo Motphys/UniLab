@@ -7,9 +7,9 @@ skrl 的强项在于算法广度。UniLab 专注于一组精选算法（PPO、SA
 
 | skrl | UniLab |
 |---|---|
-| `Agent`（PPO、SAC……） | `unilab.algos.torch.*` |
-| `RolloutMemory` | `unilab.ipc.rollout_ring_buffer` |
-| `ReplayMemory` | `unilab.ipc.replay_buffer` |
+| `Agent`（PPO、SAC……） | `uni_rl.*` |
+| `RolloutMemory` | `uni_rl.ipc.rollout_ring_buffer` |
+| `ReplayMemory` | `uni_rl.ipc.replay_buffer` |
 | `Trainer` | `unilab.training.run` |
 | 用于 env 的 `Wrapper` | 继承 `NpEnv` |
 
@@ -27,5 +27,5 @@ skrl 的强项在于算法广度。UniLab 专注于一组精选算法（PPO、SA
 
 1. 决定哪个 UniLab 算法最匹配你的 skrl agent。
 2. 把 env 移植为 `NpEnv` 形式。
-3. 把超参数 YAML 转换为 `conf/<algo>/<task>/` 下的 Hydra 组。
+3. 把超参数 YAML 转换为 `src/unilab/conf/<algo>/<task>/` 下的 Hydra 组。
 4. 验证 reward 一致性。

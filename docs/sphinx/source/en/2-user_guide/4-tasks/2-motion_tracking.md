@@ -1,40 +1,43 @@
 # Motion Tracking
 
-G1 motion tracking tasks live under `src/unilab/envs/motion_tracking/` and are
-selected through task owner YAMLs in `conf/ppo/`, `conf/appo/`, and selected
+G1 motion tracking tasks live under `src/unilab/tasks/motion_tracking/` and are
+selected through task owner YAMLs in `src/unilab/conf/ppo/`, `src/unilab/conf/appo/`, and selected
 off-policy paths.
 
 > **Motion assets moved to Hugging Face.** The `.npz` clips are no longer shipped
 > in the repository. On first use `MotionLoader`
-> (`src/unilab/envs/motion_tracking/g1/motion_loader.py`) downloads them on demand
+> (`src/unilab/tasks/motion_tracking/common/motion_loader.py`) downloads them on demand
 > from [unilabsim/unilab-motions](https://huggingface.co/datasets/unilabsim/unilab-motions)
 > via `src/unilab/assets/hub.py` (`_HF_MOTIONS_REPO_ID`). `uv sync` already installs
 > the required `huggingface_hub` dependency.
 
 ## Task Owners
 
-Each task ships a default motion clip defined in the env config dataclass:
+Each task ships a default motion clip in its Hydra task-owner YAML. Hydra is the
+configuration entry point; the selected owner is materialized into the shared
+`ManagerBasedRlEnvCfg` and then consumed by the NumPy Manager-Based runtime.
 
 | CLI Task | Registered Env | Default Motion | Owner Evidence |
 | --- | --- | --- | --- |
-| `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `conf/ppo/task/g1_motion_tracking/`, `conf/appo/task/g1_motion_tracking/` |
-| `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `conf/ppo/task/g1_flip_tracking/`, `conf/appo/task/g1_flip_tracking/` |
-| `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `conf/ppo/task/g1_wall_flip_tracking/`, `conf/appo/task/g1_wall_flip_tracking/` |
-| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `conf/ppo/task/x2_wall_flip_tracking/` (MuJoCo only) |
-| `g1_climb_tracking` | G1 climb tracking env | clip from env config | `conf/ppo/task/g1_climb_tracking/`, `conf/appo/task/g1_climb_tracking/` |
-| `g1_box_tracking` | G1 box tracking env | clip from env config | `conf/ppo/task/g1_box_tracking/` |
-| `g1_wbt_obs` | `G1MotionTrackingSAC` | shared with `g1_motion_tracking` | `conf/offpolicy/task/sac/g1_wbt_obs/mujoco.yaml` |
+| `g1_motion_tracking` | `G1MotionTracking` | `dance1_subject2_part.npz` | `src/unilab/conf/ppo/task/g1_motion_tracking/`, `src/unilab/conf/appo/task/g1_motion_tracking/` |
+| `g1_flip_tracking` | `G1FlipTracking` | `flip_360_001__A304.npz` | `src/unilab/conf/ppo/task/g1_flip_tracking/`, `src/unilab/conf/appo/task/g1_flip_tracking/` |
+| `g1_wall_flip_tracking` | `G1WallFlipTracking` | `flip_from_wall_104__A304.npz` | `src/unilab/conf/ppo/task/g1_wall_flip_tracking/`, `src/unilab/conf/appo/task/g1_wall_flip_tracking/` |
+| `x2_wall_flip_tracking` | `X2WallFlipTracking` | `tictacflip_6-3_g1format.npz` | `src/unilab/conf/ppo/task/x2_wall_flip_tracking/` |
+| `g1_climb_tracking` | `G1ClimbTracking` | `climb_20_z_scale_1.0.npz` | `src/unilab/conf/ppo/task/g1_climb_tracking/`, `src/unilab/conf/appo/task/g1_climb_tracking/` |
+| `g1_box_tracking` | `G1BoxTracking` | `sub3_largebox_003_boxconverted.npz` | `src/unilab/conf/ppo/task/g1_box_tracking/` |
+| `g1_wbt_obs` | `G1WBTObs` | `dance1_subject2_part.npz` | `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` |
 
-The defaults are set in code: `dance1_subject2_part.npz`
-(`g1/tracking.py`), `flip_360_001__A304.npz` and `flip_from_wall_104__A304.npz`
-(`g1/flip_tracking.py`), and `tictacflip_6-3_g1format.npz` (`x2/flip_tracking.py`).
+The 23-DoF task-owner directories select their matching 23-DoF scene, motion,
+entity, and action declarations. Profile differences remain in Hydra. The G1
+identities use the shared manager factory; X2 adds only a cold-path mesh resolver
+before delegating to that factory.
 
 ## PPO And APPO
 
 PPO owner iteration budgets (the `--sim mujoco` owner YAMLs): `g1_motion_tracking`
 runs `algo.max_iterations=15000`; `g1_flip_tracking` and `g1_wall_flip_tracking`
-run `20000`; the MuJoCo-only `x2_wall_flip_tracking` runs `9500`. (The Motrix
-owner YAML for `g1_flip_tracking` raises this to `30000`.)
+run `20000`; `x2_wall_flip_tracking` runs `9500`. (The Motrix owner YAML for
+`g1_flip_tracking` raises this to `30000`.)
 
 ```bash
 uv run train --algo ppo --task g1_motion_tracking --sim mujoco
@@ -57,13 +60,15 @@ uv run train --algo sac --task g1_motion_tracking --sim mujoco training.use_amp=
 uv run train --algo sac --task g1_wbt_obs --sim mujoco training.use_amp=true
 ```
 
-The `g1_wbt_obs` owner is the deploy-aligned off-policy observation profile: a
-pelvis IMU state (`pelvis_local_linvel` / `pelvis_gyro` / `pelvis_upvector`) plus
-per-term observation history (`noise_config.obs_history_length: 5`), byte-aligned
-with the deploy-time `ObservationManager`. Deploy tooling lives under
-`scripts/deploy/`, and the observation alignment is cross-checked by
-`tests/scripts/test_obs_alignment_g1_wbt.py`. When a Motrix sim2sim replay needs a
-checkpoint from another log root, pass the absolute path through `uv run eval`:
+The `g1_wbt_obs` owner is the deploy-aligned off-policy observation profile. Its
+actor keeps the command and anchor-orientation terms at one step while the
+`base_ang_vel`, `joint_pos`, `joint_vel`, and `actions` terms declare
+`history_length: 5`. `ObservationManager` owns and flattens those per-term
+histories; the actor uses the configured encoder-biased joint-position term while
+the critic keeps the clean term. Per-term oldest-first ordering is guarded by
+`tests/scripts/test_obs_alignment_g1_wbt.py`; the hardware-side contract is
+documented in the sim-to-real deployment guide. When a Motrix sim2sim replay needs
+a checkpoint from another log root, pass the absolute path through `uv run eval`:
 
 ```bash
 uv run eval --algo sac --task g1_motion_tracking --sim motrix \
@@ -72,16 +77,20 @@ uv run eval --algo sac --task g1_motion_tracking --sim motrix \
 
 ## Motion Files
 
-Motion NPZ files are read through `env.motion_file`, which also accepts a list of
+Motion NPZ files are selected through
+`env.commands.motion.params.motion_file`, which accepts one path or a list of
 paths. A standard clip must contain the seven keys `fps`, `joint_pos`,
 `joint_vel`, `body_pos_w`, `body_quat_w`, `body_lin_vel_w`, and `body_ang_vel_w`
-(validated in `g1/motion_loader.py`):
+(validated in `common/motion_loader.py`):
 
 ```yaml
 env:
-  motion_file:
-    - src/unilab/assets/motions/g1/dance1_subject2_part.npz
-    - src/unilab/assets/motions/g1/walk1_subject5_from_csv.npz
+  commands:
+    motion:
+      params:
+        motion_file:
+          - motions/g1/dance1_subject2_part.npz
+          - motions/g1/walk1_subject5_from_csv.npz
 ```
 
 Conversion and inspection helpers are in `scripts/motion/`:
@@ -115,24 +124,25 @@ randomization so the precise clip start state is reused:
 ```bash
 CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim mujoco \
   training.use_amp=true algo.seed=1 \
-  +env.motion_file=src/unilab/assets/motions/g1/motion_crawl_slope_uni.npz \
-  +env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
-  +env.sampling_mode=start \
-  env.truncate_on_clip_end=true \
-  +env.max_episode_seconds=20.0 \
-  '+env.pose_randomization={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
-  '+env.velocity_randomization={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
-  '+env.joint_position_range=[0,0]'
+  env.commands.motion.params.motion_file=motions/g1/motion_crawl_slope_uni.npz \
+  env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
+  env.commands.motion.params.sampling_mode=start \
+  env.commands.motion.params.truncate_on_clip_end=true \
+  env.max_episode_seconds=20.0 \
+  'env.commands.motion.params.pose_range={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
+  'env.commands.motion.params.velocity_range={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
+  'env.commands.motion.params.joint_position_range=[0,0]'
 ```
 
-Key overrides: `env.motion_file` selects the crawl-slope clip;
-`env.scene.model_file` switches to the slope scene (`scene_crawl_slope.xml` exists
-under `src/unilab/assets/robots/g1/`); `sampling_mode=start` plus
-`truncate_on_clip_end=true` starts from the clip beginning and truncates there; and
-zeroing the randomization ranges reuses the exact clip initial state.
+Key overrides: `env.commands.motion.params.motion_file` selects the crawl-slope
+clip; `env.scene.model_file` switches to the slope scene
+(`scene_crawl_slope.xml` exists under `src/unilab/assets/robots/g1/`);
+`sampling_mode=start` plus `truncate_on_clip_end=true` starts from the clip
+beginning and truncates there; and zeroing the command reset ranges reuses the
+exact clip initial state.
 
 ## Interactive Debugging
 
 Routine checkpoint replay uses `uv run eval`. When you need a target-body or reward
-debug overlay, `scripts/play_interactive.py` is the low-level MuJoCo viewer entry
+debug overlay, `src/unilab/scripts/play_interactive.py` is the low-level MuJoCo viewer entry
 point; it is not currently exposed as a `uv run eval` flag.

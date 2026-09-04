@@ -58,7 +58,6 @@ run_summary.json
 src/unilab/assets/checkpoints/
 
 scripts/benchmark/outputs/
-src/unilab/algos/torch/rsl_rl
 
 third-party
 temp/
@@ -81,6 +80,13 @@ src/unilab/assets/motions/x2/*.csv
 
 # Robot mesh assets (downloaded from HF at runtime)
 src/unilab/assets/robots/x2/meshes/*.STL
+src/unilab/assets/robots/g1/assets/
+src/unilab/assets/robots/g1/textures/
+src/unilab/assets/robots/go2/assets/
+src/unilab/assets/robots/a2/assets/
+src/unilab/assets/robots/allegro_hand/assets/
+src/unilab/assets/robots/sharpa_wave/meshes/
+src/unilab/assets/robots/go2_arm/assets/
 
 # Grasp cache assets (downloaded from HF at runtime)
 src/unilab/assets/caches/*.npy

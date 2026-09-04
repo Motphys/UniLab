@@ -18,7 +18,7 @@ def _module_available(name: str) -> bool:
 
 
 def _drake_batch_available() -> bool:
-    return _module_available("drakeuni.compiled._drake_env_pool")
+    return _module_available("drake_uni.compiled._drake_env_pool")
 
 
 @pytest.mark.slow
@@ -32,7 +32,7 @@ def test_drake_ppo_one_iteration_training_smoke(task: str, tmp_path: Path) -> No
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/train_rsl_rl.py",
+            "src/unilab/scripts/train_rsl_rl.py",
             f"task={task}",
             "training.no_play=true",
             f"training.log_root={tmp_path / 'logs'}",

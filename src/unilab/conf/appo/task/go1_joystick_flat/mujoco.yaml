@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /task/go1_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go1JoystickFlat
+  sim_backend: mujoco
+algo:
+  max_iterations: 150
+reward:
+  swing_feet_z: null

@@ -20,7 +20,6 @@ def _tiny_case() -> bench.BenchmarkCase:
         config_capacity_rows=16,
         configured_batch_size=4,
         learner_batch_size=4,
-        symmetry_batch_multiplier=1,
         updates_per_step=2,
         sample_count_per_rank=8,
         learning_starts=0,
@@ -28,18 +27,17 @@ def _tiny_case() -> bench.BenchmarkCase:
     )
 
 
-def test_sac_default_case_uses_effective_symmetry_batch() -> None:
+def test_sac_default_case_uses_configured_batch() -> None:
     cfg = bench._compose_offpolicy_cfg("mujoco")
     case = bench._build_case(
         cfg,
         sim="mujoco",
         shape=bench.ReplayShape(obs_dim=45, action_dim=29, critic_dim=48),
-        symmetry_batch_multiplier=2,
     )
 
     assert case.command == "uv run train --algo sac --task g1_walk_flat --sim mujoco"
     assert case.config_capacity_rows == case.num_envs * case.replay_buffer_n
-    assert case.learner_batch_size == case.configured_batch_size // 2
+    assert case.learner_batch_size == case.configured_batch_size
     assert case.sample_count_per_rank == case.learner_batch_size * case.updates_per_step
     assert case.shape.packed_width == 2 * 45 + 29 + 3 + 2 * 48
 
@@ -51,7 +49,6 @@ def test_default_compose_targets_motion_tracking_motrix() -> None:
         task=bench.DEFAULT_TASK,
         sim=bench.DEFAULT_SIM,
         shape=bench.ReplayShape(obs_dim=160, action_dim=29, critic_dim=289),
-        symmetry_batch_multiplier=1,
     )
 
     assert bench.DEFAULT_TASK == "g1_motion_tracking"
@@ -168,8 +165,6 @@ def test_main_no_cuda_writes_skipped_json(tmp_path, monkeypatch) -> None:
             "2",
             "--critic-dim",
             "1",
-            "--symmetry-batch-multiplier",
-            "2",
             "--out-json",
             str(out_json),
         ]
@@ -206,8 +201,6 @@ def test_main_mps_runs_single_device_and_skips_multi(tmp_path, monkeypatch) -> N
             "2",
             "--critic-dim",
             "1",
-            "--symmetry-batch-multiplier",
-            "2",
             "--out-json",
             str(out_json),
         ]

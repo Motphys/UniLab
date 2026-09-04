@@ -3,7 +3,8 @@
 Faithful xp-port of the NumPy computation in the collector-timed sections of
 `uv run train --algo sac --task g1_walk_flat --sim mujoco` (num_envs=2048):
 
-- `G1WalkEnv.update_state` (src/unilab/envs/locomotion/g1/joystick.py):
+- the legacy `G1WalkEnv.update_state` computation (pre-Manager-Based migration;
+  src/unilab/tasks/locomotion/g1/manager_terms.py now owns the same math):
   termination, `_compute_reward` (9 active terms under the SAC scales incl.
   per-term logging every 4 steps), `_compute_obs` (noise + concat, walk
   profile), and the done-triggered curriculum bookkeeping.
@@ -51,7 +52,7 @@ NOISE_LEVEL = 1.0
 NOISE_SCALE_JOINT_ANGLE = 0.01
 NOISE_SCALE_JOINT_VEL = 0.1
 
-# conf/offpolicy/task/sac/g1_walk_flat/mujoco.yaml pose_weights (29-dof)
+# conf/sac/task/g1_walk_flat/mujoco.yaml pose_weights (29-dof)
 POSE_WEIGHTS = [0.01, 1.0, 5.0, 0.01, 5.0, 5.0] * 2 + [50.0] * 17
 
 # Reward scales from the SAC owner YAML; penalty terms are multiplied by the

@@ -7,10 +7,11 @@ Covers the UniLab side of the contract: ``EnvCfg.cpu_ids`` validation,
 
 import inspect
 import os
+from pathlib import Path
 
 import pytest
 
-from unilab.base.backend import create_backend, env_backend_kwargs
+from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -28,12 +29,22 @@ if "cpu_ids" not in inspect.signature(BatchEnvPool.__init__).parameters:
         allow_module_level=True,
     )
 
-from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.backend import MuJoCoBackend
+from unisim.backend.mujoco.backend import MuJoCoBackend
+
 from unilab.base.scene import SceneCfg
 
-_MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")
+_MODEL_FILE = str(
+    Path(__file__).resolve().parents[2] / "fixtures" / "mjlab_cartpole" / "cartpole.xml"
+)
 _NUM_ENVS = 4
+_BASE_NAME = "cart"
+
+if not hasattr(os, "sched_getaffinity"):
+    pytest.skip(
+        "os.sched_getaffinity unavailable on this platform (e.g. macOS)",
+        allow_module_level=True,
+    )
+
 _AVAILABLE_CPUS = sorted(os.sched_getaffinity(0))
 
 
@@ -42,7 +53,7 @@ def _build_small_backend(**backend_kwargs):
         SceneCfg(model_file=_MODEL_FILE),
         num_envs=_NUM_ENVS,
         sim_dt=0.01,
-        base_name="base",
+        base_name=_BASE_NAME,
         adaptive_chunk_size=False,
         **backend_kwargs,
     )
@@ -91,7 +102,7 @@ def test_create_backend_routes_cpu_ids():
         SceneCfg(model_file=_MODEL_FILE),
         _NUM_ENVS,
         0.01,
-        base_name="base",
+        base_name=_BASE_NAME,
         adaptive_chunk_size=False,
         cpu_ids=cpu_ids,
     )
@@ -107,7 +118,7 @@ def test_backend_rejects_invalid_cpu_ids_on_cold_path(cpu_ids):
             SceneCfg(model_file=_MODEL_FILE),
             num_envs=_NUM_ENVS,
             sim_dt=0.01,
-            base_name="base",
+            base_name=_BASE_NAME,
             cpu_ids=cpu_ids,
         )
 
@@ -115,9 +126,12 @@ def test_backend_rejects_invalid_cpu_ids_on_cold_path(cpu_ids):
 def test_workers_pinned_to_configured_cpus():
     cpu_ids = _AVAILABLE_CPUS[:2]
     backend = _build_small_backend(cpu_ids=cpu_ids)
-    # Configured mapping is queryable and workers were observed on those CPUs.
-    assert tuple(backend._pool.cpu_ids) == tuple(cpu_ids)
-    assert backend._pool.worker_cpu_ids() == tuple(cpu_ids)
+    try:
+        # Configured mapping is queryable and workers were observed on those CPUs.
+        assert tuple(backend._pool.cpu_ids) == tuple(cpu_ids)
+        assert backend._pool.worker_cpu_ids() == tuple(cpu_ids)
+    finally:
+        backend._pool.close()
 
 
 def test_unavailable_cpu_id_fails_at_pool_creation():
@@ -126,7 +140,7 @@ def test_unavailable_cpu_id_fails_at_pool_creation():
         SceneCfg(model_file=_MODEL_FILE),
         num_envs=_NUM_ENVS,
         sim_dt=0.01,
-        base_name="base",
+        base_name=_BASE_NAME,
         cpu_ids=[unavailable],
     )
     with pytest.raises(ValueError, match="not available"):
@@ -135,6 +149,34 @@ def test_unavailable_cpu_id_fails_at_pool_creation():
 
 def test_default_path_keeps_os_scheduling():
     backend = _build_small_backend()
+    try:
+        assert backend._cpu_ids is None
+        assert backend._pool.cpu_ids is None
+        assert backend._pool.worker_cpu_ids() == ()
+    finally:
+        backend._pool.close()
+
+
+def test_default_nthread_sized_to_effective_cpus():
+    """Default pool sizing uses the CPUs usable by this process (#1328),
+    not 2x the machine-wide count; explicit ``cpu_ids`` still fixes nthread."""
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=_MODEL_FILE),
+        num_envs=10_000,
+        sim_dt=0.01,
+        base_name=_BASE_NAME,
+    )
     assert backend._cpu_ids is None
-    assert backend._pool.cpu_ids is None
-    assert backend._pool.worker_cpu_ids() == ()
+    assert backend._n_threads == len(os.sched_getaffinity(0))
+
+
+def test_default_nthread_capped_by_num_envs():
+    backend = MuJoCoBackend(
+        SceneCfg(model_file=_MODEL_FILE),
+        num_envs=2,
+        sim_dt=0.01,
+        base_name=_BASE_NAME,
+    )
+    # num_envs caps the pool size, but the effective-CPU cap wins first on
+    # single-core hosts (e.g. ubuntu-slim CI runners).
+    assert backend._n_threads == min(len(os.sched_getaffinity(0)), 2)

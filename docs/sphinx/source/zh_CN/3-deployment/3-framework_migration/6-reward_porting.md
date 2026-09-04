@@ -37,7 +37,7 @@ def reward_feet_air_time(self, state):
 注意：
 
 - UniLab 的 `state` 携带了 `prev_contact`，因此你无需自己管理边沿检测。参见
-  `unilab.envs.locomotion.common.rewards`。
+  `unilab.tasks.locomotion.common.rewards`。
 
 ## 模式：动作平滑惩罚
 
@@ -46,7 +46,7 @@ def reward_action_rate(self, state):
     return -np.sum((state.action - state.prev_action) ** 2, axis=1)
 ```
 
-它已经是 `unilab.envs.locomotion.common.rewards` 中的现成辅助函数。
+它已经是 `unilab.tasks.locomotion.common.rewards` 中的现成辅助函数。
 
 ## 模式：姿态惩罚
 
@@ -74,5 +74,5 @@ def reward_termination(self, state):
 ## 另请参阅
 
 - {doc}`5-task_config_translation`
-- `unilab.training.reward`
-- `unilab.envs.locomotion.common.rewards`
+- `unilab.utils.reward`
+- `unilab.tasks.locomotion.common.rewards`

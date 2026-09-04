@@ -1,0 +1,38 @@
+# Demo owner YAML for the generic stage-based curriculum terms (issue #1397).
+# Reuses the pinned cartpole Balance task and adds one declarative ladder per
+# public term, driven by env.common_step_counter: a reward weight ramp and a
+# termination params ramp. Stage steps are tiny so short runs exercise the
+# trigger path; production tasks pick their own schedules.
+# Compose with config_name="stage_curriculum".
+defaults:
+  - config
+  - _self_
+
+env:
+  terminations:
+    pole_tilt:
+      _target_: unilab.managers.TerminationTermCfg
+      func: unilab.envs.mdp.bad_orientation
+      params:
+        limit_angle: 0.4
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: cartpole
+  curriculum:
+    smooth_reward_weight:
+      _target_: unilab.managers.CurriculumTermCfg
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: smooth_reward
+        stages:
+          - {step: 0, weight: 1.0}
+          - {step: 2, weight: 0.5}
+          - {step: 4, weight: 0.25}
+    pole_tilt_limit:
+      _target_: unilab.managers.CurriculumTermCfg
+      func: unilab.envs.mdp.termination_curriculum
+      params:
+        termination_name: pole_tilt
+        stages:
+          - {step: 0, params: {limit_angle: 0.4}}
+          - {step: 2, params: {limit_angle: 0.2}}

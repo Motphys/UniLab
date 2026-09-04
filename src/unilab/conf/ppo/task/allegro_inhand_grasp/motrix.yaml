@@ -1,0 +1,95 @@
+# @package _global_
+defaults:
+  - /task/allegro_inhand/base
+  - _self_
+
+training:
+  task_name: AllegroInhandRotationGrasp
+  sim_backend: motrix
+  no_play: true
+
+algo:
+  num_envs: 16384
+  num_steps_per_env: 8
+  max_iterations: 1000 # infinite rollout until the recorder raises RunComplete
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+  algorithm:
+    value_loss_coef: 4.0
+    desired_kl: 0.02
+
+env:
+  max_episode_seconds: 3.0
+  actions:
+    hand:
+      action_scale: 0.0
+  events:
+    pd_gains: null
+    reset_hand_ball:
+      params:
+        grasp_cache_path: null
+        joint_noise: 0.25
+        ball_velocity_noise: 0.0
+        ball_z_offset: 0.0
+  terminations:
+    invalid_grasp:
+      func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityTermination
+      params:
+        entity_name: robot
+        observation_group: policy
+        observation_term: rotation
+        fingertip_body_names: [ff_tip, mf_tip, rf_tip, th_tip]
+        contact_sensor_names: [ff_contact, mf_contact, rf_contact, th_contact]
+        max_fingertip_distance: 0.1
+        minimum_contacts: 2
+        minimum_ball_height: 0.125
+        enabled: true
+  metrics:
+    fingertips_close:
+      func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
+      params: {quality_term_name: invalid_grasp, condition: fingertips_close}
+    enough_contacts:
+      func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
+      params: {quality_term_name: invalid_grasp, condition: enough_contacts}
+    ball_held:
+      func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
+      params: {quality_term_name: invalid_grasp, condition: ball_held}
+    valid:
+      func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspQualityMetric
+      params: {quality_term_name: invalid_grasp, condition: valid}
+  recorders:
+    grasp_cache:
+      func: unilab.tasks.manipulation.allegro_inhand.grasp_gen.AllegroGraspRecorder
+      params:
+        quality_term_name: invalid_grasp
+        output_path: caches/allegro_grasp_50k.npy
+        collection_target: 50000
+        auto_save: true
+
+reward:
+  rotate: {weight: 0.0}
+  obj_linvel: {weight: 0.0}
+  pose_diff: {weight: 0.0}
+  torque: {weight: 0.0}
+  work: {weight: 0.0}
+  drop: {weight: 0.0}
+
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

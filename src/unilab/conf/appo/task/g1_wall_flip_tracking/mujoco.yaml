@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - /task/g1_flip_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1WallFlipTracking
+  sim_backend: mujoco
+  replay_queue_size: 5
+
+algo:
+  steps_per_env: 20
+  max_iterations: 7000
+  algorithm:
+    num_learning_epochs: 6
+    desired_kl: 0.008
+
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_flat_with_wall.xml
+  commands:
+    motion:
+      params:
+        motion_file: motions/g1/flip_from_wall_104__A304.npz

@@ -11,7 +11,7 @@ materialization out of `step()`, `reset()`, and hot domain-randomization loops.
 2. Add a preset in `src/unilab/terrains/config.py` with `@terrain_preset` if the
    terrain should be selectable by name.
 3. Wire terrain into a `TerrainGeneratorCfg`, either through an existing named
-   set such as `ROUGH_TERRAINS_CFG` or through an owner YAML under `conf/`.
+   set such as `ROUGH_TERRAINS_CFG` or through an owner YAML under `src/unilab/conf/`.
 4. Expose terrain to scenes through `SceneCfg.terrain` and `TerrainSceneCfg` in
    `src/unilab/base/scene.py`.
 5. If an env needs height observations, create the backend scanner on init via
@@ -33,6 +33,6 @@ materialization out of `step()`, `reset()`, and hot domain-randomization loops.
 ## Evidence In Repo
 
 - Terrain configs and presets: `src/unilab/terrains/config.py`
-- Terrain generator: `src/unilab/terrains/terrain_generator.py`
+- Terrain generator: `unisim.terrain.generator`
 - Heightfield terrain types: `src/unilab/terrains/heightfield_terrains.py`
-- Height-scan helper: `src/unilab/envs/locomotion/common/height_scan.py`
+- Height-scan helper: `src/unilab/tasks/locomotion/common/height_scan.py`

@@ -17,252 +17,44 @@ Output NPZ format:
 - body_quat_w: Body quaternions in world frame (N_frames × N_bodies × 4, wxyz)
 - body_lin_vel_w: Body linear velocities (N_frames × N_bodies × 3)
 - body_ang_vel_w: Body angular velocities (N_frames × N_bodies × 3)
-"""
 
-# pyright: reportAttributeAccessIssue=false
+Interpolation and velocity estimation reuse the library implementation in
+``unilab.tasks.motion_tracking.common.motion_loader``; forward kinematics reuse
+``unisim.backend.mujoco.motion_export.compute_tracking_fk``.
+"""
 
 import argparse
 from pathlib import Path
 
-import mujoco
 import numpy as np
-from tqdm import tqdm
+from unisim.backend.mujoco.motion_export import compute_tracking_fk
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.xml import inject_mujoco_tracking_sensors
-from unilab.utils.rotation import np_quat_angular_velocity, np_quat_ensure_continuity
+from unilab.tasks.motion_tracking.common.motion_loader import interpolate_motion
+from unilab.utils.rotation import np_quat_ensure_continuity
 
 
-def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
-    """Spherical linear interpolation between two quaternions (wxyz format)."""
-    # Ensure shortest path
-    dot = np.dot(q1, q2)
-    if dot < 0:
-        q2 = -q2
-        dot = -dot
-
-    # If quaternions are very close, use linear interpolation
-    if dot > 0.9995:
-        result = q1 + t * (q2 - q1)
-        return result / np.linalg.norm(result)
-
-    # Compute angle
-    theta = np.arccos(np.clip(dot, -1, 1))
-    sin_theta = np.sin(theta)
-
-    # Compute interpolation weights
-    w1 = np.sin((1 - t) * theta) / sin_theta
-    w2 = np.sin(t * theta) / sin_theta
-
-    return w1 * q1 + w2 * q2
-
-
-class MotionLoader:
-    """Load and interpolate motion from CSV file."""
-
-    def __init__(
-        self,
-        motion_file: str,
-        input_fps: int,
-        output_fps: int,
-        line_range: tuple[int, int] | None = None,
-    ):
-        self.motion_file = motion_file
-        self.input_fps = input_fps
-        self.output_fps = output_fps
-        self.input_dt = 1.0 / self.input_fps
-        self.output_dt = 1.0 / self.output_fps
-        self.line_range = line_range
-        self._load_motion()
-        self._interpolate_motion()
-        self._compute_velocities()
-
-    def _load_motion(self):
-        """Load motion from CSV file."""
-        if self.line_range is None:
-            motion = np.loadtxt(self.motion_file, delimiter=",", dtype=np.float32, skiprows=1)
-        else:
-            motion = np.loadtxt(
-                self.motion_file,
-                delimiter=",",
-                skiprows=max(1, self.line_range[0] - 1),
-                max_rows=self.line_range[1] - self.line_range[0] + 1,
-                dtype=np.float32,
-            )
-
-        self.motion_base_poss_input = motion[:, :3]
-        # Convert quaternion from xyzw to wxyz
-        self.motion_base_rots_input = motion[:, 3:7][:, [3, 0, 1, 2]]
-        self.motion_base_rots_input = np_quat_ensure_continuity(self.motion_base_rots_input)
-        self.motion_dof_poss_input = motion[:, 7:]
-
-        self.input_frames = motion.shape[0]
-        self.duration = (self.input_frames - 1) * self.input_dt
-
-    def _interpolate_motion(self):
-        """Interpolate motion to output FPS."""
-        times = np.arange(0, self.duration, self.output_dt, dtype=np.float32)
-        self.output_frames = times.shape[0]
-        index_0, index_1, blend = self._compute_frame_blend(times)
-
-        # Linear interpolation for positions
-        self.motion_base_poss = (
-            self.motion_base_poss_input[index_0] * (1 - blend[:, None])
-            + self.motion_base_poss_input[index_1] * blend[:, None]
+def load_csv_motion(
+    motion_file: str, line_range: tuple[int, int] | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load a Unitree-convention CSV into base/dof trajectory arrays."""
+    if line_range is None:
+        motion = np.loadtxt(motion_file, delimiter=",", dtype=np.float32, skiprows=1)
+    else:
+        motion = np.loadtxt(
+            motion_file,
+            delimiter=",",
+            skiprows=max(1, line_range[0] - 1),
+            max_rows=line_range[1] - line_range[0] + 1,
+            dtype=np.float32,
         )
 
-        # Spherical linear interpolation for quaternions
-        self.motion_base_rots = np.zeros((self.output_frames, 4), dtype=np.float32)
-        for i in range(self.output_frames):
-            self.motion_base_rots[i] = quat_slerp(
-                self.motion_base_rots_input[index_0[i]],
-                self.motion_base_rots_input[index_1[i]],
-                blend[i],
-            )
-        self.motion_base_rots = np_quat_ensure_continuity(self.motion_base_rots)
-
-        # Linear interpolation for joint positions
-        self.motion_dof_poss = (
-            self.motion_dof_poss_input[index_0] * (1 - blend[:, None])
-            + self.motion_dof_poss_input[index_1] * blend[:, None]
-        )
-
-        print(
-            f"Motion interpolated: {self.input_frames} frames @ {self.input_fps} Hz "
-            f"→ {self.output_frames} frames @ {self.output_fps} Hz"
-        )
-
-    def _compute_frame_blend(self, times: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute frame indices and blend weights for interpolation."""
-        phase = times / self.duration
-        index_0 = np.floor(phase * (self.input_frames - 1)).astype(np.int32)
-        index_1 = np.minimum(index_0 + 1, self.input_frames - 1)
-        blend = phase * (self.input_frames - 1) - index_0
-        return index_0, index_1, blend
-
-    def _compute_velocities(self):
-        """Compute velocities using numerical differentiation."""
-        # Linear velocities
-        self.motion_base_lin_vels = np.gradient(self.motion_base_poss, self.output_dt, axis=0)
-        self.motion_dof_vels = np.gradient(self.motion_dof_poss, self.output_dt, axis=0)
-
-        # Angular velocities from quaternion derivatives
-        self.motion_base_ang_vels = np_quat_angular_velocity(self.motion_base_rots, self.output_dt)
-
-
-def run_simulation(
-    motion_loader: MotionLoader,
-    model_file: str,
-    joint_names: list[str],
-    output_file: str,
-):
-    """Run MuJoCo simulation to compute forward kinematics for the export."""
-    # Inject track_* sensors so exported body_* fields match training-time semantics.
-    tmp_model_path, _, _ = inject_mujoco_tracking_sensors(model_file)
-    try:
-        model = mujoco.MjModel.from_xml_path(tmp_model_path)
-        print(f"Model loaded from {tmp_model_path}")
-    finally:
-        Path(tmp_model_path).unlink(missing_ok=True)
-    data = mujoco.MjData(model)
-
-    # Get joint indices
-    joint_indices = []
-    for name in joint_names:
-        jnt_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        if jnt_id < 0:
-            raise ValueError(f"Joint '{name}' not found in model")
-        joint_indices.append(jnt_id)
-
-    # Prepare output arrays
-    num_frames = motion_loader.output_frames
-    num_joints = len(joint_indices)
-    num_bodies = model.nbody
-
-    joint_pos = np.zeros((num_frames, num_joints), dtype=np.float32)
-    joint_vel = np.zeros((num_frames, num_joints), dtype=np.float32)
-    body_pos_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
-    body_quat_w = np.zeros((num_frames, num_bodies, 4), dtype=np.float32)
-    body_lin_vel_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
-    body_ang_vel_w = np.zeros((num_frames, num_bodies, 3), dtype=np.float32)
-
-    # Keep NPZ in model body-id layout (nbody), but read from track_* sensors for
-    # named bodies to align with backend.get_body_*_w semantics used in training.
-    sensor_adrs = np.full((num_bodies, 4), -1, dtype=np.int32)
-    sensor_dims = np.array([3, 4, 3, 3], dtype=np.int32)
-    sensor_prefixes = (
-        "track_pos_w_",
-        "track_quat_w_",
-        "track_linvel_w_",
-        "track_angvel_w_",
-    )
-    for body_id in range(num_bodies):
-        body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id)
-        if not body_name:
-            continue
-        for k, prefix in enumerate(sensor_prefixes):
-            sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, f"{prefix}{body_name}")
-            if sensor_id >= 0:
-                sensor_adrs[body_id, k] = model.sensor_adr[sensor_id]
-
-    print(f"\nProcessing {num_frames} frames...")
-    for i in tqdm(range(num_frames)):
-        # Set root state
-        data.qpos[0:3] = motion_loader.motion_base_poss[i]
-        data.qpos[3:7] = motion_loader.motion_base_rots[i]
-        data.qvel[0:3] = motion_loader.motion_base_lin_vels[i]
-        data.qvel[3:6] = motion_loader.motion_base_ang_vels[i]
-
-        # Set joint states
-        for j, jnt_id in enumerate(joint_indices):
-            qpos_adr = model.jnt_qposadr[jnt_id]
-            qvel_adr = model.jnt_dofadr[jnt_id]
-            data.qpos[qpos_adr] = motion_loader.motion_dof_poss[i, j]
-            data.qvel[qvel_adr] = motion_loader.motion_dof_vels[i, j]
-
-        # Run forward pass so kinematics and sensors are up-to-date.
-        mujoco.mj_forward(model, data)
-
-        # Extract joint states
-        for j, jnt_id in enumerate(joint_indices):
-            qpos_adr = model.jnt_qposadr[jnt_id]
-            qvel_adr = model.jnt_dofadr[jnt_id]
-            joint_pos[i, j] = data.qpos[qpos_adr]
-            joint_vel[i, j] = data.qvel[qvel_adr]
-
-        # Extract body states
-        for body_id in range(num_bodies):
-            pos_adr, quat_adr, lin_adr, ang_adr = sensor_adrs[body_id]
-
-            if pos_adr >= 0:
-                body_pos_w[i, body_id] = data.sensordata[pos_adr : pos_adr + sensor_dims[0]]
-            else:
-                body_pos_w[i, body_id] = data.xpos[body_id]
-
-            if quat_adr >= 0:
-                body_quat_w[i, body_id] = data.sensordata[quat_adr : quat_adr + sensor_dims[1]]
-            else:
-                body_quat_w[i, body_id] = data.xquat[body_id]
-
-            if lin_adr >= 0:
-                body_lin_vel_w[i, body_id] = data.sensordata[lin_adr : lin_adr + sensor_dims[2]]
-
-            if ang_adr >= 0:
-                body_ang_vel_w[i, body_id] = data.sensordata[ang_adr : ang_adr + sensor_dims[3]]
-
-    # Save to NPZ
-    print(f"\nSaving to {output_file}...")
-    np.savez(
-        output_file,
-        fps=np.array([motion_loader.output_fps], dtype=np.int32),
-        joint_pos=joint_pos,
-        joint_vel=joint_vel,
-        body_pos_w=body_pos_w,
-        body_quat_w=body_quat_w,
-        body_lin_vel_w=body_lin_vel_w,
-        body_ang_vel_w=body_ang_vel_w,
-    )
-    print("Done!")
+    motion_base_poss_input = motion[:, :3]
+    # Convert quaternion from xyzw to wxyz
+    motion_base_rots_input = motion[:, 3:7][:, [3, 0, 1, 2]]
+    motion_base_rots_input = np_quat_ensure_continuity(motion_base_rots_input)
+    motion_dof_poss_input = motion[:, 7:]
+    return motion_base_poss_input, motion_base_rots_input, motion_dof_poss_input
 
 
 def main():
@@ -363,16 +155,47 @@ def main():
         "right_wrist_yaw_joint",
     ]
 
+    input_fps = int(args.input_fps)
+    output_fps = int(args.output_fps)
+
     # Load and interpolate motion
-    motion_loader = MotionLoader(
+    base_poss_input, base_rots_input, dof_poss_input = load_csv_motion(
         args.input_file,
-        int(args.input_fps),
-        int(args.output_fps),
         (args.line_range[0], args.line_range[1]) if args.line_range else None,
     )
+    motion = interpolate_motion(
+        base_poss_input,
+        base_rots_input,
+        dof_poss_input,
+        input_fps=input_fps,
+        output_fps=output_fps,
+    )
+    print(
+        f"Motion interpolated: {base_poss_input.shape[0]} frames @ {input_fps} Hz "
+        f"→ {motion.output_frames} frames @ {output_fps} Hz"
+    )
 
-    # Run simulation
-    run_simulation(motion_loader, args.model_file, joint_names, args.output_file)
+    # Run forward kinematics and save to NPZ
+    print(f"\nProcessing {motion.output_frames} frames...")
+    arrays = compute_tracking_fk(
+        args.model_file,
+        joint_names=joint_names,
+        base_poss=motion.base_poss,
+        base_rots=motion.base_rots,
+        base_lin_vels=motion.base_lin_vels,
+        base_ang_vels=motion.base_ang_vels,
+        dof_poss=motion.dof_poss,
+        dof_vels=motion.dof_vels,
+        progress=True,
+    )
+
+    print(f"\nSaving to {args.output_file}...")
+    np.savez(
+        args.output_file,
+        fps=np.array([output_fps], dtype=np.int32),
+        **arrays,
+    )
+    print("Done!")
 
 
 if __name__ == "__main__":

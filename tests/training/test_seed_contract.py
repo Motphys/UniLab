@@ -10,14 +10,14 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-from unilab.training.seed import (
+from unilab.utils.seed import (
     apply_training_seed,
     derive_worker_seed,
     resolve_training_seed,
 )
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
-_CONF_DIR = _ROOT_DIR / "conf"
+_CONF_DIR = _ROOT_DIR / "src" / "unilab" / "conf"
 
 
 def _compose(config_dir: str, overrides: list[str] | None = None):
@@ -67,8 +67,8 @@ def test_derive_worker_seed_is_deterministic_and_distinct_from_base_seed():
         ("ppo", ["task=sharpa_inhand/mujoco_hora"]),
         ("appo", ["task=go1_joystick_flat/mujoco"]),
         ("appo", ["task=sharpa_inhand/mujoco_hora"]),
-        ("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/mujoco"]),
-        ("offpolicy", ["algo=td3", "task=td3/g1_walk_flat/mujoco"]),
+        ("sac", ["task=g1_walk_flat/mujoco"]),
+        ("td3", ["task=g1_walk_flat/mujoco"]),
     ],
 )
 def test_owner_configs_resolve_algorithm_seed_contract(config_dir: str, overrides: list[str]):

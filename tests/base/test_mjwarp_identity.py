@@ -2,20 +2,15 @@
 
 from __future__ import annotations
 
-import ast
 import subprocess
 import sys
 import textwrap
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 
+import numpy as np
 import pytest
-
-from unilab.base.backend.mjwarp import dependencies
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+from unisim.backend.mjwarp import dependencies
 
 
 def test_mjwarp_import_path_does_not_eagerly_import_warp_or_mujoco() -> None:
@@ -23,15 +18,15 @@ def test_mjwarp_import_path_does_not_eagerly_import_warp_or_mujoco() -> None:
         """
         import sys
 
-        from unilab.base.backend import create_backend
-        from unilab.base.backend.mjwarp import MjwarpBackend
+        from unilab.base.backend_factory import create_backend
+        from unisim.backend.mjwarp import MjwarpBackend
 
         assert create_backend is not None
         assert MjwarpBackend is not None
         print("mujoco", "mujoco" in sys.modules)
         print("mujoco_warp", "mujoco_warp" in sys.modules)
         print("warp", "warp" in sys.modules)
-        print("mujoco_backend", "unilab.base.backend.mujoco.backend" in sys.modules)
+        print("mujoco_backend", "unisim.backend.mujoco.backend" in sys.modules)
         """
     )
     result = subprocess.run(
@@ -116,27 +111,27 @@ def test_mjwarp_identity_is_independent_from_mujoco(
     ]
 
 
-def test_mjwarp_getters_do_not_materialize_warp_arrays() -> None:
-    backend_path = _repo_root() / "src" / "unilab" / "base" / "backend" / "mjwarp" / "backend.py"
-    tree = ast.parse(backend_path.read_text(encoding="utf-8"))
-    backend = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "MjwarpBackend"
+def test_mjwarp_actuation_metadata_uses_cpu_model_only() -> None:
+    import mujoco
+    from unisim.backend.mjwarp.backend import MjwarpBackend
+
+    from unilab.assets import ASSETS_ROOT_PATH
+
+    model = mujoco.MjModel.from_xml_path(
+        str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml")
     )
-    getter_nodes = [
-        node
-        for node in backend.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("get_")
-    ]
-    assert getter_nodes
-    offenders: list[str] = []
-    for getter in getter_nodes:
-        for node in ast.walk(getter):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "numpy"
-            ):
-                offenders.append(getter.name)
-    assert offenders == []
+    backend = object.__new__(MjwarpBackend)
+    backend._mujoco = mujoco
+    backend._cpu_model = model
+    backend._root_qpos_dim = 7
+    backend._actuator_names = tuple(
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, index) or f"#{index}"
+        for index in range(model.nu)
+    )
+
+    assert len(backend.get_actuator_joint_names()) == model.nu
+    assert backend.get_actuator_joint_names()[0] == "FR_hip_joint"
+    default = backend.get_default_dof_pos()
+    np.testing.assert_array_equal(default, model.qpos0[7:])
+    default[:] = np.nan
+    assert np.isfinite(backend.get_default_dof_pos()).all()

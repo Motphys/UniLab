@@ -8,12 +8,12 @@ Allegro 旋转使用已注册的 env `AllegroInhandRotation`。旋转 owner 是 
 
 Owner 证据：
 
-- `conf/ppo/task/allegro_inhand/mujoco.yaml`
-- `conf/ppo/task/allegro_inhand/motrix.yaml`
-- `conf/ppo/task/allegro_inhand_grasp/mujoco.yaml`
-- `conf/ppo/task/allegro_inhand_grasp/motrix.yaml`
-- `conf/appo/task/allegro_inhand/mujoco.yaml`
-- `conf/appo/task/allegro_inhand/motrix.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand/motrix.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand_grasp/mujoco.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand_grasp/motrix.yaml`
+- `src/unilab/conf/appo/task/allegro_inhand/mujoco.yaml`
+- `src/unilab/conf/appo/task/allegro_inhand/motrix.yaml`
 
 典型流程分两个阶段：先生成抓取缓存，然后训练旋转策略。
 
@@ -49,12 +49,12 @@ Sharpa 旋转使用已注册的 env `SharpaInhandRotation`。当前已提交的�
 
 Owner 证据：
 
-- `conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `conf/ppo/task/sharpa_inhand/mujoco_hora.yaml`
-- `conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
-- `conf/appo/task/sharpa_inhand/mujoco.yaml`
-- `conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
-- `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco_hora.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
+- `src/unilab/conf/appo/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
+- `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`
 
 完整 HORA 流程分三个阶段：
 
@@ -110,7 +110,7 @@ uv run eval --algo ppo --task sharpa_inhand --sim mujoco --profile hora --load-r
 uv run eval --algo appo --task sharpa_inhand --sim mujoco --profile hora --load-run -1
 ```
 
-Student 蒸馏由 `conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置，由 `scripts/train_hora_distill.py` 实现；顶层 CLI 目前没有暴露单独的 HORA 蒸馏路由（不在 CLI `SUPPORTED_ALGOS` 中）。需要从 APPO teacher 蒸馏时，在该低层配置中设置 `teacher.algo_family=appo`。
+Student 蒸馏由 `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml` 配置，由 `scripts/train_hora_distill.py` 实现；顶层 CLI 目前没有暴露单独的 HORA 蒸馏路由（不在 CLI `SUPPORTED_ALGOS` 中）。需要从 APPO teacher 蒸馏时，在该低层配置中设置 `teacher.algo_family=appo`。
 
 常见日志目录：
 

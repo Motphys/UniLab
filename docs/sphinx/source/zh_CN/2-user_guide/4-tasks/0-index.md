@@ -1,6 +1,6 @@
 # 任务
 
-任务页面按用户目标分组。确切的可运行组合由 `conf/` 下的 owner YAML 支撑，
+任务页面按用户目标分组。确切的可运行组合由 `src/unilab/conf/` 下的 owner YAML 支撑，
 并在 {doc}`../../5-reference/5-support_matrix` 中汇总。
 
 ::::{grid} 1 1 2 2

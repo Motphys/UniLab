@@ -76,47 +76,19 @@ save_json = _OUTPUT.save_json
 
 
 def _install_mjwarp_patch() -> bool:
-    """Route ``backend_type == "mjwarp"`` to ``scripts/benchmark/mjwarp`` via factory patch.
-
-    Must run before any task env module (e.g. ``unilab.envs.locomotion.g1.joystick``)
-    is imported, because those modules bind ``create_backend`` at module load
-    time via ``from unilab.base.backend import create_backend``.
-
-    Returns True if ``mujoco_warp`` + ``warp`` are importable, False otherwise.
-    Idempotent.
-    """
+    """Probe the UniSim mjwarp adapter without installing a second backend."""
     try:
         import mujoco_warp  # noqa: F401
         import warp  # noqa: F401
     except ImportError:
         return False
 
-    import unilab.base.backend as _ub_backend
-
-    if getattr(_ub_backend, "_mjwarp_patched", False):
-        return True
-
-    # scripts/benchmark/ is not an installed package, so we load the adapter the same
-    # way device_info/mem_profile/output are loaded above (importlib by path).
-    mjwarp_backend_module = _load_helper_module(
-        "bench_env_step_mjwarp_backend",
-        "../mjwarp/backend.py",
-    )
-    mjwarp_backend_cls = mjwarp_backend_module.MjwarpBackend
-
-    _orig_create_backend = _ub_backend.create_backend
-
-    def _patched_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs):
-        if backend_type == "mjwarp":
-            # Strip kwargs that only apply to other backends so MjwarpBackend's
-            # signature stays narrow.
-            kwargs.pop("motrix_max_iterations", None)
-            return mjwarp_backend_cls(scene, num_envs, sim_dt, **kwargs)
-        return _orig_create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
-
-    _ub_backend.create_backend = _patched_create_backend
-    _ub_backend._mjwarp_patched = True
     return True
+
+
+def _uninstall_mjwarp_patch() -> None:
+    """Retained as a no-op for callers that reset the old benchmark hook."""
+    return None
 
 
 MJWARP_AVAILABLE = _install_mjwarp_patch()
@@ -129,7 +101,7 @@ class TaskConfig:
     task_id: str
     env_name: str
     cfg_factory: Callable[[str, list[str]], Any]
-    env_cls_factory: Callable[[], type]
+    env_cls_factory: Callable[[], Callable[..., Any]]
     backends: tuple[str, ...] = ("mujoco", "motrix")
     aliases: tuple[str, ...] = ()
     cfg_finalizer: Callable[[Any, str], None] | None = None
@@ -157,11 +129,13 @@ def _owner_yaml_cfg(
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
+    from unilab.base.config_adapter import BackendAdapter
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.training import BackendAdapter
 
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / config_root), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / config_root), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[
@@ -219,9 +193,9 @@ def _sac_owner_yaml_cfg(
 ) -> Any:
     yaml_backend = _hydra_yaml_backend(backend)
     return _owner_yaml_cfg(
-        config_root="offpolicy",
+        config_root="sac",
         algo_name="sac",
-        overrides=["algo=sac", f"task=sac/{task_id}/{yaml_backend}"],
+        overrides=[f"task={task_id}/{yaml_backend}"],
         config_overrides=config_overrides,
         env_cfg_cls=env_cfg_cls,
     )
@@ -276,86 +250,70 @@ def _materialize_sharpa_motrix_scene() -> str:
 
 
 def _go1_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, Go1JoystickCfg, config_overrides)
+    return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
-def _go1_env_cls() -> type:
-    from unilab.envs.locomotion.go1.joystick import Go1WalkTask
+def _manager_env_cls() -> Callable[..., Any]:
+    from unilab.envs import make_manager_based_rl_env
 
-    return Go1WalkTask
+    return make_manager_based_rl_env
 
 
 def _go2_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, Go2JoystickCfg, config_overrides)
-
-
-def _go2_env_cls() -> type:
-    from unilab.envs.locomotion.go2.joystick import Go2WalkTask
-
-    return Go2WalkTask
+    return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _go2_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughCfg
-
-    return _ppo_owner_yaml_cfg("go2_joystick_rough", backend, Go2JoystickRoughCfg, config_overrides)
-
-
-def _go2_rough_env_cls() -> type:
-    from unilab.envs.locomotion.go2.rough import Go2JoystickRoughEnv
-
-    return Go2JoystickRoughEnv
-
-
-def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickCfg
-
-    return _ppo_owner_yaml_cfg("go2w_joystick_flat", backend, Go2WJoystickCfg, config_overrides)
-
-
-def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
     return _ppo_owner_yaml_cfg(
-        "go2w_joystick_rough", backend, Go2WJoystickRoughCfg, config_overrides
+        "go2_joystick_rough", backend, ManagerBasedRlEnvCfg, config_overrides
     )
 
 
-def _go2w_env_cls() -> type:
-    from unilab.envs.locomotion.go2w.joystick import Go2WJoystickEnv
+def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return Go2WJoystickEnv
+    return _ppo_owner_yaml_cfg(
+        "go2w_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides
+    )
 
 
-def _go2w_rough_env_cls() -> type:
-    from unilab.envs.locomotion.go2w.rough import Go2WJoystickRoughEnv
+def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return Go2WJoystickRoughEnv
+    return _ppo_owner_yaml_cfg(
+        "go2w_joystick_rough", backend, ManagerBasedRlEnvCfg, config_overrides
+    )
+
+
+def _go2w_env_cls() -> Callable[..., Any]:
+    return _manager_env_cls()
 
 
 def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, G1WalkFlatCfg, config_overrides)
+    return _ppo_owner_yaml_cfg("g1_walk_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.locomotion.g1.joystick import G1WalkRoughCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
-    return _sac_owner_yaml_cfg("g1_walk_rough", backend, G1WalkRoughCfg, config_overrides)
+    return _sac_owner_yaml_cfg("g1_walk_rough", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnvCfg
+    from unilab.envs import ManagerBasedRlEnvCfg
 
     return _ppo_owner_yaml_cfg(
         "g1_motion_tracking",
         backend,
-        G1MotionTrackingEnvCfg,
+        ManagerBasedRlEnvCfg,
         config_overrides,
     )
 
@@ -364,13 +322,15 @@ def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
+    from unilab.base.config_adapter import BackendAdapter
     from unilab.base.registry import apply_cfg_overrides
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
-    from unilab.training import BackendAdapter
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
 
     yaml_backend = _hydra_yaml_backend(backend)
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(ROOT_DIR / "conf" / "ppo"), version_base="1.3"):
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
         owner_cfg = compose(
             config_name="config",
             overrides=[
@@ -396,7 +356,7 @@ def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
 
 
 def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
-    from unilab.envs.manipulation.sharpa_inhand.base import (
+    from unilab.tasks.manipulation.sharpa_inhand.base import (
         SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
         resolve_grasp_cache_file,
     )
@@ -416,19 +376,13 @@ def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
 
 
 def _g1_walk_env_cls() -> type:
-    from unilab.envs.locomotion.g1.joystick import G1WalkEnv
+    from unilab.tasks.locomotion.g1 import make_g1_walk_env
 
-    return G1WalkEnv
-
-
-def _g1_motion_tracking_env_cls() -> type:
-    from unilab.envs.motion_tracking.g1.tracking import G1MotionTrackingEnv
-
-    return G1MotionTrackingEnv
+    return make_g1_walk_env
 
 
 def _sharpa_inhand_env_cls() -> type:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
 
     return SharpaInhandRotationEnv
 
@@ -438,22 +392,22 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         task_id="go1_joystick_flat",
         env_name="Go1JoystickFlat",
         cfg_factory=_go1_cfg,
-        env_cls_factory=_go1_env_cls,
+        env_cls_factory=_manager_env_cls,
         backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2": TaskConfig(
         task_id="go2_joystick_flat",
         env_name="Go2JoystickFlat",
         cfg_factory=_go2_cfg,
-        env_cls_factory=_go2_env_cls,
+        env_cls_factory=_manager_env_cls,
         backends=("mujoco", "motrix", "mjwarp"),
     ),
     "go2_rough": TaskConfig(
         task_id="go2_joystick_rough",
         env_name="Go2JoystickRough",
         cfg_factory=_go2_rough_cfg,
-        env_cls_factory=_go2_rough_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
+        env_cls_factory=_manager_env_cls,
+        backends=("mujoco", "motrix"),
     ),
     "go2w": TaskConfig(
         task_id="go2w_joystick_flat",
@@ -466,8 +420,8 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         task_id="go2w_joystick_rough",
         env_name="Go2WJoystickRough",
         cfg_factory=_go2w_rough_cfg,
-        env_cls_factory=_go2w_rough_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
+        env_cls_factory=_manager_env_cls,
+        backends=("mujoco", "motrix"),
     ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",
@@ -488,8 +442,8 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         task_id="g1_motion_tracking",
         env_name="G1MotionTracking",
         cfg_factory=_g1_motion_tracking_cfg,
-        env_cls_factory=_g1_motion_tracking_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
+        env_cls_factory=_manager_env_cls,
+        backends=("mujoco", "motrix"),
     ),
     "sharpa_inhand": TaskConfig(
         task_id="sharpa_inhand",
@@ -502,7 +456,7 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
 }
 
 # Default benchmark parameters
-DEFAULT_NUM_ENVS = 2048
+DEFAULT_NUM_ENVS = 4096
 DEFAULT_NUM_STEPS = 20
 DEFAULT_WARMUP_STEPS = 5
 
@@ -708,15 +662,21 @@ def _run_single(extra_args: list[str]) -> dict[str, Any]:
         env_cls = task_config.env_cls_factory()
         env = env_cls(cfg, num_envs=num_envs, backend_type=sim_backend)
 
-        nu = env._backend.num_actuators  # type: ignore[reportAttributeAccessIssue]
+        action_shape = env.action_space.shape
+        if action_shape is None or len(action_shape) != 1:
+            raise ValueError(
+                f"Benchmark task {task_config.env_name!r} requires a flat action space, "
+                f"got {action_shape}"
+            )
+        action_dim = int(action_shape[0])
         env.init_state()
 
         for _ in range(warmup_steps):
-            actions = np.random.uniform(-1, 1, size=(num_envs, nu)).astype(np.float32)
+            actions = np.random.uniform(-1, 1, size=(num_envs, action_dim)).astype(np.float32)
             env.step(actions)
 
         for _ in range(num_steps):
-            actions = np.random.uniform(-1, 1, size=(num_envs, nu)).astype(np.float32)
+            actions = np.random.uniform(-1, 1, size=(num_envs, action_dim)).astype(np.float32)
             state = env.step(actions)
             timing = state.info.get("timing", {})
             for k, v in timing.items():
@@ -1477,7 +1437,7 @@ def _run_matrix(
     extra_args: list[str], *, out_json: Path, plot_dir: Path | None, skip_plots: bool
 ) -> None:
     """Run all task x backend combinations and print comparison."""
-    from unilab.base.backend import MOTRIX_AVAILABLE
+    from unisim.backend.motrix.backend import MOTRIX_AVAILABLE
 
     backends = ["mujoco"]
     if MOTRIX_AVAILABLE:

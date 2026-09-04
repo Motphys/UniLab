@@ -45,7 +45,7 @@ range in the task owner only after recording why that range is plausible.
 Tasks that use DR attach a provider through the env initialization path:
 
 ```python
-from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
 
 class MyTaskEnv(NpEnv):
     def __init__(self, cfg):
@@ -60,12 +60,12 @@ owners and conform to the contract in
 ## Recipe: starting ranges
 
 Use the selected owner YAML as the source of truth. For example,
-`conf/ppo/task/go2_joystick_rough/mujoco.yaml` enables base-mass, COM, kp/kd,
-and push randomization; `conf/ppo/task/sharpa_inhand/mujoco.yaml` configures
+`src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml` enables base-mass, COM, kp/kd,
+and push randomization; `src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml` configures
 PD-gain, friction, COM, mass, joint-noise, and contact-noise fields.
 
 ```yaml
-# conf/ppo/task/go2_joystick_rough/mujoco.yaml
+# src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml
 env:
   domain_rand:
     randomize_base_mass: true

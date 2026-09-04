@@ -1,0 +1,107 @@
+# @package _global_
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1FlipTrackingSAC
+  sim_backend: mujoco
+  play_steps: 1000
+
+algo:
+  num_envs: 4096
+  max_iterations: 25000
+  save_interval: 1000
+  gamma: 0.99
+  tau: 0.05
+  num_atoms: 501
+  updates_per_step: 4
+  policy_frequency: 2
+  algo_params:
+    alpha_init: 0.005
+    target_entropy_ratio: 0.05
+    max_grad_norm: 10.0
+
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_flat.xml
+  sim_dt: 0.005
+  actions:
+    joint_pos:
+      scale:
+        ".*_(hip_pitch|hip_yaw)_joint": 0.5475464629911068
+        ".*_(hip_roll|knee)_joint": 0.35066146637882434
+        ".*_ankle_(pitch|roll)_joint": 0.43857731392336724
+        "waist_yaw_joint": 0.5475464629911068
+        "waist_(roll|pitch)_joint": 0.43857731392336724
+        ".*_(shoulder_(pitch|roll|yaw)|elbow|wrist_roll)_joint": 0.43857731392336724
+        ".*_wrist_(pitch|yaw)_joint": 0.07450087032950714
+  commands:
+    motion:
+      params:
+        motion_file: motions/g1/flip_360_001__A304.npz
+        sampling_mode: mixed
+        sampling_start_ratio: 0.1
+        truncate_on_clip_end: true
+        pose_range: &zero_pose
+          x: [0.0, 0.0]
+          y: [0.0, 0.0]
+          z: [0.0, 0.0]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
+        velocity_range: *zero_pose
+        joint_position_range: [0.0, 0.0]
+  terminations:
+    anchor_pos:
+      params: {command_name: motion, threshold: 0.5}
+    anchor_ori:
+      params:
+        command_name: motion
+        threshold: 1.0e9
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+    ee_body_pos:
+      params:
+        command_name: motion
+        threshold: 0.5
+        body_names: &ee_bodies
+          - left_ankle_roll_link
+          - right_ankle_roll_link
+          - left_wrist_yaw_link
+          - right_wrist_yaw_link
+    undesired_contacts:
+      func: unilab.tasks.motion_tracking.common.manager_terms.bad_undesired_body_contacts
+      params:
+        command_name: motion
+        threshold: 0.05
+        body_names: &undesired_bodies
+          - pelvis
+          - left_hip_roll_link
+          - left_knee_link
+          - right_hip_roll_link
+          - right_knee_link
+          - torso_link
+          - left_shoulder_roll_link
+          - left_elbow_link
+          - right_shoulder_roll_link
+          - right_elbow_link
+
+reward:
+  motion_global_root_pos:
+    weight: 0.5
+  motion_body_ori:
+    weight: 1.5
+  motion_ee_body_pos_z:
+    func: unilab.tasks.motion_tracking.common.manager_terms.motion_relative_body_position_z_error_exp
+    weight: 2.0
+    params: {command_name: motion, std: 0.3, body_names: *ee_bodies}
+  action_rate_l2:
+    weight: -0.005
+  joint_limit:
+    weight: -10.0
+  undesired_contacts:
+    func: unilab.tasks.motion_tracking.common.manager_terms.undesired_body_contacts
+    weight: -0.1
+    params: {command_name: motion, threshold: 0.05, body_names: *undesired_bodies}

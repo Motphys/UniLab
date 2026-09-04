@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - /task/go1_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go1JoystickFlat
+  sim_backend: mujoco
+  play_steps: 500
+  play_env_num: 16
+  render_spacing: 0.0
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
+algo:
+  num_envs: 1024
+  max_iterations: 151
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

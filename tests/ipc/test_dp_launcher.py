@@ -11,12 +11,11 @@ from pathlib import Path
 
 import pytest
 import torch
+import uni_rl.ipc.dp_launcher as dp_launcher
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
-
-import unilab.ipc.dp_launcher as dp_launcher
-from unilab.ipc.dp_launcher import (
+from uni_rl.ipc.dp_launcher import (
     UNILAB_DP_DEVICES,
     UNILAB_DP_LOG_DIR,
     UNILAB_DP_RANK,
@@ -37,15 +36,15 @@ from unilab.ipc.dp_launcher import (
 )
 
 _ROOT = Path(__file__).parent.parent.parent
-_CONF_DIR = _ROOT / "conf"
+_CONF_DIR = _ROOT / "src" / "unilab" / "conf"
 
 
 def _offpolicy_cfg(overrides: list[str] | None = None):
     GlobalHydra.instance().clear()
     normalized = list(overrides or [])
     if not any(override.startswith("task=") for override in normalized):
-        normalized.append("task=sac/g1_walk_flat/mujoco")
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+        normalized.append("task=g1_walk_flat/mujoco")
+    with initialize_config_dir(config_dir=str(_CONF_DIR / "sac"), version_base="1.3"):
         return compose("config", overrides=normalized)
 
 
@@ -342,13 +341,13 @@ def test_single_device_topology_spawns_no_children(fake_popen, monkeypatch: pyte
 
 def test_supervisor_spawn_argv_and_env(fake_popen, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
-    monkeypatch.setattr(sys, "argv", ["train_offpolicy.py", "algo=sac", "training.devices=[0,1,2]"])
+    monkeypatch.setattr(sys, "argv", ["train_sac.py", "training.devices=[0,1,2]"])
     with DpRankSupervisor((0, 1, 2), log_dir="/tmp/dp_test_log"):
         assert len(fake_popen.instances) == 2
         for rank, child in enumerate(fake_popen.instances, start=1):
             assert child.argv[0] == sys.executable
-            assert child.argv[1].endswith("scripts/train_offpolicy.py")
-            assert child.argv[2:] == ["algo=sac", "training.devices=[0,1,2]"]
+            assert child.argv[1].endswith("scripts/train_sac.py")
+            assert child.argv[2:] == ["training.devices=[0,1,2]"]
             assert child.start_new_session is (os.name == "posix")
             assert child.env[UNILAB_DP_RANK] == str(rank)
             assert child.env[UNILAB_DP_WORLD_SIZE] == "3"

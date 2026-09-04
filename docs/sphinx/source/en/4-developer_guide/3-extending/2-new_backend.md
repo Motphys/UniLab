@@ -10,13 +10,13 @@ The repository currently recognizes `mujoco` and `motrix` in two important
 places:
 
 - `registry.register_env(...)` in `src/unilab/base/registry.py`
-- `create_backend(...)` in `src/unilab/base/backend/__init__.py`
+- `create_backend(...)` in `src/unilab/base/backend_factory.py`
 
 A third backend is therefore an architecture change, not just a new package.
 
 ## Implementation Checklist
 
-1. Implement a `SimBackend` subclass under `src/unilab/base/backend/<backend>/`.
+1. Implement a `SimBackend` subclass under `unisim.backend<backend>/`.
 2. Add backend construction to `create_backend(...)`.
 3. Update registry validation if the new backend should be accepted by
    `@registry.env(..., sim_backend=...)`.
@@ -39,7 +39,7 @@ A third backend is therefore an architecture change, not just a new package.
 
 ## Evidence In Repo
 
-- Backend interface: `src/unilab/base/backend/base.py`
-- Backend factory: `src/unilab/base/backend/__init__.py`
-- MuJoCo backend package: `src/unilab/base/backend/mujoco/`
-- Motrix backend package: `src/unilab/base/backend/motrix/`
+- Backend interface: `unisim.backend.base`
+- Backend factory: `src/unilab/base/backend_factory.py`
+- MuJoCo backend package: `unisim.backend.mujoco`
+- Motrix backend package: `unisim.backend.motrix`

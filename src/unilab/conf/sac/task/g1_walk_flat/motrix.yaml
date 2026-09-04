@@ -1,0 +1,44 @@
+# @package _global_
+# SAC Motrix owner: keeps DENYLIST parity with the MuJoCo owner and retunes
+# reward shaping / disables kp/kd randomization for the Motrix direction.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: motrix
+algo:
+  num_envs: 2048
+  learning_starts: 1
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+env:
+  events:
+    # Legacy Motrix owners disable kp/kd randomization.
+    pd_gains: null
+reward:
+  tracking_lin_vel:
+    weight: 2.2
+  tracking_ang_vel:
+    weight: 1.8
+  penalty_ang_vel_xy:
+    weight: -1.2
+  penalty_orientation:
+    weight: -12.0
+  penalty_action_rate:
+    weight: -2.5
+  pose:
+    weight: -0.6
+  penalty_feet_ori:
+    weight: -5.0
+  feet_phase:
+    weight: 6.0
+    params:
+      tracking_sigma: 0.008
+  alive:
+    weight: 12.0

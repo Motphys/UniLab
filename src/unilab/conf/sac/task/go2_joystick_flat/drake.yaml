@@ -1,0 +1,43 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: drake
+  no_play: true
+  play_steps: 400
+  play_env_num: 1
+  play_render_mode: record
+
+algo:
+  algo_log_name: fast_sac_drake
+  num_envs: 512
+  batch_size: 1024
+  replay_buffer_n: 512
+  updates_per_step: 2
+  learning_starts: 2
+  max_iterations: 300
+  save_interval: 100
+  actor_hidden_dim: 256
+  critic_hidden_dim: 512
+  obs_normalization: true
+  use_layer_norm: true
+  algo_params:
+    alpha_init: 0.005
+    target_entropy_ratio: 0.0
+    use_compile: false
+
+env:
+  drake_backend_mode: batch
+  drake_nthread: 20
+  events:
+    pd_gains: null
+
+reward:
+  # drake_uni reports per-body net contact force in the world frame, not the
+  # MuJoCo contact frame (normal first) the gait terms gate on; keep the
+  # contact reward off until the drake adapter reports contact-frame force
+  # (issue #1471).
+  contact: null

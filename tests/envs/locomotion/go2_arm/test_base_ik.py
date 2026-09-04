@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from unilab.envs.locomotion.go2_arm.base import Go2ArmBaseCfg, Go2ArmBaseEnv
+from unilab.tasks.locomotion.go2_arm.base import Go2ArmBaseCfg, Go2ArmBaseEnv
 
 
 class _IkHarness(Go2ArmBaseEnv):

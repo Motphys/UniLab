@@ -1,57 +1,34 @@
 """Test reward config override through registry."""
 
+from pathlib import Path
 from typing import Any, cast
 
-import pytest
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 
 from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.registry import ensure_registries
 
-
-def test_reward_override_go1():
-    """Test Go1 reward config override."""
-    ensure_registries()
-
-    from unilab.envs.locomotion.go1.joystick import RewardConfig
-
-    override_config = RewardConfig(
-        scales={"tracking_lin_vel": 999.0},
-        tracking_sigma=0.5,
-        base_height_target=0.5,
-    )
-
-    env = cast(
-        Any,
-        registry.make(
-            "Go1JoystickFlat",
-            num_envs=1,
-            sim_backend="mujoco",
-            env_cfg_override={"reward_config": override_config},
-        ),
-    )
-
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == 999.0
-    env.close()
+ROOT_DIR = Path(__file__).parents[2]
 
 
 def test_reward_override_g1():
-    """Test G1 reward config override."""
+    """Test G1 manager reward override through the registry."""
     ensure_registries()
 
-    from unilab.envs.locomotion.g1.joystick import G1WalkRewardConfig
-
-    override_config = G1WalkRewardConfig(
-        scales={"tracking_lin_vel": 888.0, "alive": 20.0},
-        tracking_sigma=0.3,
-        base_height_target=0.8,
-        min_base_height=0.3,
-        max_tilt_deg=65.0,
-        gait_frequency=1.5,
-        feet_phase_swing_height=0.09,
-        feet_phase_tracking_sigma=0.008,
-        close_feet_threshold=0.15,
-        pose_weights=[0.01] * 29,
-    )
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(
+        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
+    ):
+        cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
+    env_cfg_override = BackendAdapter(cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
+    env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] = 888.0
+    env_cfg_override["rewards"]["alive"] = {
+        "_target_": "unilab.managers.RewardTermCfg",
+        "func": "unilab.tasks.locomotion.common.manager_terms.alive",
+        "weight": 20.0,
+    }
 
     env = cast(
         Any,
@@ -59,10 +36,11 @@ def test_reward_override_g1():
             "G1WalkFlat",
             num_envs=1,
             sim_backend="mujoco",
-            env_cfg_override={"reward_config": override_config},
+            env_cfg_override=env_cfg_override,
         ),
     )
 
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == 888.0
-    assert env._cfg.reward_config.scales["alive"] == 20.0
+    assert env._cfg.rewards["tracking_lin_vel"].weight == 888.0
+    assert env._cfg.rewards["alive"].weight == 20.0
+    assert env.reward_manager.get_term_cfg("tracking_lin_vel").weight == 888.0
     env.close()

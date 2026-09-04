@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""NumPy vs Torch comparison for the collector-timed env computation.
+"""NumPy vs Torch comparison for collector-timed numeric manager kernels.
 
-Reproduces the `update_state` and `reset_done` sections of `NpEnv.step` (the
-`env_step_update_state_ms` / `env_step_reset_done_ms` collector metrics) for the
-two SAC/mujoco tasks, at identical scale and computation items:
+Reproduces the numeric work represented by the `env_step_update_state_ms` and
+`env_step_reset_done_ms` collector metrics for two SAC/MuJoCo tasks, at
+identical scale and computation items:
 
 - g1_walk_flat       (num_envs=2048, 29-dof, obs 98 / critic 101)
 - g1_motion_tracking (num_envs=2048, 29-dof, 14 bodies, obs 160 / critic 289)

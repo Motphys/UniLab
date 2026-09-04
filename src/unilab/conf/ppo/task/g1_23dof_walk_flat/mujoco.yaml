@@ -1,0 +1,16 @@
+# @package _global_
+# MuJoCo owner: inherits the shared 23-DoF flat Manager-Based contract from
+# base.yaml and only carries backend/algo identity.
+defaults:
+  - /task/g1_23dof_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1Walk23DofFlat
+  sim_backend: mujoco
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  obs_groups:
+    actor:
+      - actor

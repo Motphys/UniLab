@@ -29,7 +29,9 @@ def test_sharpa_domain_randomization_doc_matches_owner_config():
     )
     content = doc_path.read_text(encoding="utf-8")
 
-    owner_cfg = OmegaConf.load(root / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml")
+    owner_cfg = OmegaConf.load(
+        root / "src" / "unilab" / "conf" / "ppo" / "task" / "sharpa_inhand" / "mujoco.yaml"
+    )
 
     assert "Sharpa" in content
     assert "`geom_size`" in content
@@ -58,7 +60,7 @@ def test_check_training_entrypoint_semantics_accepts_current_patterns():
     doc_path = root / "README.md"
     content = """
 uv run scripts/train_rsl_rl.py task=go1_joystick_flat/mujoco algo.load_run=2026-01-01
-uv run scripts/train_offpolicy.py algo=sac task=sac/g1_walk_flat/mujoco
+uv run scripts/train_sac.py task=g1_walk_flat/mujoco
 Logs live under logs/<algo.algo_log_name>/<task>/.
 """
 
@@ -104,10 +106,10 @@ def test_collect_doc_errors_scans_issue_templates_for_hydra_semantics(tmp_path):
     issue_template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
     issue_template.parent.mkdir(parents=True)
     issue_template.write_text(
-        "placeholder: |\n  uv run scripts/train_offpolicy.py algo=sac task=g1_walk_flat ...\n",
+        "placeholder: |\n  uv run scripts/train_sac.py task=g1_walk_flat ...\n",
         encoding="utf-8",
     )
-    script_path = tmp_path / "scripts" / "train_offpolicy.py"
+    script_path = tmp_path / "scripts" / "train_sac.py"
     script_path.parent.mkdir(parents=True)
     script_path.write_text("", encoding="utf-8")
 

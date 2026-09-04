@@ -1,5 +1,4 @@
 import datetime
-import json
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -15,42 +14,45 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.algos.torch.hora import HoraDistillationTrainer
-from unilab.algos.torch.hora.distill import (
+from uni_rl.algos.hora import HoraDistillationTrainer
+from uni_rl.algos.hora.distill import (
     build_student_actor_and_normalizer,
     cfg_with_checkpoint_runtime,
     load_distilled_checkpoint,
     student_policy,
 )
-from unilab.algos.torch.hora.distill_config import (
-    apply_teacher_defaults as _apply_teacher_defaults,
-)
-from unilab.algos.torch.hora.distill_config import (
-    get_teacher_owner_spec as _get_teacher_owner_spec,
-)
-from unilab.algos.torch.hora.distill_config import (
-    resolve_teacher_checkpoint_path as _resolve_teacher_checkpoint_path,
-)
-from unilab.algos.torch.hora.distill_config import (
-    resolved_distill_runtime_cfg as _resolved_distill_runtime_cfg,
-)
-from unilab.algos.torch.hora.distill_config import (
-    teacher_run_metadata as _teacher_run_metadata,
-)
-from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
-from unilab.base.backend import materialize_scene_visual_override
-from unilab.training import (
+from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
+from unisim.backend.base import log_playback_plan
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
+
+from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,
+)
+from unilab.training import (
     ensure_registries,
     format_hora_stage2_checkpoint_error,
     get_log_root,
-    log_playback_plan,
     resolve_hora_stage2_checkpoint_path,
     setup_logger,
     should_run_playback,
 )
-from unilab.training.experiment import get_device_info_dict
+from unilab.training.experiment import get_device_info_dict, write_run_config_snapshot
+from unilab.training.hora_distill_config import (
+    apply_teacher_defaults as _apply_teacher_defaults,
+)
+from unilab.training.hora_distill_config import (
+    get_teacher_owner_spec as _get_teacher_owner_spec,
+)
+from unilab.training.hora_distill_config import (
+    resolve_teacher_checkpoint_path as _resolve_teacher_checkpoint_path,
+)
+from unilab.training.hora_distill_config import (
+    resolved_distill_runtime_cfg as _resolved_distill_runtime_cfg,
+)
+from unilab.training.hora_distill_config import (
+    teacher_run_metadata as _teacher_run_metadata,
+)
 
 
 def _write_distill_run_config(
@@ -69,8 +71,9 @@ def _write_distill_run_config(
     Returns:
         None. Writes `distill_run_config.json` into `log_dir`.
     """
-    payload = {
-        "run": {
+    write_run_config_snapshot(
+        log_dir,
+        run_metadata={
             "algo": "hora_distill",
             "task": str(OmegaConf.select(cfg, "training.task_name")),
             "sim_backend": str(OmegaConf.select(cfg, "training.sim_backend")),
@@ -78,11 +81,10 @@ def _write_distill_run_config(
             "hardware": get_device_info_dict(),
             "teacher": teacher_metadata,
         },
-        "config": OmegaConf.to_container(cfg, resolve=True),
-    }
-    with (log_dir / "distill_run_config.json").open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=True)
-        f.write("\n")
+        full_cfg=cfg,
+        filename="distill_run_config.json",
+        trailing_newline=True,
+    )
 
 
 def _build_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
@@ -141,7 +143,9 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = cfg_with_checkpoint_runtime(cfg, checkpoint)
+    # uni_rl's cfg_with_checkpoint_runtime no longer composes teacher defaults;
+    # the caller owns that composition (issue #1480).
+    cfg = cfg_with_checkpoint_runtime(_apply_teacher_defaults(cfg), checkpoint)
     env = create_env(
         cfg,
         num_envs=int(cfg.training.play_env_num),
@@ -177,7 +181,7 @@ def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
     return play_video_path
 
 
-@hydra.main(version_base="1.3", config_path="../conf/hora_distill", config_name="config")
+@hydra.main(version_base="1.3", config_path="../src/unilab/conf/hora_distill", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 

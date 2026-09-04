@@ -1,0 +1,89 @@
+# @package _global_
+defaults:
+  - /task/quadruped_joystick_rough/base
+  - _self_
+
+env:
+  observations:
+    policy:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: gyro}
+          scale: 0.25
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: upvector}
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          scale: 0.05
+        actions:
+          func: unilab.envs.mdp.last_action
+          params: {action_name: joint_pos}
+    critic:
+      terms:
+        base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: local_linvel}
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: gyro}
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: upvector}
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: twist}
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          func: unilab.envs.mdp.last_action
+          params: {action_name: joint_pos}
+        height_scan:
+          func: unilab.tasks.locomotion.common.rough_manager_terms.RoughHeightScan
+          params:
+            asset_cfg:
+              _target_: SceneEntityCfg
+              name: robot
+            geom_name: floor
+            vertical_offset: 0.5
+            scale: 5.0
+  actions:
+    joint_pos:
+      _target_: unilab.tasks.locomotion.common.rough_manager_terms.RoughJointPositionActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      scale:
+        ".*_hip_joint": 0.125
+        ".*_(thigh|calf)_joint": 0.25
+      use_default_offset: true
+      clip_actions: 100.0
+
+reward:
+  stand_still:
+    func: unilab.tasks.locomotion.common.manager_terms.stand_still_l1
+    weight: -2.0
+    params:
+      command_name: twist
+      command_threshold: 0.1
+  hip_pos:
+    func: unilab.tasks.locomotion.common.rough_manager_terms.joint_deviation_l2
+    weight: -0.5
+    params:
+      asset_cfg:
+        _target_: SceneEntityCfg
+        name: robot
+        joint_names: ".*_hip_joint"
+  joint_pos_penalty:
+    func: unilab.tasks.locomotion.common.rough_manager_terms.joint_deviation_l2
+    weight: -1.0
+  upward:
+    func: unilab.tasks.locomotion.go2w.manager_terms.upward_l2
+    weight: 1.0

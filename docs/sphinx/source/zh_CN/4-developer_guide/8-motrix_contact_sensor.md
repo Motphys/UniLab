@@ -80,18 +80,18 @@ shape = (num_envs, 1 + 4 * 12) = (num_envs, 49)
 
 ## 单一 norm 分支为何不够
 
-env 通过 `src/unilab/envs/manipulation/sharpa_inhand/base.py` 中的
+env 通过 `src/unilab/tasks/manipulation/sharpa_inhand/base.py` 中的
 `_read_tactile_force()` → `_extract_sensor_scalar()` 读取触觉力。该 helper 目前对任意 `(N, >=3)` 数组都用 `np.linalg.norm(data[:, :3], axis=1)` 折叠。
 
 如果 env 仍把两种后端形状都走这一个分支，MuJoCo 的 `(N, 3)` 是正确的（对真实力向量取 norm），但 Motrix 的 `(N, 4)` 会出错：`data[:, :3]` 取到的是 `[count, fx, fy]`——把接触点数当成了力分量，并且漏掉了 `fz`。正确做法不是在 env 里按形状特判，而是把每个后端的布局知识下沉到 backend 方法。
 
 ## 建议的契约：用 backend 方法返回力大小
 
-在 `SimBackend` 接口（`src/unilab/base/backend/base.py`）增加
+在 `SimBackend` 接口（`unisim.backend.base`）增加
 `get_contact_force_magnitude(sensor_name) -> np.ndarray`，返回 `(num_envs,)` 的标量力大小。每个 backend 按自己的数据布局实现：
 
-- **MuJoCo**（`src/unilab/base/backend/mujoco/backend.py`）：对 `get_sensor_data(name)` 返回的 3D 力向量取范数。
-- **Motrix**（`src/unilab/base/backend/motrix/backend.py`）：按 reduce 模式解释布局：
+- **MuJoCo**（`unisim.backend.mujoco.backend`）：对 `get_sensor_data(name)` 返回的 3D 力向量取范数。
+- **Motrix**（`unisim.backend.motrix.backend`）：按 reduce 模式解释布局：
   - `reduce="netforce"`：取 `[1:4]` 后取 norm。
   - 无 reduce 多 contact：对各接触力求和后取 norm。
   - `reduce="maxforce"`：取力最大的接触点。
@@ -104,9 +104,9 @@ env 层的 `_read_tactile_force()` 对 contact sensor 走 `get_contact_force_mag
 
 | 文件 | 说明 |
 | --- | --- |
-| `src/unilab/envs/manipulation/sharpa_inhand/base.py` | `_extract_sensor_scalar()`, `_read_tactile_force()` |
-| `src/unilab/envs/manipulation/sharpa_inhand/rotation.py` | reward 计算，virtual torque |
+| `src/unilab/tasks/manipulation/sharpa_inhand/base.py` | `_extract_sensor_scalar()`, `_read_tactile_force()` |
+| `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py` | reward 计算，virtual torque |
 | `src/unilab/assets/robots/sharpa_wave/right_sharpa_wave.xml` | contact sensor XML 定义 |
-| `src/unilab/base/backend/motrix/backend.py` | Motrix `get_sensor_data()` |
-| `src/unilab/base/backend/mujoco/backend.py` | MuJoCo `get_sensor_data()` |
-| `src/unilab/base/backend/base.py` | `SimBackend` 接口 |
+| `unisim.backend.motrix.backend` | Motrix `get_sensor_data()` |
+| `unisim.backend.mujoco.backend` | MuJoCo `get_sensor_data()` |
+| `unisim.backend.base` | `SimBackend` 接口 |

@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import hydra
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 EXPORT_POLICY = False  # set to True in __main__ block
 
@@ -18,20 +18,33 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.algos.torch.him_ppo.runner import HIMOnPolicyRunner
-from unilab.base.backend import materialize_scene_visual_override
-from unilab.training import (
+from uni_rl.algos.him_ppo.runner import HIMOnPolicyRunner
+from uni_rl.algos.rsl_rl import RslRlVecEnvWrapper, get_policy_obs_dims
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
+
+from unilab.base.config_adapter import (
     BackendAdapter,
     create_env,
+)
+from unilab.training import (
+    algo_config_dict,
+    apply_env_nan_guard,
+    build_run_dir_name,
     ensure_registries,
-    get_latest_checkpoint,
-    get_latest_run,
+    format_play_checkpoint_error,
     get_log_root,
     parse_checkpoint_path,
 )
 from unilab.training.experiment import ExperimentTracker
-from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from unilab.utils.checkpoint import get_entrypoint_log_root
 from unilab.visualization import render_play_mode
+from unilab.visualization.interactive_playback import (
+    RslRlPlaybackConfig,
+    create_rsl_rl_playback_session,
+    infer_checkpoint_actor_input_dim,
+    make_sim2sim_preflight,
+    normalize_checkpoint_value,
+)
 
 
 def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
@@ -47,57 +60,15 @@ def _get_log_root(cfg: DictConfig) -> str:
     return str(get_log_root(ROOT_DIR, cfg))
 
 
-def _algo_config_dict(cfg: DictConfig) -> dict[str, Any]:
-    raw = OmegaConf.to_container(cfg.algo, resolve=True)
-    if not isinstance(raw, dict):
-        raise TypeError("cfg.algo must resolve to a dict")
-    return cast(dict[str, Any], raw)
-
-
-def _format_play_checkpoint_error(
-    cfg: DictConfig,
-    *,
-    task_log_root: Path,
-    load_path: Path | None,
-    load_path_dir: Path | None,
-) -> str:
-    selected_checkpoint = OmegaConf.select(cfg, "algo.checkpoint", default=-1)
-    checkpoint_hint = (
-        f" algo.checkpoint={selected_checkpoint!r}"
-        if selected_checkpoint not in (None, "", -1, "-1")
-        else ""
-    )
-    if load_path_dir is not None and load_path is None and checkpoint_hint:
-        reason = f"Requested checkpoint was not found under resolved_run={load_path_dir}."
-    elif not task_log_root.exists():
-        reason = "Task log root does not exist."
-    else:
-        latest_run = get_latest_run(task_log_root)
-        if latest_run is None:
-            reason = "No run directories were found under the task log root."
-        elif get_latest_checkpoint(latest_run) is None:
-            reason = f"Resolved latest run has no model_*.pt checkpoint files: {latest_run}."
-        else:
-            reason = "Requested run or checkpoint could not be resolved."
-
-    return (
-        "Could not resolve a checkpoint for play mode. "
-        f"{reason} task={cfg.training.task_name} task_log_root={task_log_root} "
-        f"algo.load_run={cfg.algo.load_run!r}{checkpoint_hint}."
-        " Use algo.load_run=<run-dir-or-checkpoint-path> "
-        "and optionally algo.checkpoint=<iteration-or-filename>."
-    )
-
-
 def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
     """Play mode for HIM-PPO."""
-    rl_cfg = _algo_config_dict(cfg)
+    rl_cfg = algo_config_dict(cfg)
 
     task_log_root = get_log_root(ROOT_DIR, cfg) / str(cfg.training.task_name)
     load_path, load_path_dir = parse_checkpoint_path(cfg, root_dir=ROOT_DIR)
     if load_path is None or load_path_dir is None or not load_path.exists():
         print(
-            _format_play_checkpoint_error(
+            format_play_checkpoint_error(
                 cfg,
                 task_log_root=task_log_root,
                 load_path=load_path,
@@ -115,31 +86,49 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
         )
         return None
 
-    cfg = (
-        resolve_sim2sim_config(
-            load_path_dir,
-            cfg,
-            algo_name="ppo",
-            strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
-        )
-        or cfg
-    )
-    env_cfg_override = cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
-    env = create_env(cfg, num_envs=cfg.training.play_env_num, env_cfg_override=env_cfg_override)
-    from unilab.training.rsl_rl import RslRlVecEnvWrapper
+    def _create_env(num_envs: int):
+        env_cfg_override = cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
+        return create_env(cfg, num_envs=num_envs, env_cfg_override=env_cfg_override)
 
-    wrapped_env = RslRlVecEnvWrapper(env, device=device)
-    runner = HIMOnPolicyRunner(wrapped_env, rl_cfg, log_dir=None, device=device)
-    with policy_load_dim_guard(
-        env_obs_dim=getattr(wrapped_env, "num_obs", None),
-        env_action_dim=getattr(wrapped_env, "num_actions", None),
-        algo_name="him_ppo",
-    ):
-        runner.load(str(load_path))
-    policy = runner.get_inference_policy(device=device)
+    session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
+        playback_cfg=RslRlPlaybackConfig(
+            task=str(cfg.training.task_name),
+            load_run=str(getattr(cfg.algo, "load_run", "-1")),
+            checkpoint=normalize_checkpoint_value(getattr(cfg.algo, "checkpoint", None)),
+            action_mode="policy",
+            policy_obs_mode="flat",
+            algo_log_name=str(cfg.algo.algo_log_name),
+            log_root=getattr(cfg.training, "log_root", None),
+            num_envs=int(cfg.training.play_env_num),
+        ),
+        env_factory=_create_env,
+        algo_config=rl_cfg,
+        root_dir=ROOT_DIR,
+        device=device,
+        # The checkpoint was already resolved above for the friendly early exit.
+        checkpoint_resolver=lambda *_args: str(load_path),
+        checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
+        entrypoint_log_root=get_entrypoint_log_root,
+        wrapper_cls=RslRlVecEnvWrapper,
+        runner_cls=HIMOnPolicyRunner,
+        # HIMOnPolicyRunner.load does not accept a load_cfg argument.
+        runner_loader=lambda runner, path: runner.load(path),
+        policy_obs_dims_getter=get_policy_obs_dims,
+        train_cfg_normalizer=lambda train_cfg: train_cfg,
+        sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),
+        guard_algo_name="him_ppo",
+    )
+    env = session.env
+    assert session.runner is not None and session.policy is not None
+
+    # HIM's inference policy consumes the flat actor tensor, not the full obs
+    # TensorDict the session hands to ``policy``.
+    him_policy = session.policy
+    session.policy = lambda obs: him_policy(obs["actor"])
+
     if EXPORT_POLICY:
-        runner.export_policy_to_onnx(path=str(load_path_dir))
-        runner.export_policy_to_jit(path=str(load_path_dir))
+        session.runner.export_policy_to_onnx(path=str(load_path_dir))
+        session.runner.export_policy_to_jit(path=str(load_path_dir))
 
     output_video = Path(load_path_dir) / "play_video.mp4"
     print(f"Rendering video to {output_video}...")
@@ -153,8 +142,8 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
             ),
             num_steps=cfg.training.play_steps,
             output_video=output_video,
-            initialize=lambda: wrapped_env.reset()[0]["actor"],
-            step=lambda obs: wrapped_env.step(policy(obs))[0]["actor"],
+            initialize=lambda: session.reset()["actor"],
+            step=lambda _obs: session.step_once()["actor"],
             camera_kwargs={
                 "cam_distance": cfg.training.cam_distance,
                 "cam_elevation": cfg.training.cam_elevation,
@@ -174,7 +163,7 @@ def play_him_ppo(cfg: DictConfig, device: str) -> str | None:
     return str(output_video)
 
 
-@hydra.main(version_base="1.3", config_path="../conf/ppo_him", config_name="config")
+@hydra.main(version_base="1.3", config_path="../src/unilab/conf/ppo_him", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
@@ -202,7 +191,9 @@ def main(cfg: DictConfig) -> None:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         log_root = _get_log_root(cfg)
         log_dir = str(
-            Path(log_root) / cfg.training.task_name / f"{timestamp}_{cfg.training.sim_backend}"
+            Path(log_root)
+            / cfg.training.task_name
+            / build_run_dir_name(timestamp, str(cfg.training.sim_backend))
         )
     else:
         log_dir = None
@@ -224,26 +215,11 @@ def main(cfg: DictConfig) -> None:
     try:
         if not cfg.training.play_only:
             env = create_env(cfg, num_envs=cfg.algo.num_envs, env_cfg_override=env_cfg_override)
-            from unilab.training.rsl_rl import RslRlVecEnvWrapper
 
-            nan_guard_cfg = getattr(cfg.training, "nan_guard", None)
-            if nan_guard_cfg is not None and getattr(nan_guard_cfg, "enabled", False):
-                from unilab.utils.nan_guard import NanGuard, NanGuardCfg
-
-                guard = NanGuard(
-                    NanGuardCfg(
-                        enabled=True,
-                        buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
-                        max_envs_to_dump=int(getattr(nan_guard_cfg, "max_envs_to_dump", 5)),
-                        output_dir=getattr(nan_guard_cfg, "output_dir", None),
-                    ),
-                    num_envs=env.num_envs,
-                    supports_state_playback=env.play_capabilities.supports_physics_state_playback,
-                )
-                env.set_nan_guard(guard)
+            apply_env_nan_guard(env, cfg.training)
 
             wrapped_env = RslRlVecEnvWrapper(env, device=device)
-            rl_cfg = _algo_config_dict(cfg)
+            rl_cfg = algo_config_dict(cfg)
             runner = HIMOnPolicyRunner(wrapped_env, rl_cfg, log_dir=log_dir, device=device)
 
             if cfg.algo.load_run != "-1":

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from unilab.envs.locomotion.g1.joystick import G1WalkFlatCfg
-from unilab.envs.locomotion.go1.joystick import Go1JoystickCfg
-from unilab.envs.locomotion.go2.joystick import Go2JoystickCfg
-from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
+from unilab.envs import ManagerBasedRlEnvCfg
+from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
 
 
 @dataclass(frozen=True)
@@ -14,6 +12,7 @@ class LocomotionTaskSpec:
     env_task_name: str
     display_name: str
     config_cls: type
+    model_file: str | None = None
 
 
 _TASK_SPECS = {
@@ -21,19 +20,22 @@ _TASK_SPECS = {
         owner_task_id="go1_joystick_flat",
         env_task_name="Go1JoystickFlat",
         display_name="go1_joystick_flat",
-        config_cls=Go1JoystickCfg,
+        config_cls=ManagerBasedRlEnvCfg,
+        model_file="src/unilab/assets/robots/go1/scene_flat.xml",
     ),
     "go2_joystick_flat": LocomotionTaskSpec(
         owner_task_id="go2_joystick_flat",
         env_task_name="Go2JoystickFlat",
         display_name="go2_joystick_flat",
-        config_cls=Go2JoystickCfg,
+        config_cls=ManagerBasedRlEnvCfg,
+        model_file="src/unilab/assets/robots/go2/scene_flat.xml",
     ),
     "g1_walk_flat": LocomotionTaskSpec(
         owner_task_id="g1_walk_flat",
         env_task_name="G1WalkFlat",
         display_name="g1_walk_flat",
-        config_cls=G1WalkFlatCfg,
+        config_cls=ManagerBasedRlEnvCfg,
+        model_file="src/unilab/assets/robots/g1/scene_flat.xml",
     ),
     "sharpa_inhand": LocomotionTaskSpec(
         owner_task_id="sharpa_inhand",
@@ -75,7 +77,10 @@ def locomotion_task_spec(task_name: str) -> LocomotionTaskSpec:
 
 
 def locomotion_task_model_file(task_name: str) -> str:
-    cfg = locomotion_task_spec(task_name).config_cls()
+    spec = locomotion_task_spec(task_name)
+    if spec.model_file is not None:
+        return spec.model_file
+    cfg = spec.config_cls()
     scene = getattr(cfg, "scene", None)
     model_file = getattr(scene, "model_file", None)
     if model_file:

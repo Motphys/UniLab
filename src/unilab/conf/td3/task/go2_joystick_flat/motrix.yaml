@@ -1,0 +1,25 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: motrix
+algo:
+  num_envs: 1024
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  batch_size: 8192
+  replay_buffer_n: 1024
+env:
+  commands:
+    twist:
+      ranges:
+        lin_vel_x: [0.5, 0.5]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [0.0, 0.0]
+  events:
+    pd_gains: null

@@ -1,0 +1,35 @@
+# @package _global_
+# MuJoCo 23-DoF rough owner: inherits the 23-DoF flat Manager-Based contract,
+# swaps the scene to the static-hfield rough XML, and enables the penalty
+# curriculum (the only PPO walk owner that carries one).
+defaults:
+  - /task/g1_23dof_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1Walk23DofRough
+  sim_backend: mujoco
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  obs_groups:
+    actor:
+      - actor
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_rough_23dof.xml
+  curriculum:
+    penalty_scaling:
+      func: unilab.tasks.locomotion.g1.manager_terms.G1PenaltyCurriculum
+      params:
+        initial_scale: 0.5
+        min_scale: 0.5
+        max_scale: 1.0
+        level_down_threshold: 150.0
+        level_up_threshold: 750.0
+        degree: 0.001
+
+reward:
+  # The rough scene XML declares no named foot contact sensors, so the shared
+  # air-time term inherited from the flat base is explicitly disabled here.
+  feet_air_time: null

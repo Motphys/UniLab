@@ -5,19 +5,20 @@
 ## 从这里开始
 
 - 安装与 smoke 检查：{doc}`../1-getting_started/2-installation`
-- 后端选择：{doc}`../2-user_guide/3-backends/3-choosing_a_backend`
+- 后端选择：{doc}`../2-user_guide/3-backends/0-index`
 - 任务索引：{doc}`../2-user_guide/4-tasks/0-index`
 - 算法索引：{doc}`../2-user_guide/2-algorithms/0-index`
-- PPO 入口：`scripts/train_rsl_rl.py`
-- APPO 入口：`scripts/train_appo.py`
-- SAC / TD3 / FlashSAC 入口：`scripts/train_offpolicy.py`
+- PPO 入口：`src/unilab/scripts/train_rsl_rl.py`
+- APPO 入口：`src/unilab/scripts/train_appo.py`
+- SAC / TD3 / FlashSAC 入口：`src/unilab/scripts/train_sac.py` /
+  `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
 - HIM-PPO 入口：`scripts/train_him_ppo.py`
 - HORA 蒸馏入口：`scripts/train_hora_distill.py`
 
 ## 需要记住的契约
 
 - Env 契约：`src/unilab/base/np_env.py`
-- Backend 契约：`src/unilab/base/backend/base.py`
+- Backend 契约：`unisim.backend.base`
 - 训练辅助工具：`src/unilab/training/run.py`
 - Config schema：`src/unilab/structured_configs.py`
 - Developer 标准：{doc}`1-architecture/1-overview`

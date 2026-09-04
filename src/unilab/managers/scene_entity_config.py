@@ -1,0 +1,287 @@
+# Derived from mujocolab/mjlab v1.6.0 (0fb8a681), src/mjlab/managers/scene_entity_config.py.
+# Copyright 2025, The mjlab Developers.
+# Modified by UniLab for NumPy and UniLab contracts; licensed under Apache-2.0.
+"""Configuration for scene entities used by manager terms."""
+
+from dataclasses import dataclass, field
+from typing import NamedTuple
+
+from unilab.managers._types import ManagerEntity, ManagerScene
+
+
+class _FieldConfig(NamedTuple):
+    """Configuration for a resolvable entity field."""
+
+    names_attr: str
+    ids_attr: str
+    find_method: str
+    num_attr: str
+    kind_label: str
+
+
+_FIELD_CONFIGS = [
+    _FieldConfig("joint_names", "joint_ids", "find_joints", "num_joints", "joint"),
+    _FieldConfig("body_names", "body_ids", "find_bodies", "num_bodies", "body"),
+    _FieldConfig("geom_names", "geom_ids", "find_geoms", "num_geoms", "geom"),
+    _FieldConfig("site_names", "site_ids", "find_sites", "num_sites", "site"),
+    _FieldConfig("actuator_names", "actuator_ids", "find_actuators", "num_actuators", "actuator"),
+    _FieldConfig("tendon_names", "tendon_ids", "find_tendons", "num_tendons", "tendon"),
+    _FieldConfig(
+        "camera_names",
+        "camera_ids",
+        "find_cameras",
+        "num_cameras",
+        "camera",
+    ),
+    _FieldConfig(
+        "light_names",
+        "light_ids",
+        "find_lights",
+        "num_lights",
+        "light",
+    ),
+    _FieldConfig(
+        "material_names",
+        "material_ids",
+        "find_materials",
+        "num_materials",
+        "material",
+    ),
+    _FieldConfig(
+        "texture_names",
+        "texture_ids",
+        "find_textures",
+        "num_textures",
+        "texture",
+    ),
+    _FieldConfig("pair_names", "pair_ids", "find_pairs", "num_pairs", "pair"),
+]
+
+
+@dataclass
+class SceneEntityCfg:
+    """Configuration for a scene entity that is used by the manager's term.
+
+    This configuration allows flexible specification of entity components either by name
+    or by ID. During resolution, it ensures consistency between names and IDs, and can
+    optimize to slice(None) when all components are selected.
+    """
+
+    name: str
+    """The name of the entity in the scene."""
+
+    joint_names: str | tuple[str, ...] | None = None
+    """Names of joints to include. Can be a single string or tuple."""
+
+    joint_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of joints to include. Can be a list or slice."""
+
+    body_names: str | tuple[str, ...] | None = None
+    """Names of bodies to include. Can be a single string or tuple."""
+
+    body_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of bodies to include. Can be a list or slice."""
+
+    geom_names: str | tuple[str, ...] | None = None
+    """Names of geometries to include. Can be a single string or tuple."""
+
+    geom_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of geometries to include. Can be a list or slice."""
+
+    site_names: str | tuple[str, ...] | None = None
+    """Names of sites to include. Can be a single string or tuple."""
+
+    site_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of sites to include. Can be a list or slice."""
+
+    actuator_names: str | list[str] | None = None
+    """Names of actuators to include. Can be a single string or list."""
+
+    actuator_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of actuators to include. Can be a list or slice."""
+
+    tendon_names: str | tuple[str, ...] | None = None
+    """Names of tendons to include. Can be a single string or tuple."""
+
+    tendon_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of tendons to include. Can be a list or slice."""
+
+    camera_names: str | tuple[str, ...] | None = None
+    """Names of cameras to include. Can be a single string or tuple."""
+
+    camera_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of cameras to include. Can be a list or slice."""
+
+    light_names: str | tuple[str, ...] | None = None
+    """Names of lights to include. Can be a single string or tuple."""
+
+    light_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of lights to include. Can be a list or slice."""
+
+    material_names: str | tuple[str, ...] | None = None
+    """Names of materials to include. Can be a single string or tuple."""
+
+    material_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of materials to include. Can be a list or slice."""
+
+    texture_names: str | tuple[str, ...] | None = None
+    """Names of textures to include. Can be a single string or tuple."""
+
+    texture_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of textures to include. Can be a list or slice."""
+
+    pair_names: str | tuple[str, ...] | None = None
+    """Names of contact pairs to include. Can be a single string or tuple."""
+
+    pair_ids: list[int] | slice = field(default_factory=lambda: slice(None))
+    """IDs of contact pairs to include. Can be a list or slice."""
+
+    preserve_order: bool = False
+    """If True, maintains the order of components as specified."""
+
+    def resolve(self, scene: ManagerScene) -> None:
+        """Resolve names and IDs for all configured fields.
+
+        This method ensures consistency between names and IDs for each field type.
+        It handles three cases:
+        1. Both names and IDs provided: Validates they match
+        2. Only names provided: Computes IDs (optimizes to slice(None) if all selected)
+        3. Only IDs provided: Computes names
+
+        Args:
+          scene: The scene containing the entity to resolve against.
+
+        Raises:
+          ValueError: If provided names and IDs are inconsistent.
+          KeyError: If the entity name is not found in the scene.
+        """
+        entity = scene[self.name]
+
+        for config in _FIELD_CONFIGS:
+            try:
+                self._resolve_field(entity, config)
+            except (TypeError, ValueError, NotImplementedError) as exc:
+                raise type(exc)(
+                    f"SceneEntityCfg entity '{self.name}' {config.kind_label} selector: {exc}"
+                ) from exc
+
+    def _resolve_field(self, entity: ManagerEntity, config: _FieldConfig) -> None:
+        """Resolve a single field's names and IDs.
+
+        Args:
+          entity: The entity to resolve against.
+          config: Field configuration specifying attribute names and methods.
+        """
+        names = getattr(self, config.names_attr)
+        ids = getattr(self, config.ids_attr)
+
+        # Early return if nothing to resolve.
+        if names is None and not isinstance(ids, list):
+            return
+
+        # Get entity metadata.
+        entity_all_names = getattr(entity, config.names_attr)
+        entity_count = getattr(entity, config.num_attr)
+        find_method = getattr(entity, config.find_method)
+
+        # Normalize single values to lists for uniform processing.
+        names = self._normalize_to_list(names)
+        if isinstance(ids, (int, list)):
+            ids = self._normalize_to_list(ids)
+            setattr(self, config.ids_attr, ids)
+
+        # Handle three resolution cases.
+        if names is not None and isinstance(ids, list):
+            setattr(self, config.names_attr, names)
+            self._validate_consistency(names, ids, entity_all_names, find_method, config.kind_label)
+        elif names is not None:
+            self._resolve_names_to_ids(
+                names,
+                entity_all_names,
+                entity_count,
+                find_method,
+                config.names_attr,
+                config.ids_attr,
+            )
+        elif isinstance(ids, list):
+            self._resolve_ids_to_names(ids, entity_all_names, config.names_attr, config.kind_label)
+
+    def _normalize_to_list(self, value: str | int | tuple | list | None) -> list | None:
+        """Convert single values to lists for uniform processing."""
+        if value is None:
+            return None
+        if isinstance(value, (str, int)):
+            return [value]
+        if isinstance(value, list):
+            return value
+        return list(value)
+
+    def _validate_consistency(
+        self,
+        names: list[str],
+        ids: list[int],
+        entity_all_names: list[str],
+        find_method,
+        kind_label: str,
+    ) -> None:
+        """Validate that provided names and IDs are consistent.
+
+        Raises:
+          ValueError: If names and IDs don't match.
+        """
+        found_ids, _ = find_method(names, preserve_order=self.preserve_order)
+        self._validate_ids(ids, len(entity_all_names), kind_label)
+        computed_names = [entity_all_names[i] for i in ids]
+
+        if found_ids != ids or computed_names != names:
+            raise ValueError(
+                f"Inconsistent {kind_label} names and indices. "
+                f"Names {names} resolved to indices {found_ids}, "
+                f"but indices {ids} (mapping to names {computed_names}) were provided."
+            )
+
+    def _resolve_names_to_ids(
+        self,
+        names: list[str],
+        entity_all_names: list[str],
+        entity_count: int,
+        find_method,
+        names_attr: str,
+        ids_attr: str,
+    ) -> None:
+        """Resolve names to IDs, optimizing to slice(None) when all are selected."""
+        found_ids, found_names = find_method(names, preserve_order=self.preserve_order)
+
+        # Keep names and IDs in the same order.
+        setattr(self, names_attr, found_names)
+
+        # Optimize to slice(None) if all components are selected in order.
+        if len(found_ids) == entity_count and found_names == list(entity_all_names):
+            setattr(self, ids_attr, slice(None))
+        else:
+            setattr(self, ids_attr, found_ids)
+
+    def _resolve_ids_to_names(
+        self,
+        ids: list[int],
+        entity_all_names: list[str],
+        names_attr: str,
+        kind_label: str,
+    ) -> None:
+        """Resolve IDs to their corresponding names."""
+        self._validate_ids(ids, len(entity_all_names), kind_label)
+        resolved_names = [entity_all_names[i] for i in ids]
+        setattr(self, names_attr, resolved_names)
+
+    @staticmethod
+    def _validate_ids(ids: list[int], count: int, kind_label: str) -> None:
+        invalid_types = [
+            value for value in ids if isinstance(value, bool) or not isinstance(value, int)
+        ]
+        if invalid_types:
+            raise TypeError(f"{kind_label} IDs must be integers; got {invalid_types}")
+        out_of_range = [value for value in ids if value < 0 or value >= count]
+        if out_of_range:
+            raise ValueError(
+                f"{kind_label} IDs {out_of_range} are out of range for {count} available entries"
+            )

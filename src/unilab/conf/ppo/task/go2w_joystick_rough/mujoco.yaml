@@ -1,0 +1,78 @@
+# @package _global_
+defaults:
+  - /task/quadruped_joystick_rough/go2w
+  - _self_
+
+training:
+  task_name: Go2WJoystickRough
+  sim_backend: mujoco
+  play_steps: 500
+  play_env_num: 16
+  render_spacing: 0.0
+  cam_tracking: true
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 9
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: auto
+  camera_follow_body: true
+  use_env_visual_model: false
+
+algo:
+  num_envs: 2048
+  num_steps_per_env: 24
+  max_iterations: 1200
+  empirical_normalization: false
+  obs_groups: {actor: [actor], critic: [critic]}
+
+env:
+  sim_dt: 0.005
+  scene:
+    model_file: src/unilab/assets/robots/go2w/go2w_mujoco.xml
+    fragment_files: [src/unilab/assets/robots/go2w/locomotion_task.xml]
+    terrain:
+      generator:
+        horizontal_scale: 0.1
+    entities:
+      robot:
+        root_body_name: base_link
+        joint_names:
+          - FR_hip_joint
+          - FR_thigh_joint
+          - FR_calf_joint
+          - FL_hip_joint
+          - FL_thigh_joint
+          - FL_calf_joint
+          - RR_hip_joint
+          - RR_thigh_joint
+          - RR_calf_joint
+          - RL_hip_joint
+          - RL_thigh_joint
+          - RL_calf_joint
+          - FR_wheel_joint
+          - FL_wheel_joint
+          - RR_wheel_joint
+          - RL_wheel_joint
+        actuator_names:
+          - FR_hip
+          - FR_thigh
+          - FR_calf
+          - FL_hip
+          - FL_thigh
+          - FL_calf
+          - RR_hip
+          - RR_thigh
+          - RR_calf
+          - RL_hip
+          - RL_thigh
+          - RL_calf
+          - FR_wheel
+          - FL_wheel
+          - RR_wheel
+          - RL_wheel
+        body_names: [base_link]
+
+play_profile:
+  enabled: true
+  env: {render_spacing: 2.0}

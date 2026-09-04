@@ -43,28 +43,25 @@ flowchart LR
 ```
 
 Keep the hard real-time safety checks in the deploy controller, not in the
-training script. The repository's G1 helper path exports deploy config and runs
-a MuJoCo prototype; it does not implement a production motor-driver safety
-loop.
+training script. The repository does not implement a production motor-driver
+safety loop — that boundary is yours to build and test.
 
 ## What the policy assumes you've configured
 
-The G1 deployment helper exports these fields into `deploy_config.yaml`:
+The policy expects the action mapping and limits its training owner declared.
+For the G1 WBT owner (`src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml`):
 
-```yaml
-action_scale: 2.0
-ema_alpha: 1.0
-default_angles: [...]
-joint_lower: [...]
-joint_upper: [...]
-kp: [...]
-kd: [...]
-```
+| Quantity | Authority |
+| --- | --- |
+| action scale | `env.actions.joint_pos.scale` (scalar `2.0` for this owner; other owners declare a regex → value map resolved per actuator) |
+| default angles | `use_default_offset: true`, i.e. the `stand` keyframe joint block of the owner's scene XML |
+| joint limits | `jnt_range` in the scene XML |
+| `kp` / `kd` | position actuator `gainprm` / `biasprm` in the scene XML |
 
-`scripts/deploy/sim_prototype.py` consumes the same fields and applies
-`action * action_scale + default_angles`, joint clipping, and EMA smoothing.
-Hardware controllers should consume generated config rather than hand-copying
-joint ranges or gains.
+Derive these from the owner YAML and its scene, and reproduce the owner's
+resolved per-actuator scale exactly — a scalar owner and a regex-map owner are
+not interchangeable. Do not hand-copy joint ranges or gains into a second place
+that can silently drift from the asset.
 
 ## Hand-off testing
 
@@ -72,8 +69,8 @@ Before integrating policy → safety → motor, test the safety layer in
 isolation:
 
 1. Inject a NaN action and verify the command is rejected.
-2. Inject an out-of-range joint target and verify clamping uses
-   `joint_lower` / `joint_upper` from `deploy_config.yaml`.
+2. Inject an out-of-range joint target and verify clamping uses the joint range
+   from the owner's scene XML.
 3. Cut the policy feed mid-run and verify the controller enters its configured
    safe state.
 

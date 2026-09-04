@@ -5,19 +5,22 @@
 
 ## 环境
 
-按平台安装依赖：
+按平台安装依赖。setup target 也会安装仓库检查所需的可选仿真器 extra：
 
-- macOS（MPS，PyPI torch wheel）：`uv sync`
-- Linux NVIDIA（PyTorch cu128 wheel）：`uv sync`
+- macOS（MPS，PyPI torch wheel）：`make setup-motrix`（或 `make setup-mujoco`）
+- Linux NVIDIA（PyTorch cu128 wheel）：`make setup`
 - Linux AMD / ROCm：`make sync-rocm`，随后用 `uv run ...` 运行命令。要切回默认
   CUDA / macOS profile，执行 `git restore -- pyproject.toml uv.lock` 后重新
-  `uv sync`。
+  `make setup`。
 - Linux Intel XPU：`make sync-xpu`
-- 需要 Motrix backend 时追加 `--extra motrix`，例如 `uv sync --extra motrix`。
+- 如果更喜欢直接使用 uv，完整默认环境为 `uv sync --extra mujoco --extra motrix`；
+  单后端使用 `--extra mujoco` 或 `--extra motrix`。
 
 ```bash
-uv sync
-uv sync --extra motrix
+# 选择一条核心安装路径：
+make setup
+# make setup-mujoco
+# make setup-motrix
 make sync-rocm
 make sync-xpu
 ```
@@ -182,7 +185,7 @@ base；该 base 为 `main` 时运行远程集成验证，为其他分支时继�
 ## 配置改动
 
 任务、后端、reward 与算法的选择应当属于 Hydra owner YAML。当添加或改动
-一条可运行路径时，更新 `conf/` 下相关的 owner config，并用 `tests/config/`
+一条可运行路径时，更新 `src/unilab/conf/` 下相关的 owner config，并用 `tests/config/`
 或 `tests/scripts/` 下的测试验证脚本组合。
 
 参见 {doc}`2-contracts/3-task_owner` 与

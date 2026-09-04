@@ -9,7 +9,7 @@ contract-driven layout.
 :::{grid-item-card} From Isaac Lab
 :link: 1-from_isaac_lab
 :link-type: doc
-Map GPU-resident task structure to UniLab's CPU sim and learner split.
+Keep Manager-Based terms while adapting Hydra config, NumPy execution, and scene access.
 :::
 
 :::{grid-item-card} From Legged Gym

@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - /task/go2w_joystick_rough/mujoco
+  - _self_
+
+training:
+  task_name: Go2WJoystickRough
+  sim_backend: motrix
+
+env:
+  render_offset_mode: zero
+  scene:
+    model_file: src/unilab/assets/robots/go2w/go2w.xml
+  events:
+    push_robot: null
+
+reward:
+  hip_pos:
+    weight: -0.5

@@ -8,7 +8,7 @@ contract 和相同的 env contract。后端特有的行为通过显式方法和�
 
 | 维度 | MuJoCo | Motrix |
 |---|---|---|
-| 后端类 | `src/unilab/base/backend/mujoco/backend.py` | `src/unilab/base/backend/motrix/backend.py` |
+| 后端类 | `unisim.backend.mujoco.backend` | `unisim.backend.motrix.backend` |
 | 回放能力 | `get_play_capabilities()` 中的物理状态回放 | `get_play_capabilities()` 中的原生交互式渲染器与原生视频采集 |
 | 高度场扫描 | 实现 `create_hfield_scanner(...)` | 实现 `create_hfield_scanner(...)` |
 | DR 能力上报 | `get_dr_capabilities()` | `get_dr_capabilities()` |
@@ -36,7 +36,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix
 ```
 
 CLI 会把 `--algo`、`--task` 和 `--sim` 解析为一个 owner YAML，例如
-`conf/ppo/task/go2_joystick_flat/mujoco.yaml`。如果该文件不存在，则说明该任务
+`src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml`。如果该文件不存在，则说明该任务
 **不支持**这个后端 —— 参见
 {doc}`../../4-developer_guide/2-contracts/3-task_owner`。
 

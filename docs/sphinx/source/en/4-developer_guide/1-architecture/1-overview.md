@@ -14,16 +14,16 @@ MuJoCo or Motrix      shared memory       torch
 
 PPO is a synchronous single-process path. APPO and off-policy
 algorithms use the async runner, shared buffers, and weight synchronization
-primitives under `src/unilab/ipc/` and `src/unilab/algos/`.
+primitives under `uni_rl.ipc` (unilab-rl repo) and `uni_rl` (unilab-rl repo).
 
 ## Layer Boundaries
 
 | Layer | Paths | Owns |
 | --- | --- | --- |
-| Backend | `src/unilab/base/backend/` | `SimBackend`, physics state, optional capabilities |
+| Backend | `unisim.backend` | `SimBackend`, physics state, optional capabilities |
 | Env | `src/unilab/envs/`, `src/unilab/base/np_env.py` | MDP semantics, observation, reward, reset |
-| Config and registry | `conf/`, `src/unilab/base/registry.py`, `src/unilab/structured_configs.py` | Schema, owner YAMLs, env/backend registration |
-| Algorithms and IPC | `src/unilab/algos/`, `src/unilab/ipc/` | Learners, runners, buffers, weight sync |
+| Config and registry | `src/unilab/conf/`, `src/unilab/base/registry.py`, `src/unilab/structured_configs.py` | Schema, owner YAMLs, env/backend registration |
+| Algorithms and IPC | `uni_rl` (unilab-rl repo), `uni_rl.ipc` (unilab-rl repo) | Learners, runners, buffers, weight sync |
 | Scripts | `scripts/`, `src/unilab/cli.py` | Thin assembly and CLI routing |
 
 ## Design Rules
@@ -77,13 +77,15 @@ Use `make test` for the fast path and `make test-all` (`make check`,
 
 ## High-Signal Files
 
-- `scripts/train_rsl_rl.py`
-- `scripts/train_appo.py`
-- `scripts/train_offpolicy.py`
+- `src/unilab/scripts/train_rsl_rl.py`
+- `src/unilab/scripts/train_appo.py`
+- `src/unilab/scripts/train_sac.py`
+- `src/unilab/scripts/train_td3.py`
+- `src/unilab/scripts/train_flashsac.py`
 - `src/unilab/base/np_env.py`
-- `src/unilab/base/backend/base.py`
+- `unisim.backend.base`
 - `src/unilab/base/registry.py`
-- `src/unilab/ipc/async_runner.py`
+- `uni_rl.ipc.async_runner` (unilab-rl repo)
 - `src/unilab/training/run.py`
 
 ## Related ADRs

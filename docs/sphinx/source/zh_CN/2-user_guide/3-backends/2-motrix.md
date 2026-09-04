@@ -2,7 +2,7 @@
 
 Motrix 是一个可选后端，通过 `motrix` extra 安装。在 `pyproject.toml` 中固定的
 软件包是 `motrixsim-core==0.8.2`，适配层位于
-`src/unilab/base/backend/motrix/` 下。
+`unisim.backend.motrix` 下。
 
 ## 安装
 
@@ -14,7 +14,7 @@ uv sync --extra motrix
 
 ## 何时使用
 
-- task owner 以 `conf/.../<task>/motrix.yaml` 形式存在。
+- task owner 以 `src/unilab/conf/.../<task>/motrix.yaml` 形式存在。
 - 你想要 Motrix 原生交互式回放；该后端提供原生交互式渲染器和视频录制能力。
 - 所生成的支持矩阵将你的 entrypoint/task/backend 组合标记为 configured 或 tested。
 

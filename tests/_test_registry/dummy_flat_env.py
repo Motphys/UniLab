@@ -60,7 +60,7 @@ class _DummyEnv(ABEnv):
     * ``step(actions)`` returns a state with ``obs / reward / terminated /
       truncated / info`` and updates ``self.state`` in place.
     * ``obs`` is a dict with at least the ``"obs"`` key (see
-      ``unilab.base.observations.split_obs_dict``).
+      ``uni_rl.utils.observations.split_obs_dict``).
     """
 
     def __init__(self, cfg: _DummyCfg, num_envs: int = 1, backend_type: str = "mujoco"):

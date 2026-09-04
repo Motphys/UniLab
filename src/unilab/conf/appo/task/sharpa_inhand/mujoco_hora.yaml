@@ -1,0 +1,64 @@
+# @package _global_
+# HORA Sharpa APPO variant. Inherit the shared MuJoCo owner so backend support
+# and shared hyperparameters stay aligned with the non-HORA Sharpa APPO config.
+defaults:
+  - /task/sharpa_inhand/mujoco
+  - _self_
+
+training:
+  replay_queue_size: 8
+  cam_distance: 0.75
+  cam_lookat: [0.0, 0.0, 0.62]
+  cam_elevation: -25.0
+  cam_azimuth: 45.0
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: actor
+  camera_distance: 0.75
+  camera_elevation: -25.0
+  camera_azimuth: 45.0
+  use_env_visual_model: true
+
+algo:
+  algo_log_name: hora_appo
+  runtime_impl: hora_appo
+  runtime_resolver: unilab.scripts.play_hora_appo:resolve_hora_appo_runtime
+  num_envs: 2048
+  steps_per_env: 8
+  max_iterations: 305
+  save_interval: 51
+  obs_groups:
+    # Keep grouped keys explicit in the owner YAML; runtime support for these
+    # grouped observations lands in the next implementation step.
+    actor:
+      actor: 0
+      priv_info: 0
+    critic:
+      actor: 0
+      priv_info: 0
+  actor:
+    class_name: uni_rl.algos.hora:HoraActorModel
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
+  critic:
+    class_name: uni_rl.algos.hora:HoraCriticModel
+    priv_info_embed_dim: 9
+    priv_mlp_hidden_dims: [256, 128, 9]
+  algorithm:
+    learning_rate: 0.001
+    desired_kl: 0.04
+    adaptive_kl_factor: 1.2
+    adaptive_lr_factor: 1.1
+
+env:
+  use_default_object_pose_for_object_pos_anchor: true
+  obs:
+    observation_mode: separated
+  domain_rand:
+    randomize_friction: true
+    randomize_friction_scale_lower: 0.75
+    randomize_friction_scale_upper: 1.25
+    elastomer_base_friction: 2.0
+    metal_base_friction: 1.0
+    object_base_friction: 2.0

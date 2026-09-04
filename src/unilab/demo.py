@@ -53,8 +53,14 @@ _DEMO_PLAY_INTERACTIVE_OVERRIDES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def _package_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _dev_venv() -> Path | None:
+    """Return the editable checkout's uv venv, or None for pip installs."""
+    venv = Path(__file__).resolve().parents[2] / ".venv"
+    return venv if venv.is_dir() else None
 
 
 def get_demo_spec(demo_name: str) -> DemoSpec:
@@ -104,26 +110,11 @@ def _build_play_interactive_command(
     extra_overrides: Sequence[str],
     root: Path | None = None,
 ) -> list[str]:
-    selected_root = root or _repo_root()
+    selected_root = root or _package_root()
     script = selected_root / "scripts" / "play_interactive.py"
     if not script.is_file():
         raise SystemExit(f"Entrypoint script not found: {script}")
-    if spec.algo in {"sac", "flashsac"}:
-        owner_yaml = (
-            selected_root
-            / "conf"
-            / "offpolicy"
-            / "task"
-            / spec.algo
-            / spec.task
-            / f"{spec.sim}.yaml"
-        )
-    elif spec.algo == "hora_distill":
-        owner_yaml = (
-            selected_root / "conf" / "hora_distill" / "task" / spec.task / f"{spec.sim}.yaml"
-        )
-    else:
-        owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
+    owner_yaml = selected_root / "conf" / spec.algo / "task" / spec.task / f"{spec.sim}.yaml"
     if not owner_yaml.is_file():
         raise SystemExit(
             f"No owner config exists for algo={spec.algo}, task={spec.task}, sim={spec.sim}: "
@@ -238,13 +229,15 @@ def _run_teaser_demo() -> int:
     if platform.system() == "Darwin" and Path(sys.executable).name != "mxpython":
         command = [
             _mxpython_executable(),
-            str(_repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
+            str(_package_root() / "visualization" / "teaser.py"),
         ]
         env = os.environ.copy()
-        env["UV_PROJECT_ENVIRONMENT"] = str(_repo_root() / ".venv")
+        dev_venv = _dev_venv()
+        if dev_venv is not None:
+            env["UV_PROJECT_ENVIRONMENT"] = str(dev_venv)
         return subprocess.run(command, check=False, env=env).returncode
 
-    from unilab.tools.render_teaser import main as render_teaser_main
+    from unilab.visualization.teaser import main as render_teaser_main
 
     render_teaser_main()
     return 0
@@ -266,7 +259,9 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
         demo_name=demo_name, checkpoint_path=checkpoint_path, device=device
     )
     env = os.environ.copy()
-    env["UV_PROJECT_ENVIRONMENT"] = str(_repo_root() / ".venv")
+    dev_venv = _dev_venv()
+    if dev_venv is not None:
+        env["UV_PROJECT_ENVIRONMENT"] = str(dev_venv)
     returncode = subprocess.run(command, check=False, env=env).returncode
     if returncode == 0:
         print(f"Demo finished: {demo_name} (algo={spec.algo}, task={spec.task}, sim={spec.sim})")

@@ -9,10 +9,10 @@ graph when that path implements ONNX Runtime checking.
 
 | Algorithm path | Entry script | Export behavior in repo |
 | --- | --- | --- |
-| PPO (torch) | `scripts/train_rsl_rl.py` | `EXPORT_POLICY=True` in the script entrypoint; playback calls `runner.export_policy_to_onnx(...)` and `runner.export_policy_to_jit(...)`. |
+| PPO (torch) | `src/unilab/scripts/train_rsl_rl.py` | `EXPORT_POLICY=True` in the script entrypoint; playback calls `runner.export_policy_to_onnx(...)` and `runner.export_policy_to_jit(...)`. |
 | HIM-PPO | `scripts/train_him_ppo.py` | Same script-level export pattern as PPO. |
-| APPO | `scripts/train_appo.py` | Playback writes `policy.onnx` and verifies ONNX Runtime output against PyTorch. |
-| SAC / TD3 / FlashSAC | `scripts/train_offpolicy.py` | Playback writes `policy.onnx`; SAC and FlashSAC use `actor.as_export_module()` before export. |
+| APPO | `src/unilab/scripts/train_appo.py` | Playback writes `policy.onnx` and verifies ONNX Runtime output against PyTorch. |
+| SAC / TD3 / FlashSAC | `src/unilab/scripts/train_sac.py` / `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py` | Playback writes `policy.onnx`; SAC and FlashSAC use `actor.as_export_module()` before export. |
 
 ## Commands
 
@@ -26,38 +26,22 @@ uv run eval --algo sac --task g1_walk_flat --sim mujoco --load-run -1
 
 `uv run eval` sets playback mode and maps `--load-run` to the checkpoint
 selector used by the routed training script. The exported file is written into
-the selected run directory. For deployment
-prototypes, keep the exported `policy.onnx` together with the deploy-side
-configuration and motion assets used by the runtime.
+the selected run directory. For deployment, keep the exported `policy.onnx`
+together with the task owner YAML it was trained from — that YAML is the
+authority on the observation and action contract the runtime must reproduce.
 
-## G1 Deployment Prototype
+## Verifying the Exported Graph
 
-The committed G1 WBT deployment helpers use these artifacts:
+The playback path validates the exported graph against PyTorch before writing
+it, so a successful export already establishes numerical parity. What it does
+**not** establish is that your hardware-side loop assembles the same input
+vector. Before hardware bring-up:
 
-| Artifact | Producer |
-| --- | --- |
-| `policy.onnx` | Training playback export above. |
-| `deploy_config.yaml` | `scripts/deploy/export_deploy_config.py`. |
-| `dance1.bin` or another motion binary | `scripts/deploy/export_motion_bin.py`. |
-
-Example validation run:
-
-```bash
-uv run scripts/deploy/export_deploy_config.py \
-  --output logs/deploy/deploy_config.yaml
-
-uv run scripts/deploy/export_motion_bin.py \
-  --output logs/deploy/dance1.bin
-
-uv run scripts/deploy/sim_prototype.py \
-  --onnx runs/<run>/policy.onnx \
-  --config logs/deploy/deploy_config.yaml \
-  --motion logs/deploy/dance1.bin
-```
-
-`scripts/deploy/sim_prototype.py` checks that the ONNX input width matches the
-`obs_dim` in `deploy_config.yaml` and then drives the policy in MuJoCo with the
-same observation layout the deployment side expects.
+- Read the actor obs width off the composed config (not off a doc table) and
+  confirm it matches the ONNX input width.
+- Confirm your term order and per-term history ordering against the owner's
+  `env.observations.actor.terms`. For G1 whole-body tracking, see
+  {doc}`2-g1_whole_body`.
 
 ## See Also
 

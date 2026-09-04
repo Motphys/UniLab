@@ -8,31 +8,33 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
+from unisim.backend.base import RenderClosedError
+from unisim.backend.motrix.backend import MotrixBackend
+from unisim.backend.motrix.playback import run_motrix_playback
+from unisim.backend.mujoco.backend import MuJoCoBackend
+from unisim.backend.mujoco.playback import run_mujoco_playback
 
-from unilab.base.backend import RenderClosedError
-from unilab.base.backend.motrix.backend import MotrixBackend
-from unilab.base.backend.motrix.playback import run_motrix_playback
-from unilab.base.backend.mujoco.backend import MuJoCoBackend
-from unilab.base.backend.mujoco.playback import run_mujoco_playback
+from unilab.base.config_adapter import BackendAdapter
 from unilab.base.scene import SceneCfg
 from unilab.training import (
-    BackendAdapter,
     format_hora_stage2_checkpoint_error,
+    get_log_root,
+    parse_checkpoint_path,
+    resolve_hora_stage2_checkpoint_path,
+)
+from unilab.utils.checkpoint import (
     get_entrypoint_log_root,
     get_latest_checkpoint,
     get_latest_run,
-    get_log_root,
-    parse_checkpoint_path,
     resolve_appo_checkpoint_path,
     resolve_checkpoint_path,
-    resolve_hora_stage2_checkpoint_path,
     resolve_offpolicy_checkpoint_path,
     resolve_task_checkpoint_path,
 )
 from unilab.visualization.playback import render_play_mode
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
-_CONF_DIR = _ROOT_DIR / "conf"
+_CONF_DIR = _ROOT_DIR / "src" / "unilab" / "conf"
 
 
 def _resolve_low_level_playback_flags(kwargs: dict[str, object]) -> dict[str, object]:
@@ -50,23 +52,16 @@ def _resolve_low_level_playback_flags(kwargs: dict[str, object]) -> dict[str, ob
 
 def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False) -> list[str]:
     normalized: list[str] = []
-    algo = "sac"
     task_selected = False
 
     for override in overrides or []:
-        if override.startswith("algo="):
-            algo = override.split("=", 1)[1]
-            normalized.append(override)
-            continue
         if override.startswith("task="):
             task_selected = True
-            normalized.append(override)
-            continue
         normalized.append(override)
 
     if not task_selected:
         if offpolicy:
-            normalized.append(f"task={algo}/g1_walk_flat/mujoco")
+            normalized.append("task=g1_walk_flat/mujoco")
         else:
             normalized.append("task=go1_joystick_flat/mujoco")
     return normalized
@@ -78,9 +73,9 @@ def _ppo_cfg(overrides: list[str] | None = None):
         return compose("config", overrides=_normalize_overrides(overrides))
 
 
-def _offpolicy_cfg(overrides: list[str] | None = None):
+def _offpolicy_cfg(overrides: list[str] | None = None, *, algo: str = "sac"):
     GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "offpolicy"), version_base="1.3"):
+    with initialize_config_dir(config_dir=str(_CONF_DIR / algo), version_base="1.3"):
         return compose("config", overrides=_normalize_overrides(overrides, offpolicy=True))
 
 
@@ -375,21 +370,38 @@ def test_resolve_task_checkpoint_path_accepts_integer_latest_run(
 
 def test_backend_adapter_env_cfg_override_for_motrix_sac_g1_walk_flat():
     """Env cfg override carries reward + env preset fields. Algo is NOT touched."""
-    cfg = _offpolicy_cfg(["task=sac/g1_walk_flat/motrix"])
+    cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 
     adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
     env_cfg_override = adapter.build_task_env_cfg_override()
 
     # env_cfg_override has reward + env preset fields
-    assert env_cfg_override["reward_config"]["scales"]["tracking_lin_vel"] == pytest.approx(2.2)
-    assert env_cfg_override["domain_rand"]["randomize_kp"] is False
-    assert env_cfg_override["domain_rand"]["randomize_kd"] is False
+    assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(2.2)
+    assert env_cfg_override["events"]["pd_gains"] is None
     # algo values come straight from YAML compose — no mutation, matches task owner values
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 5000
 
 
-def test_backend_adapter_builds_play_scene_override():
+def test_backend_adapter_injects_isaacsim_render_intent_only_for_play():
+    cfg = _offpolicy_cfg(
+        [
+            "task=g1_walk_flat/isaacsim",
+            "training.play_render_mode=record",
+        ]
+    )
+    adapter = BackendAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
+
+    training_override = adapter.build_task_env_cfg_override()
+    play_override = adapter.build_play_env_cfg_override()
+
+    assert "isaacsim_render_mode" not in training_override
+    assert play_override["isaacsim_render_mode"] == "record"
+    assert play_override["isaacsim_render_width"] == 1280
+    assert play_override["isaacsim_render_height"] == 720
+
+
+def test_backend_adapter_keeps_motion_manager_scene_during_play():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
     assert cfg.training.play_env_num == 16
     captured: dict[str, object] = {}
@@ -397,7 +409,7 @@ def test_backend_adapter_builds_play_scene_override():
     def _fake_materializer(source_model_file: str, **kwargs) -> str:
         captured["source_model_file"] = source_model_file
         captured.update(kwargs)
-        return "/tmp/g1_motion_tracking_play_scene.xml"
+        pytest.fail("manager scene must not be replaced during play")
 
     env_cfg_override = BackendAdapter(
         cfg,
@@ -408,9 +420,34 @@ def test_backend_adapter_builds_play_scene_override():
 
     assert cfg.training.play_env_num == 16
     assert env_cfg_override["render_spacing"] == pytest.approx(2.5)
-    assert env_cfg_override["scene"].model_file == "/tmp/g1_motion_tracking_play_scene.xml"
-    assert captured["ground_texture_file"] == str(
-        _ROOT_DIR / "src/unilab/assets/robots/g1/textures/floor.png"
+    assert env_cfg_override["scene"]["model_file"].endswith("robots/g1/scene_flat.xml")
+    assert "robot" in env_cfg_override["scene"]["entities"]
+    assert captured == {}
+
+
+def test_backend_adapter_materializes_visuals_without_dropping_manager_entities():
+    cfg = _ppo_cfg(["task=g1_box_tracking/motrix", "training.play_only=true"])
+    captured: dict[str, object] = {}
+
+    def _fake_materializer(source_model_file: str, **kwargs) -> str:
+        captured["source_model_file"] = source_model_file
+        captured.update(kwargs)
+        return "/tmp/materialized_box.xml"
+
+    env_cfg_override = BackendAdapter(
+        cfg,
+        root_dir=_ROOT_DIR,
+        algo_name="ppo",
+        scene_materializer=_fake_materializer,
+    ).build_play_env_cfg_override()
+
+    scene = env_cfg_override["scene"]
+    assert scene["model_file"] == "/tmp/materialized_box.xml"
+    assert scene["default_keyframe_name"] == "stand"
+    assert set(scene["entities"]) == {"robot", "object"}
+    assert scene["entities"]["object"]["root_body_name"] == "largebox"
+    assert str(captured["source_model_file"]).endswith(
+        "src/unilab/assets/robots/g1/scene_flat_with_largebox.xml"
     )
 
 
@@ -507,7 +544,7 @@ def test_motrix_interactive_run_playback_treats_window_close_as_done(
     backend.render = _render
     backend.capture_video_frame = lambda: np.zeros((2, 2, 3), dtype=np.uint8)
 
-    with caplog.at_level(logging.INFO, logger="unilab.base.backend.motrix.backend"):
+    with caplog.at_level(logging.INFO, logger="unisim.backend.motrix.backend"):
         result = backend.run_playback(
             env=FakeEnv(),
             initialize=lambda: 0,
@@ -572,7 +609,7 @@ def test_render_play_mode_uses_motrix_native_video_capture(
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
@@ -639,7 +676,7 @@ def test_render_play_mode_rejects_motrix_record_with_interactive_window(
             return np.full((2, 3, 3), self.capture_calls, dtype=np.uint8)
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
@@ -693,13 +730,13 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
     )
     monkeypatch.setattr(
-        "unilab.visualization.render_many.render_states_get_frames",
+        "unisim.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
     )
 
@@ -794,13 +831,13 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
     monkeypatch.setattr(
-        "unilab.base.backend.playback_common.imageio.mimsave",
+        "unisim.backend.playback_common.imageio.mimsave",
         lambda path, frames, fps: captured.update(
             {"video_path": path, "frames": frames, "fps": fps}
         ),
     )
     monkeypatch.setattr(
-        "unilab.visualization.render_many.render_states_get_frames",
+        "unisim.visualization.render_many.render_states_get_frames",
         _render_states_get_frames,
     )
 

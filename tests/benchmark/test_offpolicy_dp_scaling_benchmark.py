@@ -74,9 +74,8 @@ def test_verdict_for_ratio() -> None:
 def test_build_train_command_matches_production_overrides(tmp_path: Path) -> None:
     command = bench.build_train_command(tmp_path / "runs" / "n1", iterations=300, devices=None)
     assert command[0] == sys.executable
-    assert command[1].endswith("scripts/train_offpolicy.py")
-    assert "algo=sac" in command
-    assert "task=sac/g1_walk_flat/mujoco" in command
+    assert command[1].endswith("scripts/train_sac.py")
+    assert "task=g1_walk_flat/mujoco" in command
     assert "training.no_play=true" in command
     assert "algo.max_iterations=300" in command
     assert any(arg.startswith("training.log_dir=") for arg in command)

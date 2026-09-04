@@ -6,12 +6,13 @@ import copy
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf
 
-from unilab.training.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 LogFn = Callable[[str], None]
 
@@ -30,6 +31,65 @@ class RslRlPlaybackConfig:
     num_envs: int = 1
     speed: float = 1.0
     start_paused: bool = False
+
+
+@dataclass
+class PlayInteractiveArgs:
+    """Scalar play arguments shared by interactive playback entrypoints."""
+
+    task: str
+    load_run: str
+    checkpoint: str | None
+    action_mode: str
+    policy_obs_mode: str
+    algo_log_name: str
+    log_root: str | None
+    show_target_bodies: bool
+    show_reward_debug: bool
+    target_show_axes: bool
+    target_body_names: str
+    target_max_bodies: int
+    target_marker_radius: float
+    target_axis_length: float
+    target_marker_alpha: float
+    reward_debug_show_velocity: bool
+    reward_debug_lin_vel_scale: float
+    reward_debug_ang_vel_scale: float
+    reward_debug_show_connectors: bool
+    reward_debug_show_global_anchor: bool
+    camera_follow_body: bool
+    camera_focus_body_name: str
+    camera_height_offset: float
+    camera_distance: float | None
+    camera_elevation: float | None
+    camera_azimuth: float | None
+    use_env_visual_model: bool
+    speed: float
+    start_paused: bool
+    keyboard: bool = False
+    keyboard_step_lin: float = 0.1
+    keyboard_step_ang: float = 0.2
+    require_keyboard_command_obs: bool = True
+    algo: str = "ppo"
+    # Physics owner selected by the interactive CLI. MuJoCo remains the viewer
+    # implementation for every value, including ``drake``.
+    sim: str = "mujoco"
+
+
+def build_playback_config(args: Any, *, num_envs: int = 1) -> RslRlPlaybackConfig:
+    """Build an :class:`RslRlPlaybackConfig` from a play-args-like object."""
+    return RslRlPlaybackConfig(
+        task=str(args.task),
+        load_run=str(args.load_run),
+        checkpoint=getattr(args, "checkpoint", None),
+        action_mode=str(args.action_mode),
+        policy_obs_mode=str(args.policy_obs_mode),
+        algo_log_name=str(getattr(args, "algo_log_name", "rsl_rl_ppo")),
+        log_root=getattr(args, "log_root", None),
+        num_envs=num_envs,
+        speed=float(getattr(args, "speed", 1.0)),
+        start_paused=bool(getattr(args, "start_paused", False)),
+    )
 
 
 @dataclass
@@ -152,6 +212,8 @@ class RslRlPlaybackSession:
         action_mode: str,
         policy: Callable[[Any], Any] | None,
         num_envs: int,
+        runner: Any | None = None,
+        actor: Any | None = None,
     ) -> None:
         self.env = env
         self.wrapped_env = wrapped_env
@@ -159,6 +221,8 @@ class RslRlPlaybackSession:
         self.action_mode = action_mode
         self.policy = policy
         self.num_envs = int(num_envs)
+        self.runner = runner
+        self.actor = actor
         self.obs: Any | None = None
         self.step_count = 0
 
@@ -194,6 +258,11 @@ class RslRlPlaybackSession:
         action_space = self.env.action_space
         action_dim = int(action_space.shape[0])
         if self.action_mode == "policy" and self.policy is not None:
+            # Backends may expose double-precision observations (Drake's
+            # native state/sensor path does). Policies are trained and stored
+            # in float32, so normalize the playback tensor at this boundary.
+            if isinstance(self.obs, torch.Tensor) and self.obs.dtype != torch.float32:
+                self.obs = self.obs.float()
             return self.policy(self.obs)
         if self.action_mode == "random":
             actions = np.random.uniform(
@@ -279,7 +348,7 @@ class OffPolicyPlaybackSession:
             return None
         if self.action_mode != "policy" or self.actor is None:
             return None
-        from unilab.base.observations import split_obs_dict
+        from uni_rl.utils.observations import split_obs_dict
 
         actor_obs_np, critic_np = split_obs_dict(obs_dict)
         priv_info = self.priv_info_resolver(
@@ -299,6 +368,8 @@ class OffPolicyPlaybackSession:
         action_dim = int(action_space.shape[0])
         if self.action_mode == "policy" and self.actor is not None:
             obs_torch = torch.from_numpy(self.obs).to(self.device)
+            if obs_torch.dtype != torch.float32:
+                obs_torch = obs_torch.float()
             if self.normalizer is not None:
                 obs_torch = self.normalizer(obs_torch, update=False)
             if self.actor_algo_type == "hora_sac":
@@ -358,6 +429,55 @@ def select_torch_device() -> str:
     return "cpu"
 
 
+def infer_checkpoint_actor_input_dim(ckpt_path: str) -> int | None:
+    """Infer the actor MLP input dim from an rsl_rl checkpoint, if detectable."""
+    loaded = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    state_dict = loaded.get("actor_state_dict")
+    if not isinstance(state_dict, dict):
+        return None
+
+    # Common rsl-rl naming: "mlp.0.weight" or nested prefixes ending with ".0.weight".
+    for key in ("mlp.0.weight", "actor.mlp.0.weight"):
+        w = state_dict.get(key)
+        if isinstance(w, torch.Tensor) and w.ndim == 2:
+            return int(w.shape[1])
+
+    for key, w in state_dict.items():
+        if key.endswith(".0.weight") and isinstance(w, torch.Tensor) and w.ndim == 2:
+            return int(w.shape[1])
+    return None
+
+
+def _scene_visual_materializer() -> Any:
+    from unilab.base import config_adapter
+
+    return config_adapter.materialize_scene_visual_override
+
+
+def build_play_backend_adapter(cfg: Any, *, root_dir: str | Path, algo_name: str = "ppo") -> Any:
+    """Build the BackendAdapter used by play entrypoints to derive env cfg overrides."""
+    from unilab.base.config_adapter import BackendAdapter
+
+    return BackendAdapter(
+        cfg,
+        root_dir=root_dir,
+        algo_name=algo_name,
+        scene_materializer=_scene_visual_materializer(),
+    )
+
+
+def available_backends_for_task(task_name: str) -> tuple[str, ...]:
+    """Return the registered backends for a task, or ``()`` when unknown."""
+    from unilab.base import registry
+
+    envs = registry.list_registered_envs()
+    task_meta = envs.get(task_name, {})
+    backends = task_meta.get("available_backends", ())
+    if not isinstance(backends, list):
+        return ()
+    return tuple(str(backend) for backend in backends)
+
+
 def create_rsl_rl_playback_session(
     *,
     playback_cfg: RslRlPlaybackConfig,
@@ -373,6 +493,8 @@ def create_rsl_rl_playback_session(
     policy_obs_dims_getter: Callable[[Any], tuple[int, int]],
     train_cfg_normalizer: Callable[[dict[str, Any]], dict[str, Any]],
     sim2sim_preflight: Callable[[str | None], Any] | None = None,
+    runner_loader: Callable[[Any, str], None] | None = None,
+    guard_algo_name: str | None = None,
     log: LogFn = print,
 ) -> tuple[RslRlPlaybackSession, str, str | None]:
     """Create a playback session and load the selected policy checkpoint."""
@@ -417,6 +539,7 @@ def create_rsl_rl_playback_session(
     train_cfg["runner"]["logger"] = "none"
 
     policy = None
+    runner = None
     if playback_cfg.action_mode == "policy":
         if checkpoint_path is None:
             log("WARNING: no checkpoint found - falling back to zero actions.")
@@ -439,18 +562,21 @@ def create_rsl_rl_playback_session(
             with policy_load_dim_guard(
                 env_obs_dim=policy_obs_dim,
                 env_action_dim=policy_action_dim,
-                algo_name=playback_cfg.algo_log_name,
+                algo_name=guard_algo_name or playback_cfg.algo_log_name,
             ):
-                runner.load(
-                    checkpoint_path,
-                    load_cfg={
-                        "actor": True,
-                        "critic": False,
-                        "optimizer": False,
-                        "iteration": False,
-                        "rnd": False,
-                    },
-                )
+                if runner_loader is not None:
+                    runner_loader(runner, checkpoint_path)
+                else:
+                    runner.load(
+                        checkpoint_path,
+                        load_cfg={
+                            "actor": True,
+                            "critic": False,
+                            "optimizer": False,
+                            "iteration": False,
+                            "rnd": False,
+                        },
+                    )
             policy = runner.get_inference_policy(device=device_name)
 
     log(f"Action mode: {playback_cfg.action_mode}")
@@ -461,15 +587,20 @@ def create_rsl_rl_playback_session(
         action_mode=playback_cfg.action_mode,
         policy=policy,
         num_envs=playback_cfg.num_envs,
+        runner=runner,
     )
     return session, policy_obs_mode, checkpoint_path
 
 
-def _normalize_checkpoint_value(value: object) -> str | None:
+def normalize_checkpoint_value(value: object) -> str | None:
+    """Normalize a raw checkpoint selector value; sentinel values map to ``None``."""
     if value is None:
         return None
     text = str(value)
     return None if text in {"", "-1", "None", "null"} else text
+
+
+_normalize_checkpoint_value = normalize_checkpoint_value
 
 
 def _cfg_checkpoint_value(cfg: Any) -> str | None:
@@ -483,8 +614,8 @@ def _resolve_appo_checkpoint_from_cfg(
     *,
     root_dir: str | Path,
 ) -> tuple[str | None, str | None]:
-    from unilab.training import (
-        get_log_root,
+    from unilab.training import get_log_root
+    from unilab.utils.checkpoint import (
         resolve_appo_checkpoint_path,
         resolve_task_checkpoint_path,
     )
@@ -526,8 +657,7 @@ def _build_appo_actor(
 
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
-
-    from unilab.base.observations import get_obs_dims
+    from uni_rl.utils.observations import get_obs_dims
 
     action_shape = env.action_space.shape
     if action_shape is None:
@@ -536,13 +666,14 @@ def _build_appo_actor(
     rl_cfg_dict = deepcopy(rl_cfg)
 
     if is_hora:
-        from unilab.algos.torch.hora.appo import _update_hora_obs_groups
-        from unilab.algos.torch.hora.models import build_hora_shared_actor_critic
-        from unilab.algos.torch.hora.rsl_rl_compat import (
+        from uni_rl.algos.hora.models import build_hora_shared_actor_critic
+        from uni_rl.algos.hora.rsl_rl_compat import (
             convert_config_v3_to_v4,
             is_rsl_rl_v4,
             is_rsl_rl_v5,
         )
+
+        from unilab.scripts.play_hora_appo import _update_hora_obs_groups
 
         obs_td = wrapped_env.get_observations()
         num_envs = int(getattr(wrapped_env, "num_envs", getattr(env, "num_envs", 1)))
@@ -635,19 +766,20 @@ def create_appo_playback_session(
     if env is None:
         raise RuntimeError("Playback env factory did not return an environment.")
 
-    from unilab.algos.torch.hora.runtime import is_hora_appo_runtime
+    from uni_rl.algos.hora.runtime import is_hora_appo_runtime
 
     is_hora = is_hora_appo_runtime(rl_cfg)
     selected_wrapper_cls = wrapper_cls
     policy_obs_mode = playback_cfg.policy_obs_mode
     if is_hora:
-        from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
+        from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
 
         selected_wrapper_cls = HoraRslRlVecEnvWrapper
         policy_obs_mode = "actor"
 
     wrapped_env = selected_wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
     policy = None
+    actor = None
     checkpoint_path: str | None = None
     if playback_cfg.action_mode == "policy":
         checkpoint_path, checkpoint_dir = _resolve_appo_checkpoint_from_cfg(cfg, root_dir=root_dir)
@@ -690,9 +822,207 @@ def create_appo_playback_session(
             action_mode=playback_cfg.action_mode,
             policy=policy,
             num_envs=playback_cfg.num_envs,
+            actor=actor,
         ),
         policy_obs_mode,
         checkpoint_path,
+    )
+
+
+def default_device(torch_module, preferred: str | None = None) -> str:
+    """Resolve runtime device with optional user override."""
+    if preferred:
+        return preferred
+    if torch_module.cuda.is_available():
+        return "cuda"
+    xpu = getattr(torch_module, "xpu", None)
+    xpu_is_available = getattr(xpu, "is_available", None)
+    if callable(xpu_is_available) and xpu_is_available():
+        return "xpu"
+    if torch_module.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def extract_reset_obs(reset_result):
+    """Extract obs_dict from env.reset(...) using the current (obs_dict, info_dict) contract."""
+    if isinstance(reset_result, tuple):
+        if len(reset_result) == 2:
+            obs_out, _ = reset_result
+            return obs_out
+    raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
+
+
+def resolve_play_obs_dim(obs_groups_spec: dict[str, int]) -> int:
+    obs_dim, _ = resolve_play_obs_dims(obs_groups_spec)
+    return obs_dim
+
+
+def resolve_play_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
+    from uni_rl.utils.observations import get_obs_dims
+
+    obs_dim, critic_obs_dim = get_obs_dims(obs_groups_spec)
+    return int(obs_dim), int(critic_obs_dim)
+
+
+def extract_play_obs(obs_dict):
+    from uni_rl.utils.observations import split_obs_dict
+
+    obs_out, _ = split_obs_dict(obs_dict)
+    return obs_out
+
+
+def resolve_play_actor_spec(
+    algo_name: str,
+    cfg: DictConfig,
+    *,
+    obs_dim: int,
+    critic_obs_dim: int,
+) -> tuple[str, dict[str, Any]]:
+    """Resolve the actor implementation and model kwargs used by off-policy play."""
+    if algo_name != "sac":
+        return algo_name, {}
+
+    from uni_rl.offpolicy.runtime import resolve_custom_offpolicy_runtime
+
+    rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
+    custom_runtime = resolve_custom_offpolicy_runtime(rl_cfg)
+    if custom_runtime is None:
+        return "sac", {}
+
+    actor_algo_type = str(custom_runtime.algo_type or algo_name)
+    actor_kwargs = custom_runtime.build_model_kwargs(
+        obs_dim=int(obs_dim),
+        critic_obs_dim=int(critic_obs_dim),
+    )
+    return actor_algo_type, actor_kwargs
+
+
+def build_play_actor(
+    algo_name: str,
+    cfg: DictConfig,
+    *,
+    obs_dim: int,
+    critic_obs_dim: int,
+    action_dim: int,
+    device: str,
+) -> tuple[Any, Any | None, str, dict[str, Any]]:
+    """Build the policy actor selected by an off-policy owner config."""
+    import torch
+    from uni_rl.algos.common.actor_factory import build_actor
+
+    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
+        algo_name,
+        cfg,
+        obs_dim=obs_dim,
+        critic_obs_dim=critic_obs_dim,
+    )
+    normalizer = None
+    if algo_name == "sac":
+        actor = build_actor(
+            actor_algo_type,
+            obs_dim,
+            action_dim,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
+            device,
+            **actor_kwargs,
+        )
+    elif algo_name == "td3":
+        from uni_rl.algos.fast_td3.learner import EmpiricalNormalization, TD3Actor
+
+        actor = TD3Actor(
+            obs_dim,
+            action_dim,
+            cfg.training.play_env_num,
+            cfg.algo.algo_params.init_scale,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.algo_params.log_std_min,
+            cfg.algo.algo_params.log_std_max,
+            torch.device(device),
+        )
+        if cfg.algo.obs_normalization:
+            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+    elif algo_name == "flashsac":
+        actor = build_actor(
+            "flashsac",
+            obs_dim,
+            action_dim,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
+            device,
+            actor_num_blocks=cfg.algo.algo_params.actor_num_blocks,
+            actor_noise_zeta_mu=cfg.algo.algo_params.actor_noise_zeta_mu,
+            actor_noise_zeta_max=cfg.algo.algo_params.actor_noise_zeta_max,
+        )
+        if cfg.algo.obs_normalization:
+            from uni_rl.algos.common.normalization import EmpiricalNormalization
+
+            normalizer = EmpiricalNormalization(shape=obs_dim, device=device)
+    else:
+        raise ValueError(f"Unsupported algo: {algo_name}")
+
+    actor.eval()
+    return actor, normalizer, actor_algo_type, actor_kwargs
+
+
+def load_play_actor(
+    algo_name: str,
+    actor: Any,
+    normalizer: Any | None,
+    checkpoint: dict[str, Any],
+) -> None:
+    """Restore an off-policy play actor and its optional observation normalizer."""
+    if algo_name in ("sac", "flashsac"):
+        actor.load_state_dict(checkpoint["actor"])
+    elif algo_name == "td3":
+        actor_state = {
+            key: value for key, value in checkpoint["actor"].items() if key not in ("noise_scales",)
+        }
+        actor.load_state_dict(actor_state, strict=False)
+    else:
+        raise ValueError(f"Unsupported algo: {algo_name}")
+    if normalizer is not None and checkpoint.get("obs_normalizer"):
+        normalizer.load_state_dict(checkpoint["obs_normalizer"])
+        normalizer.eval()
+
+
+def build_offpolicy_env_cfg_override(
+    algo_name: str,
+    cfg: DictConfig,
+    *,
+    root_dir: str | Path,
+) -> dict[str, Any] | None:
+    """Build the task env override for off-policy training."""
+    from unilab.base.config_adapter import BackendAdapter
+    from unilab.training.common import assert_offpolicy_task_choice_matches_algo
+
+    assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
+    return cast(
+        dict[str, Any] | None,
+        BackendAdapter(cfg, root_dir=root_dir, algo_name=algo_name).build_task_env_cfg_override(),
+    )
+
+
+def build_offpolicy_play_env_cfg_override(
+    algo_name: str,
+    cfg: DictConfig,
+    *,
+    root_dir: str | Path,
+) -> dict[str, Any] | None:
+    """Build the off-policy play override, including backend render intent.
+
+    Training and playback deliberately use separate adapters: an IsaacSim
+    renderer must be selected before the worker's Kit ``INIT`` handshake, but
+    learner/collector environments must stay on the no-rendering experience.
+    """
+    from unilab.base.config_adapter import BackendAdapter
+    from unilab.training.common import assert_offpolicy_task_choice_matches_algo
+
+    assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
+    return cast(
+        dict[str, Any] | None,
+        BackendAdapter(cfg, root_dir=root_dir, algo_name=algo_name).build_play_env_cfg_override(),
     )
 
 
@@ -710,15 +1040,10 @@ def create_sac_playback_session(
 
     import os
 
-    from unilab.algos.torch.common.actor_factory import build_actor
-    from unilab.algos.torch.offpolicy.worker import resolve_offpolicy_actor_priv_info
-    from unilab.training.offpolicy import (
-        default_device,
-        extract_play_obs,
-        resolve_play_actor_spec,
-        resolve_play_obs_dims,
-    )
-    from unilab.training.run import resolve_offpolicy_checkpoint_path
+    from uni_rl.algos.common.actor_factory import build_actor
+    from uni_rl.offpolicy.worker import resolve_offpolicy_actor_priv_info
+
+    from unilab.utils.checkpoint import resolve_offpolicy_checkpoint_path
 
     device_name = default_device(torch, str(device) if device is not None else None)
     env = env_factory(int(playback_cfg.num_envs))
@@ -749,7 +1074,7 @@ def create_sac_playback_session(
     checkpoint_path: str | None = None
     normalizer = None
     if bool(getattr(cfg.algo, "obs_normalization", False)):
-        from unilab.algos.torch.common.normalization import EmpiricalNormalization
+        from uni_rl.algos.common.normalization import EmpiricalNormalization
 
         normalizer = EmpiricalNormalization(shape=obs_dim, device=device_name)
     if playback_cfg.action_mode == "policy":
@@ -788,10 +1113,7 @@ def create_sac_playback_session(
                 env_action_dim=action_dim,
                 algo_name=algo_name,
             ):
-                actor.load_state_dict(checkpoint["actor"])
-                if normalizer is not None and checkpoint.get("obs_normalizer"):
-                    normalizer.load_state_dict(checkpoint["obs_normalizer"])
-                    normalizer.eval()
+                load_play_actor(algo_name, actor, normalizer, checkpoint)
             log(f"Loading {algo_name} checkpoint: {checkpoint_path}")
 
     log(f"Action mode: {playback_cfg.action_mode}")
@@ -813,22 +1135,21 @@ def create_sac_playback_session(
 
 
 def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
-    from unilab.algos.torch.hora.distill import (
+    from uni_rl.algos.hora.distill import (
         build_student_actor_and_normalizer,
         cfg_with_checkpoint_runtime,
         load_distilled_checkpoint,
         student_policy,
     )
-    from unilab.algos.torch.hora.distill_config import apply_teacher_defaults
-    from unilab.algos.torch.hora.rsl_rl import HoraRslRlVecEnvWrapper
-    from unilab.base.backend import materialize_scene_visual_override
+    from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
+
+    from unilab.base.config_adapter import BackendAdapter, create_env
     from unilab.training import (
-        BackendAdapter,
-        create_env,
         format_hora_stage2_checkpoint_error,
         get_log_root,
         resolve_hora_stage2_checkpoint_path,
     )
+    from unilab.training.hora_distill_config import apply_teacher_defaults
 
     return {
         "apply_teacher_defaults": apply_teacher_defaults,
@@ -836,7 +1157,7 @@ def _default_hora_distill_playback_deps(root_dir: str | Path) -> dict[str, Any]:
             cfg,
             root_dir=root_dir,
             algo_name="hora_distill",
-            scene_materializer=materialize_scene_visual_override,
+            scene_materializer=_scene_visual_materializer(),
         ).build_play_env_cfg_override(),
         "build_student_actor_and_normalizer": build_student_actor_and_normalizer,
         "cfg_with_checkpoint_runtime": cfg_with_checkpoint_runtime,
@@ -902,7 +1223,11 @@ def create_hora_distill_playback_session(
                     f"Checkpoint at {load_path} is not a HORA distillation checkpoint "
                     f"(found keys: {set(checkpoint.keys())})."
                 )
-            runtime_cfg = resolved_deps["cfg_with_checkpoint_runtime"](cfg, checkpoint)
+            # uni_rl's cfg_with_checkpoint_runtime no longer composes teacher
+            # defaults; the caller owns that composition (issue #1480).
+            runtime_cfg = resolved_deps["cfg_with_checkpoint_runtime"](
+                resolved_deps["apply_teacher_defaults"](cfg), checkpoint
+            )
     else:
         runtime_cfg = resolved_deps["apply_teacher_defaults"](cfg)
 
@@ -1022,15 +1347,21 @@ __all__ = [
     "KeyboardCommander",
     "MotionOverlaySelection",
     "OffPolicyPlaybackSession",
+    "PlayInteractiveArgs",
     "PlaybackControls",
     "PlaybackSession",
     "RslRlPlaybackConfig",
     "RslRlPlaybackSession",
+    "available_backends_for_task",
+    "build_play_backend_adapter",
+    "build_playback_config",
     "create_appo_playback_session",
     "create_hora_distill_playback_session",
     "create_rsl_rl_playback_session",
     "create_sac_playback_session",
+    "infer_checkpoint_actor_input_dim",
     "make_sim2sim_preflight",
+    "normalize_checkpoint_value",
     "prepare_motion_overlay_selection",
     "select_torch_device",
 ]

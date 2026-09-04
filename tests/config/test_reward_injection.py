@@ -1,36 +1,33 @@
 """Test reward config injection system."""
 
-from typing import Any, cast
-
-import pytest
 from hydra import compose, initialize
 from omegaconf import OmegaConf
 
 
 def test_reward_config_loading_g1():
     """Test G1 SAC reward config loads correctly."""
-    with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/g1_walk_flat/mujoco"])
+    with initialize(config_path="../../src/unilab/conf/sac", version_base="1.3"):
+        cfg = compose(config_name="config", overrides=["task=g1_walk_flat/mujoco"])
         assert hasattr(cfg, "reward")
-        assert cfg.reward.scales.tracking_lin_vel == 2.0
-        assert cfg.reward.scales.alive == 10.0
-        assert cfg.reward.base_height_target == 0.754
+        assert cfg.reward.tracking_lin_vel.weight == 2.0
+        assert cfg.reward.alive.weight == 10.0
+        assert cfg.reward.feet_phase.params.swing_height == 0.09
 
 
 def test_reward_config_loading_g1_motrix():
     """Test G1 Motrix reward config loads correctly."""
-    with initialize(config_path="../../conf/offpolicy", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=sac/g1_walk_flat/motrix"])
+    with initialize(config_path="../../src/unilab/conf/sac", version_base="1.3"):
+        cfg = compose(config_name="config", overrides=["task=g1_walk_flat/motrix"])
         assert hasattr(cfg, "reward")
-        assert cfg.reward.scales.tracking_lin_vel == 2.2
-        assert cfg.reward.scales.alive == 12.0
+        assert cfg.reward.tracking_lin_vel.weight == 2.2
+        assert cfg.reward.alive.weight == 12.0
 
 
 def test_resolve_reward_dict_reads_task_reward():
     """Task-backend configs should expose the final reward mapping directly."""
-    from unilab.training.reward import resolve_reward_dict
+    from unilab.utils.reward import resolve_reward_dict
 
-    with initialize(config_path="../../conf/ppo", version_base="1.3"):
+    with initialize(config_path="../../src/unilab/conf/ppo", version_base="1.3"):
         cfg = compose(
             config_name="config",
             overrides=["task=go2_joystick_flat/motrix"],
@@ -38,58 +35,45 @@ def test_resolve_reward_dict_reads_task_reward():
 
     reward_dict = resolve_reward_dict(cfg)
 
-    assert reward_dict["scales"]["tracking_lin_vel"] == 1.0
-    assert reward_dict["scales"]["tracking_ang_vel"] == 0.2
+    assert reward_dict["tracking_lin_vel"]["weight"] == 1.0
+    assert reward_dict["tracking_ang_vel"]["weight"] == 0.2
+    assert reward_dict["tracking_lin_vel"]["func"].endswith("track_lin_vel_xy_exp")
 
 
 def test_reward_config_conversion():
-    """Test reward config converts to dataclasses via registry."""
+    """Test reward config materializes into manager reward terms via registry."""
     from unilab.base import registry
+    from unilab.base.config_materialization import apply_cfg_overrides
     from unilab.base.registry import ensure_registries
+    from unilab.envs import ManagerBasedRlEnvCfg
 
     ensure_registries()
 
-    # Test G1 walk config - registry auto-converts dict to G1WalkRewardConfig
-    g1_dict = {
-        "scales": {"tracking_lin_vel": 2.0, "alive": 10.0},
-        "tracking_sigma": 0.25,
-        "base_height_target": 0.754,
-        "gait_frequency": 1.5,
-        "feet_phase_swing_height": 0.09,
-        "feet_phase_tracking_sigma": 0.008,
-        "min_base_height": 0.3,
-        "max_tilt_deg": 65.0,
-        "close_feet_threshold": 0.15,
-        "pose_weights": [0.01] * 29,
-    }
-    env = cast(
-        Any,
-        registry.make(
-            "G1WalkFlat",
-            num_envs=1,
-            sim_backend="mujoco",
-            env_cfg_override={"reward_config": g1_dict},
-        ),
+    env_cfg = registry.materialize_env_config("G1WalkFlat")
+    assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
+    apply_cfg_overrides(
+        env_cfg,
+        {
+            "rewards": {
+                "tracking_lin_vel": {
+                    "_target_": "unilab.managers.RewardTermCfg",
+                    "func": "unilab.tasks.locomotion.common.sensor_reward_terms.track_lin_vel",
+                    "weight": 2.0,
+                    "params": {
+                        "tracking_sigma": 0.25,
+                        "command_name": "twist",
+                        "sensor_name": "pelvis_local_linvel",
+                    },
+                },
+                "alive": {
+                    "_target_": "unilab.managers.RewardTermCfg",
+                    "func": "unilab.tasks.locomotion.common.manager_terms.alive",
+                    "weight": 10.0,
+                },
+            }
+        },
     )
-    assert hasattr(env._cfg.reward_config, "scales")
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == 2.0
-    env.close()
-
-    # Test Go1 config - registry auto-converts dict to RewardConfig
-    go1_dict = {
-        "scales": {"tracking_lin_vel": 1.0, "base_height": -100.0},
-        "tracking_sigma": 0.25,
-        "base_height_target": 0.3,
-    }
-    env = cast(
-        Any,
-        registry.make(
-            "Go1JoystickFlat",
-            num_envs=1,
-            sim_backend="mujoco",
-            env_cfg_override={"reward_config": go1_dict},
-        ),
-    )
-    assert hasattr(env._cfg.reward_config, "scales")
-    assert env._cfg.reward_config.scales["tracking_lin_vel"] == 1.0
-    env.close()
+    assert env_cfg.rewards["tracking_lin_vel"].weight == 2.0
+    assert env_cfg.rewards["tracking_lin_vel"].params["tracking_sigma"] == 0.25
+    assert env_cfg.rewards["alive"].weight == 10.0
+    assert OmegaConf.is_config(env_cfg.rewards["tracking_lin_vel"].func) is False

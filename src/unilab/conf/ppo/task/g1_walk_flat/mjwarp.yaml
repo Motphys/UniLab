@@ -1,0 +1,34 @@
+# @package _global_
+# Configured-only mjwarp owner for the unified host contract adapter. Keeps
+# DENYLIST parity with the MuJoCo owner; legacy kp/kd randomization is disabled.
+# Offline record reuses MuJoCo rendering; interactive eval routes through the
+# MuJoCo viewer (mjwarp physics, single env). Native playback and
+# device-resident runtime routing are intentionally absent.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: mjwarp
+  play_render_mode: record
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+env:
+  mjwarp_nconmax: 128
+  mjwarp_njmax: 256
+  events:
+    # Legacy mjwarp owners disable kp/kd and armature randomization.
+    pd_gains: null
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0

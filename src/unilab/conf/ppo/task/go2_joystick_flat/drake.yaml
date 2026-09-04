@@ -1,0 +1,40 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: drake
+  # Drake batch currently exposes NumPy float64 buffers and no floating-root
+  # reset contract; keep the owner on CPU and use the scene keyframe reset.
+  device: cpu
+
+algo:
+  num_envs: 1024
+  max_iterations: 151
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    learning_rate: 3.0e-4
+    entropy_coef: 1.0e-3
+
+env:
+  drake_backend_mode: batch
+  drake_nthread: 0
+  events:
+    reset_root_state_uniform: null
+    pd_gains: null
+
+reward:
+  # drake_uni reports per-body net contact force in the world frame, not the
+  # MuJoCo contact frame (normal first) the gait terms gate on; keep the
+  # contact reward off until the drake adapter reports contact-frame force
+  # (issue #1471).
+  contact: null

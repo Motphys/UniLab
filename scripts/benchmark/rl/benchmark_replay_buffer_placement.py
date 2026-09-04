@@ -28,12 +28,12 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, median, pstdev
-from typing import Any, cast
+from typing import Any
 
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
@@ -108,7 +108,6 @@ class BenchmarkCase:
     benchmark_capacity_rows: int
     configured_batch_size: int
     learner_batch_size: int
-    symmetry_batch_multiplier: int
     updates_per_step: int
     sample_count: int
     learning_starts: int
@@ -255,10 +254,9 @@ def _cleanup_device() -> None:
 
 
 def _compose_offpolicy_cfg(algo: str, task: str, sim: str) -> DictConfig:
-    config_dir = str(ROOT_DIR / "conf" / "offpolicy")
+    config_dir = str(ROOT_DIR / "src" / "unilab" / "conf" / algo)
     overrides = [
-        f"algo={algo}",
-        f"task={algo}/{task}/{sim}",
+        f"task={task}/{sim}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -270,7 +268,7 @@ def _compose_offpolicy_cfg(algo: str, task: str, sim: str) -> DictConfig:
 
 
 def _owner_config_path(algo: str, task: str, sim: str) -> Path:
-    return ROOT_DIR / "conf" / "offpolicy" / "task" / algo / task / f"{sim}.yaml"
+    return ROOT_DIR / "src" / "unilab" / "conf" / algo / "task" / task / f"{sim}.yaml"
 
 
 def _owner_config_exists(algo: str, task: str, sim: str) -> bool:
@@ -278,7 +276,7 @@ def _owner_config_exists(algo: str, task: str, sim: str) -> bool:
 
 
 def _discover_supported_tasks(algo: str, sim: str) -> list[str]:
-    task_root = ROOT_DIR / "conf" / "offpolicy" / "task" / algo
+    task_root = ROOT_DIR / "src" / "unilab" / "conf" / algo / "task"
     if not task_root.is_dir():
         return []
     return sorted(path.parent.name for path in task_root.glob(f"*/{sim}.yaml") if path.is_file())
@@ -317,9 +315,11 @@ def _resolve_targets(
     return targets, skipped
 
 
-def _resolve_env_shape_and_symmetry(cfg: DictConfig, algo: str) -> tuple[ReplayShape, int]:
-    from unilab.base.observations import get_obs_dims
-    from unilab.training import BackendAdapter, create_env, ensure_registries
+def _resolve_env_shape(cfg: DictConfig, algo: str) -> ReplayShape:
+    from uni_rl.utils.observations import get_obs_dims
+
+    from unilab.base.config_adapter import BackendAdapter, create_env
+    from unilab.training import ensure_registries
 
     ensure_registries()
     env_cfg_override = BackendAdapter(
@@ -334,17 +334,6 @@ def _resolve_env_shape_and_symmetry(cfg: DictConfig, algo: str) -> tuple[ReplayS
         if action_shape is None:
             raise ValueError("env.action_space.shape must be defined")
         action_dim = int(action_shape[0])
-
-        symmetry_batch_multiplier = 1
-        use_symmetry = bool(OmegaConf.select(cfg, "algo.use_symmetry", default=False))
-        if algo == "sac" and use_symmetry:
-            symmetry_builder = getattr(env, "build_symmetry_augmentation", None)
-            if not callable(symmetry_builder):
-                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
-            symmetry = cast(Any, symmetry_builder(device="cpu"))
-            if symmetry is None:
-                raise ValueError(f"{cfg.training.task_name} does not provide symmetry augmentation")
-            symmetry_batch_multiplier = int(symmetry.batch_multiplier)
     finally:
         env.close()
 
@@ -352,7 +341,7 @@ def _resolve_env_shape_and_symmetry(cfg: DictConfig, algo: str) -> tuple[ReplayS
         obs_dim=int(obs_dim),
         action_dim=action_dim,
         critic_dim=int(critic_dim),
-    ), symmetry_batch_multiplier
+    )
 
 
 def _build_case(
@@ -362,7 +351,6 @@ def _build_case(
     task: str,
     sim: str,
     shape: ReplayShape,
-    symmetry_batch_multiplier: int,
     max_capacity_rows: int | None,
 ) -> BenchmarkCase:
     num_envs = int(cfg.algo.num_envs)
@@ -374,13 +362,6 @@ def _build_case(
 
     configured_batch_size = int(cfg.algo.batch_size)
     learner_batch_size = configured_batch_size
-    if algo == "sac" and bool(OmegaConf.select(cfg, "algo.use_symmetry", default=False)):
-        if configured_batch_size % symmetry_batch_multiplier != 0:
-            raise ValueError(
-                "SAC symmetry requires batch_size divisible by "
-                f"{symmetry_batch_multiplier}, got {configured_batch_size}"
-            )
-        learner_batch_size = configured_batch_size // symmetry_batch_multiplier
 
     updates_per_step = int(cfg.algo.updates_per_step)
     env_steps_per_sync = int(cfg.training.env_steps_per_sync)
@@ -399,7 +380,6 @@ def _build_case(
         benchmark_capacity_rows=benchmark_capacity_rows,
         configured_batch_size=configured_batch_size,
         learner_batch_size=learner_batch_size,
-        symmetry_batch_multiplier=symmetry_batch_multiplier,
         updates_per_step=updates_per_step,
         sample_count=learner_batch_size * updates_per_step,
         learning_starts=int(cfg.algo.learning_starts),
@@ -1059,14 +1039,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Skipping missing owner config: {Path(skipped['path']).relative_to(ROOT_DIR)}")
     for algo, task in targets:
         cfg = _compose_offpolicy_cfg(algo, task, args.sim)
-        shape, symmetry_batch_multiplier = _resolve_env_shape_and_symmetry(cfg, algo)
+        shape = _resolve_env_shape(cfg, algo)
         case = _build_case(
             cfg,
             algo=algo,
             task=task,
             sim=args.sim,
             shape=shape,
-            symmetry_batch_multiplier=symmetry_batch_multiplier,
             max_capacity_rows=max_capacity_rows,
         )
         results.append(

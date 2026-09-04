@@ -5,14 +5,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from unilab.envs.manipulation.sharpa_inhand.base import SharpaDomainRandConfig
-from unilab.envs.manipulation.sharpa_inhand.grasp_gen import (
+from unilab.tasks.manipulation.sharpa_inhand.base import SharpaDomainRandConfig
+from unilab.tasks.manipulation.sharpa_inhand.grasp_gen import (
     SharpaInhandRotationGraspCfg,
     SharpaInhandRotationGraspEnv,
 )
-from unilab.envs.manipulation.sharpa_inhand.rotation import (
+from unilab.tasks.manipulation.sharpa_inhand.rotation import (
     SharpaInhandRotationEnv,
-    sample_random_quaternion,
 )
 from unilab.utils.rotation import np_quat_apply
 

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 import pytest
+import uni_rl.logging.common as common_module
 from rich.console import Console
+from uni_rl.logging import OffPolicyLogger, OnPolicyLogger
 
-import unilab.logging.common as common_module
 import unilab.training.experiment as experiment_module
-from unilab.logging import OffPolicyLogger, OnPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
 
@@ -276,7 +275,7 @@ def test_offpolicy_logger_terminal_shows_material_blocking_phases():
     logger.close()
 
 
-def test_offpolicy_logger_terminal_shows_replay_rows_when_symmetry_expands_batch():
+def test_offpolicy_logger_terminal_shows_replay_rows_and_effective_batch():
     logger = OffPolicyLogger(
         algo_name="FastSAC",
         env_name="G1WalkFlat",
@@ -332,17 +331,10 @@ def test_build_wandb_settings_defaults_for_shared_workspace():
     assert "mujoco" in settings["tags"]
 
 
-def test_experiment_device_info_uses_benchmark_helper():
-    helper_path = experiment_module._benchmark_device_info_path()
-    assert helper_path is not None
-    assert helper_path.name == "device_info.py"
+def test_experiment_device_info_uses_library_helper():
+    import unilab.utils.device as device_module
 
-    info = experiment_module.get_device_info_dict()
-    assert info["platform"]
-    assert "chip" in info
-    assert "cpu_total_cores" in info
-    assert "memory" in info
-    assert "gpu_name" in info or "gpu_cores" in info
+    assert experiment_module.get_device_info_dict is device_module.get_device_info_dict
 
 
 def test_experiment_tracker_writes_local_run_files(tmp_path, monkeypatch):

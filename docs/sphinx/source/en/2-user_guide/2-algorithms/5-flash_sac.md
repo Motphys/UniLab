@@ -1,11 +1,11 @@
 # FlashSAC
 
-FlashSAC is the third algorithm on the shared off-policy entrypoint. Select it
-with `--algo flashsac`; defaults live in
-`conf/offpolicy/algo/flashsac.yaml`, and the implementation lives under
-`src/unilab/algos/torch/flash_sac/`.
+FlashSAC runs through `src/unilab/scripts/train_flashsac.py` in its own config tree.
+Select it with `--algo flashsac`; defaults are inlined in
+`src/unilab/conf/flashsac/config.yaml`, and the implementation lives under
+`uni_rl.algos.flash_sac` (unilab-rl repo).
 
-It shares the off-policy training script with SAC and TD3, but does not use the
+It shares the off-policy runner design with SAC and TD3, but does not use the
 same default networks: the actor uses a block-based structure and the critic
 uses a distributional (categorical) Q variant.
 
@@ -18,7 +18,7 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 
 ## Key Fields
 
-For the off-policy playback path (`scripts/train_offpolicy.py` / CLI `--algo flashsac`),
+For the off-policy playback path (`src/unilab/scripts/train_flashsac.py` / CLI `--algo flashsac`),
 set `training.export_onnx=false` to skip `policy.onnx` export while still recording
 playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 

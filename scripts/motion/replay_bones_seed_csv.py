@@ -36,15 +36,15 @@ from pathlib import Path
 import mujoco
 import mujoco.viewer
 import numpy as np
-
-from unilab.assets import ASSETS_ROOT_PATH
-from unilab.tools.bones_seed_csv import (
+from scripts.motion.bones_seed_csv import (
     ROOT_COLUMNS,
     euler_deg_to_quat_wxyz,
     load_header,
     parse_joint_names,
     resolve_input_files,
 )
+
+from unilab.assets import ASSETS_ROOT_PATH
 
 DEFAULT_INPUT = "src/unilab/assets/motions/g1/flip"
 

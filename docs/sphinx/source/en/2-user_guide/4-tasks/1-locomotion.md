@@ -1,7 +1,7 @@
 # Locomotion
 
-Locomotion tasks are registered in `src/unilab/envs/locomotion/` and
-`src/unilab/envs/motion_tracking/`. The available owner YAMLs under `conf/`
+Locomotion tasks are registered in `src/unilab/tasks/locomotion/` and
+`src/unilab/tasks/motion_tracking/`. The available owner YAMLs under `src/unilab/conf/`
 define which algorithm and backend combinations are runnable.
 
 ## Families
@@ -29,12 +29,14 @@ backend: {doc}`../../5-reference/5-support_matrix`.
 
 ## Go2 FootStand
 
-`go2_footstand` is the Go2 front-feet-stand task. It is **MuJoCo-only**.
+`go2_footstand` is the Go2 front-feet-stand task. Its PPO owner YAMLs
+register MuJoCo, Motrix, and Drake; the SAC owner currently targets Drake.
 
-- PPO config: `conf/ppo/task/go2_footstand/mujoco.yaml`
-- Registered env: `Go2FootStand` (registered for `sim_backend="mujoco"`)
-- Implementation: `src/unilab/envs/locomotion/go2/footstand.py`
-  (extends the Go2 base task)
+- Canonical PPO task config: `src/unilab/conf/ppo/task/go2_footstand/base.yaml`
+- Backend owners: `src/unilab/conf/ppo/task/go2_footstand/{mujoco,motrix,drake}.yaml`
+- Registered env: `Go2FootStand` (MuJoCo, Motrix, and Drake)
+- Implementation: `src/unilab/tasks/locomotion/go2/footstand.py`
+  (task-owned NumPy manager terms on the generic Manager-Based runtime)
 - Go2 model XML: `src/unilab/assets/robots/go2/go2.xml`
 
 ```bash
@@ -66,14 +68,14 @@ The full FootStand recipe is a three-stage teacher-student pipeline; the shipped
 ### Observation Layout
 
 The `Go2FootStand` policy (actor) observation uses 15 history frames of 45 dims
-each (`_FOOTSTAND_FRAME_OBS_DIM = 45`):
+each (`FRAME_OBS_DIM = 45`):
 
 ```text
 linvel(3) + gyro(3) + gravity(3) + joint_position_delta(12) + joint_velocity(12) + last_action(12)
 ```
 
 So the policy observation is `45 * 15 = 675`. The value (critic) observation
-appends the current-step privileged tail (`_FOOTSTAND_PRIVILEGED_TAIL_DIM = 49`)
+appends the current-step privileged tail (`PRIVILEGED_OBS_DIM = 49`)
 after that history:
 
 ```text
@@ -84,23 +86,24 @@ The value observation is therefore `675 + 49 = 724`.
 
 ### Rewards And Terminations
 
-Defaults come from `conf/ppo/task/go2_footstand/mujoco.yaml`. The reward scales
+Defaults come from `src/unilab/conf/ppo/task/go2_footstand/base.yaml`; backend leaves only
+override backend-specific terms and tuning. The reward scales
 include stand `height`, `orientation`, `rear_feet_contact`, target front-leg angle
 (`tar`), `action_rate`, `dof_pos_limits`, `front_leg_motion`, `rear_leg_symmetry`,
 `knee_clearance`, `upright_stability`, `stay_still`, `pose`, plus `energy` and
 `dof_acc` penalties; `termination` and `penalty_contact` drive the termination /
 penalty paths (front-leg / front-body contact, low height, bad orientation, and a
-high-energy cutoff via `energy_termination_threshold`).
+high-energy cutoff in the `footstand` termination term).
 
 ### Tuning Keys
 
-- `env.obs_history_len`: policy observation history length; config default is `15`.
-- `env.energy_termination_threshold`: high-energy termination cutoff; config
-  default is `200.0`.
-- `env.domain_rand`: floor friction, link mass, torso CoM, dof armature, and reset
-  joint qpos randomization.
-- `reward.scales.height` / `orientation` / `rear_feet_contact`: stand pose and
-  rear-foot contact weights.
+- `env.observations.policy.terms.frame.history_length`: policy history length
+  (default `15`).
+- `env.terminations.footstand.params.energy_threshold`: high-energy cutoff
+  (default `200.0`).
+- `env.events`: reset and domain-randomization terms. Backend owners explicitly
+  set unsupported model-field terms to `null`.
+- `reward.footstand.params.scales`: stand, contact, motion, and energy weights.
 
 ### Near-Risk Validation
 

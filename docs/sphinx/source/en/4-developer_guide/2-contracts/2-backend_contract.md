@@ -7,7 +7,7 @@ The play/render decision is recorded in
 ## Stable Backend Interface
 
 All env-facing backend calls should go through `SimBackend` in
-`src/unilab/base/backend/base.py`. The interface includes base state, DOF state,
+`unisim.backend.base`. The interface includes base state, DOF state,
 body state in world and baselink frames, named sensors, state reset, physics
 stepping, domain-randomization hooks, and optional playback/render methods.
 
@@ -17,6 +17,9 @@ Optional capabilities are explicit:
   physics-state playback, and native video capture support.
 - `BackendHeightScanner` and `create_hfield_scanner(...)` expose terrain scan
   support through a reusable backend-owned object.
+- `BackendSensorView` and `bind_sensor_data(...)` validate ordered named sensors
+  on the cold path and retain a backend-owned reader for finite, shape-stable
+  NumPy batches. Manager hot paths do not inspect XML or model metadata.
 - Domain randomization support is surfaced through `get_dr_capabilities()` and
   the init, reset, and interval randomization methods.
 - Unsupported optional methods raise `NotImplementedError` from the base class.
@@ -33,9 +36,10 @@ Optional capabilities are explicit:
 
 ## Evidence In Repo
 
-- Backend interface and play capabilities: `src/unilab/base/backend/base.py`
-- Backend factory: `src/unilab/base/backend/__init__.py`
-- MuJoCo backend: `src/unilab/base/backend/mujoco/backend.py`
-- Motrix backend: `src/unilab/base/backend/motrix/backend.py`
-- Backend contract tests: `tests/base/test_sim_backend.py`,
+- Backend interface and play capabilities: `unisim.backend.base`
+- Backend factory: `src/unilab/base/backend_factory.py`
+- MuJoCo backend: `unisim.backend.mujoco.backend`
+- Motrix backend: `unisim.backend.motrix.backend`
+- Backend contract tests: `tests/base/test_backend_sensor_view.py`,
+  `tests/base/test_backend_conformance.py`, `tests/base/test_sim_backend.py`,
   `tests/base/test_backend_imports.py`, `tests/base/test_motrix_backend_options.py`

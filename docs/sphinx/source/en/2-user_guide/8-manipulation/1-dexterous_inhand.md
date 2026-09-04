@@ -13,12 +13,12 @@ owner is `allegro_inhand`, and grasp-cache generation uses
 
 Owner evidence:
 
-- `conf/ppo/task/allegro_inhand/mujoco.yaml`
-- `conf/ppo/task/allegro_inhand/motrix.yaml`
-- `conf/ppo/task/allegro_inhand_grasp/mujoco.yaml`
-- `conf/ppo/task/allegro_inhand_grasp/motrix.yaml`
-- `conf/appo/task/allegro_inhand/mujoco.yaml`
-- `conf/appo/task/allegro_inhand/motrix.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand/motrix.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand_grasp/mujoco.yaml`
+- `src/unilab/conf/ppo/task/allegro_inhand_grasp/motrix.yaml`
+- `src/unilab/conf/appo/task/allegro_inhand/mujoco.yaml`
+- `src/unilab/conf/appo/task/allegro_inhand/motrix.yaml`
 
 The typical flow is two stages: first generate a grasp cache, then train the
 rotation policy.
@@ -57,12 +57,12 @@ in training paths are MuJoCo owner paths.
 
 Owner evidence:
 
-- `conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `conf/ppo/task/sharpa_inhand/mujoco_hora.yaml`
-- `conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
-- `conf/appo/task/sharpa_inhand/mujoco.yaml`
-- `conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
-- `conf/hora_distill/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco_hora.yaml`
+- `src/unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
+- `src/unilab/conf/appo/task/sharpa_inhand/mujoco.yaml`
+- `src/unilab/conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
+- `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`
 
 The full HORA path is three stages:
 
@@ -127,7 +127,7 @@ uv run eval --algo appo --task sharpa_inhand --sim mujoco --profile hora --load-
 ```
 
 Student distillation is configured by
-`conf/hora_distill/task/sharpa_inhand/mujoco.yaml` and implemented by
+`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml` and implemented by
 `scripts/train_hora_distill.py`; the top-level CLI does not currently expose a
 separate HORA distillation route (it is not in the CLI `SUPPORTED_ALGOS`). To
 distill from an APPO teacher, set `teacher.algo_family=appo` in that low-level

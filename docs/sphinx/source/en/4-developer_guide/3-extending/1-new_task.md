@@ -20,8 +20,8 @@ Start from the contracts: {doc}`../2-contracts/1-env_contract`,
    `reset(env_indices)` returns `(obs_dict, info_dict)`, and `step(actions)`
    returns `NpEnvState`.
 7. Add owner YAMLs under the relevant config root, such as
-   `conf/ppo/task/<task>/<backend>.yaml` or
-   `conf/offpolicy/task/<algo>/<task>/<backend>.yaml`.
+   `src/unilab/conf/ppo/task/<task>/<backend>.yaml` or, for an off-policy algorithm,
+   `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`.
 8. Put task or scene keyframes in task/scene XML fragments referenced through
    `SceneCfg.fragment_files`; do not put task-level keyframes in `robot.xml`.
 
@@ -38,5 +38,5 @@ Start from the contracts: {doc}`../2-contracts/1-env_contract`,
 - Registry API: `src/unilab/base/registry.py`
 - Env state contract: `src/unilab/base/np_env.py`
 - Scene config: `src/unilab/base/scene.py`
-- Existing task examples: `src/unilab/envs/locomotion/go2/joystick.py`,
-  `src/unilab/envs/manipulation/allegro_inhand/rotation.py`
+- Existing task examples: `src/unilab/tasks/locomotion/go2/joystick.py`,
+  `src/unilab/tasks/manipulation/allegro_inhand/rotation.py`

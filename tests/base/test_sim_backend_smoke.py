@@ -10,11 +10,11 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.backend.mujoco.xml import get_named_body_ids
+from unisim.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.backend.mujoco.xml import get_named_body_ids
 from unilab.base.scene import SceneCfg
-from unilab.dr.types import ResetRandomizationPayload
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
@@ -74,7 +74,7 @@ def _mujoco_expected_dof_dims(model) -> tuple[int, int]:
 
 @pytest.mark.parametrize("robot", BASIC_ROBOTS)
 def test_mujoco_backend_smoke_contract(robot):
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
@@ -108,12 +108,16 @@ def test_mujoco_backend_smoke_contract(robot):
         "kd",
     }.issubset(caps.supported_reset_terms)
     assert caps.supports_interval_push
+    assert caps.supports_interval_body_velocity_delta
+    assert caps.supports_interval_body_angular_velocity_delta
+    assert caps.supports_interval_body_force
+    assert caps.supports_interval_body_torque
 
 
 def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_ALLEGRO["model_file"]),
@@ -129,13 +133,239 @@ def test_mujoco_backend_fixed_base_dof_views_do_not_skip_first_joint():
     np.testing.assert_allclose(bkd.get_base_lin_vel(), 0.0, atol=1e-8)
     np.testing.assert_allclose(bkd.get_base_ang_vel(), 0.0, atol=1e-8)
     _unit_quat(bkd.get_base_quat(), "MuJoCo fixed-base smoke")
+    assert not bkd.get_dr_capabilities().supports_interval_body_velocity_delta
+
+
+def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_sensors():
+    from unisim.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_xml("go2")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+        add_body_sensors=True,
+    )
+    bkd.materialize()
+    qpos = np.broadcast_to(bkd.get_default_qpos(), (NUM_ENVS, bkd.model.nq)).copy()
+    qvel = np.zeros((NUM_ENVS, bkd.model.nv), dtype=np.float64)
+    bkd.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+    bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)), nsteps=1)
+    assert bkd._pool is not None
+    bkd._sensor_data[:] = bkd._pool.forward(bkd.get_physics_state())
+
+    body_ids = bkd.get_body_ids(("base",))
+    state_before = bkd.get_physics_state().copy()
+    body_velocity_before = bkd.get_body_lin_vel_w(body_ids).copy()
+    delta = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    delta[1, 0] = (0.25, -0.4, 0.15)
+
+    bkd.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            body_ids=body_ids,
+            body_linear_velocity_delta=delta,
+        )
+    )
+
+    state_after = bkd.get_physics_state()
+    body_velocity_after = bkd.get_body_lin_vel_w(body_ids)
+    np.testing.assert_array_equal(state_after[0], state_before[0])
+    np.testing.assert_allclose(state_after[1, 0], state_before[1, 0], atol=1e-12)
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qpos : bkd._idx_qvel],
+        state_before[1, bkd._idx_qpos : bkd._idx_qvel],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qvel + 3 :],
+        state_before[1, bkd._idx_qvel + 3 :],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qvel : bkd._idx_qvel + 3],
+        state_before[1, bkd._idx_qvel : bkd._idx_qvel + 3] + delta[1, 0],
+        atol=1e-7,
+    )
+    np.testing.assert_allclose(
+        body_velocity_after[1, 0],
+        body_velocity_before[1, 0] + delta[1, 0],
+        atol=1e-6,
+    )
+
+
+def test_mujoco_interval_root_velocity_kick_rejects_invalid_contracts():
+    from unisim.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_xml("go2")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+    )
+    body_ids = bkd.get_body_ids(("base",))
+    delta = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+
+    with pytest.raises(RuntimeError, match="requires a materialized backend"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
+                body_linear_velocity_delta=delta,
+            )
+        )
+
+    bkd.materialize()
+    with pytest.raises(TypeError, match="body_ids must be a 1-D integer array"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids.astype(np.float64),
+                body_linear_velocity_delta=delta,
+            )
+        )
+    with pytest.raises(NotImplementedError, match="only supports the configured free root"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=np.asarray([body_ids[0] + 1], dtype=np.int32),
+                body_linear_velocity_delta=delta,
+            )
+        )
+    with pytest.raises(ValueError, match=r"shape .* expected \(2, 1, 3\)"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
+                body_linear_velocity_delta=np.zeros((NUM_ENVS, 3), dtype=np.float64),
+            )
+        )
+    invalid = delta.copy()
+    invalid[0, 0, 0] = np.nan
+    with pytest.raises(ValueError, match="contains NaN or Inf"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
+                body_linear_velocity_delta=invalid,
+            )
+        )
+
+
+def test_mujoco_interval_root_angular_velocity_kick_converts_to_body_frame():
+    from unisim.backend.mujoco.backend import MuJoCoBackend
+
+    bkd = MuJoCoBackend(
+        SceneCfg(model_file=_xml("go2")),
+        NUM_ENVS,
+        SIM_DT,
+        base_name="base",
+        add_body_sensors=True,
+    )
+    bkd.materialize()
+    qpos = np.broadcast_to(bkd.get_default_qpos(), (NUM_ENVS, bkd.model.nq)).copy()
+    # Hover far above the terrain and yaw the root by +90 degrees: without
+    # contact the orientation is exactly preserved across the probe step.
+    qpos[:, 2] += 2.0
+    half = np.sqrt(0.5)
+    qpos[:, 3:7] = [half, 0.0, 0.0, half]
+    qvel = np.zeros((NUM_ENVS, bkd.model.nv), dtype=np.float64)
+    bkd.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
+
+    body_ids = bkd.get_body_ids(("base",))
+    delta = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    delta[1, 0] = (0.5, 0.0, 0.0)  # world-frame +x angular rate
+
+    bkd.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            body_ids=body_ids,
+            body_angular_velocity_delta=delta,
+        )
+    )
+
+    state_after = bkd.get_physics_state()
+    # The free-root qvel angular channels are body-frame: yaw(+90deg) maps the
+    # world-frame +x kick onto body-frame -y.
+    np.testing.assert_allclose(
+        state_after[0, bkd._idx_qvel + 3 : bkd._idx_qvel + 6],
+        0.0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        state_after[1, bkd._idx_qvel + 3 : bkd._idx_qvel + 6],
+        [0.0, -0.5, 0.0],
+        atol=1e-7,
+    )
+    # The world-frame read-back recovers the sampled delta.
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w(body_ids)[1, 0],
+        [0.5, 0.0, 0.0],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w(body_ids)[0, 0],
+        [0.0, 0.0, 0.0],
+        atol=1e-6,
+    )
+
+
+def test_mujoco_interval_body_force_and_torque_have_observable_effect(tmp_path):
+    from unisim.backend.mujoco.backend import MuJoCoBackend
+
+    # A single free body gives exact rigid-body dynamics: dv = F/m * dt and
+    # dw = I^-1 tau * dt at identity orientation with diagonal inertia.
+    model_file = tmp_path / "free_body.xml"
+    model_file.write_text(
+        """
+<mujoco>
+  <worldbody>
+    <body name="ball" pos="0 0 5">
+      <freejoint/>
+      <inertial mass="2.0" diaginertia="0.5 0.5 0.5" pos="0 0 0"/>
+      <geom type="sphere" size="0.1" mass="2.0"/>
+    </body>
+  </worldbody>
+</mujoco>
+""".strip()
+    )
+    bkd = MuJoCoBackend(SceneCfg(model_file=str(model_file)), NUM_ENVS, SIM_DT, base_name="ball")
+    bkd.materialize()
+    caps = bkd.get_dr_capabilities()
+    assert caps.supports_interval_body_force
+    assert caps.supports_interval_body_torque
+
+    body_ids = bkd.get_body_ids(("ball",))
+    qpos = np.broadcast_to(bkd.get_default_qpos(), (NUM_ENVS, bkd.model.nq)).copy()
+    qvel0 = np.zeros((NUM_ENVS, bkd.model.nv), dtype=np.float64)
+    ids = np.arange(NUM_ENVS, dtype=np.int32)
+    ctrl = np.zeros((NUM_ENVS, bkd.model.nu))
+
+    bkd.set_state(ids, qpos, qvel0)
+    bkd.step(ctrl, nsteps=1)
+    baseline = bkd.get_physics_state()[:, bkd._idx_qvel : bkd._idx_qvel + 6].copy()
+
+    force = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    force[:, 0, 2] = 10.0  # N, world +z
+    torque = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
+    torque[:, 0, 2] = 1.0  # Nm, world z
+
+    bkd.set_state(ids, qpos, qvel0)
+    bkd.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            body_ids=body_ids,
+            body_force=force,
+            body_torque=torque,
+        )
+    )
+    bkd.step(ctrl, nsteps=1)
+    kicked = bkd.get_physics_state()[:, bkd._idx_qvel : bkd._idx_qvel + 6]
+
+    # Free fall is common to both runs, so the staged wrench adds exactly
+    # F/m * dt to linear z and tau/I * dt to angular z.
+    np.testing.assert_allclose(kicked[:, 2] - baseline[:, 2], 10.0 / 2.0 * SIM_DT, rtol=1e-3)
+    np.testing.assert_allclose(kicked[:, 5] - baseline[:, 5], 1.0 / 0.5 * SIM_DT, rtol=1e-3)
+    np.testing.assert_allclose(kicked[:, [0, 1, 3, 4]], baseline[:, [0, 1, 3, 4]], atol=1e-9)
 
 
 @pytest.mark.parametrize("robot", BASIC_ROBOTS)
 def test_motrix_backend_smoke_contract(robot):
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
@@ -175,7 +405,7 @@ def test_motrix_backend_smoke_contract(robot):
 def test_motrix_backend_fixed_base_base_views_are_available():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=_ALLEGRO["model_file"]),
@@ -200,8 +430,8 @@ def test_motrix_backend_fixed_base_base_views_are_available():
 def test_cross_backend_base_pose_smoke(robot):
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.motrix.backend import MotrixBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     mj = MuJoCoBackend(
         SceneCfg(model_file=robot["model_file"]), NUM_ENVS, SIM_DT, base_name=robot["base_name"]
@@ -229,8 +459,8 @@ def test_cross_backend_base_pose_smoke(robot):
 def test_cross_backend_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.motrix.backend import MotrixBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     mj = MuJoCoBackend(
         SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
@@ -254,8 +484,8 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
     if backend_type == "motrix":
         pytest.importorskip("motrixsim")
 
-    from unilab.base.backend import create_backend
-    from unilab.envs.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
+    from unilab.base.backend_factory import create_backend
+    from unilab.tasks.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
 
     bkd = create_backend(
         backend_type,
@@ -275,9 +505,16 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
     np.testing.assert_allclose(bkd.get_sensor_data_batch(names), expected)
     _shape(bkd.get_sensor_data_batch(()), NUM_ENVS, 0)
 
+    view = bkd.bind_sensor_data(names)
+    assert view.names == names
+    assert view.dimensions == tuple(
+        int(np.asarray(bkd.get_sensor_data(name)).reshape(NUM_ENVS, -1).shape[1]) for name in names
+    )
+    np.testing.assert_allclose(view.read(), expected)
+
 
 def test_mujoco_model_properties_smoke():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
@@ -295,8 +532,11 @@ def test_mujoco_model_properties_smoke():
 def test_mujoco_metadata_getters_return_stable_copies():
     mujoco = _mujoco_module()
 
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
+    from unilab.assets.hub import ensure_robot_assets_for_paths
+
+    ensure_robot_assets_for_paths([_SHARPA["model_file"]])
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
     )
@@ -372,7 +612,7 @@ def test_mujoco_metadata_getters_return_stable_copies():
 
 
 def test_mujoco_copy_body_state_matches_split_queries():
-    from unilab.base.backend.mujoco.backend import MuJoCoBackend
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 
     bkd = MuJoCoBackend(
         SceneCfg(model_file=_G1["model_file"]),
@@ -402,11 +642,22 @@ def test_mujoco_copy_body_state_matches_split_queries():
     np.testing.assert_allclose(out_lin_vel, expected_lin_vel)
     np.testing.assert_allclose(out_ang_vel, expected_ang_vel)
 
+    # Issue #1295: row-scoped velocity getters are parity with full+slice.
+    row_ids = np.array([1, 0, 1], dtype=np.int32)
+    np.testing.assert_allclose(
+        bkd.get_body_lin_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_lin_vel_w(body_ids)[row_ids],
+    )
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_ang_vel_w(body_ids)[row_ids],
+    )
+
 
 def test_motrix_model_properties_smoke():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
@@ -416,13 +667,15 @@ def test_motrix_model_properties_smoke():
     ctrl_range = bkd.get_actuator_ctrl_range()
     _shape(ctrl_range, bkd.num_actuators, 2)
     assert bkd.get_default_qpos().ndim == 1
-    assert bkd.get_joint_range() is None
+    joint_range = bkd.get_joint_range()
+    assert joint_range is not None
+    assert joint_range.shape == (bkd.num_dof_vel, 2)
 
 
 def test_motrix_copy_body_state_matches_split_queries():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
     bkd = MotrixBackend(
         SceneCfg(model_file=_G1["model_file"]),
@@ -456,13 +709,25 @@ def test_motrix_copy_body_state_matches_split_queries():
         bkd.get_sensor_data_rows("pelvis_local_linvel", row_ids),
         bkd.get_sensor_data("pelvis_local_linvel")[row_ids],
     )
+    # Issue #1295: row-scoped velocity getters are parity with full+slice.
+    np.testing.assert_allclose(
+        bkd.get_body_lin_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_lin_vel_w(body_ids)[row_ids],
+    )
+    np.testing.assert_allclose(
+        bkd.get_body_ang_vel_w_rows(row_ids, body_ids),
+        bkd.get_body_ang_vel_w(body_ids)[row_ids],
+    )
 
 
 def test_motrix_default_qpos_uses_mujoco_quaternion_convention():
     pytest.importorskip("motrixsim")
 
-    from unilab.base.backend.motrix.backend import MotrixBackend
+    from unisim.backend.motrix.backend import MotrixBackend
 
+    from unilab.assets.hub import ensure_robot_assets_for_paths
+
+    ensure_robot_assets_for_paths([_SHARPA["model_file"]])
     bkd = MotrixBackend(
         SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
     )

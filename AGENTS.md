@@ -4,6 +4,8 @@
 
 UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructure 仓库。
 
+RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collector、IPC、训练日志）由独立包 **uni_rl**（仓库 [unilabsim/unilab_rl](https://github.com/unilabsim/unilab_rl)，distribution 名 `unilab-rl`，发布在 PyPI）承载；UniLab 不构造 uni_rl 消费的 env，而是通过注入式 env contract 对接：`uni_rl.env_contract.EnvFactory = Callable[[int, Mapping | None], EnvProtocol]`（必须可被 pickle 引用，collector 跑在 spawn 子进程），UniLab 侧适配器为 `src/unilab/base/env_factory.py` 的 `registry_env_factory`，mjwarp 设备绑定经 `src/unilab/base/process_device.py` 的 `bind_backend_process_device` 注入。unilab 可以 import uni_rl；uni_rl 永远不 import unilab / unisim。
+
 ## Core Principles
 
 1. **Contract first**: 不为了一次通过绕过 env / backend / runner contract。
@@ -32,34 +34,40 @@ UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructu
 | Env  | `NpEnvState.obs` 必须是 dict；`reset()` 返回 `(obs_dict, info_dict)`；`obs_groups_spec` 影响 wrapper 和 learner 维度。 |
 | Config / Reward | reward 通过 Hydra 注入；后端切换必须通过 `task=<task>/<backend>` 选择 owner YAML，`training.sim_backend` 只是 owner YAML 的身份字段，不能单独 override 来切后端。算法超参数直接走 YAML compose，不经 Python 层解释。 |
 | Backend | backend-specific 逻辑留在 backend / env 适配层，不向训练脚本扩散。env 层只能调用 `SimBackend`（`base.py`）中已声明的方法；若某方法只在 MuJoCo 或 Motrix 中存在，必须先将其加入 `SimBackend` 抽象接口（可抛 `NotImplementedError`），禁止直接在 env 里调用 backend 子类的私有方法（即"功能泄漏/feature leakage"）。新增 backend 专有能力时，需同步更新 `SimBackend`。 |
-| Asset / Metadata | `ASSETS_ROOT_PATH`、`model_file`、XML / asset 元数据只允许在 init / materialization / cache 等低频路径访问；`step/reset/domain randomization` 等热路径不得解析 asset 或基于 asset 元数据做运行时分支。 |
+| Asset / Metadata | `ASSETS_ROOT_PATH`、`model_file`、XML / asset 元数据只允许在 init / materialization / cache 等低频路径访问；`step/reset/domain randomization` 等热路径不得解析 asset 或基于 asset 元数据做运行时分支。机器人 mesh/纹理不入 git：托管在 HF 数据集 `unilabsim/unilab-robots`，注册表为 `src/unilab/assets/hub.py` 的 `ROBOT_ASSET_SPECS`，由 `create_backend` 冷路径自动下载（也可 `unilab-pull-assets` 预拉取），落盘回原路径使 XML `meshdir` 引用不变；这些目录在 `.gitignore` 与 `pyproject.toml` 的 `tool.uv.build-backend.source-exclude` 中同步排除。 |
 | Asset / XML structure | `<keyframe>` 必须放在 task-level XML（`scene_*.xml` 或 `locomotion_task.xml` 等 fragment），**禁止放进 robot.xml**。robot.xml 是纯机器人描述（body / joint / actuator / sensor），跟 task / 场景无关；keyframe 是 task 起始姿态，属于场景或 task 资源。motrix 后端需要 keyframe 时通过 `scene.fragment_files` 引用 fragment XML。 |
-| Async | 不绕开 runner lifecycle，也不另起 collector / learner 同步协议。 |
+| Async | 不绕开 runner lifecycle（实现在 uni_rl 仓库的 `uni_rl.ipc.async_runner`），也不另起 collector / learner 同步协议。 |
 | Sim2Sim 契约 | 跨后端 play 时，影响策略 I/O / 网络结构的字段必须跨后端一致；不一致即 `CrossBackendIncompatibleError`。详见下方 Sim2Sim 章节。 |
 
 ## Sim2Sim 跨后端配置契约
 
-`src/unilab/training/sim2sim.py` 按 dotted path 维护三类字段：
+`src/unilab/utils/sim2sim.py` 按 dotted path 维护三类字段：
 
 - **DENYLIST**（差异即 `CrossBackendIncompatibleError`）：`algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization` / `algo.obs_normalization`、`env.sampling_mode`。`env.*` 子集对**任一方向**的不对称出现也 fail-closed；`algo` 专属字段目标缺省时按设计跳过（跨算法合法）。
 - **WARNING_LIST**：`reward.*`、`env.control_config.simulate_action_latency`、`env.ctrl_dt`。
 - **ALLOWLIST**（自由覆盖）：`training.sim_backend`、`env.scene`、`training.play_steps`、`env.domain_rand`、`env.noise_config`、`env.commands.vel_limit`。
 
-训练时 `ExperimentTracker.start()` 把上述字段写入 `run_config.json` 的 `contract_snapshot`（不改 checkpoint 格式，旧 run 无 snapshot 时 fallback + warning）；五个 play 入口在建 env 前调用 `resolve_sim2sim_config` 校验，并用 `policy_load_dim_guard` 包裹 checkpoint 加载以把维度不匹配的隐晦报错重抛为显式诊断。设 `training.sim2sim_strict=false` 可把 DENYLIST 差异降级为 warning（默认 `true`）。DENYLIST 字段在每个后端 owner 配置中显式声明并保持跨后端一致（范例：`conf/ppo/task/g1_walk_flat/{mujoco,motrix}.yaml`）；跨后端契约审计见 `scripts/audit_sim2sim_contracts.py`。
+训练时 `ExperimentTracker.start()` 把上述字段写入 `run_config.json` 的 `contract_snapshot`（不改 checkpoint 格式，旧 run 无 snapshot 时 fallback + warning）；五个 play 入口在建 env 前调用 `resolve_sim2sim_config` 校验，并用 `policy_load_dim_guard` 包裹 checkpoint 加载以把维度不匹配的隐晦报错重抛为显式诊断。设 `training.sim2sim_strict=false` 可把 DENYLIST 差异降级为 warning（默认 `true`）。DENYLIST 字段在共享 base owner 与后端 owner 配置中显式声明并保持跨后端一致（范例：`src/unilab/conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`）；跨后端契约审计见 `scripts/audit_sim2sim_contracts.py`。
 
 ## Pointers
 
-- PPO: `scripts/train_rsl_rl.py`
-- APPO: `scripts/train_appo.py`
-- SAC / TD3: `scripts/train_offpolicy.py`
+- PPO: `src/unilab/scripts/train_rsl_rl.py`
+- APPO: `src/unilab/scripts/train_appo.py`
+- SAC / TD3 / FlashSAC: `src/unilab/scripts/train_sac.py` / `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
 - env contract: `src/unilab/base/np_env.py`
-- backend contract: `src/unilab/base/backend/base.py`
+- backend contract: `unisim.backend.base.SimBackend`（由 `unisim-core` 仓库维护）
+- UniLab backend owner factory: `src/unilab/base/backend_factory.py`
+- isaacgym subprocess 后端（Python 3.8 worker + shm 协议）: `unisim.backend.isaacgym`（由 `unisim-core` 仓库维护）
 - training run helpers: `src/unilab/training/run.py`
 - visualization helpers: `src/unilab/visualization/`
 - shared numeric helpers: `src/unilab/utils/rotation.py`, `src/unilab/utils/geometry.py`
 - config schema: `src/unilab/structured_configs.py`
-- async runner: `src/unilab/ipc/async_runner.py`
-- sim2sim 跨后端契约: `src/unilab/training/sim2sim.py`
+- async runner: `uni_rl.ipc.async_runner`（独立 uni_rl 仓库 / `unilab-rl` 包）
+- algo 实现（runner / learner / collector）: uni_rl 包（独立仓库，distribution 名 `unilab-rl`）；UniLab 只保留入口脚本与 play 编排
+- uni_rl env factory 适配: `src/unilab/base/env_factory.py`
+- HORA APPO play 编排: `src/unilab/scripts/play_hora_appo.py`；HORA distill 配置组合: `src/unilab/training/hora_distill_config.py`
+- sim2sim 跨后端契约: `src/unilab/utils/sim2sim.py`
+- new algorithm recipe（三档扩展方式 + 约定式 CLI 路由 footprint）: `docs/sphinx/source/zh_CN/4-developer_guide/3-extending/3-new_algorithm.md`
 
 ## GitHub CLI (gh) 速查
 
@@ -100,6 +108,17 @@ gh api repos/unilabsim/UniLab/issues/174 --jq '.title, .body'
 git push -u origin fix/issue-174-ppo-config-alignment
 gh pr create --title "fix: xxx" --body "Fixes #174" --base <target-branch>
 ```
+
+## PyPI Release
+
+`.github/workflows/release.yml` 是生产发布路径，由 `v*` tag 推送触发（`workflow_dispatch` 只做构建与验证，不发布）：
+
+1. 更新 `pyproject.toml` 的 `[project].version`（版本单一来源）及相关文档，本地 `make test-all` 与 `uv build` 通过。
+2. 确认目标 commit 有成功的 `ci.yml` 运行：ci.yml 只在 PR 与 `workflow_dispatch` 上运行，若目标 commit 没有记录，先对该 commit 手动 dispatch 一次 ci.yml 再发 tag。
+3. 推送与 `[project].version` 完全一致的 annotated tag（如 `v0.1.0`）。release workflow 会校验 tag 与版本一致、该 commit CI 已通过，然后构建 sdist + wheel、twine check、`--no-deps` 安装 wheel 并做 import / 版本 smoke test。
+4. 构建验证通过后，`publish` job 通过 trusted publishing（OIDC，`environment: pypi`）上传到 PyPI，无 token 入仓；`skip-existing: true` 支持安全重跑。
+
+发布失败时：产物未变可用同一 tag 修复重跑；改了代码必须升级版本与新 tag，绝不覆盖已发布版本。
 
 ## Context
 

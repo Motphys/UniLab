@@ -30,8 +30,14 @@ The contracts everything else depends on: `NpEnv`, `SimBackend`, `Registry`,
 :::{grid-item-card} 🧪 `unilab.envs`
 :link: envs/index
 :link-type: doc
-Concrete tasks — locomotion, manipulation, motion tracking — layered on
+Manager-Based environment runtime and task-agnostic MDP terms layered on
 top of `base`.
+:::
+
+:::{grid-item-card} 🤖 `unilab.tasks`
+:link: tasks/index
+:link-type: doc
+Concrete locomotion, manipulation, and motion-tracking task packages.
 :::
 
 ::::
@@ -41,10 +47,10 @@ top of `base`.
 ::::{grid} 1 1 2 2
 :gutter: 3
 
-:::{grid-item-card} 🎛 `unilab.algos`
+:::{grid-item-card} 🎛 Learning algorithms → `uni_rl`
 :link: algos/index
 :link-type: doc
-PPO / APPO / SAC / TD3 variants, in PyTorch.
+PPO / APPO / SAC / TD3 variants moved to the uni_rl package (issue #1480).
 :::
 
 :::{grid-item-card} 🏋 `unilab.training`
@@ -53,11 +59,11 @@ PPO / APPO / SAC / TD3 variants, in PyTorch.
 Runtime helpers, monitoring, reward bookkeeping, runner orchestration.
 :::
 
-:::{grid-item-card} 🔗 `unilab.ipc`
+:::{grid-item-card} 🔗 Shared-memory runtime → `uni_rl.ipc`
 :link: ipc/index
 :link-type: doc
-Shared-memory rollout and replay primitives that connect CPU workers and
-the GPU learner.
+Shared-memory rollout and replay primitives moved to the uni_rl package
+(issue #1480).
 :::
 
 :::{grid-item-card} 🧮 `unilab.backend`
@@ -91,22 +97,17 @@ Procedural and heightfield terrain generators.
 Scene rendering and viser bridges.
 :::
 
-:::{grid-item-card} 🔧 `unilab.tools`
-:link: tools/index
-:link-type: doc
-Scene export, NaN visualizer, ONNX export.
-:::
-
 :::{grid-item-card} 🧰 `unilab.utils`
 :link: utils/index
 :link-type: doc
 Math, IO, and numerical helpers.
 :::
 
-:::{grid-item-card} 📝 `unilab.logging`
+:::{grid-item-card} 📝 Training logging → `uni_rl.logging`
 :link: logging/index
 :link-type: doc
-W&B / TensorBoard bridges and structured logging.
+W&B / TensorBoard bridges and structured logging moved to the uni_rl package
+(issue #1480).
 :::
 
 ::::
@@ -125,6 +126,7 @@ top_level
 
 base/index
 envs/index
+tasks/index
 ```
 
 ```{toctree}
@@ -144,7 +146,6 @@ backend/index
 dr/index
 terrains/index
 visualization/index
-tools/index
 utils/index
 logging/index
 ```

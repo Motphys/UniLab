@@ -8,7 +8,7 @@
 :::{grid-item-card} 从 Isaac Lab 迁移
 :link: 1-from_isaac_lab
 :link-type: doc
-把 GPU 常驻的任务结构映射到 UniLab 的 CPU sim 与 learner 拆分。
+保留 Manager-Based term 结构，适配 Hydra 配置、NumPy 执行和场景访问。
 :::
 
 :::{grid-item-card} 从 Legged Gym 迁移

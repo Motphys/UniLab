@@ -41,7 +41,7 @@
   - Motrix 通过运行时能力检测上报支持情况。
 ```
 
-把 `src/unilab/base/backend/base.py` 作为 contract 的来源，把 `tests/base/`
+把 `unisim.backend.base` 作为 contract 的来源，把 `tests/base/`
 下的后端测试作为支持声明的证据。
 
 ## 如何更新本页

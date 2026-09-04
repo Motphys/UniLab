@@ -1,0 +1,33 @@
+# @package _global_
+# IsaacGym SAC owner for the subprocess backend (physics runs in a Python 3.8
+# worker). Keeps DENYLIST parity with the MuJoCo owner. The backend consumes
+# the self-contained MJCF scene from base.yaml directly (no scene fragments or
+# generated terrain) and reproduces the <position kp kv forcerange> actuators
+# with PhysX DOF_MODE_POS (gains parsed from the MJCF, not the importer);
+# runtime kp/kd randomization is unsupported, so pd_gains stays disabled.
+# Playback uses IsaacGym native rendering: with a display,
+# `play_render_mode=auto` opens the interactive viewer; headless hosts fall
+# back to offscreen camera-sensor recording.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: isaacgym
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+env:
+  # GPU device index handed to the worker sim; unset defaults to device 0.
+  isaacgym_device_id: 0
+  render_spacing: 2.0
+  events:
+    # Runtime kp/kd randomization is unsupported on the isaacgym worker.
+    pd_gains: null

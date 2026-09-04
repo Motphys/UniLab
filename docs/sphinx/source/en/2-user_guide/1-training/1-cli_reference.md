@@ -7,11 +7,11 @@ keeps the lower-level scripts available for debugging Hydra composition.
 
 | Goal | Command Shape | Routed Script |
 | --- | --- | --- |
-| PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `scripts/train_rsl_rl.py` |
-| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `scripts/train_appo.py` |
-| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
-| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
-| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
+| PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `src/unilab/scripts/train_rsl_rl.py` |
+| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `src/unilab/scripts/train_appo.py` |
+| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `src/unilab/scripts/train_sac.py` |
+| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `src/unilab/scripts/train_td3.py` |
+| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `src/unilab/scripts/train_flashsac.py` |
 
 Examples:
 
@@ -42,22 +42,33 @@ On a fresh checkout, one setup command syncs the environment and installs the
 completion:
 
 ```bash
+# Full default environment (MuJoCo + Motrix):
 make setup
 
-# When you need Motrix:
-make setup-motrix
+# MuJoCo only:
+# make setup-mujoco
+
+# Motrix only (the shortest path for Motrix demos):
+# make setup-motrix
 ```
 
-`make setup` runs `uv sync` followed by `uv run --no-sync unilab-complete install`;
-`make setup-motrix` runs `uv sync --extra motrix` followed by the same completion
-install. The install command picks Bash or Zsh from `$SHELL` / platform and only
-writes user-level rc files. The current shell is not auto-activated; reopen the
-terminal or source the rc file to apply.
+`make setup` runs `uv sync --extra mujoco --extra motrix` followed by
+`uv run --no-sync unilab-complete install`; `make setup-mujoco` and
+`make setup-motrix` select only their named extra and install the same completion.
+Choose one setup path for an environment. The install command picks Bash or Zsh
+from `$SHELL` / platform and only writes user-level rc files. The current shell
+is not auto-activated; reopen the terminal or source the rc file to apply.
 
 If `make` is unavailable, run the steps directly:
 
 ```bash
-uv sync && uv run --no-sync unilab-complete install
+# Full default environment:
+uv sync --extra mujoco --extra motrix
+uv run --no-sync unilab-complete install
+
+# Or choose one backend extra:
+# uv sync --extra mujoco && uv run --no-sync unilab-complete install
+# uv sync --extra motrix && uv run --no-sync unilab-complete install
 ```
 
 Bash users (Linux / WSL) can instead add this to `~/.bashrc`:
@@ -89,6 +100,9 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
 ```
 
 Supported render modes are `auto`, `interactive`, `record`, and `none`.
+
+The MuJoCo interactive mode (`--sim mujoco --render-mode interactive`) routes
+directly to `play_interactive.py` and always rolls out one environment.
 
 ## Demo
 
@@ -123,8 +137,8 @@ The lower-level scripts remain available when you need to inspect Hydra config
 groups or reproduce a script-level issue. For normal usage, keep
 route-defining values in the unified CLI flags above.
 
-For off-policy routes, keep `--algo` aligned with the owner tree under
-`conf/offpolicy/task/<algo>/`; do not include the algorithm name in `--task`.
+For off-policy routes, `--algo` selects the per-algorithm owner tree
+`src/unilab/conf/<algo>/`; do not include the algorithm name in `--task`.
 
 ## Common Overrides
 

@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_rough/mujoco
+  - _self_
+
+training:
+  task_name: Go2JoystickRough
+  sim_backend: motrix
+
+algo:
+  num_envs: 4096
+
+env:
+  render_offset_mode: zero
+  scene:
+    model_file: src/unilab/assets/robots/go2/go2.xml
+  events:
+    push_robot: null

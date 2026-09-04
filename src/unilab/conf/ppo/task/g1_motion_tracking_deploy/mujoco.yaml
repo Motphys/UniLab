@@ -1,0 +1,84 @@
+# @package _global_
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingDeploy
+  sim_backend: mujoco
+
+env:
+  sim_dt: 0.005
+  observations:
+    actor:
+      terms:
+        motion_anchor_pos_b: null
+        base_lin_vel: null
+        base_ang_vel:
+          params: {sensor_name: pelvis_gyro}
+    critic:
+      terms:
+        base_ang_vel:
+          params: {sensor_name: pelvis_gyro}
+  actions:
+    joint_pos:
+      scale:
+        ".*_(hip_pitch|hip_yaw)_joint": 0.5475464629911068
+        ".*_(hip_roll|knee)_joint": 0.35066146637882434
+        ".*_ankle_(pitch|roll)_joint": 0.43857731392336724
+        "waist_yaw_joint": 0.5475464629911068
+        "waist_(roll|pitch)_joint": 0.43857731392336724
+        ".*_(shoulder_(pitch|roll|yaw)|elbow|wrist_roll)_joint": 0.43857731392336724
+        ".*_wrist_(pitch|yaw)_joint": 0.07450087032950714
+  commands:
+    motion:
+      params:
+        joint_default_position_range: [-0.01, 0.01]
+  events:
+    base_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: pelvis
+        mass_distribution_params: [-1.5, 1.5]
+        operation: add
+        recompute_inertia: false
+    base_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: pelvis
+        com_range:
+          x: [-0.025, 0.025]
+          y: [-0.05, 0.05]
+          z: [-0.05, 0.05]
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: ".*"
+        ranges: [0.3, 1.2]
+        operation: abs
+        shared_random: true
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [15.0, 15.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-1.0, 1.0]
+          y: [-1.0, 1.0]
+          z: [-0.5, 0.5]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]

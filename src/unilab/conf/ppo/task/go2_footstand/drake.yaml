@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - /task/go2_footstand/base
+  - _self_
+
+training:
+  task_name: Go2FootStand
+  sim_backend: drake
+
+env:
+  drake_backend_mode: batch
+  drake_nthread: 0
+  events:
+    # Drake supports the joint-state reset, but not these reset payload fields.
+    pd_gains: null
+    floor_friction: null
+    link_mass: null
+    torso_com: null
+    joint_armature: null
+
+algo:
+  empirical_normalization: true
+  num_envs: 4096
+  max_iterations: 10000
+  obs_groups:
+    actor:
+      - actor
+    critic:
+      - critic
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    entropy_coef: 0.005

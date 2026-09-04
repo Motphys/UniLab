@@ -2,24 +2,30 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
+# CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
+pytestmark = pytest.mark.slow
+
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
+_PACKAGE_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "src" / "unilab" / "scripts"
 
 
 def _load_script(name: str) -> Any:
-    path = _SCRIPTS_DIR / f"{name}.py"
+    for base in (_PACKAGE_SCRIPTS_DIR, _SCRIPTS_DIR):
+        path = base / f"{name}.py"
+        if path.is_file():
+            break
+    else:
+        raise FileNotFoundError(f"No script named {name}.py in packaged or top-level scripts")
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
-
-
-def test_legacy_visualization_env_entrypoint_is_removed():
-    assert not (_SCRIPTS_DIR / "visualization_env.py").exists()
 
 
 def test_visualize_task_env_keeps_canonical_defaults():
@@ -201,19 +207,19 @@ def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
     joystick_env = _keyboard_env(
         env_cls_name="Go2WalkTask",
         cfg_cls_name="Go2JoystickCfg",
-        module="unilab.envs.locomotion.go2.joystick",
+        module="unilab.tasks.locomotion.go2.joystick",
         obs_contains_command=True,
     )
     manip_loco_env = _keyboard_env(
         env_cls_name="Go2ArmManipLocoEnv",
         cfg_cls_name="Go2ArmManipLocoCfg",
-        module="unilab.envs.locomotion.go2_arm.manip_loco",
+        module="unilab.tasks.locomotion.go2_arm.manip_loco",
         obs_contains_command=True,
     )
     missing_obs_command_env = _keyboard_env(
         env_cls_name="Go2WalkTask",
         cfg_cls_name="Go2JoystickCfg",
-        module="unilab.envs.locomotion.go2.joystick",
+        module="unilab.tasks.locomotion.go2.joystick",
         obs_contains_command=False,
     )
 
@@ -286,3 +292,65 @@ def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
     assert resolved["env"] is env
     assert resolved["num_envs"] == 1
     assert Path(resolved["tmp_dir"]).name.startswith("unilab-interactive-viewer-")
+
+
+def test_play_interactive_binds_mjwarp_process_device_before_session(monkeypatch):
+    mod = _load_script("play_interactive")
+    bound: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        mod,
+        "configure_backend_process_device",
+        lambda backend_type, device: bound.append((backend_type, device)),
+    )
+    monkeypatch.setattr(mod, "_select_playback_device", lambda cfg: "cuda:0")
+    monkeypatch.setattr(mod, "available_backends_for_task", lambda task: ["mjwarp"])
+
+    def _stop_before_session(**kwargs):
+        raise RuntimeError("stop-before-session")
+
+    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", _stop_before_session)
+
+    args = SimpleNamespace(
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mjwarp",
+        load_run="-1",
+        checkpoint=None,
+        action_mode="policy",
+        policy_obs_mode="actor",
+    )
+    with pytest.raises(RuntimeError, match="stop-before-session"):
+        mod.play_interactive(args, None)
+
+    assert bound == [("mjwarp", "cuda:0")]
+
+
+def test_play_interactive_device_binding_is_noop_for_mujoco(monkeypatch):
+    mod = _load_script("play_interactive")
+    bound: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        mod,
+        "configure_backend_process_device",
+        lambda backend_type, device: bound.append((backend_type, device)),
+    )
+    monkeypatch.setattr(mod, "_select_playback_device", lambda cfg: "cuda:0")
+    monkeypatch.setattr(mod, "available_backends_for_task", lambda task: ["mujoco"])
+
+    def _stop_before_session(**kwargs):
+        raise RuntimeError("stop-before-session")
+
+    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", _stop_before_session)
+
+    args = SimpleNamespace(
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mujoco",
+        load_run="-1",
+        checkpoint=None,
+        action_mode="policy",
+        policy_obs_mode="actor",
+    )
+    with pytest.raises(RuntimeError, match="stop-before-session"):
+        mod.play_interactive(args, None)
+
+    assert bound == [("mujoco", "cuda:0")]

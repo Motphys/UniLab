@@ -1,12 +1,12 @@
 # SAC
 
-SAC 通过共享的 off-policy 入口 `scripts/train_offpolicy.py` 选择，TD3 与 FlashSAC
-也共用该脚本。主配置为 `conf/offpolicy/config.yaml`，SAC 算法的默认值位于
-`conf/offpolicy/algo/sac.yaml`。当前的日志名称为 `fast_sac`。
+SAC 通过 `src/unilab/scripts/train_sac.py` 运行；TD3 与 FlashSAC 各有独立的入口与按算法
+划分的配置树。主配置为 `src/unilab/conf/sac/config.yaml`，SAC 算法的默认值内联在其中。
+当前的日志名称为 `fast_sac`。
 
 ## 运行模型
 
-off-policy runner 通过有界 shared memory 把 CPU 仿真与 accelerator 学习解耦。
+off-policy runner 通过有界 shared memory 把仿真采集与 accelerator 学习解耦。
 collector 子进程通过两个 packed ingress slot 发布 transition，完整 replay ring 只由
 一个 CUDA 或 Apple MPS learner device 持有。因此 host replay 分配不随 replay
 capacity 增长；slot 的 device copy 完成后才推进 `ptr` 与 `size`。CUDA 通过 side
@@ -22,7 +22,7 @@ uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
 
 ## 关键字段
 
-对于 off-policy 回放路径（`scripts/train_offpolicy.py` / CLI `--algo sac`），设置
+对于 off-policy 回放路径（`src/unilab/scripts/train_sac.py` / CLI `--algo sac`），设置
 `training.export_onnx=false` 可在仍然录制回放视频的同时跳过 `policy.onnx` 导出。参
 见 {doc}`/zh_CN/1-getting_started/3-evaluation_and_playback`。
 
@@ -51,6 +51,12 @@ rank 子进程。启动时 rank 0 一次性广播 actor、critic、target critic
 执行阻塞式 flat-gradient `all_reduce(SUM) / world_size`。各 rank 不交换 replay 数据，
 在相同初值、平均梯度和更新顺序下各自维护一致的 optimizer 状态。
 
+每个 rank 当前只创建一个 collector。使用 mjwarp 时，rank i 会在 probe env 和 collector
+正式 env materialization 之前，把 Warp 的进程默认/当前 device 显式绑定到该 rank 的
+learner device `cuda:devices[i]`；因此 collector 不依赖 Warp 新进程默认的 `cuda:0`，也不
+会跨 rank 集中到同一张卡。runtime manifest 的 `collector_backend_device` 记录本 rank 的
+实际绑定。
+
 off-policy 只公开 `training.devices` 这一个设备字段：`null` 或 `[]` 自动选择单个
 learner device，`[0]` 显式选择 `cuda:0`，两个以上索引才启动多卡拓扑。
 
@@ -70,7 +76,9 @@ rank 子目录或任何日志文件。
 `training.log_dir` 保持原样。
 
 collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段），可用
-`training.dp_collector_cpu_ids` 显式指定。
+`training.dp_collector_cpu_ids` 显式指定。该核区经 `EnvCfg.cpu_ids` 生效：除
+MuJoCo worker 线程逐核绑定外，collector 进程本身（含 Numba 并行 kernel 线程池，池
+大小取核区长度）也被限制在同一核区内，避免跨 rank 抢占。
 
 当前限制：
 
@@ -86,7 +94,9 @@ collector 的 CPU 亲和按 rank 自动均分（`cpu_count // world_size` 一段
   默认 stream 与 side stream 均通过；跳过 warmup 时首个 all-reduce 会在 capture 中报
   `operation not permitted when stream is capturing`。有限超时的最小复现见
   `scripts/benchmark/rl/reproduce_nccl_cuda_graph_capture.py`。
-- 仅验证过 `mujoco` backend。
+- MuJoCo 有已提交的多卡 scaling benchmark；mjwarp 的 per-rank device placement 有
+  `tests/base/backend/test_process_device.py` 与 off-policy runner/worker 单测覆盖，但仓库中
+  尚无 mjwarp 多卡吞吐或收敛 benchmark。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置
   时优先）——部分机型（如 RTX 6000D）的 NCCL P2P/SHM peer transport 不可靠，

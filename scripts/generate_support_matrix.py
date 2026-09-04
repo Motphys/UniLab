@@ -5,9 +5,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-from unilab.utils.support_matrix import (
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from scripts.tools.support_matrix import (
     render_generated_block,
     render_support_matrix,
     replace_generated_block,

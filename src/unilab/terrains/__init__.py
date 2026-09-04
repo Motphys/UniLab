@@ -6,6 +6,16 @@ a merged heightfield PNG at cold path. Backend materializers consume that output
 to build backend-specific scene models.
 """
 
+from unisim.terrain.generator import (
+    FlatPatchSamplingCfg,
+    GeneratedTerrain,
+    SubTerrainCfg,
+    TerrainGenerator,
+    TerrainGeneratorCfg,
+    TerrainHeightField,
+    TerrainOutput,
+)
+
 from unilab.terrains.config import (
     ALL_TERRAIN_PRESETS,
     ROUGH_TERRAINS_CFG,
@@ -26,15 +36,6 @@ from unilab.terrains.heightfield_terrains import (
     HfPyramidStairsTerrainCfg,
     HfRandomUniformTerrainCfg,
     HfWaveTerrainCfg,
-)
-from unilab.terrains.terrain_generator import (
-    FlatPatchSamplingCfg,
-    GeneratedTerrain,
-    SubTerrainCfg,
-    TerrainGenerator,
-    TerrainGeneratorCfg,
-    TerrainHeightField,
-    TerrainOutput,
 )
 
 __all__ = [

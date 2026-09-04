@@ -1,0 +1,29 @@
+# @package _global_
+defaults:
+  - /task/g1_flip_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1FlipTracking
+  sim_backend: motrix
+
+algo:
+  max_iterations: 30000
+  empirical_normalization: false
+
+env:
+  actions:
+    joint_pos:
+      scale: 0.25
+
+reward:
+  motion_global_root_pos:
+    weight: 1.0
+  motion_body_pos:
+    weight: 1.0
+  motion_body_ori:
+    weight: 1.0
+  motion_ee_body_pos_z: null
+  action_rate_l2:
+    weight: -0.05
+  undesired_contacts: null

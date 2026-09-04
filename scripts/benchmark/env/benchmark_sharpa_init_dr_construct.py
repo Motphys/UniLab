@@ -121,7 +121,7 @@ def _parse_variant_counts(value: str | None) -> list[int]:
 
 
 def _compose_cfg(task: str, *, lower: float, upper: float, variant_count: int):
-    config_dir = str(ROOT_DIR / "conf" / "ppo")
+    config_dir = str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo")
     scale_list = np.linspace(lower, upper, variant_count, dtype=np.float64)
     scale_override = ",".join(f"{float(scale):g}" for scale in scale_list)
     overrides = [
@@ -140,7 +140,7 @@ def _compose_cfg(task: str, *, lower: float, upper: float, variant_count: int):
 
 @contextmanager
 def _init_dr_mode(enabled: bool) -> Iterator[None]:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 
     original = SharpaInhandRotationDRProvider.build_init_randomization_plan
     if enabled:
@@ -162,7 +162,7 @@ def _init_dr_mode(enabled: bool) -> Iterator[None]:
 
 @contextmanager
 def _synthetic_grasp_cache_mode(enabled: bool) -> Iterator[None]:
-    from unilab.envs.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
+    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationDRProvider
 
     original = SharpaInhandRotationDRProvider._load_grasp_cache
     if not enabled:
@@ -208,7 +208,8 @@ def _construct_once(
     init_dr_enabled: bool,
     force_pool: bool,
 ) -> tuple[float, dict[str, Any]]:
-    from unilab.training import BackendAdapter, create_env, ensure_registries
+    from unilab.base.config_adapter import BackendAdapter, create_env
+    from unilab.training import ensure_registries
 
     ensure_registries()
 

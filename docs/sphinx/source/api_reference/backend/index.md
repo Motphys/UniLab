@@ -1,7 +1,7 @@
-# `unilab.base.backend` — Simulation Backends
+# `unisim-core` — Simulation Backends
 
-UniLab abstracts two CPU-side physics backends behind a single
-`SimBackend` contract.
+UniSim owns the unified physics contract and all production adapters. UniLab
+only assembles task-owned scenes through `unilab.base.backend_factory`.
 
 | Backend | Strengths | Notes |
 |---|---|---|
@@ -12,7 +12,7 @@ Pick a backend per task via the top-level `--sim <backend>` CLI flag — see
 {doc}`../../en/2-user_guide/3-backends/0-index`.
 
 ```{eval-rst}
-.. autoclass:: unilab.base.backend.base.SimBackend
+.. autoclass:: unisim.backend.base.SimBackend
    :members:
    :show-inheritance:
 ```
@@ -23,16 +23,21 @@ Pick a backend per task via the top-level `--sim <backend>` CLI flag — see
    :template: autosummary/module.rst
    :recursive:
 
-   unilab.base.backend.mujoco
-   unilab.base.backend.motrix
+   unisim.backend.mujoco
+   unisim.backend.motrix
+   unisim.backend.drake
+   unisim.backend.mjwarp
+   unisim.backend.genesis
+   unisim.backend.isaacgym
+   unisim.backend.isaacsim
 ```
 
 ```{eval-rst}
-.. automodule:: unilab.base.backend.playback_common
+.. automodule:: unisim.backend.playback_common
    :members:
 ```
 
 ```{eval-rst}
-.. automodule:: unilab.base.backend.motrix_camera
+.. automodule:: unisim.backend.motrix_camera
    :members:
 ```

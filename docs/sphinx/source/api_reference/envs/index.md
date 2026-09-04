@@ -1,21 +1,11 @@
-# `unilab.envs` — Tasks
+# `unilab.envs` — Environment runtime
 
-Concrete RL tasks split by family:
+Task-agnostic Manager-Based environment runtime and reusable MDP terms.
+Concrete task implementations are owned by {doc}`../tasks/index`.
 
-- **locomotion** — Go1, Go2, Go2w, Go2 + Airbot, Unitree G1
-- **manipulation** — Allegro / Sharpa in-hand cube
-- **motion_tracking** — G1 whole-body motion tracking + flips
-
-Every env inherits `NpEnv` and is registered into the task `Registry` so it
-can be selected via `uv run train --algo <algo> --task <name> --sim <backend>`.
-
-```{toctree}
-:maxdepth: 2
-
-locomotion
-manipulation
-motion_tracking
-```
+`ManagerBasedRLEnv` preserves UniLab's NumPy `NpEnv` contract while executing
+community-style action, observation, reward, termination, event, command, and
+curriculum managers.
 
 ```{eval-rst}
 .. autosummary::

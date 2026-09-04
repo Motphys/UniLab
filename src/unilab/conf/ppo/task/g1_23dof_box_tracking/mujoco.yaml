@@ -1,0 +1,84 @@
+# @package _global_
+defaults:
+  - /task/g1_23dof_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1BoxTracking23Dof
+  sim_backend: mujoco
+  play_steps: 1000
+
+algo:
+  num_envs: 1024
+  max_iterations: 30000
+  save_interval: 500
+  obs_groups:
+    actor: [actor]
+  algorithm:
+    entropy_coef: 0.005
+
+play_profile:
+  enabled: false
+  env: null
+
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_flat_23dof_with_largebox.xml
+    entities:
+      object:
+        root_body_name: largebox
+  sim_dt: 0.005
+  observations:
+    actor:
+      terms:
+        motion_anchor_pos_b: null
+        base_lin_vel: null
+        base_ang_vel:
+          params: {sensor_name: pelvis_gyro}
+    critic:
+      terms:
+        base_ang_vel:
+          params: {sensor_name: pelvis_gyro}
+        object_state:
+          func: unilab.tasks.motion_tracking.g1.manager_terms.object_state_b
+          params: {command_name: motion}
+  commands:
+    motion:
+      _target_: unilab.tasks.motion_tracking.g1.manager_terms.BoxMotionCommandCfg
+      object_entity_name: object
+      params:
+        motion_file: motions/g1/sub3_largebox_003_boxconverted_23dof.npz
+  terminations:
+    object_pos:
+      func: unilab.tasks.motion_tracking.g1.manager_terms.bad_object_position
+      params: {command_name: motion, threshold: 0.25}
+    object_ori:
+      func: unilab.tasks.motion_tracking.g1.manager_terms.bad_object_orientation
+      params: {command_name: motion, threshold: 0.8}
+
+reward:
+  undesired_contacts:
+    func: unilab.tasks.motion_tracking.common.manager_terms.undesired_body_contacts
+    weight: -0.1
+    params:
+      command_name: motion
+      threshold: 0.05
+      body_names:
+        - pelvis
+        - left_hip_roll_link
+        - left_knee_link
+        - right_hip_roll_link
+        - right_knee_link
+        - torso_link
+        - left_shoulder_roll_link
+        - left_elbow_link
+        - right_shoulder_roll_link
+        - right_elbow_link
+  object_global_ref_position_error_exp:
+    func: unilab.tasks.motion_tracking.g1.manager_terms.object_global_position_error_exp
+    weight: 2.0
+    params: {command_name: motion, std: 0.2}
+  object_global_ref_orientation_error_exp:
+    func: unilab.tasks.motion_tracking.g1.manager_terms.object_global_orientation_error_exp
+    weight: 2.0
+    params: {command_name: motion, std: 0.3}

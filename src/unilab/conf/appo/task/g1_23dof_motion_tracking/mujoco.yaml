@@ -1,0 +1,67 @@
+# @package _global_
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTracking23Dof
+  sim_backend: mujoco
+
+env:
+  scene:
+    model_file: src/unilab/assets/robots/g1/scene_flat_23dof.xml
+    entities:
+      robot:
+        joint_names: &g1_23dof_joints
+          - left_hip_pitch_joint
+          - left_hip_roll_joint
+          - left_hip_yaw_joint
+          - left_knee_joint
+          - left_ankle_pitch_joint
+          - left_ankle_roll_joint
+          - right_hip_pitch_joint
+          - right_hip_roll_joint
+          - right_hip_yaw_joint
+          - right_knee_joint
+          - right_ankle_pitch_joint
+          - right_ankle_roll_joint
+          - waist_yaw_joint
+          - left_shoulder_pitch_joint
+          - left_shoulder_roll_joint
+          - left_shoulder_yaw_joint
+          - left_elbow_joint
+          - left_wrist_roll_joint
+          - right_shoulder_pitch_joint
+          - right_shoulder_roll_joint
+          - right_shoulder_yaw_joint
+          - right_elbow_joint
+          - right_wrist_roll_joint
+        actuator_names: *g1_23dof_joints
+        body_names: &tracked_bodies_23dof
+          - pelvis
+          - left_hip_roll_link
+          - left_knee_link
+          - left_ankle_roll_link
+          - right_hip_roll_link
+          - right_knee_link
+          - right_ankle_roll_link
+          - torso_link
+          - left_shoulder_roll_link
+          - left_elbow_link
+          - left_wrist_roll_rubber_hand
+          - right_shoulder_roll_link
+          - right_elbow_link
+          - right_wrist_roll_rubber_hand
+  commands:
+    motion:
+      params:
+        motion_file: motions/g1/dance1_subject2_part_23dof.npz
+        body_names: *tracked_bodies_23dof
+  terminations:
+    ee_body_pos:
+      params:
+        body_names:
+          - left_ankle_roll_link
+          - right_ankle_roll_link
+          - left_wrist_roll_rubber_hand
+          - right_wrist_roll_rubber_hand

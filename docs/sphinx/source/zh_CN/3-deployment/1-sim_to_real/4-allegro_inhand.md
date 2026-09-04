@@ -55,17 +55,17 @@ owner 与部署运行时在观测时序上达成一致。见
 `4-allegro_inhand` 与 `sharpa_inhand` 两个环境都自带一个**抓取生成器**，用于采样
 合理的初始手部构型。硬件侧的等价物是操作员把方块放到手里 —— 请核实你的起始构型分布
 与训练环境的抓取生成器输出相匹配（参见
-`unilab.envs.manipulation.allegro_inhand.grasp_gen`）。
+`unilab.tasks.manipulation.allegro_inhand.grasp_gen`）。
 
 如果你真实世界的起始握持存在系统性差异，**把这些位姿加入抓取生成器**，重新训练，
 然后再试。
 
 ## 动作接口
 
-操作类环境通过任务控制配置把策略动作映射为关节位置目标
-（`src/unilab/envs/manipulation/allegro_inhand/base.py` 和
-`src/unilab/envs/manipulation/sharpa_inhand/base.py`）。部署控制器必须使用相同的
-关节顺序、动作缩放与限位策略。
+操作类环境通过任务控制配置把策略动作映射为关节位置目标。Allegro 的声明由
+`src/unilab/conf/ppo/task/allegro_inhand/base.yaml` 与其 Manager-Based action term 持有；
+Sharpa 当前仍由 `src/unilab/tasks/manipulation/sharpa_inhand/base.py` 持有。
+部署控制器必须使用相同的关节顺序、动作缩放与限位策略。
 
 ## 失败恢复
 

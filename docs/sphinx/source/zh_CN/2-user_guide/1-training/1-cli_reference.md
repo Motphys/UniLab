@@ -7,11 +7,11 @@ Hydra 组合。
 
 | 目标 | 命令形式 | 路由到的脚本 |
 | --- | --- | --- |
-| PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `scripts/train_rsl_rl.py` |
-| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `scripts/train_appo.py` |
-| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
-| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
-| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `scripts/train_offpolicy.py` |
+| PPO | `uv run train --algo ppo --task <task> --sim <backend>` | `src/unilab/scripts/train_rsl_rl.py` |
+| APPO | `uv run train --algo appo --task <task> --sim <backend>` | `src/unilab/scripts/train_appo.py` |
+| SAC | `uv run train --algo sac --task <task> --sim <backend>` | `src/unilab/scripts/train_sac.py` |
+| TD3 | `uv run train --algo td3 --task <task> --sim <backend>` | `src/unilab/scripts/train_td3.py` |
+| FlashSAC | `uv run train --algo flashsac --task <task> --sim <backend>` | `src/unilab/scripts/train_flashsac.py` |
 
 示例：
 
@@ -40,21 +40,32 @@ choices，不改变命令行为。在新 checkout 上，可用一条 setup 命�
 安装：
 
 ```bash
+# 完整默认环境（MuJoCo + Motrix）：
 make setup
 
-# 需要 Motrix 时：
-make setup-motrix
+# 仅 MuJoCo：
+# make setup-mujoco
+
+# 仅 Motrix（运行 Motrix demo 的最快路径）：
+# make setup-motrix
 ```
 
-`make setup` 会执行 `uv sync` 和 `uv run --no-sync unilab-complete install`；
-`make setup-motrix` 会执行 `uv sync --extra motrix` 和同样的补全安装。安装命令会按
-`$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被自动激活，重新
-打开终端或 source 对应 rc 文件后生效。
+`make setup` 会执行 `uv sync --extra mujoco --extra motrix`，随后运行
+`uv run --no-sync unilab-complete install`；`make setup-mujoco` 和
+`make setup-motrix` 只选择对应的 extra，并安装相同的补全。一个环境只选择一条安装路径。
+安装命令会按 `$SHELL` / 平台选择 Bash 或 Zsh，只写入用户级 rc 文件。当前终端不会被自动
+激活，重新打开终端或 source 对应 rc 文件后生效。
 
 如果系统没有 `make`，可直接执行：
 
 ```bash
-uv sync && uv run --no-sync unilab-complete install
+# 完整默认环境：
+uv sync --extra mujoco --extra motrix
+uv run --no-sync unilab-complete install
+
+# 或选择一个后端 extra：
+# uv sync --extra mujoco && uv run --no-sync unilab-complete install
+# uv sync --extra motrix && uv run --no-sync unilab-complete install
 ```
 
 Linux / WSL 的 Bash 用户也可手动把下面内容写入 `~/.bashrc`：
@@ -85,7 +96,9 @@ uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
   --render-mode record
 ```
 
-支持的渲染模式为 `auto`、`interactive`、`record` 和 `none`。
+支持的渲染模式为 `auto`、`interactive`、`record` 和 `none`。其中 MuJoCo 交互模式
+（`--sim mujoco --render-mode interactive`）直接路由到 `play_interactive.py`，并始终只
+rollout 一个环境。
 
 ## 演示
 
@@ -116,8 +129,8 @@ demo 入口由 `src/unilab/demo.py` 实现，并从 `src/unilab/cli.py` 路由�
 当你需要检查 Hydra 配置组或复现脚本层面的问题时，底层脚本仍然可用。在正常使用
 中，请将定义路由的取值保留在上面的统一 CLI flag 中。
 
-对于 off-policy 路由，请保持 `--algo` 与 `conf/offpolicy/task/<algo>/` 下的
-owner 树对齐；不要在 `--task` 中包含算法名称。
+对于 off-policy 路由，`--algo` 选择按算法划分的 owner 树 `src/unilab/conf/<algo>/`；
+不要在 `--task` 中包含算法名称。
 
 ## 常用 Override
 

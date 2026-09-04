@@ -58,7 +58,6 @@ class SACConfig(BaseConfig):
     num_atoms: int = 101
     obs_normalization: bool = False
     use_layer_norm: bool = True
-    use_symmetry: bool = False
     actor: dict[str, Any] = field(default_factory=dict)
     algo_params: SACAlgoParams = field(default_factory=SACAlgoParams)
 
@@ -238,7 +237,7 @@ class PPOPolicyConfig:
 
 @dataclass
 class PPOAlgorithmConfig:
-    class_name: str = "unilab.algos.torch.rsl_rl_ppo:FinalObservationAwarePPO"
+    class_name: str = "uni_rl.algos.rsl_rl_ppo:FinalObservationAwarePPO"
     value_loss_coef: float = 1.0
     use_clipped_value_loss: bool = True
     clip_param: float = 0.2

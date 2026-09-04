@@ -10,16 +10,15 @@ from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
+from unisim.backend.base import BackendPlayRenderPlan, SimBackend
 
-from unilab.base.backend import SimBackend
-from unilab.base.backend.base import BackendPlayRenderPlan
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
+from unilab.base.cpu_runtime import apply_env_cpu_runtime
 from unilab.base.scene import SceneCfg
 from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 from unilab.dtype_config import get_global_dtype
 
 if TYPE_CHECKING:
-    from unilab.base.augmentation import SymmetryAugmentation
     from unilab.utils.nan_guard import NanGuard
 
 
@@ -63,6 +62,9 @@ RESET_DONE_DETAIL_TIMING_KEYS = (
     "set_state_qpos_convert_ms",
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
+    "set_state_reset_upload_ms",
+    "set_state_reset_forward_ms",
+    "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
 )
 
@@ -85,6 +87,9 @@ BACKEND_SET_STATE_DETAIL_TIMING_KEYS = (
     "set_state_qpos_convert_ms",
     "set_state_pool_reset_ms",
     "set_state_state_scatter_ms",
+    "set_state_reset_upload_ms",
+    "set_state_reset_forward_ms",
+    "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
 )
 
@@ -106,6 +111,12 @@ class NpEnv(ABEnv):
     """Backend-agnostic numpy environment base class."""
 
     def __init__(self, cfg: EnvCfg, backend: SimBackend, num_envs: int):
+        # Cold-path process confinement for envs that own an explicit CPU
+        # block (multi-rank DP collectors): keeps host-side NumPy/Numba compute
+        # inside the same CPUs the backend pool workers are pinned to. Runs
+        # before managers/materialization so Numba's lazily-launched pool
+        # inherits the confined mask.
+        apply_env_cpu_runtime(cfg.cpu_ids)
         self._cfg = cfg
         self._backend: SimBackend = backend
         self._num_envs = num_envs
@@ -117,6 +128,7 @@ class NpEnv(ABEnv):
         self._init_randomization_applied = False
         self._nan_guard: NanGuard | None = None
         self._autoreset = True
+        self._autoreset_reset_active = False
         self._nan_guard_model_file = self._resolve_nan_guard_model_file()
 
     @property
@@ -144,10 +156,6 @@ class NpEnv(ABEnv):
         total = sum(self.obs_groups_spec.values())
         return gym.spaces.Box(-np.inf, np.inf, shape=(total,), dtype=np.float64)
 
-    def build_symmetry_augmentation(self, *, device: str) -> "SymmetryAugmentation | None":
-        """Return an env-owned runtime symmetry adapter when the task/backend supports it."""
-        return None
-
     def init_state(self) -> NpEnvState:
         dtype = get_global_dtype()
         obs = {
@@ -156,18 +164,29 @@ class NpEnv(ABEnv):
         reward = np.zeros((self._num_envs,), dtype=dtype)
         terminated = np.ones((self._num_envs,), dtype=bool)
         truncated = np.zeros((self._num_envs,), dtype=bool)
-        if self._cfg.max_episode_steps:
-            steps = np.random.randint(
-                0, self._cfg.max_episode_steps, size=(self._num_envs,), dtype=np.uint32
-            )
-        else:
-            steps = np.zeros((self._num_envs,), dtype=np.uint32)
+        steps = self._initial_episode_steps()
         info: dict = {"steps": steps}
 
         self._state = NpEnvState(obs, reward, terminated, truncated, info)
         self._reset_done_envs()
         self._clear_step_final_observation()
         return self._state
+
+    def _initial_episode_steps(self) -> np.ndarray:
+        """Return initial per-env episode counters.
+
+        Existing monolithic tasks keep their randomized initialization.  A lifecycle
+        with different public semantics can override this cold-path hook without
+        duplicating :meth:`init_state` or the autoreset machinery.
+        """
+        if self._cfg.max_episode_steps:
+            return np.random.randint(
+                0,
+                self._cfg.max_episode_steps,
+                size=(self._num_envs,),
+                dtype=np.uint32,
+            )
+        return np.zeros((self._num_envs,), dtype=np.uint32)
 
     def step(self, actions: np.ndarray) -> NpEnvState:
         step_t0 = time.perf_counter()
@@ -274,11 +293,16 @@ class NpEnv(ABEnv):
         detail_timing["reset_done_terminal_obs_ms"] = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
-        new_obs, info1 = self.reset(env_indices)
+        self._autoreset_reset_active = True
+        try:
+            new_obs, info1 = self.reset(env_indices)
+        finally:
+            self._autoreset_reset_active = False
         detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - t0) * 1000.0
-        if self._dr_manager is not None:
-            detail_timing.update(self._dr_manager.last_reset_timing_ms)
-
+        collected = self._collect_reset_backend_timing_ms()
+        detail_timing.update(
+            {key: value for key, value in collected.items() if key in detail_timing}
+        )
         t0 = time.perf_counter()
         for key in self._state.obs:
             self._state.obs[key][env_indices] = new_obs[key]
@@ -313,6 +337,18 @@ class NpEnv(ABEnv):
     def _clear_reset_done_detail_timing(self, timing: dict[str, Any]) -> None:
         for key in RESET_DONE_DETAIL_TIMING_KEYS:
             timing[key] = 0.0
+
+    def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
+        """Backend-sourced reset sub-timings for the last reset call.
+
+        The monolithic DR path reports through the DR manager; manager-based
+        envs override this to surface the reset-state transaction's set_state
+        timings. Keys outside RESET_DONE_DETAIL_TIMING_KEYS are dropped by the
+        caller so stale keys never leak into ``info["timing"]``.
+        """
+        if self._dr_manager is not None:
+            return self._dr_manager.last_reset_timing_ms
+        return {}
 
     def _resolve_nan_guard_model_file(self) -> str:
         scene = getattr(self._cfg, "scene", None)
@@ -456,6 +492,15 @@ class NpEnv(ABEnv):
         output_video: str | PathLike[str] | None,
     ) -> BackendPlayRenderPlan:
         """Resolve high-level playback mode through the concrete backend."""
+        # Drake has no renderer of its own. Its playback contract captures
+        # Drake state and feeds it to the shared MuJoCo renderer, so ordinary
+        # ``auto`` playback should produce a video without requiring a
+        # backend-specific override in every task owner YAML. Explicit
+        # ``none`` remains available for headless runs.
+        if self._backend.backend_type == "drake" and (
+            play_render_mode is None or str(play_render_mode).strip().lower() == "auto"
+        ):
+            play_render_mode = "record"
         return self._backend.resolve_play_render_plan(
             play_render_mode=play_render_mode,
             play_steps=play_steps,
@@ -478,19 +523,22 @@ class NpEnv(ABEnv):
         extra_data_getter: Callable[[], np.ndarray | None] | None = None,
     ) -> str | None:
         """Execute playback through the concrete backend."""
-        return self._backend.run_playback(
-            env=self,
-            initialize=initialize,
-            step=step,
-            num_steps=num_steps,
-            output_video=output_video,
-            render_spacing=render_spacing,
-            render_offset_mode=render_offset_mode,
-            headless=headless,
-            record_video=record_video,
-            frame_state_getter=frame_state_getter,
-            camera_kwargs=camera_kwargs,
-            extra_data_getter=extra_data_getter,
+        return cast(
+            str | None,
+            self._backend.run_playback(
+                env=self,
+                initialize=initialize,
+                step=step,
+                num_steps=num_steps,
+                output_video=output_video,
+                render_spacing=render_spacing,
+                render_offset_mode=render_offset_mode,
+                headless=headless,
+                record_video=record_video,
+                frame_state_getter=frame_state_getter,
+                camera_kwargs=camera_kwargs,
+                extra_data_getter=extra_data_getter,
+            ),
         )
 
     def render_play_frame(self) -> None:
@@ -553,7 +601,7 @@ class NpEnv(ABEnv):
 
     def get_scene_visual_model_file(self) -> str | None:
         """Return the backend scene visual model file on the cold path, when available."""
-        return self._backend.get_scene_visual_model_file()
+        return cast(str | None, self._backend.get_scene_visual_model_file())
 
     def set_nan_guard(self, guard: "NanGuard") -> None:
         self._nan_guard = guard

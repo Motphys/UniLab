@@ -1,46 +1,51 @@
+"""UniLab configuration owner layered over the package-neutral UniSim scene."""
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from unilab.terrains.terrain_generator import TerrainGeneratorCfg
+from unisim.scene import (
+    SceneCfg as _UniSimSceneCfg,
+)
+from unisim.scene import (
+    TerrainSceneCfg,
+    resolve_scene_default_qpos,
+    resolve_scene_fragment_path,
+)
+
+from unilab.base.entity import EntityCfg
 
 
-def resolve_scene_fragment_path(fragment_file: str, model_file: Path) -> Path:
-    """Resolve a ``SceneCfg.fragment_files`` entry against the scene model file.
+@dataclass
+class SceneCfg(_UniSimSceneCfg):
+    """Task-owned scene declaration with UniLab entity materialization.
 
-    Single resolution rule shared by the MuJoCo and Motrix scene
-    materializers: absolute paths pass through; relative paths that exist
-    resolve against the CWD; anything else resolves relative to the model
-    file's directory.
+    Physics scene fields and all backend-facing behavior are implemented by
+    UniSim.  UniLab only converts Hydra/OmegaConf entity mappings into the
+    manager facade's :class:`EntityCfg` records on the cold configuration path.
     """
-    path = Path(fragment_file)
-    if path.is_absolute():
-        return path
-    if path.is_file():
-        return path.resolve()
-    return (model_file.parent / path).resolve()
-
-
-@dataclass
-class TerrainSceneCfg:
-    """Backend-agnostic terrain slot declaration for a scene."""
-
-    generator: TerrainGeneratorCfg | None = None
-    hfield_name: str = "terrain_hfield"
-    geom_name: str | None = None
-
-
-@dataclass
-class SceneCfg:
-    """Scene source and optional cold-path composition configuration."""
 
     model_file: str
     fragment_files: list[str] = field(default_factory=list)
     terrain: TerrainSceneCfg | None = None
-    # Optional render-only model override. When set, offline playback/video
-    # export renders this XML instead of ``model_file`` while physics keeps
-    # using ``model_file``. Used to give the renderer a visual twin of the
-    # scene (e.g. a per-env replicable obstacle) without touching the trained
-    # collision model. ``None`` => render with ``model_file`` (unchanged).
-    visual_model_file: str | None = None
+    entities: dict[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        materialized: dict[str, object] = {}
+        for name, value in self.entities.items():
+            if isinstance(value, EntityCfg):
+                materialized[name] = value
+            elif isinstance(value, Mapping):
+                materialized[name] = EntityCfg(**value)
+            else:
+                materialized[name] = value
+        self.entities = materialized
+
+
+__all__ = [
+    "SceneCfg",
+    "TerrainSceneCfg",
+    "resolve_scene_default_qpos",
+    "resolve_scene_fragment_path",
+]

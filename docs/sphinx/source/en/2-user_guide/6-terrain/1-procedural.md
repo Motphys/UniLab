@@ -8,7 +8,7 @@ This page only answers four questions:
 3. When I want to change the sub-terrain composition, what is the correct entry point?
 4. What are the currently known boundaries — not bugs, but constraints?
 
-For the underlying contracts (cold-path materialization, registering a new sub-terrain, hfield export), see the source comments in `src/unilab/base/backend/mujoco/xml.py`, `src/unilab/base/backend/motrix/scene.py`, and `src/unilab/terrains/terrain_generator.py`.
+For the underlying contracts (cold-path materialization, registering a new sub-terrain, hfield export), see the source comments in `unisim.backend.mujoco.xml`, `unisim.backend.motrix.scene`, and `unisim.terrain.generator`.
 
 ## Current Status
 
@@ -44,7 +44,7 @@ uv run train --algo ppo --task go2_joystick_rough --sim motrix
 
 ## 2. Overriding Terrain Parameters via Hydra Command Line
 
-`Go2JoystickRough` explicitly lists a set of override-able fields in `conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml`; these fields allow Hydra struct mode to accept command-line overrides.
+`Go2JoystickRough` explicitly lists a set of override-able fields in `src/unilab/conf/ppo/task/go2_joystick_rough/{mujoco,motrix}.yaml`; these fields allow Hydra struct mode to accept command-line overrides.
 
 | Field | Purpose | YAML Default |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ env:
 The env's `__init__` does not need to call the XML materializer directly; hand `scene` over to the backend constructor:
 
 ```python
-from unilab.base.backend import create_backend
+from unilab.base.backend_factory import create_backend
 
 backend = create_backend(..., cfg.scene)
 terrain_origins = getattr(backend, "terrain_origins", None)

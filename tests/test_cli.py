@@ -211,6 +211,391 @@ def test_eval_render_mode_generates_training_override(
     assert "algo.load_run=-1" in command
 
 
+def test_eval_mujoco_interactive_routes_to_dedicated_viewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name == "mujoco" else None,
+    )
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="mujoco",
+        overrides=[],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert command == [
+        sys.executable,
+        str(scripts_dir / "play_interactive.py"),
+        "--algo",
+        "ppo",
+        "--task",
+        "go2_joystick_flat",
+        "--sim",
+        "mujoco",
+        "training.play_render_mode=interactive",
+        "interactive.action_mode=policy",
+        "training.play_only=true",
+        "algo.load_run=-1",
+    ]
+    assert "task=go2_joystick_flat/mujoco" not in command
+
+
+def test_eval_mujoco_interactive_honors_profile_and_render_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_td3.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "td3" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco_hora.yaml").write_text(
+        "training:\n  sim_backend: mujoco\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name == "mujoco" else None,
+    )
+
+    command = cli.build_command(
+        mode="eval",
+        algo="td3",
+        task="g1_walk_flat",
+        sim="mujoco",
+        profile="hora",
+        overrides=["training.play_render_mode=interactive", "algo.num_envs=4096"],
+        load_run="run_1",
+        render_mode="record",
+        root=tmp_path,
+    )
+
+    assert command == [
+        sys.executable,
+        str(scripts_dir / "play_interactive.py"),
+        "--algo",
+        "td3",
+        "--task",
+        "g1_walk_flat",
+        "--sim",
+        "mujoco_hora",
+        "interactive.action_mode=policy",
+        "training.play_only=true",
+        "algo.load_run=run_1",
+        "training.play_render_mode=interactive",
+        "algo.num_envs=4096",
+    ]
+
+
+def test_eval_mujoco_interactive_preserves_explicit_action_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name == "mujoco" else None,
+    )
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="mujoco",
+        overrides=["interactive.action_mode=random"],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert "interactive.action_mode=policy" not in command
+    assert "interactive.action_mode=random" in command
+
+
+def test_eval_falls_back_to_sibling_owner_when_sim_owner_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=go2_joystick_flat/mujoco",
+        "training.sim_backend=motrix",
+        "training.play_only=true",
+        "algo.load_run=-1",
+    ]
+    assert "reusing sibling owner 'mujoco'" in capsys.readouterr().err
+
+
+def test_train_still_requires_owner_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="No owner config exists"):
+        cli.build_command(
+            mode="train",
+            algo="ppo",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_eval_without_any_sibling_owner_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat").mkdir(parents=True)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="no sibling backend owner config"):
+        cli.build_command(
+            mode="eval",
+            algo="ppo",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            load_run="-1",
+            root=tmp_path,
+        )
+
+
+def test_eval_fallback_prefers_same_profile_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco_hora.yaml").write_text(
+        "training:\n  sim_backend: mujoco\n", encoding="utf-8"
+    )
+    (owner_dir / "motrix.yaml").write_text("training:\n  sim_backend: motrix\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="sharpa_inhand",
+        sim="motrix",
+        profile="hora",
+        overrides=[],
+        load_run="-1",
+        root=tmp_path,
+    )
+
+    assert "task=sharpa_inhand/mujoco_hora" in command
+    assert "training.sim_backend=motrix" in command
+
+
+def test_eval_fallback_without_same_profile_sibling_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="no sibling backend owner config"):
+        cli.build_command(
+            mode="eval",
+            algo="ppo",
+            task="sharpa_inhand",
+            sim="motrix",
+            profile="hora",
+            overrides=[],
+            load_run="-1",
+            root=tmp_path,
+        )
+
+
+def test_eval_mujoco_interactive_falls_back_to_sibling_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "motrix.yaml").write_text("training:\n  sim_backend: motrix\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name == "mujoco" else None,
+    )
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="mujoco",
+        overrides=[],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert command[:8] == [
+        sys.executable,
+        str(scripts_dir / "play_interactive.py"),
+        "--algo",
+        "ppo",
+        "--task",
+        "go2_joystick_flat",
+        "--sim",
+        "motrix",
+    ]
+    assert "training.sim_backend=mujoco" in command
+    assert "training.play_only=true" in command
+
+
+def _pretend_mjwarp_is_installed(
+    monkeypatch: pytest.MonkeyPatch, *, with_mujoco: bool = True
+) -> None:
+    installed = {"mujoco_warp", "warp"} | ({"mujoco"} if with_mujoco else set())
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: ModuleSpec(name, loader=None) if name in installed else None,
+    )
+
+
+def _make_mjwarp_checkout(root: Path) -> Path:
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
+    owner_dir = root / "conf" / "ppo" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "mjwarp.yaml").write_text("training:\n  sim_backend: mjwarp\n", encoding="utf-8")
+    return scripts_dir
+
+
+def test_eval_mjwarp_interactive_routes_to_dedicated_viewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = _make_mjwarp_checkout(tmp_path)
+    _pretend_mjwarp_is_installed(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mjwarp",
+        overrides=[],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert command == [
+        sys.executable,
+        str(scripts_dir / "play_interactive.py"),
+        "--algo",
+        "ppo",
+        "--task",
+        "g1_walk_flat",
+        "--sim",
+        "mjwarp",
+        "training.play_render_mode=interactive",
+        "interactive.action_mode=policy",
+        "training.play_only=true",
+        "algo.load_run=-1",
+    ]
+    assert "task=g1_walk_flat/mjwarp" not in command
+
+
+def test_eval_mjwarp_record_stays_on_train_script_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripts_dir = _make_mjwarp_checkout(tmp_path)
+    _pretend_mjwarp_is_installed(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="mjwarp",
+        overrides=[],
+        load_run="-1",
+        render_mode="record",
+        root=tmp_path,
+    )
+
+    assert command[:2] == [sys.executable, str(scripts_dir / "train_rsl_rl.py")]
+    assert "task=g1_walk_flat/mjwarp" in command
+    assert "training.play_render_mode=record" in command
+
+
+def test_eval_mjwarp_interactive_requires_mujoco_viewer_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_mjwarp_checkout(tmp_path)
+    _pretend_mjwarp_is_installed(monkeypatch, with_mujoco=False)
+
+    with pytest.raises(SystemExit, match="MuJoCo"):
+        cli.build_command(
+            mode="eval",
+            algo="ppo",
+            task="g1_walk_flat",
+            sim="mjwarp",
+            overrides=[],
+            load_run="-1",
+            render_mode="interactive",
+            root=tmp_path,
+        )
+
+
 def test_macos_motrix_render_mode_none_does_not_require_mxpython(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -260,10 +645,7 @@ def _make_demo_checkout(root: Path, *, demo_name: str) -> None:
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
     (root / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    if spec.algo in {"sac", "flashsac"}:
-        owner_dir = root / "conf" / "offpolicy" / "task" / spec.algo / spec.task
-    else:
-        owner_dir = root / "conf" / spec.algo / "task" / spec.task
+    owner_dir = root / "conf" / spec.algo / "task" / spec.task
     owner_dir.mkdir(parents=True, exist_ok=True)
     (owner_dir / f"{spec.sim}.yaml").write_text(
         f"training:\n  sim_backend: {spec.sim}\n", encoding="utf-8"
@@ -382,10 +764,10 @@ def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None
     ]
 
 
-def test_demo_play_interactive_sac_owner_path_uses_offpolicy(tmp_path: Path) -> None:
+def test_demo_play_interactive_sac_owner_path_uses_sac_tree(tmp_path: Path) -> None:
     (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
     (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "offpolicy" / "task" / "sac" / "sharpa_inhand"
+    owner_dir = tmp_path / "conf" / "sac" / "task" / "sharpa_inhand"
     owner_dir.mkdir(parents=True)
     (owner_dir / "mujoco_hora.yaml").write_text(
         "training:\n  sim_backend: mujoco\n", encoding="utf-8"
@@ -553,7 +935,8 @@ def test_demo_local_only_checkpoint_uses_existing_file(
     calls: list[list[str]] = []
 
     monkeypatch.setattr(demo, "ASSETS_ROOT_PATH", assets)
-    monkeypatch.setattr(demo, "_repo_root", lambda: checkout)
+    monkeypatch.setattr(demo, "_package_root", lambda: checkout)
+    monkeypatch.setattr(demo, "_dev_venv", lambda: checkout / ".venv")
     monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fail_resolve(_: str) -> str:
@@ -601,7 +984,7 @@ def test_demo_teaser_run_demo_invokes_render_teaser_main(
     def fake_render_teaser_main() -> None:
         called.append("rendered")
 
-    import unilab.tools.render_teaser as render_teaser_module
+    import unilab.visualization.teaser as render_teaser_module
 
     monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
 
@@ -633,7 +1016,7 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     def fail_render_teaser_main() -> None:
         raise AssertionError("macOS teaser must route through mxpython")
 
-    import unilab.tools.render_teaser as render_teaser_module
+    import unilab.visualization.teaser as render_teaser_module
 
     monkeypatch.setattr(render_teaser_module, "main", fail_render_teaser_main)
 
@@ -643,9 +1026,13 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     command, env = calls[0]
     assert command == [
         "/tmp/unilab/.venv/bin/mxpython",
-        str(demo._repo_root() / "src" / "unilab" / "tools" / "render_teaser.py"),
+        str(demo._package_root() / "visualization" / "teaser.py"),
     ]
-    assert env["UV_PROJECT_ENVIRONMENT"] == str(demo._repo_root() / ".venv")
+    dev_venv = demo._dev_venv()
+    if dev_venv is not None:
+        assert env["UV_PROJECT_ENVIRONMENT"] == str(dev_venv)
+    else:
+        assert "UV_PROJECT_ENVIRONMENT" not in env
 
 
 def test_demo_main_teaser_dispatches_to_render_teaser(
@@ -657,9 +1044,216 @@ def test_demo_main_teaser_dispatches_to_render_teaser(
     def fake_render_teaser_main() -> None:
         called.append("rendered")
 
-    import unilab.tools.render_teaser as render_teaser_module
+    import unilab.visualization.teaser as render_teaser_module
 
     monkeypatch.setattr(render_teaser_module, "main", fake_render_teaser_main)
     rc = cli.demo_main(["teaser"])
     assert rc == 0
     assert called == ["rendered"]
+
+
+def _pretend_isaacgym_runtime(monkeypatch: pytest.MonkeyPatch, available: bool) -> None:
+    from unisim.backend.isaacgym import dependencies as isaacgym_deps
+
+    monkeypatch.setattr(isaacgym_deps, "isaacgym_runtime_available", lambda: available)
+
+
+def test_isaacgym_without_worker_runtime_exits_with_setup_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "conf").mkdir()
+    _pretend_isaacgym_runtime(monkeypatch, available=False)
+
+    with pytest.raises(SystemExit, match="setup_isaacgym_env.sh"):
+        cli.build_command(
+            mode="train",
+            algo="sac",
+            task="g1_walk_flat",
+            sim="isaacgym",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_isaacgym_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_sac.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "sac" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "isaacgym.yaml").write_text(
+        "training:\n  sim_backend: isaacgym\n", encoding="utf-8"
+    )
+    _pretend_isaacgym_runtime(monkeypatch, available=True)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="train",
+        algo="sac",
+        task="g1_walk_flat",
+        sim="isaacgym",
+        overrides=["algo.num_envs=64"],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_sac.py"),
+        "task=g1_walk_flat/isaacgym",
+        "algo.num_envs=64",
+    ]
+
+
+def _pretend_genesis_runtime(monkeypatch: pytest.MonkeyPatch, available: bool) -> None:
+    from unisim.backend.genesis import dependencies as genesis_deps
+
+    monkeypatch.setattr(genesis_deps, "genesis_dependencies_available", lambda: available)
+
+
+def test_genesis_without_extra_exits_with_install_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "conf").mkdir()
+    _pretend_genesis_runtime(monkeypatch, available=False)
+
+    with pytest.raises(SystemExit, match="uv sync --extra genesis"):
+        cli.build_command(
+            mode="train",
+            algo="ppo",
+            task="g1_walk_flat",
+            sim="genesis",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_genesis_train_builds_owner_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "scripts").mkdir(parents=True)
+    (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "g1_walk_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "genesis.yaml").write_text("training:\n  sim_backend: genesis\n", encoding="utf-8")
+    _pretend_genesis_runtime(monkeypatch, available=True)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="train",
+        algo="ppo",
+        task="g1_walk_flat",
+        sim="genesis",
+        overrides=["algo.num_envs=64"],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_rsl_rl.py"),
+        "task=g1_walk_flat/genesis",
+        "algo.num_envs=64",
+    ]
+
+
+def _make_custom_algo_checkout(
+    root: Path,
+    *,
+    algo: str = "dreamer",
+    task: str = "go2_joystick_flat",
+    with_script: bool = True,
+    with_config: bool = True,
+    with_owner: bool = True,
+) -> None:
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    if with_script:
+        (root / "scripts" / f"train_{algo}.py").write_text("", encoding="utf-8")
+    if with_config:
+        (root / "conf" / algo).mkdir(parents=True, exist_ok=True)
+        (root / "conf" / algo / "config.yaml").write_text("algo: {}\n", encoding="utf-8")
+    if with_owner:
+        owner_dir = root / "conf" / algo / "task" / task
+        owner_dir.mkdir(parents=True, exist_ok=True)
+        (owner_dir / "motrix.yaml").write_text(
+            "training:\n  sim_backend: motrix\n",
+            encoding="utf-8",
+        )
+
+
+def test_convention_routes_custom_algo_with_config_and_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_custom_algo_checkout(tmp_path)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    command = cli.build_command(
+        mode="train",
+        algo="dreamer",
+        task="go2_joystick_flat",
+        sim="motrix",
+        overrides=[],
+        root=tmp_path,
+    )
+
+    assert command[1:] == [
+        str(tmp_path / "scripts" / "train_dreamer.py"),
+        "task=go2_joystick_flat/motrix",
+    ]
+    assert "dreamer" in cli.available_algos(tmp_path)
+
+
+def test_convention_requires_entrypoint_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_custom_algo_checkout(tmp_path, with_script=False)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="Unsupported algo='dreamer'"):
+        cli.build_command(
+            mode="train",
+            algo="dreamer",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            root=tmp_path,
+        )
+    assert "dreamer" not in cli.available_algos(tmp_path)
+
+
+def test_convention_requires_config_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _make_custom_algo_checkout(tmp_path, with_config=False)
+    _pretend_motrix_is_installed(monkeypatch)
+    monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
+
+    with pytest.raises(SystemExit, match="Unsupported algo='dreamer'"):
+        cli.build_command(
+            mode="train",
+            algo="dreamer",
+            task="go2_joystick_flat",
+            sim="motrix",
+            overrides=[],
+            root=tmp_path,
+        )
+
+
+def test_unknown_algo_error_lists_builtin_and_discovered_algos(tmp_path: Path) -> None:
+    _make_custom_algo_checkout(tmp_path)
+
+    with pytest.raises(SystemExit, match="choose one of") as excinfo:
+        cli.build_route("dqn", "go2_joystick_flat", "motrix", root=tmp_path)
+
+    message = str(excinfo.value)
+    assert "Unsupported algo='dqn'" in message
+    for builtin in ("ppo", "appo", "sac", "td3", "flashsac"):
+        assert builtin in message
+    assert "dreamer" in message
+
+
+def test_conf_tree_without_entrypoint_is_not_routable() -> None:
+    # hora_distill ships a conf tree (compose-only) but no train_hora_distill.py.
+    with pytest.raises(SystemExit, match="Unsupported algo='hora_distill'"):
+        cli.build_route("hora_distill", "sharpa_inhand", "mujoco")
+    assert "hora_distill" not in cli.available_algos()
+
+
+def test_malformed_algo_name_is_rejected_fail_closed(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="Unsupported algo"):
+        cli.build_route("../etc", "go2_joystick_flat", "motrix", root=tmp_path)

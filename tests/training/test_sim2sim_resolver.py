@@ -14,7 +14,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-from unilab.training.sim2sim import (
+from unilab.utils.sim2sim import (
     ALLOWLIST,
     DENYLIST,
     ENV_STRUCTURAL_DENYLIST,
@@ -56,6 +56,47 @@ def _mujoco_cfg() -> Any:
     )
 
 
+def _manager_cfg() -> Any:
+    return OmegaConf.create(
+        {
+            "training": {"sim_backend": "mujoco"},
+            "algo": {"obs_groups": {"actor": ["actor"]}},
+            "env": {
+                "observations": {
+                    "policy": {
+                        "_target_": "unilab.managers.ObservationGroupCfg",
+                        "terms": {
+                            "joint_pos": {
+                                "_target_": "unilab.managers.ObservationTermCfg",
+                                "func": "unilab.envs.mdp.joint_pos_rel",
+                            }
+                        },
+                    },
+                    "critic": {
+                        "_target_": "unilab.managers.ObservationGroupCfg",
+                        "terms": {
+                            "joint_pos": {
+                                "_target_": "unilab.managers.ObservationTermCfg",
+                                "func": "unilab.envs.mdp.joint_pos_rel",
+                            }
+                        },
+                    },
+                },
+                "actions": {
+                    "joint_pos": {
+                        "_target_": "unilab.envs.mdp.JointPositionActionCfg",
+                        "entity_name": "robot",
+                        "actuator_names": [".*"],
+                        "scale": 0.25,
+                    }
+                },
+                "policy_observation_group": "policy",
+                "critic_observation_group": "critic",
+            },
+        }
+    )
+
+
 def test_field_lists_are_disjoint():
     deny, warn, allow = set(DENYLIST), set(WARNING_LIST), set(ALLOWLIST)
     assert deny.isdisjoint(warn)
@@ -74,13 +115,53 @@ def test_extract_snapshot_includes_only_present_contract_fields():
     assert "training.sim_backend" not in snapshot
     # ...and absent fields are omitted (never stored as None).
     assert "algo.obs_normalization" not in snapshot
-    assert "env.sampling_mode" not in snapshot
+    assert "env.commands.motion.params.sampling_mode" not in snapshot
     assert "reward.base_height_target" not in snapshot
 
 
 def test_snapshot_json_round_trips():
     snapshot = extract_contract_snapshot(_mujoco_cfg())
     assert json.loads(json.dumps(snapshot)) == snapshot
+
+
+def test_extract_snapshot_captures_manager_policy_io_contract() -> None:
+    cfg = _manager_cfg()
+
+    snapshot = extract_contract_snapshot(cfg)
+
+    assert snapshot["env.actions"]["joint_pos"]["scale"] == pytest.approx(0.25)
+    assert snapshot["env.observations"]["policy"]["terms"]["joint_pos"]["func"] == (
+        "unilab.envs.mdp.joint_pos_rel"
+    )
+    assert snapshot["env.policy_observation_group"] == "policy"
+    assert snapshot["env.critic_observation_group"] == "critic"
+    assert "env.control_config.action_scale" not in snapshot
+
+
+def test_matching_manager_policy_io_contract_passes(tmp_path: Path) -> None:
+    _write_sidecar(tmp_path, extract_contract_snapshot(_manager_cfg()))
+    target = _manager_cfg()
+
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("env.actions.joint_pos.scale", 0.5),
+        ("env.observations.policy.terms.joint_pos.func", "unilab.envs.mdp.joint_vel_rel"),
+        ("env.policy_observation_group", "critic"),
+        ("env.critic_observation_group", "policy"),
+    ],
+)
+def test_manager_policy_io_mismatch_fails_closed(tmp_path: Path, path: str, value: object) -> None:
+    source = _manager_cfg()
+    _write_sidecar(tmp_path, extract_contract_snapshot(source))
+    target = _manager_cfg()
+    OmegaConf.update(target, path, value, merge=False)
+
+    with pytest.raises(CrossBackendIncompatibleError, match="env\\."):
+        resolve_sim2sim_config(tmp_path, target)
 
 
 def test_matching_contract_returns_same_cfg(tmp_path):
@@ -185,7 +266,14 @@ def test_action_scale_list_form(tmp_path):
 
 
 def test_env_structural_denylist_is_the_env_subset():
-    assert ENV_STRUCTURAL_DENYLIST == ["env.control_config.action_scale", "env.sampling_mode"]
+    assert ENV_STRUCTURAL_DENYLIST == [
+        "env.control_config.action_scale",
+        "env.observations",
+        "env.actions",
+        "env.policy_observation_group",
+        "env.critic_observation_group",
+        "env.commands.motion.params.sampling_mode",
+    ]
     assert set(ENV_STRUCTURAL_DENYLIST) <= set(DENYLIST)
 
 
@@ -206,13 +294,33 @@ def test_env_field_present_in_target_absent_in_source_raises(tmp_path):
     # the target sets it explicitly. Still unverifiable -> fail closed.
     _write_sidecar(tmp_path, {"algo.empirical_normalization": False})
     target = OmegaConf.create(
-        {"algo": {"empirical_normalization": False}, "env": {"sampling_mode": "adaptive"}}
+        {
+            "algo": {"empirical_normalization": False},
+            "env": {"commands": {"motion": {"params": {"sampling_mode": "adaptive"}}}},
+        }
     )
     with pytest.raises(CrossBackendIncompatibleError) as excinfo:
         resolve_sim2sim_config(tmp_path, target)
     msg = str(excinfo.value)
     assert "sampling_mode" in msg
     assert "source=<absent>" in msg
+
+
+def test_legacy_sampling_mode_snapshot_resolves_against_manager_path(tmp_path) -> None:
+    _write_sidecar(tmp_path, {"env.sampling_mode": "adaptive"})
+    target = OmegaConf.create(
+        {"env": {"commands": {"motion": {"params": {"sampling_mode": "adaptive"}}}}}
+    )
+
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+def test_legacy_config_sampling_mode_is_snapshotted_under_canonical_path() -> None:
+    cfg = OmegaConf.create({"env": {"sampling_mode": "adaptive"}})
+
+    assert extract_contract_snapshot(cfg) == {
+        "env.commands.motion.params.sampling_mode": "adaptive"
+    }
 
 
 def test_env_field_symmetric_absence_does_not_raise(tmp_path):
@@ -326,16 +434,16 @@ def test_resolver_class_extract_and_dim_guard_delegate():
 
 
 def _compose_task(task: str) -> Any:
-    conf_dir = str(Path(__file__).resolve().parents[2] / "conf" / "ppo")
+    conf_dir = str(Path(__file__).resolve().parents[2] / "src" / "unilab" / "conf" / "ppo")
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=conf_dir, version_base="1.3"):
         return compose("config", overrides=[f"task={task}"])
 
 
 def test_g1_walk_flat_mujoco_inherits_base_contract():
-    # The MuJoCo owner carries the full contract in its standalone owner config.
+    # The MuJoCo owner inherits the full contract from the shared base owner.
     mujoco = _compose_task("g1_walk_flat/mujoco")
-    assert OmegaConf.select(mujoco, "env.control_config.action_scale") == 0.25
+    assert OmegaConf.select(mujoco, "env.actions.joint_pos.scale") == 0.25
     assert OmegaConf.select(mujoco, "algo.empirical_normalization") is False
     assert OmegaConf.select(mujoco, "algo.obs_groups.actor") == ["actor"]
 
@@ -349,3 +457,27 @@ def test_g1_walk_flat_cross_backend_play_is_guarded(tmp_path):
     motrix = _compose_task("g1_walk_flat/motrix")
     with pytest.raises(CrossBackendIncompatibleError):
         resolve_sim2sim_config(tmp_path, motrix)
+
+
+def test_g1_walk_flat_mujoco_to_isaacgym_play_passes_guard(tmp_path):
+    # The isaacgym owner keeps DENYLIST parity with the MuJoCo owner, so a
+    # MuJoCo-trained checkpoint passes the contract guard for isaacgym play.
+    snapshot = extract_contract_snapshot(_compose_task("g1_walk_flat/mujoco"))
+    (tmp_path / "run_config.json").write_text(
+        json.dumps({"contract_snapshot": snapshot}), encoding="utf-8"
+    )
+    isaacgym = _compose_task("g1_walk_flat/isaacgym")
+    assert OmegaConf.select(isaacgym, "training.sim_backend") == "isaacgym"
+    assert resolve_sim2sim_config(tmp_path, isaacgym) is isaacgym
+
+
+def test_g1_walk_flat_mujoco_to_genesis_play_passes_guard(tmp_path):
+    # The genesis owner keeps DENYLIST parity with the MuJoCo owner, so a
+    # MuJoCo-trained checkpoint passes the contract guard for genesis play.
+    snapshot = extract_contract_snapshot(_compose_task("g1_walk_flat/mujoco"))
+    (tmp_path / "run_config.json").write_text(
+        json.dumps({"contract_snapshot": snapshot}), encoding="utf-8"
+    )
+    genesis = _compose_task("g1_walk_flat/genesis")
+    assert OmegaConf.select(genesis, "training.sim_backend") == "genesis"
+    assert resolve_sim2sim_config(tmp_path, genesis) is genesis

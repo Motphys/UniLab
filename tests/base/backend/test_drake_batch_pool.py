@@ -16,12 +16,16 @@ def _module_available(name: str) -> bool:
         return False
 
 
-def _drakeuni_package_installed() -> bool:
-    return _module_available("drakeuni")
+def _drake_uni_package_installed() -> bool:
+    return _module_available("drake_uni")
 
 
 def _batch_extension_built() -> bool:
-    return _module_available("drakeuni.compiled._drake_env_pool")
+    return _module_available("drake_uni.compiled._drake_env_pool")
+
+
+def _mujoco_available() -> bool:
+    return _module_available("mujoco")
 
 
 def _run_clean_python(code: str) -> str:
@@ -41,8 +45,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from unilab.assets import ASSETS_ROOT_PATH
-from drakeuni.batch_env import DrakeEnvPool
-from drakeuni.runtime.mjcf_model_parser import (
+from drake_uni.batch_env import DrakeEnvPool
+from drake_uni.runtime.mjcf_model_parser import (
     materialize_drake_compatible_mjcf,
     parse_mjcf_model_contract,
     sensor_frames_as_pool_inputs,
@@ -111,7 +115,7 @@ def test_batch_import_diagnostic_is_preserved() -> None:
         import json
 
         try:
-            from drakeuni.batch_env import batch_available, batch_import_error
+            from drake_uni.batch_env import batch_available, batch_import_error
         except ImportError as exc:
             captured_error = exc
 
@@ -136,18 +140,10 @@ def test_batch_import_diagnostic_is_preserved() -> None:
         assert summary["missing_module"] is None
     else:
         assert summary["error_type"] == "ModuleNotFoundError"
-        assert summary["missing_module"] == "drakeuni"
-
-
-def test_drake_batch_thread_policy_matches_mujoco_auto(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unilab.base.backend.drake import backend
-
-    monkeypatch.setattr(backend, "cpu_count", lambda: 10)
-
-    assert backend._resolve_batch_nthread(1024, 0) == 20
-    assert backend._resolve_batch_nthread(8, 0) == 8
-    assert backend._resolve_batch_nthread(1024, 4) == 4
-    assert backend._resolve_batch_nthread(2, 8) == 2
+        assert summary["missing_module"] in {
+            "drake_uni",
+            "drake_uni.compiled._drake_env_pool",
+        }
 
 
 def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
@@ -157,7 +153,7 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
         import sys
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         sys.modules["pydrake"] = object()
@@ -181,58 +177,14 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
     assert "pydrake" in output
 
 
-def test_direct_drake_backend_batch_mode_rejects_existing_pydrake_module() -> None:
-    output = _run_clean_python(
-        """
-        import json
-        import sys
-
-        from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend.drake.backend import DrakeBackend
-        from unilab.base.scene import SceneCfg
-
-        sys.modules["pydrake"] = object()
-        try:
-            DrakeBackend(
-                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
-                1,
-                0.01,
-                drake_backend_mode="batch",
-            )
-        except ImportError as exc:
-            message = str(exc)
-        else:
-            raise AssertionError("direct batch DrakeBackend unexpectedly loaded with pydrake present")
-        assert "pydrake" in message
-        assert "fresh process" in message
-        print(json.dumps({"message": message}, sort_keys=True))
-        """
-    )
-    assert "pydrake" in output
-
-
 def test_create_backend_rejects_pydrake_mode() -> None:
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend import create_backend
+    from unilab.base.backend_factory import create_backend
     from unilab.base.scene import SceneCfg
 
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
         create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
-            1,
-            0.01,
-            drake_backend_mode="pydrake",
-        )
-
-
-def test_direct_drake_backend_rejects_pydrake_mode() -> None:
-    from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend.drake.backend import DrakeBackend
-    from unilab.base.scene import SceneCfg
-
-    with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
-        DrakeBackend(
             SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
             1,
             0.01,
@@ -246,7 +198,7 @@ def test_direct_drake_backend_rejects_pydrake_mode() -> None:
 )
 def test_drake_backend_constructs_without_task_base_name() -> None:
     from unilab.assets import ASSETS_ROOT_PATH
-    from unilab.base.backend import create_backend
+    from unilab.base.backend_factory import create_backend
     from unilab.base.scene import SceneCfg
 
     backend = create_backend(
@@ -260,8 +212,8 @@ def test_drake_backend_constructs_without_task_base_name() -> None:
 
 
 @pytest.mark.skipif(
-    not _drakeuni_package_installed(),
-    reason="optional drakeuni package has not been installed",
+    not _drake_uni_package_installed(),
+    reason="optional drake_uni package has not been installed",
 )
 def test_batch_package_direct_import_rejects_existing_pydrake_module() -> None:
     output = _run_clean_python(
@@ -270,7 +222,7 @@ def test_batch_package_direct_import_rejects_existing_pydrake_module() -> None:
         import sys
 
         sys.modules["pydrake"] = object()
-        from drakeuni.batch_env import (
+        from drake_uni.batch_env import (
             DrakeEnvPool,
             batch_available,
             batch_import_error,
@@ -294,7 +246,7 @@ def test_batch_package_direct_import_rejects_existing_pydrake_module() -> None:
 def test_drake_batch_pool_imports_in_clean_process() -> None:
     output = _run_clean_python(
         """
-        from drakeuni.batch_env import DrakeEnvPool, batch_available
+        from drake_uni.batch_env import DrakeEnvPool, batch_available
         assert batch_available()
         assert DrakeEnvPool is not None
         print(DrakeEnvPool.__name__)
@@ -304,20 +256,20 @@ def test_drake_batch_pool_imports_in_clean_process() -> None:
 
 
 @pytest.mark.skipif(
-    not _drakeuni_package_installed(),
-    reason="optional drakeuni package has not been installed",
+    not _drake_uni_package_installed(),
+    reason="optional drake_uni package has not been installed",
 )
-def test_drakeuni_runtime_import_is_lazy_and_pydrake_free() -> None:
+def test_drake_uni_runtime_import_is_lazy_and_pydrake_free() -> None:
     output = _run_clean_python(
         """
         import json
         import sys
 
-        from drakeuni.runtime import DrakeBatchConfig
+        from drake_uni.runtime import DrakeBatchConfig
 
         summary = {
             "config": DrakeBatchConfig.__name__,
-            "compiled_loaded": any(name.startswith("drakeuni.compiled") for name in sys.modules),
+            "compiled_loaded": any(name.startswith("drake_uni.compiled") for name in sys.modules),
             "pydrake_loaded": any(
                 name == "pydrake" or name.startswith("pydrake.") for name in sys.modules
             ),
@@ -337,12 +289,12 @@ def test_unilab_drake_public_surface_excludes_batch_backend_symbol() -> None:
         """
         import json
 
-        import unilab.base.backend as backend_root
-        import unilab.base.backend.drake as drake_pkg
-        from unilab.base.backend.drake import backend as backend_module
+        import unilab.base.backend_factory as backend_root
+        import unisim.backend.drake as drake_pkg
+        from unisim.backend.drake import backend as backend_module
 
         try:
-            from unilab.base.backend.drake.backend import DrakeUniBatchBackend  # noqa: F401
+            from unisim.backend.drake.backend import DrakeUniBatchBackend  # noqa: F401
         except ImportError:
             direct_import = "failed"
         else:
@@ -514,6 +466,10 @@ def test_drake_batch_pool_worker_exception_reaches_python() -> None:
     not _batch_extension_built(),
     reason="optional Drake batch extension has not been built",
 )
+@pytest.mark.skipif(
+    not _mujoco_available(),
+    reason="MuJoCo is required for the cross-backend qpos-order assertion",
+)
 def test_drake_runtime_stewart_compact_state_matches_mujoco_qpos_order() -> None:
     output = _run_clean_python(
         """
@@ -523,7 +479,7 @@ def test_drake_runtime_stewart_compact_state_matches_mujoco_qpos_order() -> None
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from drakeuni.runtime import DrakeBatchConfig, create_runtime
+        from drake_uni.runtime import DrakeBatchConfig, create_runtime
 
         model = ASSETS_ROOT_PATH / "robots/stewart/scene.xml"
         runtime = create_runtime(
@@ -562,7 +518,7 @@ def test_drake_runtime_stewart_ball_collides_with_top_plate() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from drakeuni.runtime import DrakeBatchConfig, create_runtime
+        from drake_uni.runtime import DrakeBatchConfig, create_runtime
 
         model = ASSETS_ROOT_PATH / "robots/stewart/scene.xml"
         runtime = create_runtime(
@@ -603,7 +559,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         assert "pydrake" not in sys.modules
@@ -674,7 +630,7 @@ def test_drake_backend_pre_step_hook_refreshes_between_substeps() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         backend = create_backend(
@@ -721,7 +677,7 @@ def test_drake_backend_body_frame_getters_use_compact_root_frame() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         backend = create_backend(
@@ -780,7 +736,7 @@ def test_create_go2_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         import numpy as np
 
         from unilab.assets import ASSETS_ROOT_PATH
-        from unilab.base.backend import create_backend
+        from unilab.base.backend_factory import create_backend
         from unilab.base.scene import SceneCfg
 
         assert "pydrake" not in sys.modules

@@ -1,87 +1,125 @@
-"""Contract tests for the A2JoystickFlat environment (leg-only Unitree A2).
-
-The A2 leg-only MJCF mirrors the Go2 joystick sensor/geom/leg-ordering
-contract (legs FL,FR,RL,RR; foot geoms+sites FL/FR/RL/RR; Go2-named IMU/foot
-sensors) and uses <position> actuators, so the env reuses Go2WalkTask
-unchanged. These tests prove the A2 model + scene + config + env chain
-constructs and steps in MuJoCo as a 12-DOF joystick task."""
+"""Hydra-owned Manager-Based production contract for A2JoystickFlat."""
 
 from __future__ import annotations
 
 import importlib
-from types import SimpleNamespace
+from collections.abc import Mapping, Sequence
+from dataclasses import fields, is_dataclass
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
+from omegaconf import DictConfig, OmegaConf
 
 from unilab.assets import ASSETS_ROOT_PATH
+from unilab.base import registry
+from unilab.base.config_adapter import BackendAdapter
+from unilab.base.config_materialization import apply_cfg_overrides
+from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg, mdp
+from unilab.tasks.locomotion.common import manager_terms
 
-# mjlab INIT_STATE: pos z=0.4, thigh=0.9 (all), calf=-1.8 (all), R_hip=+0.1, L_hip=-0.1.
-# Asset/actuator order is FL,FR,RL,RR x (hip,thigh,calf).
-_MJLAB_HOME_HEIGHT = 0.4
-_MJLAB_LEG_ANGLES = [
-    -0.1, 0.9, -1.8,  # FL
-    0.1, 0.9, -1.8,   # FR
-    -0.1, 0.9, -1.8,  # RL
-    0.1, 0.9, -1.8,   # RR
-]  # fmt: skip
-# mjlab per-joint PD gains: hip/thigh kp=100/kd=4, calf kp=150/kd=6.
-_MJLAB_KP = [100.0, 100.0, 150.0] * 4
-_MJLAB_KD = [4.0, 4.0, 6.0] * 4
-# DR ranges referencing mjlab events: joint_armature scale [0.9,1.1], foot
-# friction [0.3,1.6] (UniLab realises it as a multiplier on the floor geom,
-# which is made the priority geom so it dictates the foot-ground friction).
-_MJLAB_ARMATURE_RANGE = [0.9, 1.1]
-_MJLAB_FRICTION_RANGE = [0.3, 1.6]
+ROOT_DIR = Path(__file__).parents[4]
+CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
+
+_JOINT_NAMES = (
+    "FL_hip_joint",
+    "FL_thigh_joint",
+    "FL_calf_joint",
+    "FR_hip_joint",
+    "FR_thigh_joint",
+    "FR_calf_joint",
+    "RL_hip_joint",
+    "RL_thigh_joint",
+    "RL_calf_joint",
+    "RR_hip_joint",
+    "RR_thigh_joint",
+    "RR_calf_joint",
+)
+_ACTUATOR_NAMES = (
+    "FL_hip",
+    "FL_thigh",
+    "FL_calf",
+    "FR_hip",
+    "FR_thigh",
+    "FR_calf",
+    "RL_hip",
+    "RL_thigh",
+    "RL_calf",
+    "RR_hip",
+    "RR_thigh",
+    "RR_calf",
+)
+_HOME_JOINT_POS = np.array(
+    [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8],
+    dtype=np.float32,
+)
+_KP = np.array([100.0, 100.0, 150.0] * 4)
+_KD = np.array([4.0, 4.0, 6.0] * 4)
 
 
-def _skip_if_no_mujoco():
-    pytest.importorskip("mujoco", reason="mujoco not installed")
-    try:
-        from mujoco_uni.batch_env import BatchEnvPool  # noqa: F401
-    except Exception:
-        pytest.skip("mujoco_uni.batch_env not available")
+def _compose() -> DictConfig:
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
+        return compose("config", overrides=["task=a2_joystick_flat/mujoco"])
 
 
-def test_a2_robot_xml_compiles_with_12_position_actuators():
-    """a2.xml loads standalone and exposes exactly 12 position-style leg
-    actuators in the FL,FR,RL,RR x hip,thigh,calf order."""
+def _materialize() -> tuple[DictConfig, ManagerBasedRlEnvCfg, dict[str, Any]]:
+    hydra_cfg = _compose()
+    env_override = BackendAdapter(hydra_cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
+    env_cfg = registry.materialize_env_config("A2JoystickFlat")
+    assert isinstance(env_cfg, ManagerBasedRlEnvCfg)
+    apply_cfg_overrides(env_cfg, env_override)
+    env_cfg.validate()
+    return hydra_cfg, env_cfg, env_override
+
+
+def _assert_no_omegaconf(value: Any) -> None:
+    assert not OmegaConf.is_config(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        for item in fields(value):
+            _assert_no_omegaconf(getattr(value, item.name))
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            _assert_no_omegaconf(key)
+            _assert_no_omegaconf(item)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for item in value:
+            _assert_no_omegaconf(item)
+
+
+def test_a2_asset_declares_home_pose_and_per_joint_pd_defaults() -> None:
     mujoco = pytest.importorskip("mujoco")
-    xml = ASSETS_ROOT_PATH / "robots" / "a2" / "a2.xml"
-    model = mujoco.MjModel.from_xml_path(str(xml))
-    assert model.nu == 12
-    names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) for i in range(model.nu)]
-    assert names == [
-        "FL_hip",
-        "FL_thigh",
-        "FL_calf",
-        "FR_hip",
-        "FR_thigh",
-        "FR_calf",
-        "RL_hip",
-        "RL_thigh",
-        "RL_calf",
-        "RR_hip",
-        "RR_thigh",
-        "RR_calf",
-    ]
-    # Position actuators carry an affine bias (kp in gainprm[0]); motor actuators do not.
+    model = mujoco.MjModel.from_xml_path(str(ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"))
+
+    actuator_names = tuple(
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, index) for index in range(model.nu)
+    )
+    assert actuator_names == _ACTUATOR_NAMES
     affine = int(mujoco.mjtBias.mjBIAS_AFFINE)
-    assert all(int(model.actuator_biastype[i]) == affine for i in range(model.nu))
+    assert all(int(value) == affine for value in model.actuator_biastype)
+    np.testing.assert_allclose(model.actuator_gainprm[:, 0], _KP)
+    np.testing.assert_allclose(model.actuator_biasprm[:, 1], -_KP)
+    np.testing.assert_allclose(model.actuator_biasprm[:, 2], -_KD)
+
+    key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
+    assert key_id >= 0
+    assert model.nq == 19
+    assert model.key_qpos[key_id, 2] == pytest.approx(0.4)
+    np.testing.assert_allclose(model.key_qpos[key_id, 7:19], _HOME_JOINT_POS)
+    np.testing.assert_allclose(model.key_ctrl[key_id], _HOME_JOINT_POS)
 
 
-def test_a2_scene_loads_with_foot_contacts_and_home_keyframe():
-    """scene_flat.xml includes a2.xml + floor, exposes the four foot-contact
-    sensors and the joystick foot-pos/IMU sensors, and a home keyframe whose
-    qpos is base(7)+12 leg = 19."""
+def test_a2_asset_exposes_manager_sensor_and_floor_friction_contract() -> None:
     mujoco = pytest.importorskip("mujoco")
-    xml = ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"
-    model = mujoco.MjModel.from_xml_path(str(xml))
-
-    sensor_names = {
-        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SENSOR, i) for i in range(model.nsensor)
+    model = mujoco.MjModel.from_xml_path(str(ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"))
+    sensors = {
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SENSOR, index)
+        for index in range(model.nsensor)
     }
-    for required in [
+    assert {
         "gyro",
         "local_linvel",
         "upvector",
@@ -93,411 +131,212 @@ def test_a2_scene_loads_with_foot_contacts_and_home_keyframe():
         "FR_foot_contact",
         "RL_foot_contact",
         "RR_foot_contact",
-    ]:
-        assert required in sensor_names, f"missing sensor {required}"
+    } <= sensors
 
-    # home keyframe present, qpos length = 7 (free base) + 12 (legs).
-    assert model.nkey >= 1
-    key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
-    assert key_id >= 0
-    assert model.nq == 19
-    # foot geoms used by the contact sensors exist.
-    for g in ["FL", "FR", "RL", "RR", "floor"]:
-        assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, g) >= 0
-
-
-def test_a2_home_keyframe_matches_mjlab_pose():
-    """The home keyframe is aligned to mjlab's INIT_STATE: base height 0.4,
-    thigh 0.9, calf -1.8 on all legs, hips +-0.1 (R/L)."""
-    mujoco = pytest.importorskip("mujoco")
-    xml = ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"
-    model = mujoco.MjModel.from_xml_path(str(xml))
-    key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
-    assert key_id >= 0
-    qpos = np.asarray(model.key_qpos[key_id])
-    assert qpos.shape == (19,)
-    assert qpos[2] == pytest.approx(_MJLAB_HOME_HEIGHT)
-    np.testing.assert_allclose(qpos[7:19], _MJLAB_LEG_ANGLES)
-    # ctrl targets the same standing pose so position actuators hold it at reset.
-    ctrl = np.asarray(model.key_ctrl[key_id])
-    np.testing.assert_allclose(ctrl, _MJLAB_LEG_ANGLES)
-
-
-def test_a2_control_config_per_joint_gains():
-    """A2JoystickControlConfig.position_gains() yields per-joint arrays matching
-    mjlab (calf 150/6, hip/thigh 100/4) in actuator order."""
-    from unilab.envs.locomotion.a2.joystick import A2JoystickControlConfig
-
-    gains = A2JoystickControlConfig().position_gains()
-    np.testing.assert_allclose(np.asarray(gains["kp"]), _MJLAB_KP)
-    np.testing.assert_allclose(np.asarray(gains["kd"]), _MJLAB_KD)
-
-
-def test_pd_control_config_position_gains_default_is_scalar():
-    """Base PdControlConfig keeps the scalar gain contract (Go2 path unchanged)."""
-    from unilab.envs.locomotion.common.base import PdControlConfig
-
-    gains = PdControlConfig(Kp=35.0, Kd=0.5).position_gains()
-    assert gains == {"kp": 35.0, "kd": 0.5}
-
-
-def test_a2_dr_provider_returns_per_joint_base_gains():
-    """The A2 DR provider exposes per-joint base kp/kd so randomize_kp/kd scales
-    each joint off the correct baseline (calf off 150, not 100)."""
-    from unilab.envs.locomotion.a2.joystick import (
-        A2JoystickControlConfig,
-        A2JoystickDomainRandomizationProvider,
-    )
-
-    env = SimpleNamespace(
-        cfg=SimpleNamespace(control_config=A2JoystickControlConfig()),
-        _num_action=12,
-    )
-    base_kp, base_kd = A2JoystickDomainRandomizationProvider()._get_base_actuator_gains(env)
-    np.testing.assert_allclose(np.asarray(base_kp), _MJLAB_KP)
-    np.testing.assert_allclose(np.asarray(base_kd), _MJLAB_KD)
-
-
-def test_a2_floor_geom_dominates_for_friction_dr():
-    """The floor geom is the priority geom (priority=2 > feet's 1) and carries
-    condim=6, so it dictates the foot-ground friction. This makes randomizing the
-    floor geom's friction actually move the contact friction (otherwise the
-    priority-1 feet would override it)."""
-    mujoco = pytest.importorskip("mujoco")
-    xml = ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"
-    model = mujoco.MjModel.from_xml_path(str(xml))
     floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
     foot = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "FL")
-    assert int(model.geom_priority[floor]) == 2
+    assert floor >= 0 and foot >= 0
     assert int(model.geom_priority[floor]) > int(model.geom_priority[foot])
-    # condim must stay 6 (feet use 6); floor would default to 3 without this.
     assert int(model.geom_condim[floor]) == 6
 
 
-def test_a2_dr_provider_caches_friction_and_armature_baselines():
-    """The A2 DR provider caches the pristine geom-friction + dof-armature tables
-    (and the floor geom id) from the backend so randomize_ground_friction /
-    randomize_dof_armature can multiply against them. body_mass stays uncached."""
-    mujoco = pytest.importorskip("mujoco")
-    from unilab.envs.locomotion.a2.joystick import A2JoystickDomainRandomizationProvider
-
-    xml = ASSETS_ROOT_PATH / "robots" / "a2" / "scene_flat.xml"
-    model = mujoco.MjModel.from_xml_path(str(xml))
-    floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
-
-    class _StubBackend:
-        def get_geom_friction(self):
-            return np.asarray(model.geom_friction, dtype=np.float64).copy()
-
-        def get_dof_armature(self):
-            return np.asarray(model.dof_armature, dtype=np.float64).copy()
-
-        def get_geom_id(self, name):
-            return int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name))
-
-    env = SimpleNamespace(
-        _backend=_StubBackend(),
-        cfg=SimpleNamespace(asset=SimpleNamespace(ground="floor")),
-    )
-    base_body_mass, base_geom_friction, ground_geom_id, base_dof_armature = (
-        A2JoystickDomainRandomizationProvider()._get_reset_randomization_baselines(env)
-    )
-    assert base_body_mass is None  # body_mass DR not enabled
-    assert ground_geom_id == floor_id
-    assert base_geom_friction.shape == (model.ngeom, 3)
-    np.testing.assert_allclose(base_geom_friction, model.geom_friction)
-    assert base_dof_armature.shape == (model.nv,)
-    np.testing.assert_allclose(base_dof_armature, model.dof_armature)
-
-
-def _ensure_registered() -> None:
-    from unilab.base import registry
-
+def test_a2_owner_materializes_complete_plain_manager_config() -> None:
     registry.ensure_registries()
-    if not registry.contains("A2JoystickFlat"):
-        importlib.import_module("unilab.envs.locomotion.a2.joystick")
+    hydra_cfg, env_cfg, _ = _materialize()
+
+    assert hydra_cfg.training.task_name == "A2JoystickFlat"
+    assert hydra_cfg.training.sim_backend == "mujoco"
+    assert hydra_cfg.algo.max_iterations == 500
+    assert list(hydra_cfg.algo.obs_groups.actor) == ["actor"]
+    assert list(hydra_cfg.algo.obs_groups.critic) == ["critic"]
+    assert env_cfg.sim_dt == pytest.approx(0.01)
+    assert env_cfg.ctrl_dt == pytest.approx(0.02)
+    assert env_cfg.max_episode_seconds == pytest.approx(20.0)
+    assert env_cfg.policy_observation_group == "policy"
+    assert env_cfg.critic_observation_group == "critic"
+
+    assert env_cfg.scene is not None
+    assert env_cfg.scene.model_file.endswith("robots/a2/scene_flat.xml")
+    assert env_cfg.scene.default_keyframe_name == "home"
+    robot = env_cfg.scene.entities["robot"]
+    assert robot.root_body_name == "base_link"
+    assert tuple(robot.joint_names or ()) == _JOINT_NAMES
+    assert tuple(robot.actuator_names or ()) == _ACTUATOR_NAMES
+    assert robot.body_names == ["base_link"]
+    assert robot.geom_names == ["floor"]
+
+    policy_terms = [
+        "base_ang_vel",
+        "projected_gravity",
+        "joint_pos",
+        "joint_vel",
+        "actions",
+        "command",
+        "gait_phase",
+    ]
+    assert list(env_cfg.observations) == ["policy", "critic"]
+    assert list(env_cfg.observations["policy"].terms) == policy_terms
+    assert list(env_cfg.observations["critic"].terms) == [*policy_terms, "base_lin_vel"]
+    assert env_cfg.observations["policy"].terms["gait_phase"].params == {
+        "frequency": 2.0,
+        "command_name": "twist",
+        "command_threshold": 0.1,
+    }
+    assert list(env_cfg.actions) == ["joint_pos"]
+    assert env_cfg.actions["joint_pos"].scale == pytest.approx(0.25)
+    command = env_cfg.commands["twist"]
+    assert command.resampling_time_range == [5.0, 5.0]
+    assert command.rel_standing_envs == pytest.approx(0.1)
+    assert tuple(command.ranges.lin_vel_x) == (-0.6, 1.0)
+
+    expected_weights = {
+        "tracking_lin_vel": 1.0,
+        "tracking_ang_vel": 0.4,
+        "lin_vel_z": -5.0,
+        "ang_vel_xy": -0.1,
+        "base_height": -100.0,
+        "action_rate": -0.02,
+        "similar_to_default": -0.25,
+        "contact": 0.5,
+        "swing_feet_z": 4.0,
+        "stand_still": -4.0,
+        "hip_deviation": -1.0,
+        "stand_feet_air": -1.0,
+    }
+    assert {name: term.weight for name, term in env_cfg.rewards.items()} == expected_weights
+    assert env_cfg.rewards["stand_still"].func is manager_terms.stand_still_l1
+    assert env_cfg.rewards["stand_feet_air"].func is manager_terms.feet_air_while_standing
+    assert env_cfg.rewards["hip_deviation"].params["asset_cfg"].joint_names == ".*_hip_joint"
+    for name in ("contact", "swing_feet_z"):
+        assert env_cfg.rewards[name].params["command_name"] == "twist"
+        assert env_cfg.rewards[name].params["command_threshold"] == pytest.approx(0.1)
+
+    for manager_name in ("observations", "events", "rewards", "terminations"):
+        for term in getattr(env_cfg, manager_name).values():
+            if term is None:
+                continue
+            terms = term.terms.values() if manager_name == "observations" else (term,)
+            for nested in terms:
+                if nested is None:
+                    continue
+                module = nested.func.__module__
+                assert ".backend." not in module
+                assert not any(name in module for name in (".mujoco", ".motrix", ".drake"))
+
+    _assert_no_omegaconf(env_cfg)
 
 
-def test_a2_joystick_registered():
-    """Registers without MuJoCo (decorators run on module import)."""
-    from unilab.base import registry
+def test_a2_owner_declares_all_randomization_as_manager_events() -> None:
+    _, env_cfg, _ = _materialize()
+    assert list(env_cfg.events) == [
+        "reset_scene_to_default",
+        "reset_root_state_uniform",
+        "base_mass",
+        "base_com",
+        "foot_friction",
+        "joint_armature",
+        "pd_gains",
+        "push_robot",
+    ]
 
-    _ensure_registered()
-    assert registry.contains("A2JoystickFlat")
+    mass = env_cfg.events["base_mass"]
+    assert mass.func is mdp.randomize_rigid_body_mass
+    assert mass.params["mass_distribution_params"] == [0.0, 8.0]
+    assert mass.params["recompute_inertia"] is False
+    com = env_cfg.events["base_com"]
+    assert com.func is mdp.randomize_rigid_body_com
+    assert com.params["com_range"] == {
+        "x": [-0.08, 0.08],
+        "y": [-0.08, 0.08],
+        "z": [-0.08, 0.08],
+    }
+    friction = env_cfg.events["foot_friction"]
+    assert friction.func is mdp.geom_friction
+    assert friction.params["ranges"] == [0.3, 1.6]
+    assert friction.params["operation"] == "scale"
+    assert friction.params["shared_random"] is True
+    armature = env_cfg.events["joint_armature"]
+    assert armature.func is mdp.joint_armature
+    assert armature.params["ranges"] == [0.9, 1.1]
+    gains = env_cfg.events["pd_gains"]
+    assert gains.func is mdp.pd_gains
+    assert gains.params["kp_range"] == [0.9, 1.1]
+    assert gains.params["kd_range"] == [0.9, 1.1]
+    push = env_cfg.events["push_robot"]
+    assert push.func is mdp.push_by_setting_velocity
+    assert push.mode == "interval"
+    assert push.interval_range_s == [8.0, 8.0]
+    assert push.is_global_time is True
 
 
-def test_a2_joystick_yaml_composes_and_targets_a2():
-    """The owner YAML composes under Hydra and selects the A2JoystickFlat task
-    with a reward block that injects into the env's reward_config."""
-    from hydra import compose, initialize
-
-    with initialize(config_path="../../../../conf/ppo", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=a2_joystick_flat/mujoco"])
-    assert cfg.training.task_name == "A2JoystickFlat"
-    assert cfg.training.sim_backend == "mujoco"
-    assert "tracking_lin_vel" in cfg.reward.scales
-
-
-def _default_reward_cfg():
-    from unilab.envs.locomotion.a2.joystick import A2RewardConfig
-
-    return A2RewardConfig(
-        scales={
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -5.0,
-            "ang_vel_xy": -0.1,
-            "base_height": -100.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
-            "contact": 0.24,
-            "swing_feet_z": 4.0,
-            "stand_still": -4.0,
-            "hip_deviation": -1.0,
-            "stand_feet_air": -1.0,
-        },
-        tracking_sigma=0.25,
-        base_height_target=0.45,
-        command_threshold=0.1,
-    )
+def test_a2_registry_has_no_legacy_config_or_runtime_fallback() -> None:
+    registry.ensure_registries()
+    module = importlib.import_module("unilab.tasks.locomotion.a2.joystick")
+    assert not hasattr(module, "A2JoystickCfg")
+    assert not hasattr(module, "A2JoystickFlatEnv")
+    assert not hasattr(module, "A2JoystickDomainRandomizationProvider")
+    assert registry.list_registered_envs()["A2JoystickFlat"] == {
+        "config_factory": "ManagerBasedRlEnvCfg",
+        "available_backends": ["mujoco"],
+    }
+    for legacy_override in (
+        {"reward_config": {}},
+        {"domain_rand": {"randomize_kp": True}},
+        {"control_config": {"action_scale": 0.4}},
+    ):
+        with pytest.raises(ValueError, match="has no attribute"):
+            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
 
 
-def _make_a2_env(num_envs: int = 2, domain_rand=None):
-    from unilab.base import registry
+def test_a2_registry_executes_real_manager_runtime() -> None:
+    pytest.importorskip("mujoco")
+    try:
+        from mujoco_uni.batch_env import BatchEnvPool  # noqa: F401
+    except Exception:
+        pytest.skip("mujoco_uni.batch_env not available")
 
-    _ensure_registered()
-    override = {"reward_config": _default_reward_cfg()}
-    if domain_rand is not None:
-        override["domain_rand"] = domain_rand
-    return registry.make(
-        "A2JoystickFlat",
+    hydra_cfg, _, env_override = _materialize()
+    env = registry.make(
+        str(hydra_cfg.training.task_name),
         sim_backend="mujoco",
-        num_envs=num_envs,
-        env_cfg_override=override,
+        env_cfg_override=env_override,
+        num_envs=2,
     )
+    try:
+        assert isinstance(env, ManagerBasedRlEnv)
+        assert env.obs_groups_spec == {"obs": 49, "critic": 52}
+        assert env.action_space.shape == (12,)
+        action = env.action_manager.get_term("joint_pos")
+        assert action.target_names == list(_JOINT_NAMES)
+        np.testing.assert_allclose(action.offset, np.broadcast_to(_HOME_JOINT_POS, (2, 12)))
+        assert env.event_manager.active_terms == {
+            "reset": [
+                "reset_scene_to_default",
+                "reset_root_state_uniform",
+                "base_mass",
+                "base_com",
+                "foot_friction",
+                "joint_armature",
+                "pd_gains",
+            ],
+            "interval": ["push_robot"],
+        }
 
-
-@pytest.mark.slow
-def test_a2_joystick_obs_layout_and_12_dof():
-    _skip_if_no_mujoco()
-    env = _make_a2_env(num_envs=2)
-    assert env._num_action == 12
-    assert env.default_angles.shape == (12,)
-    assert env.obs_groups_spec == {"obs": 49, "critic": 52}
-
-
-@pytest.mark.slow
-def test_a2_joystick_model_gains_are_per_joint():
-    """End-to-end: the per-joint gains reach the compiled MuJoCo model — calf
-    actuators carry kp=150/kd=6, hip/thigh kp=100/kd=4 — and default_angles
-    (derived from the home keyframe) match the mjlab standing pose."""
-    _skip_if_no_mujoco()
-    env = _make_a2_env(num_envs=2)
-
-    # default_angles come from the home keyframe -> mjlab pose.
-    np.testing.assert_allclose(env.default_angles, _MJLAB_LEG_ANGLES)
-
-    # The env forwarded per-joint arrays to the backend.
-    stored = env._backend._position_actuator_gains
-    np.testing.assert_allclose(np.asarray(stored["kp"]), _MJLAB_KP)
-    np.testing.assert_allclose(np.asarray(stored["kd"]), _MJLAB_KD)
-
-    # ...and they are written into the compiled model: position actuators store
-    # kp in gainprm[0], and -kp / -kd in biasprm[1] / biasprm[2].
-    model = env._backend._model
-    np.testing.assert_allclose(model.actuator_gainprm[:, 0], _MJLAB_KP)
-    np.testing.assert_allclose(model.actuator_biasprm[:, 1], [-v for v in _MJLAB_KP])
-    np.testing.assert_allclose(model.actuator_biasprm[:, 2], [-v for v in _MJLAB_KD])
-
-
-@pytest.mark.slow
-def test_a2_joystick_init_step_runs_finite():
-    """End-to-end: init + steps must run (all A2 sensors/geoms resolve) with
-    finite obs/reward, proving the leg-only A2 asset satisfies the joystick
-    sensor contract on the hot path."""
-    _skip_if_no_mujoco()
-
-    env = _make_a2_env(num_envs=2)
-    state = env.init_state()
-    assert state.obs["obs"].shape == (2, 49)
-    assert state.obs["critic"].shape == (2, 52)
-    for _ in range(10):
-        state = env.step(np.zeros((2, 12), dtype=np.float64))
-    assert np.isfinite(state.reward).all()
-    assert np.isfinite(state.obs["obs"]).all()
-    assert np.isfinite(state.obs["critic"]).all()
-
-
-@pytest.mark.slow
-def test_a2_joystick_dr_on_constructs_and_steps_finite():
-    """With DR on (incl. base_link interval push, dof-armature and ground-friction
-    randomization), the env constructs and steps with finite obs/reward — proving
-    push_body_name resolves to a real body and the mass/COM/kp-kd/armature/friction
-    randomization path is sound.
-
-    A2JoystickDomainRandomizationProvider caches the dof-armature + geom-friction
-    baselines, so randomize_dof_armature / randomize_ground_friction are now ON.
-    randomize_body_mass stays off (base_body_mass baseline not cached). The
-    YAML-surface is covered by test_a2_joystick_domain_rand_fully_configured."""
-    _skip_if_no_mujoco()
-    from unilab.envs.locomotion.a2.joystick import A2JoystickDomainRandConfig
-
-    dr_on = A2JoystickDomainRandConfig(
-        randomize_base_mass=True,
-        added_mass_range=[0.0, 8.0],
-        randomize_body_mass=False,  # provider does not cache base_body_mass
-        random_com=True,
-        com_offset_x=[-0.08, 0.08],
-        com_offset_y=[-0.08, 0.08],
-        com_offset_z=[-0.08, 0.08],
-        randomize_ground_friction=True,
-        ground_friction_multiplier_range=_MJLAB_FRICTION_RANGE,
-        randomize_dof_armature=True,
-        dof_armature_multiplier_range=_MJLAB_ARMATURE_RANGE,
-        randomize_kp=True,
-        randomize_kd=True,
-        push_robots=True,
-        push_interval=400,
-        push_body_name="base_link",
-    )
-    env = _make_a2_env(num_envs=4, domain_rand=dr_on)
-
-    # DR fields are active on the constructed config.
-    assert env._cfg.domain_rand.push_robots is True
-    assert env._cfg.domain_rand.push_body_name == "base_link"
-    assert env._cfg.domain_rand.randomize_base_mass is True
-    assert env._cfg.domain_rand.randomize_dof_armature is True
-    assert env._cfg.domain_rand.randomize_ground_friction is True
-    assert list(env._cfg.domain_rand.com_offset_z) == [-0.08, 0.08]
-
-    state = env.init_state()
-    assert state.obs["obs"].shape == (4, 49)
-    # 10 steps exercises reset-time DR (mass/friction/COM/armature/kp-kd) + stepping.
-    for _ in range(10):
-        state = env.step(np.zeros((4, 12), dtype=np.float64))
-    assert np.isfinite(state.reward).all()
-    assert np.isfinite(state.obs["obs"]).all()
-    assert np.isfinite(state.obs["critic"]).all()
-
-
-def test_a2_joystick_domain_rand_fully_configured():
-    """Owner YAML enables DR switches supported by A2JoystickDomainRandomizationProvider,
-    with mjlab-referenced ranges, 3-axis COM, base_link push target, and the
-    500-iteration budget.
-
-    randomize_dof_armature + randomize_ground_friction are ON: the A2 provider caches
-    their baselines (dof_armature, geom_friction + floor geom id). randomize_body_mass
-    stays OFF (base_body_mass not cached); gravity OFF (constant on flat ground)."""
-    from hydra import compose, initialize
-
-    with initialize(config_path="../../../../conf/ppo", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=["task=a2_joystick_flat/mujoco"])
-
-    dr = cfg.env.domain_rand
-    assert dr.randomize_base_mass is True
-    assert dr.randomize_body_mass is False  # provider does not cache base_body_mass
-    assert dr.random_com is True
-    assert dr.randomize_gravity is False
-    assert dr.randomize_ground_friction is True
-    assert dr.randomize_dof_armature is True
-    assert dr.randomize_kp is True
-    assert dr.randomize_kd is True
-    assert dr.push_robots is True
-    # 3-axis COM present + A2-scale value
-    assert list(dr.com_offset_x) == [-0.08, 0.08]
-    assert list(dr.com_offset_y) == [-0.08, 0.08]
-    assert list(dr.com_offset_z) == [-0.08, 0.08]
-    # mjlab-referenced ranges + push target
-    assert list(dr.added_mass_range) == [0.0, 8.0]
-    assert list(dr.ground_friction_multiplier_range) == _MJLAB_FRICTION_RANGE
-    assert list(dr.dof_armature_multiplier_range) == _MJLAB_ARMATURE_RANGE
-    assert dr.push_interval == 400
-    assert dr.push_body_name == "base_link"
-    # bumped budget
-    assert cfg.algo.max_iterations == 500
-
-
-# ── zero-command standstill (A2-owned) ───────────────────────────────
-
-
-def test_a2_reward_config_declares_command_threshold():
-    import dataclasses
-
-    from unilab.envs.locomotion.a2.joystick import A2RewardConfig
-
-    names = {f.name for f in dataclasses.fields(A2RewardConfig)}
-    assert "command_threshold" in names
-    assert {"scales", "tracking_sigma", "base_height_target"} <= names
-
-
-def test_a2_cfg_reward_config_annotation_is_a2_type():
-    from typing import get_type_hints
-
-    from unilab.envs.locomotion.a2.joystick import A2JoystickCfg, A2RewardConfig
-
-    hints = get_type_hints(A2JoystickCfg)
-    assert A2RewardConfig in getattr(hints["reward_config"], "__args__", (hints["reward_config"],))
-
-
-def _a2_ctx(commands, dof_pos=None):
-    from unilab.envs.locomotion.common.rewards import RewardContext
-
-    n = commands.shape[0]
-    return RewardContext(
-        info={"commands": commands},
-        linvel=np.zeros((n, 3)),
-        gyro=np.zeros((n, 3)),
-        dof_pos=np.zeros((n, 12)) if dof_pos is None else dof_pos,
-        num_envs=n,
-        default_angles=np.zeros(12),
-        tracking_sigma=0.25,
-        base_height_target=0.4,
-        base_height=np.zeros(n),
-    )
-
-
-def test_a2_advance_phase_freezes_standing_envs():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
-
-    stub = SimpleNamespace(
-        _cfg=SimpleNamespace(ctrl_dt=0.02),
-        gait_frequency=2.0,
-        _reward_cfg=SimpleNamespace(command_threshold=0.1),
-        _latest_commands=np.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]),
-    )
-    phase = np.array([0.3, 0.3])
-    out = A2JoystickFlatEnv._advance_phase(stub, phase)
-    assert out[0] == 0.3
-    assert out[1] > 0.3
-
-
-def test_a2_hip_deviation_l1_over_hip_indices():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
-
-    dof_pos = np.zeros((1, 12))
-    dof_pos[0, [0, 3, 6, 9]] = [0.1, -0.2, 0.3, -0.4]
-    stub = SimpleNamespace(default_angles=np.zeros(12))
-    out = A2JoystickFlatEnv._reward_hip_deviation(stub, _a2_ctx(np.zeros((1, 3)), dof_pos=dof_pos))
-    assert np.isclose(out[0], 1.0)
-
-
-def test_a2_stand_feet_air_counts_lifted_feet_when_standing():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
-
-    stub = SimpleNamespace(
-        _reward_cfg=SimpleNamespace(command_threshold=0.1),
-        feet_force=np.zeros((1, 4, 3)),
-    )
-    out = A2JoystickFlatEnv._reward_stand_feet_air(stub, _a2_ctx(np.zeros((1, 3))))
-    assert out[0] == 4.0
-
-
-def test_a2_stand_feet_air_inactive_during_locomotion():
-    from unilab.envs.locomotion.a2.joystick import A2JoystickFlatEnv
-
-    stub = SimpleNamespace(
-        _reward_cfg=SimpleNamespace(command_threshold=0.1),
-        feet_force=np.zeros((1, 4, 3)),
-    )
-    out = A2JoystickFlatEnv._reward_stand_feet_air(stub, _a2_ctx(np.array([[0.5, 0.0, 0.0]])))
-    assert out[0] == 0.0
+        obs, info = env.reset(seed=7)
+        assert {name: value.shape for name, value in obs.items()} == {
+            "obs": (2, 49),
+            "critic": (2, 52),
+        }
+        assert isinstance(info, dict)
+        np.testing.assert_allclose(
+            env.scene["robot"].data.default_joint_pos,
+            np.broadcast_to(_HOME_JOINT_POS, (2, 12)),
+        )
+        for _ in range(10):
+            state = env.step(np.zeros((2, 12), dtype=np.float32))
+        assert state.reward.shape == (2,)
+        for value in (*state.obs.values(), state.reward):
+            assert isinstance(value, np.ndarray)
+            assert np.isfinite(value).all()
+    finally:
+        env.close()

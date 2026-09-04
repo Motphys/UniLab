@@ -1,0 +1,118 @@
+# @package _global_
+# Motrix owner: inherits the shared 23-DoF flat Manager-Based contract from
+# base.yaml, then overrides contract fields for Motrix-specific tuning
+# (intentionally non-transferable from MuJoCo; drop overrides to restore parity).
+defaults:
+  - /task/g1_23dof_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1Walk23DofFlat
+  sim_backend: motrix
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  empirical_normalization: true
+  obs_groups:
+    actor:
+      - policy
+    critic:
+      - critic
+  policy:
+    init_noise_std: 0.5
+  algorithm:
+    learning_rate: 3.0e-4
+    entropy_coef: 5.0e-3
+env:
+  actions:
+    joint_pos:
+      scale: 0.5
+  commands:
+    twist:
+      ranges:
+        lin_vel_x: [0.4, 0.7]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [0.0, 0.0]
+  events:
+    # Legacy Motrix owners disable kp/kd randomization.
+    pd_gains: null
+    reset_root_state_uniform:
+      params:
+        velocity_range:
+          x: [-0.05, 0.05]
+          y: [-0.05, 0.05]
+          z: [-0.05, 0.05]
+          roll: [-0.05, 0.05]
+          pitch: [-0.05, 0.05]
+          yaw: [-0.05, 0.05]
+  terminations:
+    tilt:
+      params:
+        max_tilt_deg: 35.0
+    base_height:
+      params:
+        minimum_height: 0.5
+reward:
+  tracking_ang_vel:
+    weight: 0.25
+  forward_progress:
+    func: unilab.tasks.locomotion.g1.manager_terms.forward_progress
+    weight: 0.0
+    params:
+      command_name: twist
+  under_speed:
+    func: unilab.tasks.locomotion.g1.manager_terms.under_speed
+    weight: -0.2
+    params:
+      command_name: twist
+  upper_body_pose:
+    func: unilab.tasks.locomotion.g1.manager_terms.upper_body_pose
+    weight: -0.05
+    params:
+      pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+  penalty_feet_ori:
+    func: unilab.tasks.locomotion.g1.manager_terms.penalty_feet_ori
+    weight: 0.0
+  feet_phase:
+    weight: 1.2
+    params:
+      min_forward_speed: 0.05
+  feet_phase_contrast:
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_phase_contrast
+    weight: 1.5
+    params:
+      frequency: 1.5
+      swing_height: 0.09
+      tracking_sigma: 0.008
+      min_forward_speed: 0.05
+      command_name: twist
+  feet_phase_contact:
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_phase_contact
+    weight: 1.0
+    params:
+      frequency: 1.5
+      swing_height: 0.09
+      tracking_sigma: 0.008
+      min_forward_speed: 0.05
+      command_name: twist
+  feet_double_stance:
+    func: unilab.tasks.locomotion.g1.manager_terms.feet_double_stance
+    weight: -1.0
+    params:
+      frequency: 1.5
+      swing_height: 0.09
+      tracking_sigma: 0.008
+      min_forward_speed: 0.05
+      command_name: twist
+  ang_vel_xy:
+    weight: -0.2
+  base_height:
+    weight: -120.0
+    params:
+      target_height: 0.765
+  orientation:
+    weight: -2.5
+  action_rate:
+    weight: -0.005
+  pose:
+    weight: -0.05

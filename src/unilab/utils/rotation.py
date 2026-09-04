@@ -64,11 +64,11 @@ def np_quat_mul_batched(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
 
 
 def np_quat_conjugate(q: np.ndarray) -> np.ndarray:
-    """Conjugate of unit quaternions (N, 4) or (4,), w-first."""
+    """Conjugate of unit quaternions (..., 4), w-first."""
     if q.ndim == 1:
         return np.array([q[0], -q[1], -q[2], -q[3]])
     conj = q.copy()
-    conj[:, 1:] *= -1
+    conj[..., 1:] *= -1
     return conj  # type: ignore[no-any-return]
 
 
@@ -117,6 +117,23 @@ def np_quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
     )
     axis_angle: np.ndarray = xyz / sin_half_over_angle
     return axis_angle
+
+
+def np_quat_from_angle_axis(angle: np.ndarray, axis: np.ndarray) -> np.ndarray:
+    """Convert axis-angle pairs to unit quaternions (N, 4), w-first.
+
+    ``angle`` has shape (N,) and ``axis`` has shape (N, 3); axes are normalized
+    internally. Inverse of :func:`np_quat_to_axis_angle`.
+    """
+    angle = np.atleast_1d(np.asarray(angle))
+    axis = np.atleast_2d(np.asarray(axis))
+    if axis.shape[-1] != 3 or angle.shape[0] != axis.shape[0]:
+        raise ValueError(f"Expected angle (N,) and axis (N, 3), got {angle.shape} and {axis.shape}")
+    axis = axis / np.linalg.norm(axis, axis=-1, keepdims=True)
+    half = 0.5 * angle
+    w = np.cos(half)
+    xyz = axis * np.sin(half)[:, None]
+    return np.concatenate([w[:, None], xyz], axis=1)
 
 
 def np_quat_angular_velocity(q: np.ndarray, dt: float) -> np.ndarray:
@@ -256,6 +273,15 @@ def np_quat_apply_batched(q: np.ndarray, v: np.ndarray) -> np.ndarray:
 def np_quat_apply_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
     """Rotate vector(s) by inverse quaternion(s)."""
     return np_quat_apply(np_quat_inv(q), v)
+
+
+def np_quat_apply_inverse_batched(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate broadcast-compatible vector arrays by inverse quaternions.
+
+    ``q`` has shape (..., 4), ``v`` has shape (..., 3), and leading dimensions
+    are broadcast. Batched counterpart of ``np_quat_apply_inverse``.
+    """
+    return np_quat_apply_batched(np_quat_conjugate(q), v)
 
 
 def np_quat_error_magnitude(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:

@@ -1,7 +1,7 @@
 # APPO
 
-APPO 是 UniLab 的异步 PPO 路径。它使用 `scripts/train_appo.py`、
-`conf/appo/config.yaml` 以及 `src/unilab/algos/torch/appo/` 下的运行时。该配置暴露
+APPO 是 UniLab 的异步 PPO 路径。它使用 `src/unilab/scripts/train_appo.py`、
+`src/unilab/conf/appo/config.yaml` 以及 `uni_rl.algos.appo` (unilab-rl repo) 下的运行时。该配置暴露
 了 `algo.steps_per_env`、`training.collector_device` 和
 `training.replay_queue_size`；算法配置中包含 V-trace 裁剪字段。
 
@@ -70,5 +70,5 @@ gantt
 - `training.collector_device`：collector 设备；默认跟随 learner。
 - `algo.save_interval`：checkpoint 保存间隔。
 
-默认日志根目录为 `logs/appo/<task>/`，来自 `conf/appo/config.yaml` 中的
+默认日志根目录为 `logs/appo/<task>/`，来自 `src/unilab/conf/appo/config.yaml` 中的
 `algo.algo_log_name=appo`。

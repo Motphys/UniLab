@@ -19,8 +19,13 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from unilab.base.backend import materialize_scene_visual_override
-from unilab.training import BackendAdapter, create_env, ensure_registries
+from unisim.backend.mujoco.xml import materialize_scene_visual_override
+
+from unilab.base.config_adapter import (
+    BackendAdapter,
+    create_env,
+)
+from unilab.training import ensure_registries
 
 
 def _coerce_str_list(value: Any, *, name: str) -> list[str]:
@@ -229,7 +234,7 @@ def _run_one_case(
         env.close()
 
 
-@hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
+@hydra.main(version_base="1.3", config_path="../../src/unilab/conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     ensure_registries()
     if str(cfg.training.sim_backend) != "mujoco":

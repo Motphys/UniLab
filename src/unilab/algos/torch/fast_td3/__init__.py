@@ -1,1 +1,0 @@
-# FastTD3 algorithm

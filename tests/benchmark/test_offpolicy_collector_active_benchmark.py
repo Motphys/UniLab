@@ -98,6 +98,16 @@ def test_all_backend_selection_expands_default_cases() -> None:
     assert "flashsac/g1_walk_flat/motrix" in specs
 
 
+def test_mjwarp_backend_is_opt_in_and_never_part_of_all() -> None:
+    # --all stays on the default backends; mjwarp must be requested explicitly.
+    assert "mjwarp" not in bench._resolve_backend_selection(backend="mujoco", all_backends=True)
+    if bench.find_spec("mujoco_warp") is None or bench.find_spec("warp") is None:
+        with pytest.raises(SystemExit, match="mjwarp extra"):
+            bench._resolve_backend_selection(backend="mjwarp", all_backends=False)
+    else:
+        assert bench._resolve_backend_selection(backend="mjwarp", all_backends=False) == ("mjwarp",)
+
+
 def test_resolve_case_specs_deduplicates_explicit_specs() -> None:
     specs = bench._resolve_case_specs(
         "sac/g1_walk_flat/mujoco,sac/g1_walk_flat/mujoco,td3/g1_walk_flat/mujoco",
@@ -135,20 +145,15 @@ def test_auto_discovery_supports_motrixsim_alias() -> None:
 
 
 def test_noise_seed_override_composes_for_target_g1_profiles() -> None:
-    for spec in (
-        ("sac", "g1_motion_tracking", "mujoco"),
-        ("sac", "g1_walk_flat", "mujoco"),
-        ("sac", "g1_walk_flat", "motrix"),
-        ("flashsac", "g1_walk_flat", "mujoco"),
-        ("flashsac", "g1_walk_flat", "motrix"),
-        ("td3", "g1_walk_flat", "mujoco"),
-    ):
+    # Manager-Based owners seed their NumPy runtime directly rather than
+    # carrying the legacy observation-noise config.
+    for spec in (("sac", "g1_motion_tracking", "mujoco"),):
         cfg = bench._compose_offpolicy_cfg(
             *spec,
-            extra_overrides=["env.noise_config.seed=123"],
+            extra_overrides=["env.seed=123"],
         )
 
-        assert cfg.env.noise_config.seed == 123
+        assert cfg.env.seed == 123
 
 
 def test_stats_reports_distribution() -> None:
@@ -261,6 +266,7 @@ def test_write_csv_includes_all_phase_columns(tmp_path) -> None:
     assert "env_step_overhead_ms" in header
     assert "physics_pct" in header
     assert "env_step_overhead_pct" in header
+    assert "mba_" not in header
     for key in bench.COLLECTOR_PHASES:
         assert key in header
 
@@ -290,6 +296,9 @@ def test_write_csv_includes_backend_set_state_sub_timing_columns(tmp_path) -> No
         "set_state_qpos_convert_ms",
         "set_state_pool_reset_ms",
         "set_state_state_scatter_ms",
+        "set_state_reset_upload_ms",
+        "set_state_reset_forward_ms",
+        "set_state_host_cache_refresh_ms",
         "set_state_internal_gap_ms",
     )
     for key in expected_keys:
@@ -344,3 +353,30 @@ def test_format_set_state_mujoco_table_covers_mujoco_only_keys() -> None:
     assert "State scatter" in table
     assert "4.000 (80.0%)" in table
     assert "0.750 (15.0%)" in table
+
+
+def test_format_set_state_mjwarp_table_covers_mjwarp_only_keys() -> None:
+    """The mjwarp keyset table exposes reset_upload / forward / host_cache_refresh."""
+    result = _make_result(
+        runtime_sim_backend="mjwarp",
+        num_envs=2,
+        throughput=2000.0,
+        include_env_step_breakdown=True,
+    )
+    result.env_step_timing_ms_per_vector_step["dr_reset_set_state_ms"] = bench.TimingStats(
+        [8.0], 8.0, 8.0, 0.0, 8.0, 8.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_reset_upload_ms"] = bench.TimingStats(
+        [4.0], 4.0, 4.0, 0.0, 4.0, 4.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_host_cache_refresh_ms"] = (
+        bench.TimingStats([2.0], 2.0, 2.0, 0.0, 2.0, 2.0)
+    )
+
+    table = bench._format_set_state_mjwarp_table([result])
+
+    assert "Reset upload" in table
+    assert "Reset forward" in table
+    assert "Host cache refresh" in table
+    assert "4.000 (50.0%)" in table
+    assert "2.000 (25.0%)" in table

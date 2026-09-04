@@ -1,32 +1,16 @@
-# `unilab.ipc` — Shared-Memory Runtime
+# Shared-Memory Runtime — moved to `uni_rl`
 
-The bridge between CPU simulation workers and the GPU learner. Everything
-here is a building block of the **async runner** that powers APPO / FastSAC
-/ FastTD3 / FlashSAC.
+The async IPC layer moved out of the `unilab` package into the independently
+released **uni_rl** package (issue #1480): `uni_rl.ipc` hosts the async
+runner, shared-memory buffers, replay pipelines, inference slot, DP launcher /
+sync, and weight sync.
 
 | Submodule | Role |
 |---|---|
-| `async_runner` | The high-level orchestration loop |
-| `shared_buffer` | NumPy-backed shared-memory ring/buffer |
-| `rollout_ring_buffer` | Rollout window used by on-policy collectors |
-| `replay_buffer` | Bounded shared ingress for off-policy transitions |
-| `replay_pipelines.*` | Authoritative CUDA/MPS replay ring, device gather, and native H2D |
-| `inference_slot` | Fixed shared observation/action slot for learner-owned off-policy inference |
-| `weight_sync` | Push learner weights to on-policy collector workers |
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-   :template: autosummary/module.rst
-   :recursive:
-
-   unilab.ipc
-```
-
-## Async runner
-
-```{eval-rst}
-.. automodule:: unilab.ipc.async_runner
-   :members:
-   :show-inheritance:
-```
+| `uni_rl.ipc.async_runner` | The high-level orchestration loop |
+| `uni_rl.ipc.shared_buffer` | NumPy-backed shared-memory ring/buffer |
+| `uni_rl.ipc.rollout_ring_buffer` | Rollout window used by on-policy collectors |
+| `uni_rl.ipc.replay_buffer` | Bounded shared ingress for off-policy transitions |
+| `uni_rl.ipc.replay_pipelines.*` | Authoritative CUDA/MPS replay ring, device gather, and native H2D |
+| `uni_rl.ipc.inference_slot` | Fixed shared observation/action slot for learner-owned off-policy inference |
+| `uni_rl.ipc.weight_sync` | Push learner weights to on-policy collector workers |

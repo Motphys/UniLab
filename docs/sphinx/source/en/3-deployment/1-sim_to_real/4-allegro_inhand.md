@@ -60,17 +60,19 @@ that samples plausible initial hand configurations. The hardware-side
 equivalent is the operator placing the cube in the hand — verify your
 distribution of starting configurations matches the trained env's grasp
 generator output (see
-`unilab.envs.manipulation.allegro_inhand.grasp_gen`).
+`unilab.tasks.manipulation.allegro_inhand.grasp_gen`).
 
 If your real-world starting grip differs systematically, **add those poses
 to the grasp generator**, retrain, and try again.
 
 ## Action interface
 
-The manipulation envs map policy actions to joint position targets through the
-task control config (`src/unilab/envs/manipulation/allegro_inhand/base.py` and
-`src/unilab/envs/manipulation/sharpa_inhand/base.py`). The deploy controller
-must use the same joint order, action scale, and limit policy.
+The manipulation envs map policy actions to joint position targets through their
+task control config. Allegro owns this declaration in
+`src/unilab/conf/ppo/task/allegro_inhand/base.yaml` and its Manager-Based action term;
+Sharpa currently owns it in `src/unilab/tasks/manipulation/sharpa_inhand/base.py`.
+The deploy controller must use the same joint order, action scale, and limit
+policy.
 
 ## Failure recovery
 

@@ -82,45 +82,71 @@ Alternatively, pre-download into the in-repo directory with `--local-dir`
 
 3. Reference the new file path in the env config.
 
-## Robot Mesh Assets
+## Robot Binary Assets
 
-Robot binary meshes (`.STL`) are externalized the same way, on the Hugging Face
-dataset repo
+Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
+externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
-X2 meshes download lazily on first use and land under their original path
-`src/unilab/assets/robots/x2/meshes/`, so the XML `meshdir` references resolve
-unchanged. Pre-fetch them without running a task:
+The registered robots are a2, allegro_hand, g1, go2, go2_arm,
+sharpa_wave, and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
+Their mesh/texture directories download lazily on first use and land under
+their original paths (for example `src/unilab/assets/robots/g1/assets/` and
+`robots/g1/textures/` for G1), so the original relative XML paths remain
+valid. These directories are excluded from the wheel/sdist via
+`tool.uv.build-backend.source-exclude` in `pyproject.toml`; after a pip
+install, first use downloads them into the installed package tree, and later
+runs reuse that local copy offline. Pre-fetch them without running a task:
 
 ```bash
+uv run unilab-pull-assets --robot g1
 uv run unilab-pull-assets --robot x2
+uv run unilab-pull-assets --robot all   # every registered robot
 ```
 
-To add a new robot's meshes:
+To add a new robot's binary assets:
 
-1. Upload to the HF repo, keeping the directory layout identical:
+1. Upload each directory to the HF repo while keeping the directory layout
+   identical. A robot with multiple asset directories requires one upload per
+   directory. For example, G1 uses:
 
    ```bash
-   huggingface-cli upload unilabsim/unilab-robots \
-     src/unilab/assets/robots/<robot>/meshes robots/<robot>/meshes \
+   uv run hf upload unilabsim/unilab-robots \
+     src/unilab/assets/robots/g1/assets robots/g1/assets \
+     --repo-type dataset
+   uv run hf upload unilabsim/unilab-robots \
+     src/unilab/assets/robots/g1/textures robots/g1/textures \
      --repo-type dataset
    ```
 
-2. Ignore the local `*.STL` in `.gitignore` (keep a `.gitkeep` so the directory
-   persists).
-3. Resolve the directory once on a cold path from the env, e.g.
-   `resolve_robot_asset_dir("robots/<robot>/meshes", marker="<some>.STL")`.
+2. Ignore the downloaded directory contents in `.gitignore`, exclude the
+   directory in
+   `tool.uv.build-backend.source-exclude`, and register it in
+   `ROBOT_ASSET_SPECS`.
+3. Scenes built through `create_backend` are then covered automatically:
+   `ensure_robot_assets_for_paths` resolves the registered directories on a
+   cold path before any backend parses the XML. Entry points that bypass
+   `create_backend` resolve explicitly, e.g. the X2 task factory calls:
+
+   ```python
+   resolve_robot_asset_dir("robots/x2/meshes", marker="pelvis.STL")
+   ```
 
 ## Architecture Notes
 
 - Asset resolver module: `src/unilab/assets/hub.py`
   (`resolve_motion_files`).
-- Single integration point: `MotionLoader.__init__` in
-  `src/unilab/envs/motion_tracking/g1/motion_loader.py`, which calls the
+- Motion integration point: `MotionLoader.__init__` in
+  `src/unilab/tasks/motion_tracking/common/motion_loader.py`, which calls the
   resolver once on a cold path.
+- Robot mesh integration point: `create_backend` in
+  `src/unilab/base/backend_factory.py` calls
+  `ensure_robot_assets_for_paths` on the scene's `model_file`,
+  `visual_model_file`, and `fragment_files` before dispatching to a backend.
 - Hot paths (`step` / `reset`) never trigger any file download or parsing.
 - `ASSETS_ROOT_PATH` is unchanged, so the download target matches the
   original local path exactly.
-- Robot meshes use the same directory resolver (`resolve_robot_asset_dir`),
-  integrated at `X2WallFlipTrackingEnv.__init__` in
-  `src/unilab/envs/motion_tracking/x2/flip_tracking.py`, and exposed as the
-  `unilab-pull-assets` CLI.
+- Robot binary assets use the same directory resolver
+  (`resolve_robot_asset_dir`). The
+  thin X2 task factory resolves its directory once
+  before delegating to the shared manager environment factory. The resolver is
+  also exposed through the `unilab-pull-assets` CLI.

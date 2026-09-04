@@ -25,7 +25,7 @@ task/reward/env 语义。
 如果只有 URDF，使用仓库自带脚本进行转换：
 
 ```bash
-uv run unilab-import-robot <urdf_path> [robot_name]
+uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
 ```
 
 ```{important}
@@ -36,7 +36,7 @@ visual mesh 作为 collision mesh，尽量把碰撞体简化为 box / capsule / 
 
 - 默认自动导入会把 actuator 写成 `position`，这只适合位置控制 owner。
   - 如果机器人必须保留 torque/motor actuator 语义，后续扩展任务时，需要参考
-    `src/unilab/envs/locomotion/go2w/` 的控制方式，把 action 解释、PD/力矩控制和
+    `src/unilab/tasks/locomotion/go2w/` 的控制方式，把 action 解释、PD/力矩控制和
     actuator contract 放在机器人 owner 的控制边界内。
 - 转换完成后，会自动弹出 `mujoco.viewer` 可视化界面展示转换结果，并进行下一步调整
   Keyframe。
@@ -58,7 +58,7 @@ visual mesh 作为 collision mesh，尽量把碰撞体简化为 box / capsule / 
 
 ## 输出产物
 
-使用 `uv run unilab-import-robot <urdf_path> [robot_name]` 转换后，会在仓库内生成：
+使用 `uv run scripts/tools/import_robot.py <urdf_path> [robot_name]` 转换后，会在仓库内生成：
 
 - `src/unilab/assets/robots/<robot_name>/assets/`：转换并整理后的 mesh 资产。
 - `src/unilab/assets/robots/<robot_name>/<robot_name>.xml`：机器人 MJCF 描述，只包含机器人

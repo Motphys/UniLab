@@ -1,30 +1,23 @@
-"""G1MotionTrackingSAC (SAC/mujoco) update_state / reset_done workload.
+"""G1MotionTrackingSAC (SAC/MuJoCo) numeric manager workload.
 
-Faithful xp-port of the NumPy computation in the collector-timed sections of
+Synthetic xp-port of the NumPy kernels in the collector-timed sections of
 `uv run train --algo sac --task g1_motion_tracking --sim mujoco`
 (num_envs=2048, 29-dof, 14 tracked bodies):
 
-- `MotionTrackingEnv.update_state`
-  (src/unilab/envs/motion_tracking/common/tracking.py):
-  motion gather, relative transforms (transforms.py), terminations
-  (terminations.py), 9 active reward terms (rewards.py, incl. per-term logging
-  every 4 steps), observation build (observations.py, actor 160 / critic 289
-  with the SAC +3 linvel tail), adaptive motion-sampler bookkeeping
-  (motion_loader.py).
-- `MotionTrackingDomainRandomizationProvider.build_reset_plan` /
-  `build_reset_observation` + `build_motion_reference_state` (reset.py).
-- `NpEnv._reset_done_envs` scatter/gather.
+- `MotionCommand` gather, relative transforms, termination/reward terms,
+  observation-group assembly (actor 160 / critic 289), and adaptive sampler
+  bookkeeping from the Manager-Based motion runtime.
+- Motion-command reset-state construction and `NpEnv._reset_done_envs`
+  scatter/gather.
 
 Excluded (identical across variants, not NumPy/Torch env math):
 `backend.step` physics, `backend.set_state`, sensor/body-state reads (replaced
 by persistent arrays), and the adaptive-sampler entropy metrics (3 scalar
 reductions per reset).
 
-The real `build_motion_reference_state` samples pose/velocity randomization
-with a per-element Python loop (num_reset x 6 draws, twice). The NumPy
-workload reproduces that faithfully; pass ``vectorized_reset_rng=True`` for a
-column-wise vectorized NumPy draw (used for cross-backend RNG replay during
-validation, which is also the only mode Torch implements).
+Pass ``vectorized_reset_rng=True`` for a column-wise vectorized NumPy draw;
+validation uses that mode for cross-backend RNG replay, and Torch implements
+that mode only.
 """
 
 from __future__ import annotations

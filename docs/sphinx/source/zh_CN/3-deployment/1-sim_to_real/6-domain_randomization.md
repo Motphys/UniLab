@@ -43,7 +43,7 @@
 使用 DR 的任务通过环境初始化路径挂接一个 provider：
 
 ```python
-from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
+from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
 
 class MyTaskEnv(NpEnv):
     def __init__(self, cfg):
@@ -57,12 +57,12 @@ class MyTaskEnv(NpEnv):
 ## 配方：起始范围
 
 把所选的 owner YAML 作为权威来源。例如，
-`conf/ppo/task/go2_joystick_rough/mujoco.yaml` 启用了基座质量、质心、kp/kd 以及推力
-随机化；`conf/ppo/task/sharpa_inhand/mujoco.yaml` 配置了 PD 增益、摩擦、质心、质量、
+`src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml` 启用了基座质量、质心、kp/kd 以及推力
+随机化；`src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml` 配置了 PD 增益、摩擦、质心、质量、
 关节噪声与接触噪声字段。
 
 ```yaml
-# conf/ppo/task/go2_joystick_rough/mujoco.yaml
+# src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml
 env:
   domain_rand:
     randomize_base_mass: true

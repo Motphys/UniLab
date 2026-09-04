@@ -1,0 +1,146 @@
+defaults:
+  - _self_
+  - task: g1_walk_flat/mujoco
+
+algo:
+  algo: sac
+  algo_log_name: fast_sac
+  runtime_impl: null
+  runtime_resolver: null
+  load_run: "-1"
+  seed: 1
+  num_envs: 4096
+  # Learner batch size for one SAC update.
+  batch_size: 8192
+  replay_buffer_n: 512
+  updates_per_step: 4
+  learning_starts: 1
+  policy_frequency: 4
+  max_iterations: 500
+  save_interval: 500
+  gamma: 0.97
+  tau: 0.125
+  actor_lr: 3.0e-4
+  critic_lr: 3.0e-4
+  actor_hidden_dim: 512
+  critic_hidden_dim: 768
+  num_atoms: 101
+  obs_normalization: false
+  use_layer_norm: true
+  actor: {}
+  algo_params:
+    alpha_lr: 3.0e-4
+    alpha_init: 0.01
+    target_entropy_ratio: 0.0
+    max_grad_norm: 0.0
+    amp_dtype: auto
+    use_compile: true
+    use_cuda_graph_critic: false
+    use_cuda_graph_actor: false
+    use_cuda_graph_critic_packed_staging: false
+    use_cuda_graph_actor_packed_staging: false
+
+training:
+  task_name: G1WalkFlat
+  # list[int] | null; null/[] = auto-selected single-device behavior;
+  # [d0] = explicit single CUDA device; [d0..dN-1] = N-way data parallel,
+  # rank i trains on cuda:devices[i].
+  devices: null
+  # list[list[int]] | null; one CPU-id segment per rank for the collector's
+  # MuJoCo pool; null = auto partition of cpu_count // world_size per rank.
+  dp_collector_cpu_ids: null
+  logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
+  sim_backend: mujoco
+  nan_guard:
+    enabled: true
+    buffer_size: 100
+    max_envs_to_dump: 5
+    output_dir: null
+  use_amp: true
+  play_only: false
+  no_play: false
+  sim2sim_strict: true
+  play_render_mode: auto
+  export_onnx: true
+  play_env_num: 16
+  play_steps: 800
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  log_root: null
+  log_dir: null
+  env_steps_per_sync: 1
+  # Seconds the learner waits for each collector inference tick before
+  # failing. Tick 0 includes collector env construction, whose cost is
+  # backend-owned; slow-start backends raise this in their task owner YAML.
+  inference_request_timeout_sec: 30.0
+  trace_enabled: false
+  trace_output_dir: null
+  trace_thread_time: false
+  trace_cuda_events: true
+  nvtx_profile_ranges: false
+  replay_prefetch_mode: one_tick
+  torch_threads:
+    enabled: true
+    # "auto" resolves per process role from host CPU count with conservative caps.
+    # Override these from Hydra when benchmarking a specific machine.
+    learner_num_threads: auto
+    collector_num_threads: auto
+    learner_num_interop_threads: 1
+    collector_num_interop_threads: 1
+    compile_threads: auto
+    set_env_vars: true
+
+interactive:
+  action_mode: zero
+  policy_obs_mode: auto
+  show_target_bodies: false
+  show_reward_debug: false
+  target_show_axes: false
+  target_body_names: ""
+  target_max_bodies: 0
+  target_marker_radius: 0.02
+  target_axis_length: 0.08
+  target_marker_alpha: 0.75
+  reward_debug_show_velocity: false
+  reward_debug_lin_vel_scale: 0.08
+  reward_debug_ang_vel_scale: 0.05
+  reward_debug_show_connectors: false
+  reward_debug_show_global_anchor: false
+  camera_follow_body: true
+  camera_focus_body_name: ""
+  camera_height_offset: 0.15
+  camera_distance: null
+  camera_elevation: null
+  camera_azimuth: null
+  use_env_visual_model: true
+  speed: 1.0
+  start_paused: false
+  keyboard: false
+  keyboard_step_lin: 0.1
+  keyboard_step_ang: 0.2
+
+env:
+  post_step_forward_sensor: false
+  # adaptive_chunk_size: auto-tune the MuJoCo BatchEnvPool chunk_size at materialize
+  # (cache-backed). chunk_size (int) manually overrides and wins; null => use default.
+  adaptive_chunk_size: true
+  chunk_size: null
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

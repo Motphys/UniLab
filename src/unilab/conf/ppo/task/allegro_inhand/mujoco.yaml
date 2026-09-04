@@ -1,0 +1,40 @@
+# @package _global_
+defaults:
+  - /task/allegro_inhand/base
+  - _self_
+
+training:
+  task_name: AllegroInhandRotation
+  sim_backend: mujoco
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0]
+  cam_elevation: -20.0
+algo:
+  num_envs: 16384
+  num_steps_per_env: 8
+  max_iterations: 201
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims: [512, 256, 128]
+    activation: elu
+    obs_normalization: true
+  algorithm:
+    value_loss_coef: 4.0
+    desired_kl: 0.02
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
