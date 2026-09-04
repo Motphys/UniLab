@@ -29,12 +29,12 @@ for _p in _candidate_siblings:
 # produces a usable site for the prose pages. CI installs UniLab properly
 # and gets the full API reference.
 _UNILAB_AVAILABLE = False
-_UNILAB_VERSION = "0.1.0"
+_UNILAB_VERSION = "1.0.0"
 try:
     import unilab  # type: ignore
 
     _UNILAB_AVAILABLE = True
-    _UNILAB_VERSION = getattr(unilab, "__version__", "0.1.0")
+    _UNILAB_VERSION = getattr(unilab, "__version__", "1.0.0")
 except Exception as exc:  # pragma: no cover — diagnostic only
     warnings.warn(
         f"UniLab is not importable in this environment ({exc!r}); "
