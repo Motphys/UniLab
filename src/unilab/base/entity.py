@@ -1852,6 +1852,25 @@ class Entity:
             term_name=f"{self.name}.write_root_link_velocity_to_sim",
         )
 
+    def read_reset_root_pose(
+        self,
+        env_ids: np.ndarray | slice | None = None,
+    ) -> np.ndarray:
+        """Read the world position and wxyz root orientation staged in the reset.
+
+        Returns a detached ``(len(env_ids), 7)`` copy of the pose currently
+        staged in the active reset transaction (backend default for rows no
+        term has written yet), so a later reset term can build on an earlier
+        term's root placement.
+        """
+        reset_state, layout = self._require_root_state_write()
+        resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        return reset_state.read_root_pose(
+            resolved_env_ids,
+            layout,
+            term_name=f"{self.name}.read_reset_root_pose",
+        )
+
     def _require_root_state_write(
         self,
     ) -> tuple[ResetStateTransaction, BackendRootStateLayout]:
