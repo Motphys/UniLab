@@ -58,6 +58,7 @@ _EXTERNAL_ASSET_LOCOMOTION_TASKS = frozenset(
     {
         "MicroduckVelocityBamFlat",
         "MicroduckVelocityFlat",
+        "MicroduckVelstandFlat",
         "T800WalkFlat",
     }
 )
@@ -184,6 +185,13 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
                 "MicroDuck velocity task on the canonical NumPy Manager-Based runtime "
                 "(mujoco owner only; the substep state-feedback contract is unavailable "
                 "on mjwarp)."
+            )
+        if task_name == "MicroduckVelstandFlat":
+            scope = (
+                "Hydra owner YAML materializes the MicroDuck velstand task (walking + "
+                "fall recovery on the ground-contact BAM model) on the canonical NumPy "
+                "Manager-Based runtime (mujoco owner only; the substep state-feedback "
+                "contract is unavailable on mjwarp)."
             )
         return TaskMigrationRecord(
             task_name,
