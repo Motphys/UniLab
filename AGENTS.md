@@ -67,6 +67,7 @@ RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collec
 - uni_rl env factory 适配: `src/unilab/base/env_factory.py`
 - HORA APPO play 编排: `src/unilab/scripts/play_hora_appo.py`；HORA distill 配置组合: `src/unilab/training/hora_distill_config.py`
 - sim2sim 跨后端契约: `src/unilab/utils/sim2sim.py`
+- new algorithm recipe（三档扩展方式 + 约定式 CLI 路由 footprint）: `docs/sphinx/source/zh_CN/4-developer_guide/3-extending/3-new_algorithm.md`
 
 ## GitHub CLI (gh) 速查
 
