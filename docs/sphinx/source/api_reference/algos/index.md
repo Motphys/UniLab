@@ -2,7 +2,7 @@
 
 The RL algorithm layer moved out of the `unilab` package into the
 independently released **uni_rl** package (distribution name `unilab-rl`,
-consumed from TestPyPI during the split rollout; issue #1480):
+published on PyPI; issue #1480):
 
 - `uni_rl.algos.rsl_rl` / `uni_rl.algos.rsl_rl_ppo` / `uni_rl.algos.rsl_rl_runtime` — PPO (RSL-RL) integration
 - `uni_rl.algos.appo` — APPO runner, learner, staging, worker
