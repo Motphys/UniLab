@@ -351,7 +351,6 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
         "go2",
         "go2_arm",
         "go2w",
-        "microduck",
         "sharpa_wave",
         "x2",
     }

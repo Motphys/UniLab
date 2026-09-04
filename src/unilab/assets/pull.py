@@ -9,7 +9,6 @@ under ``src/unilab/assets/robots/<robot>/`` — no manual file moving needed.
 Usage:
   uv run unilab-pull-assets               # pull the default robot (x2)
   uv run unilab-pull-assets --robot g1
-  uv run unilab-pull-assets --robot microduck
   uv run unilab-pull-assets --robot all   # pull every registered robot
 """
 

@@ -28,9 +28,6 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
         ("G1WBTObs", "motion_tracking", "complete", "Compatible"),
         ("X2WallFlipTracking", "motion_tracking", "complete", "Compatible"),
         ("G1WalkRough", "g1_locomotion", "complete", "Compatible"),
-        ("MicroduckVelocityFlat", "microduck_locomotion", "complete", "Compatible"),
-        ("MicroduckGroundPickFlat", "microduck_locomotion", "mba", "Adapted"),
-        ("MicroduckSitStandFlat", "microduck_locomotion", "mba", "Adapted"),
         ("Go2JoystickRough", "quadruped_rough", "complete", "Compatible"),
     ],
 )

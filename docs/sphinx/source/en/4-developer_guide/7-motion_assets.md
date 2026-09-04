@@ -87,7 +87,7 @@ Alternatively, pre-download into the in-repo directory with `--local-dir`
 Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
 externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
-The registered robots are a2, allegro_hand, g1, go2, go2_arm, microduck,
+The registered robots are a2, allegro_hand, g1, go2, go2_arm,
 sharpa_wave, and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
 Their mesh/texture directories download lazily on first use and land under
 their original paths (for example `src/unilab/assets/robots/g1/assets/` and
@@ -118,18 +118,17 @@ To add a new robot's binary assets:
      --repo-type dataset
    ```
 
-2. Ignore the downloaded directory contents in `.gitignore` (robots whose
-   entire directory is HF-hosted ignore the whole directory; the older
-   microduck entry keeps a `.gitkeep`), exclude the directory in
+2. Ignore the downloaded directory contents in `.gitignore`, exclude the
+   directory in
    `tool.uv.build-backend.source-exclude`, and register it in
    `ROBOT_ASSET_SPECS`.
 3. Scenes built through `create_backend` are then covered automatically:
    `ensure_robot_assets_for_paths` resolves the registered directories on a
    cold path before any backend parses the XML. Entry points that bypass
-   `create_backend` resolve explicitly, e.g. the MicroDuck task factory calls:
+   `create_backend` resolve explicitly, e.g. the X2 task factory calls:
 
    ```python
-   resolve_robot_asset_dir("robots/microduck/assets", marker="trunk_base.stl")
+   resolve_robot_asset_dir("robots/x2/meshes", marker="pelvis.STL")
    ```
 
 ## Architecture Notes
@@ -148,6 +147,6 @@ To add a new robot's binary assets:
   original local path exactly.
 - Robot binary assets use the same directory resolver
   (`resolve_robot_asset_dir`). The
-  thin X2 and MicroDuck task factories resolve their directories once
+  thin X2 task factory resolves its directory once
   before delegating to the shared manager environment factory. The resolver is
   also exposed through the `unilab-pull-assets` CLI.

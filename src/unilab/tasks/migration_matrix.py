@@ -54,22 +54,6 @@ _G1_LOCOMOTION_TASKS = frozenset(
     }
 )
 
-_EXTERNAL_ASSET_LOCOMOTION_TASKS = frozenset(
-    {
-        "MicroduckVelocityBamFlat",
-        "MicroduckVelocityFlat",
-        "MicroduckVelstandFlat",
-        "MicroduckStandupFlat",
-    }
-)
-
-_MICRODUCK_MINIMAL_TASKS = frozenset(
-    {
-        "MicroduckGroundPickFlat",
-        "MicroduckSitStandFlat",
-    }
-)
-
 _CUSTOM_COMPAT_TASKS = frozenset(
     {
         "Go2ArmManipLoco",
@@ -113,8 +97,6 @@ PRODUCTION_TASK_NAMES = frozenset(
     _MBA_TASKS
     | _ROUGH_TASKS
     | _G1_LOCOMOTION_TASKS
-    | _EXTERNAL_ASSET_LOCOMOTION_TASKS
-    | _MICRODUCK_MINIMAL_TASKS
     | _CUSTOM_COMPAT_TASKS
     | _MOTION_CORE_TASKS
     | _MOTION_TASKS
@@ -160,53 +142,6 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "complete",
             "Hydra owners materialize biped gait, sensor, command, and penalty-curriculum manager terms on the canonical runtime.",
             "Keep the manager contract and regression evidence current.",
-        )
-    if task_name in _MICRODUCK_MINIMAL_TASKS:
-        return TaskMigrationRecord(
-            task_name,
-            "microduck_locomotion",
-            "Adapted",
-            "mba",
-            "Hydra owner YAML materializes the minimal Manager-Based command/term slice "
-            "needed to exercise the generic API; full legacy task parity is out of scope.",
-            "Keep unsupported legacy task families explicit and extend only through generic "
-            "manager terms and owner configuration.",
-        )
-    if task_name in _EXTERNAL_ASSET_LOCOMOTION_TASKS:
-        scope = (
-            "Hydra owner YAML materializes the canonical NumPy Manager-Based runtime."
-            if task_name == "MicroduckVelocityFlat"
-            else "Hydra owner YAML materializes the locomotion task on the canonical NumPy Manager-Based runtime."
-        )
-        if task_name == "MicroduckVelocityBamFlat":
-            scope = (
-                "Hydra owner YAML materializes the BAM voltage-actuator variant of the "
-                "MicroDuck velocity task on the canonical NumPy Manager-Based runtime "
-                "(mujoco owner only; the substep state-feedback contract is unavailable "
-                "on mjwarp)."
-            )
-        if task_name == "MicroduckVelstandFlat":
-            scope = (
-                "Hydra owner YAML materializes the MicroDuck velstand task (walking + "
-                "fall recovery on the ground-contact BAM model) on the canonical NumPy "
-                "Manager-Based runtime (mujoco owner only; the substep state-feedback "
-                "contract is unavailable on mjwarp)."
-            )
-        if task_name == "MicroduckStandupFlat":
-            scope = (
-                "Hydra owner YAML materializes the MicroDuck standup task (mixed "
-                "ground-state resets -> gentle rise -> body-pose tracking on the "
-                "ground-contact BAM model) on the canonical NumPy Manager-Based "
-                "runtime (mujoco owner only; the substep state-feedback contract "
-                "is unavailable on mjwarp)."
-            )
-        return TaskMigrationRecord(
-            task_name,
-            "microduck_locomotion",
-            "Compatible",
-            "complete",
-            scope,
-            "Keep the Manager-Based owner and cold-path asset resolver contract current.",
         )
     if task_name in _CUSTOM_COMPAT_TASKS:
         family = "go2_arm" if task_name == "Go2ArmManipLoco" else "sharpa"

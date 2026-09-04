@@ -16,29 +16,6 @@ def _populate(directory: Path, *, suffix: str, count: int) -> Path:
     return directory
 
 
-def test_pull_assets_microduck_keeps_single_stl_directory(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    target = _populate(tmp_path / "assets", suffix=".stl", count=47)
-    calls: list[tuple[str, str, bool]] = []
-
-    def fake_resolver(directory: str, *, marker: str, show_progress: bool) -> Path:
-        calls.append((directory, marker, show_progress))
-        return target
-
-    monkeypatch.setattr(pull_assets, "resolve_robot_asset_dir", fake_resolver)
-
-    assert pull_assets.main(["--robot", "microduck"]) == 0
-    assert calls == [("robots/microduck/assets", "trunk_base.stl", False)]
-    output = capsys.readouterr().out
-    assert "47 STL files" in output
-    lines = output.strip().splitlines()
-    assert lines[0] == "Downloading microduck assets ..."
-    assert lines[-1].startswith("Robot assets ready: 1 robots, 1 directories, 47 files")
-
-
 def test_pull_assets_x2_keeps_single_mesh_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
