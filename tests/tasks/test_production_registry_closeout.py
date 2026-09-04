@@ -40,9 +40,6 @@ CANONICAL_MANAGER_RUNTIME_FACTORIES = (
     # Approved wrapper: cold-path MicroDuck STL resolution before delegating
     # to the generic factory.
     ("unilab.tasks.locomotion.microduck", "make_microduck_velocity_env"),
-    # Approved wrapper: cold-path T800 OBJ/texture resolution before
-    # delegating to the generic factory.
-    ("unilab.tasks.locomotion.t800", "make_t800_walk_env"),
 )
 
 _SNAPSHOT_CODE = textwrap.dedent(

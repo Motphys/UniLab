@@ -81,7 +81,7 @@ env:
 托管在 Hugging Face 数据集仓库
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots)。
 已注册的机器人为 a2、allegro_hand、g1、go2、go2_arm、microduck、sharpa_wave、
-t800、x2（见 `src/unilab/assets/hub.py` 的 `ROBOT_ASSET_SPECS`）。它们的
+x2（见 `src/unilab/assets/hub.py` 的 `ROBOT_ASSET_SPECS`）。它们的
 mesh/纹理目录在首次使用时按需下载，落盘到原始路径（例如 G1 的
 `src/unilab/assets/robots/g1/assets/` 与 `robots/g1/textures/`），因此 XML 中的
 原始相对路径保持有效。这些目录通过 `pyproject.toml` 的
@@ -97,28 +97,27 @@ uv run unilab-pull-assets --robot all   # 所有已注册机器人
 新增某个机器人的二进制资产：
 
 1. 按目录上传到 HF 仓库，保持目录结构一致。一个机器人有多个资产目录时，
-   每个目录分别上传。例如 T800：
+   每个目录分别上传。例如 G1：
 
    ```bash
    uv run hf upload unilabsim/unilab-robots \
-     src/unilab/assets/robots/t800/assets robots/t800/assets \
+     src/unilab/assets/robots/g1/assets robots/g1/assets \
      --repo-type dataset
    uv run hf upload unilabsim/unilab-robots \
-     src/unilab/assets/robots/t800/textures robots/t800/textures \
+     src/unilab/assets/robots/g1/textures robots/g1/textures \
      --repo-type dataset
    ```
 
 2. 在 `.gitignore` 中忽略下载目录（整个目录托管到 HF 的机器人直接忽略整个目录；
-   较早的 microduck/t800 条目保留 `.gitkeep`），在
+   较早的 microduck 条目保留 `.gitkeep`），在
    `tool.uv.build-backend.source-exclude` 中排除该目录，并在 `ROBOT_ASSET_SPECS`
    中注册。
 3. 经由 `create_backend` 构建的 scene 会被自动覆盖：
    `ensure_robot_assets_for_paths` 在 backend 解析 XML 之前的冷路径解析已注册目录。
-   绕过 `create_backend` 的入口需要显式解析，例如 T800 task factory 调用两次：
+   绕过 `create_backend` 的入口需要显式解析，例如 MicroDuck task factory：
 
    ```python
-   resolve_robot_asset_dir("robots/t800/assets", marker="LINK_BASE.obj")
-   resolve_robot_asset_dir("robots/t800/textures", marker="LINK_BASE.png")
+   resolve_robot_asset_dir("robots/microduck/assets", marker="trunk_base.stl")
    ```
 
 ## 架构说明
@@ -131,6 +130,6 @@ uv run unilab-pull-assets --robot all   # 所有已注册机器人
   `ensure_robot_assets_for_paths`，然后再分发给具体 backend。
 - 热路径（`step` / `reset`）**不会**触发任何文件下载或解析。
 - `ASSETS_ROOT_PATH` 定义不变，下载落盘位置与原始本地路径完全一致。
-- 机器人二进制资产使用同一目录 resolver（`resolve_robot_asset_dir`）。X2、
-  MicroDuck 和 T800 的薄 task factory 都会先在冷路径解析一次，再委托给共享
+- 机器人二进制资产使用同一目录 resolver（`resolve_robot_asset_dir`）。X2 和
+  MicroDuck 的薄 task factory 都会先在冷路径解析一次，再委托给共享
   manager env factory；同一 resolver 也通过 `unilab-pull-assets` CLI 暴露。

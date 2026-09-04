@@ -16,37 +16,6 @@ def _populate(directory: Path, *, suffix: str, count: int) -> Path:
     return directory
 
 
-def test_pull_assets_t800_resolves_both_asset_directories(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-):
-    targets = {
-        "robots/t800/assets": _populate(tmp_path / "assets", suffix=".obj", count=26),
-        "robots/t800/textures": _populate(tmp_path / "textures", suffix=".png", count=15),
-    }
-    calls: list[tuple[str, str, bool]] = []
-
-    def fake_resolver(directory: str, *, marker: str, show_progress: bool) -> Path:
-        calls.append((directory, marker, show_progress))
-        return targets[directory]
-
-    monkeypatch.setattr(pull_assets, "resolve_robot_asset_dir", fake_resolver)
-
-    assert pull_assets.main(["--robot", "t800"]) == 0
-    assert calls == [
-        ("robots/t800/assets", "LINK_BASE.obj", False),
-        ("robots/t800/textures", "LINK_BASE.png", False),
-    ]
-    output = capsys.readouterr().out
-    assert "26 OBJ files" in output
-    assert "15 PNG files" in output
-    lines = output.strip().splitlines()
-    assert len(lines) == 2
-    assert lines[0] == "Downloading t800 assets ..."
-    assert lines[-1].startswith("Robot assets ready: 1 robots, 2 directories, 41 files")
-
-
 def test_pull_assets_microduck_keeps_single_stl_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

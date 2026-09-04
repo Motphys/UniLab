@@ -60,7 +60,6 @@ _EXTERNAL_ASSET_LOCOMOTION_TASKS = frozenset(
         "MicroduckVelocityFlat",
         "MicroduckVelstandFlat",
         "MicroduckStandupFlat",
-        "T800WalkFlat",
     }
 )
 
@@ -174,7 +173,6 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "manager terms and owner configuration.",
         )
     if task_name in _EXTERNAL_ASSET_LOCOMOTION_TASKS:
-        family = "t800_locomotion" if task_name == "T800WalkFlat" else "microduck_locomotion"
         scope = (
             "Hydra owner YAML materializes the canonical NumPy Manager-Based runtime."
             if task_name == "MicroduckVelocityFlat"
@@ -204,7 +202,7 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             )
         return TaskMigrationRecord(
             task_name,
-            family,
+            "microduck_locomotion",
             "Compatible",
             "complete",
             scope,
