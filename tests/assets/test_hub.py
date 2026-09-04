@@ -353,7 +353,6 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
         "go2w",
         "microduck",
         "sharpa_wave",
-        "t800",
         "x2",
     }
     assert set(ROBOT_ASSET_SPECS) == expected

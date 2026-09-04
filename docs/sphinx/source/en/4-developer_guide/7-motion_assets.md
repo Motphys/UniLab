@@ -88,7 +88,7 @@ Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
 externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
 The registered robots are a2, allegro_hand, g1, go2, go2_arm, microduck,
-sharpa_wave, t800, and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
+sharpa_wave, and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
 Their mesh/texture directories download lazily on first use and land under
 their original paths (for example `src/unilab/assets/robots/g1/assets/` and
 `robots/g1/textures/` for G1), so the original relative XML paths remain
@@ -107,30 +107,29 @@ To add a new robot's binary assets:
 
 1. Upload each directory to the HF repo while keeping the directory layout
    identical. A robot with multiple asset directories requires one upload per
-   directory. For example, T800 uses:
+   directory. For example, G1 uses:
 
    ```bash
    uv run hf upload unilabsim/unilab-robots \
-     src/unilab/assets/robots/t800/assets robots/t800/assets \
+     src/unilab/assets/robots/g1/assets robots/g1/assets \
      --repo-type dataset
    uv run hf upload unilabsim/unilab-robots \
-     src/unilab/assets/robots/t800/textures robots/t800/textures \
+     src/unilab/assets/robots/g1/textures robots/g1/textures \
      --repo-type dataset
    ```
 
 2. Ignore the downloaded directory contents in `.gitignore` (robots whose
    entire directory is HF-hosted ignore the whole directory; the older
-   microduck/t800 entries keep a `.gitkeep`), exclude the directory in
+   microduck entry keeps a `.gitkeep`), exclude the directory in
    `tool.uv.build-backend.source-exclude`, and register it in
    `ROBOT_ASSET_SPECS`.
 3. Scenes built through `create_backend` are then covered automatically:
    `ensure_robot_assets_for_paths` resolves the registered directories on a
    cold path before any backend parses the XML. Entry points that bypass
-   `create_backend` resolve explicitly, e.g. a T800 task factory calls:
+   `create_backend` resolve explicitly, e.g. the MicroDuck task factory calls:
 
    ```python
-   resolve_robot_asset_dir("robots/t800/assets", marker="LINK_BASE.obj")
-   resolve_robot_asset_dir("robots/t800/textures", marker="LINK_BASE.png")
+   resolve_robot_asset_dir("robots/microduck/assets", marker="trunk_base.stl")
    ```
 
 ## Architecture Notes
@@ -149,6 +148,6 @@ To add a new robot's binary assets:
   original local path exactly.
 - Robot binary assets use the same directory resolver
   (`resolve_robot_asset_dir`). The
-  thin X2, MicroDuck, and T800 task factories resolve their directories once
+  thin X2 and MicroDuck task factories resolve their directories once
   before delegating to the shared manager environment factory. The resolver is
   also exposed through the `unilab-pull-assets` CLI.
