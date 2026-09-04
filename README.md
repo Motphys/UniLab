@@ -1,7 +1,7 @@
 <h1 align="center"> UniLab </h1>
 
 <h3 align="center">
-Configure task semantics once. Run robot RL across physics backends.
+A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms.
 </h3>
 
 <p align="center">Languages: English | <a href="README_zh.md">简体中文</a></p>
@@ -10,10 +10,13 @@ Configure task semantics once. Run robot RL across physics backends.
   <a href="https://github.com/unilabsim/UniLab/actions/workflows/ci.yml"><img src="https://github.com/unilabsim/UniLab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://unilabsim.github.io"><img src="https://img.shields.io/badge/project-page-brightgreen" alt="Project Page"></a>
   <a href="https://arxiv.org/abs/2605.30313"><img src="https://img.shields.io/badge/paper-arXiv--2605.30313-red" alt="Paper"></a>
+  <a href="https://arxiv.org/abs/2605.30313"><img src="https://img.shields.io/badge/CoRL-2026-orange" alt="CoRL 2026"></a>
   <a href="https://unilabsim.github.io/UniLab-doc/"><img src="https://img.shields.io/badge/docs-UniLab--doc-blue" alt="Documentation"></a>
   <a href="https://pypi.org/project/unilab/"><img src="https://img.shields.io/pypi/v/unilab" alt="PyPI"></a>
   <a href="https://github.com/unilabsim/UniLab/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 License"></a>
 </p>
+
+<h3 align="center">🎉 🎉 UniLab has been accepted to <b>CoRL 2026</b>! 🎉 🎉</h3>
 
 <p align="center">
   <img src="docs/sphinx/source/_static/assets/teaser.jpg" alt="UniLab Teaser" width="95%">
