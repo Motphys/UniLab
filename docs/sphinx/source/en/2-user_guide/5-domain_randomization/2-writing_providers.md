@@ -19,8 +19,35 @@ Current provider examples define one or more of these plan methods:
 - Return a reset plan with state updates and a reset randomization payload.
 - Return an interval plan for push or body-force perturbations.
 
-The shared types live in `src/unilab/dr/types.py`, and the manager lives in
-`src/unilab/dr/manager.py`.
+Interval plans are built from `IntervalTermOp` descriptors (term name, NumPy
+payload, optional `body_ids`; see {doc}`../../4-developer_guide/2-contracts/4-dr_contract`):
+
+```python
+from unilab.dr import INTERVAL_TERM_BODY_FORCE, IntervalRandomizationPlan, IntervalTermOp
+
+
+def build_interval_randomization_plan(self, env, step_counter):
+    ...
+    return IntervalRandomizationPlan(
+        ops=(
+            IntervalTermOp(
+                INTERVAL_TERM_BODY_FORCE,
+                force,  # shape (num_envs, len(body_ids), 3)
+                body_ids=body_ids,
+            ),
+        ),
+    )
+```
+
+Migration note: returning interval plans via the legacy fields
+(`push_perturbation_limit`, `body_ids`, `body_force`, ...) is deprecated. Such
+plans are still adapted 1:1 through `IntervalRandomizationPlan.iter_ops()`,
+but new providers should populate `ops`; the legacy fields will be removed in
+the next unisim-core major release.
+
+The shared types live in `unisim.dr.types` (interval term descriptors in
+`unisim.dr.interval`), re-exported from `src/unilab/dr/__init__.py`, and the
+manager lives in `src/unilab/dr/manager.py`.
 
 ## Rules
 

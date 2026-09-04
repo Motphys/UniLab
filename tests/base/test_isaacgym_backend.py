@@ -26,6 +26,7 @@ from unisim.backend.isaacgym.dependencies import (
     resolve_isaacgym_runtime,
 )
 from unisim.backend.isaacgym.sensors import scan_scene_metadata
+from unisim.dr.types import IntervalTermOp
 
 from unilab.base.backend_factory import create_backend
 from unilab.base.scene import SceneCfg
@@ -678,7 +679,10 @@ def test_dr_and_pre_step_control_fail_closed(backend: IsaacGymBackend) -> None:
         def is_empty(self) -> bool:
             return False
 
-    with pytest.raises(NotImplementedError, match="interval randomization"):
+        def iter_ops(self) -> tuple:
+            return (IntervalTermOp("custom_unsupported", np.zeros(3)),)
+
+    with pytest.raises(NotImplementedError, match="does not support interval term"):
         backend.apply_interval_randomization(_Plan())
 
     class _Payload:

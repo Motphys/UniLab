@@ -26,21 +26,56 @@ A task that uses DR should define:
 4. Interval behavior through `IntervalRandomizationPlan` when needed.
 5. Env construction that calls `self._init_domain_randomization(...)`.
 
-Shared types live in `src/unilab/dr/types.py`, and manager behavior lives in
-`src/unilab/dr/manager.py`.
+Shared types live in `unisim.dr.types` (interval term descriptors in
+`unisim.dr.interval`); both are re-exported from `src/unilab/dr/__init__.py`.
+Manager behavior lives in `src/unilab/dr/manager.py`.
 
 ## Backend Capability Boundary
 
 Backend support is explicit. A reset or interval item only counts as a unified
 DR item when three pieces exist together:
 
-1. `ResetRandomizationPayload` or `IntervalRandomizationPlan` has an explicit
-   field.
+1. `ResetRandomizationPayload` has an explicit field, or
+   `IntervalRandomizationPlan.ops` carries an `IntervalTermOp` for the term.
 2. The backend declares and implements the capability.
-3. The task config/provider samples and dispatches that field.
+3. The task config/provider samples and dispatches that field or op.
 
 MuJoCo and Motrix differences stay in backend capability declarations,
 backend implementations, and owner YAMLs.
+
+## Interval Term Descriptors
+
+Interval plans are term-descriptor based: `IntervalRandomizationPlan.ops`
+carries a tuple of `IntervalTermOp` entries (term name, NumPy payload,
+optional `body_ids`) from `unisim.dr.interval`, re-exported through
+`unilab.dr`.
+
+- Builtin term names are the `INTERVAL_TERM_*` constants; their payload
+  contracts are pinned by `INTERVAL_TERM_SPECS` (`push`: payload shape `(3,)`,
+  no `body_ids`; the four body terms: payload shape
+  `(num_envs, len(body_ids), 3)` with required `body_ids`).
+  `IntervalTermOp.validate()` enforces these contracts for builtin terms;
+  unknown custom terms pass validation through untouched.
+- Capability ownership stays with the backend:
+  `DomainRandomizationCapabilities.supported_interval_terms` is the
+  authoritative declaration, queried via `supports_interval_term` /
+  `get_unsupported_interval_terms`.
+- `DomainRandomizationManager.apply_interval_randomization_if_due` is generic:
+  it contains no term names and no per-term branches, so a backend-owned
+  custom term needs no manager change. Terms missing from the capability set
+  fail closed with `NotImplementedError` naming the backend type and the
+  terms; on the backend side, `SimBackend.apply_interval_randomization`
+  routes each op through its handler table and fails closed with the backend
+  class and term name when no handler exists.
+- Ops and plans must stay pickle-safe (protocol 4) across spawn-based
+  collector processes: stdlib + NumPy frozen dataclasses only.
+- The legacy plan fields (`push_perturbation_limit`, `body_ids`,
+  `body_linear_velocity_delta`, `body_angular_velocity_delta`, `body_force`,
+  `body_torque`) and the legacy `supports_interval_*` capability bools are
+  deprecated: `IntervalRandomizationPlan.iter_ops()` still adapts set legacy
+  fields into ops 1:1, and the bools remain as capability fallbacks. New
+  providers should populate `ops`; the legacy fields will be removed in the
+  next unisim-core major release.
 
 ## MuJoCo BatchEnvPool Snapshot
 
@@ -49,7 +84,7 @@ randomization=...)` with a fixed field whitelist. Indexed reads and writes are
 available through `get_field_indexed(...)` and `set_field_indexed(...)`. This
 interface lives in the `mujoco-uni-runtime` package (`mujoco_uni.batch_env`), not in this
 repository; the reset-term constants that map onto it are in
-`src/unilab/dr/types.py`.
+`unisim.dr.types`.
 
 The supported reset fields and their per-env block shapes are below. The leading
 dimension is always `len(env_ids)`; the trailing block size is the field's full
@@ -76,7 +111,7 @@ Two caveats:
 
 - `geom_size` is not in `SUPPORTED_FIELDS`. Geometry size is expressed through
   init-lifecycle model materialization (see `GeomSizeOverride` /
-  `ModelVariantSpec` in `src/unilab/dr/types.py`), not reset randomization.
+  `ModelVariantSpec` in `unisim.dr.types`), not reset randomization.
 - `gravity` reset randomization requires a `mujoco-uni-runtime` build that ships
   it. This repository depends on the official `mujoco` package (`>=3.5`, with
   the default version pinned by `uv.lock`)
@@ -97,7 +132,8 @@ payloads.
 
 ## Evidence In Repo
 
-- DR types: `src/unilab/dr/types.py`
+- DR types: `unisim.dr.types` and `unisim.dr.interval`, re-exported by
+  `src/unilab/dr/__init__.py`
 - DR manager: `src/unilab/dr/manager.py`
 - Backend interface: `unisim.backend.base`
 - Example providers: `src/unilab/tasks/locomotion/common/dr_provider.py`,

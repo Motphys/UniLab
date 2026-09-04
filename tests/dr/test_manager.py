@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import pickle
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -17,9 +18,13 @@ from unisim.dr.types import (
 )
 
 from unilab.dr import (
+    INTERVAL_TERM_BODY_FORCE,
+    INTERVAL_TERM_PUSH,
     DomainRandomizationCapabilities,
     DomainRandomizationManager,
     DomainRandomizationProvider,
+    IntervalRandomizationPlan,
+    IntervalTermOp,
     ResetPlan,
     ResetRandomizationPayload,
 )
@@ -122,6 +127,7 @@ class _FakeBackend:
 
     def __post_init__(self) -> None:
         self.last_randomization: ResetRandomizationPayload | None = None
+        self.interval_plans: list[IntervalRandomizationPlan] = []
 
     def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
         return self.capabilities
@@ -134,6 +140,9 @@ class _FakeBackend:
         randomization: ResetRandomizationPayload | None = None,
     ) -> None:
         self.last_randomization = randomization
+
+    def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
+        self.interval_plans.append(plan)
 
 
 @dataclass
@@ -289,3 +298,170 @@ def test_manager_tolerates_missing_or_malformed_backend_timing():
     # Malformed value dropped, well-formed one merged.
     assert "set_state_mask_ms" not in timings
     assert timings["set_state_data_slice_ms"] == pytest.approx(0.5)
+
+
+class _FakeIntervalProvider(_FakeProvider):
+    def __init__(self, plan: IntervalRandomizationPlan | None) -> None:
+        self._plan = plan
+
+    def build_interval_randomization_plan(
+        self, env: Any, step_counter: int
+    ) -> IntervalRandomizationPlan | None:
+        return self._plan
+
+
+def _interval_manager(
+    plan: IntervalRandomizationPlan | None,
+    capabilities: DomainRandomizationCapabilities,
+) -> tuple[DomainRandomizationManager, _FakeBackend]:
+    backend = _FakeBackend(capabilities=capabilities)
+    env = SimpleNamespace(_backend=backend)
+    manager = DomainRandomizationManager(env, _FakeIntervalProvider(plan))
+    return manager, backend
+
+
+def test_manager_dispatches_custom_interval_term_without_manager_change():
+    """A backend-owned custom term flows through the generic manager dispatch:
+    declaring it in ``supported_interval_terms`` is enough, no manager edit."""
+    plan = IntervalRandomizationPlan(
+        ops=(IntervalTermOp("custom_shake", np.zeros((2, 3), dtype=np.float64)),)
+    )
+    capabilities = DomainRandomizationCapabilities(
+        supported_interval_terms=frozenset({"custom_shake"})
+    )
+    manager, backend = _interval_manager(plan, capabilities)
+
+    manager.apply_interval_randomization_if_due(step_counter=10)
+
+    assert backend.interval_plans == [plan]
+
+
+def test_manager_rejects_interval_term_missing_from_capabilities():
+    plan = IntervalRandomizationPlan(
+        ops=(IntervalTermOp("custom_shake", np.zeros((2, 3), dtype=np.float64)),)
+    )
+    manager, backend = _interval_manager(plan, DomainRandomizationCapabilities())
+
+    with pytest.raises(NotImplementedError) as excinfo:
+        manager.apply_interval_randomization_if_due(step_counter=10)
+
+    assert "custom_shake" in str(excinfo.value)
+    assert backend.backend_type in str(excinfo.value)
+    assert backend.interval_plans == []
+
+
+def test_manager_dispatches_legacy_fields_plan_via_capability_bools():
+    """Legacy-field plans are still adapted through ``iter_ops()`` and checked
+    against the deprecated legacy capability bools."""
+    plan = IntervalRandomizationPlan(
+        push_perturbation_limit=np.asarray([10.0, 10.0, 5.0]),
+        body_ids=np.asarray([3], dtype=np.int32),
+        body_force=np.zeros((4, 1, 3), dtype=np.float64),
+    )
+    capabilities = DomainRandomizationCapabilities(
+        supports_interval_push=True,
+        supports_interval_body_force=True,
+    )
+    manager, backend = _interval_manager(plan, capabilities)
+
+    manager.apply_interval_randomization_if_due(step_counter=10)
+
+    assert backend.interval_plans == [plan]
+
+
+def test_manager_skips_none_and_empty_interval_plans():
+    capabilities = DomainRandomizationCapabilities(
+        supported_interval_terms=frozenset({INTERVAL_TERM_PUSH})
+    )
+    none_manager, none_backend = _interval_manager(None, capabilities)
+    none_manager.apply_interval_randomization_if_due(step_counter=10)
+    assert none_backend.interval_plans == []
+
+    empty_manager, empty_backend = _interval_manager(IntervalRandomizationPlan(), capabilities)
+    empty_manager.apply_interval_randomization_if_due(step_counter=10)
+    assert empty_backend.interval_plans == []
+
+
+def test_manager_dispatches_mixed_legacy_and_ops_plan():
+    plan = IntervalRandomizationPlan(
+        push_perturbation_limit=np.asarray([10.0, 10.0, 5.0]),
+        ops=(IntervalTermOp("custom_shake", np.zeros((2, 3), dtype=np.float64)),),
+    )
+    capabilities = DomainRandomizationCapabilities(
+        supports_interval_push=True,
+        supported_interval_terms=frozenset({"custom_shake"}),
+    )
+    manager, backend = _interval_manager(plan, capabilities)
+
+    manager.apply_interval_randomization_if_due(step_counter=10)
+
+    assert backend.interval_plans == [plan]
+
+
+def test_manager_detects_unsupported_terms_from_both_representations():
+    capabilities = DomainRandomizationCapabilities(
+        supports_interval_push=True,
+        supported_interval_terms=frozenset({"custom_shake"}),
+    )
+    # Legacy-derived term missing from capabilities.
+    legacy_plan = IntervalRandomizationPlan(
+        body_ids=np.asarray([0], dtype=np.int32),
+        body_torque=np.zeros((2, 1, 3), dtype=np.float64),
+    )
+    manager, backend = _interval_manager(legacy_plan, capabilities)
+    with pytest.raises(NotImplementedError, match="body_torque"):
+        manager.apply_interval_randomization_if_due(step_counter=10)
+    assert backend.interval_plans == []
+
+    # Explicit op term missing from capabilities.
+    ops_plan = IntervalRandomizationPlan(
+        push_perturbation_limit=np.asarray([1.0, 1.0, 1.0]),
+        ops=(IntervalTermOp("custom_twist", np.zeros((2, 3), dtype=np.float64)),),
+    )
+    manager, backend = _interval_manager(ops_plan, capabilities)
+    with pytest.raises(NotImplementedError, match="custom_twist"):
+        manager.apply_interval_randomization_if_due(step_counter=10)
+    assert backend.interval_plans == []
+
+
+def test_manager_dispatches_multi_op_plan_in_one_backend_call():
+    plan = IntervalRandomizationPlan(
+        ops=(
+            IntervalTermOp(INTERVAL_TERM_PUSH, np.asarray([10.0, 10.0, 5.0])),
+            IntervalTermOp(
+                INTERVAL_TERM_BODY_FORCE,
+                np.zeros((4, 1, 3), dtype=np.float64),
+                body_ids=np.asarray([3], dtype=np.int32),
+            ),
+        )
+    )
+    capabilities = DomainRandomizationCapabilities(
+        supported_interval_terms=frozenset({INTERVAL_TERM_PUSH, INTERVAL_TERM_BODY_FORCE})
+    )
+    manager, backend = _interval_manager(plan, capabilities)
+
+    manager.apply_interval_randomization_if_due(step_counter=10)
+
+    assert backend.interval_plans == [plan]
+
+
+def test_interval_plan_with_ops_pickle_round_trip():
+    plan = IntervalRandomizationPlan(
+        ops=(
+            IntervalTermOp(INTERVAL_TERM_PUSH, np.asarray([10.0, 10.0, 5.0])),
+            IntervalTermOp(
+                "custom_shake",
+                np.ones((2, 3), dtype=np.float64),
+                body_ids=np.asarray([1, 2], dtype=np.int32),
+            ),
+        )
+    )
+
+    restored = pickle.loads(pickle.dumps(plan, protocol=4))
+
+    assert [op.term for op in restored.ops] == [INTERVAL_TERM_PUSH, "custom_shake"]
+    np.testing.assert_array_equal(restored.ops[0].payload, plan.ops[0].payload)
+    np.testing.assert_array_equal(restored.ops[1].payload, plan.ops[1].payload)
+    assert restored.ops[0].body_ids is None
+    assert restored.ops[1].body_ids is not None
+    np.testing.assert_array_equal(restored.ops[1].body_ids, plan.ops[1].body_ids)

@@ -92,34 +92,13 @@ class DomainRandomizationManager:
         plan = self._provider.build_interval_randomization_plan(self._env, step_counter)
         if plan is None or plan.is_empty():
             return
-        if (
-            plan.push_perturbation_limit is not None
-            and not self._capabilities.supports_interval_push
-        ):
+        unsupported = self._capabilities.get_unsupported_interval_terms(
+            op.term for op in plan.iter_ops()
+        )
+        if unsupported:
             raise NotImplementedError(
-                f"{self._env._backend.backend_type} backend does not support interval push"
-            )
-        if (
-            plan.body_linear_velocity_delta is not None
-            and not self._capabilities.supports_interval_body_velocity_delta
-        ):
-            raise NotImplementedError(
-                f"{self._env._backend.backend_type} backend does not support interval body velocity perturbation"
-            )
-        if (
-            plan.body_angular_velocity_delta is not None
-            and not self._capabilities.supports_interval_body_angular_velocity_delta
-        ):
-            raise NotImplementedError(
-                f"{self._env._backend.backend_type} backend does not support interval body angular velocity perturbation"
-            )
-        if plan.body_force is not None and not self._capabilities.supports_interval_body_force:
-            raise NotImplementedError(
-                f"{self._env._backend.backend_type} backend does not support interval body force perturbation"
-            )
-        if plan.body_torque is not None and not self._capabilities.supports_interval_body_torque:
-            raise NotImplementedError(
-                f"{self._env._backend.backend_type} backend does not support interval body torque perturbation"
+                f"{self._env._backend.backend_type} backend does not support "
+                f"interval terms: {', '.join(sorted(unsupported))}"
             )
         self._env._backend.apply_interval_randomization(plan)
 

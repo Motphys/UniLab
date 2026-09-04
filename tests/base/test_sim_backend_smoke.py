@@ -232,6 +232,13 @@ def test_mujoco_interval_root_velocity_kick_rejects_invalid_contracts():
         bkd.apply_interval_randomization(
             IntervalRandomizationPlan(
                 body_ids=body_ids,
+                body_linear_velocity_delta=np.zeros((NUM_ENVS + 1, 1, 3), dtype=np.float64),
+            )
+        )
+    with pytest.raises(ValueError, match="payload must have ndim 3"):
+        bkd.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                body_ids=body_ids,
                 body_linear_velocity_delta=np.zeros((NUM_ENVS, 3), dtype=np.float64),
             )
         )
