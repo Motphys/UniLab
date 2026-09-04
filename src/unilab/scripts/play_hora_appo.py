@@ -20,7 +20,10 @@ import torch
 from omegaconf import DictConfig
 from uni_rl.algos.hora.appo_runner import HoraAPPORunner
 from uni_rl.algos.hora.models import build_hora_shared_actor_critic
-from uni_rl.algos.hora.observations import build_hora_actor_tensordict, split_hora_obs_with_priv_info
+from uni_rl.algos.hora.observations import (
+    build_hora_actor_tensordict,
+    split_hora_obs_with_priv_info,
+)
 from uni_rl.algos.hora.rsl_rl_compat import (
     convert_config_v3_to_v4,
     is_rsl_rl_v4,

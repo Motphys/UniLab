@@ -9,15 +9,6 @@ from typing import Any, cast
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
-from uni_rl.ipc.dp_launcher import (
-    UNILAB_DP_LOG_DIR,
-    current_torch_distributed_local_rank,
-    current_torch_distributed_rank,
-    current_torch_distributed_world_size,
-    launch_torchrun_workers,
-    resolve_dp_topology,
-    validate_dp_launchable,
-)
 from uni_rl.algos.rsl_rl import (
     RslRlVecEnvWrapper,
     apply_rsl_rl_rank_seed,
@@ -29,6 +20,15 @@ from uni_rl.algos.rsl_rl import (
     rsl_rl_single_process_topology,
 )
 from uni_rl.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
+from uni_rl.ipc.dp_launcher import (
+    UNILAB_DP_LOG_DIR,
+    current_torch_distributed_local_rank,
+    current_torch_distributed_rank,
+    current_torch_distributed_world_size,
+    launch_torchrun_workers,
+    resolve_dp_topology,
+    validate_dp_launchable,
+)
 from unisim.backend.base import RenderClosedError, log_playback_plan
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
