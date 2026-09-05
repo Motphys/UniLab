@@ -3792,7 +3792,7 @@ requires-dist = [
     { name = "triton-rocm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==3.6.0", index = "https://download.pytorch.org/whl/rocm7.2" },
     { name = "typing-extensions" },
     { name = "unilab-rl", specifier = "==0.2.0" },
-    { name = "unisim-core", specifier = ">=0.1.14" },
+    { name = "unisim-core", specifier = ">=1.1.0" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "wheel", marker = "extra == 'mujoco'" },
@@ -3833,13 +3833,13 @@ wheels = [
 
 [[package]]
 name = "unisim-core"
-version = "0.1.14"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/c9/f3a8b96037e41d7af6cf7d676650eff0f5078133937c02617e26f171cfbf/unisim_core-0.1.14.tar.gz", hash = "sha256:6290c2d1b440921ebd8a51bfd7160677df4897a0d26614d005ad1d7df95df23b", size = 187141, upload-time = "2026-09-02T14:59:15.011Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/0f/b0a3eb98522ebc6ba761124ac9dfb703fa0416413b203d8eae90bfabaeef/unisim_core-1.1.0.tar.gz", hash = "sha256:d01844cb189de027f3518139984e8ef1a10322021a35fa36482d95fc352dd98d", size = 193709, upload-time = "2026-09-05T09:32:54.183Z" }
 
 [[package]]
 name = "urllib3"
