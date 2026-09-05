@@ -17,7 +17,33 @@ provider；它们在 owner YAML 中通过 Hydra `events:` manager term 声明随
 - 返回带有状态更新和 reset 随机化 payload 的 reset plan。
 - 返回用于 push 或 body-force 扰动的 interval plan。
 
-共享类型位于 `src/unilab/dr/types.py`，manager 位于
+Interval plan 由 `IntervalTermOp` 描述符构建（term 名称、NumPy payload、
+可选的 `body_ids`；见 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`）：
+
+```python
+from unilab.dr import INTERVAL_TERM_BODY_FORCE, IntervalRandomizationPlan, IntervalTermOp
+
+
+def build_interval_randomization_plan(self, env, step_counter):
+    ...
+    return IntervalRandomizationPlan(
+        ops=(
+            IntervalTermOp(
+                INTERVAL_TERM_BODY_FORCE,
+                force,  # 形状 (num_envs, len(body_ids), 3)
+                body_ids=body_ids,
+            ),
+        ),
+    )
+```
+
+迁移说明：通过旧版字段（`push_perturbation_limit`、`body_ids`、
+`body_force` 等）返回 interval plan 已废弃。这类 plan 仍会经
+`IntervalRandomizationPlan.iter_ops()` 1:1 适配，但新 provider 应填充
+`ops`；旧字段将在下一个 unisim-core major release 中移除。
+
+共享类型位于 `unisim.dr.types`（interval term 描述符位于
+`unisim.dr.interval`），由 `src/unilab/dr/__init__.py` 再导出，manager 位于
 `src/unilab/dr/manager.py`。
 
 ## 规则

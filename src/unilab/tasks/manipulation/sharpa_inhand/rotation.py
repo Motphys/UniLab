@@ -20,11 +20,13 @@ from unilab.base import registry
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.np_env import NpEnvState
 from unilab.dr import (
+    INTERVAL_TERM_BODY_FORCE,
     DomainRandomizationCapabilities,
     DomainRandomizationProvider,
     GeomSizeOverride,
     InitRandomizationPlan,
     IntervalRandomizationPlan,
+    IntervalTermOp,
     ModelVariantSpec,
     ResetPlan,
 )
@@ -126,7 +128,7 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
         if (
             domain_rand is not None
             and domain_rand.force_scale > 0.0
-            and not capabilities.supports_interval_body_force
+            and not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE)
         ):
             raise NotImplementedError(
                 f"{env._backend.backend_type} backend does not support interval body force perturbation"
@@ -436,8 +438,13 @@ class SharpaInhandRotationDRProvider(DomainRandomizationProvider):
             )
 
         return IntervalRandomizationPlan(
-            body_ids=np.asarray([env._object_body_id], dtype=np.int32),
-            body_force=env._random_object_force[:, None, :].copy(),
+            ops=(
+                IntervalTermOp(
+                    INTERVAL_TERM_BODY_FORCE,
+                    env._random_object_force[:, None, :].copy(),
+                    body_ids=np.asarray([env._object_body_id], dtype=np.int32),
+                ),
+            ),
         )
 
 

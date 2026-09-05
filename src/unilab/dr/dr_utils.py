@@ -4,8 +4,10 @@ from typing import Any, cast
 
 import numpy as np
 from unisim.dr.types import (
+    INTERVAL_TERM_PUSH,
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
+    IntervalTermOp,
     ResetRandomizationPayload,
 )
 
@@ -197,14 +199,16 @@ def build_interval_push_plan(env: Any, step_counter: int) -> IntervalRandomizati
         return None
     if step_counter % domain_rand.push_interval != 0:
         return None
-    return IntervalRandomizationPlan(push_perturbation_limit=domain_rand.max_force)
+    return IntervalRandomizationPlan(
+        ops=(IntervalTermOp(INTERVAL_TERM_PUSH, np.asarray(domain_rand.max_force)),)
+    )
 
 
 def validate_interval_push_support(env: Any, capabilities: DomainRandomizationCapabilities) -> None:
     domain_rand = getattr(env.cfg, "domain_rand", None)
     if domain_rand is None or not getattr(domain_rand, "push_robots", False):
         return
-    if not capabilities.supports_interval_push:
+    if not capabilities.supports_interval_term(INTERVAL_TERM_PUSH):
         raise NotImplementedError(
             f"{env._backend.backend_type} backend does not support interval push"
         )

@@ -468,9 +468,13 @@ def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: st
     assert solver.external_forces[0][1] == [1]
     assert solver.external_forces[1][1] == [3]
 
-    with pytest.raises(NotImplementedError, match="interval push"):
-        backend.apply_interval_randomization(IntervalRandomizationPlan(push_perturbation_limit=5.0))
-    with pytest.raises(NotImplementedError, match="body-velocity"):
+    with pytest.raises(NotImplementedError, match="does not support interval term 'push'"):
+        backend.apply_interval_randomization(
+            IntervalRandomizationPlan(push_perturbation_limit=np.ones(3))
+        )
+    with pytest.raises(
+        NotImplementedError, match="does not support interval term 'body_linear_velocity_delta'"
+    ):
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(
                 body_ids=np.array([1], dtype=np.int32),
