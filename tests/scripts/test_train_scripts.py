@@ -614,6 +614,52 @@ def test_offpolicy_g1_walk_flat_env_cfg_override_has_rewards_and_events():
     assert env_cfg_override["events"]["pd_gains"] is None
 
 
+@pytest.mark.parametrize(
+    ("backend", "field"),
+    [
+        ("isaacgym", "isaacgym_device_id"),
+        ("isaacsim", "isaacsim_device_id"),
+        ("genesis", "genesis_device_id"),
+    ],
+)
+def test_offpolicy_gpu_backend_env_follows_dp_rank(
+    monkeypatch: pytest.MonkeyPatch, backend: str, field: str
+) -> None:
+    """Off-policy collectors receive the host-visible rank device."""
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg([f"task=g1_walk_flat/{backend}", "training.devices=[0,1]"])
+    monkeypatch.setenv("UNILAB_DP_RANK", "1")
+
+    override = mod.build_offpolicy_env_cfg_override("sac", cfg)
+
+    assert override is not None
+    assert override[field] == 1
+
+
+@pytest.mark.parametrize(
+    ("backend", "field"),
+    [
+        ("isaacgym", "isaacgym_device_id"),
+        ("isaacsim", "isaacsim_device_id"),
+        ("genesis", "genesis_device_id"),
+    ],
+)
+def test_ppo_gpu_backend_env_uses_torchrun_local_rank(
+    monkeypatch: pytest.MonkeyPatch, backend: str, field: str
+) -> None:
+    """PPO workers pass a local index after torchrun remaps CUDA visibility."""
+
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg([f"task=g1_walk_flat/{backend}", "training.devices=[4,5]"])
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setenv("WORLD_SIZE", "2")
+
+    override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert override[field] == 1
+
+
 def test_offpolicy_isaacsim_training_and_eval_use_separate_render_overrides():
     cfg = _offpolicy_cfg(
         [

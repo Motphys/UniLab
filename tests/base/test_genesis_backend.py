@@ -745,6 +745,7 @@ def test_constructor_validation_and_factory_wiring(fake_genesis, tiny_model_file
 
 def test_env_cfg_genesis_fields_validate_and_reach_factory() -> None:
     cfg = EnvCfg(
+        genesis_device_id=1,
         genesis_integrator="implicitfast",
         genesis_constraint_solver="cg",
         genesis_friction_cone="pyramidal",
@@ -753,11 +754,14 @@ def test_env_cfg_genesis_fields_validate_and_reach_factory() -> None:
     cfg.validate()
     kwargs = env_backend_kwargs(cfg)
     assert (
+        kwargs["genesis_device_id"],
         kwargs["genesis_integrator"],
         kwargs["genesis_constraint_solver"],
         kwargs["genesis_friction_cone"],
         kwargs["genesis_solver_iterations"],
-    ) == ("implicitfast", "cg", "pyramidal", 30)
+    ) == (1, "implicitfast", "cg", "pyramidal", 30)
+    with pytest.raises(ValueError, match="genesis_device_id must be a non-negative integer"):
+        EnvCfg(genesis_device_id=-1).validate()
     with pytest.raises(ValueError, match="genesis_integrator must be a non-empty string"):
         EnvCfg(genesis_integrator="").validate()
     with pytest.raises(ValueError, match="genesis_solver_iterations must be a positive integer"):

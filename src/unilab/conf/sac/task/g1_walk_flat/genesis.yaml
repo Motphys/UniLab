@@ -36,6 +36,12 @@ algo:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
 env:
+  # GPU device id for the process-wide Genesis session.  Multi-GPU training
+  # overrides this cold-path field from the rank topology; zero preserves the
+  # single-device owner default.  A non-zero id pins CUDA_VISIBLE_DEVICES for
+  # the whole process before the first CUDA context exists (Quadrants only
+  # honors the first visible device), after which the in-process index is 0.
+  genesis_device_id: 0
   # Re-declares the MJCF <option integrator="implicitfast"> that Genesis drops
   # at import; the remaining global options keep the Genesis defaults.
   genesis_integrator: implicitfast

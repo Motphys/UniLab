@@ -56,6 +56,10 @@ class EnvCfg:
     # backend defaults (device 0, generous handshake/step timeout).
     isaacgym_device_id: Optional[int] = None
     isaacgym_worker_timeout_s: Optional[float] = None
+    # ``genesis`` owns one process-wide GPU session.  The explicit device id
+    # must be selected before ``gs.init`` so each data-parallel rank gets its
+    # own simulator device; ``None`` keeps Genesis' current/default device.
+    genesis_device_id: Optional[int] = None
     # ``genesis`` drops the MJCF global <option> block at import (REPORT #1372
     # §3.3), so integrator / constraint solver / friction cone / solver
     # iterations must be explicit owner fields. ``None`` keeps the Genesis
@@ -122,6 +126,15 @@ class EnvCfg:
             raise ValueError(
                 "isaacgym_worker_timeout_s must be a positive number or None, "
                 f"got {self.isaacgym_worker_timeout_s!r}"
+            )
+        if self.genesis_device_id is not None and (
+            isinstance(self.genesis_device_id, bool)
+            or not isinstance(self.genesis_device_id, int)
+            or self.genesis_device_id < 0
+        ):
+            raise ValueError(
+                "genesis_device_id must be a non-negative integer or None, "
+                f"got {self.genesis_device_id!r}"
             )
         for name, value in (
             ("genesis_integrator", self.genesis_integrator),

@@ -48,6 +48,11 @@ uv run train --algo ppo --task g1_motion_tracking --sim mujoco \
 `training.devices`。父进程已有 `CUDA_VISIBLE_DEVICES` 时，配置索引仍按父进程可见
 设备解释，并保留用户给定顺序。
 
+对 IsaacGym、IsaacSim 和 Genesis owner，同一拓扑也会传给环境仿真器。torchrun
+worker 继承重映射后的 `CUDA_VISIBLE_DEVICES`，因此传给 worker 的是本地索引（例如
+worker 看到 `[4,5]` 时，主机设备 5 传为 `device_id=1`）；off-policy worker 保持父进程
+可见设备索引。Genesis 会在 `gs.init` 前选择每个进程的 session 设备。
+
 `algo.num_envs` 是**每个 rank** 的环境数，不是全局预算。设 rank 数为 `W`、配置
 环境数为 `N`、rollout 长度为 `T`：
 
