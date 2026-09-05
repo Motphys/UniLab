@@ -1,0 +1,40 @@
+# @package _global_
+# Newton SAC owner for the in-process backend (newton==1.5.1, MuJoCo-Warp 3.11
+# / Warp 1.16 line, isolated from the historical mujoco/mjwarp extras). Keeps
+# DENYLIST parity with the MuJoCo SAC owner (identical algo block) so
+# cross-backend play transfers 1:1. Newton owns explicit device and storage
+# capacities: a null newton_device is intentional — the process device binder
+# injects the rank-local CUDA device before materialization. Runtime PD gain
+# randomization is rejected by the backend, so pd_gains stays disabled.
+# Newton has no native UniLab viewer yet; eval uses the configured record /
+# headless path and fails closed if a native renderer is requested.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: newton
+  play_render_mode: record
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+env:
+  # 320/512 leaves headroom over the observed fall-contact demand
+  # (broadphase up to ~258 contacts, nefc 269) measured with the runtime capacity
+  # guard.
+  newton_device: null
+  newton_nconmax: 320
+  newton_njmax: 512
+  newton_capacity_check_steps: 1
+  render_spacing: 2.0
+  events:
+    # Newton currently rejects runtime PD gain randomization; keep the owner
+    # fail-closed until that adapter capability is added.
+    pd_gains: null

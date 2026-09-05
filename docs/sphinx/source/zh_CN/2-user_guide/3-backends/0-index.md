@@ -1,7 +1,8 @@
 # 仿真后端
 
 UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner 注册后可用的
-`mujoco`、`motrix`、`mjwarp`、`drake`、`isaacgym`、`genesis` 和 `isaacsim`。用户命令通过
+`mujoco`、`motrix`、`mjwarp`、`drake`、`isaacgym`、`genesis`、`isaacsim` 和
+`newton`。用户命令通过
 `--sim` 选择后端，该选项会路由到对应的 task owner YAML；不要仅靠 override
 `training.sim_backend` 来切换一次运行。
 
@@ -14,6 +15,9 @@ UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner �
   仍然需要一个可用的 MuJoCo 运行时。
 - Drake 需要外部 `drake-uni` Python 包和针对本地 Drake 编译的 C++ 批量扩展；
   选择 `--sim drake` 前请先阅读 {doc}`6-drake`。
+- Newton 使用隔离的 `newton` extra（`uv sync --extra newton`），不能与
+  `mujoco` / `mjwarp` extra 装进同一环境；选择 `--sim newton` 前请先阅读
+  {doc}`7-newton`。
 - 在 macOS 上，软件包 CLI 在需要时会通过 `mxpython` 路由 Motrix 交互式回放。
   直接打开原生 Motrix 渲染器的脚本调用应使用 `uv run mxpython`。
 
@@ -94,7 +98,7 @@ uv run python -c "import unisim; print(unisim.ADAPTER_SPECS)"
 ```
 
 `unisim` 不依赖 UniLab、Hydra 或训练组件；MuJoCo、Motrix、Drake、MJWarp、Genesis、
-IsaacGym 和 IsaacSim 都通过同一个公开 contract 暴露。专有 SDK 或 GPU worker 缺失时，
+IsaacGym、IsaacSim 和 Newton 都通过同一个公开 contract 暴露。专有 SDK 或 GPU worker 缺失时，
 构造 backend 会在冷路径给出明确诊断，不会静默回退到另一引擎。
 
 UniLab 只保留 `unilab.base.backend_factory` 这一 owner-layer 组装入口；contract
@@ -113,4 +117,5 @@ benchmark v1 目前只保留 `BenchmarkCase`、`BenchmarkResult` 和 provenance 
 4-isaacsim
 5-genesis
 6-drake
+7-newton
 ```

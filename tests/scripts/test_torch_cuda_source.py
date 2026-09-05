@@ -54,18 +54,24 @@ def test_windows_lock_uses_cuda_torch() -> None:
         } in torch_dependencies
         return
 
-    assert {
-        "name": "torch",
-        "version": "2.8.0+cu128",
-        "source": {"registry": "https://download.pytorch.org/whl/cu128"},
-        "marker": "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'win32'",
-    } in torch_dependencies
-    assert {
-        "name": "torch",
-        "version": "2.9.0+cu130",
-        "source": {"registry": "https://download-r2.pytorch.org/whl/cu130"},
-        "marker": "platform_machine == 'aarch64' and sys_platform == 'linux'",
-    } in torch_dependencies
+    cu128_dependency = next(
+        dep
+        for dep in torch_dependencies
+        if dep["version"] == "2.8.0+cu128"
+        and dep["source"] == {"registry": "https://download.pytorch.org/whl/cu128"}
+    )
+    # uv adds impossible-extra guards for the Newton/mjwarp and Newton/mujoco
+    # conflict matrix.  Assert the platform clauses remain present while
+    # allowing those generated guards to evolve.
+    assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in cu128_dependency["marker"]
+    assert "sys_platform == 'win32'" in cu128_dependency["marker"]
+    cu130_dependency = next(
+        dep
+        for dep in torch_dependencies
+        if dep["version"] == "2.9.0+cu130"
+        and dep["source"] == {"registry": "https://download-r2.pytorch.org/whl/cu130"}
+    )
+    assert "platform_machine == 'aarch64' and sys_platform == 'linux'" in cu130_dependency["marker"]
 
     torch_packages = [package for package in lock["package"] if package["name"] == "torch"]
     cu128_package = next(

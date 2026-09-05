@@ -245,7 +245,7 @@ def warn_if_backend_device_collision(
 
 def resolve_backend_process_device(backend_type: str, learner_device: str | None) -> str | None:
     backend = _normalize_backend(backend_type)
-    if backend not in {"mjwarp", "genesis"}:
+    if backend not in {"mjwarp", "newton", "genesis"}:
         return None
     if learner_device is None:
         raise ValueError(f"{backend} requires an explicit CUDA process device")
@@ -263,7 +263,26 @@ def configure_backend_process_device(backend_type: str, learner_device: str | No
         return None
     if _normalize_backend(backend_type) == "genesis":
         return bind_genesis_process_device(resolved)
-    return bind_backend_process_device(resolved)
+    return bind_backend_process_device_for_backend(backend_type, resolved)
+
+
+def bind_backend_process_device_for_backend(backend_type: str, resolved: str) -> str | None:
+    """Bind one backend's process-global accelerator device.
+
+    This top-level callable is intentionally backend-aware and lazy.  It can
+    be wrapped with :func:`functools.partial` and injected into uni_rl's
+    spawn-based collectors while remaining pickleable by module reference.
+    """
+    backend = _normalize_backend(backend_type)
+    if backend == "newton":
+        from unisim.backend.newton.runtime import bind_newton_process_device
+
+        return cast(str | None, bind_newton_process_device(resolved))
+    if backend == "mjwarp":
+        from unisim.backend.mjwarp.runtime import bind_mjwarp_process_device
+
+        return cast(str | None, bind_mjwarp_process_device(resolved))
+    return None
 
 
 def bind_backend_process_device(resolved: str) -> str | None:
@@ -274,9 +293,7 @@ def bind_backend_process_device(resolved: str) -> str | None:
     spawn-based subprocesses. The mjwarp import stays lazy so the binder is
     importable without the ``mjwarp`` extra installed.
     """
-    from unisim.backend.mjwarp.runtime import bind_mjwarp_process_device
-
-    return cast(str | None, bind_mjwarp_process_device(resolved))
+    return bind_backend_process_device_for_backend("mjwarp", resolved)
 
 
 def _pin_cuda_visible_devices(index: int) -> None:
@@ -408,6 +425,7 @@ __all__ = [
     "BACKEND_ENV_DEVICE_FIELDS",
     "apply_backend_env_device_override",
     "bind_backend_process_device",
+    "bind_backend_process_device_for_backend",
     "bind_genesis_process_device",
     "configure_backend_process_device",
     "pin_genesis_device_before_cuda_init",

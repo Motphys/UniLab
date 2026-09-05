@@ -29,7 +29,15 @@ def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
     torch_row = _row("PPO (torch)", "g1_walk_flat")
     sac_row = _row("SAC (torch)", "g1_walk_flat")
 
-    assert BACKENDS == ("mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim")
+    assert BACKENDS == (
+        "mujoco",
+        "mjwarp",
+        "motrix",
+        "isaacgym",
+        "genesis",
+        "isaacsim",
+        "newton",
+    )
     assert torch_row.cells["mjwarp"].level == EvidenceLevel.TESTED
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED
 
@@ -60,6 +68,32 @@ def test_support_matrix_marks_g1_isaacsim_owners_by_checked_in_scope():
     for entrypoint_label in ("APPO (torch)", "TD3 (torch)", "FlashSAC (torch)"):
         row = _row(entrypoint_label, "g1_walk_flat")
         assert row.cells["isaacsim"].level == EvidenceLevel.REGISTERED
+
+
+def test_support_matrix_marks_g1_newton_owner_sac_tested_ppo_configured():
+    """SAC newton is training-validated (Tested); PPO stays Configured."""
+    row = _row("SAC (torch)", "g1_walk_flat")
+    assert row.cells["newton"].level == EvidenceLevel.TESTED
+    row = _row("PPO (torch)", "g1_walk_flat")
+    assert row.cells["newton"].level == EvidenceLevel.CONFIGURED
+    for entrypoint_label in ("APPO (torch)", "TD3 (torch)", "FlashSAC (torch)"):
+        row = _row(entrypoint_label, "g1_walk_flat")
+        # Registration is per task+backend, not per algo tree: without an
+        # owner YAML these stay at REGISTERED instead of CONFIGURED.
+        assert row.cells["newton"].level == EvidenceLevel.REGISTERED
+
+
+def test_support_matrix_does_not_promote_unvalidated_newton_entries():
+    rows = build_support_rows(Path(__file__).resolve().parents[2])
+
+    tested = {
+        (row.entrypoint_label, row.task_slug)
+        for row in rows
+        if row.cells["newton"].level >= EvidenceLevel.TESTED
+    }
+    assert tested == {("SAC (torch)", "g1_walk_flat")}
+    go2_row = _row("PPO (torch)", "go2_joystick_flat")
+    assert go2_row.cells["newton"].level == EvidenceLevel.MISSING
 
 
 def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():

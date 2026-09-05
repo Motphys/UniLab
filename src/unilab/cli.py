@@ -16,7 +16,16 @@ from typing import Sequence
 from unilab.demo import run_demo
 
 SUPPORTED_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
-SUPPORTED_SIMS = ("mujoco", "mjwarp", "motrix", "drake", "isaacgym", "genesis", "isaacsim")
+SUPPORTED_SIMS = (
+    "mujoco",
+    "mjwarp",
+    "motrix",
+    "drake",
+    "isaacgym",
+    "genesis",
+    "isaacsim",
+    "newton",
+)
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
 # Built-in algos whose entrypoint script does not follow the train_<algo>.py
@@ -109,6 +118,17 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
             "sim=mjwarp requires the mjwarp extra. Install it with "
             "`pip install unilab[mjwarp]` (or `uv sync --extra mjwarp` in a source checkout)."
         )
+    if sim == "newton":
+        required_modules = ("newton", "mujoco_warp", "mujoco", "warp")
+        missing = [module for module in required_modules if find_spec(module) is None]
+        if missing:
+            joined = ", ".join(missing)
+            raise SystemExit(
+                "sim=newton requires the isolated Newton extra "
+                f"(missing: {joined}). Install it with `uv sync --extra newton` "
+                "in a source checkout (or `pip install unilab[newton]`). Do not "
+                "combine the newton extra with mujoco or mjwarp."
+            )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(
             "sim=motrix requires the Motrix extra. Install it with "

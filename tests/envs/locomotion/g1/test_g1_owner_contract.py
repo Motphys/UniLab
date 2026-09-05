@@ -130,6 +130,19 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "ppo",
+        ("task=g1_walk_flat/newton",),
+        "G1WalkFlat",
+        "newton",
+        29,
+        0.25,
+        "scene_flat.xml",
+        _PPO_WALK_FLAT_REWARDS,
+        _RESET_EVENTS,
+        False,
+        id="ppo-newton",
+    ),
+    pytest.param(
+        "ppo",
         ("task=g1_walk_flat/isaacgym",),
         "G1WalkFlat",
         "isaacgym",
@@ -275,6 +288,19 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "sac",
+        ("task=g1_walk_flat/newton",),
+        "G1WalkFlat",
+        "newton",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-newton",
+    ),
+    pytest.param(
+        "sac",
         ("task=g1_walk_flat/genesis",),
         "G1WalkFlat",
         "genesis",
@@ -386,6 +412,7 @@ _WALK_PROFILE_IDS = {
     "sac-mujoco",
     "sac-motrix",
     "sac-mjwarp",
+    "sac-newton",
     "sac-genesis",
     "sac-isaacsim",
     "sac-rough-mujoco",
@@ -554,6 +581,11 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     if backend == "mjwarp":
         assert env_cfg.mjwarp_nconmax == 128
         assert env_cfg.mjwarp_njmax == 256
+    if backend == "newton":
+        assert env_cfg.newton_device is None
+        assert env_cfg.newton_nconmax == 320
+        assert env_cfg.newton_njmax == 512
+        assert env_cfg.newton_capacity_check_steps == 1
     if backend == "isaacgym":
         assert env_cfg.isaacgym_device_id == 0
         # Native rendering (viewer + camera-sensor record) is supported;
@@ -593,7 +625,14 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
                 assert ".backend." not in module
                 assert not any(
                     name in module
-                    for name in (".mujoco", ".motrix", ".mjwarp", ".isaacgym", ".isaacsim")
+                    for name in (
+                        ".mujoco",
+                        ".motrix",
+                        ".mjwarp",
+                        ".isaacgym",
+                        ".isaacsim",
+                        ".newton",
+                    )
                 )
 
     _assert_no_omegaconf(env_cfg)
@@ -605,7 +644,15 @@ def test_g1_walk_registries_are_manager_only() -> None:
 
     assert metadata["G1WalkFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "mjwarp", "motrix", "isaacgym", "genesis", "isaacsim"],
+        "available_backends": [
+            "mujoco",
+            "mjwarp",
+            "motrix",
+            "isaacgym",
+            "genesis",
+            "isaacsim",
+            "newton",
+        ],
     }
     assert metadata["G1WalkRough"] == {
         "config_factory": "ManagerBasedRlEnvCfg",

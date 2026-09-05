@@ -40,6 +40,7 @@ CONTRACT_PAIRS: tuple[tuple[str, str], ...] = (
     ("mujoco", "isaacgym"),
     ("mujoco", "genesis"),
     ("mujoco", "isaacsim"),
+    ("mujoco", "newton"),
 )
 
 

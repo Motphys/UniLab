@@ -56,6 +56,19 @@ def test_mjwarp_process_device_follows_rank_learner_device(monkeypatch: pytest.M
     assert warp.set_calls == ["cuda:3"]
 
 
+def test_newton_process_device_follows_rank_learner_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    newton_runtime = pytest.importorskip("unisim.backend.newton.runtime")
+    warp = _FakeWarp()
+    monkeypatch.setattr(
+        newton_runtime,
+        "load_newton_dependencies",
+        lambda: SimpleNamespace(warp=warp),
+    )
+
+    assert configure_backend_process_device("newton", "cuda:3") == "cuda:3"
+    assert warp.set_calls == ["cuda:3"]
+
+
 @pytest.mark.parametrize("backend_type", ["mujoco", "motrix", "drake"])
 def test_host_or_backend_owned_devices_do_not_receive_runner_binding(backend_type: str) -> None:
     assert resolve_backend_process_device(backend_type, "cuda:2") is None
