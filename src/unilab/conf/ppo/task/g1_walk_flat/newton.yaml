@@ -10,9 +10,9 @@ defaults:
 training:
   task_name: G1WalkFlat
   sim_backend: newton
-  # Newton has no native UniLab viewer yet; eval uses the configured record /
-  # headless path and fails closed if a native renderer is requested.
-  play_render_mode: record
+  # Native ViewerGL rendering (offline record + interactive) is provided by
+  # the backend; playback inherits the base config's auto mode (interactive
+  # with a display, record otherwise).
 
 algo:
   num_envs: 2048

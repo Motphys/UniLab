@@ -586,6 +586,9 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.newton_nconmax == 320
         assert env_cfg.newton_njmax == 512
         assert env_cfg.newton_capacity_check_steps == 1
+        # Native ViewerGL rendering (interactive viewer + offscreen record)
+        # is supported; playback stays on the base config's auto mode.
+        assert hydra_cfg.training.play_render_mode == "auto"
     if backend == "isaacgym":
         assert env_cfg.isaacgym_device_id == 0
         # Native rendering (viewer + camera-sensor record) is supported;

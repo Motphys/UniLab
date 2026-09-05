@@ -16,7 +16,9 @@ mujoco↔newton（结论 TRANSFERABLE）。支持等级：SAC 为 **Tested**—�
 2026-09-06 在 RTX 4090 / torch 2.8.0+cu128 / newton 1.5.1 / mujoco-warp
 3.11 上完成完整 5000-iteration 训练（reward/mean 6.68 → 242.3，
 episode length → 983，约 43k steps/s，wall 4m25s），并对
-`model_5000.pt` 做了 record 回放验证；PPO 保持 **Configured**（现有
+`model_5000.pt` 完成回放验证：原生 ViewerGL 离屏 record（800 帧
+1280x720 mp4）与交互式 ViewerGL 窗口冒烟（真实 X display）；PPO 保持
+**Configured**（现有
 证据限于 owner 配置、compose/contract 检查和 fail-closed 的
 runtime/import 边界，尚无训练或回放验证结论）。
 
@@ -29,8 +31,12 @@ MuJoCo-Warp 3.11 / Warp 1.16 系列：
 # 源码 checkout：
 uv sync --extra newton
 
+# 原生 ViewerGL 渲染（离线 record + 交互式 interactive）另需：
+uv sync --extra newton --extra newton-render
+
 # 从 PyPI 安装：
 pip install "unilab[newton]"
+pip install "unilab[newton,newton-render]"
 ```
 
 该 extra 精确钉定 `newton==1.5.1`、`mujoco-warp==3.11.0`、
@@ -79,9 +85,16 @@ Newton/MuJoCo-Warp 3.11 要求显式的设备与存储容量，对应 owner YAML
 
 ## Playback 与渲染
 
-Newton 后端尚无原生 UniLab viewer：owner 设置
-`training.play_render_mode: record`，回放走录制 / 无头路径；请求原生
-交互式渲染器会 fail-closed。
+Newton 后端通过上游 `newton.viewer.ViewerGL` 提供**原生渲染**（unisim
+`newton-render` extra，`pyglet>=2.1.6,<3` + `imgui-bundle>=1.92.0`）。
+owner 继承 base 配置的 `training.play_render_mode: auto`：有显示时
+`auto` 解析为 `interactive`（ViewerGL 交互窗口），无显示时解析为
+`record`（`ViewerGL(headless=True)` 离屏渲染写 mp4）。未安装渲染依赖
+时 `record` 回退到 MuJoCo 离线快照渲染（plan 诊断中的 renderer 为
+`mujoco-snapshot`，原生路径为 `newton-viewer-gl`）；`interactive` 在
+缺依赖或无显示时 fail-closed。headless 离屏渲染仍需 OpenGL context：
+无显示服务器的 Linux 主机设 `PYOPENGL_PLATFORM=egl`，Wayland 设
+`PYOPENGL_PLATFORM=glx`。
 
 ```bash
 uv run eval --algo ppo --task g1_walk_flat --sim newton \
@@ -97,7 +110,8 @@ uv run eval --algo sac --task g1_walk_flat --sim newton \
 
 - **PD gain 运行时随机化**：Newton 当前拒绝该能力，owner 显式设置
   `events.pd_gains: null` 保持 fail-closed，直到适配器补齐。
-- **原生交互式渲染**：见上文 Playback 一节。
+- **原生渲染路径的相机参数**：native ViewerGL 路径忽略
+  `camera_kwargs`（MuJoCo 快照路径仍生效）。
 
 ## 跨后端迁移（sim2sim）
 

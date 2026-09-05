@@ -145,6 +145,14 @@ newton = [
     # dependency, so the extra carries it explicitly.
     "trimesh>=3.21.7",
 ]
+newton-render = [
+    # Native ViewerGL rendering for the newton backend (offline record and
+    # interactive playback). Install together with the newton extra; bounds
+    # mirror unisim-core's newton-render extra and newton's own examples
+    # extra. Headless record still needs an OpenGL context (EGL/GLX).
+    "pyglet>=2.1.6,<3",
+    "imgui-bundle>=1.92.0",
+]
 motrix = ["motrixsim-core==0.8.2"]
 genesis = [
     # Genesis imports as ``genesis`` and owns the GPU physics implementation;

@@ -6,8 +6,9 @@
 # capacities: a null newton_device is intentional — the process device binder
 # injects the rank-local CUDA device before materialization. Runtime PD gain
 # randomization is rejected by the backend, so pd_gains stays disabled.
-# Newton has no native UniLab viewer yet; eval uses the configured record /
-# headless path and fails closed if a native renderer is requested.
+# Native ViewerGL rendering (offline record + interactive) is provided by the
+# backend; playback inherits the base config's auto mode (interactive with a
+# display, record otherwise).
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -15,7 +16,6 @@ defaults:
 training:
   task_name: G1WalkFlat
   sim_backend: newton
-  play_render_mode: record
 algo:
   num_envs: 2048
   learning_starts: 10
