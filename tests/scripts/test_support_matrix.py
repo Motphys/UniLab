@@ -70,12 +70,30 @@ def test_support_matrix_marks_g1_isaacsim_owners_by_checked_in_scope():
         assert row.cells["isaacsim"].level == EvidenceLevel.REGISTERED
 
 
-def test_support_matrix_keeps_newton_at_configured_without_runtime_evidence():
-    ppo_row = _row("PPO (torch)", "g1_walk_flat")
-    assert ppo_row.cells["newton"].level == EvidenceLevel.CONFIGURED
-    for entrypoint_label in ("APPO (torch)", "SAC (torch)", "TD3 (torch)", "FlashSAC (torch)"):
+def test_support_matrix_marks_g1_newton_owner_sac_tested_ppo_configured():
+    """SAC newton is training-validated (Tested); PPO stays Configured."""
+    row = _row("SAC (torch)", "g1_walk_flat")
+    assert row.cells["newton"].level == EvidenceLevel.TESTED
+    row = _row("PPO (torch)", "g1_walk_flat")
+    assert row.cells["newton"].level == EvidenceLevel.CONFIGURED
+    for entrypoint_label in ("APPO (torch)", "TD3 (torch)", "FlashSAC (torch)"):
         row = _row(entrypoint_label, "g1_walk_flat")
+        # Registration is per task+backend, not per algo tree: without an
+        # owner YAML these stay at REGISTERED instead of CONFIGURED.
         assert row.cells["newton"].level == EvidenceLevel.REGISTERED
+
+
+def test_support_matrix_does_not_promote_unvalidated_newton_entries():
+    rows = build_support_rows(Path(__file__).resolve().parents[2])
+
+    tested = {
+        (row.entrypoint_label, row.task_slug)
+        for row in rows
+        if row.cells["newton"].level >= EvidenceLevel.TESTED
+    }
+    assert tested == {("SAC (torch)", "g1_walk_flat")}
+    go2_row = _row("PPO (torch)", "go2_joystick_flat")
+    assert go2_row.cells["newton"].level == EvidenceLevel.MISSING
 
 
 def test_support_matrix_does_not_promote_unvalidated_isaacgym_entries():

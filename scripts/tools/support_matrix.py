@@ -60,10 +60,19 @@ _MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = fro
 # protocol tests, and bounded backend smoke coverage.
 _MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
 
-# Newton support is newly wired at the owner/config boundary.  Keep it at
-# ``Configured`` until a maintainer records a real CUDA training or playback
-# run; generic compose tests alone must not promote this optional runtime.
-_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset()
+# Maintainer-confirmed completed training validations for the newton
+# in-process backend (real hardware, newton extra + CUDA; not covered by
+# repo CI). sac_torch g1_walk_flat: full 5000-iteration training completed
+# on 2026-09-06 (RTX 4090, torch 2.8.0+cu128, newton 1.5.1, mujoco-warp
+# 3.11; reward/mean 6.68 -> 242.3, episode length -> 983, ~43k steps/s,
+# 4m25s wall, run 2026-09-06_01-21-36_newton) plus record playback
+# validation on model_5000.pt (800-frame MuJoCo snapshot render, walking
+# gait confirmed). PPO remains ``Configured`` without runtime evidence.
+_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("sac_torch", "g1_walk_flat"),
+    }
+)
 
 _TASK_ORDER = {
     "go1_joystick_flat": 0,
@@ -424,7 +433,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
             "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",
             "- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.",
-            "- `newton` is an isolated optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line. Current evidence is limited to the G1 PPO owner config, compose/contract checks, and fail-closed runtime/import boundaries; no CUDA training or playback claim is made.",
+            "- `newton` is an isolated optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line. Validated newton entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS` (real hardware, newton extra + CUDA; not covered by repo CI); remaining cells rely on the G1 PPO/SAC owner configs, compose/contract checks, and fail-closed runtime/import boundaries.",
         ]
     )
     return "\n".join(lines)

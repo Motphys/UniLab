@@ -105,7 +105,7 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_23dof_walk_flat` (g1 23dof walk flat) | Tested | - | Registered | - | - | - | - |
 | APPO (torch) | `g1_23dof_wall_flip_tracking` (g1 23dof wall flip tracking) | Tested | - | Tested | - | - | - | - |
 | APPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested | - | - | - | - |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested | Tested | Configured | Registered |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested | Tested | Configured | Tested |
 | SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | - | Tested | - | - | - | - |
 | SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - | - | - | - |
 | SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered | - | - | - | - |
@@ -134,5 +134,5 @@ uv run scripts/generate_support_matrix.py --write
 - Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).
 - Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.
 - IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.
-- `newton` is an isolated optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line. Current evidence is limited to the G1 PPO owner config, compose/contract checks, and fail-closed runtime/import boundaries; no CUDA training or playback claim is made.
+- `newton` is an isolated optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line. Validated newton entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS` (real hardware, newton extra + CUDA; not covered by repo CI); remaining cells rely on the G1 PPO/SAC owner configs, compose/contract checks, and fail-closed runtime/import boundaries.
 <!-- END GENERATED SUPPORT MATRIX -->

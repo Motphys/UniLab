@@ -1,7 +1,8 @@
 # Simulation Backends
 
 UniLab exposes backend names through registry/config paths, including `mujoco`,
-`motrix`, `mjwarp`, `drake`, `isaacgym`, `genesis`, and `isaacsim` where an owner is registered.
+`motrix`, `mjwarp`, `drake`, `isaacgym`, `genesis`, `isaacsim`, and `newton`
+where an owner is registered.
 User commands select them with `--sim`, which routes to the matching task owner
 YAML; do not switch a run by overriding `training.sim_backend` alone.
 
@@ -14,6 +15,9 @@ YAML; do not switch a run by overriding `training.sim_backend` alone.
   still requires a working MuJoCo runtime.
 - Drake uses the external `drake-uni` package plus a locally built C++ batch
   extension; see {doc}`6-drake` before selecting `--sim drake`.
+- Newton uses the isolated `newton` extra (`uv sync --extra newton`), which
+  cannot share an environment with the `mujoco` / `mjwarp` extras; see
+  {doc}`7-newton` before selecting `--sim newton`.
 - On macOS, the package CLI routes Motrix interactive playback through
   `mxpython` when needed. Direct script calls that open the native Motrix
   renderer should use `uv run mxpython`.
@@ -98,7 +102,8 @@ uv run python -c "import unisim; print(unisim.ADAPTER_SPECS)"
 ```
 
 `unisim` has no dependency on UniLab, Hydra, or training components. MuJoCo,
-Motrix, Drake, MJWarp, Genesis, IsaacGym, and IsaacSim use one public contract.
+Motrix, Drake, MJWarp, Genesis, IsaacGym, IsaacSim, and Newton use one public
+contract.
 Missing proprietary SDKs or GPU workers produce an explicit cold-path diagnostic;
 no backend silently falls back to another engine.
 
@@ -121,4 +126,5 @@ separately authorized issue.
 4-isaacsim
 5-genesis
 6-drake
+7-newton
 ```

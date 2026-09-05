@@ -140,6 +140,10 @@ newton = [
     "mujoco-warp==3.11.0",
     "mujoco==3.11.0",
     "warp-lang==1.16.0",
+    # Newton's MJCF importer loads mesh assets through trimesh on the
+    # materialization cold path; newton does not declare it as a hard
+    # dependency, so the extra carries it explicitly.
+    "trimesh>=3.21.7",
 ]
 motrix = ["motrixsim-core==0.8.2"]
 genesis = [

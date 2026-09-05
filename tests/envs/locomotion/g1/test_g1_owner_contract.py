@@ -288,6 +288,19 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "sac",
+        ("task=g1_walk_flat/newton",),
+        "G1WalkFlat",
+        "newton",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-newton",
+    ),
+    pytest.param(
+        "sac",
         ("task=g1_walk_flat/genesis",),
         "G1WalkFlat",
         "genesis",
@@ -399,6 +412,7 @@ _WALK_PROFILE_IDS = {
     "sac-mujoco",
     "sac-motrix",
     "sac-mjwarp",
+    "sac-newton",
     "sac-genesis",
     "sac-isaacsim",
     "sac-rough-mujoco",
@@ -569,8 +583,8 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.mjwarp_njmax == 256
     if backend == "newton":
         assert env_cfg.newton_device is None
-        assert env_cfg.newton_nconmax == 128
-        assert env_cfg.newton_njmax == 256
+        assert env_cfg.newton_nconmax == 320
+        assert env_cfg.newton_njmax == 512
         assert env_cfg.newton_capacity_check_steps == 1
     if backend == "isaacgym":
         assert env_cfg.isaacgym_device_id == 0
