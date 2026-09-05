@@ -23,6 +23,7 @@ from unilab.base.env_factory import registry_env_factory
 from unilab.base.process_device import (
     apply_backend_env_device_override,
     configure_backend_process_device,
+    pin_genesis_device_before_cuda_init,
 )
 from unilab.training import (
     algo_config_dict,
@@ -215,13 +216,17 @@ def play_appo(
         log_root=None,
         num_envs=cfg.training.play_env_num,
     )
+    if _is_cuda_device(device):
+        # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request; adopt the
+        # bound in-process device for the policy and the env override.
+        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
+        if bound_device is not None:
+            device = bound_device
     play_env_cfg_override = apply_backend_env_device_override(
         BackendAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_play_env_cfg_override(),
         str(cfg.training.sim_backend),
         learner_device=device,
     )
-    if _is_cuda_device(device):
-        configure_backend_process_device(str(cfg.training.sim_backend), device)
     session, _policy_obs_mode, _checkpoint_path = create_appo_playback_session(
         playback_cfg=playback_cfg,
         cfg=cfg,
@@ -291,6 +296,16 @@ def play_appo(
 
 @hydra.main(version_base="1.3", config_path="../conf/appo", config_name="config")
 def main(cfg: DictConfig) -> None:
+    # Genesis/Quadrants binds the first CUDA_VISIBLE_DEVICES entry, and even
+    # torch.cuda.is_available() latches the variable in the CUDA runtime, so
+    # the pin must precede registry bootstrap and device auto-detection
+    # (issue #1508).  APPO has no device topology; only an explicit learner
+    # device can require the pin.
+    pinned_device = pin_genesis_device_before_cuda_init(
+        str(cfg.training.sim_backend),
+        learner_device=cfg.training.device,
+    )
+
     ensure_registries()
 
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
@@ -320,6 +335,24 @@ def main(cfg: DictConfig) -> None:
         if torch.backends.mps.is_available()
         else "cpu"
     )
+    if pinned_device is not None:
+        # The process was pinned to its requested GPU; use the in-process
+        # index for both learner and collector.
+        learner_device = pinned_device
+        if collector_device is not None and _is_cuda_device(collector_device):
+            collector_device = pinned_device
+
+    if _is_cuda_device(learner_device):
+        # A non-zero Genesis request pins CUDA_VISIBLE_DEVICES process-wide
+        # (Quadrants only honors the first visible device); the bound
+        # in-process device replaces both the learner and collector device.
+        bound_device = configure_backend_process_device(
+            str(cfg.training.sim_backend), learner_device
+        )
+        if bound_device is not None:
+            learner_device = bound_device
+            if collector_device is not None and _is_cuda_device(collector_device):
+                collector_device = bound_device
 
     env_cfg_override = apply_backend_env_device_override(
         BackendAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_task_env_cfg_override(),
@@ -330,8 +363,6 @@ def main(cfg: DictConfig) -> None:
             else learner_device
         ),
     )
-    if _is_cuda_device(learner_device):
-        configure_backend_process_device(str(cfg.training.sim_backend), learner_device)
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
 
     tracker = None

@@ -36,12 +36,15 @@ def make_registry_env(
     from unilab.base.registry import ensure_registries
 
     ensure_registries()
-    # Genesis owns a process-wide session and reads ``torch.cuda.current_device``
-    # before/while ``gs.init`` runs.  Off-policy/APPO collectors are fresh
-    # spawn processes, so the parent-side binding cannot reach them; carry the
-    # explicit cold-path id in the opaque override and bind immediately before
-    # registry construction.  Newer unisim-core versions repeat this check in
-    # GenesisBackend itself, making this compatibility guard idempotent.
+    # Genesis owns a process-wide session whose Quadrants runtime binds the
+    # first entry of CUDA_VISIBLE_DEVICES.  Off-policy/APPO collectors are
+    # fresh spawn processes, so the parent-side binding cannot reach them;
+    # carry the explicit cold-path id in the opaque override and bind
+    # immediately before registry construction.  Binding a non-zero id pins
+    # CUDA_VISIBLE_DEVICES for this process, so forward the post-pin
+    # in-process index downstream.  Newer unisim-core versions repeat this
+    # check in GenesisBackend itself, making this compatibility guard
+    # idempotent.
     if sim_backend == "genesis" and env_cfg_override is not None:
         genesis_device_id = env_cfg_override.get("genesis_device_id")
         if genesis_device_id is not None:
@@ -54,7 +57,11 @@ def make_registry_env(
                     "genesis_device_id must be a non-negative integer or None, "
                     f"got {genesis_device_id!r}"
                 )
-            bind_genesis_process_device(f"cuda:{genesis_device_id}")
+            bound = bind_genesis_process_device(f"cuda:{genesis_device_id}")
+            env_cfg_override = {
+                **env_cfg_override,
+                "genesis_device_id": int(bound.rsplit(":", 1)[1]),
+            }
     # ABEnv satisfies EnvProtocol at runtime (reset/set_nan_guard live on
     # NpEnv); the declared ABEnv type predates the uni_rl protocol.
     return cast(

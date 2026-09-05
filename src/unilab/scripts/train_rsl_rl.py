@@ -36,6 +36,7 @@ from unilab.base.config_adapter import BackendAdapter, create_env
 from unilab.base.process_device import (
     apply_backend_env_device_override,
     configure_backend_process_device,
+    pin_genesis_device_before_cuda_init,
     resolve_backend_env_device_id,
     warn_if_backend_device_collision,
 )
@@ -280,15 +281,6 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     play_devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
     play_world_size = current_torch_distributed_world_size()
     play_local_rank = current_torch_distributed_local_rank()
-    play_env_cfg_override = apply_backend_env_device_override(
-        build_ppo_play_env_cfg_override(cfg),
-        str(cfg.training.sim_backend),
-        devices=play_devices,
-        rank=play_local_rank,
-        local_rank=play_local_rank,
-        world_size=play_world_size,
-        learner_device=device,
-    )
     play_device_id = resolve_backend_env_device_id(
         str(cfg.training.sim_backend),
         devices=play_devices,
@@ -305,7 +297,20 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         source="playback",
     )
     if str(device).strip().lower().startswith("cuda"):
-        configure_backend_process_device(str(cfg.training.sim_backend), device)
+        # A non-zero Genesis request pins CUDA_VISIBLE_DEVICES here; adopt the
+        # bound in-process device for both the policy and the env override.
+        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
+        if bound_device is not None:
+            device = bound_device
+    play_env_cfg_override = apply_backend_env_device_override(
+        build_ppo_play_env_cfg_override(cfg),
+        str(cfg.training.sim_backend),
+        devices=play_devices,
+        rank=play_local_rank,
+        local_rank=play_local_rank,
+        world_size=play_world_size,
+        learner_device=device,
+    )
     session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
         playback_cfg=playback_cfg,
         env_factory=lambda n: create_env(
@@ -423,6 +428,27 @@ def main(cfg: DictConfig) -> None:
             "training.devices or set training.log_dir explicitly"
         )
 
+    # Genesis/Quadrants binds the first CUDA_VISIBLE_DEVICES entry, and even
+    # torch.cuda.is_available() latches the variable in the CUDA runtime, so
+    # the pin must precede registry bootstrap and device auto-detection
+    # (issue #1508).  Pure config topology resolves without touching torch.
+    pinned_device = pin_genesis_device_before_cuda_init(
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=str(configured_device) if configured_device is not None else None,
+    )
+
+    if pinned_device is not None and world_size > 1:
+        # rsl_rl's multi-GPU guard expects device == cuda:{LOCAL_RANK}.  Inside
+        # the pinned single-device namespace the rank-local index is 0, so
+        # adopt it for downstream consumers (parameter sync keeps using the
+        # unchanged global RANK/WORLD_SIZE).
+        os.environ["LOCAL_RANK"] = "0"
+        local_rank = 0
+
     ensure_registries()
     apply_rsl_rl_rank_seed(cfg, rank)
     device = resolve_rsl_rl_device(
@@ -432,22 +458,14 @@ def main(cfg: DictConfig) -> None:
         local_rank=local_rank,
         default_device=get_default_device(),
     )
-    print(f"[rank {rank}/{world_size}] Using device: {device}")
-
+    if pinned_device is not None:
+        # The process was pinned to its rank GPU; use the in-process index.
+        device = pinned_device
     # PPO workers launched by torchrun inherit the launcher's remapped
     # CUDA_VISIBLE_DEVICES, so LOCAL_RANK (not the host index in
     # training.devices) is the simulator payload id.  Single-process workers
     # retain the configured host-visible index.  Route this before env
     # construction and before Genesis/torch global initialization.
-    env_cfg_override = apply_backend_env_device_override(
-        build_ppo_env_cfg_override(cfg),
-        str(cfg.training.sim_backend),
-        devices=devices,
-        rank=local_rank,
-        local_rank=local_rank,
-        world_size=world_size,
-        learner_device=device,
-    )
     env_device_id = resolve_backend_env_device_id(
         str(cfg.training.sim_backend),
         devices=devices,
@@ -464,7 +482,22 @@ def main(cfg: DictConfig) -> None:
         source="training",
     )
     if str(device).strip().lower().startswith("cuda"):
-        configure_backend_process_device(str(cfg.training.sim_backend), device)
+        # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request (Quadrants
+        # only honors the first visible device); the bound value is the device
+        # this process must actually use afterwards.
+        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
+        if bound_device is not None:
+            device = bound_device
+    print(f"[rank {rank}/{world_size}] Using device: {device}")
+    env_cfg_override = apply_backend_env_device_override(
+        build_ppo_env_cfg_override(cfg),
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=device,
+    )
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
 
     # Compute effective max_iterations (supports num_timesteps override)

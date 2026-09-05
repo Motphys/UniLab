@@ -913,9 +913,13 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
 
     # mjwarp requires an active CUDA Warp device; bind it process-wide before
     # any env is constructed (same pattern as the offpolicy train entrypoint).
-    # No-op for backends without a device binding requirement.
+    # No-op for backends without a device binding requirement.  A non-zero
+    # Genesis request pins CUDA_VISIBLE_DEVICES; the bound in-process device
+    # replaces the requested one for the policy and the env overrides below.
     if str(device).strip().lower().startswith("cuda"):
-        configure_backend_process_device(sim_backend, device)
+        bound_device = configure_backend_process_device(sim_backend, device)
+        if bound_device is not None:
+            device = bound_device
 
     def _create_env(num_envs: int):
         if cfg is None:

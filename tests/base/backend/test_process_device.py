@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
+import warnings
 from types import SimpleNamespace
 
 import pytest
+import torch
 from unisim.backend.mjwarp import runtime as mjwarp_runtime
 
+import unilab.base.process_device as process_device
 from unilab.base.process_device import (
     apply_backend_env_device_override,
+    bind_genesis_process_device,
     configure_backend_process_device,
     resolve_backend_env_device_id,
     resolve_backend_process_device,
@@ -149,3 +154,103 @@ def test_non_gpu_backend_is_left_untouched() -> None:
         )
         == owner_override
     )
+
+
+@pytest.fixture
+def genesis_pin_state(monkeypatch: pytest.MonkeyPatch):
+    """Host-free Genesis pin lane: stub torch CUDA state and the pin latch."""
+
+    # monkeypatch.delitem on a missing key records no undo, so the pin's
+    # direct os.environ write would leak into later tests; restore manually.
+    saved_cvd = os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+    set_calls: list[int] = []
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(torch.cuda, "set_device", set_calls.append)
+    process_device._reset_genesis_device_pin_for_tests()
+    try:
+        yield set_calls
+    finally:
+        process_device._reset_genesis_device_pin_for_tests()
+        if saved_cvd is None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = saved_cvd
+
+
+def test_genesis_nonzero_device_pins_visible_devices(genesis_pin_state: list[int]) -> None:
+    # Quadrants only honors the first visible device (issue #1508), so a
+    # non-zero request shrinks CUDA_VISIBLE_DEVICES and reports the
+    # in-process index 0 to the rest of the process.
+    assert bind_genesis_process_device("cuda:1") == "cuda:0"
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "1"
+    assert genesis_pin_state == [0]
+
+
+def test_genesis_pin_translates_existing_visible_devices(
+    genesis_pin_state: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(os.environ, "CUDA_VISIBLE_DEVICES", "4,5")
+
+    assert bind_genesis_process_device("cuda:1") == "cuda:0"
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "5"
+
+
+def test_genesis_device_zero_binds_without_pin(genesis_pin_state: list[int]) -> None:
+    assert bind_genesis_process_device("cuda:0") == "cuda:0"
+    assert "CUDA_VISIBLE_DEVICES" not in os.environ
+    assert genesis_pin_state == [0]
+
+
+def test_genesis_pin_fails_closed_after_cuda_init(
+    genesis_pin_state: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+
+    with pytest.raises(RuntimeError, match="before any CUDA context"):
+        bind_genesis_process_device("cuda:1")
+    assert "CUDA_VISIBLE_DEVICES" not in os.environ
+
+
+def test_genesis_pin_is_idempotent_for_repeated_rank_binding(
+    genesis_pin_state: list[int],
+) -> None:
+    # Entrypoints bind twice (main + defensive runner rebind); a stale pre-pin
+    # index from the same rank maps onto the pinned in-process device.
+    assert bind_genesis_process_device("cuda:1") == "cuda:0"
+    assert bind_genesis_process_device("cuda:1") == "cuda:0"
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "1"
+    assert genesis_pin_state == [0, 0]
+
+
+def test_genesis_resolution_uses_pinned_namespace(genesis_pin_state: list[int]) -> None:
+    bind_genesis_process_device("cuda:1")
+
+    # After the pin every in-process consumer resolves to index 0, and the
+    # transition collision guard stays quiet because each rank owns its GPU.
+    assert (
+        resolve_backend_env_device_id(
+            "genesis",
+            devices=(0, 1),
+            rank=1,
+            world_size=1,
+            learner_device="cuda:1",
+        )
+        == 0
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_if_backend_device_collision("genesis", devices=(0, 1), rank=1, device_id=0)
+
+
+def test_genesis_pin_rejects_index_beyond_visible_devices(
+    genesis_pin_state: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(os.environ, "CUDA_VISIBLE_DEVICES", "3")
+
+    with pytest.raises(ValueError, match="CUDA_VISIBLE_DEVICES"):
+        bind_genesis_process_device("cuda:1")

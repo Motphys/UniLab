@@ -94,7 +94,9 @@ def create_backend(
         # Bind before any unisim-core Genesis constructor can call gs.init.
         # New unisim-core releases repeat this idempotently; old releases do
         # not accept the keyword, so the retry below still gets the correct
-        # process-wide current device.
+        # process-wide device.  Binding a non-zero id pins
+        # CUDA_VISIBLE_DEVICES (Quadrants only honors the first visible
+        # device), so forward the *post-pin* in-process index.
         genesis_device_id = kwargs["genesis_device_id"]
         if (
             isinstance(genesis_device_id, bool)
@@ -105,7 +107,8 @@ def create_backend(
                 "genesis_device_id must be a non-negative integer or None, "
                 f"got {genesis_device_id!r}"
             )
-        bind_genesis_process_device(f"cuda:{genesis_device_id}")
+        bound = bind_genesis_process_device(f"cuda:{genesis_device_id}")
+        kwargs["genesis_device_id"] = int(bound.rsplit(":", 1)[1])
     try:
         return unisim.create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
     except TypeError as exc:

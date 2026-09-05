@@ -10,6 +10,7 @@ translation on the cold path, next to the backend process binding contract.
 
 from __future__ import annotations
 
+import os
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
@@ -22,6 +23,15 @@ BACKEND_ENV_DEVICE_FIELDS: dict[str, str] = {
     "isaacsim": "isaacsim_device_id",
     "genesis": "genesis_device_id",
 }
+
+
+# Set once ``bind_genesis_process_device`` has pinned CUDA_VISIBLE_DEVICES for
+# this process.  Genesis/Quadrants binds its CUDA runtime to the first visible
+# device regardless of torch's current device (verified on genesis_world
+# 1.3.3 / Quadrants 1.3.0, issue #1508), so a non-zero request is honored by
+# shrinking visibility to the target GPU and using the in-process index 0.
+# The flag flips the resolution helpers into the pinned namespace.
+_genesis_device_pinned = False
 
 
 def _normalize_backend(backend_type: str) -> str:
@@ -118,6 +128,12 @@ def resolve_backend_env_device_id(
     if field is None:
         return None
 
+    if backend == "genesis" and _genesis_device_pinned:
+        # Post-pin the process sees exactly one CUDA device; every rank-local
+        # consumer (learner probe, spawn collector, playback) must use the
+        # in-process index 0 regardless of the original host/rank topology.
+        return 0
+
     normalized_devices = _normalize_device_indices(devices)
     world_size = int(world_size)
     if world_size < 1:
@@ -206,6 +222,10 @@ def warn_if_backend_device_collision(
     backend = _normalize_backend(backend_type)
     if backend not in BACKEND_ENV_DEVICE_FIELDS:
         return
+    if backend == "genesis" and _genesis_device_pinned:
+        # A successful pin places every rank on its own physical GPU; the
+        # in-process index 0 that follows is not a collision.
+        return
     normalized_devices = _normalize_device_indices(devices)
     if (
         normalized_devices is None
@@ -259,22 +279,115 @@ def bind_backend_process_device(resolved: str) -> str | None:
     return cast(str | None, bind_mjwarp_process_device(resolved))
 
 
+def _pin_cuda_visible_devices(index: int) -> None:
+    """Shrink ``CUDA_VISIBLE_DEVICES`` to the single entry at ``index``.
+
+    The index addresses the *current* visibility namespace: with no variable
+    set it is the host index, otherwise it indexes into the existing entries
+    (which may be physical indices or UUIDs).  This only works before the
+    first CUDA context exists, so an already-initialized torch runtime fails
+    closed with an actionable error instead of crashing inside the engine.
+    """
+
+    import torch
+
+    if torch.cuda.is_initialized():
+        raise RuntimeError(
+            "genesis device routing must pin CUDA_VISIBLE_DEVICES before any CUDA "
+            "context is created in this process, but torch CUDA is already "
+            "initialized; move configure_backend_process_device earlier in the "
+            "entrypoint (before seeding/learner construction)"
+        )
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES")
+    entries = [entry.strip() for entry in raw.split(",") if entry.strip()] if raw else None
+    if entries is None:
+        count = int(torch.cuda.device_count())
+        if index >= count:
+            raise ValueError(
+                f"genesis device index {index} is out of range; torch.cuda.device_count()={count}"
+            )
+        target = str(index)
+    else:
+        if index >= len(entries):
+            raise ValueError(
+                f"genesis device index {index} is out of range for "
+                f"CUDA_VISIBLE_DEVICES={raw!r} ({len(entries)} entr(ies))"
+            )
+        target = entries[index]
+    os.environ["CUDA_VISIBLE_DEVICES"] = target
+    # ``device_count`` is lru-cached; drop any pre-pin host-wide count so
+    # later callers observe the pinned single-device namespace.
+    cache_clear = getattr(torch.cuda.device_count, "cache_clear", None)
+    if callable(cache_clear):
+        cache_clear()
+
+
+def pin_genesis_device_before_cuda_init(
+    backend_type: str,
+    *,
+    devices: Sequence[int] | None = None,
+    rank: int = 0,
+    local_rank: int | None = None,
+    world_size: int = 1,
+    learner_device: str | None = None,
+) -> str | None:
+    """Pin Genesis to its rank device before the first torch CUDA call.
+
+    ``torch.cuda.is_available()`` already latches ``CUDA_VISIBLE_DEVICES`` in
+    the CUDA runtime, so the pin must run ahead of *any* torch CUDA query —
+    entrypoints should call this before registry/bootstrap/device detection.
+    Pure config topology (``training.devices`` / ``LOCAL_RANK`` / an explicit
+    ``cuda:N`` learner device) resolves without touching torch.  Returns the
+    in-process device the caller must use when a pin happened, else ``None``.
+    """
+
+    if _normalize_backend(backend_type) != "genesis":
+        return None
+    device_id = resolve_backend_env_device_id(
+        backend_type,
+        devices=devices,
+        rank=rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=learner_device,
+    )
+    if not device_id:
+        return None
+    return bind_genesis_process_device(f"cuda:{device_id}")
+
+
 def bind_genesis_process_device(resolved: str) -> str:
     """Select the CUDA device used by an in-process Genesis worker.
 
-    Genesis initializes a process-wide session and consults
-    ``torch.cuda.current_device()`` during that initialization.  Binding must
-    therefore happen before constructing the backend (and before ``gs.init``),
-    including in spawn-based collector processes.  The selected device remains
-    active for the lifetime of the process by design.
+    Genesis initializes a process-wide session whose Quadrants CUDA runtime
+    always binds the first entry of ``CUDA_VISIBLE_DEVICES``; torch's current
+    device alone is *not* honored (issue #1508).  A non-zero request is
+    therefore honored by pinning visibility to the target GPU before any CUDA
+    context exists, after which the in-process device is ``cuda:0``.  The
+    returned string is the device the rest of this process must actually use —
+    callers that computed a pre-pin device (learner, probes, collectors) have
+    to adopt the returned value.  Binding must happen before constructing the
+    backend (and before ``gs.init``), including in spawn-based collector
+    processes, and remains in effect for the lifetime of the process.
     """
 
+    global _genesis_device_pinned
     device = str(resolved).strip()
     index = _cuda_device_index(device)
     if index is None:
         raise ValueError(f"genesis requires a CUDA process device; got {resolved!r}")
     import torch
 
+    # Pin *before* any torch CUDA query: even ``torch.cuda.is_available()``
+    # latches CUDA_VISIBLE_DEVICES in the runtime, after which rewriting it
+    # would silently keep the process on the first previously visible GPU.
+    if index > 0:
+        if not _genesis_device_pinned:
+            _pin_cuda_visible_devices(index)
+            _genesis_device_pinned = True
+        # Already pinned (or just pinned): the only valid in-process device is
+        # index 0.  A stale pre-pin index from the same rank maps onto it.
+        index = 0
     if not torch.cuda.is_available():
         raise ValueError(
             f"genesis requires CUDA device {device!r}, but CUDA is unavailable in this process"
@@ -283,12 +396,21 @@ def bind_genesis_process_device(resolved: str) -> str:
     return f"cuda:{index}"
 
 
+def _reset_genesis_device_pin_for_tests() -> None:
+    """Clear the process pin latch; test-only seam (the CVD rewrite itself is
+    reverted via ``monkeypatch.setitem``/``delitem`` on ``os.environ``)."""
+
+    global _genesis_device_pinned
+    _genesis_device_pinned = False
+
+
 __all__ = [
     "BACKEND_ENV_DEVICE_FIELDS",
     "apply_backend_env_device_override",
     "bind_backend_process_device",
     "bind_genesis_process_device",
     "configure_backend_process_device",
+    "pin_genesis_device_before_cuda_init",
     "resolve_backend_env_device_id",
     "resolve_backend_process_device",
     "warn_if_backend_device_collision",

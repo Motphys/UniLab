@@ -118,13 +118,17 @@ def play_hora_appo(
         if torch.backends.mps.is_available()
         else "cpu"
     )
-    print(f"Using device for play: {device}")
-
     # Genesis owns a process-wide session and must select its CUDA device
     # before the first backend construction.  Keep the rank/device routing in
     # the shared owner-layer helper so HORA playback follows the same contract
-    # as the generic APPO/PPO/off-policy play paths.
+    # as the generic APPO/PPO/off-policy play paths.  A non-zero Genesis
+    # request pins CUDA_VISIBLE_DEVICES; the bound in-process device replaces
+    # the requested one for the policy and the env override.
     sim_backend = str(OmegaConf.select(cfg, "training.sim_backend", default="mujoco"))
+    if str(device).strip().lower().startswith("cuda"):
+        bound_device = configure_backend_process_device(sim_backend, device)
+        if bound_device is not None:
+            device = bound_device
     env_cfg_override = apply_backend_env_device_override(
         BackendAdapter(
             cfg,
@@ -134,8 +138,7 @@ def play_hora_appo(
         sim_backend,
         learner_device=device,
     )
-    if str(device).strip().lower().startswith("cuda"):
-        configure_backend_process_device(sim_backend, device)
+    print(f"Using device for play: {device}")
 
     env = cast(
         Any,
