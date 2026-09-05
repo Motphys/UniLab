@@ -97,6 +97,8 @@ MuJoCo worker 线程逐核绑定外，collector 进程本身（含 Numba 并行 
 - MuJoCo 有已提交的多卡 scaling benchmark；mjwarp 的 per-rank device placement 有
   `tests/base/backend/test_process_device.py` 与 off-policy runner/worker 单测覆盖，但仓库中
   尚无 mjwarp 多卡吞吐或收敛 benchmark。
+- IsaacGym、IsaacSim 和 Genesis 的 collector 环境也会收到 rank 对应的仿真设备。off-policy
+  使用父进程可见的 CUDA 索引；Genesis 在初始化 `gs.init` 前绑定进程级 session 设备。
 - 仅单节点：rank 之间通过 run 目录里的 FileStore rendezvous，NCCL 走 TCP
   loopback（默认 `NCCL_P2P_DISABLE=1` / `NCCL_SHM_DISABLE=1`，环境变量显式设置
   时优先）——部分机型（如 RTX 6000D）的 NCCL P2P/SHM peer transport 不可靠，

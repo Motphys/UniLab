@@ -33,6 +33,10 @@ algo:
     actor_hidden_dims: [512, 256, 128]
     critic_hidden_dims: [512, 256, 128]
 env:
+  # GPU device id for the process-wide Genesis session.  Multi-GPU training
+  # overrides this cold-path field from the rank topology; zero preserves the
+  # single-device owner default.
+  genesis_device_id: 0
   # Re-declares the MJCF <option integrator="implicitfast"> that Genesis drops
   # at import; the remaining global options keep the Genesis defaults.
   genesis_integrator: implicitfast

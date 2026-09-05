@@ -8,8 +8,11 @@ import pytest
 from unisim.backend.mjwarp import runtime as mjwarp_runtime
 
 from unilab.base.process_device import (
+    apply_backend_env_device_override,
     configure_backend_process_device,
+    resolve_backend_env_device_id,
     resolve_backend_process_device,
+    warn_if_backend_device_collision,
 )
 
 
@@ -71,3 +74,78 @@ def test_mjwarp_binding_rejects_non_cuda_warp_resolution(
 
     with pytest.raises(RuntimeError, match="active CUDA Warp device"):
         mjwarp_runtime.bind_mjwarp_process_device("cuda:1")
+
+
+@pytest.mark.parametrize(
+    "backend_type",
+    ["isaacgym", "isaacsim", "genesis"],
+)
+def test_offpolicy_rank_routes_host_visible_backend_device(backend_type: str) -> None:
+    assert (
+        resolve_backend_env_device_id(
+            backend_type,
+            devices=(0, 1),
+            rank=1,
+            world_size=1,
+            learner_device="cuda:1",
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "backend_type",
+    ["isaacgym", "isaacsim", "genesis"],
+)
+def test_torchrun_rank_routes_local_backend_device(backend_type: str) -> None:
+    # torchrun remaps CUDA_VISIBLE_DEVICES to [4, 5], so rank 1 must send
+    # local index 1 to the worker rather than host-visible index 5.
+    assert (
+        resolve_backend_env_device_id(
+            backend_type,
+            devices=(4, 5),
+            rank=1,
+            local_rank=1,
+            world_size=2,
+        )
+        == 1
+    )
+
+
+def test_backend_env_device_override_does_not_mutate_owner_mapping() -> None:
+    owner_override = {"isaacgym_device_id": 0, "nested": {"keep": True}}
+    routed = apply_backend_env_device_override(
+        owner_override,
+        "isaacgym",
+        devices=(0, 1),
+        rank=1,
+        world_size=1,
+    )
+
+    assert routed["isaacgym_device_id"] == 1
+    assert owner_override["isaacgym_device_id"] == 0
+    assert routed["nested"] is owner_override["nested"]
+
+
+def test_nonzero_rank_device_zero_emits_collision_warning() -> None:
+    with pytest.warns(RuntimeWarning, match=r"training\.devices=\[0, 1\]"):
+        warn_if_backend_device_collision(
+            "genesis",
+            devices=(0, 1),
+            rank=1,
+            device_id=0,
+        )
+
+
+def test_non_gpu_backend_is_left_untouched() -> None:
+    owner_override = {"isaacgym_device_id": 0}
+    assert (
+        apply_backend_env_device_override(
+            owner_override,
+            "mujoco",
+            devices=(0, 1),
+            rank=1,
+            world_size=1,
+        )
+        == owner_override
+    )

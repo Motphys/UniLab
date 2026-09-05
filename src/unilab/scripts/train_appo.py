@@ -20,6 +20,10 @@ from unilab.base.config_adapter import (
     create_env,
 )
 from unilab.base.env_factory import registry_env_factory
+from unilab.base.process_device import (
+    apply_backend_env_device_override,
+    configure_backend_process_device,
+)
 from unilab.training import (
     algo_config_dict,
     build_run_dir_name,
@@ -45,6 +49,12 @@ def _training_resume_requested(load_run: Any) -> bool:
     return str(load_run) not in {"", "-1"}
 
 
+def _is_cuda_device(device: str | None) -> bool:
+    """Return whether a device alias names CUDA (indexed or unindexed)."""
+
+    return device is not None and str(device).strip().lower().split(":", 1)[0] == "cuda"
+
+
 def build_appo_runner_kwargs(
     cfg: DictConfig,
     env_cfg_override: dict | None,
@@ -54,12 +64,22 @@ def build_appo_runner_kwargs(
     if rl_cfg is None:
         rl_cfg = algo_config_dict(cfg)
 
+    routed_env_cfg_override = apply_backend_env_device_override(
+        env_cfg_override,
+        str(cfg.training.sim_backend),
+        learner_device=(
+            collector_device
+            if collector_device is not None and _is_cuda_device(collector_device)
+            else OmegaConf.select(cfg, "training.device", default=None)
+        ),
+    )
+
     runner_kwargs = {
         "env_name": cfg.training.task_name,
         "env_factory": registry_env_factory(
             str(cfg.training.task_name), str(cfg.training.sim_backend)
         ),
-        "env_cfg_overrides": env_cfg_override,
+        "env_cfg_overrides": routed_env_cfg_override,
         "rl_cfg": rl_cfg,
         "device": cfg.training.device,
         "collector_device": collector_device,
@@ -195,6 +215,13 @@ def play_appo(
         log_root=None,
         num_envs=cfg.training.play_env_num,
     )
+    play_env_cfg_override = apply_backend_env_device_override(
+        BackendAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_play_env_cfg_override(),
+        str(cfg.training.sim_backend),
+        learner_device=device,
+    )
+    if _is_cuda_device(device):
+        configure_backend_process_device(str(cfg.training.sim_backend), device)
     session, _policy_obs_mode, _checkpoint_path = create_appo_playback_session(
         playback_cfg=playback_cfg,
         cfg=cfg,
@@ -202,9 +229,7 @@ def play_appo(
         env_factory=lambda n: create_env(
             cfg,
             num_envs=n,
-            env_cfg_override=BackendAdapter(
-                cfg, root_dir=Path.cwd(), algo_name="appo"
-            ).build_play_env_cfg_override(),
+            env_cfg_override=play_env_cfg_override,
         ),
         root_dir=Path.cwd(),
         device=device,
@@ -268,11 +293,6 @@ def play_appo(
 def main(cfg: DictConfig) -> None:
     ensure_registries()
 
-    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
-    env_cfg_override = BackendAdapter(
-        cfg, root_dir=Path.cwd(), algo_name="appo"
-    ).build_task_env_cfg_override()
-
     # Convert algo config to plain dict for APPORunner / RSL-RL internals
     rl_cfg = algo_config_dict(cfg)
     apply_appo_runtime_flags(rl_cfg, cfg, training_enabled=not cfg.training.play_only)
@@ -300,6 +320,19 @@ def main(cfg: DictConfig) -> None:
         if torch.backends.mps.is_available()
         else "cpu"
     )
+
+    env_cfg_override = apply_backend_env_device_override(
+        BackendAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_task_env_cfg_override(),
+        str(cfg.training.sim_backend),
+        learner_device=(
+            collector_device
+            if collector_device is not None and _is_cuda_device(collector_device)
+            else learner_device
+        ),
+    )
+    if _is_cuda_device(learner_device):
+        configure_backend_process_device(str(cfg.training.sim_backend), learner_device)
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
 
     tracker = None
     if not cfg.training.play_only:

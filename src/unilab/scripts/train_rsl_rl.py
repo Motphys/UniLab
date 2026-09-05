@@ -33,6 +33,12 @@ from unisim.backend.base import RenderClosedError, log_playback_plan
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
 from unilab.base.config_adapter import BackendAdapter, create_env
+from unilab.base.process_device import (
+    apply_backend_env_device_override,
+    configure_backend_process_device,
+    resolve_backend_env_device_id,
+    warn_if_backend_device_collision,
+)
 from unilab.base.run_control import RunComplete
 from unilab.training import (
     algo_config_dict,
@@ -78,11 +84,47 @@ def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
 
 
 def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
-    return cast(dict[str, Any], _backend_adapter(cfg).build_task_env_cfg_override())
+    base = cast(dict[str, Any], _backend_adapter(cfg).build_task_env_cfg_override())
+    devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
+    local_rank = current_torch_distributed_local_rank()
+    world_size = current_torch_distributed_world_size()
+    configured_device = OmegaConf.select(cfg, "training.device", default=None)
+    learner_device = (
+        f"cuda:{local_rank}"
+        if world_size > 1
+        else (f"cuda:{devices[0]}" if devices else configured_device)
+    )
+    return apply_backend_env_device_override(
+        base,
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=learner_device,
+    )
 
 
 def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
-    return cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
+    base = cast(dict[str, Any], _backend_adapter(cfg).build_play_env_cfg_override())
+    devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
+    local_rank = current_torch_distributed_local_rank()
+    world_size = current_torch_distributed_world_size()
+    configured_device = OmegaConf.select(cfg, "training.device", default=None)
+    learner_device = (
+        f"cuda:{local_rank}"
+        if world_size > 1
+        else (f"cuda:{devices[0]}" if devices else configured_device)
+    )
+    return apply_backend_env_device_override(
+        base,
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=learner_device,
+    )
 
 
 def run_motrix_rsl_play_loop(
@@ -235,12 +277,41 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         log_root=None,
         num_envs=cfg.training.play_env_num,
     )
+    play_devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
+    play_world_size = current_torch_distributed_world_size()
+    play_local_rank = current_torch_distributed_local_rank()
+    play_env_cfg_override = apply_backend_env_device_override(
+        build_ppo_play_env_cfg_override(cfg),
+        str(cfg.training.sim_backend),
+        devices=play_devices,
+        rank=play_local_rank,
+        local_rank=play_local_rank,
+        world_size=play_world_size,
+        learner_device=device,
+    )
+    play_device_id = resolve_backend_env_device_id(
+        str(cfg.training.sim_backend),
+        devices=play_devices,
+        rank=play_local_rank,
+        local_rank=play_local_rank,
+        world_size=play_world_size,
+        learner_device=device,
+    )
+    warn_if_backend_device_collision(
+        str(cfg.training.sim_backend),
+        devices=play_devices,
+        rank=play_local_rank,
+        device_id=play_device_id,
+        source="playback",
+    )
+    if str(device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(str(cfg.training.sim_backend), device)
     session, _policy_obs_mode, _checkpoint_path = create_rsl_rl_playback_session(
         playback_cfg=playback_cfg,
         env_factory=lambda n: create_env(
             cfg,
             num_envs=n,
-            env_cfg_override=build_ppo_play_env_cfg_override(cfg),
+            env_cfg_override=play_env_cfg_override,
         ),
         algo_config=rl_cfg,
         root_dir=Path.cwd(),
@@ -354,9 +425,6 @@ def main(cfg: DictConfig) -> None:
 
     ensure_registries()
     apply_rsl_rl_rank_seed(cfg, rank)
-    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
-    env_cfg_override = build_ppo_env_cfg_override(cfg)
-
     device = resolve_rsl_rl_device(
         configured_device=str(configured_device) if configured_device is not None else None,
         devices=devices,
@@ -365,6 +433,39 @@ def main(cfg: DictConfig) -> None:
         default_device=get_default_device(),
     )
     print(f"[rank {rank}/{world_size}] Using device: {device}")
+
+    # PPO workers launched by torchrun inherit the launcher's remapped
+    # CUDA_VISIBLE_DEVICES, so LOCAL_RANK (not the host index in
+    # training.devices) is the simulator payload id.  Single-process workers
+    # retain the configured host-visible index.  Route this before env
+    # construction and before Genesis/torch global initialization.
+    env_cfg_override = apply_backend_env_device_override(
+        build_ppo_env_cfg_override(cfg),
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=device,
+    )
+    env_device_id = resolve_backend_env_device_id(
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        local_rank=local_rank,
+        world_size=world_size,
+        learner_device=device,
+    )
+    warn_if_backend_device_collision(
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=local_rank,
+        device_id=env_device_id,
+        source="training",
+    )
+    if str(device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(str(cfg.training.sim_backend), device)
+    seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
 
     # Compute effective max_iterations (supports num_timesteps override)
     max_iterations = cfg.algo.max_iterations

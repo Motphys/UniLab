@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from uni_rl.algos.hora.appo_runner import HoraAPPORunner
 from uni_rl.algos.hora.models import build_hora_shared_actor_critic
 from uni_rl.algos.hora.observations import (
@@ -34,6 +34,10 @@ from uni_rl.utils.observations import get_obs_dims
 from unisim.backend.base import log_playback_plan
 
 from unilab.base.config_adapter import BackendAdapter, create_env
+from unilab.base.process_device import (
+    apply_backend_env_device_override,
+    configure_backend_process_device,
+)
 from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 
@@ -107,12 +111,6 @@ def play_hora_appo(
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    env_cfg_override = BackendAdapter(
-        cfg,
-        root_dir=root_dir,
-        algo_name="appo",
-    ).build_task_env_cfg_override()
-
     device = cfg.training.device or (
         "cuda"
         if torch.cuda.is_available()
@@ -121,6 +119,23 @@ def play_hora_appo(
         else "cpu"
     )
     print(f"Using device for play: {device}")
+
+    # Genesis owns a process-wide session and must select its CUDA device
+    # before the first backend construction.  Keep the rank/device routing in
+    # the shared owner-layer helper so HORA playback follows the same contract
+    # as the generic APPO/PPO/off-policy play paths.
+    sim_backend = str(OmegaConf.select(cfg, "training.sim_backend", default="mujoco"))
+    env_cfg_override = apply_backend_env_device_override(
+        BackendAdapter(
+            cfg,
+            root_dir=root_dir,
+            algo_name="appo",
+        ).build_task_env_cfg_override(),
+        sim_backend,
+        learner_device=device,
+    )
+    if str(device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(sim_backend, device)
 
     env = cast(
         Any,

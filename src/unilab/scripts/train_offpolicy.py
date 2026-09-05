@@ -30,7 +30,13 @@ from unisim.backend.base import log_playback_plan
 
 from unilab.base.config_adapter import create_env
 from unilab.base.env_factory import registry_env_factory
-from unilab.base.process_device import bind_backend_process_device, configure_backend_process_device
+from unilab.base.process_device import (
+    apply_backend_env_device_override,
+    bind_backend_process_device,
+    configure_backend_process_device,
+    resolve_backend_env_device_id,
+    warn_if_backend_device_collision,
+)
 from unilab.training import (
     assert_offpolicy_task_choice_matches_algo,
     build_run_dir_name,
@@ -85,16 +91,41 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
 
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
-    return _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
+    base = _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
+    devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
+    rank = current_dp_rank()
+    from unilab.utils.device import get_default_device
+
+    rank_device = resolve_dp_rank_device(devices, rank) or get_default_device()
+    return apply_backend_env_device_override(
+        base,
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=rank,
+        world_size=1,
+        learner_device=rank_device,
+    )
 
 
 def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
-    return _build_offpolicy_play_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
+    base = _build_offpolicy_play_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
+    devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
+    rank = current_dp_rank()
+    from unilab.utils.device import get_default_device
+
+    rank_device = resolve_dp_rank_device(devices, rank) or get_default_device()
+    return apply_backend_env_device_override(
+        base,
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=rank,
+        world_size=1,
+        learner_device=rank_device,
+    )
 
 
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     """Build algorithm runner from unified Hydra config."""
-    env_cfg_override = build_offpolicy_env_cfg_override(algo_name, cfg)
     env_factory = registry_env_factory(str(cfg.training.task_name), str(cfg.training.sim_backend))
     from uni_rl.offpolicy.thread_budget import (
         apply_torch_thread_runtime,
@@ -113,10 +144,40 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     from unilab.utils.device import get_default_device
 
     rank_device = resolve_dp_rank_device(dp_devices, dp_rank) or get_default_device()
+    # ``training.devices`` is host-visible for the off-policy supervisor.  The
+    # collector subprocess inherits that namespace, so pass the physical index
+    # through the owner EnvCfg rather than leaving Isaac/Genesis at YAML's
+    # historical device-0 default.  The same override reaches the learner-side
+    # dimension probe and the collector env.
+    env_cfg_override = apply_backend_env_device_override(
+        build_offpolicy_env_cfg_override(algo_name, cfg),
+        str(cfg.training.sim_backend),
+        devices=dp_devices,
+        rank=dp_rank,
+        world_size=1,
+        learner_device=rank_device,
+    )
+    routed_device_id = resolve_backend_env_device_id(
+        str(cfg.training.sim_backend),
+        devices=dp_devices,
+        rank=dp_rank,
+        world_size=1,
+        learner_device=rank_device,
+    )
+    warn_if_backend_device_collision(
+        str(cfg.training.sim_backend),
+        devices=dp_devices,
+        rank=dp_rank,
+        device_id=routed_device_id,
+        source="collector",
+    )
     # Bind backend-global device state before algorithm builders materialize
     # their probe envs. The spawned collector repeats this binding in its own
-    # process using the same rank-local device.
-    configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
+    # process using the same rank-local device.  Genesis receives an explicit
+    # EnvCfg device id as well; its backend constructor binds again before the
+    # process-wide ``gs.init`` call.
+    if str(rank_device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
     host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:
@@ -214,7 +275,32 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         return None
 
     devices = resolve_dp_topology(cfg.training.devices)
-    device = default_device(torch, resolve_dp_rank_device(devices, current_dp_rank()))
+    dp_rank = current_dp_rank()
+    device = default_device(torch, resolve_dp_rank_device(devices, dp_rank))
+    play_env_cfg_override = apply_backend_env_device_override(
+        build_offpolicy_play_env_cfg_override(algo_name, cfg),
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=dp_rank,
+        world_size=1,
+        learner_device=device,
+    )
+    play_device_id = resolve_backend_env_device_id(
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=dp_rank,
+        world_size=1,
+        learner_device=device,
+    )
+    warn_if_backend_device_collision(
+        str(cfg.training.sim_backend),
+        devices=devices,
+        rank=dp_rank,
+        device_id=play_device_id,
+        source="playback",
+    )
+    if str(device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(str(cfg.training.sim_backend), device)
     print(f"Using device for play: {device}")
 
     playback_cfg = RslRlPlaybackConfig(
@@ -233,7 +319,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
         env_factory=lambda n: create_env(
             cfg,
             num_envs=n,
-            env_cfg_override=build_offpolicy_play_env_cfg_override(algo_name, cfg),
+            env_cfg_override=play_env_cfg_override,
         ),
         root_dir=Path.cwd(),
         device=device,
@@ -321,6 +407,12 @@ def main(cfg: DictConfig) -> None:
     devices = resolve_dp_topology(cfg.training.devices)
     rank = current_dp_rank()
     rank_device = apply_dp_rank_config(cfg, devices, rank)
+
+    # Bind before seed initialization and before any rank-local env/probe is
+    # materialized.  ``build_runner`` repeats the binding defensively because
+    # it is also a public assembly seam used by tests and custom callers.
+    if rank_device is not None and str(rank_device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
 
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo

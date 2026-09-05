@@ -50,7 +50,10 @@ from uni_rl.algos.rsl_rl import (
     normalize_ppo_train_cfg,
 )
 
-from unilab.base.process_device import configure_backend_process_device
+from unilab.base.process_device import (
+    apply_backend_env_device_override,
+    configure_backend_process_device,
+)
 from unilab.training import (
     algo_config_dict,
     ensure_registries,
@@ -911,19 +914,39 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     # mjwarp requires an active CUDA Warp device; bind it process-wide before
     # any env is constructed (same pattern as the offpolicy train entrypoint).
     # No-op for backends without a device binding requirement.
-    configure_backend_process_device(sim_backend, device)
+    if str(device).strip().lower().startswith("cuda"):
+        configure_backend_process_device(sim_backend, device)
 
     def _create_env(num_envs: int):
         if cfg is None:
-            return registry.make(args.task, num_envs=num_envs, sim_backend=sim_backend)
+            # Legacy programmatic callers do not carry a composed Hydra
+            # config, but the selected playback device still has to reach
+            # GPU-backed backend adapters (notably Isaac and Genesis).
+            legacy_env_cfg_override = apply_backend_env_device_override(
+                None,
+                sim_backend,
+                learner_device=device,
+            )
+            return registry.make(
+                args.task,
+                num_envs=num_envs,
+                sim_backend=sim_backend,
+                env_cfg_override=legacy_env_cfg_override or None,
+            )
         from unilab.base.config_adapter import create_env
 
+        env_cfg_override: dict[str, Any] | None
         if algo in _OFFPOLICY_INTERACTIVE_ALGOS:
             env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=Path.cwd())
         else:
             env_cfg_override = build_play_backend_adapter(
                 cfg, root_dir=Path.cwd(), algo_name=algo
             ).build_task_env_cfg_override()
+        env_cfg_override = apply_backend_env_device_override(
+            env_cfg_override,
+            sim_backend,
+            learner_device=device,
+        )
         try:
             return create_env(
                 cfg,
