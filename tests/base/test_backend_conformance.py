@@ -34,6 +34,7 @@ _BACKEND_CLASS_NAMES = frozenset(
         "IsaacGymBackend",
         "GenesisBackend",
         "IsaacSimBackend",
+        "NewtonBackend",
     }
 )
 _TASK_SOURCE_ROOTS = (
@@ -102,6 +103,16 @@ def _isaacsim_runtime_available() -> bool:
     return isaacsim_runtime_available()
 
 
+def _newton_runtime_available() -> bool:
+    try:
+        from unisim.backend.newton.dependencies import load_newton_dependencies
+
+        dependencies = load_newton_dependencies()
+        return bool(dependencies.warp.get_device().is_cuda)
+    except Exception:
+        return False
+
+
 def _require_backend(backend_type: str) -> None:
     if backend_type == "mujoco":
         pytest.importorskip("mujoco", reason="mujoco not installed")
@@ -129,6 +140,9 @@ def _require_backend(backend_type: str) -> None:
                 pytest.skip("isaacsim requires a CUDA-enabled NVIDIA device")
         except ImportError:
             pytest.skip("isaacsim conformance requires host torch to check CUDA visibility")
+    elif backend_type == "newton":
+        if not _newton_runtime_available():
+            pytest.skip("newton requires the pinned runtime and an active CUDA Warp device")
 
 
 _BACKEND_PARAMS = [
@@ -139,7 +153,16 @@ _BACKEND_PARAMS = [
     pytest.param("isaacgym", id="isaacgym", marks=pytest.mark.slow),
     pytest.param("genesis", id="genesis", marks=pytest.mark.slow),
     pytest.param("isaacsim", id="isaacsim", marks=pytest.mark.slow),
+    pytest.param("newton", id="newton", marks=pytest.mark.slow),
 ]
+
+
+def _create_backend_for_test(backend_type: str, *args, **kwargs):
+    if backend_type == "newton":
+        kwargs.setdefault("newton_device", "cuda:0")
+        kwargs.setdefault("newton_nconmax", 128)
+        kwargs.setdefault("newton_njmax", 256)
+    return create_backend(backend_type, *args, **kwargs)
 
 
 def test_backend_classes_are_only_instantiated_through_create_backend() -> None:
@@ -226,7 +249,7 @@ def test_root_state_layout_metadata_fails_closed(
 def test_actuation_metadata_contract(backend_type: str) -> None:
     _require_backend(backend_type)
 
-    backend = create_backend(
+    backend = _create_backend_for_test(
         backend_type,
         SceneCfg(model_file=_G1_SCENE),
         NUM_ENVS,
@@ -278,7 +301,7 @@ def test_named_sensor_view_contract(backend_type: str, monkeypatch: pytest.Monke
     """All available adapters expose the same ordered, finite sensor view."""
     _require_backend(backend_type)
 
-    backend = create_backend(
+    backend = _create_backend_for_test(
         backend_type,
         SceneCfg(model_file=_G1_SCENE),
         NUM_ENVS,
@@ -312,7 +335,7 @@ def test_named_sensor_view_contract(backend_type: str, monkeypatch: pytest.Monke
 def test_root_state_layout_contract(backend_type: str) -> None:
     _require_backend(backend_type)
 
-    backend = create_backend(
+    backend = _create_backend_for_test(
         backend_type,
         SceneCfg(model_file=_G1_SCENE),
         NUM_ENVS,
@@ -344,7 +367,7 @@ def test_root_state_layout_contract(backend_type: str) -> None:
 @pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
 def test_root_qvel_body_angular_contract_reads_back_world_velocity(backend_type: str) -> None:
     _require_backend(backend_type)
-    backend = create_backend(
+    backend = _create_backend_for_test(
         backend_type,
         SceneCfg(model_file=_G1_SCENE),
         1,

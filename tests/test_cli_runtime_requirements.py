@@ -24,3 +24,20 @@ def test_check_runtime_requirements_requires_drake_extra(monkeypatch: pytest.Mon
 
     with pytest.raises(SystemExit, match="sim=drake requires the Drake extra"):
         cli._check_runtime_requirements("ppo", "drake")
+
+
+def test_check_runtime_requirements_requires_isolated_newton_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: None if name == "newton" else object(),
+    )
+
+    with pytest.raises(SystemExit, match=r"sim=newton.*uv sync --extra newton"):
+        cli._check_runtime_requirements("ppo", "newton")
+
+
+def test_newton_is_a_supported_sim() -> None:
+    assert "newton" in cli.SUPPORTED_SIMS

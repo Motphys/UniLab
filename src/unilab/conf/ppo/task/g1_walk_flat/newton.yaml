@@ -1,0 +1,43 @@
+# @package _global_
+# Newton owner for the G1 walk Manager-Based contract.  Newton's runtime is
+# optional and isolated from the historical mujoco/mjwarp extras; process
+# device binding supplies the rank-local CUDA device when ``newton_device`` is
+# left unset.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: newton
+  # Newton has no native UniLab viewer yet; eval uses the configured record /
+  # headless path and fails closed if a native renderer is requested.
+  play_render_mode: record
+
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+  empirical_normalization: false
+  obs_groups:
+    actor:
+      - actor
+  policy:
+    actor_hidden_dims: [512, 256, 128]
+    critic_hidden_dims: [512, 256, 128]
+
+env:
+  # Newton/MuJoCo-Warp 3.11 owns explicit device and storage capacities.  A
+  # null device is intentional: the off-policy collector binder injects the
+  # rank-local CUDA device before materialization.
+  newton_device: null
+  newton_nconmax: 128
+  newton_njmax: 256
+  newton_capacity_check_steps: 1
+  events:
+    # Newton currently rejects runtime PD gain randomization; keep the owner
+    # fail-closed until that adapter capability is added.
+    pd_gains: null
+
+play_profile:
+  enabled: false
+

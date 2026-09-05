@@ -11,6 +11,7 @@ import datetime
 import os
 import sys
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,7 +31,10 @@ from unisim.backend.base import log_playback_plan
 
 from unilab.base.config_adapter import create_env
 from unilab.base.env_factory import registry_env_factory
-from unilab.base.process_device import bind_backend_process_device, configure_backend_process_device
+from unilab.base.process_device import (
+    bind_backend_process_device_for_backend,
+    configure_backend_process_device,
+)
 from unilab.training import (
     assert_offpolicy_task_choice_matches_algo,
     build_run_dir_name,
@@ -173,7 +177,14 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         "torch_thread_runtime": torch_thread_runtime,
         "collector_cpu_ids": collector_cpu_ids,
         "dp_sync": dp_sync,
-        "backend_device_binder": bind_backend_process_device,
+        # Keep the injected collector hook top-level/pickleable while selecting
+        # the backend lazily inside the spawned process.  The historical
+        # one-argument binder remains available for mjwarp compatibility; new
+        # backends must not accidentally bind through the wrong runtime.
+        "backend_device_binder": partial(
+            bind_backend_process_device_for_backend,
+            str(cfg.training.sim_backend),
+        ),
     }
     if algo_name == "sac":
         from uni_rl.algos.fast_sac.double_buffer import (

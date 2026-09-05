@@ -51,6 +51,12 @@ class EnvCfg:
     # device profile never relies on an implicit backend-wide allocation size.
     mjwarp_nconmax: Optional[int] = None
     mjwarp_njmax: Optional[int] = None
+    # ``newton`` owns MuJoCo-Warp 3.11 capacity and requires explicit CUDA
+    # placement; the process binder supplies the rank-local device when unset.
+    newton_device: Optional[str] = None
+    newton_nconmax: Optional[int] = None
+    newton_njmax: Optional[int] = None
+    newton_capacity_check_steps: int = 1
     # ``isaacgym`` runs physics in a Python 3.8 worker subprocess (Preview 4 is
     # EOL and incompatible with the main environment). ``None`` keeps the
     # backend defaults (device 0, generous handshake/step timeout).
@@ -100,11 +106,29 @@ class EnvCfg:
         for name, value in (
             ("mjwarp_nconmax", self.mjwarp_nconmax),
             ("mjwarp_njmax", self.mjwarp_njmax),
+            ("newton_nconmax", self.newton_nconmax),
+            ("newton_njmax", self.newton_njmax),
         ):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, int) or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
+        if self.newton_device is not None and (
+            not isinstance(self.newton_device, str) or not self.newton_device.strip()
+        ):
+            raise ValueError(
+                "newton_device must be a non-empty CUDA device string or None, "
+                f"got {self.newton_device!r}"
+            )
+        if (
+            isinstance(self.newton_capacity_check_steps, bool)
+            or not isinstance(self.newton_capacity_check_steps, int)
+            or self.newton_capacity_check_steps <= 0
+        ):
+            raise ValueError(
+                "newton_capacity_check_steps must be a positive integer, "
+                f"got {self.newton_capacity_check_steps!r}"
+            )
         if self.isaacgym_device_id is not None and (
             isinstance(self.isaacgym_device_id, bool)
             or not isinstance(self.isaacgym_device_id, int)

@@ -31,6 +31,10 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
         "bench_nsteps": cfg.sim_substeps,
         "mjwarp_nconmax": cfg.mjwarp_nconmax,
         "mjwarp_njmax": cfg.mjwarp_njmax,
+        "newton_device": cfg.newton_device,
+        "newton_nconmax": cfg.newton_nconmax,
+        "newton_njmax": cfg.newton_njmax,
+        "newton_capacity_check_steps": cfg.newton_capacity_check_steps,
         "genesis_integrator": cfg.genesis_integrator,
         "genesis_constraint_solver": cfg.genesis_constraint_solver,
         "genesis_friction_cone": cfg.genesis_friction_cone,
@@ -62,7 +66,22 @@ def create_backend(
     ensure_robot_assets_for_paths(
         [scene.model_file, scene.visual_model_file, *scene.fragment_files]
     )
-    kwargs["body_state_required"] = body_state_required
+    if backend_type != "newton":
+        # Keep the owner translation forward-compatible with unisim-core
+        # releases that predate the Newton adapter and therefore do not pop
+        # these optional kwargs in their shared factory.
+        for key in (
+            "newton_device",
+            "newton_nconmax",
+            "newton_njmax",
+            "newton_capacity_check_steps",
+        ):
+            kwargs.pop(key, None)
+    # Newton reconstructs body state from its compiled articulation and does
+    # not accept MuJoCo's synthetic body-sensor injection.  Keep this
+    # capability translation at the owner/backend boundary so env code remains
+    # backend-agnostic.
+    kwargs["body_state_required"] = body_state_required and backend_type != "newton"
     return unisim.create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
 
 

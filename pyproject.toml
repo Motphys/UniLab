@@ -133,6 +133,14 @@ mjwarp = [
     # warp-lang>=1.14). Upgrade deliberately via `uv lock --upgrade-package`.
     "warp-lang>=1.14.0",
 ]
+newton = [
+    # Newton 1.5.1 is coupled to the MuJoCo-Warp 3.11 / Warp 1.16 line.
+    # Keep this runtime isolated from the historical mjwarp and mujoco extras.
+    "newton==1.5.1",
+    "mujoco-warp==3.11.0",
+    "mujoco==3.11.0",
+    "warp-lang==1.16.0",
+]
 motrix = ["motrixsim-core==0.8.2"]
 genesis = [
     # Genesis imports as ``genesis`` and owns the GPU physics implementation;
@@ -164,6 +172,12 @@ torch = [
 
 [tool.uv]
 exclude-dependencies = ["torchvision"]
+# Newton's MuJoCo-Warp 3.11 runtime cannot coexist with the historical
+# mjwarp 3.10 or mujoco-uni-runtime extras in one environment.
+conflicts = [
+    [{ extra = "mjwarp" }, { extra = "newton" }],
+    [{ extra = "mujoco" }, { extra = "newton" }],
+]
 # Build mujoco-uni-runtime against the mujoco version locked in this project
 # environment instead of an isolated build env (its native extension records
 # the build-time mujoco version and refuses to load on mismatch). Prebuilt
