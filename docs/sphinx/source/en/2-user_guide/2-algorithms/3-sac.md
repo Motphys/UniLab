@@ -54,6 +54,11 @@ materialization. The collector therefore does not fall back to Warp's fresh-proc
 of `cuda:0`. The local binding is recorded as `collector_backend_device` in the runtime
 manifest.
 
+IsaacGym, IsaacSim, and Genesis receive the rank-selected simulator device
+through the environment override as well. Off-policy collectors use the
+parent's visible CUDA indices; Genesis binds its process-wide session before
+initialization.
+
 MuJoCo has a committed multi-GPU scaling benchmark. The mjwarp per-rank placement contract is
 covered by `tests/base/backend/test_process_device.py` and the off-policy runner/worker unit
 tests; the repository does not currently contain an mjwarp multi-GPU throughput or convergence

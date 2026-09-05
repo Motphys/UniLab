@@ -50,6 +50,13 @@ device. Do not set `training.device` and `training.devices` together. The
 configured order is preserved, including when the parent already has
 `CUDA_VISIBLE_DEVICES` set.
 
+For the IsaacGym, IsaacSim, and Genesis owners, the same topology is also
+applied to the simulator environment. Torchrun workers receive the local
+index inside their remapped `CUDA_VISIBLE_DEVICES` list (for example, host
+device 5 is sent as `device_id=1` when the worker sees `[4,5]`); off-policy
+workers keep the parent process's visible index namespace. Genesis selects
+its process-wide session before `gs.init`.
+
 `algo.num_envs` is a **per-rank** count, not a global budget. For `W` ranks,
 `N` configured envs, and rollout length `T`:
 

@@ -214,6 +214,7 @@ def test_g1_walk_flat_genesis_owner_composes_and_materializes(config_group):
     assert env_cfg.scene.fragment_files == []
     assert env_cfg.scene.terrain is None
     assert env_cfg.scene.default_keyframe_name == "stand"
+    assert env_cfg.genesis_device_id == 0
     # The owner re-declares the MJCF <option integrator="implicitfast"> that
     # Genesis drops at import; the other global options stay at Genesis
     # defaults (None).
