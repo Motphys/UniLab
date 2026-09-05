@@ -149,10 +149,12 @@ uv sync --extra mujoco --extra motrix --extra mjwarp --extra genesis
 
 Newton 是例外：`newton` extra 钉定的 MuJoCo-Warp 3.11 版本线与历史
 `mjwarp` / `mujoco` extra 互斥（`pyproject.toml` 的 uv `conflicts` 声明），
-请为它单独建一个环境：
+请为它单独建一个环境；原生 ViewerGL 渲染（离线 record + 交互式）另需
+`newton-render` extra：
 
 ```bash
 uv sync --extra newton
+uv sync --extra newton --extra newton-render  # 需要原生渲染时
 ```
 
 | 后端 | 安装路径 | 重要前置条件 |

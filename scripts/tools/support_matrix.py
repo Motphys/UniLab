@@ -65,9 +65,12 @@ _MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = fr
 # repo CI). sac_torch g1_walk_flat: full 5000-iteration training completed
 # on 2026-09-06 (RTX 4090, torch 2.8.0+cu128, newton 1.5.1, mujoco-warp
 # 3.11; reward/mean 6.68 -> 242.3, episode length -> 983, ~43k steps/s,
-# 4m25s wall, run 2026-09-06_01-21-36_newton) plus record playback
-# validation on model_5000.pt (800-frame MuJoCo snapshot render, walking
-# gait confirmed). PPO remains ``Configured`` without runtime evidence.
+# 4m25s wall, run 2026-09-06_01-21-36_newton). Playback validated the same
+# day on model_5000.pt: native ViewerGL offscreen record (800-frame
+# 1280x720 mp4 via ``newton-viewer-gl``) and an interactive ViewerGL window
+# smoke on a live X display; the MuJoCo snapshot record path remains as the
+# no-render-deps fallback. PPO remains ``Configured`` without runtime
+# evidence.
 _MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = frozenset(
     {
         ("sac_torch", "g1_walk_flat"),
@@ -433,7 +436,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
             "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",
             "- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.",
-            "- `newton` is an isolated optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line. Validated newton entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS` (real hardware, newton extra + CUDA; not covered by repo CI); remaining cells rely on the G1 PPO/SAC owner configs, compose/contract checks, and fail-closed runtime/import boundaries.",
+            "- `newton` is an isolated optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line. Validated newton entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS` (real hardware, newton extra + CUDA; not covered by repo CI); remaining cells rely on the G1 PPO/SAC owner configs, compose/contract checks, and fail-closed runtime/import boundaries. Native ViewerGL playback (offscreen record + interactive) is wired through the unisim `newton-render` extra; without it, record falls back to the MuJoCo snapshot renderer and interactive stays fail-closed.",
         ]
     )
     return "\n".join(lines)

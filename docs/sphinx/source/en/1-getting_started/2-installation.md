@@ -165,10 +165,13 @@ uv sync --extra mujoco --extra motrix --extra mjwarp --extra genesis
 
 Newton is the exception: the `newton` extra pins the MuJoCo-Warp 3.11 line,
 which conflicts with the historical `mjwarp` / `mujoco` extras (declared as uv
-`conflicts` in `pyproject.toml`). Keep it in a separate environment:
+`conflicts` in `pyproject.toml`). Keep it in a separate environment; native
+ViewerGL rendering (offline record + interactive) additionally needs the
+`newton-render` extra:
 
 ```bash
 uv sync --extra newton
+uv sync --extra newton --extra newton-render  # when native rendering is needed
 ```
 
 | Backend | Install path | Important prerequisites |

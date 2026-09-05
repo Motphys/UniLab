@@ -16,8 +16,10 @@ registered for the `newton` backend), and the cross-backend contract audit
 algo trees (verdict TRANSFERABLE). Support levels: SAC is **Tested** — a
 full 5000-iteration training completed on 2026-09-06 on an RTX 4090 /
 torch 2.8.0+cu128 / newton 1.5.1 / mujoco-warp 3.11 (reward/mean 6.68 →
-242.3, episode length → 983, ~43k steps/s, 4m25s wall), with record
-playback validated on `model_5000.pt`; PPO remains **Configured**
+242.3, episode length → 983, ~43k steps/s, 4m25s wall), with playback
+validated on `model_5000.pt`: native ViewerGL offscreen record (800-frame
+1280x720 mp4) and an interactive ViewerGL window smoke on a live X
+display; PPO remains **Configured**
 (evidence limited to the owner configs, compose/contract checks, and
 fail-closed runtime/import boundaries; no training or playback claim yet).
 
@@ -30,8 +32,12 @@ with the MuJoCo-Warp 3.11 / Warp 1.16 line:
 # In a source checkout:
 uv sync --extra newton
 
+# Native ViewerGL rendering (offline record + interactive) additionally:
+uv sync --extra newton --extra newton-render
+
 # From PyPI:
 pip install "unilab[newton]"
+pip install "unilab[newton,newton-render]"
 ```
 
 The extra pins `newton==1.5.1`, `mujoco-warp==3.11.0`, `mujoco==3.11.0`, and
@@ -84,9 +90,18 @@ as `env.*` fields in the owner YAML:
 
 ## Playback and Rendering
 
-The Newton backend has no native UniLab viewer yet: the owner sets
-`training.play_render_mode: record`, so playback takes the record/headless
-path, and requesting a native interactive renderer fails closed.
+The Newton backend renders natively through the upstream
+`newton.viewer.ViewerGL` (unisim `newton-render` extra, `pyglet>=2.1.6,<3`
++ `imgui-bundle>=1.92.0`). The owner inherits the base config's
+`training.play_render_mode: auto`: with a display, `auto` resolves to
+`interactive` (the ViewerGL window); without one it resolves to `record`
+(`ViewerGL(headless=True)` offscreen rendering to mp4). Without the render
+dependencies, `record` falls back to the MuJoCo offline snapshot renderer
+(the plan diagnostic reports `mujoco-snapshot` vs the native
+`newton-viewer-gl`), while `interactive` fails closed when dependencies or
+a display are missing. Headless offscreen rendering still needs an OpenGL
+context: set `PYOPENGL_PLATFORM=egl` on display-less Linux hosts and
+`PYOPENGL_PLATFORM=glx` under Wayland.
 
 ```bash
 uv run eval --algo ppo --task g1_walk_flat --sim newton \
@@ -104,7 +119,8 @@ than silently degrading:
 - **Runtime PD-gain randomization**: Newton currently rejects it, and the
   owner keeps `events.pd_gains: null` to stay fail-closed until the adapter
   adds the capability.
-- **Native interactive rendering**: see Playback above.
+- **Camera kwargs on the native render path**: the native ViewerGL path
+  ignores `camera_kwargs` (the MuJoCo snapshot path still honors them).
 
 ## Cross-Backend Migration (sim2sim)
 

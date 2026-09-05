@@ -1319,6 +1319,35 @@ wheels = [
 ]
 
 [[package]]
+name = "imgui-bundle"
+version = "1.92.900"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/18/47/ff477f7258baddf0c02bbcf6406099c7ed78ebd63f3b9cebce899e6cf79a/imgui_bundle-1.92.900.tar.gz", hash = "sha256:1476409b76c7f600d0da472aed87e96382444df50695280b3ed9acd5065cb6c2", size = 48942607, upload-time = "2026-08-14T15:03:28.167Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/29/adcc7c20b3b221d8ccb9cdef57c64b8bf65edfa47ca68d0b97d1df073c37/imgui_bundle-1.92.900-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:a48a77015376b92da6f1a8571d0cbedda2c08c04ba6cfb9c1041e63087e1bc0a", size = 10470836, upload-time = "2026-08-14T15:02:20.605Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/63/754f39d5883f9672e979d63f38bbd605ffbad6cf54204241112c9de0c24d/imgui_bundle-1.92.900-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:465a27bd3e47652d6775d7b2b82c44f5b5e335c1ebe9748d0f41508334f5bec5", size = 12436149, upload-time = "2026-08-14T15:02:22.988Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/2c/08614c47b9c3fcb3a43370eff61e1ee948359bd9ede9a4c52783f6201986/imgui_bundle-1.92.900-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:a0a9cc025bf8eef19d8a44dbc9c588fb46a55d5ee83c039c4e09f928f609a710", size = 13566113, upload-time = "2026-08-14T15:02:29.185Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/da/2b5f2010262934994d9e856ff47e5d0068a817fa603658b6fc158bbae070/imgui_bundle-1.92.900-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:888648b11a74cdbd933d7937d546c2f69af2515cba1c4d542bcb3c7b435e5e41", size = 13491234, upload-time = "2026-08-14T15:02:31.309Z" },
+    { url = "https://files.pythonhosted.org/packages/00/57/f93e27495ac8eb42a537b1f4ae7a1f2febeb0650f9358ee37271e533ddca/imgui_bundle-1.92.900-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:355df4c828705e64fbc6918bc9fae6fe0a2bd5915076187c70f6a98ba090e244", size = 14424930, upload-time = "2026-08-14T15:02:33.38Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/c9/6542979fa31be264acfc29c1b327410ab1ad0731be411c002a2e0a865706/imgui_bundle-1.92.900-cp311-cp311-win_amd64.whl", hash = "sha256:d4ce5f75018359c296cda0fca0b7cba81dbec455a7af0efc5052d7a63a2ccaaf", size = 11414926, upload-time = "2026-08-14T15:02:35.834Z" },
+    { url = "https://files.pythonhosted.org/packages/93/2c/aaa6fc7f5103d00b4912f8c7cabf9a2a115b2c9b26288a11a886f16e21e0/imgui_bundle-1.92.900-cp311-cp311-win_arm64.whl", hash = "sha256:992a566b9323e5ea56028eefca4573f4341922a436555950d0caa6256da6dd48", size = 11005607, upload-time = "2026-08-14T15:02:37.767Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/f5/65afb7315809d547579a0f887564948bffaa1e6dfc76d52225a8a91fa47f/imgui_bundle-1.92.900-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:a9ebef3f6a310e0c30b94bb7893c97727e85c12d829ea23fd39b3e5750fb22be", size = 10466178, upload-time = "2026-08-14T15:02:40.333Z" },
+    { url = "https://files.pythonhosted.org/packages/59/87/c4411c33af69a76ea6652fac544974bf70d0f0af1564bdaa999832e27dbe/imgui_bundle-1.92.900-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:41432897d2ed5b7f5641434b644bef1cf81d163453d2ee2716715ca2e7e4f422", size = 12400792, upload-time = "2026-08-14T15:02:42.75Z" },
+    { url = "https://files.pythonhosted.org/packages/77/e9/b688ff0c634302519345ee7b71d621bfb9f1ffd77339a40888d064f0456c/imgui_bundle-1.92.900-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:6a0134ee4e4e0f6884d91534cb394c822998ca9d8e79c42afc3b3163a55e2ee4", size = 13551616, upload-time = "2026-08-14T15:02:45.132Z" },
+    { url = "https://files.pythonhosted.org/packages/09/fd/b6413aa238d384f9d5545cf52cd8b604b4ecaa4197ef62a8d640cfe27655/imgui_bundle-1.92.900-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:a84d8c0efb49cde2e41c77be003b825e9f8145b38dfbbbc3123fe1687de4c780", size = 13454620, upload-time = "2026-08-14T15:02:47.4Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/da/64b451dec41d01b9b916e6ef6ccab960c989bef9639f37b12d9406d5d526/imgui_bundle-1.92.900-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:90d07764c532a124379bba32517f0afb18160015065a76ede48825098c5e13f3", size = 14408387, upload-time = "2026-08-14T15:02:49.907Z" },
+    { url = "https://files.pythonhosted.org/packages/31/d6/be48072268fa3037ebe950525a637ad86b9b21c5317865933964f9d10c2b/imgui_bundle-1.92.900-cp312-cp312-win_amd64.whl", hash = "sha256:38d7a46fcda76bd221aafae58c1b80b53143304a6bda1d1782f917be3a851b0b", size = 11379834, upload-time = "2026-08-14T15:02:51.988Z" },
+    { url = "https://files.pythonhosted.org/packages/35/21/b0f8c8b60fbd6d89f589a486dba70aac66506917b33e8950921ff466c64f/imgui_bundle-1.92.900-cp312-cp312-win_arm64.whl", hash = "sha256:5dd8bf63a2ffd32998021d68cd4249e5da5060d9f3b7e69dbd2ace5398606b59", size = 10986018, upload-time = "2026-08-14T15:02:54.467Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/b1/997a598fc0b9e4d7a786493e41d133e1be6bafa6246e344dcc2c5206b2ee/imgui_bundle-1.92.900-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:878ab97e631b06421538940b973ae45157e146787627c27a31c827c52e9dfc45", size = 10465494, upload-time = "2026-08-14T15:02:56.589Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/1d/60c31f347a6970399ec8c0ff636cac93778108ae1e800f8fae75465619bb/imgui_bundle-1.92.900-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:85cc0cd481455233670c0a7ab42dc1210a4c48d3c36bb83d4decf38730b964d9", size = 12400575, upload-time = "2026-08-14T15:02:58.465Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/65/0b3455db652cc8b85064292d4cd6d2ec828415d18bd709511672655aa978/imgui_bundle-1.92.900-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:04bbf81ff81d9b0fce55cc78522cea16b611642779861e3f42e8daae44d4037f", size = 13551340, upload-time = "2026-08-14T15:03:00.689Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/7f/33806aa5280ef05a4a34afc0db9765e88224ca7c0cf41f1dd2facc4e9169/imgui_bundle-1.92.900-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:37a45e09cd105c242497da7d1a37591c1993ab3614ffb9a0b3c74a7d1d5201fe", size = 13454360, upload-time = "2026-08-14T15:03:02.852Z" },
+    { url = "https://files.pythonhosted.org/packages/27/ad/2557bde98d7172c99688626ec266912b2bebaa6e81eac79f874fe9a75ef6/imgui_bundle-1.92.900-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:f6ebd02420860e0040bbd1f3f9b04c69b5ec1fc2b51704b97e52e4400644b303", size = 14408281, upload-time = "2026-08-14T15:03:04.928Z" },
+    { url = "https://files.pythonhosted.org/packages/16/b6/7c274964ed0bb151c6397a82d302e0e5ee44db3501e07f6633d647116e43/imgui_bundle-1.92.900-cp313-cp313-win_amd64.whl", hash = "sha256:914c348555cb3b2f1bf11c1d4d6b94d88a3b7136dc31271edf284e06430ddb3e", size = 11379369, upload-time = "2026-08-14T15:03:07.175Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/13/f5004791bebb1b71e13a0b533a12bda4ddca32d3f2397ec4a607e4a0461f/imgui_bundle-1.92.900-cp313-cp313-win_arm64.whl", hash = "sha256:8a83c2d90ea3751f514f5f1a1e7a95c18f0cdbaa453dcb04dfcb63ce15456e77", size = 10985728, upload-time = "2026-08-14T15:03:09.433Z" },
+]
+
+[[package]]
 name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5261,6 +5290,10 @@ newton = [
     { name = "trimesh" },
     { name = "warp-lang" },
 ]
+newton-render = [
+    { name = "imgui-bundle" },
+    { name = "pyglet" },
+]
 viser = [
     { name = "trimesh" },
     { name = "viser" },
@@ -5285,6 +5318,7 @@ requires-dist = [
     { name = "hydra-core", specifier = ">=1.3" },
     { name = "imageio" },
     { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
+    { name = "imgui-bundle", marker = "extra == 'newton-render'", specifier = ">=1.92.0" },
     { name = "lark", specifier = ">=1.3.1" },
     { name = "mediapy" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
@@ -5303,6 +5337,7 @@ requires-dist = [
     { name = "packaging" },
     { name = "prettytable", specifier = ">=3.10" },
     { name = "pybind11", marker = "extra == 'mujoco'", specifier = ">=2.12" },
+    { name = "pyglet", marker = "extra == 'newton-render'", specifier = ">=2.1.6,<3" },
     { name = "rich" },
     { name = "rsl-rl-lib", specifier = ">=5.0.0" },
     { name = "setuptools" },
@@ -5324,7 +5359,7 @@ requires-dist = [
     { name = "warp-lang", marker = "extra == 'newton'", specifier = "==1.16.0" },
     { name = "wheel", marker = "extra == 'mujoco'" },
 ]
-provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "viser"]
+provides-extras = ["drake", "mujoco", "mjwarp", "newton", "newton-render", "motrix", "genesis", "viser"]
 
 [package.metadata.requires-dev]
 dev = [
