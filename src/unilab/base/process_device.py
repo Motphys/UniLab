@@ -25,6 +25,15 @@ BACKEND_ENV_DEVICE_FIELDS: dict[str, str] = {
 }
 
 
+# Newton consumes an explicit ``cuda:N`` device string (``newton_device``)
+# instead of an integer id.  uni_rl's collector-side binder gate only knows
+# mjwarp, so the rank-local device must reach spawn collectors through the
+# env override rather than through process binding.
+BACKEND_ENV_DEVICE_STR_FIELDS: dict[str, str] = {
+    "newton": "newton_device",
+}
+
+
 # Set once ``bind_genesis_process_device`` has pinned CUDA_VISIBLE_DEVICES for
 # this process.  Genesis/Quadrants binds its CUDA runtime to the first visible
 # device regardless of torch's current device (verified on genesis_world
@@ -124,7 +133,7 @@ def resolve_backend_env_device_id(
     """
 
     backend = _normalize_backend(backend_type)
-    field = BACKEND_ENV_DEVICE_FIELDS.get(backend)
+    field = BACKEND_ENV_DEVICE_FIELDS.get(backend) or BACKEND_ENV_DEVICE_STR_FIELDS.get(backend)
     if field is None:
         return None
 
@@ -187,8 +196,9 @@ def apply_backend_env_device_override(
 
     result = dict(env_cfg_override) if env_cfg_override is not None else {}
     backend = _normalize_backend(backend_type)
-    field = BACKEND_ENV_DEVICE_FIELDS.get(backend)
-    if field is None:
+    int_field = BACKEND_ENV_DEVICE_FIELDS.get(backend)
+    str_field = BACKEND_ENV_DEVICE_STR_FIELDS.get(backend)
+    if int_field is None and str_field is None:
         return result
     device_id = resolve_backend_env_device_id(
         backend,
@@ -198,8 +208,12 @@ def apply_backend_env_device_override(
         world_size=world_size,
         learner_device=learner_device,
     )
-    if device_id is not None:
-        result[field] = int(device_id)
+    if device_id is None:
+        return result
+    if str_field is not None:
+        result[str_field] = f"cuda:{int(device_id)}"
+    elif int_field is not None:
+        result[int_field] = int(device_id)
     return result
 
 
@@ -220,7 +234,7 @@ def warn_if_backend_device_collision(
     """
 
     backend = _normalize_backend(backend_type)
-    if backend not in BACKEND_ENV_DEVICE_FIELDS:
+    if backend not in BACKEND_ENV_DEVICE_FIELDS and backend not in BACKEND_ENV_DEVICE_STR_FIELDS:
         return
     if backend == "genesis" and _genesis_device_pinned:
         # A successful pin places every rank on its own physical GPU; the

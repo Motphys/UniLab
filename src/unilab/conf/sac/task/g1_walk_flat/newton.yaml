@@ -16,6 +16,10 @@ training:
   task_name: G1WalkFlat
   sim_backend: newton
   play_render_mode: record
+  # Newton compiles its Warp kernels on the materialize cold path, which
+  # exceeds the runner's default 30 s collector tick-0 budget; raise it for
+  # this backend (same precedent as the Genesis owner).
+  inference_request_timeout_sec: 180.0
 algo:
   num_envs: 2048
   learning_starts: 10

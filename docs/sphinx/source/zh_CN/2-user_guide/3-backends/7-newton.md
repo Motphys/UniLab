@@ -20,6 +20,19 @@ episode length → 983，约 43k steps/s，wall 4m25s），并对
 证据限于 owner 配置、compose/contract 检查和 fail-closed 的
 runtime/import 边界，尚无训练或回放验证结论）。
 
+多 GPU 数据并行（issue
+[#1512](https://github.com/unilabsim/UniLab/issues/1512)）：2026-09-06
+在 2× NVIDIA RTX 6000D（Blackwell）/ torch 2.8.0+cu128 / newton 1.5.1 /
+mujoco-warp 3.11 上完成实测——PPO torchrun DP=2 与 SAC
+DpRankSupervisor DP=2（`training.devices=[0,1]`）训练冒烟均正常完成，
+`nvidia-smi` 采样确认每个 rank 的 learner 与 collector sim 进程物理落位
+在各自 GPU、无对端泄漏；单卡 PPO/SAC 回归同步通过。Newton/Warp 遵循标准
+CUDA 设备语义，无需 Genesis 那样的 `CUDA_VISIBLE_DEVICES` 钉卡；rank
+本地设备通过 env override 以 `newton_device="cuda:N"` 传入 spawn
+collector（uni_rl 1.0.0 的 collector 进程绑定门只覆盖 mjwarp），SAC
+owner 将 collector tick-0 超时提升到 180 s 以覆盖 Warp 内核编译的冷
+路径。
+
 ## 安装
 
 Newton 运行时是**隔离的 optional extra**，钉定 Newton 1.5.1 与

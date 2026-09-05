@@ -96,7 +96,7 @@ def test_mjwarp_binding_rejects_non_cuda_warp_resolution(
 
 @pytest.mark.parametrize(
     "backend_type",
-    ["isaacgym", "isaacsim", "genesis"],
+    ["isaacgym", "isaacsim", "genesis", "newton"],
 )
 def test_offpolicy_rank_routes_host_visible_backend_device(backend_type: str) -> None:
     assert (
@@ -113,7 +113,7 @@ def test_offpolicy_rank_routes_host_visible_backend_device(backend_type: str) ->
 
 @pytest.mark.parametrize(
     "backend_type",
-    ["isaacgym", "isaacsim", "genesis"],
+    ["isaacgym", "isaacsim", "genesis", "newton"],
 )
 def test_torchrun_rank_routes_local_backend_device(backend_type: str) -> None:
     # torchrun remaps CUDA_VISIBLE_DEVICES to [4, 5], so rank 1 must send
@@ -167,6 +167,46 @@ def test_non_gpu_backend_is_left_untouched() -> None:
         )
         == owner_override
     )
+
+
+def test_newton_override_carries_cuda_device_string() -> None:
+    # uni_rl's collector binder gate only knows mjwarp, so newton's rank-local
+    # device must reach spawn collectors as a ``cuda:N`` override string.
+    owner_override: dict[str, object] = {"newton_device": None, "nested": {"keep": True}}
+    routed = apply_backend_env_device_override(
+        owner_override,
+        "newton",
+        devices=(0, 1),
+        rank=1,
+        world_size=1,
+    )
+
+    assert routed["newton_device"] == "cuda:1"
+    assert owner_override["newton_device"] is None
+    assert routed["nested"] is owner_override["nested"]
+
+
+def test_newton_override_falls_back_to_learner_device() -> None:
+    routed = apply_backend_env_device_override(
+        None,
+        "newton",
+        devices=None,
+        rank=0,
+        world_size=1,
+        learner_device="cuda:0",
+    )
+
+    assert routed["newton_device"] == "cuda:0"
+
+
+def test_newton_nonzero_rank_device_zero_emits_collision_warning() -> None:
+    with pytest.warns(RuntimeWarning, match=r"training\.devices=\[0, 1\]"):
+        warn_if_backend_device_collision(
+            "newton",
+            devices=(0, 1),
+            rank=1,
+            device_id=0,
+        )
 
 
 @pytest.fixture
