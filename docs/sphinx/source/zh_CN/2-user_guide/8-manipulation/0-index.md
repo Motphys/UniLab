@@ -11,17 +11,10 @@
 Allegro 和 Sharpa 的 owner YAML、抓取缓存以及训练命令。
 :::
 
-:::{grid-item-card} Manip-loco
-:link: 2-manip_loco
-:link-type: doc
-Go2 加 Airbot 的运动/操作 owner 路径。
-:::
-
 ::::
 
 ```{toctree}
 :hidden:
 
 1-dexterous_inhand
-2-manip_loco
 ```

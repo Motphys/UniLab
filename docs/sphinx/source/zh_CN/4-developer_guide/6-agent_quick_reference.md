@@ -12,7 +12,6 @@
 - APPO 入口：`src/unilab/scripts/train_appo.py`
 - SAC / TD3 / FlashSAC 入口：`src/unilab/scripts/train_sac.py` /
   `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
-- HIM-PPO 入口：`scripts/train_him_ppo.py`
 - HORA 蒸馏入口：`scripts/train_hora_distill.py`
 
 ## 需要记住的契约

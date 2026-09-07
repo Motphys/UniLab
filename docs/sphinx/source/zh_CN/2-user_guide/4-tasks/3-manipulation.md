@@ -1,7 +1,6 @@
 # 操作
 
-操作任务位于 `src/unilab/tasks/manipulation/` 中，Go2 机械臂 manip-loco
-env 位于 `src/unilab/tasks/locomotion/go2_arm/` 中。
+操作任务位于 `src/unilab/tasks/manipulation/`。
 
 ## 手内操作
 
@@ -33,13 +32,4 @@ HORA student 蒸馏由
 uv run train --algo ppo --task stewart_balance --sim motrix training.no_play=true
 ```
 
-## 移动操作
-
-`go2_arm_manip_loco` 是已提交的 Go2 + Airbot owner 路径：
-
-```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco training.no_play=true
-```
-
-有关任务专属的说明，请参阅 {doc}`../8-manipulation/1-dexterous_inhand` 和
-{doc}`../8-manipulation/2-manip_loco`。
+手内操作任务说明见 {doc}`../8-manipulation/1-dexterous_inhand`。

@@ -103,7 +103,6 @@ rendering/playback paths remain unsupported.
 | PPO (torch) | `g1_climb_tracking` (g1 climb tracking) | Tested | - | Tested | - | - |
 | PPO (torch) | `g1_motion_tracking_deploy` (g1 motion tracking deploy) | Tested | - | Tested | - | - |
 | PPO (torch) | `go1_joystick_rough` (go1 joystick rough) | Tested | - | Tested | - | - |
-| PPO (torch) | `go2_arm_manip_loco` (go2 arm manip loco) | Tested | - | Tested | - | - |
 | PPO (torch) | `go2_footstand` (go2 footstand) | Tested | - | Tested | - | - |
 | PPO (torch) | `go2w_joystick_flat` (go2w joystick flat) | Tested | - | Tested | - | - |
 | PPO (torch) | `go2w_joystick_rough` (go2w joystick rough) | Tested | - | Tested | - | - |

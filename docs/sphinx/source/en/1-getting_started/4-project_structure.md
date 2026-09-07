@@ -10,7 +10,7 @@ changing behavior.
 | `src/unilab/conf/` | Hydra roots and task owner YAMLs. The top-level CLI exposes backend selection as `--task` plus `--sim`, then composes the matching owner YAML. |
 | `src/unilab/base/` | Registry, env state, scene, and backend contracts. |
 | `src/unilab/envs/` | Task env implementations and task-specific reset, reward, observation, and DR logic. |
-| `uni_rl` (unilab-rl repo) | PPO, APPO, off-policy, HIM-PPO, and HORA algorithm code. |
+| `uni_rl` (unilab-rl repo) | PPO, APPO, off-policy, and HORA algorithm code. |
 | `uni_rl.ipc` (unilab-rl repo) | Shared-memory and async runner primitives. |
 | `src/unilab/training/` | Shared training helpers for logging, playback, seed handling, and config guards. |
 | `src/unilab/visualization/` | Playback, rendering, NaN inspection, and scene/export utilities. |
@@ -27,8 +27,7 @@ The main config roots are:
 - `src/unilab/conf/sac/config.yaml`, `src/unilab/conf/td3/config.yaml`, and
   `src/unilab/conf/flashsac/config.yaml` for SAC, TD3, and FlashSAC, each with its
   algorithm hyperparameters inlined.
-- `src/unilab/conf/ppo_him/config.yaml` and `src/unilab/conf/hora_distill/config.yaml` for the
-  specialized HIM-PPO and HORA paths.
+- `src/unilab/conf/hora_distill/config.yaml` for HORA student distillation.
 
 Task owner YAMLs are the backend identity. Examples:
 

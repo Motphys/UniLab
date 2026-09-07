@@ -1,0 +1,26 @@
+<mujoco model="free chain fixture">
+  <default><joint damping="1"/><geom type="sphere" size="0.03" mass="0.2"/></default>
+  <worldbody>
+    <body name="base" pos="0 0 1">
+      <freejoint/><geom/>
+      <body pos="0 0 0.1"><joint name="joint1" axis="1 0 0"/><geom/>
+        <body pos="0.1 0 0"><joint name="joint2" axis="0 1 0"/><geom/>
+          <body pos="0.1 0 0"><joint name="joint3" axis="0 0 1"/><geom/>
+            <body pos="0.1 0 0"><joint name="joint4" axis="1 0 0"/><geom/>
+              <body pos="0.1 0 0"><joint name="joint5" axis="0 1 0"/><geom/>
+                <body pos="0.1 0 0"><joint name="joint6" axis="0 0 1"/><geom/>
+                  <site name="endpoint" pos="0.1 0 0"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor joint="joint1"/><motor joint="joint2"/><motor joint="joint3"/>
+    <motor joint="joint4"/><motor joint="joint5"/><motor joint="joint6"/>
+  </actuator>
+  <keyframe><key name="home" qpos="0 0 1 1 0 0 0 0 0 0 0 0 0"/></keyframe>
+</mujoco>

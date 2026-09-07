@@ -12,7 +12,6 @@ define which algorithm and backend combinations are runnable.
 - G1 walking: `g1_walk_flat`, `g1_walk_rough`
 - G1 motion tracking: `g1_motion_tracking`, `g1_flip_tracking`,
   `g1_wall_flip_tracking`, `g1_climb_tracking`, `g1_box_tracking`
-- Go2 arm: `go2_arm_manip_loco`
 
 ## Examples
 

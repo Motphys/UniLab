@@ -7,7 +7,7 @@
 
 - Manager-Based（Compatible）任务通过 owner YAML 的 `events:` manager term 声明
   reset / interval 随机化，例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`。
-- 只有 Adapted family（sharpa / go2_arm 及对应 hora / appo / ppo_him owner）仍在
+- 只有 Adapted family（sharpa 及对应 hora / appo owner）仍在
   `env.domain_rand` 下配置 legacy provider 字段。
 
 ```bash
@@ -42,14 +42,13 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
 
 ## Interval Push
 
-Manager-Based 任务通过 `push_by_setting_velocity` interval event term 声明 push；
-`env.domain_rand.push_robots` 只在 go2_arm Adapted family owner 上可用。
+Manager-Based 任务通过 `env.events.push_robot` term 配置周期推扰。例如，
+`src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 使用
+`push_by_setting_velocity`，间隔为 15 秒，并按轴声明速度范围。
 
 ```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco \
-  env.domain_rand.push_robots=true \
-  env.domain_rand.push_interval=500 \
-  'env.domain_rand.max_force=[20.0,20.0,5.0]'
+uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+  'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 
 ## Owner 本地默认值

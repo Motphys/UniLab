@@ -210,10 +210,10 @@ def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
         module="unilab.tasks.locomotion.go2.joystick",
         obs_contains_command=True,
     )
-    manip_loco_env = _keyboard_env(
-        env_cls_name="Go2ArmManipLocoEnv",
-        cfg_cls_name="Go2ArmManipLocoCfg",
-        module="unilab.tasks.locomotion.go2_arm.manip_loco",
+    custom_env = _keyboard_env(
+        env_cls_name="CustomTaskEnv",
+        cfg_cls_name="CustomTaskCfg",
+        module="custom_tasks.example",
         obs_contains_command=True,
     )
     missing_obs_command_env = _keyboard_env(
@@ -224,7 +224,7 @@ def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
     )
 
     assert mod._should_render_velocity_arrows(joystick_env) is True
-    assert mod._should_render_velocity_arrows(manip_loco_env) is False
+    assert mod._should_render_velocity_arrows(custom_env) is False
     assert mod._should_render_velocity_arrows(missing_obs_command_env) is False
 
 

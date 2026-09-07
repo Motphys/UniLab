@@ -46,11 +46,6 @@ ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
     ),
     "go1": (("robots/go1/assets", "trunk.stl", "*.stl", "STL"),),
     "go2": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
-    # go2_arm reuses the Go2 base meshes via ``../go2/assets`` references.
-    "go2_arm": (
-        ("robots/go2_arm/assets", "arm_base_0.obj", "**/*", "asset"),
-        ("robots/go2/assets", "base_0.obj", "**/*", "asset"),
-    ),
     # go2w points its meshdir at ``../go2/assets``.
     "go2w": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
     "sharpa_wave": (("robots/sharpa_wave/meshes", "DP_HB1_4F.STL", "*.STL", "STL"),),

@@ -1283,14 +1283,14 @@ def test_create_rsl_rl_playback_session_forwards_guard_algo_name(
     kwargs = _rsl_rl_session_kwargs(tmp_path)
     kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
     kwargs["runner_cls"] = Runner
-    kwargs["guard_algo_name"] = "him_ppo"
+    kwargs["guard_algo_name"] = "custom_algo"
 
     create_rsl_rl_playback_session(**kwargs)
 
     assert captured["dim_guard"] == {
         "env_obs_dim": 5,
         "env_action_dim": 2,
-        "algo_name": "him_ppo",
+        "algo_name": "custom_algo",
     }
 
 

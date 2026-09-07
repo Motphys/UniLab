@@ -1,7 +1,6 @@
 # Manipulation
 
-Manipulation tasks live in `src/unilab/tasks/manipulation/` and the Go2 arm
-manip-loco env lives in `src/unilab/tasks/locomotion/go2_arm/`.
+Manipulation tasks live in `src/unilab/tasks/manipulation/`.
 
 ## In-Hand
 
@@ -36,13 +35,4 @@ training-stable under load.
 uv run train --algo ppo --task stewart_balance --sim motrix training.no_play=true
 ```
 
-## Mobile Manipulation
-
-`go2_arm_manip_loco` is the committed Go2 + Airbot owner path:
-
-```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco training.no_play=true
-```
-
-See {doc}`../8-manipulation/1-dexterous_inhand` and
-{doc}`../8-manipulation/2-manip_loco` for task-specific notes.
+See {doc}`../8-manipulation/1-dexterous_inhand` for in-hand task notes.

@@ -68,6 +68,9 @@ from unilab.visualization.interactive_playback import (
     normalize_checkpoint_value,
 )
 
+# Also defined for consumers that invoke main with a composed configuration.
+EXPORT_POLICY = False
+
 try:
     from rsl_rl.runners import OnPolicyRunner
 except ImportError:

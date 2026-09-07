@@ -131,17 +131,17 @@ def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
     ]
 
 
-def test_go2_arm_manip_loco_motrix_train_and_eval_route_to_owner_config(
+def test_go2_joystick_flat_motrix_train_and_eval_route_to_owner_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _make_minimal_checkout(tmp_path, task="go2_arm_manip_loco")
+    _make_minimal_checkout(tmp_path, task="go2_joystick_flat")
     _pretend_motrix_is_installed(monkeypatch)
     monkeypatch.setattr(cli.platform, "system", lambda: "Linux")
 
     train_command = cli.build_command(
         mode="train",
         algo="ppo",
-        task="go2_arm_manip_loco",
+        task="go2_joystick_flat",
         sim="motrix",
         overrides=[],
         root=tmp_path,
@@ -149,7 +149,7 @@ def test_go2_arm_manip_loco_motrix_train_and_eval_route_to_owner_config(
     eval_command = cli.build_command(
         mode="eval",
         algo="ppo",
-        task="go2_arm_manip_loco",
+        task="go2_joystick_flat",
         sim="motrix",
         overrides=[],
         load_run="-1",
@@ -158,11 +158,11 @@ def test_go2_arm_manip_loco_motrix_train_and_eval_route_to_owner_config(
 
     assert train_command[1:] == [
         str(tmp_path / "scripts" / "train_rsl_rl.py"),
-        "task=go2_arm_manip_loco/motrix",
+        "task=go2_joystick_flat/motrix",
     ]
     assert eval_command[1:3] == [
         str(tmp_path / "scripts" / "train_rsl_rl.py"),
-        "task=go2_arm_manip_loco/motrix",
+        "task=go2_joystick_flat/motrix",
     ]
     assert "training.play_only=true" in eval_command
     assert "algo.load_run=-1" in eval_command
@@ -657,13 +657,10 @@ def test_demo_registry_contains_expected_entries() -> None:
         "dance",
         "wallflip",
         "boxtracking",
-        "locomani",
         "sharpa_appo_student",
         "inhandgrasp",
         "teaser",
     }
-    assert demo.DEMO_REGISTRY["locomani"].entry == "play_interactive"
-    assert demo.DEMO_REGISTRY["locomani"].sim == "mujoco"
     assert demo.DEMO_REGISTRY["inhandgrasp"] == demo.DemoSpec(
         algo="hora_distill",
         task="sharpa_inhand",
@@ -699,25 +696,6 @@ def test_demo_eval_entry_passes_checkpoint_as_load_run_override(
     assert "task=g1_motion_tracking/motrix" in command
     assert "training.play_only=true" in command
     assert f"algo.load_run={abs_pt}" in command
-
-
-def test_demo_play_interactive_entry_assembles_locomani_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _make_demo_checkout(tmp_path, demo_name="locomani")
-    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
-    abs_pt = str(tmp_path / "fake" / "model_0.pt")
-    command = demo.build_demo_command(
-        demo_name="locomani", checkpoint_path=abs_pt, device="cpu", root=tmp_path
-    )
-
-    assert command[0] == sys.executable
-    assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
-    assert command[2:4] == ["--algo", "ppo"]
-    assert command[4:8] == ["--task", "go2_arm_manip_loco", "--sim", "mujoco"]
-    assert f"algo.load_run={abs_pt}" in command
-    assert "training.device=cpu" in command
-    assert "interactive.camera_follow_body=false" in command
 
 
 def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
@@ -801,7 +779,7 @@ def test_demo_play_interactive_sac_owner_path_uses_sac_tree(tmp_path: Path) -> N
 def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _make_demo_checkout(tmp_path, demo_name="locomani")
+    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
     monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fail_materialize() -> None:
@@ -810,7 +788,7 @@ def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
     monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", fail_materialize)
 
     command = demo.build_demo_command(
-        demo_name="locomani",
+        demo_name="inhandgrasp",
         checkpoint_path="/tmp/fake/model_0.pt",
         root=tmp_path,
     )
@@ -821,7 +799,7 @@ def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
 def test_demo_play_interactive_uses_mjpython_on_macos(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _make_demo_checkout(tmp_path, demo_name="locomani")
+    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
     venv_bin = tmp_path / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
     fake_python = venv_bin / "python"
@@ -833,7 +811,7 @@ def test_demo_play_interactive_uses_mjpython_on_macos(
     monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", lambda: None)
 
     command = demo.build_demo_command(
-        demo_name="locomani",
+        demo_name="inhandgrasp",
         checkpoint_path="/tmp/fake/model_0.pt",
         root=tmp_path,
     )
@@ -846,13 +824,13 @@ def test_demo_play_interactive_checks_mujoco_mjpython_app_on_macos(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[str] = []
-    _make_demo_checkout(tmp_path, demo_name="locomani")
+    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
     monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", lambda: calls.append("checked"))
     monkeypatch.setattr(demo, "_current_env_mjpython", lambda: "/tmp/mjpython")
 
     command = demo.build_demo_command(
-        demo_name="locomani",
+        demo_name="inhandgrasp",
         checkpoint_path="/tmp/fake/model_0.pt",
         root=tmp_path,
     )
@@ -867,21 +845,21 @@ def test_demo_play_interactive_requires_owner_yaml(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="owner config"):
         demo.build_demo_command(
-            demo_name="locomani",
+            demo_name="inhandgrasp",
             checkpoint_path="/tmp/fake/model_0.pt",
             root=tmp_path,
         )
 
 
 def test_demo_play_interactive_requires_script(tmp_path: Path) -> None:
-    spec = demo.DEMO_REGISTRY["locomani"]
+    spec = demo.DEMO_REGISTRY["inhandgrasp"]
     owner_dir = tmp_path / "conf" / spec.algo / "task" / spec.task
     owner_dir.mkdir(parents=True)
     (owner_dir / f"{spec.sim}.yaml").write_text("training:\n", encoding="utf-8")
 
     with pytest.raises(SystemExit, match="play_interactive.py"):
         demo.build_demo_command(
-            demo_name="locomani",
+            demo_name="inhandgrasp",
             checkpoint_path="/tmp/fake/model_0.pt",
             root=tmp_path,
         )

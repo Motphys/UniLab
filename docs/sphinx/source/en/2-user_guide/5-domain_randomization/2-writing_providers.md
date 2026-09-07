@@ -1,7 +1,7 @@
 # Writing Providers
 
-This page describes the legacy provider path: only the 3 Adapted families
-(`sharpa_inhand` / `sharpa_inhand_grasp` / `go2_arm_manip_loco`) still declare
+This page describes the legacy provider path: only the 2 Adapted families
+(`sharpa_inhand` / `sharpa_inhand_grasp`) still declare
 domain randomization through a task-level `DomainRandomizationProvider`.
 Migrated Manager-Based tasks do not write providers; they declare randomization
 through Hydra `events:` manager terms in the owner YAML (see {doc}`0-index`
@@ -62,9 +62,6 @@ manager lives in `src/unilab/dr/manager.py`.
 Representative provider implementations are in (all on the Adapted-family
 compatibility path):
 
-- `src/unilab/tasks/locomotion/common/dr_provider.py` (`LocomotionDRProvider`,
-  used by the go2_arm family)
-- `src/unilab/tasks/locomotion/go2_arm/manip_loco.py`
 - `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
 
 Developer contract details are in

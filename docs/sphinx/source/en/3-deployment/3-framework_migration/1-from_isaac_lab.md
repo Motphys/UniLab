@@ -169,18 +169,17 @@ benchmark only after semantic migration is complete.
 
 ## Final task status
 
-The #1042 migration closeout covers 39 production tasks and 86 task/backend
-registrations. The fail-closed source of truth is
+The task migration status is maintained in the registry and migration matrix.
+The fail-closed source of truth is
 `src/unilab/tasks/migration_matrix.py`: `migration_record()` raises `KeyError`
 for a production task name with no entry, so adding a production registration
 requires an explicit migration decision.
 
 - 36 tasks are **Compatible** (`target=complete`): the Hydra owner YAML
   materializes the canonical NumPy Manager-Based runtime.
-- 3 tasks are **Adapted** (`target=compatibility`): `Go2ArmManipLoco`,
-  `SharpaInhandRotation`, and `SharpaInhandRotationGrasp` keep custom
-  IK/history or tactile/contact/cache behavior behind one frozen compatibility
-  factory each; they migrate only when the formal capability exists.
+- 2 tasks are **Adapted** (`target=compatibility`): `SharpaInhandRotation`
+  and `SharpaInhandRotationGrasp` keep tactile/contact/cache behavior behind one
+  frozen compatibility factory each; they migrate only when the formal capability exists.
 
 ## Repository evidence
 

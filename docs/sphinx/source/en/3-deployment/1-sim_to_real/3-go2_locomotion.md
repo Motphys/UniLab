@@ -43,8 +43,7 @@ deltas.
 :class: warning
 The policy is trained against the observation terms emitted by the selected env
 owner. If deployment cannot provide the same base-velocity signal, train a
-variant whose actor observation matches the estimator you can run on the robot
-(see HIM-PPO at {doc}`../../2-user_guide/2-algorithms/6-him_ppo`).
+variant whose actor observation matches the estimator you can run on the robot.
 ::::
 
 ## Rough terrain caveat

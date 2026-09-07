@@ -56,7 +56,6 @@ _G1_LOCOMOTION_TASKS = frozenset(
 
 _CUSTOM_COMPAT_TASKS = frozenset(
     {
-        "Go2ArmManipLoco",
         "SharpaInhandRotation",
         "SharpaInhandRotationGrasp",
     }
@@ -144,13 +143,12 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "Keep the manager contract and regression evidence current.",
         )
     if task_name in _CUSTOM_COMPAT_TASKS:
-        family = "go2_arm" if task_name == "Go2ArmManipLoco" else "sharpa"
         return TaskMigrationRecord(
             task_name,
-            family,
+            "sharpa",
             "Adapted",
             "compatibility",
-            "Custom IK/history or tactile/contact/cache behavior is retained behind one frozen adapter.",
+            "Custom tactile/contact/cache behavior is retained behind one frozen adapter.",
             "Keep Hydra/Registry ownership single; migrate only when the formal capability exists.",
         )
     if task_name in _MOTION_CORE_TASKS:

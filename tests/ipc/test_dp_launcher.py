@@ -346,7 +346,7 @@ def test_supervisor_spawn_argv_and_env(fake_popen, monkeypatch: pytest.MonkeyPat
         assert len(fake_popen.instances) == 2
         for rank, child in enumerate(fake_popen.instances, start=1):
             assert child.argv[0] == sys.executable
-            assert child.argv[1].endswith("scripts/train_sac.py")
+            assert child.argv[1] == sys.argv[0]
             assert child.argv[2:] == ["training.devices=[0,1,2]"]
             assert child.start_new_session is (os.name == "posix")
             assert child.env[UNILAB_DP_RANK] == str(rank)
