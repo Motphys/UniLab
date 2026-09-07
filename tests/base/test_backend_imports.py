@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ast
+import json
+import os
 import subprocess
 import sys
 import textwrap
 from importlib.metadata import distribution
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MATERIALIZER_CONSUMERS = (
@@ -19,6 +22,25 @@ _MATERIALIZER_CONSUMERS = (
 
 def test_unisim_dependency_is_installed_from_package_index() -> None:
     direct_url = distribution("unisim-core").read_text("direct_url.json")
+
+    local_checkout = os.environ.get("UNILAB_LOCAL_UNISIM")
+    if local_checkout:
+        import unisim
+
+        expected = Path(local_checkout)
+        assert expected.is_absolute(), "UNILAB_LOCAL_UNISIM must be an absolute checkout path"
+        expected = expected.resolve(strict=True)
+        assert direct_url is not None, (
+            "Local UniSim profile requires editable installation metadata"
+        )
+        metadata = json.loads(direct_url)
+        assert metadata.get("dir_info", {}).get("editable") is True
+        installed_url = urlparse(metadata["url"])
+        assert installed_url.scheme == "file" and installed_url.netloc in {"", "localhost"}
+        assert Path(unquote(installed_url.path)).resolve() == expected
+        assert unisim.__file__ is not None
+        assert Path(unisim.__file__).resolve().is_relative_to(expected / "src" / "unisim")
+        return
 
     assert direct_url is None, (
         "UniLab tests must consume the indexed unisim-core release, not a local, editable, "

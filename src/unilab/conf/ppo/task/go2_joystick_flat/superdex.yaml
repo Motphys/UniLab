@@ -1,0 +1,29 @@
+# @package _global_
+# Research sim2sim profile: inherit the exact MuJoCo policy/observation owner.
+# SuperDex contact compliance and slide-only friction are not MuJoCo physics
+# equivalents. This profile permits that conversion explicitly, not silently.
+defaults:
+  - /task/go2_joystick_flat/mujoco
+  - _self_
+
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: superdex
+  device: cpu
+  no_play: true
+  play_render_mode: none
+
+algo:
+  num_envs: 2
+  algorithm:
+    num_mini_batches: 1
+
+env:
+  adaptive_chunk_size: false
+  superdex_num_threads: 0
+  superdex_allow_contact_approximation: true
+  events:
+    pd_gains: null
+
+play_profile:
+  enabled: false

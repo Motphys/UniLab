@@ -29,6 +29,8 @@ _MBA_TASKS = frozenset(
         "A2JoystickFlat",
         "AllegroInhandRotation",
         "AllegroInhandRotationGrasp",
+        # #1534 starts directly on the canonical manager runtime; no legacy seam.
+        "FR3JointTarget",
         "Go1JoystickFlat",
         "Go2FootStand",
         "Go2JoystickFlat",
