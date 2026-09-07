@@ -1400,35 +1400,6 @@ def test_build_ppo_play_env_cfg_override_keeps_task_owned_manager_scene(
     assert env_cfg_override["scene"]["entities"]["robot"]["joint_names"]
 
 
-def test_go2_arm_manip_loco_motrix_eval_uses_visual_floor(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go2_arm_manip_loco/motrix", "training.play_only=true"])
-
-    captured = {}
-
-    def _fake_materialize(source_model_file, **kwargs):
-        captured["source_model_file"] = source_model_file
-        captured.update(kwargs)
-        return "/tmp/go2_arm_manip_loco_play_scene.xml"
-
-    monkeypatch.setattr(mod, "materialize_scene_visual_override", _fake_materialize)
-
-    env_cfg_override = mod.build_ppo_play_env_cfg_override(cfg)
-
-    assert captured["source_model_file"] == str(
-        (Path.cwd() / "src" / "unilab" / "assets" / "robots/go2_arm/scene_flat.xml").resolve()
-    )
-    assert captured["ground_texture_file"] == str(
-        (Path.cwd() / "src" / "unilab" / "assets" / "robots/g1/textures/floor.png").resolve()
-    )
-    assert captured["skybox_rgb1"] == [0.90, 0.90, 0.91]
-    assert captured["skybox_rgb2"] == [0.68, 0.68, 0.70]
-    assert captured["ground_texrepeat"] == [0.25, 0.25]
-    assert env_cfg_override["scene"].model_file == "/tmp/go2_arm_manip_loco_play_scene.xml"
-
-
 def test_run_motrix_rsl_play_loop_uses_render_spacing_and_offset_mode(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -3409,19 +3380,6 @@ def test_play_interactive_import_does_not_swallow_registry_bootstrap_errors(
 # ---------------------------------------------------------------------------
 
 
-def _him_ppo_cfg(overrides=None):
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "ppo_him"), version_base="1.3"):
-        return compose(
-            "config",
-            overrides=["task=go2_arm_manip_loco/mujoco", *(overrides or [])],
-        )
-
-
-def _train_him_ppo():
-    return _load_script("train_him_ppo")
-
-
 class _FakePlaybackEnv:
     """Env stand-in driving one initialize/step cycle through run_playback_mode."""
 
@@ -3507,94 +3465,6 @@ def test_train_rsl_rl_play_uses_shared_playback_session_factory(
     assert env_captured["play_steps"] == 5
     assert env_captured["init_obs"] == "obs_0"
     assert env_captured["next_obs"] == "obs_1"
-
-
-def test_train_him_ppo_play_missing_checkpoint_returns_none_without_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-):
-    mod = _train_him_ppo()
-    cfg = _him_ppo_cfg(["training.play_only=true"])
-
-    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (None, None))
-    monkeypatch.setattr(
-        mod,
-        "create_env",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("play_him_ppo should not create an env before checkpoint resolution")
-        ),
-    )
-
-    result = mod.play_him_ppo(cfg, device="cpu")
-
-    assert result is None
-    assert "Could not resolve a checkpoint for play mode." in capsys.readouterr().out
-
-
-def test_train_him_ppo_play_uses_shared_playback_session_factory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
-    mod = _train_him_ppo()
-    cfg = _him_ppo_cfg(["training.play_only=true"])
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    checkpoint = run_dir / "model_37.pt"
-    mod.torch.save({"actor_state_dict": {}}, checkpoint)
-    captured: dict[str, Any] = {}
-
-    class FakeSession:
-        def __init__(self):
-            self.env = types.SimpleNamespace(
-                cfg=types.SimpleNamespace(render_spacing=1.0),
-            )
-            self.runner = object()
-            self.policy = lambda obs: obs
-            self.reset_calls = 0
-            self.step_calls = 0
-
-        def reset(self):
-            self.reset_calls += 1
-            return {"actor": "obs_0"}
-
-        def step_once(self):
-            self.step_calls += 1
-            return {"actor": "obs_1"}
-
-    fake_session = FakeSession()
-
-    def fake_create_session(**kwargs: Any):
-        captured["factory_kwargs"] = kwargs
-        return fake_session, "actor", str(checkpoint)
-
-    def fake_render_play_mode(env, **kwargs: Any):
-        captured["render_kwargs"] = kwargs
-        captured["init_obs"] = kwargs["initialize"]()
-        captured["next_obs"] = kwargs["step"](captured["init_obs"])
-
-    monkeypatch.setattr(mod, "EXPORT_POLICY", False, raising=False)
-    monkeypatch.setattr(mod, "parse_checkpoint_path", lambda *args, **kwargs: (checkpoint, run_dir))
-    monkeypatch.setattr(mod, "create_rsl_rl_playback_session", fake_create_session)
-    monkeypatch.setattr(mod, "render_play_mode", fake_render_play_mode)
-
-    result = mod.play_him_ppo(cfg, device="cpu")
-
-    assert result == str(run_dir / "play_video.mp4")
-    factory_kwargs = captured["factory_kwargs"]
-    playback_cfg = factory_kwargs["playback_cfg"]
-    assert playback_cfg.task == cfg.training.task_name
-    assert playback_cfg.action_mode == "policy"
-    assert playback_cfg.num_envs == cfg.training.play_env_num
-    assert factory_kwargs["device"] == "cpu"
-    assert factory_kwargs["wrapper_cls"] is mod.RslRlVecEnvWrapper
-    assert factory_kwargs["runner_cls"] is mod.HIMOnPolicyRunner
-    assert factory_kwargs["guard_algo_name"] == "him_ppo"
-    assert callable(factory_kwargs["runner_loader"])
-    assert factory_kwargs["checkpoint_resolver"]() == str(checkpoint)
-    assert callable(factory_kwargs["sim2sim_preflight"])
-    assert fake_session.reset_calls == 1
-    assert fake_session.step_calls == 1
-    assert captured["init_obs"] == "obs_0"
-    assert captured["next_obs"] == "obs_1"
-    assert captured["render_kwargs"]["output_video"] == run_dir / "play_video.mp4"
 
 
 def test_play_appo_missing_checkpoint_returns_none_without_env(

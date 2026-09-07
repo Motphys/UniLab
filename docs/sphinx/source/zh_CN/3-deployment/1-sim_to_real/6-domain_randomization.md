@@ -40,40 +40,32 @@
 
 ## UniLab 如何组织 DR
 
-使用 DR 的任务通过环境初始化路径挂接一个 provider：
+Manager-Based 任务在 owner YAML 的 `env.events` 中声明 reset 与 interval
+随机化，由 manager 生命周期执行。示例见
+`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`。
 
-```python
-from unilab.tasks.locomotion.common.dr_provider import LocomotionDRProvider
-
-class MyTaskEnv(NpEnv):
-    def __init__(self, cfg):
-        super().__init__(cfg)
-        self._init_domain_randomization(LocomotionDRProvider(cfg.domain_rand))
-```
-
-管理器位于 `src/unilab/dr/manager.py`；provider 位于其环境 owner 附近，并遵循
-{doc}`../../4-developer_guide/2-contracts/4-dr_contract` 中的契约。
+Sharpa Adapted 任务仍通过任务 provider 接入 `src/unilab/dr/manager.py`；
+现有实现为 `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py` 中的
+`SharpaInhandRotationDRProvider`。两条路径的能力边界见
+{doc}`../../4-developer_guide/2-contracts/4-dr_contract`。
 
 ## 配方：起始范围
 
-把所选的 owner YAML 作为权威来源。例如，
-`src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml` 启用了基座质量、质心、kp/kd 以及推力
-随机化；`src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml` 配置了 PD 增益、摩擦、质心、质量、
-关节噪声与接触噪声字段。
+以所选 owner YAML 为准。Go2 rough owner 组合
+`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`，其中声明基座质量、
+质心、PD 增益和周期推扰。以下是该共享 owner 的 PD 增益片段；绝对增益范围应
+与机器人的控制参数一起评估。
 
 ```yaml
-# src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml
 env:
-  domain_rand:
-    randomize_base_mass: true
-    added_mass_range: [-1.0, 3.0]
-    random_com: true
-    randomize_kp: true
-    kp_multiplier_range: [0.5, 2.0]
-    randomize_kd: true
-    kd_multiplier_range: [0.5, 2.0]
-    push_robots: true
-    push_interval: 625
+  events:
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [17.5, 70.0]
+        kd_range: [0.25, 1.0]
+        operation: abs
 ```
 
 ## 课程：随技能逐步加大 DR

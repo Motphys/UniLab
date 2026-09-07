@@ -14,9 +14,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MATERIALIZER_CONSUMERS = (
     "src/unilab/base/config_adapter.py",
     "src/unilab/scripts/train_rsl_rl.py",
-    "scripts/train_him_ppo.py",
     "scripts/train_hora_distill.py",
-    "scripts/manip_loco/benchmark_site_jacobian.py",
 )
 
 
@@ -64,40 +62,6 @@ def test_materializer_consumers_use_unisim_owner_module() -> None:
             offenders.append(f"{relative_path}: {modules}")
 
     assert offenders == []
-
-
-def test_site_jacobian_benchmark_imports_with_mujoco_stub() -> None:
-    code = textwrap.dedent(
-        """
-        import importlib.util
-        import sys
-        import types
-        from pathlib import Path
-
-        sys.modules["mujoco"] = types.ModuleType("mujoco")
-        path = Path(sys.argv[1])
-        spec = importlib.util.spec_from_file_location("benchmark_site_jacobian", path)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-
-        print(module.materialize_scene_visual_override.__module__)
-        print("mujoco_backend", "unisim.backend.mujoco.backend" in sys.modules)
-        """
-    )
-    script = _REPO_ROOT / "scripts" / "manip_loco" / "benchmark_site_jacobian.py"
-    result = subprocess.run(
-        [sys.executable, "-c", code, str(script)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.stdout.splitlines() == [
-        "unisim.backend.mujoco.xml",
-        "mujoco_backend False",
-    ]
 
 
 def test_mujoco_backend_import_path_does_not_eagerly_import_motrix() -> None:

@@ -43,7 +43,7 @@ uv run demo dance
 ```
 
 Available demo names are `teaser`, `dance`, `wallflip`, `boxtracking`,
-`locomani`, and `inhandgrasp`. Use `uv run demo --help` for device and refresh
+and `inhandgrasp`. Use `uv run demo --help` for device and refresh
 options.
 
 ## Train A Task

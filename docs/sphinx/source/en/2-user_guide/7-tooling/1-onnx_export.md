@@ -1,7 +1,6 @@
 # ONNX Export
 
-ONNX export is tied to playback in the training scripts. The PPO and HIM-PPO
-scripts set `EXPORT_POLICY=True` when run as scripts, then export during
+ONNX export is tied to playback in the training scripts. The PPO script sets `EXPORT_POLICY=True` when run directly, then exports during
 `training.play_only=true` playback. APPO and off-policy playback paths
 also export `policy.onnx` and verify it with ONNX Runtime in their script code.
 

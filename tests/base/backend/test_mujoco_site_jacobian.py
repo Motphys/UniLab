@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -16,10 +18,9 @@ except Exception:
 
 from unisim.backend.mujoco.backend import MuJoCoBackend
 
-from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
 
-MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")
+MODEL_FILE = str(Path(__file__).resolve().parents[2] / "fixtures/free_chain.xml")
 NUM_ENVS = 4
 ARM_JOINT_NAMES = ("joint1", "joint2", "joint3", "joint4", "joint5", "joint6")
 EE_SITE_NAME = "endpoint"

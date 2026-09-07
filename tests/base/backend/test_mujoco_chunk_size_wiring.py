@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -16,10 +18,9 @@ except Exception:
 import mujoco
 from unisim.backend.mujoco.backend import MuJoCoBackend
 
-from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
 
-_MODEL_FILE = str(ASSETS_ROOT_PATH / "robots" / "go2_arm" / "scene_flat.xml")
+_MODEL_FILE = str(Path(__file__).resolve().parents[2] / "fixtures/free_chain.xml")
 _NUM_ENVS = 4
 
 

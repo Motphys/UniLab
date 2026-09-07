@@ -7,6 +7,7 @@ sideways, start here.
 
 | Likely cause | Check | Fix |
 |---|---|---|
+| State estimator velocity bias | Log `base_lin_vel` vs ground truth (motion capture) | Tune the state estimator |
 | PD gains too high vs trained | Compare driver Kp/Kd against owner YAML | Match training values; or retrain with realistic Kp/Kd DR |
 | Action latency too low in training | Sweep `torque_delay_ms` in DR | Retrain with measured-latency × 1.5 |
 | Velocity noise too low | Compare encoder σ in sim vs hardware | Increase `joint_vel_noise_std` in DR |
@@ -15,7 +16,6 @@ sideways, start here.
 
 | Likely cause | Check | Fix |
 |---|---|---|
-| State estimator velocity bias | Log `base_lin_vel` vs ground truth (motion capture) | Tune KF or switch to HIM-PPO |
 | IMU bias not calibrated | Robot static, check `gyro_bias` | Run 30-second calibration before policy start |
 | Foot contact misclassified | Check contact event timestamps | Hysteresis on contact force threshold |
 

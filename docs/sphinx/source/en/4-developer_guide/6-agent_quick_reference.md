@@ -13,7 +13,6 @@ repo facts.
 - APPO entrypoint: `src/unilab/scripts/train_appo.py`
 - SAC / TD3 / FlashSAC entrypoints: `src/unilab/scripts/train_sac.py` /
   `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
-- HIM-PPO entrypoint: `scripts/train_him_ppo.py`
 - HORA distillation entrypoint: `scripts/train_hora_distill.py`
 
 ## Contracts To Keep In Mind

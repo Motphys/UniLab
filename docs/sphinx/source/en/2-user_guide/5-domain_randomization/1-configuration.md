@@ -9,8 +9,8 @@ Two declaration paths exist today:
 - Manager-Based (Compatible) tasks declare reset / interval randomization
   through Hydra `events:` manager terms in the owner YAML, for example
   `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`.
-- Only the Adapted families (sharpa / go2_arm and their hora / appo / ppo_him
-  owners) still configure legacy provider fields under `env.domain_rand`.
+- The Sharpa Adapted families and their hora / appo owners configure legacy
+  provider fields under `env.domain_rand`.
 
 ```bash
 uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
@@ -47,15 +47,13 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
 
 ## Interval Push
 
-Manager-Based tasks declare push through a `push_by_setting_velocity` interval
-event term; `env.domain_rand.push_robots` is only available on the go2_arm
-Adapted-family owners.
+Manager-Based tasks configure interval push through the `env.events.push_robot`
+term. For example, `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` uses
+`push_by_setting_velocity` with a 15-second interval and per-axis velocity ranges.
 
 ```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco \
-  env.domain_rand.push_robots=true \
-  env.domain_rand.push_interval=500 \
-  'env.domain_rand.max_force=[20.0,20.0,5.0]'
+uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+  'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 
 ## Owner-Local Defaults

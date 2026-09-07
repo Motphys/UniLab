@@ -350,7 +350,6 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
         "g1",
         "go1",
         "go2",
-        "go2_arm",
         "go2w",
         "sharpa_wave",
         "x2",
@@ -359,7 +358,7 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
     for robot, specs in ROBOT_ASSET_SPECS.items():
         assert specs, robot
         for directory, marker, pattern, label in specs:
-            # go2_arm / go2w additionally reference the shared go2 mesh dir.
+            # go2w additionally reference the shared go2 mesh dir.
             assert directory.startswith("robots/")
             assert marker and pattern and label
 
@@ -454,25 +453,4 @@ def test_create_backend_resolves_robot_assets_before_dispatch(monkeypatch: pytes
             None,
             "src/unilab/assets/robots/g1/locomotion_task.xml",
         ]
-    ]
-
-
-def test_ensure_robot_assets_go2_arm_pulls_shared_go2_meshes(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """go2_arm XMLs reference ``../go2/assets``; both dirs must resolve."""
-    from unilab.assets import hub
-
-    calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        hub,
-        "resolve_robot_asset_dir",
-        lambda directory, *, marker: calls.append((directory, marker)) or Path(directory),
-    )
-
-    hub.ensure_robot_assets_for_paths(["src/unilab/assets/robots/go2_arm/scene_flat.xml"])
-
-    assert calls == [
-        ("robots/go2_arm/assets", "arm_base_0.obj"),
-        ("robots/go2/assets", "base_0.obj"),
     ]

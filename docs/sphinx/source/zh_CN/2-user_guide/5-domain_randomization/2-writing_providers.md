@@ -1,7 +1,7 @@
 # 编写 Provider
 
-本页描述 legacy provider 路径：只有 3 个 Adapted family（`sharpa_inhand` /
-`sharpa_inhand_grasp` / `go2_arm_manip_loco`）仍通过任务级
+本页描述 legacy provider 路径：只有 2 个 Adapted family（`sharpa_inhand` /
+`sharpa_inhand_grasp`）仍通过任务级
 `DomainRandomizationProvider` 声明域随机化。已迁移的 Manager-Based 任务不写
 provider；它们在 owner YAML 中通过 Hydra `events:` manager term 声明随机化（见
 {doc}`0-index` 与 {doc}`1-configuration`）。
@@ -58,9 +58,6 @@ def build_interval_randomization_plan(self, env, step_counter):
 
 具有代表性的 provider 实现位于（全部属于 Adapted family 的兼容路径）：
 
-- `src/unilab/tasks/locomotion/common/dr_provider.py`（`LocomotionDRProvider`，
-  由 go2_arm family 使用）
-- `src/unilab/tasks/locomotion/go2_arm/manip_loco.py`
 - `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
 
 开发者 contract 详情见

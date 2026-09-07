@@ -68,7 +68,7 @@ fail-closed，报错信息列出全部可用 algo（内置 + 约定发现的）�
 
 注意：
 
-- 只有 conf 目录而没有入口脚本的 config 树（如 `hora_distill`、`ppo_him`）
+- 只有 conf 目录而没有入口脚本的 config 树（如 `hora_distill`）
   不可路由——它们不是独立的 CLI algo。
 - 内置算法的特殊脚本名映射保留不变：`ppo` → `train_rsl_rl.py`、
   `appo` → `train_appo.py`。

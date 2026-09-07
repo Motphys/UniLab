@@ -23,7 +23,6 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
     ("task_name", "family", "target", "status"),
     [
         ("FR3JointTarget", "manager_based", "complete", "Compatible"),
-        ("Go2ArmManipLoco", "go2_arm", "compatibility", "Adapted"),
         ("SharpaInhandRotation", "sharpa", "compatibility", "Adapted"),
         ("G1MotionTracking", "motion_tracking", "complete", "Compatible"),
         ("G1WBTObs", "motion_tracking", "complete", "Compatible"),

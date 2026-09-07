@@ -41,7 +41,7 @@ make setup-motrix
 uv run demo dance
 ```
 
-可用的 demo 名称为 `teaser`、`dance`、`wallflip`、`boxtracking`、`locomani` 和
+可用的 demo 名称为 `teaser`、`dance`、`wallflip`、`boxtracking` 和
 `inhandgrasp`。运行 `uv run demo --help` 查看 device 和 refresh 选项。
 
 中国大陆用户：运动、场景、机器人网格和 demo 检查点在首次运行时从 Hugging Face 拉取。如果
