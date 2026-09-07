@@ -1,80 +1,65 @@
 # Reward Porting
 
-Reward terms are where most porting bugs hide. This cookbook captures the
-common terms and their UniLab idiom.
+Map Legged Gym's `_reward_*` methods to `reward` terms in the owner YAML.
+Manager-Based reward terms receive the env, read batched state through the
+entity facade and managers, and return NumPy arrays of shape `(num_envs,)`.
 
-## Pattern: linear / quadratic tracking error
+## Tracking, smoothness, and joint limits
 
-```python
-# Legged Gym
-def _reward_tracking_lin_vel(self):
-    err = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
-    return torch.exp(-err / self.cfg.rewards.tracking_sigma)
+The `twist` command below must be defined in the owner's `env.commands`.
+The tracking and action-rate entries follow
+`src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`; the joint-limit and
+termination entries illustrate existing helpers whose weights need task-specific
+evaluation.
 
-# UniLab
-def reward_tracking_lin_vel(self, state):
-    err = np.sum((state.commands[:, :2] - state.base_lin_vel[:, :2]) ** 2, axis=1)
-    return np.exp(-err / self.cfg.tracking_sigma)
+```yaml
+reward:
+  tracking_lin_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    weight: 1.0
+    params:
+      std: 0.5
+      command_name: twist
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.005
+  joint_limits:
+    func: unilab.envs.mdp.joint_pos_limits
+    weight: -1.0
+  termination:
+    func: unilab.envs.mdp.is_terminated
+    weight: -1.0
 ```
 
-Notes:
+`track_lin_vel_xy_exp` uses body-frame xy velocity error and computes
+`exp(-error_squared / std**2)`. If the source denominator is `tracking_sigma`,
+use `std = sqrt(tracking_sigma)` and preserve coordinate frames and command
+dimensions.
 
-- UniLab reward terms operate on a `state` *batch* (NumPy on CPU); no
-  per-env loop, no `torch`.
-- Return per-env scalar reward (shape `(n_envs,)`).
+`action_rate_l2` reads current and previous actions from the action manager.
+`joint_pos_limits` reads soft joint limits through the entity facade.
+Both return nonnegative costs; a negative `weight` supplies the penalty sign.
+Do not negate the cost a second time.
 
-## Pattern: contact-conditional bonus
+## Contact-conditional rewards
 
-```python
-def reward_feet_air_time(self, state):
-    contact = state.foot_contact     # bool, (n_envs, n_feet)
-    air_time = state.last_air_time   # float, (n_envs, n_feet)
-    first_contact = contact & ~state.prev_contact
-    reward = (air_time - self.cfg.air_time_threshold) * first_contact
-    return reward.sum(axis=1)
-```
-
-Notes:
-
-- UniLab's `state` carries `prev_contact` so you don't need to manage
-  edge detection yourself. See
-  `unilab.tasks.locomotion.common.rewards`.
-
-## Pattern: action smoothness penalty
-
-```python
-def reward_action_rate(self, state):
-    return -np.sum((state.action - state.prev_action) ** 2, axis=1)
-```
-
-Already a stock helper in `unilab.tasks.locomotion.common.rewards`.
-
-## Pattern: posture penalty
-
-```python
-def reward_dof_pos_limits(self, state):
-    lower = self.cfg.dof_pos_lower
-    upper = self.cfg.dof_pos_upper
-    deviation = (
-        np.maximum(0, lower - state.dof_pos) +
-        np.maximum(0, state.dof_pos - upper)
-    )
-    return -np.sum(deviation, axis=1)
-```
+Contact history is not a generic `state.prev_contact` field. Rewards needing
+timers or edge detection use stateful manager terms and reset the corresponding
+env rows on partial resets. Examples live in
+`unilab.tasks.locomotion.common.gait_terms`: `feet_air_time` is a time-window
+reward, while `foot_air_time` provides current airborne durations. These differ
+from Legged Gym's first-contact bonus. Check trigger timing, time units, and
+command gating, then compare per-term outputs on a fixed trajectory.
 
 ## Termination handling
 
-UniLab separates **terminal signal** from **terminal penalty**. The env's
-`terminations()` returns a boolean mask; the reward registry can include
-a `termination_penalty` term that consumes it.
-
-```python
-def reward_termination(self, state):
-    return -state.termination.astype(np.float32) * self.cfg.termination_penalty
-```
+`unilab.envs.mdp.is_terminated` reads the termination manager's non-timeout
+termination mask. Give it a negative weight for a terminal penalty, and check
+whether timeouts should contribute to the source task's penalty separately.
 
 ## See also
 
 - {doc}`5-task_config_translation`
-- `unilab.utils.reward`
-- `unilab.tasks.locomotion.common.rewards`
+- `src/unilab/envs/mdp/rewards.py`
+- `src/unilab/tasks/locomotion/common/manager_terms.py`
+- `src/unilab/tasks/locomotion/common/gait_terms.py`

@@ -13,6 +13,15 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 
 ## Unreleased / 未发布
 
+- Go2 arm manipulation/locomotion, its legacy helpers, assets, tools and HIM-PPO
+  owners moved to [legged-manipulation_unilab](https://github.com/unilabsim/legged-manipulation_unilab)
+  under [#1528](https://github.com/unilabsim/UniLab/issues/1528). Dedicated source
+  content and compatibility imports are removed; shared backend contracts remain.
+  Go2 机械臂任务及专属辅助模块、资产、工具和 HIM-PPO 配置迁入独立仓库，原入口移除。
+  Per maintainer instruction, this migration does not change repository versions
+  or publish a release; consumers use the coordinated migration commits.
+  按维护者要求，本次不修改仓库版本号、不发布新版本，消费方固定配套迁移提交。
+
 ## 1.1.0 (2026-09-06)
 
 - Update the required `unisim-core` release to `>=1.1.3`, including the ROCm

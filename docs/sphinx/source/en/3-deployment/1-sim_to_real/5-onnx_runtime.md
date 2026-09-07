@@ -10,7 +10,6 @@ graph when that path implements ONNX Runtime checking.
 | Algorithm path | Entry script | Export behavior in repo |
 | --- | --- | --- |
 | PPO (torch) | `src/unilab/scripts/train_rsl_rl.py` | `EXPORT_POLICY=True` in the script entrypoint; playback calls `runner.export_policy_to_onnx(...)` and `runner.export_policy_to_jit(...)`. |
-| HIM-PPO | `scripts/train_him_ppo.py` | Same script-level export pattern as PPO. |
 | APPO | `src/unilab/scripts/train_appo.py` | Playback writes `policy.onnx` and verifies ONNX Runtime output against PyTorch. |
 | SAC / TD3 / FlashSAC | `src/unilab/scripts/train_sac.py` / `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py` | Playback writes `policy.onnx`; SAC and FlashSAC use `actor.as_export_module()` before export. |
 

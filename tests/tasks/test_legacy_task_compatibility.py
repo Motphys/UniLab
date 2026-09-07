@@ -89,14 +89,14 @@ def test_adapter_records_fixed_adapted_metadata_and_forwards_registry_arguments(
 
     adapter = adapt_legacy_factory(
         factory,
-        task_family="Go2ArmManipLoco",
+        task_family="CustomLegacyTask",
         reason="existing task owner already constructs an NpEnv",
     )
     cfg = _Cfg()
 
     assert adapter(cfg, num_envs=4, backend_type="motrix") is expected
     assert received == [(cfg, 4, "motrix")]
-    assert adapter.compatibility.task_family == "Go2ArmManipLoco"
+    assert adapter.compatibility.task_family == "CustomLegacyTask"
     assert adapter.compatibility.status is CompatibilityStatus.ADAPTED
     assert adapter.compatibility.reason == "existing task owner already constructs an NpEnv"
 
@@ -120,8 +120,8 @@ def test_adapter_rejects_non_env_cfg_before_calling_factory() -> None:
 @pytest.mark.parametrize(
     ("result", "match"),
     (
-        (object(), r"Go2ArmManipLoco.*object.*expected ABEnv"),
-        (_PlainABEnv(), r"Go2ArmManipLoco.*Unsupported.*_PlainABEnv.*NpEnv"),
+        (object(), r"CustomLegacyTask.*object.*expected ABEnv"),
+        (_PlainABEnv(), r"CustomLegacyTask.*Unsupported.*_PlainABEnv.*NpEnv"),
     ),
 )
 def test_adapter_rejects_factories_outside_the_np_env_lifecycle(
@@ -133,7 +133,7 @@ def test_adapter_rejects_factories_outside_the_np_env_lifecycle(
 
     adapter = adapt_legacy_factory(
         factory,  # type: ignore[arg-type]
-        task_family="Go2ArmManipLoco",
+        task_family="CustomLegacyTask",
         reason="migration seam",
     )
 
@@ -180,7 +180,6 @@ def test_compatibility_metadata_requires_stable_family_and_reason(
 @pytest.mark.parametrize(
     ("task_name", "family", "backends"),
     (
-        ("Go2ArmManipLoco", "Go2ArmManipLoco", {"mujoco", "motrix", "drake"}),
         ("SharpaInhandRotation", "Sharpa", {"mujoco", "motrix", "drake"}),
         ("SharpaInhandRotationGrasp", "Sharpa", {"mujoco", "motrix"}),
     ),

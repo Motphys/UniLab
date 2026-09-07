@@ -80,7 +80,7 @@ convention-discovered).
 Notes:
 
 - Config trees that have a conf directory but no entrypoint script (such as
-  `hora_distill` and `ppo_him`) are not routable — they are not standalone
+  `hora_distill`) are not routable — they are not standalone
   CLI algos.
 - The special script-name mappings for built-in algorithms are preserved:
   `ppo` → `train_rsl_rl.py`, `appo` → `train_appo.py`.

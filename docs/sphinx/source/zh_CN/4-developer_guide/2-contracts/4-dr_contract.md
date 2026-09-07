@@ -123,6 +123,4 @@ actuator 的机制泄漏到共享 payload 里。
   `src/unilab/dr/__init__.py` 再导出
 - DR manager：`src/unilab/dr/manager.py`
 - Backend 接口：`unisim.backend.base`
-- 示例 provider：`src/unilab/tasks/locomotion/common/dr_provider.py`、
-  `src/unilab/tasks/locomotion/go2_arm/manip_loco.py`、
-  `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
+- 示例 provider：`src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
