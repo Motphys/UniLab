@@ -1021,10 +1021,14 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
 @pytest.mark.parametrize("std_type", ["scalar", "log"])
 @pytest.mark.parametrize("state_dependent", [False, True])
 def test_rsl_action_std_logging_patch_delegates_with_detached_clone(
-    std_type: str, state_dependent: bool,
+    std_type: str,
+    state_dependent: bool,
 ):
     import torch
-    from rsl_rl.modules.distribution import GaussianDistribution, HeteroscedasticGaussianDistribution
+    from rsl_rl.modules.distribution import (
+        GaussianDistribution,
+        HeteroscedasticGaussianDistribution,
+    )
 
     from unilab.training.experiment import patch_rsl_rl_action_std_logging
 
