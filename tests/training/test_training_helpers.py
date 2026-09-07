@@ -425,6 +425,58 @@ def test_backend_adapter_keeps_motion_manager_scene_during_play():
     assert captured == {}
 
 
+def test_backend_adapter_play_profile_merges_partial_observation_term() -> None:
+    """A play profile may change term parameters without removing its callable."""
+    override = {
+        "observations": {
+            "policy": {
+                "enable_corruption": True,
+                "terms": {
+                    "position": {
+                        "func": "example.position",
+                        "params": {"injection_prob": 0.2, "scale": 1.0},
+                        "history_length": 3,
+                    },
+                    "velocity": {
+                        "func": "example.velocity",
+                        "noise": {"std": 0.1},
+                    },
+                },
+            },
+            "critic": {"terms": {"privileged": {"func": "example.privileged"}}},
+        }
+    }
+    profile = OmegaConf.create(
+        {
+            "observations": {
+                "policy": {
+                    "enable_corruption": False,
+                    "terms": {"position": {"params": {"injection_prob": 0.0}}},
+                }
+            }
+        }
+    )
+
+    adapter = BackendAdapter(OmegaConf.create({}), root_dir=_ROOT_DIR)
+    adapter._apply_env_profile(override, profile)
+
+    position = override["observations"]["policy"]["terms"]["position"]
+    assert override["observations"]["policy"]["enable_corruption"] is False
+    assert position["func"] == "example.position"
+    assert position["params"] == {"injection_prob": 0.0, "scale": 1.0}
+    assert position["history_length"] == 3
+    assert override["observations"]["policy"]["terms"]["velocity"] == {
+        "func": "example.velocity",
+        "noise": {"std": 0.1},
+    }
+    assert override["observations"]["critic"]["terms"]["privileged"]["func"] == (
+        "example.privileged"
+    )
+
+    adapter._apply_env_profile(override, OmegaConf.create({"events": {"randomize": None}}))
+    assert override["events"]["randomize"] is None
+
+
 def test_backend_adapter_materializes_visuals_without_dropping_manager_entities():
     cfg = _ppo_cfg(["task=g1_box_tracking/motrix", "training.play_only=true"])
     captured: dict[str, object] = {}

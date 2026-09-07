@@ -115,7 +115,17 @@ class BackendAdapter:
         return env_cfg_override
 
     def _apply_env_profile(self, env_cfg_override: dict[str, Any], env_profile: Any) -> None:
-        env_cfg_override.update(self._to_plain_dict(env_profile))
+        self._merge_mappings(env_cfg_override, self._to_plain_dict(env_profile))
+
+    @classmethod
+    def _merge_mappings(cls, base: dict[str, Any], override: dict[str, Any]) -> None:
+        """Apply a partial play profile without discarding typed term declarations."""
+        for key, value in override.items():
+            current = base.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                cls._merge_mappings(current, value)
+            else:
+                base[key] = value
 
     def _resolve_root_relative_path(self, path_value: str) -> str:
         candidate = Path(path_value)
