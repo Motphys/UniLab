@@ -33,6 +33,41 @@ composer、viewer、simulation 或 training runtime 带入 UniLab，也不恢复
 
 ## Decision
 
+### Manipulation reset and training progress extension (2026-09-07)
+
+[UniLab #1539](https://github.com/Motphys/UniLab/issues/1539) extends the existing
+Entity/reset transaction boundary for downstream Wuji training. Entity exposes
+cold bindings and reset writes for `geom_size`, `geom_solref`, `geom_solimp`,
+joint damping and joint frictionloss. Defaults and model-column IDs come from
+declared UniSim capabilities; unsupported fields fail during binding. Writes
+compose with the existing dense reset payload and preserve unselected columns.
+
+A fixed mocap body is bound explicitly with
+`Entity.bind_mocap_pose_write(body_name, term_name=...)`; it does not become the
+scene's primary floating root. `write_mocap_pose_to_sim` stages selected poses.
+The reset transaction validates staged values before any upload and commits
+generalized state first, then mocap poses. A term failure discards all pending
+state. Backend upload failures propagate; this interface does not promise
+rollback after the first backend upload has succeeded. A mocap-only transaction
+does not reset generalized state. Terms read pending poses through
+`Entity.read_mocap_pose`, without accessing backend-native data.
+
+`NpEnv.export_training_state()` returns a versioned cumulative control-step
+counter; `import_training_state()` validates it before replacing the counter.
+The Manager-Based adapter also restores its derived command/simulation counters,
+so the next step continues from the restored progress. This does not serialize
+physics, RNG, episode buffers or task curriculum internals. A downstream training
+state provider explicitly combines this payload with its own validated task
+state. UniRL owns checkpoint storage and the runner; no learner imports UniLab.
+The owner-selected PPO runtime may provide a runner class. Training consumes it,
+while playback loads actor state without restoring training progress.
+
+Validation lives in `tests/base/test_reset_state.py`,
+`tests/base/test_entity_facade.py` and `tests/envs/test_manager_based_rl_env.py`:
+masked fields, immutable cold defaults, mocap commit order and abort, entity-local
+column mapping, and restore followed by an actual control step. The governing
+package boundary remains [ADR-0007](ADR-0007-unisim-extraction-boundary.md).
+
 ### 1. Source-aligned public surface
 
 `src/unilab/managers/` 按 pinned mjlab package 的模块职责和 exports 直接迁移。以下名称

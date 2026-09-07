@@ -973,13 +973,16 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
         playback_cfg = build_playback_config(args, num_envs=1)
         if algo == "ppo":
             wrapper_cls = RslRlVecEnvWrapper
+            runner_cls = OnPolicyRunner
             if cfg is not None:
                 from uni_rl.algos.rsl_rl_runtime import resolve_rsl_rl_ppo_runtime
 
-                wrapper_cls = resolve_rsl_rl_ppo_runtime(
+                runtime = resolve_rsl_rl_ppo_runtime(
                     _algo_config_dict(cfg),
                     default_wrapper_cls=RslRlVecEnvWrapper,
-                ).wrapper_cls
+                )
+                wrapper_cls = runtime.wrapper_cls
+                runner_cls = runtime.runner_cls or OnPolicyRunner
             session: Any = create_rsl_rl_playback_session(
                 playback_cfg=playback_cfg,
                 env_factory=_create_env,
@@ -990,7 +993,7 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
                 entrypoint_log_root=get_entrypoint_log_root,
                 wrapper_cls=wrapper_cls,
-                runner_cls=OnPolicyRunner,
+                runner_cls=runner_cls,
                 policy_obs_dims_getter=get_policy_obs_dims,
                 train_cfg_normalizer=normalize_ppo_train_cfg,
                 sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),

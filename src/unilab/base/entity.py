@@ -578,6 +578,7 @@ class Entity:
         self._reset_joint_qvel_ids: np.ndarray | None = None
         self._joint_model_dof_ids: np.ndarray | None = None
         self._motion_body_ids: np.ndarray | None = None
+        self._mocap_body_name: str | None = None
 
         self._joint_names = _normalize_names(name, "joint", cfg.joint_names)
         self._body_names = _normalize_names(name, "body", cfg.body_names)
@@ -1368,6 +1369,259 @@ class Entity:
             self._actuator_ids[local_ids],
             kp,
             kd,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_geom_size_write(
+        self,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local geom_size columns and immutable defaults."""
+        transaction, local_ids, model_ids = self._reset_model_field_ids(
+            "geom",
+            geom_ids,
+            term_name=term_name,
+        )
+        _, defaults = transaction.bind_geom_size_write(
+            model_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_geom_size_to_sim(
+        self,
+        values: np.ndarray,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "geom_size",
+    ) -> None:
+        """Stage geom_size values through the reset transaction."""
+        transaction, _, model_ids = self._reset_model_field_ids(
+            "geom",
+            geom_ids,
+            term_name=term_name,
+        )
+        transaction.write_geom_size(
+            self._normalize_reset_env_ids(env_ids),
+            model_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_geom_solref_write(
+        self,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local geom_solref columns and immutable defaults."""
+        transaction, local_ids, model_ids = self._reset_model_field_ids(
+            "geom",
+            geom_ids,
+            term_name=term_name,
+        )
+        _, defaults = transaction.bind_geom_solref_write(
+            model_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_geom_solref_to_sim(
+        self,
+        values: np.ndarray,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "geom_solref",
+    ) -> None:
+        """Stage geom_solref values through the reset transaction."""
+        transaction, _, model_ids = self._reset_model_field_ids(
+            "geom",
+            geom_ids,
+            term_name=term_name,
+        )
+        transaction.write_geom_solref(
+            self._normalize_reset_env_ids(env_ids),
+            model_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_geom_solimp_write(
+        self,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local geom_solimp columns and immutable defaults."""
+        transaction, local_ids, model_ids = self._reset_model_field_ids(
+            "geom",
+            geom_ids,
+            term_name=term_name,
+        )
+        _, defaults = transaction.bind_geom_solimp_write(
+            model_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_geom_solimp_to_sim(
+        self,
+        values: np.ndarray,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "geom_solimp",
+    ) -> None:
+        """Stage geom_solimp values through the reset transaction."""
+        transaction, _, model_ids = self._reset_model_field_ids(
+            "geom",
+            geom_ids,
+            term_name=term_name,
+        )
+        transaction.write_geom_solimp(
+            self._normalize_reset_env_ids(env_ids),
+            model_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_joint_damping_write(
+        self,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local joint_damping columns and immutable defaults."""
+        transaction, local_ids, model_ids = self._reset_model_field_ids(
+            "joint",
+            joint_ids,
+            term_name=term_name,
+        )
+        _, defaults = transaction.bind_dof_damping_write(
+            model_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_joint_damping_to_sim(
+        self,
+        values: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "joint_damping",
+    ) -> None:
+        """Stage joint_damping values through the reset transaction."""
+        transaction, _, model_ids = self._reset_model_field_ids(
+            "joint",
+            joint_ids,
+            term_name=term_name,
+        )
+        transaction.write_dof_damping(
+            self._normalize_reset_env_ids(env_ids),
+            model_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def bind_joint_frictionloss_write(
+        self,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind entity-local joint_frictionloss columns and immutable defaults."""
+        transaction, local_ids, model_ids = self._reset_model_field_ids(
+            "joint",
+            joint_ids,
+            term_name=term_name,
+        )
+        _, defaults = transaction.bind_dof_frictionloss_write(
+            model_ids,
+            term_name=f"{term_name}:{self.name}",
+        )
+        return self._readonly_local_binding(local_ids, defaults)
+
+    def write_joint_frictionloss_to_sim(
+        self,
+        values: np.ndarray,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "joint_frictionloss",
+    ) -> None:
+        """Stage joint_frictionloss values through the reset transaction."""
+        transaction, _, model_ids = self._reset_model_field_ids(
+            "joint",
+            joint_ids,
+            term_name=term_name,
+        )
+        transaction.write_dof_frictionloss(
+            self._normalize_reset_env_ids(env_ids),
+            model_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def _reset_model_field_ids(
+        self,
+        kind: str,
+        ids: np.ndarray | Sequence[int] | slice | None,
+        *,
+        term_name: str,
+    ) -> tuple[ResetStateTransaction, np.ndarray, np.ndarray]:
+        if self._reset_state is None:
+            raise self._capability_error(term_name, "no env-owned reset transaction")
+        if kind == "geom":
+            if self._geom_ids is None:
+                raise self._capability_error(term_name, "geom names were not declared")
+            local_ids = self._normalize_local_geom_ids(ids, capability=term_name)
+            model_ids = self._geom_ids[local_ids]
+        else:
+            local_ids = self._normalize_local_joint_ids(ids, capability=term_name)
+            model_ids = self._materialize_joint_model_dof_ids()[local_ids]
+        if local_ids.size == 0:
+            raise ValueError(f"Entity '{self.name}' {term_name} selected no {kind}s")
+        return self._reset_state, local_ids, model_ids
+
+    def bind_mocap_pose_write(self, body_name: str, *, term_name: str) -> np.ndarray:
+        """Bind an explicitly named mocap body, independently of the floating root."""
+        if self._reset_state is None:
+            raise self._capability_error(term_name, "no env-owned reset transaction")
+        if body_name not in self.body_names:
+            raise ValueError(f"Entity '{self.name}' does not expose mocap body {body_name!r}")
+        if self._mocap_body_name is not None and self._mocap_body_name != body_name:
+            raise ValueError(
+                f"Entity '{self.name}' already bound mocap body {self._mocap_body_name!r}"
+            )
+        binding = self._reset_state.bind_mocap_pose(body_name)
+        self._mocap_body_name = body_name
+        return binding.default_pose.copy()
+
+    def read_mocap_pose(self) -> np.ndarray:
+        """Read full-batch mocap poses, including pending reset writes."""
+        if self._reset_state is None or self._mocap_body_name is None:
+            raise RuntimeError(f"Entity '{self.name}' must bind its mocap pose before reading")
+        return self._reset_state.read_mocap_pose(self._mocap_body_name)
+
+    def write_mocap_pose_to_sim(
+        self,
+        poses: np.ndarray,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "mocap_pose",
+    ) -> None:
+        """Stage poses to commit after the ordinary reset state upload."""
+        if self._reset_state is None or self._mocap_body_name is None:
+            raise RuntimeError(f"Entity '{self.name}' must bind its mocap pose before writing")
+        self._reset_state.write_mocap_pose(
+            self._mocap_body_name,
+            self._normalize_reset_env_ids(env_ids),
+            poses,
             term_name=f"{term_name}:{self.name}",
         )
 

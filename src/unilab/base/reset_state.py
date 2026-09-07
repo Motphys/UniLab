@@ -13,13 +13,18 @@ from contextlib import contextmanager
 from typing import cast
 
 import numpy as np
-from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.backend.base import BackendMocapPoseBinding, BackendRootStateLayout, SimBackend
 from unisim.dr.types import (
     RESET_TERM_BODY_INERTIA,
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_DOF_ARMATURE,
+    RESET_TERM_DOF_DAMPING,
+    RESET_TERM_DOF_FRICTIONLOSS,
     RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_GEOM_SIZE,
+    RESET_TERM_GEOM_SOLIMP,
+    RESET_TERM_GEOM_SOLREF,
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -64,6 +69,9 @@ class ResetStateTransaction:
         self._requesting_terms: set[str] = set()
         self._last_commit_had_writes = False
         self._last_set_state_timing_ms: dict[str, float] = {}
+        self._mocap_bindings: dict[str, BackendMocapPoseBinding] = {}
+        self._mocap_values: dict[str, np.ndarray] = {}
+        self._mocap_masks: dict[str, np.ndarray] = {}
 
     @property
     def active(self) -> bool:
@@ -113,6 +121,201 @@ class ResetStateTransaction:
         self._last_commit_had_writes = False
         self._last_set_state_timing_ms = {}
         self._active = True
+
+    def bind_geom_size_write(
+        self,
+        column_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind immutable geom_size defaults through the declared backend capability."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_GEOM_SIZE,
+            getter=self._backend.get_geom_sizes,
+            expected_tail=(3,),
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            column_ids,
+            width=default.shape[0],
+            capability="geom_size IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def write_geom_size(
+        self,
+        env_ids: np.ndarray,
+        column_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected geom_size values in the active reset."""
+        self._write_selected_randomization(
+            RESET_TERM_GEOM_SIZE,
+            env_ids,
+            column_ids,
+            values,
+            value_tail=(3,),
+            term_name=term_name,
+        )
+
+    def bind_geom_solref_write(
+        self,
+        column_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind immutable geom_solref defaults through the declared backend capability."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_GEOM_SOLREF,
+            getter=self._backend.get_geom_solref,
+            expected_tail=(2,),
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            column_ids,
+            width=default.shape[0],
+            capability="geom_solref IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def write_geom_solref(
+        self,
+        env_ids: np.ndarray,
+        column_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected geom_solref values in the active reset."""
+        self._write_selected_randomization(
+            RESET_TERM_GEOM_SOLREF,
+            env_ids,
+            column_ids,
+            values,
+            value_tail=(2,),
+            term_name=term_name,
+        )
+
+    def bind_geom_solimp_write(
+        self,
+        column_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind immutable geom_solimp defaults through the declared backend capability."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_GEOM_SOLIMP,
+            getter=self._backend.get_geom_solimp,
+            expected_tail=(5,),
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            column_ids,
+            width=default.shape[0],
+            capability="geom_solimp IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def write_geom_solimp(
+        self,
+        env_ids: np.ndarray,
+        column_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected geom_solimp values in the active reset."""
+        self._write_selected_randomization(
+            RESET_TERM_GEOM_SOLIMP,
+            env_ids,
+            column_ids,
+            values,
+            value_tail=(5,),
+            term_name=term_name,
+        )
+
+    def bind_dof_damping_write(
+        self,
+        column_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind immutable dof_damping defaults through the declared backend capability."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_DOF_DAMPING,
+            getter=self._backend.get_dof_damping,
+            expected_tail=None,
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            column_ids,
+            width=default.shape[0],
+            capability="dof_damping IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def write_dof_damping(
+        self,
+        env_ids: np.ndarray,
+        column_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected dof_damping values in the active reset."""
+        self._write_selected_randomization(
+            RESET_TERM_DOF_DAMPING,
+            env_ids,
+            column_ids,
+            values,
+            value_tail=(),
+            term_name=term_name,
+        )
+
+    def bind_dof_frictionloss_write(
+        self,
+        column_ids: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bind immutable dof_frictionloss defaults through the declared backend capability."""
+        default = self._materialize_randomization_default(
+            RESET_TERM_DOF_FRICTIONLOSS,
+            getter=self._backend.get_dof_frictionloss,
+            expected_tail=None,
+            term_name=term_name,
+        )
+        columns = self._validate_columns(
+            column_ids,
+            width=default.shape[0],
+            capability="dof_frictionloss IDs",
+            term_name=term_name,
+        )
+        return self._readonly_binding(columns, default[columns])
+
+    def write_dof_frictionloss(
+        self,
+        env_ids: np.ndarray,
+        column_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage selected dof_frictionloss values in the active reset."""
+        self._write_selected_randomization(
+            RESET_TERM_DOF_FRICTIONLOSS,
+            env_ids,
+            column_ids,
+            values,
+            value_tail=(),
+            term_name=term_name,
+        )
 
     def bind_body_mass_write(
         self,
@@ -670,13 +873,53 @@ class ResetStateTransaction:
         assert self._qpos is not None
         return np.array(self._qpos[ids[:, None], qpos_columns[None, :]], copy=True)
 
+    def bind_mocap_pose(self, body_name: str) -> BackendMocapPoseBinding:
+        """Resolve a mocap body once, without exposing a native backend handle."""
+        if body_name not in self._mocap_bindings:
+            if self._active:
+                raise RuntimeError("Mocap bodies must be bound before reset starts")
+            binding = self._backend.bind_mocap_pose(body_name)
+            if binding.num_envs != self._num_envs or binding.body_name != body_name:
+                raise ValueError("Backend mocap binding does not match the requested body/batch")
+            self._mocap_bindings[body_name] = binding
+            self._mocap_values[body_name] = np.empty((self._num_envs, 7))
+            self._mocap_masks[body_name] = np.zeros(self._num_envs, dtype=np.bool_)
+        return self._mocap_bindings[body_name]
+
+    def read_mocap_pose(self, body_name: str) -> np.ndarray:
+        """Read current poses with this transaction's pending rows overlaid."""
+        poses = self._mocap_bindings[body_name].read()
+        mask = self._mocap_masks[body_name]
+        poses[mask] = self._mocap_values[body_name][mask]
+        return poses
+
+    def write_mocap_pose(
+        self, body_name: str, env_ids: np.ndarray, poses: np.ndarray, *, term_name: str
+    ) -> None:
+        """Stage poses; upload only after the ordinary reset state has committed."""
+        self._require_active()
+        if body_name not in self._mocap_bindings:
+            raise RuntimeError(f"Mocap body {body_name!r} must be bound before writing")
+        ids = self._validate_ids(env_ids, capability="mocap pose")
+        if np.any(~self._active_mask[ids]):
+            raise ValueError(f"{term_name}: mocap mutation outside the active reset")
+        values = self._validate_values(
+            poses, shape=(ids.size, 7), capability="mocap pose", term_name=term_name
+        )
+        self._validate_quaternions(values[:, 3:], term_name=term_name)
+        self._mocap_values[body_name][ids] = values
+        self._mocap_masks[body_name][ids] = True
+        self._requesting_terms.add(term_name)
+
     def commit(self) -> dict | None:
         """Commit all staged rows through one public backend call."""
         self._require_active()
         dirty_ids = np.flatnonzero(self._dirty_mask).astype(np.int32, copy=False)
-        self._last_commit_had_writes = bool(dirty_ids.size)
+        mocap_dirty = any(np.any(mask) for mask in self._mocap_masks.values())
+        self._last_commit_had_writes = bool(dirty_ids.size) or mocap_dirty
         try:
             if dirty_ids.size == 0:
+                self._commit_mocap_poses()
                 return None
             assert self._qpos is not None
             assert self._qvel is not None
@@ -690,6 +933,7 @@ class ResetStateTransaction:
                     randomization=randomization,
                 )
                 self._record_committed_payload(dirty_ids, randomization)
+                self._commit_mocap_poses()
                 timing: dict[str, float] = {
                     "dr_reset_set_state_ms": (time.perf_counter() - set_state_t0) * 1000.0
                 }
@@ -707,6 +951,12 @@ class ResetStateTransaction:
                 ) from exc
         finally:
             self._finish()
+
+    def _commit_mocap_poses(self) -> None:
+        for name, mask in self._mocap_masks.items():
+            ids = np.flatnonzero(mask).astype(np.int32, copy=False)
+            if ids.size:
+                self._mocap_bindings[name].write(ids, self._mocap_values[name][ids])
 
     def abort(self) -> None:
         """Discard staged rows without touching the backend."""
@@ -927,7 +1177,12 @@ class ResetStateTransaction:
             RESET_TERM_BODY_MASS,
             RESET_TERM_BODY_IPOS,
             RESET_TERM_DOF_ARMATURE,
+            RESET_TERM_DOF_DAMPING,
+            RESET_TERM_DOF_FRICTIONLOSS,
             RESET_TERM_GEOM_FRICTION,
+            RESET_TERM_GEOM_SIZE,
+            RESET_TERM_GEOM_SOLREF,
+            RESET_TERM_GEOM_SOLIMP,
             RESET_TERM_GRAVITY,
         ):
             mask = self._randomization_dirty_masks.get(field)
@@ -1012,7 +1267,12 @@ class ResetStateTransaction:
             RESET_TERM_BODY_MASS,
             RESET_TERM_BODY_IPOS,
             RESET_TERM_DOF_ARMATURE,
+            RESET_TERM_DOF_DAMPING,
+            RESET_TERM_DOF_FRICTIONLOSS,
             RESET_TERM_GEOM_FRICTION,
+            RESET_TERM_GEOM_SIZE,
+            RESET_TERM_GEOM_SOLREF,
+            RESET_TERM_GEOM_SOLIMP,
             RESET_TERM_GRAVITY,
         ):
             values = getattr(payload, field)
@@ -1264,6 +1524,8 @@ class ResetStateTransaction:
         self._dirty_mask.fill(False)
         self._gain_dirty_mask.fill(False)
         for mask in self._randomization_dirty_masks.values():
+            mask.fill(False)
+        for mask in self._mocap_masks.values():
             mask.fill(False)
         self._requesting_terms.clear()
 

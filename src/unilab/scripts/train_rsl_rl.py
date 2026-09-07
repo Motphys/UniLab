@@ -328,7 +328,10 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
         entrypoint_log_root=get_entrypoint_log_root,
         wrapper_cls=_resolve_ppo_wrapper_cls(rl_cfg),
-        runner_cls=OnPolicyRunner,
+        runner_cls=resolve_rsl_rl_ppo_runtime(
+            rl_cfg, default_wrapper_cls=RslRlVecEnvWrapper
+        ).runner_cls
+        or OnPolicyRunner,
         policy_obs_dims_getter=get_policy_obs_dims,
         train_cfg_normalizer=_normalize_play_train_cfg,
         sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),
@@ -582,9 +585,15 @@ def main(cfg: DictConfig) -> None:
                         train_cfg["wandb_notes"] = wandb_settings["notes"]
                         train_cfg["wandb_mode"] = wandb_settings["mode"]
 
+                    runner_cls = (
+                        resolve_rsl_rl_ppo_runtime(
+                            rl_cfg, default_wrapper_cls=RslRlVecEnvWrapper
+                        ).runner_cls
+                        or OnPolicyRunner
+                    )
                     runner = cast(
                         Any,
-                        OnPolicyRunner(
+                        runner_cls(
                             cast(Any, wrapped_env), train_cfg, log_dir=log_dir, device=device
                         ),
                     )
