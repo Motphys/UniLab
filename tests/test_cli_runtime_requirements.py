@@ -51,7 +51,9 @@ def test_superdex_missing_runtime_reports_python_and_sdk(monkeypatch: pytest.Mon
         cli._check_runtime_requirements("ppo", "superdex")
 
 
-def test_superdex_old_unisim_reports_local_link_requirement(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_superdex_old_unisim_reports_local_link_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import sys
 
     monkeypatch.setitem(sys.modules, "unisim.backend.superdex.dependencies", None)
