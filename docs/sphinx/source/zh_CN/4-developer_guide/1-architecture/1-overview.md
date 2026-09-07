@@ -40,8 +40,9 @@ off-policy 算法则使用异步 runner、共享缓冲区，以及位于 `uni_rl
 - 如果共享的 env 代码需要某个 backend 操作，先将其加入 `SimBackend`，再使用。
 - 使用证据等级的表述。例如 `Registered`、`Configured`、`Tested`、`Benchmarked`
   或 `Recommended`；没有仓库内证据就不要声称稳定支持。
-- 上浮可复用原语。通用逻辑应放在 `src/unilab/base/` 或 `src/unilab/utils/`，
-  不要在多个 workflow 中复制粘贴。
+- 上浮可复用原语。通用逻辑放在其 owner package，或放在共享基础设施
+  `src/unilab/base/`；不要在多个 workflow 中复制粘贴。新的 owner 逻辑不放进
+  过渡期的 `src/unilab/utils/`。
 - 在最接近风险的边界处进行验证：Hydra 改动用 config 测试，观测/reset 改动用
   env 测试，runner 改动用 IPC 测试。
 

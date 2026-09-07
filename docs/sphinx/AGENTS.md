@@ -1,8 +1,8 @@
 # docs/sphinx Agent Guide
 
 这个文件规范 agent 在 `docs/sphinx/` 下撰写和修改文档内容的行为。仓库顶层
-`AGENTS.md` / `CLAUDE.md` 仍然优先适用于代码、配置、测试和 PR 流程；本文件只补充
-Sphinx 文档写作规则。
+`AGENTS.md` 适用于此目录；本文件在其基础上补充 Sphinx 文档写作规则。同目录或更深
+目录的 instruction file 可覆盖两者。
 
 ## Ground Truth
 
@@ -116,11 +116,11 @@ language-independent absolute path.
 3. Search first with `rg` / `rg --files`; update an existing page instead of
    creating a duplicate.
 4. Gather evidence near the claim:
-   - algorithms and tasks: `src/unilab/conf/`, `src/unilab/scripts/train_*.py`, `src/unilab/algos/`
-   - env contract: `src/unilab/base/np_env.py`, `src/unilab/algos/rsl_rl.py`
+   - algorithms and tasks: `src/unilab/conf/`, `src/unilab/scripts/train_*.py`, `uni_rl`
+   - env contract: `src/unilab/base/np_env.py`, `uni_rl.env_contract`
    - backend contract: `unisim.backend.base`
    - registry: `src/unilab/base/registry.py`
-   - runner/IPC: `src/unilab/ipc/`, `src/unilab/training/run.py`
+   - runner/IPC: `uni_rl.ipc.async_runner`, `src/unilab/training/run.py`
    - architecture: ADRs and `development-standard.md`
 5. Check the other language for a related topic, but do not force path mirroring
    or mass renames.

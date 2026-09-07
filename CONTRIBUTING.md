@@ -57,26 +57,16 @@ Use Conventional Commits:
 
 ## Pull Request Workflow
 
-1. Choose and record the PR base before development. A roadmap child branches from its current integration branch; other work branches from its intended target branch.
-2. Run the tests nearest the changed contract. IPC, Runner, Config, docs, and repository-hygiene changes include their matching focused tests.
-3. Run `make test-all` on the final local head before creating or updating every PR, then record the command and result in the PR template.
-4. Link the driving issue and describe validation plus impact scope in the PR template.
-5. Open the PR against its intended base and complete code review.
-6. A PR whose base is `main` completes the applicable remote CI for its current head. A PR to another base uses the recorded local `make test-all` result as its complete test gate; remote execution occurs when an integrated result later reaches a `main`-base PR.
+1. Choose and record the intended PR base before development.
+2. Run focused checks for the changed contract, then `make test-all` on the
+   final local head before creating or updating the PR.
+3. Link the driving issue and record the exact validation commands, results, and
+   backend/platform impact in the PR template.
+4. Complete review. A PR to `main` also waits for applicable current-head remote
+   CI; another base uses local validation and review, with remote CI run by the
+   later PR that reaches `main`.
 
-## Roadmap Integration Workflow
-
-Once a roadmap issue is approved for development, record its declared base
-branch and create `dev/issue-<roadmap-number>-<slug>` from that base's latest
-head. The declared base may be `main` or another roadmap's integration branch.
-Create each child-issue branch from the latest integration branch using the
-repository's conventional type prefix, such as
-`feat/issue-<number>-<slug>` or `fix/issue-<number>-<slug>`, and set the child
-PR base to the integration branch. After the approved child issues are
-integrated, open the roadmap's final PR back to its declared base. Remote CI is
-required when that actual PR base is `main`.
-
-The detailed scope, authorization, and branch-update rules live in
+Scope, authorization, roadmap branch, ADR, and release rules live in the
 [Collaboration Workflow](docs/sphinx/source/en/4-developer_guide/5-contributing_workflow.md).
 
 ## Issue Reports

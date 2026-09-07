@@ -88,19 +88,11 @@ cd docs/sphinx
 uv run --no-sync sphinx-build -j auto -b html -n source build/html
 ```
 
-## Commit 与 PR 预期
+## 协作
 
-- 使用 Conventional Commits，例如 `feat:`、`fix:`、`docs:`、`refactor:`、
-  `test:` 与 `chore:`。
-- 普通 PR 以 `main` 为 base；roadmap child PR 以对应
-  `dev/issue-<roadmap-number>-<slug>` 集成分支为 base。完整约定见
-  {doc}`5-contributing_workflow`。
-- 在 PR 中关联驱动该工作的 issue。
-- 列出实际运行过的验证命令。
-- 每个 PR 在创建或更新前于最终本地 head 通过 `make test-all`。
-- 说明行为在 MuJoCo、Motrix、macOS 或 Linux 之间是否存在差异。
-- 对于代码/配置改动，在依赖顶层 smoke 命令之前，先运行最接近所改动契约的
-  测试。
+使用 Conventional Commit 标题。Issue 范围、roadmap 分支、PR 证据、本地和远程 gate、ADR
+与发布的唯一规则来源是 {doc}`5-contributing_workflow`。创建或更新 PR 前，在最终 head
+运行贴近改动契约的检查和 `make test-all`。
 
 ## 测试
 
@@ -142,36 +134,6 @@ tests/
   `MemoryError: estimated shared-memory allocation … exceeds /dev/shm
   available …`，说明本机 shared memory 不够容纳默认 ingress。device ring 分配失败
   会另行报告所需与可用的 accelerator budget。
-
-## CI 工作流
-
-远程 CI 以 PR base 为边界：
-
-| PR base | 本地 gate | 远程 gate |
-| --- | --- | --- |
-| `main` | 最终本地 head 通过 `make test-all` | 当前 PR head 的所有适用检查完成并通过 |
-| 其他分支（包括 roadmap 集成分支） | 最终本地 head 通过 `make test-all` | 本地结果作为完整测试 gate；远程执行由后续实际 base 为 `main` 的 PR 承担 |
-
-因此 child PR 在本地验证和 review 后即可合入集成分支。Roadmap 的最终 PR 合回它声明的
-base；该 base 为 `main` 时运行远程集成验证，为其他分支时继续采用本地 gate。PR body
-记录实际本地命令与结果，base 为 `main` 时再记录当前 head 的远程检查状态。
-
-指向 `main` 的 PR 会运行 `.github/workflows/ci.yml` 中的六个 job：`ruff-lint`、
-`ruff-format`、`mypy`、`pyright`、`benchmark-smoke` 与 `test`。这些 job 也可通过
-`workflow_dispatch` 用于主线边界诊断。同一分支上进行中的运行会被自动取消。
-
-| Job | 内容 |
-| --- | --- |
-| `ruff-lint` | `uv run --no-sync ruff check --output-format=github .` |
-| `ruff-format` | `uv run --no-sync ruff format --check .` |
-| `mypy` | `uv run mypy src/unilab` |
-| `pyright` | `uv run pyright` |
-| `benchmark-smoke` | CPU torch 环境中的 `uv run --no-sync python scripts/benchmark/smoke_test.py` |
-| `test` | `uv sync --extra mujoco --extra motrix`（CPU torch），再 `uv run --no-sync pytest -m "not slow" --cov=src/unilab --cov-fail-under=25` |
-
-`test` job 施加覆盖率门槛（`--cov-fail-under=25`）；这个下限只随测试护栏增强而
-逐步上调。文档改动由同一套件中的 `tests/scripts/test_check_docs.py` 校验。独立的
-`Docs` workflow 运行 prose-only 的 Sphinx 构建。
 
 ## 文档预期
 

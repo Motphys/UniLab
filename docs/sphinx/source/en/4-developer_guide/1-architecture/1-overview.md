@@ -44,8 +44,9 @@ primitives under `uni_rl.ipc` (unilab-rl repo) and `uni_rl` (unilab-rl repo).
 - Make evidence-graded claims. Use grades such as `Registered`, `Configured`,
   `Tested`, `Benchmarked`, or `Recommended`; do not claim stable support without
   evidence in the repo.
-- Lift reusable primitives. Shared logic belongs in `src/unilab/base/` or
-  `src/unilab/utils/`, not copy-pasted across workflows.
+- Lift reusable primitives to their owning package, or to `src/unilab/base/`
+  for shared infrastructure; do not copy them across workflows. New owner logic
+  does not belong in the transitional `src/unilab/utils/` package.
 - Validate at the closest boundary to the risk: config tests for Hydra changes,
   env tests for observation/reset changes, IPC tests for runner changes.
 

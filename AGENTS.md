@@ -1,128 +1,100 @@
-# UniLab Agent Principles
+# UniLab Agent Guide
 
-**Always use `uv run`, not python**.
+This file contains repository facts and durable constraints. Codex loads it from
+the repository root; a more specific `AGENTS.md` or `AGENTS.override.md` may add
+or override rules for its subtree. Keep this file short and update it when the
+architecture changes.
 
-UniLab 是一个 **高性能、模块化、contract 驱动** 的 RL infrastructure 仓库。
+## Working agreement
 
-RL 算法与异步 runtime（PPO/APPO/SAC/TD3/HORA 的 runner、learner、collector、IPC、训练日志）由独立包 **uni_rl**（仓库 [unilabsim/unilab_rl](https://github.com/unilabsim/unilab_rl)，distribution 名 `unilab-rl`，发布在 PyPI）承载；UniLab 不构造 uni_rl 消费的 env，而是通过注入式 env contract 对接：`uni_rl.env_contract.EnvFactory = Callable[[int, Mapping | None], EnvProtocol]`（必须可被 pickle 引用，collector 跑在 spawn 子进程），UniLab 侧适配器为 `src/unilab/base/env_factory.py` 的 `registry_env_factory`，mjwarp 设备绑定经 `src/unilab/base/process_device.py` 的 `bind_backend_process_device` 注入。unilab 可以 import uni_rl；uni_rl 永远不 import unilab / unisim。
+- Start by inspecting the relevant owner layer, callers, tests, and config. State
+  assumptions when repository evidence is incomplete.
+- Infer the requested scope and carry it through to a reviewable result. Ask a
+  focused question only when the answer materially changes the outcome; continue
+  all independent, authorized work while waiting.
+- For a complex task, use parallel subagents for independent read-heavy
+  exploration, test/log analysis, or review when that improves the result.
+  Keep one writer for an overlapping file set and consolidate evidence before
+  editing or reporting.
+- Make the smallest complete change that satisfies the requested outcome. Keep
+  scripts as orchestration; put durable behavior in its owner module, registry,
+  backend adapter, or config.
+- Use `rg` for search and `apply_patch` for manual edits. Run Python through
+  `uv run`; do not invoke `python` directly.
+- Preserve unrelated work in a dirty tree. Do not reset, checkout, or rewrite
+  other people's changes.
+- Before finishing, report changed files, commands run, results, and any
+  unresolved limitation. A failed check is evidence to investigate, not a reason
+  to claim success.
 
-## Core Principles
+## Architecture contracts
 
-1. **Contract first**: 不为了一次通过绕过 env / backend / runner contract。
-2. **Fix at owner layer**: `scripts/` 只组装流程，不承载长期业务规则。
-3. **Config first**: task / reward / backend 优先通过 Hydra + registry 表达。
-4. **Backend isolation**: MuJoCo / Motrix 差异留在 backend 适配层和配置层。
-5. **Evidence only**: support claim 只写仓库里已有的注册、配置、测试或 benchmark 事实。
-6. **Validate near risk**: 在最接近风险的边界补验证，不只跑顶层命令。
-7. **Cold-path asset access only**: asset/XML/model metadata 只允许在 init / materialization / cache 等低频路径处理；热路径不能解析 asset，也不能靠 `getattr` / `hasattr` 探测 backend 私有能力。
+- UniLab provides environments and adapters. `uni_rl` owns algorithm runners,
+  learners, collectors, IPC, and training logs; `uni_rl` must not import UniLab.
+  The env factory must be a pickleable `EnvFactory` for spawn collectors.
+- Environment reset returns `(obs_dict, info_dict)` and `NpEnvState.obs` is a
+  dict. Keep `obs_groups_spec` and policy dimensions consistent with wrappers
+  and learners.
+- Backend-specific behavior belongs behind the declared `unisim.backend.base.SimBackend`
+  interface. Extend that interface before consuming a capability in an env;
+  never probe or call backend-private methods from env or training code.
+- Task, reward, and backend selection belongs in Hydra owner YAML and registries.
+  Select a backend with the task owner config/CLI; do not use
+  `training.sim_backend` as a standalone backend switch.
+- Asset/XML metadata is cold-path work only: init, materialization, or cache.
+  Step/reset/randomization must not parse assets or branch on asset metadata.
+  Robot meshes and textures come from the registered asset hub and stay out of
+  git. Task keyframes belong in task/scene XML fragments, never `robot.xml`.
+- Do not add new owner logic to `src/unilab/utils/`; those modules are transition
+  shims. Keep cross-cutting changes in the owning package.
 
-## Roadmap、Issue 与分支工作流
+## Sim2Sim contract
 
-- Roadmap 先用普通中文说明目标、交付边界、预计规模和永久维护成本，让 maintainer 能够据此作出产品与架构判断。
-- Implementation issue 围绕一个可审查的主要结果组织，并把实现该结果所需的代码、配置、测试和文档作为完整纵向切片。文件数和 LOC 用于估算 review 工作量；是否拆分取决于子项能否独立交付、验证、审查或回退。
-- Roadmap 获得开发授权后，先记录 declared base branch，再从该 base 的最新 head 创建 `dev/issue-<roadmap-number>-<slug>` 集成分支；declared base 可以是 `main`，也可以是上层 roadmap 的集成分支。每个 child issue 从本 roadmap 集成分支创建符合仓库类型惯例的分支并通过 PR 合回，最终由集成分支通过 PR 合回 declared base。
-- 已获批的 roadmap 范围支持连续推进 child issues。实施中新增公共 contract、execution path、runner/lifecycle、常规 CI、support 等级或 adapter production 化等长期责任时，先更新边界并请 maintainer 确认。
-- AI review、测试和 gate 为 maintainer 提供决策证据；产品方向与长期维护责任由 maintainer 确认。
-- 每个 PR 在创建或更新前于最终 head 运行 `make test-all`。base 为 `main` 的 PR 使用本地 gate、review 和远程 CI；其他 base 的 PR 使用本地 gate 与 review，远程资源集中用于实际进入 `main` 的合入边界。
+`src/unilab/utils/sim2sim.py` is the runtime source of truth. DENYLIST fields
+must match across backends (strict by default), WARNING_LIST differences are
+reported, and ALLOWLIST fields may vary. Training snapshots the contract in
+`run_config.json`; play entrypoints validate before environment construction and
+guard checkpoint dimensions. Update the contract and its tests together when a
+policy-I/O or network-shape field changes.
 
-详细规则见[协作工作流](docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md#ai-roadmap-与-issue-scope-治理)。
+## Validation
 
-## High-Risk Areas
+Use the smallest relevant check while iterating, then run the complete gate for
+the final change:
 
-| 区域 | 不可破坏的不变量 |
-|------|----------------|
-| Env  | `NpEnvState.obs` 必须是 dict；`reset()` 返回 `(obs_dict, info_dict)`；`obs_groups_spec` 影响 wrapper 和 learner 维度。 |
-| Config / Reward | reward 通过 Hydra 注入；后端切换必须通过 `task=<task>/<backend>` 选择 owner YAML，`training.sim_backend` 只是 owner YAML 的身份字段，不能单独 override 来切后端。算法超参数直接走 YAML compose，不经 Python 层解释。 |
-| Backend | backend-specific 逻辑留在 backend / env 适配层，不向训练脚本扩散。env 层只能调用 `SimBackend`（`base.py`）中已声明的方法；若某方法只在 MuJoCo 或 Motrix 中存在，必须先将其加入 `SimBackend` 抽象接口（可抛 `NotImplementedError`），禁止直接在 env 里调用 backend 子类的私有方法（即"功能泄漏/feature leakage"）。新增 backend 专有能力时，需同步更新 `SimBackend`。 |
-| Asset / Metadata | `ASSETS_ROOT_PATH`、`model_file`、XML / asset 元数据只允许在 init / materialization / cache 等低频路径访问；`step/reset/domain randomization` 等热路径不得解析 asset 或基于 asset 元数据做运行时分支。机器人 mesh/纹理不入 git：托管在 HF 数据集 `unilabsim/unilab-robots`，注册表为 `src/unilab/assets/hub.py` 的 `ROBOT_ASSET_SPECS`，由 `create_backend` 冷路径自动下载（也可 `unilab-pull-assets` 预拉取），落盘回原路径使 XML `meshdir` 引用不变；这些目录在 `.gitignore` 与 `pyproject.toml` 的 `tool.uv.build-backend.source-exclude` 中同步排除。 |
-| Asset / XML structure | `<keyframe>` 必须放在 task-level XML（`scene_*.xml` 或 `locomotion_task.xml` 等 fragment），**禁止放进 robot.xml**。robot.xml 是纯机器人描述（body / joint / actuator / sensor），跟 task / 场景无关；keyframe 是 task 起始姿态，属于场景或 task 资源。motrix 后端需要 keyframe 时通过 `scene.fragment_files` 引用 fragment XML。 |
-| Async | 不绕开 runner lifecycle（实现在 uni_rl 仓库的 `uni_rl.ipc.async_runner`），也不另起 collector / learner 同步协议。 |
-| Sim2Sim 契约 | 跨后端 play 时，影响策略 I/O / 网络结构的字段必须跨后端一致；不一致即 `CrossBackendIncompatibleError`。详见下方 Sim2Sim 章节。 |
-
-## Sim2Sim 跨后端配置契约
-
-`src/unilab/utils/sim2sim.py` 按 dotted path 维护三类字段：
-
-- **DENYLIST**（差异即 `CrossBackendIncompatibleError`）：`algo.obs_groups`、`env.control_config.action_scale`、`algo.policy.actor_hidden_dims` / `critic_hidden_dims`、`algo.empirical_normalization` / `algo.obs_normalization`、`env.sampling_mode`。`env.*` 子集对**任一方向**的不对称出现也 fail-closed；`algo` 专属字段目标缺省时按设计跳过（跨算法合法）。
-- **WARNING_LIST**：`reward.*`、`env.control_config.simulate_action_latency`、`env.ctrl_dt`。
-- **ALLOWLIST**（自由覆盖）：`training.sim_backend`、`env.scene`、`training.play_steps`、`env.domain_rand`、`env.noise_config`、`env.commands.vel_limit`。
-
-训练时 `ExperimentTracker.start()` 把上述字段写入 `run_config.json` 的 `contract_snapshot`（不改 checkpoint 格式，旧 run 无 snapshot 时 fallback + warning）；五个 play 入口在建 env 前调用 `resolve_sim2sim_config` 校验，并用 `policy_load_dim_guard` 包裹 checkpoint 加载以把维度不匹配的隐晦报错重抛为显式诊断。设 `training.sim2sim_strict=false` 可把 DENYLIST 差异降级为 warning（默认 `true`）。DENYLIST 字段在共享 base owner 与后端 owner 配置中显式声明并保持跨后端一致（范例：`src/unilab/conf/ppo/task/g1_walk_flat/{base,mujoco,motrix}.yaml`）；跨后端契约审计见 `scripts/audit_sim2sim_contracts.py`。
-
-## Pointers
-
-- PPO: `src/unilab/scripts/train_rsl_rl.py`
-- APPO: `src/unilab/scripts/train_appo.py`
-- SAC / TD3 / FlashSAC: `src/unilab/scripts/train_sac.py` / `src/unilab/scripts/train_td3.py` / `src/unilab/scripts/train_flashsac.py`
-- env contract: `src/unilab/base/np_env.py`
-- backend contract: `unisim.backend.base.SimBackend`（由 `unisim-core` 仓库维护）
-- UniLab backend owner factory: `src/unilab/base/backend_factory.py`
-- isaacgym subprocess 后端（Python 3.8 worker + shm 协议）: `unisim.backend.isaacgym`（由 `unisim-core` 仓库维护）
-- training run helpers: `src/unilab/training/run.py`
-- visualization helpers: `src/unilab/visualization/`
-- shared numeric helpers: `src/unilab/utils/rotation.py`, `src/unilab/utils/geometry.py`
-- config schema: `src/unilab/structured_configs.py`
-- async runner: `uni_rl.ipc.async_runner`（独立 uni_rl 仓库 / `unilab-rl` 包）
-- algo 实现（runner / learner / collector）: uni_rl 包（独立仓库，distribution 名 `unilab-rl`）；UniLab 只保留入口脚本与 play 编排
-- uni_rl env factory 适配: `src/unilab/base/env_factory.py`
-- HORA APPO play 编排: `src/unilab/scripts/play_hora_appo.py`；HORA distill 配置组合: `src/unilab/training/hora_distill_config.py`
-- sim2sim 跨后端契约: `src/unilab/utils/sim2sim.py`
-- new algorithm recipe（三档扩展方式 + 约定式 CLI 路由 footprint）: `docs/sphinx/source/zh_CN/4-developer_guide/3-extending/3-new_algorithm.md`
-
-## GitHub CLI (gh) 速查
-
-### Issue 查看
-```bash
-gh issue view <number>
-gh api repos/<owner>/<repo>/issues/<number> --jq '.body'
+```text
+make check                 # formatting and type checks
+make test                  # non-slow tests
+make test-all              # required before creating/updating a PR
 ```
 
-### PR 创建与管理
-```bash
-gh pr create --title "标题" --body "内容" --base <target-branch>
-gh pr list
-gh pr view
-```
+Use focused tests for contract, IPC/runner, config, backend, asset, or docs
+changes. Docs-only validation is defined in `docs/sphinx/AGENTS.md`. Record the
+exact commands and outcomes in the PR. Do not run expensive benchmarks unless
+the requested result or acceptance criteria needs them.
 
-### PR Gate
+## Collaboration and review
 
-创建或更新 PR 前必须满足：
+The single source for issue, roadmap, branch, PR, ADR, and CI policy is
+`docs/sphinx/source/en/4-developer_guide/5-contributing_workflow.md`; the Chinese
+page is its maintained translation. Read that page before changing workflow
+policy. In brief: define a reviewable outcome, choose the PR base before coding,
+link the driving issue, validate the final head, and wait for current-head remote
+CI only when the PR base is `main`.
 
-1. 最终提交已经完成，且 `git status --short --branch` 确认工作树干净。
-2. 最终提交已经通过本地 `make test-all`，并在 PR body 的 Validation 中记录结果。用户明确说明已在同一最终 head 运行该命令时，直接采用其结果。
-3. 本地 gate 通过后创建或更新 PR；maintainer 明确批准的 override 需记录在 PR body 中。
-4. PR base 为 `main` 时，按当前 head SHA 等待所有适用的远程 CI 结束并通过后再报告完成。`pending` / `in_progress`、旧 head 的结果和挂起 job 继续跟进；失败时查看对应 job 日志并处理，maintainer 明确批准的 override 除外。
-5. PR base 为集成分支或其他非 `main` 分支时，本地 `make test-all` 结果与 review 共同构成完整合入 gate；远程 CI 在后续实际 base 为 `main` 的 PR 上执行。
+When a change crosses runtime, backend, config, registry, or other public
+contracts, link the relevant ADR. Add an ADR only for a new structural decision.
+Treat new public contracts, lifecycle/protocol changes, routine CI, support
+claims, durable benchmarks, or productionization as scope decisions and record
+them in the issue/ADR before expanding the work.
 
-### CI 工作流查看
-```bash
-gh run list
-gh run list --workflow=<workflow-name>
-gh run view <run-id>
-gh run list --status=failure
-```
+## Useful pointers
 
-### 常用组合
-```bash
-gh api repos/unilabsim/UniLab/issues/174 --jq '.title, .body'
-git push -u origin fix/issue-174-ppo-config-alignment
-gh pr create --title "fix: xxx" --body "Fixes #174" --base <target-branch>
-```
-
-## PyPI Release
-
-`.github/workflows/release.yml` 是生产发布路径，由 `v*` tag 推送触发（`workflow_dispatch` 只做构建与验证，不发布）：
-
-1. 更新 `pyproject.toml` 的 `[project].version`（版本单一来源）及相关文档，本地 `make test-all` 与 `uv build` 通过。
-2. 确认目标 commit 有成功的 `ci.yml` 运行：ci.yml 只在 PR 与 `workflow_dispatch` 上运行，若目标 commit 没有记录，先对该 commit 手动 dispatch 一次 ci.yml 再发 tag。
-3. 推送与 `[project].version` 完全一致的 annotated tag（如 `v0.1.0`）。release workflow 会校验 tag 与版本一致、该 commit CI 已通过，然后构建 sdist + wheel、twine check、`--no-deps` 安装 wheel 并做 import / 版本 smoke test。
-4. 构建验证通过后，`publish` job 通过 trusted publishing（OIDC，`environment: pypi`）上传到 PyPI，无 token 入仓；`skip-existing: true` 支持安全重跑。
-
-发布失败时：产物未变可用同一 tag 修复重跑；改了代码必须升级版本与新 tag，绝不覆盖已发布版本。
-
-## Context
-
-- 架构标准与验证详情：[docs/sphinx/source/zh_CN/4-developer_guide/0-index.md](docs/sphinx/source/zh_CN/4-developer_guide/0-index.md)
-- 协作流程与 PR 规范：[docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md](docs/sphinx/source/zh_CN/4-developer_guide/5-contributing_workflow.md)
-- 开发者入口（环境、命令、提交规范）：[CONTRIBUTING.md](CONTRIBUTING.md)
-- 文档本地构建与发布到 UniLab-doc：[docs/sphinx/README.md#本地发布到-unilab-doc](docs/sphinx/README.md#本地发布到-unilab-doc)
+- Env contract: `src/unilab/base/np_env.py`
+- Env factory/device binding: `src/unilab/base/env_factory.py`,
+  `src/unilab/base/process_device.py`
+- Backend owner: `src/unilab/base/backend_factory.py`
+- Training/run helpers: `src/unilab/training/run.py`
+- Sim2Sim: `src/unilab/utils/sim2sim.py`
+- Architecture and contracts: `docs/sphinx/source/zh_CN/4-developer_guide/0-index.md`
+- Workflow policy: `docs/sphinx/source/en/4-developer_guide/5-contributing_workflow.md`

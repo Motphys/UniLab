@@ -2,7 +2,7 @@
 
 本页给出每个 task 在两后端（MuJoCo / Motrix）上 DENYLIST 契约字段是否一致的当前状态，
 回答「这个 task 当前能否 A 后端训练 → B 后端 play」。契约字段定义见
-`src/unilab/training/sim2sim.py`，运行时守卫与机制概述见 AGENTS.md 的 Sim2Sim 章节。
+`src/unilab/utils/sim2sim.py`，运行时守卫与机制概述见 AGENTS.md 的 Sim2Sim 章节。
 
 ## 复跑方式
 
