@@ -38,6 +38,9 @@ class EnvCfg:
     # SuperDex native robots are resolved through the local asset hub registry.
     # Thread count is process-wide: 0 is serial, positive values are explicit.
     superdex_num_threads: int = 0
+    # Environment workers are separate from each worker's SDK threads.
+    # 0 selects affinity-aware automatic CPU sharding; 1 stays in-process.
+    superdex_num_workers: int = 0
     superdex_assets_root: Optional[str] = None
     superdex_effort_limits: Optional[list[float]] = None
     superdex_allow_contact_approximation: bool = False
@@ -119,6 +122,12 @@ class EnvCfg:
             or self.superdex_num_threads < 0
         ):
             raise ValueError("superdex_num_threads must be an integer >= 0")
+        if (
+            isinstance(self.superdex_num_workers, bool)
+            or not isinstance(self.superdex_num_workers, int)
+            or self.superdex_num_workers < 0
+        ):
+            raise ValueError("superdex_num_workers must be an integer >= 0")
         if self.superdex_assets_root is not None and (
             not isinstance(self.superdex_assets_root, str) or not self.superdex_assets_root.strip()
         ):

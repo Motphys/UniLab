@@ -52,9 +52,49 @@ uv run --no-sync train --algo ppo --task fr3_joint_target --sim superdex \
 The target joint positions, rewards, reset ranges and action scales live in the
 task's `base.yaml`. The torque bounds `[20,20,20,20,5,5,5]` Nm are an explicit
 research profile, not rated hardware limits. `superdex_effort_limits` declares
-the same bounds at the native backend boundary. `superdex_num_threads=0` uses
-serial physics; thread count is process-wide, so simultaneous backend instances
-must agree. Existing spawned collectors own process parallelism.
+the same bounds at the native backend boundary. `superdex_num_threads=0` keeps
+each process's SDK single-threaded. It is separate from the environment worker
+count described below; instances sharing one process must agree on SDK threads.
+
+## Default CPU Environment Parallelism
+
+The backend uses SuperDex's source-built `SceneBatchExecutor`, a persistent C++
+thread pool that owns the barrier across independent scenes. Each substep writes
+batched generalized forces, advances scenes, and returns articulated pose and
+velocity rows without a per-environment Python binding call. Asset materialization,
+reset, link state, contact queries, and sensor cache transforms remain owned by
+the UniSim adapter. This is CPU thread parallelism, not GPU physics, and it does
+not change the PPO/APPO collector, learner or policy contracts. The decision is
+recorded in {doc}`/adr/ADR-0008-superdex-persistent-cpu-workers` and
+[unisim#41](https://github.com/unilabsim/unisim/issues/41).
+
+Both task owners select automatic workers by default:
+
+| Owner option | Meaning |
+| --- | --- |
+| `env.superdex_num_workers=0` | Automatic: `min(available physical cores, num_envs, max(1, num_envs // 16))`, respecting CPU affinity |
+| `env.superdex_num_workers=1` | Explicit in-process serial execution |
+| `env.superdex_num_workers=K` | Explicit C++ worker count, capped at `num_envs` |
+| `env.superdex_num_threads=0` | Required for outer scene workers; positive SDK threads select serial outer execution |
+
+If physical-core topology is unavailable, automatic selection uses the CPUs
+available to the process. With 1024 environments and an affinity containing
+16 physical cores, automatic selection yields 16 workers. The small two-env
+example remains serial to avoid unnecessary thread-pool overhead. Concurrent collectors
+need appropriately partitioned CPU affinity or explicit worker counts so their
+independent pools do not oversubscribe the same cores.
+
+For every physics substep, the host runs the pre-step control callback, enters
+the native batch barrier, then publishes the refreshed batch before the next
+callback. Selected reset preserves caller row order and leaves unselected
+environments unchanged. A native worker failure closes the executor and reports
+the failure; it does not silently return stale state or switch to serial.
+Closing an environment joins its C++ workers before scenes are destroyed.
+
+Worker count alone is not evidence of speedup. Throughput comparisons must use
+the same model, control sequence, batch size and substeps, and report complete
+backend/env time, startup, RSS, CPU use and actual worker count. Count environment
+control steps, not physics substeps. Existing contact approximations are unchanged.
 
 The fixed root still has a named entity and readable body state. Reset terms
 write joint state; they do not request a floating-root layout. The task does

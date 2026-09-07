@@ -46,6 +46,7 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     result: dict[str, Any] = {
         "post_step_forward_sensor": cfg.post_step_forward_sensor,
         "superdex_num_threads": cfg.superdex_num_threads,
+        "superdex_num_workers": cfg.superdex_num_workers,
         "superdex_assets_root": cfg.superdex_assets_root,
         "superdex_effort_limits": cfg.superdex_effort_limits,
         "superdex_allow_contact_approximation": cfg.superdex_allow_contact_approximation,
@@ -105,6 +106,7 @@ def create_backend(
         )
     if backend_type != "superdex":
         kwargs.pop("superdex_num_threads", None)
+        kwargs.pop("superdex_num_workers", None)
         kwargs.pop("superdex_effort_limits", None)
         kwargs.pop("superdex_allow_contact_approximation", None)
     ensure_robot_assets_for_paths(

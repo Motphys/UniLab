@@ -21,6 +21,7 @@ algo:
 env:
   adaptive_chunk_size: false
   superdex_num_threads: 0
+  superdex_num_workers: 0
   superdex_allow_contact_approximation: true
   events:
     pd_gains: null

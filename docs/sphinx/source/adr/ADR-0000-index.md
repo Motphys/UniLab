@@ -21,6 +21,7 @@ orphan: true
 | [ADR-0005 Unified Obs Critic Env And IPC Contract](ADR-0005-unified-obs-critic-env-and-ipc-contract.md) | Observation / IPC | Accepted |
 | [ADR-0006 Community Manager API On NumPy Runtime](ADR-0006-community-manager-api-on-numpy-runtime.md) | Manager API / NumPy runtime | Accepted |
 | [ADR-0007 UniSim Extraction Boundary](ADR-0007-unisim-extraction-boundary.md) | Physics package extraction | Accepted |
+| [ADR-0008 SuperDex Persistent CPU Workers](ADR-0008-superdex-persistent-cpu-workers.md) | Backend CPU process execution | Accepted |
 
 ## ADR Governance
 

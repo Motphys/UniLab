@@ -42,6 +42,7 @@ def test_superdex_native_factory_resolves_assets_without_mutating_owner(
     assert calls["asset"] == (scene.model_file, "/registered/assets")
     assert kwargs["superdex_effort_limits"] == [20.0]
     assert kwargs["superdex_num_threads"] == 0
+    assert kwargs["superdex_num_workers"] == 0
     assert kwargs["superdex_allow_contact_approximation"] is False
     assert kwargs["body_state_required"] is False
     assert "superdex_assets_root" not in kwargs
@@ -64,3 +65,31 @@ def test_superdex_options_do_not_leak_to_other_adapters(monkeypatch: pytest.Monk
         **backend_factory.env_backend_kwargs(EnvCfg()),
     )
     assert not any(name.startswith("superdex_") for name in calls)
+
+
+@pytest.mark.parametrize("workers", [0, 1, 16])
+def test_large_superdex_batch_delegates_worker_selection_to_unisim(
+    workers: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def create(name: str, scene: SceneCfg, num_envs: int, dt: float, **kwargs: Any) -> object:
+        captured.update(backend=name, num_envs=num_envs, **kwargs)
+        return object()
+
+    monkeypatch.setattr(backend_factory, "ensure_robot_assets_for_paths", lambda *_: None)
+    monkeypatch.setattr(backend_factory.unisim, "create_backend", create)
+    cfg = EnvCfg(superdex_num_workers=workers)
+    cfg.validate()
+    backend_factory.create_backend(
+        "superdex",
+        SceneCfg(model_file="scene.xml"),
+        1024,
+        0.01,
+        **backend_factory.env_backend_kwargs(cfg),
+    )
+    assert captured["backend"] == "superdex"
+    assert captured["num_envs"] == 1024
+    assert captured["superdex_num_workers"] == workers
+    assert captured["superdex_num_threads"] == 0

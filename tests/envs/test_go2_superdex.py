@@ -34,6 +34,7 @@ def test_go2_superdex_preserves_mujoco_policy_contract() -> None:
     assert target.env.events.pd_gains is None
     assert target.env.events.reset_root_state_uniform is not None
     assert target.env.superdex_allow_contact_approximation is True
+    assert target.env.superdex_num_workers == 0
     assert target.env.sim_dt == source.env.sim_dt
     assert target.env.ctrl_dt == source.env.ctrl_dt
 
@@ -63,6 +64,49 @@ def test_go2_superdex_native_rollout_and_free_root_reset() -> None:
         )
     finally:
         env.close()
+
+
+def test_go2_superdex_parallel_matches_serial_env_and_unsorted_reset() -> None:
+    pytest.importorskip("superdex.physics")
+    if not (ROOT / "src/unilab/assets/robots/go2/assets/base_0.obj").is_file():
+        pytest.skip("native Go2 rollout requires the registered Go2 robot assets")
+    _, override = _owner("superdex")
+    envs = []
+    try:
+        for workers in (1, 2):
+            envs.append(
+                registry.make(
+                    "Go2JoystickFlat",
+                    sim_backend="superdex",
+                    num_envs=4,
+                    env_cfg_override={**override, "seed": 7, "superdex_num_workers": workers},
+                )
+            )
+        serial, parallel = envs
+        for env in envs:
+            env.init_state()
+        rng = np.random.default_rng(11)
+        for _ in range(8):
+            action = rng.uniform(-0.1, 0.1, (4, 12)).astype(np.float32)
+            reference, result = (env.step(action) for env in envs)
+            for key in reference.obs:
+                np.testing.assert_allclose(
+                    result.obs[key], reference.obs[key], atol=2e-5, rtol=2e-5
+                )
+            np.testing.assert_allclose(result.reward, reference.reward, atol=2e-5, rtol=2e-5)
+        before = parallel.scene["robot"].data.root_link_pos_w.copy()
+        # Non-monotonic IDs span both shards and must retain caller row order.
+        selected = np.array([3, 0], dtype=np.int32)
+        ref_obs, _ = serial.reset(env_ids=selected)
+        out_obs, _ = parallel.reset(env_ids=selected)
+        for key in ref_obs:
+            np.testing.assert_allclose(out_obs[key], ref_obs[key], atol=2e-5, rtol=2e-5)
+        np.testing.assert_array_equal(
+            parallel.scene["robot"].data.root_link_pos_w[[1, 2]], before[[1, 2]]
+        )
+    finally:
+        for env in reversed(envs):
+            env.close()
 
 
 def test_go2_superdex_executes_mujoco_checkpoint(tmp_path: Path) -> None:

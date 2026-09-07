@@ -43,6 +43,7 @@ def test_fr3_owner_has_torque_control_without_free_root_terms(
     assert list(cfg.events) == ["reset_scene_to_default", "reset_joints"]
     assert list(cfg.observations["policy"].terms) == ["target_error", "joint_vel", "actions"]
     assert cfg.superdex_effort_limits == [20.0] * 4 + [5.0] * 3
+    assert cfg.superdex_num_workers == 0
     assert owner.training.no_play and owner.training.device == "cpu"
     assert "superdex" in cli.SUPPORTED_SIMS
     monkeypatch.setattr(cli, "_check_runtime_requirements", lambda *_: None)
@@ -58,6 +59,9 @@ def test_fr3_owner_has_torque_control_without_free_root_terms(
         {"superdex_num_threads": True},
         {"superdex_num_threads": -1},
         {"superdex_num_threads": -2},
+        {"superdex_num_workers": True},
+        {"superdex_num_workers": -1},
+        {"superdex_num_workers": 1.5},
         {"superdex_assets_root": ""},
         {"superdex_effort_limits": [0.0]},
         {"superdex_effort_limits": [float("nan")]},
@@ -117,9 +121,28 @@ def _spawn_rollout(overrides: dict[str, Any]) -> tuple[int, ...]:
         env.close()
 
 
+def _spawn_parallel_rollout(overrides: dict[str, Any]) -> tuple[int, ...]:
+    factory = registry_env_factory("FR3JointTarget", "superdex")
+    env = factory(num_envs=2, env_cfg_override={**overrides, "superdex_num_workers": 2})
+    try:
+        obs, _ = env.reset(env_ids=np.array([0, 1], dtype=np.int32))
+        env.step(np.zeros((2, 7), dtype=np.float32))
+        return obs["obs"].shape
+    finally:
+        env.close()
+
+
 def test_fr3_factory_survives_spawn() -> None:
     _require_runtime()
     _, overrides = _owner()
     with mp.get_context("spawn").Pool(1) as pool:
         result = pool.apply_async(_spawn_rollout, (overrides,))
         assert result.get(timeout=90) == (1, 21)
+
+
+def test_fr3_parallel_backend_can_run_inside_spawn_collector() -> None:
+    _require_runtime()
+    _, overrides = _owner()
+    with mp.get_context("spawn").Pool(1) as pool:
+        result = pool.apply_async(_spawn_parallel_rollout, (overrides,))
+        assert result.get(timeout=150) == (2, 21)
