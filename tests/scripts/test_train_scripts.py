@@ -1018,19 +1018,28 @@ def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
     assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
 
 
-@pytest.mark.parametrize("std_type", ["scalar", "vector"])
-def test_rsl_action_std_logging_patch_delegates_with_detached_clone(std_type: str):
+@pytest.mark.parametrize("std_type", ["scalar", "log"])
+@pytest.mark.parametrize("state_dependent", [False, True])
+def test_rsl_action_std_logging_patch_delegates_with_detached_clone(
+    std_type: str, state_dependent: bool,
+):
     import torch
+    from rsl_rl.modules.distribution import GaussianDistribution, HeteroscedasticGaussianDistribution
 
     from unilab.training.experiment import patch_rsl_rl_action_std_logging
 
     captured: dict[str, Any] = {}
-    expected = torch.tensor([0.25, 0.5], requires_grad=True)
-    distribution = types.SimpleNamespace(
-        std_type=std_type,
-        std_param=expected,
-        log_std_param=torch.log(expected),
-    )
+    if state_dependent:
+        expected = torch.tensor([[0.25, 0.5], [0.4, 0.9]], requires_grad=True)
+        distribution = HeteroscedasticGaussianDistribution(output_dim=2, std_type=std_type)
+        std_head = expected if std_type == "scalar" else torch.log(expected)
+        distribution.update(torch.stack((torch.zeros_like(expected), std_head), dim=-2))
+        assert not hasattr(distribution, "std_param")
+        assert not hasattr(distribution, "log_std_param")
+    else:
+        expected = torch.full((2, 2), 0.5)
+        distribution = GaussianDistribution(output_dim=2, init_std=0.5, std_type=std_type)
+        distribution.update(torch.zeros_like(expected))
 
     class Logger:
         def log(self, *args, **kwargs):
