@@ -12,7 +12,6 @@
 - G1 行走：`g1_walk_flat`、`g1_walk_rough`
 - G1 动作追踪：`g1_motion_tracking`、`g1_flip_tracking`、
   `g1_wall_flip_tracking`、`g1_climb_tracking`、`g1_box_tracking`
-- Go2 机械臂：`go2_arm_manip_loco`
 
 ## 示例
 

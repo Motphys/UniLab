@@ -8,10 +8,10 @@ Legged Gym 曾是那套 GPU 常驻的 PPO 模板，教会了整个领域如何�
 
 | Legged Gym | UniLab |
 |---|---|
-| `LeggedRobot` env 类 | `unilab.tasks.locomotion.common.base` |
-| `compute_observations()` | env 侧 obs 构建器 + `unilab.base.observations` |
-| `_reward_*` 方法 | env 的 `compute_reward()` + reward 项 registry |
-| `command_ranges` | 任务 owner YAML 的 `commands` 块 |
+| `LeggedRobot` env 类 | `unilab.envs.manager_based_rl_env.ManagerBasedRlEnv` |
+| `compute_observations()` | owner 的 `env.observations` term + `unilab.managers.observation_manager` |
+| `_reward_*` 方法 | owner 的 `reward` term + `unilab.managers.reward_manager` |
+| `command_ranges` | 任务 owner YAML 的 `env.commands` 块 |
 | 地形课程 | {doc}`../../2-user_guide/6-terrain/1-procedural` |
 | RSL-RL PPO | `uni_rl.algos.rsl_rl_ppo` |
 
@@ -31,8 +31,8 @@ Legged Gym 曾是那套 GPU 常驻的 PPO 模板，教会了整个领域如何�
 1. 把你的 URDF / MJCF asset 复制到 `src/unilab/assets/robots/<robot>/` 下。
 2. 在 `src/unilab/tasks/locomotion/<robot>/` 下创建一个任务模块。
 3. 镜像你的 reward 项；保持名称相同，以便 reward 一致性可被 diff。
-4. 翻译命令采样 —— Legged Gym 的 `_resample_commands` 在 UniLab 中变成一个
-   curriculum provider。
+4. 翻译命令采样 —— 在 owner YAML 的 `env.commands` 下配置
+   `UniformVelocityCommandCfg`，参考 Go1 flat owner。
 5. 翻译地形 —— Legged Gym 的高度场生成器在 UniLab 中有一个对应物，位于
    `unilab.terrains.heightfield_terrains`。
 

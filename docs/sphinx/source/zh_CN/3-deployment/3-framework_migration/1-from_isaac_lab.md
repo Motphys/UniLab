@@ -149,17 +149,16 @@ observation/action shape、局部 reset，以及至少一个真实已注册 back
 
 ## 任务迁移最终状态
 
-#1042 迁移收尾覆盖 39 个 production task、86 个 task/backend 注册。fail-closed 的
-source of truth 是 `src/unilab/tasks/migration_matrix.py`：`migration_record()` 对没有
+任务迁移状态由 registry 与迁移矩阵维护。fail-closed 的 source of truth 是
+`src/unilab/tasks/migration_matrix.py`：`migration_record()` 对没有
 entry 的 production task 名称抛出 `KeyError`，因此新增 production 注册必须显式做出
 迁移决策。
 
 - 36 个 task 为 **Compatible**（`target=complete`）：Hydra owner YAML 物化 canonical
   NumPy Manager-Based runtime。
-- 3 个 task 为 **Adapted**（`target=compatibility`）：`Go2ArmManipLoco`、
-  `SharpaInhandRotation` 和 `SharpaInhandRotationGrasp` 各自把自定义 IK/history 或
-  tactile/contact/cache 行为保留在一个冻结的兼容 factory 后面；只有当正式能力存在时
-  才迁移。
+- 2 个 task 为 **Adapted**（`target=compatibility`）：`SharpaInhandRotation` 和
+  `SharpaInhandRotationGrasp` 各自把 tactile/contact/cache 行为保留在一个冻结的
+  兼容 factory 后面；只有当正式能力存在时才迁移。
 
 ## 仓库证据
 

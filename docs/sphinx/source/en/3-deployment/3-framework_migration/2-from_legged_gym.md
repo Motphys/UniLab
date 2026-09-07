@@ -9,10 +9,10 @@ mostly mechanical.
 
 | Legged Gym | UniLab |
 |---|---|
-| `LeggedRobot` env class | `unilab.tasks.locomotion.common.base` |
-| `compute_observations()` | env-side obs builder + `unilab.base.observations` |
-| `_reward_*` methods | env's `compute_reward()` + reward term registry |
-| `command_ranges` | task owner YAML's `commands` block |
+| `LeggedRobot` env class | `unilab.envs.manager_based_rl_env.ManagerBasedRlEnv` |
+| `compute_observations()` | owner `env.observations` terms + `unilab.managers.observation_manager` |
+| `_reward_*` methods | owner `reward` terms + `unilab.managers.reward_manager` |
+| `command_ranges` | task owner YAML's `env.commands` block |
 | Terrain curriculum | {doc}`../../2-user_guide/6-terrain/1-procedural` |
 | RSL-RL PPO | `uni_rl.algos.rsl_rl_ppo` |
 
@@ -35,8 +35,8 @@ mostly mechanical.
 2. Create a task module under `src/unilab/tasks/locomotion/<robot>/`.
 3. Mirror your reward terms; keep the same names so reward parity is
    diff-able.
-4. Translate command sampling — Legged Gym's `_resample_commands` becomes
-   a curriculum provider in UniLab.
+4. Translate command sampling — configure `UniformVelocityCommandCfg` under
+   the owner YAML's `env.commands` (see the Go1 flat owner).
 5. Translate terrain — Legged Gym's heightfield generator has a UniLab
    counterpart at `unilab.terrains.heightfield_terrains`.
 

@@ -108,7 +108,7 @@ capability requirements.
 :::{grid-item-card} Pick an algorithm
 :link: 2-user_guide/2-algorithms/0-index
 :link-type: doc
-Compare PPO, APPO, SAC, TD3, FlashSAC, HIM-PPO, and HORA entrypoints.
+Compare PPO, APPO, SAC, TD3, FlashSAC, and HORA entrypoints.
 :::
 
 :::{grid-item-card} Deploy or switch sims
@@ -155,7 +155,6 @@ committed benchmark manifest or separate recommendation metadata.
 | --- | --- | --- |
 | Go1 joystick | PPO, APPO, TD3 | PPO has tested MuJoCo and Motrix rows. APPO has tested MuJoCo rows and Motrix registered rows. TD3 has a Motrix owner YAML for `go1_joystick_flat`. |
 | Go2 joystick | PPO, FlashSAC, TD3 | PPO has tested MuJoCo and Motrix rows. FlashSAC has MuJoCo owner YAMLs for `go2_joystick_flat`; TD3 has a Motrix owner YAML for `go2_joystick_flat`. |
-| Go2 arm manip-loco | PPO, HIM-PPO | Committed MuJoCo owner YAMLs are present under `src/unilab/conf/ppo/task/go2_arm_manip_loco/` and `src/unilab/conf/ppo_him/task/go2_arm_manip_loco/`. |
 | Go2W joystick | PPO | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `src/unilab/conf/ppo/task/go2w_joystick_*`. |
 | G1 locomotion / tracking | PPO, APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
 | Allegro in-hand | PPO, APPO | PPO and APPO have committed MuJoCo and Motrix owner YAMLs for Allegro in-hand tasks. |

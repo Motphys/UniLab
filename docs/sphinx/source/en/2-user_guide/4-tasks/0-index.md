@@ -24,12 +24,6 @@ G1 motion tracking, flips, climbs, wall flips, and box tracking.
 Allegro and Sharpa in-hand rotation and grasp generation.
 :::
 
-:::{grid-item-card} Mobile manipulation
-:link: 4-manip_loco
-:link-type: doc
-Go2 plus Airbot arm locomotion and manipulation.
-:::
-
 ::::
 
 ```{toctree}
@@ -38,5 +32,4 @@ Go2 plus Airbot arm locomotion and manipulation.
 1-locomotion
 2-motion_tracking
 3-manipulation
-4-manip_loco
 ```

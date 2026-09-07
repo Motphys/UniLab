@@ -5118,7 +5118,7 @@ requires-dist = [
     { name = "trimesh", marker = "extra == 'newton'", specifier = ">=3.21.7" },
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unilab-rl", specifier = "==1.0.0" },
+    { name = "unilab-rl", specifier = "==1.1.0" },
     { name = "unisim-core", specifier = ">=1.1.3" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
@@ -5139,7 +5139,7 @@ dev = [
 
 [[package]]
 name = "unilab-rl"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hydra-core" },
@@ -5156,9 +5156,9 @@ dependencies = [
     { name = "torch", version = "2.9.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/24/ba/d924223d8bccd9714bbe28152a51a12f0ea7f6390584d15fee43f4087a5a/unilab_rl-1.0.0.tar.gz", hash = "sha256:b2ab788a99054b2a75183b08c76c9cb5e70af5a6ed749316106a082ded9fbe16", size = 176442, upload-time = "2026-09-04T12:11:26.591Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/d2/93615e9770553ac4c3f67b27203c28509767f994484c2c1237ac1fdce731/unilab_rl-1.1.0.tar.gz", hash = "sha256:1051ef15e0b809fd9a7197458987421fb11052b34ffa49a90a92f76fb5d38e0d", size = 176655, upload-time = "2026-09-06T07:01:21.346Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/b9/f6a5e7772ca8f17c458627657eb1c05564b9abeefdce67afea6a9f044e53/unilab_rl-1.0.0-py3-none-any.whl", hash = "sha256:6405df72e66c0e3f2d20bf92020ef343f0047e63235088ec36151a4a8e0963f9", size = 221834, upload-time = "2026-09-04T12:11:25.27Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/94/4300a8b866d275226e78d2d4dbb92d82d857cb328e14ab02cf5bd20b1d90/unilab_rl-1.1.0-py3-none-any.whl", hash = "sha256:c35e76b4a138a9196f835c5166c1f32c16df82df74a8fcdf356393be53ee5952", size = 222098, upload-time = "2026-09-06T07:01:20.069Z" },
 ]
 
 [[package]]

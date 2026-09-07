@@ -6,7 +6,7 @@
 当前存在两条 DR 声明路径：
 
 - **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 的 `events:` 段。
-- **legacy provider 路径**：只有 3 个 Adapted family（`sharpa_inhand` / `sharpa_inhand_grasp` / `go2_arm_manip_loco`，含 appo / hora / ppo_him owner）仍通过 `DomainRandomizationProvider` + `DomainRandomizationManager` 声明 `env.domain_rand.*` 配置。
+- **legacy provider 路径**：只有 2 个 Adapted family（`sharpa_inhand` / `sharpa_inhand_grasp`，含 appo / hora owner）仍通过 `DomainRandomizationProvider` + `DomainRandomizationManager` 声明 `env.domain_rand.*` 配置。
 
 legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization()` 和 `DomainRandomizationManager`：
 
@@ -24,7 +24,7 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 
 1. Manager-Based 任务不注册 DR provider；它们的 reset/interval 随机化是 owner YAML 中的 `events:` manager term，由 manager 生命周期统一执行。只有 Adapted family 的冻结兼容工厂仍走 `DomainRandomizationManager` 统一入口。
 2. Adapted family owner 定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider` 和 `ResetPlan`；Manager-Based owner 则通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
-3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。legacy 路径的共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`；共享的 interval 辅助函数目前只生成 push。
+3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。legacy 路径的共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
 4. `ResetRandomizationPayload` 已经可以表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，并且 `MuJoCoBackend` 已声明支持。这些是否实际被使用，仍取决于 task provider 是否对它们进行采样和 dispatch。
 5. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
 6. `geom_size` 不是 reset 生命周期字段；Sharpa 手物体的 geom 缩放由 init 生命周期的模型 materialization 处理。
@@ -43,7 +43,6 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 | `AllegroInhandRotationGrasp` | Hydra `events:` term | 是：复用 rotation reset event + `RecorderTermCfg` | 带噪声的手部 reset + grasp 收集 | 无 | `allegro_inhand/grasp_gen.py` |
 | `SharpaInhandRotation` | legacy provider | 是：`InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache 采样 + common payload | 物体 `body_force` | `sharpa_inhand/rotation.py` |
 | `SharpaInhandRotationGrasp` | legacy provider | 是：复用 Sharpa rotation provider 并 override reset 采样 | grasp 收集 reset + common payload | 无 | `sharpa_inhand/grasp_gen.py` |
-| `Go2ArmManipLoco` | legacy provider | 是：`DomainRandConfig + LocomotionDRProvider 子类 + ResetPlan` | task 状态采样 + common payload | push | `go2_arm/manip_loco.py` |
 
 ## 各任务域随机化清单
 
@@ -74,14 +73,13 @@ legacy provider 路径的统一入口点由 `NpEnv` 和 `DomainRandomizationMana
 
 ### 2. 共享辅助函数仍然较窄
 
-legacy 路径的 `dr_utils.py` 目前只有两类共享辅助函数：
+legacy 路径的 `dr_utils.py` 构造并校验通用 reset payload：
 
 - reset common payload：`base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`
-- interval common payload：push
 
 这意味着：
 
-- 仍走 legacy provider 的 go2_arm / sharpa family，其 task 专属状态仍直接在各自的 provider 内部采样
+- 仍走 legacy provider 的 sharpa family，其 task 专属状态仍直接在各自的 provider 内部采样
 - `G1MotionTracking` 的 pose / velocity / joint 噪声由其 manager command 所有
 - Allegro 的 grasp / 物体初始状态采样完全是 task 专属逻辑
 - Sharpa 的 `geom_size` 缩放是 init 生命周期的模型 materialization，不属于 reset common payload
@@ -122,7 +120,7 @@ legacy 路径的 `dr_utils.py` 目前只有两类共享辅助函数：
 - 生命周期：仅在 reset 时采样和写入；env 会保留该重力，直到下一次 reset 重新采样。
 - 后端：当前在 UniLab 中，只有 MuJoCo 后端声明支持该 reset 项；Motrix 后端不支持。一些任务按能力过滤并跳过它；另一些任务在 validate 阶段抛出错误。
 
-配置入口仅在仍走 legacy provider 路径的 Adapted family owner 的 `env.domain_rand` 下（`sharpa_inhand_grasp`、`go2_arm_manip_loco` 及对应 hora / appo / ppo_him 变体）；Manager-Based 任务没有 `env.domain_rand`：
+配置入口位于采用 legacy provider 路径的 Sharpa owner（如 `sharpa_inhand_grasp`）的 `env.domain_rand` 下；Manager-Based 任务没有 `env.domain_rand`：
 
 ```yaml
 env:
@@ -165,38 +163,14 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
 
 ## Interval push 用法
 
-`env.domain_rand.push_robots` 系列字段只存在于 go2_arm Adapted family 的 owner（`src/unilab/conf/ppo/task/go2_arm_manip_loco/mujoco.yaml` 等）；Manager-Based 任务改用 `push_by_setting_velocity` interval event term 声明 push（例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 和 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`）。
-
-go2_arm owner 在 `env.domain_rand` 下配置 push：
-
-```yaml
-env:
-  domain_rand:
-    push_robots: true
-    push_interval: 750
-    max_force: [1.0, 1.0, 0.5]
-    push_body_name: null
-```
-
-- `push_robots`：是否启用 push。
-- `push_interval`：每 N 个 env step 触发一次。
-- `max_force`：一个长度为 3 的外力上限；每个维度在 `[-max_force, max_force]` 内采样。
-- `push_body_name`：施加力的目标 body / link。默认为 `null`，表示使用后端的 `base_name`。
+Manager-Based 任务通过 `env.events.push_robot` term 配置周期推扰。例如，
+`src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 使用
+`push_by_setting_velocity`，间隔为 15 秒，并按轴声明速度范围。
 
 ```bash
-uv run train --algo ppo --task go2_arm_manip_loco --sim mujoco \
-  env.domain_rand.push_robots=true \
-  env.domain_rand.push_interval=500 \
-  'env.domain_rand.max_force=[20.0,20.0,5.0]' \
-  env.domain_rand.push_body_name=base
+uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+  'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
-
-说明：
-
-- MuJoCo 按 body name 解析，Motrix 按 link name 解析；缺失的 name 会在 env/backend 初始化期间抛出错误。
-- `push_body_name` 是一个 init 配置；在 env 创建之后修改它不会改变已经解析的目标。
-- 热路径只采样和施加外力；它不解析 XML / asset，也不探测后端私有能力。
-- MuJoCo push 通过 `xfrc_applied` 外力实现，不直接覆盖 base 速度。
 
 ## `geom_size` 生命周期边界
 
