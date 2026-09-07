@@ -2,7 +2,7 @@
 
 UniLab 通过 registry/config 路径暴露后端名称，包括在对应 owner 注册后可用的
 `mujoco`、`motrix`、`mjwarp`、`drake`、`isaacgym`、`genesis`、`isaacsim` 和
-`newton`。用户命令通过
+`newton`、`superdex`。用户命令通过
 `--sim` 选择后端，该选项会路由到对应的 task owner YAML；不要仅靠 override
 `training.sim_backend` 来切换一次运行。
 
@@ -137,4 +137,5 @@ benchmark v1 目前只保留 `BenchmarkCase`、`BenchmarkResult` 和 provenance 
 5-genesis
 6-drake
 7-newton
+8-superdex
 ```

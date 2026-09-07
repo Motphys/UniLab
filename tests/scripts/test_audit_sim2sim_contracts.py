@@ -44,6 +44,18 @@ def test_discover_offpolicy_trees_group_by_task() -> None:
     assert td3["g1_walk_flat"] == ["mujoco"]
 
 
+def test_go2_superdex_pair_is_audited_and_transferable(monkeypatch: pytest.MonkeyPatch) -> None:
+    audit = _load_audit_module()
+    monkeypatch.setattr(
+        audit, "_discover", lambda tree: {"go2_joystick_flat": ["mujoco", "superdex"]}
+    )
+    rows = audit.audit_tree("ppo")
+    assert rows[0]["errors"] == {}
+    assert rows[0]["pairs"][0]["pair"] == "mujoco<->superdex"
+    assert rows[0]["pairs"][0]["verdict"] == "TRANSFERABLE"
+    assert rows[0]["pairs"][0]["warn_diffs"] == []
+
+
 @pytest.mark.parametrize(
     ("tree", "task_variant", "expected_algo"),
     [
