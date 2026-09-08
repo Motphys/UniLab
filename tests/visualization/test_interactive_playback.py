@@ -1213,6 +1213,30 @@ def test_build_play_backend_adapter_injects_root_dir_and_materializer(
     }
 
 
+def test_playback_explicitly_skips_training_progress_for_stateful_runner(tmp_path):
+    from uni_rl.algos.rsl_rl_training_state import TrainingStateOnPolicyRunner
+
+    captured = {}
+
+    class Runner(TrainingStateOnPolicyRunner):
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def load(self, path, **kwargs):
+            captured.update(kwargs)
+
+        def get_inference_policy(self, **kwargs):
+            return lambda obs: torch.ones((1, 2))
+
+    kwargs = _rsl_rl_session_kwargs(tmp_path)
+    kwargs["runner_cls"] = Runner
+    kwargs["checkpoint_resolver"] = lambda *args: str(tmp_path / "model.pt")
+    create_rsl_rl_playback_session(**kwargs)
+    assert captured["restore_training_state"] is False
+    assert captured["load_cfg"]["actor"] is True
+    assert not any(value for key, value in captured["load_cfg"].items() if key != "actor")
+
+
 def test_create_rsl_rl_playback_session_uses_runner_loader_and_exposes_runner(
     tmp_path: Path,
 ) -> None:

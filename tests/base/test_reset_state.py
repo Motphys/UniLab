@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.backend.base import BackendMocapPoseBinding, BackendRootStateLayout, SimBackend
 from unisim.dr.types import (
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -71,6 +71,142 @@ class _Backend:
 
 def _transaction(backend: _Backend) -> ResetStateTransaction:
     return ResetStateTransaction(cast(SimBackend, backend))
+
+
+class _ManipulationBackend(_Backend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[str] = []
+        self.poses = np.tile([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], (self.num_envs, 1))
+        self.default_calls = 0
+
+    def get_dr_capabilities(self):
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset(
+                (
+                    "geom_size",
+                    "geom_solref",
+                    "geom_solimp",
+                    "dof_damping",
+                    "dof_frictionloss",
+                )
+            )
+        )
+
+    def _defaults(self, width):
+        self.default_calls += 1
+        return np.ones((3, width)) if width else np.ones(2)
+
+    def get_geom_sizes(self):
+        return self._defaults(3)
+
+    def get_geom_solref(self):
+        return self._defaults(2)
+
+    def get_geom_solimp(self):
+        return self._defaults(5)
+
+    def get_dof_damping(self):
+        return self._defaults(0)
+
+    def get_dof_frictionloss(self):
+        return self._defaults(0)
+
+    def set_state(self, env_ids, qpos, qvel, randomization=None):
+        self.events.append("state")
+        self.poses[env_ids, 0] = 0.0
+        return super().set_state(env_ids, qpos, qvel, randomization)
+
+    def bind_mocap_pose(self, body_name):
+        def write(ids, poses):
+            self.events.append("mocap")
+            self.poses[ids] = poses
+
+        return BackendMocapPoseBinding(
+            self.backend_type,
+            body_name,
+            self.num_envs,
+            self.poses[0].copy(),
+            lambda: self.poses,
+            write,
+        )
+
+
+@pytest.mark.parametrize(
+    "field,width",
+    [
+        ("geom_size", 3),
+        ("geom_solref", 2),
+        ("geom_solimp", 5),
+        ("dof_damping", 0),
+        ("dof_frictionloss", 0),
+    ],
+)
+def test_manipulation_fields_preserve_unselected_columns_and_bind_once(field, width):
+    backend = _ManipulationBackend()
+    transaction = _transaction(backend)
+    columns = np.array([1], dtype=np.int32)
+    _, defaults = getattr(transaction, f"bind_{field}_write")(columns, term_name=field)
+    assert not defaults.flags.writeable
+    ids = np.array([2, 0], dtype=np.int32)
+    values = np.full((2, 1, width) if width else (2, 1), 0.25)
+    for _ in range(2):
+        with transaction.scoped(ids):
+            getattr(transaction, f"write_{field}")(ids, columns, values, term_name=field)
+    assert backend.default_calls == 1
+    payload = backend.randomization_calls[-1]
+    np.testing.assert_array_equal(backend.set_state_calls[-1][0], [0, 2])
+    np.testing.assert_array_equal(getattr(payload, field)[:, 1], 0.25)
+    np.testing.assert_array_equal(getattr(payload, field)[:, 0], 1.0)
+
+
+def test_mocap_pose_is_staged_then_committed_after_generalized_state():
+    backend = _ManipulationBackend()
+    transaction = _transaction(backend)
+    transaction.bind_mocap_pose("palm")
+    ids = np.array([2], dtype=np.int32)
+    poses = backend.poses[ids].copy()
+    poses[:, 0] = 0.7
+    with transaction.scoped(ids):
+        transaction.write_mocap_pose("palm", ids, poses, term_name="wrist")
+        transaction.reset_to_default(ids, term_name="scene")
+        np.testing.assert_array_equal(transaction.read_mocap_pose("palm")[ids], poses)
+        assert backend.events == []
+    assert backend.events == ["state", "mocap"]
+    np.testing.assert_array_equal(backend.poses[ids], poses)
+    np.testing.assert_array_equal(backend.poses[[0, 1, 3], 0], 0.0)
+    assert transaction.last_commit_had_writes
+
+
+def test_mocap_only_write_does_not_reset_physics_and_abort_discards_pose():
+    backend = _ManipulationBackend()
+    transaction = _transaction(backend)
+    transaction.bind_mocap_pose("palm")
+    ids = np.array([1], dtype=np.int32)
+    poses = backend.poses[ids].copy()
+    poses[:, 0] = 0.4
+    with pytest.raises(RuntimeError, match="cancel"):
+        with transaction.scoped(ids):
+            transaction.write_mocap_pose("palm", ids, poses, term_name="wrist")
+            raise RuntimeError("cancel")
+    assert backend.events == []
+    with transaction.scoped(ids):
+        transaction.write_mocap_pose("palm", ids, poses, term_name="wrist")
+    assert backend.events == ["mocap"]
+    assert backend.default_qpos_calls == 0
+    np.testing.assert_array_equal(backend.poses[ids], poses)
+
+
+def test_invalid_mocap_write_fails_before_any_backend_mutation():
+    backend = _ManipulationBackend()
+    transaction = _transaction(backend)
+    transaction.bind_mocap_pose("palm")
+    ids = np.array([0], dtype=np.int32)
+    with pytest.raises(ValueError, match="quaternion"):
+        with transaction.scoped(ids):
+            transaction.reset_to_default(ids, term_name="scene")
+            transaction.write_mocap_pose("palm", ids, np.zeros((1, 7)), term_name="bad")
+    assert backend.events == []
 
 
 def test_transaction_is_lazy_and_combines_terms_into_one_commit() -> None:

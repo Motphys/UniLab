@@ -456,6 +456,29 @@ def _make_env(
     return env, backend
 
 
+def test_training_progress_restore_survives_next_step_and_rejects_invalid_state():
+    env, _ = _make_env()
+    env.reset()
+    env.import_training_state({"version": 1, "step_counter": 700})
+    assert env.common_step_counter == 700
+    assert env._sim_step_counter == 700 * env.cfg.sim_substeps
+    env.step(np.zeros((env.num_envs, 1), dtype=np.float32))
+    assert env.step_counter == 701
+    assert env.common_step_counter == 701
+    assert env.export_training_state() == {"version": 1, "step_counter": 701}
+    for invalid in (
+        {"version": 1, "step_counter": -1},
+        {"version": True, "step_counter": 4},
+        {"version": 1, "step_counter": True},
+        {"version": 2, "step_counter": 4},
+        {"version": 1, "step_counter": 4, "extra": 0},
+    ):
+        with pytest.raises(ValueError):
+            env.import_training_state(invalid)
+        assert env.step_counter == env.common_step_counter == 701
+    env.close()
+
+
 def _make_state_env(
     *,
     commands: dict[str, CommandTermCfg | None] | None = None,
