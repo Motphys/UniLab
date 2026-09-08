@@ -43,16 +43,15 @@ uv run --no-sync train --algo ppo --task fr3_joint_target --sim superdex \
 
 目标关节角、reward、reset 范围和动作缩放由任务 `base.yaml` 声明。力矩上限
 `[20,20,20,20,5,5,5]` Nm 是显式研究配置，不是硬件额定值；
-`superdex_effort_limits` 在 native backend 边界声明同样的上限。
-`superdex_num_threads=0` 表示每个进程内部 SDK 单线程，与下面的环境 worker 数分开。
-同进程多个 backend 实例仍须使用相同的 SDK 线程数。
+`superdex_effort_limits` 在 native backend 边界声明同样的上限。SDK 固定为单线程；
+下面的 native scene executor 是唯一支持的 CPU 并行层。
 
 ## 默认 CPU 环境并行
 
 backend 使用 SuperDex 源码构建的 `SceneBatchExecutor`。它是跨独立 scene 的常驻
-C++ 线程池：每个子步批量写入广义力、推进 scene，并回写 articulation pose/velocity，
-不再逐环境跨越 Python binding。资产物化、reset、link state、contact query 和 sensor
-cache 仍由 UniSim adapter 负责。这是 CPU 线程并行，不是 GPU physics；它不改变
+C++ 线程池：每个子步批量写入广义力、推进 scene，并回写 articulation/link state、
+contact sensor 和 solver status，不再逐环境跨越 Python binding。资产物化、reset 和
+cache frame 转换仍由 UniSim adapter 负责。这是 CPU 线程并行，不是 GPU physics；它不改变
 PPO/APPO collector、learner 或 policy contract。决策见
 {doc}`/adr/ADR-0008-superdex-persistent-cpu-workers` 和
 [unisim#41](https://github.com/unilabsim/unisim/issues/41)。
@@ -61,15 +60,12 @@ PPO/APPO collector、learner 或 policy contract。决策见
 
 | Owner 选项 | 含义 |
 | --- | --- |
-| `env.superdex_num_workers=0` | 自动：`min(affinity 内可用物理核心数, num_envs, max(1, num_envs // 16))` |
-| `env.superdex_num_workers=1` | 显式进程内串行执行 |
+| `env.superdex_num_workers=0` | 自动：`min(affinity 内可用 CPU 数, num_envs)` |
+| `env.superdex_num_workers=1` | 一个 native C++ scene worker |
 | `env.superdex_num_workers=K` | 显式 C++ worker 数，最多为 `num_envs` |
-| `env.superdex_num_threads=0` | 外层 scene worker 的前提；正数 SDK 线程会选择串行外层执行 |
 
-无法取得物理拓扑时，自动选择退回进程实际可用的 CPU 数。1024 个环境、affinity
-包含 16 个物理核心时，自动解析为 16 workers。上面的两环境小示例保持串行，避免
-线程池成本超过工作量。同机并发 collector 应分配适当 CPU affinity 或显式 worker 数，
-避免各自的独立 pool 争用同一批核心。
+1024 个环境、affinity 包含 32 个 logical CPU 时，自动解析为 32 workers。同机并发
+collector 应分配适当 CPU affinity 或显式 worker 数，避免各自的独立 pool 争用同一批核心。
 
 每个物理子步由 host 执行 pre-step control callback，随后进入 native batch barrier，
 完成后发布新 batch state，再执行下一 callback。局部 reset 保留请求行顺序，不影响

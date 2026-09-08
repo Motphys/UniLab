@@ -56,9 +56,6 @@ def test_fr3_owner_has_torque_control_without_free_root_terms(
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"superdex_num_threads": True},
-        {"superdex_num_threads": -1},
-        {"superdex_num_threads": -2},
         {"superdex_num_workers": True},
         {"superdex_num_workers": -1},
         {"superdex_num_workers": 1.5},

@@ -41,7 +41,6 @@ def test_superdex_native_factory_resolves_assets_without_mutating_owner(
     assert scene.model_file == "bots/arms/fr3_v2/fr3_v2.superdex_bot"
     assert calls["asset"] == (scene.model_file, "/registered/assets")
     assert kwargs["superdex_effort_limits"] == [20.0]
-    assert kwargs["superdex_num_threads"] == 0
     assert kwargs["superdex_num_workers"] == 0
     assert kwargs["superdex_allow_contact_approximation"] is False
     assert kwargs["body_state_required"] is False
@@ -92,4 +91,3 @@ def test_large_superdex_batch_delegates_worker_selection_to_unisim(
     assert captured["backend"] == "superdex"
     assert captured["num_envs"] == 1024
     assert captured["superdex_num_workers"] == workers
-    assert captured["superdex_num_threads"] == 0

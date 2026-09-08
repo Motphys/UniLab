@@ -36,10 +36,7 @@ class EnvCfg:
     drake_backend_mode: str = "batch"
     drake_nthread: int = 0
     # SuperDex native robots are resolved through the local asset hub registry.
-    # Thread count is process-wide: 0 is serial, positive values are explicit.
-    superdex_num_threads: int = 0
-    # Native C++ scene workers are separate from SDK-internal threads.
-    # 0 selects affinity-aware automatic CPU batching; 1 stays serial.
+    # 0 selects affinity-aware native C++ scene batching; 1 stays serial.
     superdex_num_workers: int = 0
     superdex_assets_root: Optional[str] = None
     superdex_effort_limits: Optional[list[float]] = None
@@ -116,12 +113,6 @@ class EnvCfg:
         """
         if self.sim_dt > self.ctrl_dt:
             raise ValueError("sim_dt must be less than or equal to ctrl_dt")
-        if (
-            isinstance(self.superdex_num_threads, bool)
-            or not isinstance(self.superdex_num_threads, int)
-            or self.superdex_num_threads < 0
-        ):
-            raise ValueError("superdex_num_threads must be an integer >= 0")
         if (
             isinstance(self.superdex_num_workers, bool)
             or not isinstance(self.superdex_num_workers, int)

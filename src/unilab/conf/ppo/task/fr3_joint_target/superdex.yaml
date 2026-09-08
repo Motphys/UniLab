@@ -27,7 +27,6 @@ algo:
 
 env:
   adaptive_chunk_size: false
-  superdex_num_threads: 0
   superdex_num_workers: 0
   superdex_assets_root: null
   superdex_effort_limits: [20.0, 20.0, 20.0, 20.0, 5.0, 5.0, 5.0]

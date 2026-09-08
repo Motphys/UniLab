@@ -29,30 +29,25 @@ The roadmap is [UniLab#1533](https://github.com/Motphys/UniLab/issues/1533).
 1. Add `superdex.physics.SceneBatchExecutor` to the fork's `mochi_physics`
    pybind extension. It owns persistent C++ worker threads, but does not own
    scenes or actors.
-2. One executor invocation receives contiguous `(N, nv)` generalized-force,
-   pose-output, and velocity-output arrays. It writes each actor's forces,
-   advances each distinct scene, and refreshes articulated state before its
-   completion barrier opens.
+2. One executor invocation receives contiguous generalized-force, articulated
+   pose/velocity, link-state, contact and solver-status arrays. It writes each
+   actor's forces, advances each distinct scene, and refreshes every runtime
+   cache before its completion barrier opens.
 3. UniSim owns the executor and creates it after cold-path materialization. It
-   keeps reset, asset conversion, link state, contact queries, sensor caches,
-   and `SimBackend` ownership in the adapter. `close()` joins the executor
+   keeps reset, asset conversion, cache-frame conversion and `SimBackend`
+   ownership in the adapter. `close()` joins the executor
    before destroying bots, scenes, and the process-global runtime.
-4. `superdex_num_workers=0` selects
-   `min(affinity physical cores, num_envs, max(1, num_envs // 16))` when
-   `superdex_num_threads=0`. Explicit worker counts are capped at `num_envs`.
-   Small batches therefore remain serial.
-5. SDK-internal worker threads and outer scene workers are mutually exclusive:
-   `superdex_num_threads > 0` selects one outer worker, and an explicit outer
-   count above one is rejected. This prevents `outer_workers * sdk_threads`
-   oversubscription.
+4. `superdex_num_workers=0` selects `min(CPU affinity, num_envs)`. Explicit
+   worker counts are capped at `num_envs`; the SDK stays single-threaded so the
+   executor is the only physics parallelism layer.
 
 ## Consequences
 
 The local integration requires Physics and Robotics bindings built from this
-fork at the same commit. It neither changes package versions nor publishes a
-wheel. The executor provides CPU scene parallelism; it does not claim GPU
-physics, native rendering, arbitrary sensor batching, or dynamics equivalence
-with MuJoCo.
+fork at the same commit. Older qpos/qvel-only executor builds are rejected. It
+neither changes package versions nor publishes a wheel. The executor provides
+CPU scene parallelism; it does not claim GPU physics, native rendering, or
+dynamics equivalence with MuJoCo.
 
 Validation must compare serial and parallel trajectories, selected reset, and
 complete backend throughput using the same scene, actions, batch, and substep
