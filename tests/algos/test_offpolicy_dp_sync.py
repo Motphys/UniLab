@@ -726,6 +726,10 @@ def test_build_runner_single_rank_flashsac_keeps_dp_sync_none(monkeypatch: pytes
 def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.setattr(
+        "uni_rl.ipc.dp_launcher._discover_physical_cpu_groups",
+        lambda _: [[core, core + 64] for core in range(64)],
+    )
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     monkeypatch.delenv(UNILAB_DP_LOG_DIR, raising=False)
     kwargs = _build_flashsac_runner_with_dp_fakes(
@@ -740,11 +744,14 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
     assert dp_sync.rank == 0
     assert dp_sync.backend == "nccl"
     assert dp_sync.rendezvous_path == "/tmp/dp_sync_test_run/.dp_rendezvous"
-    # Rank 0 collector owns the first contiguous CPU block.
-    assert kwargs["collector_cpu_ids"] == list(range(64))
+    assert kwargs["collector_cpu_ids"] == [cpu for core in range(32) for cpu in (core, core + 64)]
 
 
 def test_build_runner_multi_gpu_flashsac_spawned_rank(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "uni_rl.ipc.dp_launcher._discover_physical_cpu_groups",
+        lambda _: [[core, core + 64] for core in range(64)],
+    )
     monkeypatch.setenv(UNILAB_DP_RANK, "1")
     monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/dp_sync_shared_root")
     kwargs = _build_flashsac_runner_with_dp_fakes(
@@ -756,4 +763,6 @@ def test_build_runner_multi_gpu_flashsac_spawned_rank(monkeypatch: pytest.Monkey
     assert dp_sync.rank == 1
     # Spawned ranks rendezvous on rank 0's run root, not their rank sub-dir.
     assert dp_sync.rendezvous_path == "/tmp/dp_sync_shared_root/.dp_rendezvous"
-    assert kwargs["collector_cpu_ids"] == list(range(64, 128))
+    assert kwargs["collector_cpu_ids"] == [
+        cpu for core in range(32, 64) for cpu in (core, core + 64)
+    ]

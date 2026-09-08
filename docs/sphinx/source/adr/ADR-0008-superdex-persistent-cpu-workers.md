@@ -63,6 +63,18 @@ thread count separately.
 - Linking a downstream extension to the released wheel: rejected because the
   wheel does not publish a stable extension ABI or matching headers.
 
+## Evidence In Repo
+
+- `src/unilab/conf/ppo/task/go2_joystick_flat/superdex.yaml` selects automatic
+  native workers for the SuperDex owner.
+- `src/unilab/scripts/train_offpolicy.py` and
+  `src/unilab/scripts/train_rsl_rl.py` obtain rank-owned CPU ids from UniRL
+  before environment construction.
+- `tests/algos/test_offpolicy_double_buffer_runner.py` verifies that each rank
+  receives complete physical-core groups, including SMT siblings.
+- `tests/ipc/test_dp_launcher.py` verifies the corresponding resolver contract
+  through the UniRL dependency.
+
 ## Related Documents
 
 - {doc}`SuperDex Backend </en/2-user_guide/3-backends/8-superdex>`
