@@ -10,8 +10,9 @@ training:
   task_name: Go2JoystickFlat
   sim_backend: superdex
   device: cpu
-  no_play: true
-  play_render_mode: none
+  no_play: false
+  play_render_mode: record
+  dp_collector_cpu_ids: null
 
 algo:
   num_envs: 2
@@ -26,4 +27,4 @@ env:
     pd_gains: null
 
 play_profile:
-  enabled: false
+  enabled: true

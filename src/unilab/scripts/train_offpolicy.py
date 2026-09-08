@@ -183,14 +183,13 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         world_size=1,
         learner_device=rank_device,
     )
-    host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:
         explicit_cpu_ids = cast(list, OmegaConf.to_container(explicit_cpu_ids, resolve=True))
     collector_cpu_ids = resolve_collector_cpu_ids(
         dp_world_size,
         dp_rank,
-        host_cpu_count,
+        None,
         explicit=explicit_cpu_ids,
     )
 

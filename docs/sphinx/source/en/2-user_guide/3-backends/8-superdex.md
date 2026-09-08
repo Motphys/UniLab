@@ -71,14 +71,16 @@ Both task owners select automatic workers by default:
 
 | Owner option | Meaning |
 | --- | --- |
-| `env.superdex_num_workers=0` | Automatic: `min(available CPU affinity, num_envs)` |
+| `env.superdex_num_workers=0` | Automatic: `min(available physical CPU cores, num_envs)` |
 | `env.superdex_num_workers=1` | One native C++ scene worker |
 | `env.superdex_num_workers=K` | Explicit C++ worker count, capped at `num_envs` |
 
-With 1024 environments and an affinity containing 32 logical CPUs, automatic
-selection yields 32 workers. Concurrent collectors
-need appropriately partitioned CPU affinity or explicit worker counts so their
-independent pools do not oversubscribe the same cores.
+With 1024 environments on a 16-core/32-thread host, automatic selection yields
+16 workers. Concurrent multi-rank collectors are assigned whole physical-core
+groups, including their logical siblings, so ranks do not split an SMT core.
+`training.dp_collector_cpu_ids` may instead provide one explicit CPU-id list
+per rank. The selected block is applied before SuperDex materializes its native
+worker pool.
 
 For every physics substep, the host runs the pre-step control callback, enters
 the native batch barrier, then publishes the refreshed batch before the next
@@ -95,8 +97,11 @@ control steps, not physics substeps. Existing contact approximations are unchang
 The fixed root still has a named entity and readable body state. Reset terms
 write joint state; they do not request a floating-root layout. The task does
 not require contact sensors, cameras, site Jacobians or runtime material DR.
-Selecting playback mode `none` skips playback entirely; it is not evidence that
-a checkpoint has executed a rollout.
+SuperDex has no native renderer. Its default record playback uses the offline
+MuJoCo renderer with the authored MJCF visual model while SuperDex remains the
+physics backend. `.superdex_bot` scenes must provide `visual_model_file` for
+this path. Selecting playback mode `none` skips playback entirely; it is not
+evidence that a checkpoint has executed a rollout.
 
 `superdex_allow_contact_approximation` defaults to `false`. It is reserved for
 explicitly audited MJCF conversion profiles: enabling it accepts a warning about

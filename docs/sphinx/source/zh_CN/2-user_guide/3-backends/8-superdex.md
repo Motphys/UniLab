@@ -60,12 +60,14 @@ PPO/APPO collector、learner 或 policy contract。决策见
 
 | Owner 选项 | 含义 |
 | --- | --- |
-| `env.superdex_num_workers=0` | 自动：`min(affinity 内可用 CPU 数, num_envs)` |
+| `env.superdex_num_workers=0` | 自动：`min(affinity 内可用物理核心数, num_envs)` |
 | `env.superdex_num_workers=1` | 一个 native C++ scene worker |
 | `env.superdex_num_workers=K` | 显式 C++ worker 数，最多为 `num_envs` |
 
-1024 个环境、affinity 包含 32 个 logical CPU 时，自动解析为 32 workers。同机并发
-collector 应分配适当 CPU affinity 或显式 worker 数，避免各自的独立 pool 争用同一批核心。
+1024 个环境、16 核 32 线程主机上，自动解析为 16 workers。多 rank 并发 collector
+按完整物理核心分配，并将同一核心的 logical sibling 放在同一 rank，避免拆分 SMT 核心。
+也可以通过 `training.dp_collector_cpu_ids` 为每个 rank 显式提供 CPU id 列表；该分片在
+SuperDex 创建 native worker pool 前应用。
 
 每个物理子步由 host 执行 pre-step control callback，随后进入 native batch barrier，
 完成后发布新 batch state，再执行下一 callback。局部 reset 保留请求行顺序，不影响
@@ -77,8 +79,10 @@ backend/env 时间、startup、RSS、CPU 使用和实际 worker 数。吞吐按 
 不能把 physics 子步重复计入样本。已有接触近似的物理边界保持不变。
 
 固定根具有名称和可读的 body state，但 reset 只写 joint state，不要求 free-root
-layout。该任务不需要接触 sensor、相机、site Jacobian 或材料 DR。
-`play_render_mode=none` 会完全跳过回放，不能作为 checkpoint rollout 已执行的证据。
+layout。该任务不需要接触 sensor、相机、site Jacobian 或材料 DR。SuperDex 没有 native
+renderer；默认 record 回放使用离线 MuJoCo renderer，物理仍由 SuperDex 执行。
+`.superdex_bot` 场景需要提供 `visual_model_file`。`play_render_mode=none` 会完全跳过
+回放，不能作为 checkpoint rollout 已执行的证据。
 
 `superdex_allow_contact_approximation` 默认 `false`，只供经过审核的 MJCF 转换配置
 显式启用。启用后会警告 contact/material 近似，包括 torsional/rolling friction

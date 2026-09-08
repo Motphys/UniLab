@@ -37,9 +37,9 @@ The roadmap is [UniLab#1533](https://github.com/Motphys/UniLab/issues/1533).
    keeps reset, asset conversion, cache-frame conversion and `SimBackend`
    ownership in the adapter. `close()` joins the executor
    before destroying bots, scenes, and the process-global runtime.
-4. `superdex_num_workers=0` selects `min(CPU affinity, num_envs)`. Explicit
-   worker counts are capped at `num_envs`; the SDK stays single-threaded so the
-   executor is the only physics parallelism layer.
+4. `superdex_num_workers=0` selects `min(available physical CPU cores,
+   num_envs)`. Explicit worker counts are capped at `num_envs`; the SDK stays
+   single-threaded so the executor is the only physics parallelism layer.
 
 ## Consequences
 
