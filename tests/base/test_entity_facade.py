@@ -8,11 +8,12 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.backend.base import BackendMocapPoseBinding, BackendRootStateLayout, SimBackend
+from unisim.dr.types import DomainRandomizationCapabilities
 
 import unilab.base.entity as entity_module
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.base.entity import EntityCfg, EntityScene
+from unilab.base.entity import Entity, EntityCfg, EntityScene
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg
 from unilab.managers import RewardManager, RewardTermCfg, SceneEntityCfg
@@ -179,6 +180,77 @@ class _StrictBackendProfile:
     def get_body_ang_vel_b(self, ids: np.ndarray) -> np.ndarray:
         self._check("body-frame angular velocity state")
         return self.body_ang_vel_b[:, ids]
+
+
+def test_manipulation_entity_maps_local_columns_and_binds_mocap_without_floating_root():
+    class Backend(_StrictBackendProfile):
+        def __init__(self):
+            super().__init__("mjwarp")
+            self.payload = None
+            self.poses = np.tile([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], (3, 1))
+
+        def get_dr_capabilities(self):
+            return DomainRandomizationCapabilities(
+                supported_reset_terms=frozenset(("geom_size", "dof_damping"))
+            )
+
+        def get_geom_sizes(self):
+            self._check("geom size defaults")
+            return np.ones((3, 3))
+
+        def get_dof_damping(self):
+            self._check("damping defaults")
+            return np.ones(9)
+
+        def get_joint_dof_indices(self, names):
+            self._check("model DOF IDs")
+            return np.array([{"hip": 7}[name] for name in names], dtype=np.int32)
+
+        def bind_mocap_pose(self, name):
+            self._check("mocap binding")
+
+            def write(ids, poses):
+                self.poses[ids] = poses
+
+            return BackendMocapPoseBinding(
+                "mjwarp", name, self.num_envs, self.poses[0], lambda: self.poses, write
+            )
+
+        def set_state(self, env_ids, qpos, qvel, randomization=None):
+            self.payload = randomization
+            self.poses[env_ids, 0] = 0.0
+
+    backend = Backend()
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    hand = Entity(
+        "hand",
+        EntityCfg(
+            body_names=("foot",),
+            joint_names=("hip",),
+            geom_names=("foot_collision", "base_collision"),
+        ),
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    geom_ids, _ = hand.bind_geom_size_write([0], term_name="size")
+    joint_ids, _ = hand.bind_joint_damping_write(term_name="damping")
+    default_pose = hand.bind_mocap_pose_write("foot", term_name="wrist")
+    calls = backend.calls.copy()
+    ids = np.array([2], dtype=np.int32)
+    pose = default_pose[None].copy()
+    pose[:, 0] = 0.8
+    for _ in range(2):
+        with transaction.scoped(ids):
+            hand.write_geom_size_to_sim(np.full((1, 1, 3), 0.5), geom_ids, ids)
+            hand.write_joint_damping_to_sim(np.full((1, 1), 0.2), joint_ids, ids)
+            hand.write_mocap_pose_to_sim(pose, ids)
+    np.testing.assert_array_equal(backend.payload.geom_size[0, 2], 0.5)
+    np.testing.assert_array_equal(backend.payload.geom_size[0, :2], 1.0)
+    assert backend.payload.dof_damping[0, 7] == 0.2
+    np.testing.assert_array_equal(hand.read_mocap_pose()[ids], pose)
+    for name in ("geom size defaults", "damping defaults", "model DOF IDs", "mocap binding"):
+        assert backend.calls[name] == calls[name] == 1
+    assert backend.calls["root-state layout"] == 0
 
 
 def _scene(backend_type: str = "mujoco") -> tuple[_StrictBackendProfile, EntityScene]:

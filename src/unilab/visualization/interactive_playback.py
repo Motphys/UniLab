@@ -567,6 +567,13 @@ def create_rsl_rl_playback_session(
                 if runner_loader is not None:
                     runner_loader(runner, checkpoint_path)
                 else:
+                    from uni_rl.algos.rsl_rl_training_state import TrainingStateOnPolicyRunner
+
+                    load_options = (
+                        {"restore_training_state": False}
+                        if isinstance(runner, TrainingStateOnPolicyRunner)
+                        else {}
+                    )
                     runner.load(
                         checkpoint_path,
                         load_cfg={
@@ -576,6 +583,7 @@ def create_rsl_rl_playback_session(
                             "iteration": False,
                             "rnd": False,
                         },
+                        **load_options,
                     )
             policy = runner.get_inference_policy(device=device_name)
 

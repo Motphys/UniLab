@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from os import PathLike
 from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
@@ -613,6 +613,25 @@ class NpEnv(ABEnv):
         disable it so a terminated robot stays put until a manual reset.
         """
         self._autoreset = bool(enabled)
+
+    def export_training_state(self) -> dict[str, Any]:
+        """Export cumulative training progress, independently of episode/physics state.
+
+        Task-specific curriculum state belongs to the task's explicit provider;
+        this payload deliberately does not inspect manager or environment internals.
+        """
+        return {"version": 1, "step_counter": self.step_counter}
+
+    def import_training_state(self, state: Mapping[str, Any]) -> None:
+        """Validate and restore cumulative progress before the next control step."""
+        if not isinstance(state, Mapping) or set(state) != {"version", "step_counter"}:
+            raise ValueError("NpEnv training state requires version and step_counter only")
+        if type(state["version"]) is not int or state["version"] != 1:
+            raise ValueError("Unsupported NpEnv training state version")
+        counter = state["step_counter"]
+        if type(counter) is not int or counter < 0:
+            raise ValueError("NpEnv training step_counter must be a non-negative integer")
+        self.step_counter = counter
 
     def close(self) -> None:
         """Close the environment and release backend-owned scene assets."""

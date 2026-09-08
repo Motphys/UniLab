@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -700,6 +701,12 @@ class ManagerBasedRlEnv(NpEnv):
         self.rng.bit_generator.state = replacement.bit_generator.state
         self._cfg.seed = seed
         return seed
+
+    def import_training_state(self, state: Mapping[str, Any]) -> None:
+        """Restore the authoritative counter and its manager-derived counters."""
+        super().import_training_state(state)
+        self.common_step_counter = self.step_counter
+        self._sim_step_counter = self.step_counter * self._cfg.sim_substeps
 
     def close(self) -> None:
         self.recorder_manager.close()
