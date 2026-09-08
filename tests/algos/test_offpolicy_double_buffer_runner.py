@@ -377,6 +377,11 @@ def _build_sac_runner_with_fakes(
         return _FakeEnv()
 
     monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
+    monkeypatch.setattr(
+        "uni_rl.ipc.dp_launcher.os.sched_getaffinity",
+        lambda _: set(range(cpu_count)),
+        raising=False,
+    )
     if backend_binding_calls is not None:
         monkeypatch.setattr(
             module,

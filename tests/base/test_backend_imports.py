@@ -18,7 +18,7 @@ _MATERIALIZER_CONSUMERS = (
 )
 
 
-def test_unisim_dependency_is_installed_from_package_index() -> None:
+def test_unisim_dependency_uses_an_approved_source() -> None:
     direct_url = distribution("unisim-core").read_text("direct_url.json")
 
     local_checkout = os.environ.get("UNILAB_LOCAL_UNISIM")
@@ -40,10 +40,14 @@ def test_unisim_dependency_is_installed_from_package_index() -> None:
         assert Path(unisim.__file__).resolve().is_relative_to(expected / "src" / "unisim")
         return
 
-    assert direct_url is None, (
-        "UniLab tests must consume the indexed unisim-core release, not a local, editable, "
-        "or VCS checkout"
-    )
+    if direct_url is None:
+        return
+
+    metadata = json.loads(direct_url)
+    assert metadata.get("url") == "https://github.com/unilabsim/unisim.git"
+    vcs_info = metadata.get("vcs_info", {})
+    assert vcs_info.get("vcs") == "git"
+    assert vcs_info.get("commit_id"), "Git-sourced UniSim must be pinned to a commit"
 
 
 def test_materializer_consumers_use_unisim_owner_module() -> None:

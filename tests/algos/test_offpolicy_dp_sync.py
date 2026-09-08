@@ -7,6 +7,7 @@ from collections import defaultdict
 
 import pytest
 import torch
+import uni_rl.ipc.dp_launcher as dp_launcher
 from uni_rl.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK
 from uni_rl.ipc.dp_sync import DpParameterSync
 
@@ -481,6 +482,9 @@ def _build_sac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: 
     module = _offpolicy()
     cfg = _offpolicy_cfg(overrides)
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
+    monkeypatch.setattr(
+        dp_launcher.os, "sched_getaffinity", lambda _: set(range(128)), raising=False
+    )
 
     import uni_rl.algos.fast_sac.double_buffer as owner_module
 
@@ -544,6 +548,9 @@ def test_build_runner_multi_gpu_rank0_requires_log_dir(monkeypatch: pytest.Monke
     monkeypatch.delenv(UNILAB_DP_LOG_DIR, raising=False)
     monkeypatch.setattr(module, "registry_env_factory", lambda *args, **kwargs: _fake_env_factory)
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
+    monkeypatch.setattr(
+        dp_launcher.os, "sched_getaffinity", lambda _: set(range(128)), raising=False
+    )
     with pytest.raises(ValueError, match="log_dir"):
         module.build_runner("sac", cfg)
 
@@ -701,6 +708,9 @@ def _build_flashsac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overri
     module = _offpolicy()
     cfg = _offpolicy_cfg(overrides, algo="flashsac")
     monkeypatch.setattr(module.os, "cpu_count", lambda: 128)
+    monkeypatch.setattr(
+        dp_launcher.os, "sched_getaffinity", lambda _: set(range(128)), raising=False
+    )
 
     import uni_rl.algos.flash_sac.double_buffer as flash_module
 

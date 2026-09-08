@@ -40,9 +40,9 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    # Physics implementations are provided by the independently released
-    # unisim-core package from the production PyPI index.
-    "unisim-core>=1.1.4",
+    # Keep the SuperDex backend contract aligned with the merged UniSim source
+    # until its next PyPI release. The commit is pinned for reproducible CI.
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@037e596",
     # Keep the CPU-partition contract aligned with the merged UniRL source
     # until its next PyPI release. The commit is pinned for reproducible CI.
     "unilab-rl @ git+https://github.com/unilabsim/unilab_rl.git@2cdab3c",
