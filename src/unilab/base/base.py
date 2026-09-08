@@ -38,8 +38,8 @@ class EnvCfg:
     # SuperDex native robots are resolved through the local asset hub registry.
     # Thread count is process-wide: 0 is serial, positive values are explicit.
     superdex_num_threads: int = 0
-    # Environment workers are separate from each worker's SDK threads.
-    # 0 selects affinity-aware automatic CPU sharding; 1 stays in-process.
+    # Native C++ scene workers are separate from SDK-internal threads.
+    # 0 selects affinity-aware automatic CPU batching; 1 stays serial.
     superdex_num_workers: int = 0
     superdex_assets_root: Optional[str] = None
     superdex_effort_limits: Optional[list[float]] = None
