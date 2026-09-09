@@ -10,8 +10,6 @@ contract is recorded in
   `src/unilab/conf/{ppo,appo}/task/<task>/<backend>.yaml`.
 - Off-policy algorithms (SAC / TD3 / FlashSAC) each have their own config
   tree: `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`.
-- `src/unilab/conf/hora_distill/` follows the same owner-YAML identity rule for its
-  supported tasks.
 
 ## Required Semantics
 

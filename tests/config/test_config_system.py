@@ -297,47 +297,25 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
         ("flashsac", ["task=g1_walk_flat/mujoco"]),
     ],
 )
-def test_post_step_forward_sensor_defaults_false_outside_sharpa_mujoco(
-    algo_dir: str, overrides: list[str]
-):
+def test_post_step_forward_sensor_defaults_false(algo_dir: str, overrides: list[str]):
     cfg = _compose(algo_dir, overrides=overrides)
 
     assert cfg.env.post_step_forward_sensor is False
 
 
-@pytest.mark.parametrize(
-    ("algo_dir", "overrides"),
-    [
-        ("ppo", ["task=sharpa_inhand/mujoco"]),
-        ("ppo", ["task=sharpa_inhand/mujoco_hora"]),
-        ("ppo", ["task=sharpa_inhand_grasp/mujoco"]),
-        ("appo", ["task=sharpa_inhand/mujoco"]),
-        ("appo", ["task=sharpa_inhand/mujoco_hora"]),
-        ("sac", ["task=sharpa_inhand/mujoco_hora"]),
-        ("hora_distill", ["task=sharpa_inhand/mujoco"]),
-    ],
-)
-def test_post_step_forward_sensor_enabled_for_sharpa_mujoco(algo_dir: str, overrides: list[str]):
-    cfg = _compose(algo_dir, overrides=overrides)
-
-    assert cfg.env.post_step_forward_sensor is True
-
-
 def test_mujoco_post_step_forward_sensor_can_be_overridden():
     override_cfg = _compose(
-        "appo",
-        overrides=["task=sharpa_inhand/mujoco_hora", "env.post_step_forward_sensor=false"],
+        "ppo",
+        overrides=["task=g1_walk_flat/mujoco", "env.post_step_forward_sensor=true"],
     )
 
-    assert override_cfg.env.post_step_forward_sensor is False
+    assert override_cfg.env.post_step_forward_sensor is True
 
 
 def test_appo_adaptive_lr_factors_are_overridden_only_by_dex_hand_owners():
     g1_cfg = _compose("appo", overrides=["task=g1_walk_flat/mujoco"])
     allegro_cfg = _compose("appo", overrides=["task=allegro_inhand/mujoco"])
     allegro_motrix_cfg = _compose("appo", overrides=["task=allegro_inhand/motrix"])
-    sharpa_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco"])
-    sharpa_hora_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco_hora"])
 
     assert g1_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
     assert g1_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
@@ -345,10 +323,6 @@ def test_appo_adaptive_lr_factors_are_overridden_only_by_dex_hand_owners():
     assert allegro_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
     assert allegro_motrix_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(2.0)
     assert allegro_motrix_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
-    assert sharpa_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
-    assert sharpa_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
-    assert sharpa_hora_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
-    assert sharpa_hora_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
 
 
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():

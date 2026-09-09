@@ -93,5 +93,4 @@ Extend terrain generation while keeping asset access on cold paths.
 5-contributing_workflow
 6-agent_quick_reference
 7-motion_assets
-8-motrix_contact_sensor
 ```

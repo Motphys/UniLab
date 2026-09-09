@@ -101,7 +101,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim motrix \
 :::{grid-item-card} 挑选算法
 :link: 2-user_guide/2-algorithms/0-index
 :link-type: doc
-对比 PPO、APPO、SAC、TD3、FlashSAC 和 HORA 的入口。
+对比 PPO、APPO、SAC、TD3 和 FlashSAC 的入口。
 :::
 
 :::{grid-item-card} 部署或切换仿真
@@ -151,7 +151,6 @@ recommendation 元数据。
 | Go2W joystick | PPO | `src/unilab/conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
 | G1 locomotion / tracking | PPO、APPO、SAC、TD3 | PPO、APPO、SAC 都为 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
 | Allegro in-hand | PPO、APPO | PPO 和 APPO 为 Allegro in-hand 任务提供了已提交的 MuJoCo 与 Motrix owner YAML。 |
-| Sharpa in-hand | PPO、APPO HORA teacher、HORA distillation | Sharpa owner YAML 为 PPO/APPO teacher 路径已提交；student distillation 使用 `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`。 |
 
 ```{toctree}
 :hidden:

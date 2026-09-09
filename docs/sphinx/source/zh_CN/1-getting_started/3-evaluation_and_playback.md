@@ -37,7 +37,7 @@ uv run demo dance
 调试策略时，可以使用低层脚本 `src/unilab/scripts/play_interactive.py`。
 
 `src/unilab/scripts/play_interactive.py` 是通用 MuJoCo viewer 入口，适合 PPO、APPO、
-SAC、FlashSAC 和 HORA distill 的策略可视化。它使用 `--algo / --task / --sim`
+SAC 和 FlashSAC 的策略可视化。它使用 `--algo / --task / --sim`
 选择算法和 owner config；无论 `--sim` 选择 MuJoCo 还是 Motrix，窗口都使用
 `mujoco.viewer` 可视化，`--sim` 只决定读取哪份配置。
 

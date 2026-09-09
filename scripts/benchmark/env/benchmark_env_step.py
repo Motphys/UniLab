@@ -223,32 +223,6 @@ def _materialize_g1_rough_benchmark_scene() -> str:
     return str(output_path)
 
 
-def _materialize_sharpa_motrix_scene() -> str:
-    import xml.etree.ElementTree as ET
-
-    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "sharpa_wave"
-    output_dir = Path("/tmp/unilab_benchmark_sharpa_scene")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    robot_tree = ET.parse(source_dir / "right_sharpa_wave.xml")
-    robot_root = robot_tree.getroot()
-    compiler = robot_root.find("compiler")
-    if compiler is not None:
-        compiler.set("meshdir", str((source_dir / "meshes").resolve()))
-
-    contact = robot_root.find("contact")
-    if contact is not None:
-        for exclude in list(contact.findall("exclude")):
-            if exclude.get("body1") == exclude.get("body2"):
-                contact.remove(exclude)
-    robot_tree.write(output_dir / "right_sharpa_wave.xml")
-
-    scene_tree = ET.parse(source_dir / "scene.xml")
-    output_path = output_dir / "scene.xml"
-    scene_tree.write(output_path)
-    return str(output_path)
-
-
 def _go1_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs import ManagerBasedRlEnvCfg
 
@@ -318,73 +292,10 @@ def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
     )
 
 
-def _sharpa_inhand_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    from unilab.base.config_adapter import BackendAdapter
-    from unilab.base.registry import apply_cfg_overrides
-    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
-
-    yaml_backend = _hydra_yaml_backend(backend)
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(
-        config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / "ppo"), version_base="1.3"
-    ):
-        owner_cfg = compose(
-            config_name="config",
-            overrides=[
-                f"task=sharpa_inhand/{yaml_backend}",
-                "env.grasp_cache_path=/tmp/unilab_benchmark_sharpa_grasp",
-                *config_overrides,
-                "hydra.run.dir=.",
-                "hydra.output_subdir=null",
-                "hydra/job_logging=disabled",
-                "hydra/hydra_logging=disabled",
-            ],
-        )
-
-    env_cfg_override = BackendAdapter(
-        owner_cfg,
-        root_dir=ROOT_DIR,
-        algo_name="ppo",
-    ).build_task_env_cfg_override()
-
-    cfg = SharpaInhandRotationCfg()
-    apply_cfg_overrides(cfg, env_cfg_override)
-    return cfg
-
-
-def _ensure_sharpa_benchmark_grasp_cache(cfg: Any, _: str) -> None:
-    from unilab.tasks.manipulation.sharpa_inhand.base import (
-        SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
-        resolve_grasp_cache_file,
-    )
-
-    if not str(cfg.grasp_cache_path).startswith("/tmp/unilab_benchmark_sharpa_grasp"):
-        return
-
-    hand_qpos = np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64))
-    object_height = 0.5 * (float(cfg.reset_height_lower) + float(cfg.reset_height_upper))
-    object_pose = np.asarray([0.0, 0.0, object_height, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
-    cache_row = np.concatenate([hand_qpos, object_pose], axis=0)
-
-    for scale_value in np.asarray(cfg.domain_rand.scale_list, dtype=np.float64):
-        cache_file = resolve_grasp_cache_file(cfg.grasp_cache_path, float(scale_value))
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        np.save(cache_file, cache_row[None, :])
-
-
 def _g1_walk_env_cls() -> type:
     from unilab.tasks.locomotion.g1 import make_g1_walk_env
 
     return make_g1_walk_env
-
-
-def _sharpa_inhand_env_cls() -> type:
-    from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationEnv
-
-    return SharpaInhandRotationEnv
 
 
 TASK_CONFIGS: dict[str, TaskConfig] = {
@@ -445,14 +356,6 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_cls_factory=_manager_env_cls,
         backends=("mujoco", "motrix"),
     ),
-    "sharpa_inhand": TaskConfig(
-        task_id="sharpa_inhand",
-        env_name="SharpaInhandRotation",
-        cfg_factory=_sharpa_inhand_cfg,
-        env_cls_factory=_sharpa_inhand_env_cls,
-        cfg_finalizer=_ensure_sharpa_benchmark_grasp_cache,
-        backends=("mujoco", "motrix", "mjwarp"),
-    ),
 }
 
 # Default benchmark parameters
@@ -470,7 +373,6 @@ TASK_COLORS = {
     "go2w": "#72B7B2",
     "go2w_rough": "#499894",
     "go2w_rough_tiles": "#499894",
-    "sharpa_inhand": "#D37295",
 }
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
@@ -818,8 +720,6 @@ def _short_task_label(task_name: str) -> str:
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
-    if name.startswith("sharpainhand"):
-        return "sharpa_inhand"
     if "rough" in name and name.startswith("g1"):
         return "g1_rough"
     if name.startswith("go2w") and "roughtiles" in name:

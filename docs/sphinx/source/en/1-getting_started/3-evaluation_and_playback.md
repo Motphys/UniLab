@@ -39,7 +39,7 @@ Use `uv run eval` for regular evaluation and video export. When you need a live
 `src/unilab/scripts/play_interactive.py` script.
 
 `src/unilab/scripts/play_interactive.py` is the general MuJoCo viewer entrypoint for PPO,
-APPO, SAC, FlashSAC, and HORA distill policies. It uses `--algo / --task /
+APPO, SAC, and FlashSAC policies. It uses `--algo / --task /
 --sim` to select the algorithm and owner config. The viewer is always
 `mujoco.viewer`; `--sim` only selects which config to read.
 

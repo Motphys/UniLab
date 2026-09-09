@@ -1,7 +1,7 @@
-# Allegro / Sharpa 手内操作部署
+# Allegro 手内操作部署
 
-在 16 自由度的 Allegro 手或 17 自由度的 Sharpa 手上进行方块重定向。UniLab 以无触觉
-方式训练它们 —— 观测仅为关节状态 + 方块位姿。
+在 16 自由度的 Allegro 手上进行方块重定向。UniLab 以无触觉
+方式训练 —— 观测仅为关节状态 + 方块位姿。
 
 ## 难点在哪
 
@@ -24,10 +24,10 @@
   - 维度
   - 硬件上的来源
 * - 关节位置
-  - 16（Allegro）/ 17（Sharpa）
+  - 16
   - 编码器
 * - 关节速度
-  - 16 / 17
+  - 16
   - 编码器差分，低通滤波
 * - 方块位姿（世界系）
   - 7
@@ -39,7 +39,7 @@
   - 4
   - 指令
 * - 上一步动作
-  - 16 / 17
+  - 16
   - 上一次策略输出
 ```
 
@@ -52,7 +52,7 @@ owner 与部署运行时在观测时序上达成一致。见
 
 ## 抓取生成器
 
-`4-allegro_inhand` 与 `sharpa_inhand` 两个环境都自带一个**抓取生成器**，用于采样
+`allegro_inhand` 环境自带一个**抓取生成器**，用于采样
 合理的初始手部构型。硬件侧的等价物是操作员把方块放到手里 —— 请核实你的起始构型分布
 与训练环境的抓取生成器输出相匹配（参见
 `unilab.tasks.manipulation.allegro_inhand.grasp_gen`）。
@@ -63,8 +63,7 @@ owner 与部署运行时在观测时序上达成一致。见
 ## 动作接口
 
 操作类环境通过任务控制配置把策略动作映射为关节位置目标。Allegro 的声明由
-`src/unilab/conf/ppo/task/allegro_inhand/base.yaml` 与其 Manager-Based action term 持有；
-Sharpa 当前仍由 `src/unilab/tasks/manipulation/sharpa_inhand/base.py` 持有。
+`src/unilab/conf/ppo/task/allegro_inhand/base.yaml` 与其 Manager-Based action term 持有。
 部署控制器必须使用相同的关节顺序、动作缩放与限位策略。
 
 ## 失败恢复
@@ -76,4 +75,3 @@ Sharpa 当前仍由 `src/unilab/tasks/manipulation/sharpa_inhand/base.py` 持有
 
 - {doc}`5-onnx_runtime`
 - {doc}`6-domain_randomization`
-- {doc}`../../2-user_guide/8-manipulation/1-dexterous_inhand`

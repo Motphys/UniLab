@@ -94,12 +94,6 @@ def test_offpolicy_config_has_one_replay_path():
     assert "replay_h2d_submitter" not in cfg.training
 
 
-def test_hora_uses_same_learner_inference_path():
-    cfg = _offpolicy_cfg(["task=sharpa_inhand/mujoco_hora"])
-    assert "inference_owner" not in cfg.training
-    assert cfg.training.env_steps_per_sync == 2
-
-
 @pytest.mark.parametrize(
     "override",
     [

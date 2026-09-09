@@ -1,10 +1,9 @@
 # 编写 Provider
 
-本页描述 legacy provider 路径：只有 2 个 Adapted family（`sharpa_inhand` /
-`sharpa_inhand_grasp`）仍通过任务级
-`DomainRandomizationProvider` 声明域随机化。已迁移的 Manager-Based 任务不写
-provider；它们在 owner YAML 中通过 Hydra `events:` manager term 声明随机化（见
-{doc}`0-index` 与 {doc}`1-configuration`）。
+本页描述任务级 provider 路径：自定义任务（包括托管在外部仓库中的任务）
+可以通过任务级 `DomainRandomizationProvider` 声明域随机化。Manager-Based
+任务不写 provider；它们在 owner YAML 中通过 Hydra `events:` manager term
+声明随机化（见 {doc}`0-index` 与 {doc}`1-configuration`）。
 
 任务级域随机化 provider 与 task env owner 放在一起。它们采样任务专属的
 状态，并返回由 `DomainRandomizationManager` 消费的 plan。
@@ -56,9 +55,10 @@ def build_interval_randomization_plan(self, env, step_counter):
 
 ## 证据
 
-具有代表性的 provider 实现位于（全部属于 Adapted family 的兼容路径）：
+provider 接口与 manager 位于：
 
-- `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
+- `src/unilab/dr/provider.py`
+- `src/unilab/dr/manager.py`
 
 开发者 contract 详情见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。

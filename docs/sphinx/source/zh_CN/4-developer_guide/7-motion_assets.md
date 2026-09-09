@@ -80,7 +80,7 @@ env:
 机器人二进制网格和纹理（例如 `.STL`、`.obj`、`.png`）采用相同方式外置，
 托管在 Hugging Face 数据集仓库
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots)。
-已注册的机器人为 a2、allegro_hand、g1、go2、sharpa_wave、
+已注册的机器人为 a2、allegro_hand、g1、go2、
 x2（见 `src/unilab/assets/hub.py` 的 `ROBOT_ASSET_SPECS`）。它们的
 mesh/纹理目录在首次使用时按需下载，落盘到原始路径（例如 G1 的
 `src/unilab/assets/robots/g1/assets/` 与 `robots/g1/textures/`），因此 XML 中的

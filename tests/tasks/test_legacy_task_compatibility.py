@@ -8,7 +8,6 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-from unilab.base import registry
 from unilab.base.base import ABEnv, EnvCfg
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.tasks.compatibility import (
@@ -109,9 +108,9 @@ def test_adapter_rejects_non_env_cfg_before_calling_factory() -> None:
         called = True
         return _uninitialized_np_env()
 
-    adapter = adapt_legacy_factory(factory, task_family="Sharpa", reason="migration seam")
+    adapter = adapt_legacy_factory(factory, task_family="CustomLegacyTask", reason="migration seam")
 
-    with pytest.raises(TypeError, match=r"Sharpa.*expected EnvCfg.*dict"):
+    with pytest.raises(TypeError, match=r"CustomLegacyTask.*expected EnvCfg.*dict"):
         adapter({})  # type: ignore[arg-type]
 
     assert called is False
@@ -147,7 +146,7 @@ def test_factory_exception_propagates_without_fallback() -> None:
     def factory(cfg: EnvCfg, *, num_envs: int, backend_type: str) -> ABEnv:
         raise failure
 
-    adapter = adapt_legacy_factory(factory, task_family="Sharpa", reason="migration seam")
+    adapter = adapt_legacy_factory(factory, task_family="CustomLegacyTask", reason="migration seam")
 
     with pytest.raises(RuntimeError) as exc_info:
         adapter(_Cfg())
@@ -157,7 +156,7 @@ def test_factory_exception_propagates_without_fallback() -> None:
 
 def test_unsupported_metadata_is_explicit_and_does_not_create_a_factory() -> None:
     compatibility = unsupported_legacy_task(
-        task_family="Sharpa foreign lifecycle",
+        task_family="CustomLegacyTask foreign lifecycle",
         reason="only the existing NpEnv lifecycle is admitted",
     )
 
@@ -168,33 +167,10 @@ def test_unsupported_metadata_is_explicit_and_does_not_create_a_factory() -> Non
         LegacyFactoryAdapter(lambda cfg, **kwargs: _uninitialized_np_env(), compatibility)
 
 
-@pytest.mark.parametrize(("task_family", "reason"), (("", "reason"), ("Sharpa", "")))
+@pytest.mark.parametrize(("task_family", "reason"), (("", "reason"), ("CustomLegacyTask", "")))
 def test_compatibility_metadata_requires_stable_family_and_reason(
     task_family: str,
     reason: str,
 ) -> None:
     with pytest.raises(ValueError, match="must be non-empty"):
         unsupported_legacy_task(task_family=task_family, reason=reason)
-
-
-@pytest.mark.parametrize(
-    ("task_name", "family", "backends"),
-    (
-        ("SharpaInhandRotation", "Sharpa", {"mujoco", "motrix", "drake"}),
-        ("SharpaInhandRotationGrasp", "Sharpa", {"mujoco", "motrix"}),
-    ),
-)
-def test_approved_production_families_are_registered_through_the_frozen_seam(
-    task_name: str,
-    family: str,
-    backends: set[str],
-) -> None:
-    registry.ensure_registries()
-    factories = registry._envs[task_name].env_factory_dict
-
-    assert set(factories) == backends
-    assert all(isinstance(factory, LegacyFactoryAdapter) for factory in factories.values())
-    assert {factory.compatibility.task_family for factory in factories.values()} == {family}
-    assert {factory.compatibility.status for factory in factories.values()} == {
-        CompatibilityStatus.ADAPTED
-    }

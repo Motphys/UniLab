@@ -108,9 +108,9 @@ def test_macos_motrix_finds_uv_venv_mxpython_when_not_on_path(
 def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go1_joystick_flat"
     owner_dir.mkdir(parents=True)
-    (owner_dir / "mujoco_hora.yaml").write_text(
+    (owner_dir / "mujoco_nodr.yaml").write_text(
         "training:\n  sim_backend: mujoco\n",
         encoding="utf-8",
     )
@@ -118,16 +118,16 @@ def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
     command = cli.build_command(
         mode="train",
         algo="ppo",
-        task="sharpa_inhand",
+        task="go1_joystick_flat",
         sim="mujoco",
-        profile="hora",
+        profile="nodr",
         overrides=[],
         root=tmp_path,
     )
 
     assert command[1:] == [
         str(tmp_path / "scripts" / "train_rsl_rl.py"),
-        "task=sharpa_inhand/mujoco_hora",
+        "task=go1_joystick_flat/mujoco_nodr",
     ]
 
 
@@ -264,7 +264,7 @@ def test_eval_mujoco_interactive_honors_profile_and_render_override(
     (scripts_dir / "play_interactive.py").write_text("", encoding="utf-8")
     owner_dir = tmp_path / "conf" / "td3" / "task" / "g1_walk_flat"
     owner_dir.mkdir(parents=True)
-    (owner_dir / "mujoco_hora.yaml").write_text(
+    (owner_dir / "mujoco_nodr.yaml").write_text(
         "training:\n  sim_backend: mujoco\n", encoding="utf-8"
     )
     monkeypatch.setattr(
@@ -278,7 +278,7 @@ def test_eval_mujoco_interactive_honors_profile_and_render_override(
         algo="td3",
         task="g1_walk_flat",
         sim="mujoco",
-        profile="hora",
+        profile="nodr",
         overrides=["training.play_render_mode=interactive", "algo.num_envs=4096"],
         load_run="run_1",
         render_mode="record",
@@ -293,7 +293,7 @@ def test_eval_mujoco_interactive_honors_profile_and_render_override(
         "--task",
         "g1_walk_flat",
         "--sim",
-        "mujoco_hora",
+        "mujoco_nodr",
         "interactive.action_mode=policy",
         "training.play_only=true",
         "algo.load_run=run_1",
@@ -493,9 +493,9 @@ def test_eval_fallback_prefers_same_profile_owner(
 ) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go1_joystick_flat"
     owner_dir.mkdir(parents=True)
-    (owner_dir / "mujoco_hora.yaml").write_text(
+    (owner_dir / "mujoco_nodr.yaml").write_text(
         "training:\n  sim_backend: mujoco\n", encoding="utf-8"
     )
     (owner_dir / "motrix.yaml").write_text("training:\n  sim_backend: motrix\n", encoding="utf-8")
@@ -505,15 +505,15 @@ def test_eval_fallback_prefers_same_profile_owner(
     command = cli.build_command(
         mode="eval",
         algo="ppo",
-        task="sharpa_inhand",
+        task="go1_joystick_flat",
         sim="motrix",
-        profile="hora",
+        profile="nodr",
         overrides=[],
         load_run="-1",
         root=tmp_path,
     )
 
-    assert "task=sharpa_inhand/mujoco_hora" in command
+    assert "task=go1_joystick_flat/mujoco_nodr" in command
     assert "training.sim_backend=motrix" in command
 
 
@@ -522,7 +522,7 @@ def test_eval_fallback_without_same_profile_sibling_fails(
 ) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "ppo" / "task" / "sharpa_inhand"
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go1_joystick_flat"
     owner_dir.mkdir(parents=True)
     (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
     _pretend_motrix_is_installed(monkeypatch)
@@ -532,9 +532,9 @@ def test_eval_fallback_without_same_profile_sibling_fails(
         cli.build_command(
             mode="eval",
             algo="ppo",
-            task="sharpa_inhand",
+            task="go1_joystick_flat",
             sim="motrix",
-            profile="hora",
+            profile="nodr",
             overrides=[],
             load_run="-1",
             root=tmp_path,
@@ -735,27 +735,23 @@ def _make_demo_checkout(root: Path, *, demo_name: str) -> None:
     )
 
 
+def _register_play_interactive_demo(monkeypatch: pytest.MonkeyPatch) -> str:
+    name = "playdemo"
+    monkeypatch.setitem(
+        demo.DEMO_REGISTRY,
+        name,
+        demo.DemoSpec(algo="ppo", task="g1_walk_flat", sim="mujoco", entry="play_interactive"),
+    )
+    return name
+
+
 def test_demo_registry_contains_expected_entries() -> None:
     assert set(demo.DEMO_REGISTRY) == {
         "dance",
         "wallflip",
         "boxtracking",
-        "sharpa_appo_student",
-        "inhandgrasp",
         "teaser",
     }
-    assert demo.DEMO_REGISTRY["inhandgrasp"] == demo.DemoSpec(
-        algo="hora_distill",
-        task="sharpa_inhand",
-        sim="mujoco_nodr",
-        entry="play_interactive",
-    )
-    assert demo.DEMO_REGISTRY["sharpa_appo_student"] == demo.DemoSpec(
-        algo="hora_distill",
-        task="sharpa_inhand",
-        sim="mujoco_nodr",
-        entry="play_interactive",
-    )
     assert demo.DEMO_REGISTRY["teaser"].entry == "teaser"
     for name in ("dance", "wallflip", "boxtracking"):
         spec = demo.DEMO_REGISTRY[name]
@@ -781,62 +777,18 @@ def test_demo_eval_entry_passes_checkpoint_as_load_run_override(
     assert f"algo.load_run={abs_pt}" in command
 
 
-def test_demo_play_interactive_entry_assembles_inhandgrasp_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
-    monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
-    abs_pt = str(tmp_path / "fake" / "model_0.pt")
-    command = demo.build_demo_command(
-        demo_name="inhandgrasp",
-        checkpoint_path=abs_pt,
-        device="cpu",
-        root=tmp_path,
-    )
-
-    assert command[0] == sys.executable
-    assert command[1] == str(tmp_path / "scripts" / "play_interactive.py")
-    assert command[2:4] == ["--algo", "hora_distill"]
-    assert command[4:8] == ["--task", "sharpa_inhand", "--sim", "mujoco_nodr"]
-    assert f"algo.load_run={abs_pt}" in command
-    assert "training.device=cpu" in command
-    assert "interactive.camera_follow_body=false" in command
-
-
-def test_demo_play_interactive_hora_distill_nodr_command(tmp_path: Path) -> None:
-    _make_demo_checkout(tmp_path, demo_name="sharpa_appo_student")
-    abs_pt = str(tmp_path / "fake" / "model_0.pt")
-
-    command = demo.build_demo_command(
-        demo_name="sharpa_appo_student",
-        checkpoint_path=abs_pt,
-        root=tmp_path,
-    )
-
-    assert command[1:] == [
-        str(tmp_path / "scripts" / "play_interactive.py"),
-        "--algo",
-        "hora_distill",
-        "--task",
-        "sharpa_inhand",
-        "--sim",
-        "mujoco_nodr",
-        f"algo.load_run={abs_pt}",
-    ]
-
-
 def test_demo_play_interactive_sac_owner_path_uses_sac_tree(tmp_path: Path) -> None:
     (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
     (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "sac" / "task" / "sharpa_inhand"
+    owner_dir = tmp_path / "conf" / "sac" / "task" / "g1_walk_flat"
     owner_dir.mkdir(parents=True)
-    (owner_dir / "mujoco_hora.yaml").write_text(
+    (owner_dir / "mujoco_nodr.yaml").write_text(
         "training:\n  sim_backend: mujoco\n", encoding="utf-8"
     )
     spec = demo.DemoSpec(
         algo="sac",
-        task="sharpa_inhand",
-        sim="mujoco_hora",
+        task="g1_walk_flat",
+        sim="mujoco_nodr",
         entry="play_interactive",
     )
 
@@ -852,9 +804,9 @@ def test_demo_play_interactive_sac_owner_path_uses_sac_tree(tmp_path: Path) -> N
         "--algo",
         "sac",
         "--task",
-        "sharpa_inhand",
+        "g1_walk_flat",
         "--sim",
-        "mujoco_hora",
+        "mujoco_nodr",
         "algo.load_run=/tmp/model_0.pt",
     ]
 
@@ -862,7 +814,8 @@ def test_demo_play_interactive_sac_owner_path_uses_sac_tree(tmp_path: Path) -> N
 def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
+    demo_name = _register_play_interactive_demo(monkeypatch)
+    _make_demo_checkout(tmp_path, demo_name=demo_name)
     monkeypatch.setattr(demo.platform, "system", lambda: "Linux")
 
     def fail_materialize() -> None:
@@ -871,7 +824,7 @@ def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
     monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", fail_materialize)
 
     command = demo.build_demo_command(
-        demo_name="inhandgrasp",
+        demo_name=demo_name,
         checkpoint_path="/tmp/fake/model_0.pt",
         root=tmp_path,
     )
@@ -882,7 +835,8 @@ def test_demo_play_interactive_linux_does_not_materialize_mjpython_app(
 def test_demo_play_interactive_uses_mjpython_on_macos(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
+    demo_name = _register_play_interactive_demo(monkeypatch)
+    _make_demo_checkout(tmp_path, demo_name=demo_name)
     venv_bin = tmp_path / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
     fake_python = venv_bin / "python"
@@ -894,7 +848,7 @@ def test_demo_play_interactive_uses_mjpython_on_macos(
     monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", lambda: None)
 
     command = demo.build_demo_command(
-        demo_name="inhandgrasp",
+        demo_name=demo_name,
         checkpoint_path="/tmp/fake/model_0.pt",
         root=tmp_path,
     )
@@ -907,13 +861,14 @@ def test_demo_play_interactive_checks_mujoco_mjpython_app_on_macos(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[str] = []
-    _make_demo_checkout(tmp_path, demo_name="inhandgrasp")
+    demo_name = _register_play_interactive_demo(monkeypatch)
+    _make_demo_checkout(tmp_path, demo_name=demo_name)
     monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(demo, "_ensure_mujoco_mjpython_app", lambda: calls.append("checked"))
     monkeypatch.setattr(demo, "_current_env_mjpython", lambda: "/tmp/mjpython")
 
     command = demo.build_demo_command(
-        demo_name="inhandgrasp",
+        demo_name=demo_name,
         checkpoint_path="/tmp/fake/model_0.pt",
         root=tmp_path,
     )
@@ -922,27 +877,33 @@ def test_demo_play_interactive_checks_mujoco_mjpython_app_on_macos(
     assert calls == ["checked"]
 
 
-def test_demo_play_interactive_requires_owner_yaml(tmp_path: Path) -> None:
+def test_demo_play_interactive_requires_owner_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    demo_name = _register_play_interactive_demo(monkeypatch)
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "play_interactive.py").write_text("", encoding="utf-8")
 
     with pytest.raises(SystemExit, match="owner config"):
         demo.build_demo_command(
-            demo_name="inhandgrasp",
+            demo_name=demo_name,
             checkpoint_path="/tmp/fake/model_0.pt",
             root=tmp_path,
         )
 
 
-def test_demo_play_interactive_requires_script(tmp_path: Path) -> None:
-    spec = demo.DEMO_REGISTRY["inhandgrasp"]
+def test_demo_play_interactive_requires_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    demo_name = _register_play_interactive_demo(monkeypatch)
+    spec = demo.DEMO_REGISTRY[demo_name]
     owner_dir = tmp_path / "conf" / spec.algo / "task" / spec.task
     owner_dir.mkdir(parents=True)
     (owner_dir / f"{spec.sim}.yaml").write_text("training:\n", encoding="utf-8")
 
     with pytest.raises(SystemExit, match="play_interactive.py"):
         demo.build_demo_command(
-            demo_name="inhandgrasp",
+            demo_name=demo_name,
             checkpoint_path="/tmp/fake/model_0.pt",
             root=tmp_path,
         )
@@ -974,13 +935,19 @@ def test_demo_local_only_checkpoint_missing_warns_without_hf_download(
         raise AssertionError("local-only demo must not download from Hugging Face")
 
     monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
+    monkeypatch.setitem(
+        demo.DEMO_REGISTRY,
+        "localonly",
+        demo.DemoSpec(algo="ppo", task="g1_walk_flat", sim="mujoco", entry="play_interactive"),
+    )
+    monkeypatch.setattr(demo, "_LOCAL_ONLY_CHECKPOINT_DEMOS", {"localonly"})
 
-    rc = demo.run_demo(demo_name="sharpa_appo_student")
+    rc = demo.run_demo(demo_name="localonly")
 
     output = capsys.readouterr().out
     assert rc == 1
     assert "Checkpoint not found" in output
-    assert "checkpoints/sharpa_appo_student/model_0.pt" in output.replace("\\", "/")
+    assert "checkpoints/localonly/model_0.pt" in output.replace("\\", "/")
 
 
 def test_demo_local_only_checkpoint_uses_existing_file(
@@ -989,8 +956,14 @@ def test_demo_local_only_checkpoint_uses_existing_file(
 ) -> None:
     checkout = tmp_path / "checkout"
     assets = tmp_path / "assets"
-    checkpoint = assets / "checkpoints" / "sharpa_appo_student" / "model_0.pt"
-    _make_demo_checkout(checkout, demo_name="sharpa_appo_student")
+    checkpoint = assets / "checkpoints" / "localonly" / "model_0.pt"
+    monkeypatch.setitem(
+        demo.DEMO_REGISTRY,
+        "localonly",
+        demo.DemoSpec(algo="ppo", task="g1_walk_flat", sim="mujoco", entry="play_interactive"),
+    )
+    monkeypatch.setattr(demo, "_LOCAL_ONLY_CHECKPOINT_DEMOS", {"localonly"})
+    _make_demo_checkout(checkout, demo_name="localonly")
     checkpoint.parent.mkdir(parents=True)
     checkpoint.write_bytes(b"checkpoint")
     calls: list[list[str]] = []
@@ -1012,7 +985,7 @@ def test_demo_local_only_checkpoint_uses_existing_file(
     monkeypatch.setattr(demo, "resolve_checkpoint_file", fail_resolve)
     monkeypatch.setattr(demo.subprocess, "run", fake_run)
 
-    rc = demo.run_demo(demo_name="sharpa_appo_student", device="cpu")
+    rc = demo.run_demo(demo_name="localonly", device="cpu")
 
     assert rc == 0
     assert calls == [
@@ -1020,11 +993,11 @@ def test_demo_local_only_checkpoint_uses_existing_file(
             sys.executable,
             str(checkout / "scripts" / "play_interactive.py"),
             "--algo",
-            "hora_distill",
+            "ppo",
             "--task",
-            "sharpa_inhand",
+            "g1_walk_flat",
             "--sim",
-            "mujoco_nodr",
+            "mujoco",
             f"algo.load_run={checkpoint}",
             "training.device=cpu",
         ]
@@ -1306,13 +1279,6 @@ def test_unknown_algo_error_lists_builtin_and_discovered_algos(tmp_path: Path) -
     for builtin in ("ppo", "appo", "sac", "td3", "flashsac"):
         assert builtin in message
     assert "dreamer" in message
-
-
-def test_conf_tree_without_entrypoint_is_not_routable() -> None:
-    # hora_distill ships a conf tree (compose-only) but no train_hora_distill.py.
-    with pytest.raises(SystemExit, match="Unsupported algo='hora_distill'"):
-        cli.build_route("hora_distill", "sharpa_inhand", "mujoco")
-    assert "hora_distill" not in cli.available_algos()
 
 
 def test_malformed_algo_name_is_rejected_fail_closed(tmp_path: Path) -> None:

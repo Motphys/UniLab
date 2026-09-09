@@ -36,7 +36,6 @@ BASIC_ROBOTS = [
 
 _G1 = dict(model_file=_xml("g1"), base_name="pelvis")
 _ALLEGRO = dict(model_file=_xml("allegro_hand", "scene.xml"), base_name="palm")
-_SHARPA = dict(model_file=_xml("sharpa_wave", "scene.xml"), base_name="right_hand_C_MC")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -166,11 +165,11 @@ class TestMuJoCoBasic:
         from unisim.backend.mujoco.backend import MuJoCoBackend
 
         bkd = MuJoCoBackend(
-            SceneCfg(model_file=_SHARPA["model_file"]), 4, SIM_DT, base_name=_SHARPA["base_name"]
+            SceneCfg(model_file=_G1["model_file"]), 4, SIM_DT, base_name=_G1["base_name"]
         )
         assert bkd._pool is None
         mujoco = _mujoco_module()
-        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
         base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
 
         bkd.apply_init_randomization(
@@ -178,10 +177,10 @@ class TestMuJoCoBasic:
                 model_assignments=np.array([0, 1, 0, 1], dtype=np.int32),
                 model_variants=(
                     ModelVariantSpec(
-                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.5)),)
+                        geom_size_overrides=(GeomSizeOverride("floor", tuple(base_size * 0.5)),)
                     ),
                     ModelVariantSpec(
-                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.75)),)
+                        geom_size_overrides=(GeomSizeOverride("floor", tuple(base_size * 0.75)),)
                     ),
                 ),
             )
@@ -202,10 +201,10 @@ class TestMuJoCoBasic:
         from unisim.backend.mujoco.backend import MuJoCoBackend
 
         bkd = MuJoCoBackend(
-            SceneCfg(model_file=_SHARPA["model_file"]), 4, SIM_DT, base_name=_SHARPA["base_name"]
+            SceneCfg(model_file=_G1["model_file"]), 4, SIM_DT, base_name=_G1["base_name"]
         )
         mujoco = _mujoco_module()
-        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "object")
+        geom_id = mujoco.mj_name2id(bkd.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
         base_size = np.asarray(bkd.model.geom_size[geom_id], dtype=np.float64).copy()
 
         bkd.apply_init_randomization(
@@ -213,10 +212,10 @@ class TestMuJoCoBasic:
                 model_assignments=np.array([0, 1, 0, 1], dtype=np.int32),
                 model_variants=(
                     ModelVariantSpec(
-                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.5)),)
+                        geom_size_overrides=(GeomSizeOverride("floor", tuple(base_size * 0.5)),)
                     ),
                     ModelVariantSpec(
-                        geom_size_overrides=(GeomSizeOverride("object", tuple(base_size * 0.75)),)
+                        geom_size_overrides=(GeomSizeOverride("floor", tuple(base_size * 0.75)),)
                     ),
                 ),
             )

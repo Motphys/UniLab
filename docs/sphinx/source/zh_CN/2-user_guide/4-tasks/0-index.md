@@ -21,7 +21,7 @@ G1 动作追踪、翻转、攀爬、墙面翻转和箱体追踪。
 :::{grid-item-card} 操作
 :link: 3-manipulation
 :link-type: doc
-Allegro 和 Sharpa 手内旋转与抓取生成。
+Allegro 手内旋转与抓取生成。
 :::
 
 ::::

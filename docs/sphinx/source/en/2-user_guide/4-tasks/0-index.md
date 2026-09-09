@@ -21,7 +21,7 @@ G1 motion tracking, flips, climbs, wall flips, and box tracking.
 :::{grid-item-card} Manipulation
 :link: 3-manipulation
 :link-type: doc
-Allegro and Sharpa in-hand rotation and grasp generation.
+Allegro in-hand rotation and grasp generation.
 :::
 
 ::::

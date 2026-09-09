@@ -171,16 +171,7 @@ def test_support_matrix_marks_appo_go1_backends_as_tested():
     assert row.cells["motrix"].level == EvidenceLevel.TESTED
 
 
-def test_support_matrix_marks_sharpa_motrix_phase1_support():
-    row = _row("PPO (torch)", "sharpa_inhand")
-
-    assert row.cells["mujoco"].level == EvidenceLevel.TESTED
-    assert row.cells["motrix"].level == EvidenceLevel.TESTED
-
-    appo_row = _row("APPO (torch)", "sharpa_inhand")
-
-    assert appo_row.cells["mujoco"].level == EvidenceLevel.TESTED
-    assert appo_row.cells["motrix"].level == EvidenceLevel.TESTED
+def test_support_matrix_marks_allegro_appo_backends_as_tested():
     allegro_appo_row = _row("APPO (torch)", "allegro_inhand")
 
     assert allegro_appo_row.cells["mujoco"].level == EvidenceLevel.TESTED

@@ -108,7 +108,7 @@ capability requirements.
 :::{grid-item-card} Pick an algorithm
 :link: 2-user_guide/2-algorithms/0-index
 :link-type: doc
-Compare PPO, APPO, SAC, TD3, FlashSAC, and HORA entrypoints.
+Compare PPO, APPO, SAC, TD3, and FlashSAC entrypoints.
 :::
 
 :::{grid-item-card} Deploy or switch sims
@@ -158,7 +158,6 @@ committed benchmark manifest or separate recommendation metadata.
 | Go2W joystick | PPO | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `src/unilab/conf/ppo/task/go2w_joystick_*`. |
 | G1 locomotion / tracking | PPO, APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
 | Allegro in-hand | PPO, APPO | PPO and APPO have committed MuJoCo and Motrix owner YAMLs for Allegro in-hand tasks. |
-| Sharpa in-hand | PPO, APPO HORA teacher, HORA distillation | Sharpa owner YAMLs are committed for PPO/APPO teacher paths; student distillation uses `src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`. |
 
 ```{toctree}
 :hidden:

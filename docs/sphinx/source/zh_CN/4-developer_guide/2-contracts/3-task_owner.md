@@ -9,7 +9,6 @@
   `src/unilab/conf/{ppo,appo}/task/<task>/<backend>.yaml`。
 - Off-policy 算法（SAC / TD3 / FlashSAC）各自有独立的配置树：
   `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`。
-- `src/unilab/conf/hora_distill/` 对其支持的任务遵循相同的 owner YAML identity 规则。
 
 ## 必需语义
 

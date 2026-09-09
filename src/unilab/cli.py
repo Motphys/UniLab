@@ -96,7 +96,7 @@ def _check_profile(profile: str | None) -> None:
         return
     if TASK_NAME_PATTERN.fullmatch(profile) is None:
         raise SystemExit(
-            "--profile must be a task owner variant such as `hora`; "
+            "--profile must be a task owner variant such as `nodr`; "
             "do not include slashes, dots, or path separators."
         )
 
@@ -266,7 +266,7 @@ def available_algos(root: Path | None = None) -> tuple[str, ...]:
 
     A custom algo ``X`` is routable when both ``conf/X/config.yaml`` and
     ``scripts/train_X.py`` exist under the package root. Config trees without
-    an entrypoint script (e.g. ``hora_distill``) are not routable.
+    an entrypoint script are not routable.
     """
     selected_root = root or package_root()
     discovered: list[str] = []

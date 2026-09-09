@@ -24,7 +24,6 @@ from unilab.assets import ASSETS_ROOT_PATH
 logger = logging.getLogger(__name__)
 
 _HF_MOTIONS_REPO_ID = "unilabsim/unilab-motions"
-_HF_CACHES_REPO_ID = "unilabsim/unilab-caches"
 _HF_SCENES_REPO_ID = "unilabsim/unilab-scenes"
 _HF_CHECKPOINTS_REPO_ID = "unilabsim/unilab-checkpoints"
 _HF_ROBOTS_REPO_ID = "unilabsim/unilab-robots"
@@ -48,7 +47,6 @@ ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
     "go2": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
     # go2w points its meshdir at ``../go2/assets``.
     "go2w": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
-    "sharpa_wave": (("robots/sharpa_wave/meshes", "DP_HB1_4F.STL", "*.STL", "STL"),),
     "x2": (("robots/x2/meshes", "pelvis.STL", "*.STL", "STL"),),
 }
 
@@ -118,31 +116,6 @@ def resolve_motion_files(
     if isinstance(motion_file, str):
         return _resolve_single(motion_file, repo_id=_HF_MOTIONS_REPO_ID)
     return [_resolve_single(p, repo_id=_HF_MOTIONS_REPO_ID) for p in motion_file]
-
-
-def resolve_grasp_cache_files(
-    cache_file: str | Sequence[str],
-    *,
-    show_progress: bool = False,
-) -> str | list[str]:
-    """Ensure grasp cache file(s) exist locally, downloading from HF if needed.
-
-    Args:
-        cache_file: Absolute path or ``ASSETS_ROOT_PATH``-relative path
-            (single string or sequence of strings).
-        show_progress: Whether Hugging Face downloads may render progress bars.
-
-    Returns:
-        Resolved absolute path(s) guaranteed to exist on disk.
-        A single string input returns a single string; a sequence input
-        returns a list of strings.
-    """
-    if isinstance(cache_file, str):
-        return _resolve_single(cache_file, repo_id=_HF_CACHES_REPO_ID, show_progress=show_progress)
-    return [
-        _resolve_single(p, repo_id=_HF_CACHES_REPO_ID, show_progress=show_progress)
-        for p in cache_file
-    ]
 
 
 def resolve_checkpoint_file(

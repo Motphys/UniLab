@@ -10,7 +10,6 @@
 | SAC | off-policy | `src/unilab/scripts/train_sac.py` | `src/unilab/conf/sac/config.yaml` |
 | TD3 | off-policy | `src/unilab/scripts/train_td3.py` | `src/unilab/conf/td3/config.yaml` |
 | FlashSAC | off-policy | `src/unilab/scripts/train_flashsac.py` | `src/unilab/conf/flashsac/config.yaml` |
-| HORA | teacher/student 蒸馏路径 | `scripts/train_hora_distill.py` | `src/unilab/conf/hora_distill/config.yaml` |
 
 ```{toctree}
 :hidden:
@@ -20,5 +19,4 @@
 3-sac
 4-td3
 5-flash_sac
-7-hora
 ```

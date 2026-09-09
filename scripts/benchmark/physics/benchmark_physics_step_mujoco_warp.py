@@ -84,7 +84,6 @@ DEFAULT_NJMAX_BY_TASK = {
     "go1_joystick_flat": 100,
     "go2_joystick_flat": 100,
     "g1_walk_flat": 256,
-    "sharpa_inhand": 128,
 }
 
 

@@ -1624,8 +1624,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="default",
         help=(
             "'default', 'auto', or comma-separated <algo>/<task>/<sim> cases. "
-            "Default covers SAC G1 motion tracking and FlashSAC G1 walk flat on the selected backend. "
-            "Run Sharpa explicitly with --cases sac/sharpa_inhand/mujoco_hora."
+            "Default covers SAC G1 motion tracking and FlashSAC G1 walk flat on the selected backend."
         ),
     )
     parser.add_argument(

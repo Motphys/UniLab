@@ -57,7 +57,6 @@ from unilab.visualization.interactive_playback import (
     RslRlPlaybackConfig,
     create_sac_playback_session,
     default_device,
-    resolve_play_actor_spec,
     resolve_play_obs_dims,
 )
 from unilab.visualization.interactive_playback import (
@@ -344,28 +343,12 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
     env = cast(Any, session.env)
     actor = session.actor
     normalizer = session.normalizer
-    actor_algo_type = session.actor_algo_type
 
     # Export actor to ONNX
     if load_path_dir is not None and bool(getattr(cfg.training, "export_onnx", True)):
-        obs_dim, critic_obs_dim = resolve_play_obs_dims(env.obs_groups_spec)
-        _, actor_kwargs = resolve_play_actor_spec(
-            algo_name,
-            cfg,
-            obs_dim=obs_dim,
-            critic_obs_dim=critic_obs_dim,
-        )
+        obs_dim, _ = resolve_play_obs_dims(env.obs_groups_spec)
         onnx_path = os.path.join(load_path_dir, "policy.onnx")
         dummy_input = torch.randn(1, obs_dim, device=device)
-        dummy_priv_info = (
-            torch.zeros(
-                (1, int(actor_kwargs["priv_info_dim"])),
-                device=device,
-                dtype=dummy_input.dtype,
-            )
-            if actor_algo_type == "hora_sac"
-            else None
-        )
         with torch.inference_mode():
             if normalizer:
                 dummy_input = normalizer(dummy_input, update=False)
@@ -374,24 +357,15 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
                 export_module = actor.as_export_module()
             else:
                 export_module = actor
-            export_inputs = (
-                (dummy_input, dummy_priv_info) if dummy_priv_info is not None else (dummy_input,)
-            )
-        input_names = ["obs", "priv_info"] if dummy_priv_info is not None else ["obs"]
+            export_inputs = (dummy_input,)
+        input_names = ["obs"]
         export_policy_onnx(export_module, onnx_path, export_inputs, input_names=input_names)
 
         # Verify ONNX output matches PyTorch
         verify_input = torch.randn(1, obs_dim, device=device)
         with torch.inference_mode():
             onnx_feed = normalizer(verify_input, update=False) if normalizer else verify_input
-            verify_priv_info = (
-                torch.zeros((1, int(actor_kwargs["priv_info_dim"])), device=device)
-                if actor_algo_type == "hora_sac"
-                else None
-            )
-        verify_inputs = (
-            (onnx_feed, verify_priv_info) if verify_priv_info is not None else (onnx_feed,)
-        )
+        verify_inputs = (onnx_feed,)
         verify_policy_onnx(export_module, onnx_path, verify_inputs, input_names=input_names)
     elif load_path_dir is not None:
         print("Skipping ONNX export because training.export_onnx=false.")
