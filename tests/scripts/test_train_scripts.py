@@ -3717,3 +3717,58 @@ def test_hora_distill_play_camera_kwargs_returns_typed_camera_cfg():
     camera = mod._play_camera_kwargs(cfg)
     assert isinstance(camera, CameraCfg)
     assert camera.cam_distance == pytest.approx(cfg.training.cam_distance)
+
+
+class _DiscoverableOverlayEnv(_OverlayEnv):
+    def __init__(self, goals, *, task_overlays="task", **kwargs):
+        super().__init__(goals, **kwargs)
+        self._task_overlays = task_overlays
+
+    def get_playback_debug_overlays(self):
+        if self._task_overlays is None:
+            return None
+        return lambda: self._task_overlays
+
+
+def test_playback_debug_overlay_getter_prefers_task_owned_overlays(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    env = _DiscoverableOverlayEnv(np.zeros((1, 3)), task_overlays="task")
+
+    getter = mod._playback_debug_overlay_getter(env)
+
+    assert getter is not None
+    assert getter() == "task"
+
+
+def test_playback_debug_overlay_getter_falls_back_to_ee_goal_marker(monkeypatch):
+    from unisim.backend.base import DebugPrimitive
+
+    mod = _train_rsl_rl(monkeypatch)
+    goals = np.array([[0.1, 0.2, 0.3]], dtype=np.float64)
+    env = _DiscoverableOverlayEnv(goals, task_overlays=None)
+
+    getter = mod._playback_debug_overlay_getter(env)
+
+    assert getter is not None
+    overlays = getter()
+    assert isinstance(overlays[0][0], DebugPrimitive)
+    assert overlays[0][0].pos == pytest.approx((0.1, 0.2, 0.3))
+
+
+def test_playback_debug_overlay_getter_falls_back_without_discovery_hook(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    env = _OverlayEnv(np.array([[0.1, 0.2, 0.3]], dtype=np.float64))
+
+    getter = mod._playback_debug_overlay_getter(env)
+
+    assert getter is not None
+    assert getter()[0][0].pos == pytest.approx((0.1, 0.2, 0.3))
+
+
+def test_playback_debug_overlay_getter_disabled_without_capability(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    env = _DiscoverableOverlayEnv(
+        np.zeros((1, 3)), task_overlays="task", supports_debug_overlay=False
+    )
+
+    assert mod._playback_debug_overlay_getter(env) is None

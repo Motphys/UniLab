@@ -283,6 +283,26 @@ def _ee_goal_debug_overlay_getter(env):
     return _get_overlay
 
 
+def _playback_debug_overlay_getter(env):
+    """Discover the play-path overlay getter for an env.
+
+    Prefers task-owned overlays aggregated by ``get_playback_debug_overlays``
+    (command terms implementing ``playback_debug_overlay_getter()``); falls
+    back to the ``curr_ee_goal_world`` EE-goal special case. Returns ``None``
+    when neither is available or the backend does not advertise debug overlay
+    support.
+    """
+    capabilities = getattr(env, "play_capabilities", None)
+    if capabilities is None or not capabilities.supports_debug_overlay:
+        return None
+    discover = getattr(env, "get_playback_debug_overlays", None)
+    if discover is not None:
+        getter = discover()
+        if getter is not None:
+            return getter
+    return _ee_goal_debug_overlay_getter(env)
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = algo_config_dict(cfg)
@@ -413,7 +433,7 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 step=lambda _obs: session.step_once(),
                 camera_kwargs=camera_cfg_from_training(cfg.training),
                 on_plan=_log_plan,
-                debug_overlay_getter=_ee_goal_debug_overlay_getter(env),
+                debug_overlay_getter=_playback_debug_overlay_getter(env),
             )
     except RenderClosedError:
         # Interface-level signal: the user closed the backend render window.

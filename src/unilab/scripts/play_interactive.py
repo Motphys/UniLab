@@ -943,6 +943,13 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     playback_session = session[0]
     env = playback_session.env
 
+    # Discover task-owned playback overlays (command terms implementing
+    # playback_debug_overlay_getter()); None when the env provides none.
+    task_overlay_getter = None
+    _discover_overlays = getattr(env, "get_playback_debug_overlays", None)
+    if _discover_overlays is not None:
+        task_overlay_getter = _discover_overlays()
+
     if _uses_native_mujoco_viewer_launch() and not _can_launch_glfw_viewer():
         print(
             "[play_interactive] GLFW viewer initialization failed (no usable display). "
@@ -1128,6 +1135,14 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                             lateral_offset=_VELOCITY_ARROW_LATERAL_OFFSET,
                         )
                     )
+
+                # Task-owned overlays: env-local primitives for the viewed env (0).
+                if task_overlay_getter is not None:
+                    task_overlays = task_overlay_getter()
+                    if task_overlays:
+                        focus_primitives = task_overlays[0]
+                        if focus_primitives:
+                            primitives.extend(focus_primitives)
 
                 viewer.user_scn.ngeom = 0
                 if primitives:

@@ -68,6 +68,14 @@ record 管线各自维护了一套互不兼容的绘制代码。
    `on_frame` 时 fail-closed 抛 `NotImplementedError`，实际帧回调由
    `SnapshotPlaybackSession.render_snapshots(on_frame=...)` 提供，待上游补契约后
    再透传（见 Consequences）。
+8. **任务自有 overlay 走统一发现入口。** `ManagerBasedRlEnv` 提供
+   `get_playback_debug_overlays()`：遍历 command manager 的 terms，聚合实现了
+   `playback_debug_overlay_getter()` 的 term，把多 term 的原语按 env 合并成单个
+   `DebugOverlayGetter`；无 provider 时返回 `None`。play 入口
+   （`train_rsl_rl.play_rsl_rl`、`play_interactive.py`）通过
+   `getattr(env, "get_playback_debug_overlays", None)` 发现任务 overlay，发现不到
+   时回退现有特例（`curr_ee_goal_world` EE goal sphere、交互 viewer 的
+   motion/reward/velocity 硬编码），既有行为不回归。
 
 ## Stable Contracts
 
@@ -76,6 +84,9 @@ record 管线各自维护了一套互不兼容的绘制代码。
   的叠加层入口。
 - `EnvPlayCapabilities.supports_debug_overlay` 是 env 侧判断叠加层可用性的
   唯一入口。
+- 任务自有 overlay 的唯一发现入口是 `ManagerBasedRlEnv.get_playback_debug_overlays()`
+  （command terms 实现 `playback_debug_overlay_getter()`）；play 入口用
+  `getattr` 发现并回退现有特例，不再新增绕过发现机制的任务特例。
 - 自定义 eval 循环通过 `SnapshotPlaybackSession` 复用 record 管线，不在脚本里
   重新实现“快照缓存 + 事后渲染”。
 - camera 参数在 train/play 入口统一经 `camera_cfg_from_training` /
@@ -111,13 +122,14 @@ record 管线各自维护了一套互不兼容的绘制代码。
 ## Evidence In Repo
 
 - env 契约: `src/unilab/base/base.py`, `src/unilab/base/np_env.py`
+- 任务 overlay 发现: `src/unilab/envs/manager_based_rl_env.py`（`get_playback_debug_overlays`）
 - 交互注入器: `src/unilab/visualization/debug_primitives.py`
 - 可嵌入 session: `src/unilab/visualization/playback_session.py`
 - camera 归一化: `src/unilab/visualization/playback.py`
 - 交互 viewer 迁移: `src/unilab/scripts/play_interactive.py`
 - 训练入口迁移: `src/unilab/scripts/train_rsl_rl.py`, `src/unilab/scripts/train_appo.py`, `src/unilab/scripts/train_offpolicy.py`, `src/unilab/scripts/play_hora_appo.py`
 - 上游契约: `unisim.backend.base`（`DebugPrimitive`, `CameraCfg`, `DebugOverlayGetter`, `validate_debug_overlays`, `BackendPlayCapabilities.supports_debug_overlay`）
-- 测试: `tests/visualization/test_debug_primitives.py`, `tests/visualization/test_playback_session.py`, `tests/base/test_np_env_playback_contract.py`
+- 测试: `tests/visualization/test_debug_primitives.py`, `tests/visualization/test_playback_session.py`, `tests/base/test_np_env_playback_contract.py`, `tests/envs/test_manager_based_rl_env.py`（overlay 聚合）
 
 ## Related Documents
 
