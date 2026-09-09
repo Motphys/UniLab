@@ -19,6 +19,21 @@ not part of the FR3 owner; training defaults to `no_play=true`.
 In the UniLab checkout, use an existing Python 3.12 virtual environment or create
 one, then install the local packages:
 
+For the temporary local SuperDex source build used by this roadmap, first run:
+
+```bash
+bash scripts/tools/setup_superdex_env.sh \
+  --source /absolute/path/to/project_superdex
+```
+
+The script builds the modified `mochi_physics_pybind` and
+`superdex_robotics_pybind` targets in Release mode under
+`~/.cache/unisim/superdex` (override with `UNISIM_SUPERDEX_HOME`). It does not
+publish or install a SuperDex wheel from PyPI. Export the printed
+`SUPERDEX_ASSETS_PATH`, `SUPERDEX_NATIVE_PATH`, and `PYTHONPATH` lines before
+running UniLab. Re-run the script after changing the SuperDex checkout; CMake
+reuses the existing build directory.
+
 ```bash
 uv venv --python 3.12
 export UNILAB_LOCAL_UNISIM=/absolute/path/to/unisim
