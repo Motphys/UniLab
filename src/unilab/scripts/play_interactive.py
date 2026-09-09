@@ -62,7 +62,10 @@ from unilab.utils.checkpoint import (
     get_entrypoint_log_root,
     resolve_task_checkpoint_path,
 )
-from unilab.utils.rotation import np_matrix_from_quat
+from unilab.visualization.debug_primitives import (
+    append_debug_primitives_to_scene,
+    segment_arrow,
+)
 from unilab.visualization.interactive_playback import (
     _HORA_DISTILL_CHECKPOINT_UNAVAILABLE,
     KeyboardCommander,
@@ -92,12 +95,12 @@ _TERRAIN_FOLLOW_CAMERA_DISTANCE = 3.0
 _FOLLOW_CAMERA_MAX_DISTANCE = 6.0
 _VELOCITY_ARROW_HEIGHT = 0.6
 _VELOCITY_ARROW_SCALE = 0.45
-_VELOCITY_ARROW_WIDTH = 0.025
 _VELOCITY_ARROW_LATERAL_OFFSET = 0.0
 _VELOCITY_COMMAND_TASK_NAME_MARKERS = ("Joystick", "Walk")
 
 ensure_registries()
 
+from unisim.backend.base import DebugPrimitive
 from unisim.backend.mujoco.playback import resolve_render_play_model_files
 
 from unilab.base import registry
@@ -268,71 +271,6 @@ def resolve_checkpoint(
 # ---------------------------------------------------------------------------
 
 
-def _quat_to_rotmat_wxyz(quat: np.ndarray) -> np.ndarray:
-    q = np.asarray(quat, dtype=np.float64)
-    n = np.linalg.norm(q)
-    if n < 1e-12:
-        return np.eye(3, dtype=np.float64)
-    return np_matrix_from_quat(q / n)
-
-
-def _add_sphere_marker(scene, pos: np.ndarray, radius: float, rgba: np.ndarray) -> bool:
-    if scene.ngeom >= scene.maxgeom:
-        return False
-    geom = scene.geoms[scene.ngeom]
-    mujoco.mjv_initGeom(
-        geom,
-        mujoco.mjtGeom.mjGEOM_SPHERE,
-        np.array([radius, 0.0, 0.0], dtype=np.float64),
-        np.asarray(pos, dtype=np.float64),
-        np.eye(3, dtype=np.float64).reshape(-1),
-        rgba,
-    )
-    scene.ngeom += 1
-    return True
-
-
-def _add_axis_arrow(scene, p0: np.ndarray, p1: np.ndarray, width: float, rgba: np.ndarray) -> bool:
-    if scene.ngeom >= scene.maxgeom:
-        return False
-    geom = scene.geoms[scene.ngeom]
-    mujoco.mjv_initGeom(
-        geom,
-        mujoco.mjtGeom.mjGEOM_ARROW,
-        np.zeros((3,), dtype=np.float64),
-        np.zeros((3,), dtype=np.float64),
-        np.eye(3, dtype=np.float64).reshape(-1),
-        rgba,
-    )
-    mujoco.mjv_connector(
-        geom,
-        mujoco.mjtGeom.mjGEOM_ARROW,
-        width,
-        np.asarray(p0, dtype=np.float64),
-        np.asarray(p1, dtype=np.float64),
-    )
-    scene.ngeom += 1
-    return True
-
-
-def _add_vector_arrow(
-    scene,
-    origin: np.ndarray,
-    vector: np.ndarray,
-    scale: float,
-    width: float,
-    rgba: np.ndarray,
-    min_len: float = 1e-6,
-) -> bool:
-    vec = np.asarray(vector, dtype=np.float64)
-    length = float(np.linalg.norm(vec))
-    if length < min_len:
-        return True
-    p0 = np.asarray(origin, dtype=np.float64)
-    p1 = p0 + vec * scale
-    return _add_axis_arrow(scene, p0, p1, width, rgba)
-
-
 def _local_xy_to_world_arrow(body_xmat: np.ndarray, local_xy: np.ndarray) -> np.ndarray:
     rot = np.asarray(body_xmat, dtype=np.float64).reshape(3, 3)
     forward = rot[:, 0].copy()
@@ -416,52 +354,52 @@ def _uses_native_mujoco_viewer_launch() -> bool:
     return module_name.startswith("mujoco")
 
 
-def _render_motion_targets(
-    viewer,
+def _motion_target_primitives(
     motion_data,
     selected_indices: np.ndarray,
     marker_radius: float,
     marker_alpha: float,
     show_axes: bool,
     axis_length: float,
-) -> None:
-    scene = viewer.user_scn
-    scene.ngeom = 0
-
+) -> list[DebugPrimitive]:
+    """Build motion-target overlay primitives (env-local, single viewer env)."""
     if motion_data is None:
-        return
+        return []
 
     body_pos = motion_data.body_pos_w[0]
     body_quat = motion_data.body_quat_w[0]
 
-    point_rgba = np.array([0.1, 0.85, 1.0, marker_alpha], dtype=np.float32)
-    x_rgba = np.array([1.0, 0.35, 0.35, marker_alpha], dtype=np.float32)
-    y_rgba = np.array([0.35, 1.0, 0.35, marker_alpha], dtype=np.float32)
-    z_rgba = np.array([0.35, 0.55, 1.0, marker_alpha], dtype=np.float32)
+    point_rgba = (0.1, 0.85, 1.0, float(marker_alpha))
+    frame_rgba = (1.0, 1.0, 1.0, float(marker_alpha))
 
+    primitives: list[DebugPrimitive] = []
     for idx in selected_indices:
         if idx < 0 or idx >= body_pos.shape[0]:
             continue
 
         p = body_pos[idx]
-        if not _add_sphere_marker(scene, p, marker_radius, point_rgba):
-            break
-
+        primitives.append(
+            DebugPrimitive(
+                kind="sphere",
+                pos=tuple(float(v) for v in p),
+                size=(float(marker_radius),),
+                rgba=point_rgba,
+            )
+        )
         if show_axes:
-            rot = _quat_to_rotmat_wxyz(body_quat[idx])
-            px = p + rot[:, 0] * axis_length
-            py = p + rot[:, 1] * axis_length
-            pz = p + rot[:, 2] * axis_length
-            if not _add_axis_arrow(scene, p, px, marker_radius * 0.4, x_rgba):
-                break
-            if not _add_axis_arrow(scene, p, py, marker_radius * 0.4, y_rgba):
-                break
-            if not _add_axis_arrow(scene, p, pz, marker_radius * 0.4, z_rgba):
-                break
+            primitives.append(
+                DebugPrimitive(
+                    kind="frame",
+                    pos=tuple(float(v) for v in p),
+                    quat=tuple(float(v) for v in body_quat[idx]),
+                    size=(float(axis_length),),
+                    rgba=frame_rgba,
+                )
+            )
+    return primitives
 
 
-def _render_reward_debug_targets(
-    viewer,
+def _reward_debug_primitives(
     info: dict,
     selected_indices: np.ndarray,
     marker_radius: float,
@@ -473,12 +411,10 @@ def _render_reward_debug_targets(
     ang_vel_scale: float,
     show_connectors: bool,
     show_global_anchor: bool,
-) -> None:
-    scene = viewer.user_scn
-    scene.ngeom = 0
-
+) -> list[DebugPrimitive]:
+    """Build reward-debug overlay primitives (env-local, single viewer env)."""
     if not info:
-        return
+        return []
 
     motion_data = info.get("motion_data", None)
     robot_body_pos_w = info.get("robot_body_pos_w", None)
@@ -489,9 +425,9 @@ def _render_reward_debug_targets(
     ref_body_quat_w = info.get("reward_ref_body_quat_w", None)
 
     if motion_data is None or robot_body_pos_w is None or robot_body_quat_w is None:
-        return
+        return []
     if ref_body_pos_w is None or ref_body_quat_w is None:
-        return
+        return []
 
     robot_pos = robot_body_pos_w[0]
     robot_quat = robot_body_quat_w[0]
@@ -504,20 +440,39 @@ def _render_reward_debug_targets(
     robot_lin_vel = robot_body_lin_vel_w[0] if robot_body_lin_vel_w is not None else None
     robot_ang_vel = robot_body_ang_vel_w[0] if robot_body_ang_vel_w is not None else None
 
-    ref_rgba = np.array([0.15, 0.95, 0.95, marker_alpha], dtype=np.float32)
-    robot_rgba = np.array([1.0, 0.62, 0.15, marker_alpha], dtype=np.float32)
-    motion_rgba = np.array([0.55, 0.55, 1.0, marker_alpha * 0.7], dtype=np.float32)
-    connector_rgba = np.array([1.0, 1.0, 1.0, marker_alpha * 0.55], dtype=np.float32)
+    alpha = float(marker_alpha)
+    ref_rgba = (0.15, 0.95, 0.95, alpha)
+    robot_rgba = (1.0, 0.62, 0.15, alpha)
+    motion_rgba = (0.55, 0.55, 1.0, alpha * 0.7)
+    connector_rgba = (1.0, 1.0, 1.0, alpha * 0.55)
+    frame_rgba = (1.0, 1.0, 1.0, alpha)
 
-    ref_lin_vel_rgba = np.array([0.0, 1.0, 1.0, marker_alpha], dtype=np.float32)
-    robot_lin_vel_rgba = np.array([1.0, 0.95, 0.1, marker_alpha], dtype=np.float32)
-    ref_ang_vel_rgba = np.array([0.45, 0.75, 1.0, marker_alpha], dtype=np.float32)
-    robot_ang_vel_rgba = np.array([1.0, 0.45, 0.1, marker_alpha], dtype=np.float32)
+    ref_lin_vel_rgba = (0.0, 1.0, 1.0, alpha)
+    robot_lin_vel_rgba = (1.0, 0.95, 0.1, alpha)
+    ref_ang_vel_rgba = (0.45, 0.75, 1.0, alpha)
+    robot_ang_vel_rgba = (1.0, 0.45, 0.1, alpha)
 
-    x_rgba = np.array([1.0, 0.35, 0.35, marker_alpha], dtype=np.float32)
-    y_rgba = np.array([0.35, 1.0, 0.35, marker_alpha], dtype=np.float32)
-    z_rgba = np.array([0.35, 0.55, 1.0, marker_alpha], dtype=np.float32)
+    def _sphere(p: np.ndarray, radius: float, rgba: tuple) -> DebugPrimitive:
+        return DebugPrimitive(
+            kind="sphere",
+            pos=tuple(float(v) for v in p),
+            size=(float(radius),),
+            rgba=rgba,
+        )
 
+    def _frame(p: np.ndarray, q: np.ndarray, length: float) -> DebugPrimitive:
+        return DebugPrimitive(
+            kind="frame",
+            pos=tuple(float(v) for v in p),
+            quat=tuple(float(v) for v in q),
+            size=(float(length),),
+            rgba=frame_rgba,
+        )
+
+    def _vector(p: np.ndarray, v: np.ndarray, scale: float, rgba: tuple) -> DebugPrimitive | None:
+        return segment_arrow(p, p + v * scale, rgba=rgba)
+
+    primitives: list[DebugPrimitive] = []
     for idx in selected_indices:
         if idx < 0 or idx >= robot_pos.shape[0]:
             continue
@@ -526,71 +481,34 @@ def _render_reward_debug_targets(
         p_robot = robot_pos[idx]
         p_motion = motion_pos[idx]
 
-        if not _add_sphere_marker(scene, p_ref, marker_radius, ref_rgba):
-            break
-        if not _add_sphere_marker(scene, p_robot, marker_radius, robot_rgba):
-            break
-        if not _add_sphere_marker(scene, p_motion, marker_radius * 0.85, motion_rgba):
-            break
+        primitives.append(_sphere(p_ref, marker_radius, ref_rgba))
+        primitives.append(_sphere(p_robot, marker_radius, robot_rgba))
+        primitives.append(_sphere(p_motion, marker_radius * 0.85, motion_rgba))
 
         if show_connectors:
-            if not _add_axis_arrow(scene, p_ref, p_robot, marker_radius * 0.2, connector_rgba):
-                break
+            connector = segment_arrow(p_ref, p_robot, rgba=connector_rgba)
+            if connector is not None:
+                primitives.append(connector)
 
         if show_axes:
-            for p, q in (
-                (p_ref, ref_quat[idx]),
-                (p_robot, robot_quat[idx]),
-                (p_motion, motion_quat[idx]),
-            ):
-                rot = _quat_to_rotmat_wxyz(q)
-                px = p + rot[:, 0] * axis_length
-                py = p + rot[:, 1] * axis_length
-                pz = p + rot[:, 2] * axis_length
-                if not _add_axis_arrow(scene, p, px, marker_radius * 0.35, x_rgba):
-                    break
-                if not _add_axis_arrow(scene, p, py, marker_radius * 0.35, y_rgba):
-                    break
-                if not _add_axis_arrow(scene, p, pz, marker_radius * 0.35, z_rgba):
-                    break
+            primitives.append(_frame(p_ref, ref_quat[idx], axis_length))
+            primitives.append(_frame(p_robot, robot_quat[idx], axis_length))
+            primitives.append(_frame(p_motion, motion_quat[idx], axis_length))
 
         if show_vel:
-            if not _add_vector_arrow(
-                scene,
-                p_motion,
-                motion_lin_vel[idx],
-                lin_vel_scale,
-                marker_radius * 0.28,
-                ref_lin_vel_rgba,
-            ):
-                break
-            if robot_lin_vel is not None and not _add_vector_arrow(
-                scene,
-                p_robot,
-                robot_lin_vel[idx],
-                lin_vel_scale,
-                marker_radius * 0.28,
-                robot_lin_vel_rgba,
-            ):
-                break
-            if not _add_vector_arrow(
-                scene,
-                p_motion,
-                motion_ang_vel[idx],
-                ang_vel_scale,
-                marker_radius * 0.24,
-                ref_ang_vel_rgba,
-            ):
-                break
-            if robot_ang_vel is not None and not _add_vector_arrow(
-                scene,
-                p_robot,
-                robot_ang_vel[idx],
-                ang_vel_scale,
-                marker_radius * 0.24,
-                robot_ang_vel_rgba,
-            ):
-                break
+            vectors = [
+                _vector(p_motion, motion_lin_vel[idx], lin_vel_scale, ref_lin_vel_rgba),
+                _vector(p_motion, motion_ang_vel[idx], ang_vel_scale, ref_ang_vel_rgba),
+            ]
+            if robot_lin_vel is not None:
+                vectors.append(
+                    _vector(p_robot, robot_lin_vel[idx], lin_vel_scale, robot_lin_vel_rgba)
+                )
+            if robot_ang_vel is not None:
+                vectors.append(
+                    _vector(p_robot, robot_ang_vel[idx], ang_vel_scale, robot_ang_vel_rgba)
+                )
+            primitives.extend(primitive for primitive in vectors if primitive is not None)
 
     if show_global_anchor:
         anchor_idx = int(info.get("anchor_body_idx", 0))
@@ -600,58 +518,49 @@ def _render_reward_debug_targets(
             anchor_robot_p = robot_pos[anchor_idx]
             anchor_robot_q = robot_quat[anchor_idx]
 
-            anchor_motion_rgba = np.array([0.95, 0.2, 0.95, marker_alpha], dtype=np.float32)
-            anchor_robot_rgba = np.array([1.0, 0.2, 0.2, marker_alpha], dtype=np.float32)
+            anchor_motion_rgba = (0.95, 0.2, 0.95, alpha)
+            anchor_robot_rgba = (1.0, 0.2, 0.2, alpha)
             anchor_radius = marker_radius * 1.35
 
-            _add_sphere_marker(scene, anchor_motion_p, anchor_radius, anchor_motion_rgba)
-            _add_sphere_marker(scene, anchor_robot_p, anchor_radius, anchor_robot_rgba)
-            _add_axis_arrow(
-                scene,
-                anchor_motion_p,
-                anchor_robot_p,
-                marker_radius * 0.3,
-                connector_rgba,
-            )
+            primitives.append(_sphere(anchor_motion_p, anchor_radius, anchor_motion_rgba))
+            primitives.append(_sphere(anchor_robot_p, anchor_radius, anchor_robot_rgba))
+            anchor_connector = segment_arrow(anchor_motion_p, anchor_robot_p, rgba=connector_rgba)
+            if anchor_connector is not None:
+                primitives.append(anchor_connector)
 
             if show_axes:
-                for p, q in ((anchor_motion_p, anchor_motion_q), (anchor_robot_p, anchor_robot_q)):
-                    rot = _quat_to_rotmat_wxyz(q)
-                    px = p + rot[:, 0] * (axis_length * 1.25)
-                    py = p + rot[:, 1] * (axis_length * 1.25)
-                    pz = p + rot[:, 2] * (axis_length * 1.25)
-                    _add_axis_arrow(scene, p, px, marker_radius * 0.45, x_rgba)
-                    _add_axis_arrow(scene, p, py, marker_radius * 0.45, y_rgba)
-                    _add_axis_arrow(scene, p, pz, marker_radius * 0.45, z_rgba)
+                primitives.append(_frame(anchor_motion_p, anchor_motion_q, axis_length * 1.25))
+                primitives.append(_frame(anchor_robot_p, anchor_robot_q, axis_length * 1.25))
+
+    return primitives
 
 
-def _render_velocity_arrows(
-    viewer,
+def _velocity_command_primitives(
     viz_data,
     focus_body_id: int,
     env: Any,
     *,
     height: float,
     scale: float,
-    width: float,
     lateral_offset: float,
-) -> None:
+) -> list[DebugPrimitive]:
+    """Build velocity-command overlay primitives (target and current arrows)."""
     state = getattr(env, "state", None)
     info = getattr(state, "info", None) if state is not None else None
     commands = info.get("commands") if isinstance(info, dict) else None
     if not isinstance(commands, np.ndarray) or commands.ndim != 2 or commands.shape[1] < 3:
-        return
+        return []
 
     try:
         local_linvel = env.get_local_linvel()
     except AttributeError:
-        return
+        return []
     if (
         not isinstance(local_linvel, np.ndarray)
         or local_linvel.ndim != 2
         or local_linvel.shape[1] < 2
     ):
-        return
+        return []
 
     body_xmat = np.asarray(viz_data.xmat[focus_body_id], dtype=np.float64)
     origin = np.asarray(viz_data.xpos[focus_body_id], dtype=np.float64).copy()
@@ -663,24 +572,13 @@ def _render_velocity_arrows(
     target_origin = origin + side * float(lateral_offset)
     current_origin = origin - side * float(lateral_offset)
 
-    target_rgba = np.array([0.1, 0.95, 0.15, 0.9], dtype=np.float32)
-    current_rgba = np.array([0.1, 0.45, 1.0, 0.9], dtype=np.float32)
-    _add_vector_arrow(
-        viewer.user_scn,
-        target_origin,
-        target_vec,
-        scale,
-        width,
-        target_rgba,
-    )
-    _add_vector_arrow(
-        viewer.user_scn,
-        current_origin,
-        current_vec,
-        scale,
-        width,
-        current_rgba,
-    )
+    target_rgba = (0.1, 0.95, 0.15, 0.9)
+    current_rgba = (0.1, 0.45, 1.0, 0.9)
+    primitives = [
+        segment_arrow(target_origin, target_origin + target_vec * scale, rgba=target_rgba),
+        segment_arrow(current_origin, current_origin + current_vec * scale, rgba=current_rgba),
+    ]
+    return [primitive for primitive in primitives if primitive is not None]
 
 
 def _load_mujoco_model_file_for_viewer(model_file: str):
@@ -1188,47 +1086,52 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
 
+                primitives: list[DebugPrimitive] = []
                 if overlay.enabled:
                     if args.show_reward_debug:
-                        _render_reward_debug_targets(
-                            viewer,
-                            playback_session.info,
-                            overlay.selected_indices,
-                            marker_radius=args.target_marker_radius,
-                            marker_alpha=args.target_marker_alpha,
-                            show_axes=args.target_show_axes,
-                            axis_length=args.target_axis_length,
-                            show_vel=args.reward_debug_show_velocity,
-                            lin_vel_scale=args.reward_debug_lin_vel_scale,
-                            ang_vel_scale=args.reward_debug_ang_vel_scale,
-                            show_connectors=args.reward_debug_show_connectors,
-                            show_global_anchor=args.reward_debug_show_global_anchor,
+                        primitives.extend(
+                            _reward_debug_primitives(
+                                playback_session.info,
+                                overlay.selected_indices,
+                                marker_radius=args.target_marker_radius,
+                                marker_alpha=args.target_marker_alpha,
+                                show_axes=args.target_show_axes,
+                                axis_length=args.target_axis_length,
+                                show_vel=args.reward_debug_show_velocity,
+                                lin_vel_scale=args.reward_debug_lin_vel_scale,
+                                ang_vel_scale=args.reward_debug_ang_vel_scale,
+                                show_connectors=args.reward_debug_show_connectors,
+                                show_global_anchor=args.reward_debug_show_global_anchor,
+                            )
                         )
                     else:
                         motion_data = env.state.info.get("motion_data", None)
-                        _render_motion_targets(
-                            viewer,
-                            motion_data,
-                            overlay.selected_indices,
-                            marker_radius=args.target_marker_radius,
-                            marker_alpha=args.target_marker_alpha,
-                            show_axes=args.target_show_axes,
-                            axis_length=args.target_axis_length,
+                        primitives.extend(
+                            _motion_target_primitives(
+                                motion_data,
+                                overlay.selected_indices,
+                                marker_radius=args.target_marker_radius,
+                                marker_alpha=args.target_marker_alpha,
+                                show_axes=args.target_show_axes,
+                                axis_length=args.target_axis_length,
+                            )
                         )
-                else:
-                    viewer.user_scn.ngeom = 0
 
                 if render_velocity_arrows:
-                    _render_velocity_arrows(
-                        viewer,
-                        viz_data,
-                        focus_body_id,
-                        env,
-                        height=_VELOCITY_ARROW_HEIGHT,
-                        scale=_VELOCITY_ARROW_SCALE,
-                        width=_VELOCITY_ARROW_WIDTH,
-                        lateral_offset=_VELOCITY_ARROW_LATERAL_OFFSET,
+                    primitives.extend(
+                        _velocity_command_primitives(
+                            viz_data,
+                            focus_body_id,
+                            env,
+                            height=_VELOCITY_ARROW_HEIGHT,
+                            scale=_VELOCITY_ARROW_SCALE,
+                            lateral_offset=_VELOCITY_ARROW_LATERAL_OFFSET,
+                        )
                     )
+
+                viewer.user_scn.ngeom = 0
+                if primitives:
+                    append_debug_primitives_to_scene(viewer.user_scn, primitives)
 
                 viewer.sync()
 
