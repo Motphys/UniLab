@@ -40,12 +40,8 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    # Keep the SuperDex backend contract aligned with the merged UniSim source
-    # until its next PyPI release. The commit is pinned for reproducible CI.
-    "unisim-core @ git+https://github.com/unilabsim/unisim.git@037e596",
-    # Keep the CPU-partition contract aligned with the merged UniRL source
-    # until its next PyPI release. The commit is pinned for reproducible CI.
-    "unilab-rl @ git+https://github.com/unilabsim/unilab_rl.git@2cdab3c",
+    "unisim-core>=1.1.5",
+    "unilab-rl==1.1.2",
     "numba>=0.67",
     "prettytable>=3.10",
     # torch is a range (not an exact pin) so that published PyPI metadata lets
