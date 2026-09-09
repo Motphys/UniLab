@@ -140,9 +140,9 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
 
         if not superdex_dependencies_available():
             raise SystemExit(
-                "sim=superdex requires Python 3.12 and the SuperDex Physics/Robotics runtime. "
-                "Install the locally linked UniSim superdex extra in a Python 3.12 environment; "
-                "see the SuperDex backend page for local development setup."
+                "sim=superdex requires Python 3.12 or 3.13 and the SuperDex Physics/Robotics "
+                "runtime. Install the locally linked UniSim superdex extra in a supported "
+                "Python environment; see the SuperDex backend page for local development setup."
             )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(
@@ -422,6 +422,17 @@ def build_command(
         generated.append(f"training.sim_backend={sim_backend_override}")
     if render_mode is not None and _override_value(overrides, "training.play_render_mode") is None:
         generated.append(f"training.play_render_mode={render_mode}")
+    selected_render_mode = _override_value(overrides, "training.play_render_mode") or render_mode
+    if (
+        mode == "eval"
+        and sim == "superdex"
+        and selected_render_mode is not None
+        and selected_render_mode.strip().lower() == "interactive"
+        and _override_value(overrides, "training.play_env_num") is None
+    ):
+        # Native superdex interactive rendering draws exactly one scene; the
+        # owner layer also switches the env to the serial executor.
+        generated.append("training.play_env_num=1")
     if use_interactive_play and _override_value(overrides, "interactive.action_mode") is None:
         # The low-level viewer defaults to zero actions for debugging, while
         # eval must preserve the policy-control behavior of the train scripts.

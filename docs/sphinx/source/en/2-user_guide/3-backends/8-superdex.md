@@ -98,6 +98,12 @@ every scene on the environment thread and never builds the native worker pool
 ([unisim#55](https://github.com/unilabsim/unisim/issues/55)). Serial mode is a
 debugging profile, not a performance configuration.
 
+`eval --sim superdex --render-mode interactive` renders through the native
+SuperDex (Polyscope) viewer instead of the MuJoCo viewer path. The owner layer
+automatically switches the env to `superdex_execution_mode=serial`, and the CLI
+forces `training.play_env_num=1` because the viewer draws exactly one scene;
+an explicit `training.play_env_num=...` override is preserved.
+
 With 1024 environments on a 16-core/32-thread host, automatic selection yields
 16 workers. Concurrent multi-rank collectors are assigned whole physical-core
 groups, including their logical siblings, so ranks do not split an SMT core.

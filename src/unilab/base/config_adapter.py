@@ -53,15 +53,19 @@ class BackendAdapter:
         # IsaacSim must know the render intent before its Python 3.11 worker
         # launches Kit.  Keep this routing in the config adapter (the owner
         # layer) so training env construction remains headless and the
-        # renderer never leaks into runners/learners.  Other backends do not
-        # consume this field and retain their existing play contracts.
-        if str(OmegaConf.select(self.cfg, "training.sim_backend", default="")) == "isaacsim":
-            play_render_mode = OmegaConf.select(
-                self.cfg, "training.play_render_mode", default="auto"
-            )
-            env_cfg_override["isaacsim_render_mode"] = (
-                "auto" if play_render_mode is None else str(play_render_mode)
-            )
+        # renderer never leaks into runners/learners.  SuperDex likewise keys
+        # its executor choice off the interactive render intent; the remaining
+        # backends retain their existing play contracts.
+        sim_backend = str(OmegaConf.select(self.cfg, "training.sim_backend", default=""))
+        play_render_mode = OmegaConf.select(self.cfg, "training.play_render_mode", default="auto")
+        play_render_mode = "auto" if play_render_mode is None else str(play_render_mode)
+        if sim_backend == "isaacsim":
+            env_cfg_override["isaacsim_render_mode"] = play_render_mode
+        if sim_backend == "superdex" and play_render_mode.strip().lower() == "interactive":
+            # Interactive superdex play renders through the native Polyscope
+            # viewer, which shares the scene's thread with stepping: force the
+            # serial executor (unilabsim/unisim#55).
+            env_cfg_override["superdex_execution_mode"] = "serial"
         play_profile = getattr(self.cfg, "play_profile", None)
         if (
             play_profile is None

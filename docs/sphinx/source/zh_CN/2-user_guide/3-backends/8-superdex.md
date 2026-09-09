@@ -86,6 +86,11 @@ scene，完全不创建 native worker pool
 （[unisim#55](https://github.com/unilabsim/unisim/issues/55)）。serial 是调试
 配置，不是性能配置。
 
+`eval --sim superdex --render-mode interactive` 走 native SuperDex（Polyscope）
+viewer 渲染，而不是 MuJoCo viewer 路径。owner 层会自动把 env 切到
+`superdex_execution_mode=serial`，CLI 同时强制 `training.play_env_num=1`（viewer
+只绘制一个 scene）；显式传入的 `training.play_env_num=...` 会被保留。
+
 1024 个环境、16 核 32 线程主机上，自动解析为 16 workers。多 rank 并发 collector
 按完整物理核心分配，并将同一核心的 logical sibling 放在同一 rank，避免拆分 SMT 核心。
 也可以通过 `training.dp_collector_cpu_ids` 为每个 rank 显式提供 CPU id 列表；该分片在
