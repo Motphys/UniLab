@@ -5,18 +5,11 @@ Manipulation tasks live in `src/unilab/tasks/manipulation/`.
 ## In-Hand
 
 - `allegro_inhand` and `allegro_inhand_grasp` have MuJoCo and Motrix PPO owners.
-- `sharpa_inhand`, `sharpa_inhand_grasp`, and the `hora` profile for
-  `sharpa_inhand` are MuJoCo owner paths in the current configs.
 
 ```bash
 uv run train --algo ppo --task allegro_inhand --sim mujoco
 uv run train --algo ppo --task allegro_inhand --sim motrix training.no_play=true
-uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora training.no_play=true
 ```
-
-HORA student distillation is configured by
-`src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml`; it is not currently exposed
-as a separate top-level CLI route.
 
 ## Platform Balancing
 
@@ -34,5 +27,3 @@ training-stable under load.
 ```bash
 uv run train --algo ppo --task stewart_balance --sim motrix training.no_play=true
 ```
-
-See {doc}`../8-manipulation/1-dexterous_inhand` for in-hand task notes.

@@ -10,7 +10,6 @@ identity of the task, backend, reward, scene, and task-specific runtime fields.
 | PPO | `src/unilab/conf/ppo/task/<task>/<backend>.yaml` |
 | APPO | `src/unilab/conf/appo/task/<task>/<backend>.yaml` |
 | SAC / TD3 / FlashSAC | `src/unilab/conf/<algo>/task/<task>/<backend>.yaml` |
-| HORA distillation | `src/unilab/conf/hora_distill/task/<task>/<backend>.yaml` |
 
 Examples:
 

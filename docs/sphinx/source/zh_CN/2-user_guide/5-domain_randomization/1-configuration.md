@@ -7,14 +7,8 @@
 
 - Manager-Based（Compatible）任务通过 owner YAML 的 `events:` manager term 声明
   reset / interval 随机化，例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`。
-- 只有 Adapted family（sharpa 及对应 hora / appo owner）仍在
-  `env.domain_rand` 下配置 legacy provider 字段。
-
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
-  env.domain_rand.randomize_gravity=true \
-  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
-```
+- 任务也可以挂载任务级 provider，并在 `env.domain_rand` 下配置 legacy provider
+  字段；目前仓内没有任务使用这条路径。
 
 常见的生命周期边界：
 
@@ -31,14 +25,9 @@ uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
 ## Reset Gravity
 
 在启用 gravity reset 随机化时使用 `--sim mujoco`；Motrix 在当前后端中
-未提供相同的 gravity 能力。该项只在 legacy provider 路径（Adapted family owner）
-上可用。
-
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
-  env.domain_rand.randomize_gravity=true \
-  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
-```
+未提供相同的 gravity 能力。该项只在任务级 provider 路径
+（`env.domain_rand.randomize_gravity` 与 `env.domain_rand.gravity_range`）上可用，
+目前仓内没有任务使用这条路径。
 
 ## Interval Push
 
@@ -56,8 +45,6 @@ uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
 当取值范围是任务 contract 的一部分时，将其保留在 task owner YAML 中。例如，
 rough 四足家族的 base mass、质心、kp/kd 和 push 随机化作为 event term 声明在共享 base
 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`（`go2_joystick_rough` 的 backend
-owner 通过 Hydra defaults 组合它），而
-`src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml` 为 Sharpa 配置了物体缩放、摩擦和
-力扰动。
+owner 通过 Hydra defaults 组合它）。
 
 完整的当前清单见 {doc}`0-index`。

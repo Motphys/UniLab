@@ -88,7 +88,7 @@ Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
 externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
 The registered robots are a2, allegro_hand, g1, go2,
-sharpa_wave, and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
+and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
 Their mesh/texture directories download lazily on first use and land under
 their original paths (for example `src/unilab/assets/robots/g1/assets/` and
 `robots/g1/textures/` for G1), so the original relative XML paths remain

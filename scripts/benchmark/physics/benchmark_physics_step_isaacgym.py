@@ -128,32 +128,20 @@ TASK_SPECS = {
         asset_file="g1_description/g1_29dof_rev_1_0.urdf",
         initial_height=0.78,
     ),
-    "sharpa_inhand": TaskSpec(
-        owner_task_id="sharpa_inhand",
-        display_name="sharpa_inhand",
-        asset_root=DEFAULT_MODELS_ROOT,
-        asset_file="right_sharpa_wave/right_sharpa_wave.urdf",
-        initial_height=0.30,
-    ),
 }
 TASK_ALIASES = {
     "Go1JoystickFlat": "go1_joystick_flat",
     "Go2JoystickFlat": "go2_joystick_flat",
     "G1WalkFlat": "g1_walk_flat",
-    "SharpaInhandRotation": "sharpa_inhand",
     "task=go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "task=go2_joystick_flat/isaacgym": "go2_joystick_flat",
     "task=g1_walk_flat/isaacgym": "g1_walk_flat",
-    "task=sharpa_inhand/isaacgym": "sharpa_inhand",
     "go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "go2_joystick_flat/isaacgym": "go2_joystick_flat",
     "g1_walk_flat/isaacgym": "g1_walk_flat",
-    "sharpa_inhand/isaacgym": "sharpa_inhand",
     "go1": "go1_joystick_flat",
     "go2": "go2_joystick_flat",
     "g1": "g1_walk_flat",
-    "sharpa": "sharpa_inhand",
-    "sharpahand": "sharpa_inhand",
 }
 DEFAULT_TASK_IDS = list(TASK_SPECS.keys())
 DEFAULT_BATCH_SIZES = [2**k for k in range(8, 15)]  # 256 .. 16384
@@ -449,7 +437,7 @@ def main():
         "--models-root",
         type=str,
         default=str(DEFAULT_MODELS_ROOT),
-        help="Root containing go1_description/go2_description/g1_description/sharpa_wave URDFs",
+        help="Root containing go1_description/go2_description/g1_description URDFs",
     )
     parser.add_argument("--tasks", type=str, default=",".join(DEFAULT_TASK_IDS))
     parser.add_argument(

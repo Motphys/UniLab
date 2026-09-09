@@ -22,7 +22,6 @@ def test_registered_tasks_have_explicit_migration_records() -> None:
 @pytest.mark.parametrize(
     ("task_name", "family", "target", "status"),
     [
-        ("SharpaInhandRotation", "sharpa", "compatibility", "Adapted"),
         ("G1MotionTracking", "motion_tracking", "complete", "Compatible"),
         ("G1WBTObs", "motion_tracking", "complete", "Compatible"),
         ("X2WallFlipTracking", "motion_tracking", "complete", "Compatible"),

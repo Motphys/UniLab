@@ -134,9 +134,8 @@ ROCm/XPU profiles, prefer the uv paths above. Robot meshes and
 textures are intentionally excluded from the wheel and downloaded on the cold
 path from the `unilabsim/unilab-robots` dataset. Ensure the installed package
 location is writable, or pre-fetch assets with `uv run unilab-pull-assets` from a
-source checkout. The isaacgym / isaacsim backends and the HORA multi-GPU
-submission path still assume a source checkout; use their dedicated setup pages
-below.
+source checkout. The isaacgym / isaacsim backends still assume a source
+checkout; use their dedicated setup pages below.
 
 ## Runtime Assets
 

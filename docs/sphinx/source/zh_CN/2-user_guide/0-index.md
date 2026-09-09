@@ -15,7 +15,7 @@ CLI 路由、Hydra owner YAML、日志、检查点与 Docker。
 :::{grid-item-card} 算法
 :link: 2-algorithms/0-index
 :link-type: doc
-对比 PPO、APPO、SAC、TD3、FlashSAC 与 HORA。
+对比 PPO、APPO、SAC、TD3 与 FlashSAC。
 :::
 
 :::{grid-item-card} 后端
@@ -42,12 +42,6 @@ CLI 路由、Hydra owner YAML、日志、检查点与 Docker。
 导出 ONNX、检查 NaN、发送 W&B 日志以及导出场景。
 :::
 
-:::{grid-item-card} 操作说明
-:link: 8-manipulation/0-index
-:link-type: doc
-针对 Allegro、Sharpa 与 Go2+Airbot 的任务专属说明。
-:::
-
 ::::
 
 ```{toctree}
@@ -61,5 +55,4 @@ CLI 路由、Hydra owner YAML、日志、检查点与 Docker。
 5-domain_randomization/0-index
 6-terrain/0-index
 7-tooling/0-index
-8-manipulation/0-index
 ```

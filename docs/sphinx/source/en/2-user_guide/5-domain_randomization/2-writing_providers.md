@@ -1,11 +1,10 @@
 # Writing Providers
 
-This page describes the legacy provider path: only the 2 Adapted families
-(`sharpa_inhand` / `sharpa_inhand_grasp`) still declare
-domain randomization through a task-level `DomainRandomizationProvider`.
-Migrated Manager-Based tasks do not write providers; they declare randomization
-through Hydra `events:` manager terms in the owner YAML (see {doc}`0-index`
-and {doc}`1-configuration`).
+This page describes the task-level provider path: custom tasks (including
+tasks hosted in external repos) may declare domain randomization through a
+task-level `DomainRandomizationProvider`. Manager-Based tasks do not write
+providers; they declare randomization through Hydra `events:` manager terms in
+the owner YAML (see {doc}`0-index` and {doc}`1-configuration`).
 
 Task-level domain randomization providers live with the task env owner. They
 sample task-specific state and return plans consumed by
@@ -59,10 +58,10 @@ manager lives in `src/unilab/dr/manager.py`.
 
 ## Evidence
 
-Representative provider implementations are in (all on the Adapted-family
-compatibility path):
+The provider interface and manager live in:
 
-- `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
+- `src/unilab/dr/provider.py`
+- `src/unilab/dr/manager.py`
 
 Developer contract details are in
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`.
