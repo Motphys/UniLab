@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from unilab.envs import ManagerBasedRlEnvCfg
-from unilab.tasks.manipulation.sharpa_inhand.rotation import SharpaInhandRotationCfg
 
 
 @dataclass(frozen=True)
@@ -36,12 +35,6 @@ _TASK_SPECS = {
         display_name="g1_walk_flat",
         config_cls=ManagerBasedRlEnvCfg,
         model_file="src/unilab/assets/robots/g1/scene_flat.xml",
-    ),
-    "sharpa_inhand": LocomotionTaskSpec(
-        owner_task_id="sharpa_inhand",
-        env_task_name="SharpaInhandRotation",
-        display_name="sharpa_inhand",
-        config_cls=SharpaInhandRotationCfg,
     ),
 }
 _TASK_ALIASES = {spec.env_task_name: spec.owner_task_id for spec in _TASK_SPECS.values()}

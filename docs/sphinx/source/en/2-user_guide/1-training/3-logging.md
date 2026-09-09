@@ -74,7 +74,7 @@ Normally the rows sum to `Iter Wall`, so their displayed percentages sum to abou
 hides applicable phases below a 1% threshold: a zero row is kept so it can be matched
 directly with TensorBoard / W&B. Algorithm-specific phases neither occupy terminal
 rows nor get persisted for other algorithms; for example, `Replay Stage` and
-`Weight Publish` exist only for APPO / HORA-APPO.
+`Weight Publish` exist only for APPO.
 
 ### Learner Main Timeline
 

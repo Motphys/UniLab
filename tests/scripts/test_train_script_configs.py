@@ -18,23 +18,6 @@ pytest.importorskip("mujoco")
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
-
-def _write_sharpa_smoke_cache(cache_prefix, scale_values: list[float]) -> None:
-    from unilab.tasks.manipulation.sharpa_inhand.base import (
-        SOURCE_DEFAULT_HAND_JOINT_POS_DEG,
-        resolve_grasp_cache_file,
-    )
-
-    hand_qpos = np.deg2rad(np.asarray(SOURCE_DEFAULT_HAND_JOINT_POS_DEG, dtype=np.float64))
-    object_pose = np.asarray([-0.09559, -0.00517, 0.61906, 1.0, 0.0, 0.0, 0.0])
-    cache = np.broadcast_to(np.concatenate([hand_qpos, object_pose]), (32, 29)).copy()
-    for scale_value in scale_values:
-        np.save(
-            resolve_grasp_cache_file(str(cache_prefix), float(scale_value)),
-            cache.astype(np.float32),
-        )
-
-
 APPO_MUJOCO_SMOKE_TASKS = [
     "go1_joystick_flat/mujoco",
     "go2_joystick_flat/mujoco",
@@ -138,43 +121,6 @@ def test_offpolicy_task_configs_load(algo, task):
         timeout=120,
     )
     assert result.returncode == 0, f"Off-policy {algo} {task} failed:\n{result.stderr}"
-
-
-@pytest.mark.slow
-def test_ppo_sharpa_motrix_one_iteration_training_smoke(tmp_path):
-    """Sharpa Motrix owner can run a minimal RSL-RL learn loop."""
-    pytest.importorskip("motrixsim", reason="motrixsim not installed")
-    cache_prefix = tmp_path / "sharpa_grasp"
-    _write_sharpa_smoke_cache(
-        cache_prefix,
-        [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5],
-    )
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "src/unilab/scripts/train_rsl_rl.py",
-            "task=sharpa_inhand/motrix",
-            "algo.num_envs=16",
-            "algo.num_steps_per_env=2",
-            "algo.max_iterations=1",
-            "algo.save_interval=100",
-            "training.no_play=true",
-            f"training.log_root={tmp_path / 'logs'}",
-            f"env.grasp_cache_path={cache_prefix}",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-
-    assert result.returncode == 0, (
-        "Sharpa Motrix PPO one-iteration smoke failed:\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
-    )
-    assert "Learning iteration 0/1" in result.stdout
-    assert "reward/total" in result.stdout
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >=2 CUDA devices")

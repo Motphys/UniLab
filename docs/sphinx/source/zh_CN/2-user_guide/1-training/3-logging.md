@@ -64,7 +64,7 @@ rate 求和，因此两者都是整个训练任务的总吞吐。标题中的 `A
 等于 `Iter Wall`，每行百分比合计约为 100%（逐行取整可能略有误差）。
 终端不再按 1% 阈值隐藏适用于当前算法的阶段，0 ms 也保留，便于与 TensorBoard / W&B
 逐项对应。算法专有阶段不会跨算法占位或落盘；例如 `Replay Stage` 与 `Weight Publish` 只在
-APPO / HORA-APPO 出现。
+APPO 出现。
 
 ### Learner 主时间线
 

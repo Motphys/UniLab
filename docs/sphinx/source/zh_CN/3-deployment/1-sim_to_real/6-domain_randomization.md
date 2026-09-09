@@ -44,9 +44,9 @@ Manager-Based 任务在 owner YAML 的 `env.events` 中声明 reset 与 interval
 随机化，由 manager 生命周期执行。示例见
 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`。
 
-Sharpa Adapted 任务仍通过任务 provider 接入 `src/unilab/dr/manager.py`；
-现有实现为 `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py` 中的
-`SharpaInhandRotationDRProvider`。两条路径的能力边界见
+任务也可以通过任务级 provider（`src/unilab/dr/provider.py` 中的
+`DomainRandomizationProvider` 接口）接入 `src/unilab/dr/manager.py`；目前仓内
+没有任务使用这条路径。两条路径的能力边界见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。
 
 ## 配方：起始范围

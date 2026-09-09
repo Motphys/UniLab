@@ -35,7 +35,7 @@ Almost always one of:
    against the owner's `env.observations.actor.terms` — term order first, then
    per-term history ordering.
 
-## Cube drops in Allegro / Sharpa inhand
+## Cube drops in Allegro inhand
 
 | Likely cause | Check | Fix |
 |---|---|---|

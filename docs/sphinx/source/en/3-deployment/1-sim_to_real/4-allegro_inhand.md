@@ -1,7 +1,7 @@
-# Allegro / Sharpa In-Hand Manipulation Deployment
+# Allegro In-Hand Manipulation Deployment
 
-Cube reorientation on a 16-DoF Allegro hand or 17-DoF Sharpa hand. UniLab
-trains these tactile-free — observations are joint state + cube pose only.
+Cube reorientation on a 16-DoF Allegro hand. UniLab
+trains it tactile-free — observations are joint state + cube pose only.
 
 ## What makes this hard
 
@@ -26,10 +26,10 @@ bring-up; see {doc}`6-domain_randomization`.
   - Dim
   - Source on hardware
 * - Joint positions
-  - 16 (Allegro) / 17 (Sharpa)
+  - 16
   - encoder
 * - Joint velocities
-  - 16 / 17
+  - 16
   - encoder differentiated, low-pass
 * - Cube pose (world)
   - 7
@@ -41,7 +41,7 @@ bring-up; see {doc}`6-domain_randomization`.
   - 4
   - command
 * - Previous action
-  - 16 / 17
+  - 16
   - last policy output
 ```
 
@@ -55,7 +55,7 @@ agree on the observation timing before hardware deployment. See
 
 ## Grasp generator
 
-Both `4-allegro_inhand` and `sharpa_inhand` envs ship a **grasp generator**
+The `allegro_inhand` env ships a **grasp generator**
 that samples plausible initial hand configurations. The hardware-side
 equivalent is the operator placing the cube in the hand — verify your
 distribution of starting configurations matches the trained env's grasp
@@ -69,8 +69,7 @@ to the grasp generator**, retrain, and try again.
 
 The manipulation envs map policy actions to joint position targets through their
 task control config. Allegro owns this declaration in
-`src/unilab/conf/ppo/task/allegro_inhand/base.yaml` and its Manager-Based action term;
-Sharpa currently owns it in `src/unilab/tasks/manipulation/sharpa_inhand/base.py`.
+`src/unilab/conf/ppo/task/allegro_inhand/base.yaml` and its Manager-Based action term.
 The deploy controller must use the same joint order, action scale, and limit
 policy.
 
@@ -85,4 +84,3 @@ alert the operator.
 
 - {doc}`5-onnx_runtime`
 - {doc}`6-domain_randomization`
-- {doc}`../../2-user_guide/8-manipulation/1-dexterous_inhand`
